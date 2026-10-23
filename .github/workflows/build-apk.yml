@@ -1,0 +1,161 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+  # Pull requests from forks get no repository secrets (GitHub withholds them), so they build with the public
+  # test key. Never switch this to pull_request_target: it would run fork code with access to the secrets.
+  pull_request:
+  workflow_dispatch:
+
+# Read-only by default; only the job that publishes the release may write, and it never sees the signing key.
+permissions:
+  contents: read
+
+# Actions are pinned to full commit SHAs (the tag in the comment): a moved or hijacked tag cannot run new code here.
+# Every dependency and plugin is checked against gradle/verification-metadata.xml (sha256) before it is used.
+jobs:
+  # Build for sideloading: release (R8-optimised), signed with the private key from the repository secrets when
+  # they exist; the shared test key is public (it is in the repo), so anyone could sign an "update" with it.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # The secrets exist only inside this step (not in the job), so no other step or action can read them.
+      - name: Test, lint, licences and build
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SEGURIDAD_KEYSTORE_BASE64 }}
+          SEGURIDAD_KEYSTORE_PASSWORD: ${{ secrets.SEGURIDAD_KEYSTORE_PASSWORD }}
+          SEGURIDAD_KEY_ALIAS: ${{ secrets.SEGURIDAD_KEY_ALIAS }}
+          SEGURIDAD_KEY_PASSWORD: ${{ secrets.SEGURIDAD_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+            export SEGURIDAD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          else
+            echo "::warning::Sin secretos de firma: el APK se firma con la clave de prueba pública. Ver docs/PUBLICAR.md"
+          fi
+          status=0
+          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:checkLicense --no-daemon || status=$?
+          rm -f "$RUNNER_TEMP/upload.jks"
+          exit $status
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk Seguridad.apk
+
+      # Prints the signing certificate's SHA-256 in the job summary, to compare with docs/PUBLICAR.md.
+      - name: Signing certificate fingerprint
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          if [ ! -x "$APKSIGNER" ]; then
+            APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)apksigner"
+          fi
+          "$APKSIGNER" verify --print-certs Seguridad.apk | tee certs.txt
+          FP=$(grep -m 1 'certificate SHA-256 digest' certs.txt | awk '{print toupper($NF)}')
+          if [ -z "$FP" ]; then
+            echo "::error::apksigner no ha dado la huella SHA-256 del certificado"
+            exit 1
+          fi
+          FP_COLONS=$(echo "$FP" | sed 's/../&:/g; s/:$//')
+          {
+            echo "### Firma del APK"
+            echo
+            echo "Huella SHA-256 del certificado: \`$FP_COLONS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$FP" = "C0014DF66F103A436485115FE0880512C9F05DB39E0E3A94D659997EE9411834" ]; then
+            echo "::warning::El APK está firmado con la clave de prueba pública (C0014DF6…). No es una versión para distribuir."
+            echo "**Clave de prueba pública:** no distribuyas este APK." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Seguridad-apk
+          path: Seguridad.apk
+
+  # Platform-independent sources and unit tests on a plain JVM (toolchain 21), with no Android SDK. No secrets.
+  jvm-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: |
+            21
+            17
+
+      # The wrapper (Gradle 8.14.6) runs the separate jvm-check build; the JDK 21 toolchain is the one setup-java installed.
+      - name: JVM tests
+        run: ./gradlew -p jvm-check test --no-daemon -Porg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64 -Porg.gradle.java.installations.auto-download=false
+
+  # Publishes the download link. Can write releases, but has no access to the signing key. Only pushes to main.
+  publish:
+    needs: [build, jvm-check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Seguridad-apk
+
+      - name: Publish download link
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: apk-latest
+          name: Seguridad (última versión)
+          body: APK generado automáticamente desde ${{ github.ref_name }} (${{ github.sha }}). No es la versión de Google Play.
+          prerelease: true
+          files: Seguridad.apk
+
+  # Google Play bundle, signed with the upload key. Runs on tags v* or manually; Play rejects the public test key,
+  # so without the SEGURIDAD_* secrets this job fails instead of building an unusable bundle.
+  play-bundle:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build signed bundle
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SEGURIDAD_KEYSTORE_BASE64 }}
+          SEGURIDAD_KEYSTORE_PASSWORD: ${{ secrets.SEGURIDAD_KEYSTORE_PASSWORD }}
+          SEGURIDAD_KEY_ALIAS: ${{ secrets.SEGURIDAD_KEY_ALIAS }}
+          SEGURIDAD_KEY_PASSWORD: ${{ secrets.SEGURIDAD_KEY_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Faltan los secretos de firma (SEGURIDAD_KEYSTORE_BASE64, ...). Google Play no acepta la clave de prueba. Ver docs/PUBLICAR.md"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          export SEGURIDAD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          status=0
+          ./gradlew :app:bundleRelease -PversionCode="$VERSION_CODE" --no-daemon || status=$?
+          rm -f "$RUNNER_TEMP/upload.jks"
+          exit $status
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Seguridad-google-play-aab
+          path: app/build/outputs/bundle/release/app-release.aab
