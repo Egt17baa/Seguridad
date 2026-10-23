@@ -1,8 +1,14 @@
 # Seguridad: app Android independiente (diseño)
 
-Fecha: 23 de octubre de 2026. Estado: diseño pendiente de aprobación.
+Fecha: 23 de octubre de 2026. Estado: aprobado por el usuario el 23 de octubre de 2026.
 
-**Nota para el constructor:** el paquete `app.seguridad` y los formatos nuevos (`SG1:`, `.sgenc`, `seguridad-vault`, `seguridad-backup` y las etiquetas `seguridad-…`) no se pueden cambiar una vez publicada la 1.0.0, así que no se empieza hasta que el usuario apruebe este documento.
+**Nota para el constructor:** el paquete `app.seguridad` y los formatos nuevos (`SG1:`, `.sgenc`, `seguridad-vault`, `seguridad-backup` y las etiquetas `seguridad-…`) no se pueden cambiar una vez publicada la 1.0.0.
+
+**Integración** (decisión del usuario): Claude fusiona en `main` el PR de cada fase cuando los tests y la CI están en verde, sin esperar revisión.
+
+**Firma** (decisión del usuario): firma con clave propia.
+- La clave de subida de CriptoPanel solo existe en los secretos de GitHub de ese repositorio, que no se pueden leer. El usuario añade a `Egt17baa/Seguridad` los secretos `SEGURIDAD_KEYSTORE_BASE64`, `SEGURIDAD_KEYSTORE_PASSWORD`, `SEGURIDAD_KEY_ALIAS` y `SEGURIDAD_KEY_PASSWORD`, con su `criptopanel-upload.jks` o, mejor, con una clave nueva solo para esta app.
+- Mientras no existan, la CI firma con la clave de prueba y lo avisa.
 
 ## Intención
 
