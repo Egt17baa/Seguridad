@@ -37,6 +37,8 @@ class VaultStore(
     private val kdf: () -> KdfParams = { KdfParams() },
     /** How long without use before it locks; 0 means never on time alone (it still locks on leaving the app). */
     private val idleLockMs: () -> Long = { 5 * 60_000L },
+    /** Whether a picker or the QR scanner we opened keeps the vault open in the background ([VaultLock.keepOpenOnce]). */
+    private val keptOpen: () -> Boolean = { VaultLock.keepOpenOnce },
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -177,9 +179,15 @@ class VaultStore(
         lastUse = now()
     }
 
-    /** Locks when unused for [idleLockMs] (never when it is 0); returns true if it locked. */
+    /**
+     * Locks when unused for [idleLockMs]; returns true if it locked. 0 («Al salir») means no time lock while the
+     * user is in the app, but while a picker or the QR scanner keeps the vault open in the background ([keptOpen]:
+     * MainActivity.onStop does not lock then) it locks after [AWAY_BACKSTOP_MS], so Home or screen-off from there
+     * never leaves it open for hours.
+     */
     fun lockIfIdle(): Boolean {
-        val limit = idleLockMs()
+        val chosen = idleLockMs()
+        val limit = if (chosen > 0) chosen else if (keptOpen()) AWAY_BACKSTOP_MS else 0L
         if (limit > 0 && dek != null && now() - lastUse >= limit) {
             lock()
             return true
@@ -254,6 +262,9 @@ class VaultStore(
         _state.value = VaultState.NoVault
     }
 }
+
+/** Longest the vault stays open, with «Al salir», while a picker or the QR scanner we opened is on top. */
+const val AWAY_BACKSTOP_MS = 2 * 60_000L
 
 /** Set just before the vault opens a system screen (file picker, QR scanner) so leaving the app for it does not lock. */
 object VaultLock {

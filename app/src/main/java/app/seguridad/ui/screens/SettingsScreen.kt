@@ -124,7 +124,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, onAbout: () -> Unit)
         ) {
             Section("Bloquear la bóveda tras no usarla") {
                 Choices(LockAfter.entries, settings.lockAfter, { it.label }) { v -> change { it.copy(lockAfter = v) } }
-                Hint("Al salir de la app se bloquea siempre (salvo mientras eliges un archivo o escaneas un QR para ella).")
+                Hint("Al salir de la app se bloquea siempre (salvo mientras eliges un archivo o escaneas un QR para ella; con «Al salir», como mucho 2 minutos).")
             }
             Section("Borrar del portapapeles lo copiado") {
                 Choices(ClipboardClear.entries, settings.clipboard, { "A los ${it.seconds} s" }) { v -> change { it.copy(clipboard = v) } }

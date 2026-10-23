@@ -39,6 +39,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Back from a picker or the QR scanner: if the vault was kept open longer than allowed (the idle ticker may
+        // not have run while the app was in the background), it locks before anything is shown.
+        container.vault.lockIfIdle()
         VaultLock.keepOpenOnce = false
     }
 

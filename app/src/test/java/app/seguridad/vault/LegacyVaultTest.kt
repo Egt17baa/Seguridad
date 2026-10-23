@@ -25,8 +25,13 @@ class LegacyVaultTest {
 
     private fun fixture(name: String) = javaClass.getResource("/criptopanel/$name")!!.readText()
 
+    private var keptOpen = false
+
     private fun store(idleLockMs: () -> Long = { 5 * 60_000L }) =
-        VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) }, idleLockMs = idleLockMs)
+        VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            idleLockMs = idleLockMs, keptOpen = { keptOpen },
+        )
 
     private suspend fun importsAndRewrites(name: String) {
         val s = store().apply { load() }
@@ -110,5 +115,36 @@ class LegacyVaultTest {
         clock += 365L * 24 * 60 * 60_000
         assertFalse(s.lockIfIdle())
         assertTrue(s.state.value is VaultState.Unlocked)
+    }
+
+    @Test fun onExitStillLocksAfterTheBackstopWhileAPickerKeepsItOpen() = runTest {
+        // «Al salir» + a picker or the QR scanner on top (MainActivity.onStop did not lock): Home or screen-off there
+        // must not leave the vault open for hours.
+        val s = store(idleLockMs = { 0 }).apply { load(); create("m".toCharArray()) }
+        keptOpen = true
+        clock += AWAY_BACKSTOP_MS - 1
+        assertFalse(s.lockIfIdle())
+        clock += 1
+        assertTrue(s.lockIfIdle())
+        assertEquals(VaultState.Locked, s.state.value)
+    }
+
+    @Test fun onExitBackstopCountsFromTheLastUse() = runTest {
+        val s = store(idleLockMs = { 0 }).apply { load(); create("m".toCharArray()) }
+        clock += 10 * 60_000L // Ten minutes in the app: «Al salir» does not lock on time.
+        assertFalse(s.lockIfIdle())
+        s.touch()
+        keptOpen = true // Then the user opens the scanner.
+        clock += AWAY_BACKSTOP_MS - 1
+        assertFalse(s.lockIfIdle())
+        clock += 1
+        assertTrue(s.lockIfIdle())
+    }
+
+    @Test fun chosenIdleTimeStillAppliesWhileKeptOpen() = runTest {
+        val s = store(idleLockMs = { 60_000 }).apply { load(); create("m".toCharArray()) }
+        keptOpen = true
+        clock += 60_000
+        assertTrue(s.lockIfIdle())
     }
 }

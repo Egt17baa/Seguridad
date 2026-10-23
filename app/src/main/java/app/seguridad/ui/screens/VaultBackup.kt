@@ -139,10 +139,12 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
         VaultActions(
             export = {
                 VaultLock.keepOpenOnce = true
+                store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
                 exporter.launch(VAULT_EXPORT_FILE_NAME)
             },
             import = {
                 VaultLock.keepOpenOnce = true
+                store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
                 importer.launch(arrayOf("application/json", "application/octet-stream", "text/*"))
             },
             changeMaster = { dialog = "master" },
