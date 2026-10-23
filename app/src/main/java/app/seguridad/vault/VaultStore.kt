@@ -33,7 +33,8 @@ class VaultStore(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val compute: CoroutineDispatcher = Dispatchers.Default,
     private val now: () -> Long = System::currentTimeMillis,
-    private val kdf: KdfParams = KdfParams(),
+    /** Argon2id cost for whatever is wrapped next (new vault, new master password, upgrade); read each time. */
+    private val kdf: () -> KdfParams = { KdfParams() },
     /** How long without use before it locks; 0 means never on time alone (it still locks on leaving the app). */
     private val idleLockMs: () -> Long = { 5 * 60_000L },
 ) {
@@ -117,7 +118,7 @@ class VaultStore(
 
     suspend fun create(master: CharArray) = mutex.withLock {
         val since = epoch
-        val (v, key) = withContext(compute) { VaultCrypto.create(master, now(), kdf) }
+        val (v, key) = withContext(compute) { VaultCrypto.create(master, now(), kdf()) }
         withContext(io) { keepAside() } // Only reached with no readable vault: whatever file is there is kept.
         _state.value = VaultState.Locked
         try {
@@ -134,7 +135,7 @@ class VaultStore(
         val since = epoch
         val key = withContext(compute) { VaultCrypto.unlock(v, master) }
         val checked = try {
-            withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf) }
+            withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -217,7 +218,7 @@ class VaultStore(
         val since = epoch
         val key = dek?.copyOf() ?: return@withLock false
         val (next, newKey) = try {
-            withContext(compute) { VaultCrypto.changeMaster(v, key, newMaster, now(), kdf) }
+            withContext(compute) { VaultCrypto.changeMaster(v, key, newMaster, now(), kdf()) }
         } finally {
             key.fill(0)
         }
@@ -235,11 +236,13 @@ class VaultStore(
         val key = withContext(compute) { VaultCrypto.unlock(incoming, master) }
         // Validates the data before replacing anything, and brings an old export to the current format.
         val checked = try {
-            withContext(compute) { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf) }
+            withContext(compute) { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
         } catch (e: Exception) {
             key.fill(0)
             throw e
         }
+        // Importing with no readable vault (the "Crea tu bóveda" screen): a file that could not be read is kept, as in [create].
+        if (vault == null) withContext(io) { keepAside() }
         commit(checked, key, since)
     }
 

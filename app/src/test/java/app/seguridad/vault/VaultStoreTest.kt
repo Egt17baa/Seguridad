@@ -19,7 +19,7 @@ class VaultStoreTest {
     private var clock = 1_000L
     private val idle = 5 * 60_000L
     private fun store(name: String = "vault.bin") =
-        VaultStore(File(tmp.root, name), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = KdfParams(1024, 1, 1))
+        VaultStore(File(tmp.root, name), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
 
     private fun entry(id: String, title: String) = VaultEntry(id, EntryType.NOTE, title, notes = "secreto", createdAt = 0, updatedAt = 0)
 
@@ -114,7 +114,7 @@ class VaultStoreTest {
 
     @Test fun `locking during a save neither corrupts the vault nor reopens it`() = runTest {
         val compute = InterruptingDispatcher()
-        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = KdfParams(1024, 1, 1))
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
         s.load()
         s.create("maestra".toCharArray())
         compute.before = { s.lock() }
@@ -134,7 +134,7 @@ class VaultStoreTest {
 
     @Test fun `an unlock that finishes after leaving the app stays locked`() = runTest {
         val compute = InterruptingDispatcher()
-        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = KdfParams(1024, 1, 1))
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
         s.load()
         s.create("maestra".toCharArray())
         s.lock()
@@ -193,5 +193,18 @@ class VaultStoreTest {
             // expected
         }
         assertEquals(VaultState.NoVault, s.state.value)
+    }
+
+    @Test fun `importing over an unreadable vault keeps the old file aside`() = runTest {
+        val source = store("source.bin").apply { load(); create("maestra".toCharArray()); upsert(entry("a", "Nota")) }
+        val export = source.exportText()!!
+        // Exists but cannot be read as a file right now: the store shows "no vault" without touching it.
+        val unreadable = File(tmp.root, "vault.bin").apply { mkdirs(); File(this, "keep").writeText("x") }
+        val s = store().apply { load() }
+        assertEquals(VaultState.NoVault, s.state.value)
+        s.importReplace(export, "maestra".toCharArray())
+        assertEquals(1, (s.state.value as VaultState.Unlocked).entries.size)
+        assertFalse(unreadable.isDirectory)
+        assertTrue(tmp.root.listFiles()!!.any { it.name.startsWith("vault.bin.bad-") && File(it, "keep").exists() })
     }
 }

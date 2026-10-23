@@ -70,7 +70,7 @@ class SettingsTest {
     @Test fun changingLockAfterWhileUnlocked() = runTest {
         var clock = 1_000L
         val settings = store().apply { load(); update { it.copy(lockAfter = LockAfter.MIN_15) } }
-        val vault = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = KdfParams(1024, 1, 1),
+        val vault = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
             idleLockMs = { settings.settings.value.lockAfter.ms })
         vault.load(); vault.create("m".toCharArray())
         settings.update { it.copy(lockAfter = LockAfter.MIN_1) }

@@ -26,7 +26,7 @@ class LegacyVaultTest {
     private fun fixture(name: String) = javaClass.getResource("/criptopanel/$name")!!.readText()
 
     private fun store(idleLockMs: () -> Long = { 5 * 60_000L }) =
-        VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = KdfParams(1024, 1, 1), idleLockMs = idleLockMs)
+        VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) }, idleLockMs = idleLockMs)
 
     private suspend fun importsAndRewrites(name: String) {
         val s = store().apply { load() }
