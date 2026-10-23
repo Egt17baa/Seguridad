@@ -169,9 +169,10 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, onAbout: () -> Unit)
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val bouncyCastle = remember {
-        runCatching { context.assets.open("licenses/bouncycastle.txt").bufferedReader().use { it.readText() } }.getOrDefault("")
-    }
+    fun license(name: String) =
+        runCatching { context.assets.open("licenses/$name").bufferedReader().use { it.readText() } }.getOrDefault("")
+    val bouncyCastle = remember { license("bouncycastle.txt") }
+    val bip39 = remember { license("bip39.txt") }
     BackScaffold("Acerca de", onBack) { padding ->
         Column(
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
@@ -194,6 +195,9 @@ fun AboutScreen(onBack: () -> Unit) {
                 Hint("EFF Large Wordlist for Passphrases, de la Electronic Frontier Foundation (eff.org/dice), con licencia Creative Commons Atribución 3.0. Se usa sin cambios en el Generador.")
                 Text("Lista de palabras BIP-39 (licencia MIT)", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
                 Hint("Las 2.048 palabras en inglés de las frases semilla BIP-39, sin cambios, para comprobar y completar frases en Cifrar texto.")
+                if (bip39.isNotBlank()) {
+                    Text(bip39.trim(), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                }
             }
         }
     }
