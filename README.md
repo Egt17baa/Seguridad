@@ -57,13 +57,19 @@ Todas las acciones están fijadas por SHA, los permisos son de solo lectura salv
 
 ### Verificación de dependencias
 
-`gradle/verification-metadata.xml` (y `jvm-check/gradle/verification-metadata.xml`) guardan el SHA-256 de cada dependencia y plugin. Gradle rechaza cualquier archivo que no coincida, venga del repositorio que venga. Al cambiar o añadir una dependencia hay que regenerarlos:
+`gradle/verification-metadata.xml` (y `jvm-check/gradle/verification-metadata.xml`) guardan el SHA-256 de cada dependencia y plugin. Gradle rechaza cualquier archivo que no coincida, venga del repositorio que venga. Al cambiar o añadir una dependencia hay que regenerarlos.
+
+Hazlo **como la CI**: con el JDK 17 y con una caché de Gradle vacía para cada proyecto. Con una caché ya llena, o con otro JDK, Gradle resuelve algunos POM y BOM por otro camino y no los apunta, y luego la CI falla con «Dependency verification failed … Checksums are missing».
 
 ```bash
-./gradlew --write-verification-metadata sha256 help :app:assembleRelease :app:lintRelease :app:testDebugUnitTest \
-  :app:checkLicense :app:bundleRelease :app:assembleDebug :app:lintDebug --no-daemon --max-workers=1
-./gradlew -p jvm-check --write-verification-metadata sha256 help test --no-daemon --max-workers=1
+export JAVA_HOME=/ruta/al/jdk-17
+rm -rf build app/build jvm-check/build
+GRADLE_USER_HOME=$(mktemp -d) ./gradlew --write-verification-metadata sha256 help :app:assembleRelease :app:lintRelease \
+  :app:testDebugUnitTest :app:checkLicense :app:bundleRelease :app:assembleDebug :app:lintDebug --no-daemon --max-workers=1
+GRADLE_USER_HOME=$(mktemp -d) ./gradlew -p jvm-check --write-verification-metadata sha256 help test --no-daemon --max-workers=1
 ```
+
+Después, comprueba con otra caché vacía y **sin** `--write-verification-metadata` que pasan los comandos de la CI.
 
 Revisa el diff antes de hacer commit: cada suma nueva tiene que corresponder a una dependencia que has añadido tú.
 
