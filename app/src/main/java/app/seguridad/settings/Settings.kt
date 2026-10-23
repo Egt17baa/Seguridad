@@ -32,5 +32,9 @@ data class Settings(
     val noticeAccepted: Boolean = false,
 )
 
-/** STANDARD always; HIGH only when [heapKiB] / 2 can hold its memory (the same rule [KdfParams.checkSane] applies). */
+/**
+ * Whether to offer this profile for new data: STANDARD always; HIGH only when [heapKiB] / 2 can hold its memory.
+ * Stricter than what [KdfParams.checkSane] accepts when reading (a quarter of the heap free), so data made here
+ * also opens on phones with a somewhat smaller heap.
+ */
 fun KdfProfile.availableOn(heapKiB: Long): Boolean = this == KdfProfile.STANDARD || heapKiB / 2 >= params.memoryKiB

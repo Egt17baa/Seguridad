@@ -135,8 +135,10 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, onAbout: () -> Unit)
                     change { it.copy(kdf = v) }
                 }
                 Hint(
-                    "Se usa al crear la bóveda, al cambiar la contraseña maestra y al cifrar textos y archivos. Lo ya cifrado guarda su coste " +
-                        "y se sigue abriendo igual." + if (highAvailable) "" else " El coste alto necesita más memoria de la que este móvil da a la app.",
+                    "Se usa al crear la bóveda, al cambiar la contraseña maestra y al cifrar textos y archivos. Lo ya cifrado guarda su coste. " +
+                        "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria: muchos móviles " +
+                        "económicos no llegan, así que úsalo solo si vas a abrir tus copias en móviles como este." +
+                        if (highAvailable) "" else " Este móvil no da a la app memoria suficiente para cifrar con el coste alto.",
                 )
             }
             Section("Tema") {

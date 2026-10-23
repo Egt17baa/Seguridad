@@ -10,6 +10,7 @@ import app.seguridad.crypto.SALT_BYTES
 import app.seguridad.crypto.TAG_BYTES
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.aead
+import app.seguridad.crypto.appHeapKiB
 import app.seguridad.crypto.argon2id
 import app.seguridad.crypto.randomBytes
 import app.seguridad.crypto.secureRandom
@@ -193,9 +194,9 @@ object VaultCrypto {
     }
 
     /** The DEK, or [CryptoFailure] for a wrong master password or a damaged or altered file. Opens both formats. */
-    fun unlock(file: VaultFile, master: CharArray): ByteArray {
+    fun unlock(file: VaultFile, master: CharArray, heapKiB: Long = appHeapKiB()): ByteArray {
         if (!supported(file)) throw CryptoFailure(NOT_A_VAULT)
-        val kdf = file.kdf.params().also { it.checkSane() }
+        val kdf = file.kdf.params().also { it.checkSane(heapKiB) }
         val salt = try {
             unb64.decode(file.salt)
         } catch (e: IllegalArgumentException) {
