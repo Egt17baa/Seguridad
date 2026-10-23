@@ -165,14 +165,9 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, onAbout: () -> Unit)
     }
 }
 
-/** Version, what the app does not promise, and the licenses of what it ships. */
+/** Version and what the app does not promise; the licenses of what it ships are one tap away. */
 @Composable
-fun AboutScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    fun license(name: String) =
-        runCatching { context.assets.open("licenses/$name").bufferedReader().use { it.readText() } }.getOrDefault("")
-    val bouncyCastle = remember { license("bouncycastle.txt") }
-    val bip39 = remember { license("bip39.txt") }
+fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
     BackScaffold("Acerca de", onBack) { padding ->
         Column(
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
@@ -186,18 +181,8 @@ fun AboutScreen(onBack: () -> Unit) {
                 Hint("• Red: solo «¿Filtrada?» se conecta, a api.pwnedpasswords.com, y solo envía los 5 primeros caracteres de la huella SHA-1 de la contraseña.")
             }
             Section("Licencias") {
-                Text("Bouncy Castle (licencia MIT)", style = MaterialTheme.typography.labelLarge)
-                Hint("Algoritmos criptográficos: Argon2id, ChaCha20-Poly1305, Twofish, Serpent y Camellia.")
-                if (bouncyCastle.isNotBlank()) {
-                    Text(bouncyCastle.trim(), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                }
-                Text("Lista de palabras de la EFF (CC BY 3.0)", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
-                Hint("EFF Large Wordlist for Passphrases, de la Electronic Frontier Foundation (eff.org/dice), con licencia Creative Commons Atribución 3.0. Se usa sin cambios en el Generador.")
-                Text("Lista de palabras BIP-39 (licencia MIT)", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
-                Hint("Las 2.048 palabras en inglés de las frases semilla BIP-39, sin cambios, para comprobar y completar frases en Cifrar texto.")
-                if (bip39.isNotBlank()) {
-                    Text(bip39.trim(), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                }
+                Hint("Solo componentes de código abierto con licencia libre y gratuita.")
+                OutlinedButton(onClick = onLicenses, modifier = Modifier.fillMaxWidth()) { Text("Ver licencias") }
             }
         }
     }

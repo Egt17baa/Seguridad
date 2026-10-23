@@ -35,6 +35,7 @@ import app.seguridad.ui.screens.BreachScreen
 import app.seguridad.ui.screens.FileCryptoScreen
 import app.seguridad.ui.screens.FileHashScreen
 import app.seguridad.ui.screens.GeneratorScreen
+import app.seguridad.ui.screens.LicensesScreen
 import app.seguridad.ui.screens.NoticeScreen
 import app.seguridad.ui.screens.SettingsScreen
 import app.seguridad.ui.screens.TextCryptoScreen
@@ -138,7 +139,8 @@ fun AppNavHost(container: AppContainer) {
             composable("tools/breach") { BreachScreen(container.pwned, onBack = back) }
             composable("tools/hash") { FileHashScreen(onBack = back) }
             composable("settings") { SettingsScreen(settingsStore, vault, onAbout = { nav.navigate("settings/about") }) }
-            composable("settings/about") { AboutScreen(onBack = back) }
+            composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
+            composable("settings/licenses") { LicensesScreen(onBack = back) }
         }
     }
 }

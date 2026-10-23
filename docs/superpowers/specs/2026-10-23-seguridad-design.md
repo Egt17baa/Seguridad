@@ -45,7 +45,8 @@ El usuario quiere una app **solo de seguridad y criptografía**, sin nada de Cri
 ## Restricciones
 
 - Android, Kotlin, Jetpack Compose y Material 3. minSdk 26 y compileSdk/targetSdk 36, como en el original.
-- Las mismas dependencias criptográficas: Bouncy Castle `bcprov-jdk18on` (actualizar a la última versión estable si no rompe nada), `androidx.biometric` y el escáner de códigos de Google Play services (sin permiso de cámara).
+- Las mismas dependencias criptográficas: Bouncy Castle `bcprov-jdk18on` (actualizar a la última versión estable si no rompe nada) y `androidx.biometric`.
+- Solo componentes con licencia libre y gratuita (requisito del usuario); escáner QR con ZXing en lugar de Google Play Services; permiso CAMERA solo al escanear.
 - Red: **solo** Have I Been Pwned (`api.pwnedpasswords.com`) con OkHttp y el `DistrustingTrustManager` de eMudhra. Sin `INTERNET` en ningún otro sitio. Sin WebView.
 - Interfaz en español.
 - En este contenedor se pueden descargar el SDK de Android y las dependencias de Maven: la app se compila y se prueba aquí (`./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease`). No hay móvil ni emulador con huella: lo que dependa del dispositivo va a una lista de comprobación manual.

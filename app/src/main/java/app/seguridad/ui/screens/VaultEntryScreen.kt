@@ -50,9 +50,9 @@ import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.seedWordCount
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.journeyapps.barcodescanner.ScanContract
+import app.seguridad.android.scanQrOptions
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
@@ -193,6 +193,18 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
         }
     }
 
+    // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
+        val raw = result.contents
+        when {
+            raw != null -> applyOtpAuth(raw)
+            result.originalIntent?.getBooleanExtra(com.google.zxing.client.android.Intents.Scan.MISSING_CAMERA_PERMISSION, false) == true ->
+                error = "Sin permiso de cámara: pega el enlace otpauth:// o escribe la clave"
+            // Otherwise the user cancelled: nothing to say.
+        }
+    }
+
     BackScaffold(if (existing == null) "Nueva entrada" else "Editar", onDone) { padding ->
         NoCopy {
             Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -228,14 +240,12 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = {
                                 VaultLock.keepOpenOnce = true
-                                val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-                                GmsBarcodeScanning.getClient(context, options).startScan()
-                                    .addOnSuccessListener { b -> b.rawValue?.let(::applyOtpAuth) }
-                                    .addOnFailureListener {
-                                        VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
-                                        error = "No se pudo abrir el escáner (necesita Google Play services)"
-                                    }
-                                    .addOnCanceledListener { VaultLock.keepOpenOnce = false }
+                                try {
+                                    scanner.launch(scanQrOptions())
+                                } catch (e: Exception) {
+                                    VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
+                                    error = "No se pudo abrir el escáner: pega el enlace otpauth:// o escribe la clave"
+                                }
                             }) { Text("📷 Escanear QR") }
                             OutlinedButton(onClick = {
                                 val cm = context.getSystemService(android.content.ClipboardManager::class.java)
