@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Window shown before Compose draws (and the Android 12+ splash): the app is always dark. -->
+    <!-- Window shown before Compose draws (and the Android 12+ splash): dark, as the default theme. -->
     <style name="Theme.Seguridad" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/ink</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

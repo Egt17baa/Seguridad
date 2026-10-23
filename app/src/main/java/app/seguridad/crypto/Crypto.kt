@@ -297,7 +297,7 @@ internal data class Header(
     }
 }
 
-/** Prefix of the texts this app writes ([Dialect.SEGURIDAD]); [Dialect.CRIPTOPANEL]'s is still read. */
+/** Prefix of the texts this app writes ([Dialect.SEGURIDAD]); the legacy dialect's (CP1:) is still read. */
 const val TEXT_PREFIX = "SG1:"
 
 /** Not a header of any dialect, or a text prefix that does not match its header's magic. */

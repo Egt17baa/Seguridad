@@ -11,7 +11,7 @@ const val STREAM_PREFIX_BYTES = 7
 const val CHUNK_BYTES = 64 * 1024
 /** Extension of the files this app writes ([Dialect.SEGURIDAD]). */
 const val ENCRYPTED_EXTENSION = ".sgenc"
-/** Extension of [Dialect.CRIPTOPANEL] files, still read. */
+/** Extension of the legacy dialect's files (.cpenc), still read. */
 const val LEGACY_ENCRYPTED_EXTENSION = ".cpenc"
 private const val MAX_NAME_BYTES = 1024
 
