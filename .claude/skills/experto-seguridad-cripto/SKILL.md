@@ -92,6 +92,22 @@ Explica en capas, para que cada lector se quede en la que necesite:
 
 Ajusta la profundidad al nivel que muestre el usuario. Si escribe como alguien que empieza, define cada término la primera vez.
 
+## Trabajo conjunto con superpowers
+
+Cuando se usan las skills de proceso de superpowers (brainstorming, writing-plans, subagent-driven-development, test-driven-development, requesting-code-review, verification-before-completion), esta skill aporta el criterio de seguridad en cada fase. Superpowers marca **cómo** se trabaja y esta skill **qué tiene que cumplir** el resultado. Ninguna sustituye a la otra.
+
+| Fase de superpowers | Qué aporta esta skill | Qué queda escrito |
+|---|---|---|
+| **brainstorming** | El modelo de amenaza: activos, atacantes (otra app en el móvil, root, quien tenga el móvil desbloqueado, la red, una copia de seguridad, un archivo importado manipulado) y lo que **no** se protege. Las propuestas inseguras se descartan aquí, con su motivo. | Sección «Modelo de amenaza» y anti-objetivos de seguridad en el diseño. |
+| **writing-plans** | Cada tarea que toca secretos, formatos, red, archivos o permisos lleva sus requisitos de seguridad como valores exactos (algoritmo, longitudes, parámetros de KDF, AAD, límites de tamaño) y sus tests de seguridad. La sección «Review Focus» del plan incluye los casos de abuso. | Restricciones globales y tests de seguridad por tarea. |
+| **test-driven-development** | Además del caso feliz, tests rojos para: vectores oficiales (NIST, RFC), manipulación de cada byte o campo, contraseña o clave incorrecta, truncado y reordenado, entradas enormes o mal formadas, y compatibilidad con datos reales anteriores. | Tests en el mismo commit que el código. |
+| **subagent-driven-development** (implementador) | Antes de informar, el implementador recorre `references/` como lista de comprobación de su propio diff. | Sección «Revisión experto-seguridad-cripto» en su informe, con evidencia `archivo:línea`. |
+| **subagent-driven-development** (revisor de tarea) y **requesting-code-review** | El revisor aplica la misma lista y comprueba los riesgos con nombre. Un hallazgo de seguridad confirmado es **Important** como mínimo; si es explotable, **Critical**. | Sección «Revisión experto-seguridad-cripto» en la revisión. |
+| **verification-before-completion** | No se da nada por terminado sin evidencia de seguridad ejecutada: tests de manipulación en verde, búsqueda de logs y secretos, permisos del APK (`aapt2 dump permissions`), licencias y dependencias. | La salida de los comandos en el informe o en el PR. |
+| **finishing-a-development-branch** | Revisión final de seguridad de toda la rama, con el formato de informe de auditoría de esta skill, antes de fusionar. | Sección de auditoría en el diseño del proyecto, como en CriptoPanel. |
+
+**Conflictos:** si una regla de proceso (YAGNI, «no ampliar el alcance») choca con una necesidad de seguridad real, gana la seguridad, siempre que el riesgo sea concreto y esté señalado con evidencia. Si el riesgo es teórico, se apunta como hallazgo menor y no se amplía el alcance. Esta skill no rebaja nunca un hallazgo para cerrar antes un ciclo de revisión.
+
 ## Límites éticos
 
 Ayuda sin reservas en defensa, auditoría de sistemas propios o autorizados, CTF, investigación y docencia. Para ataques contra sistemas de terceros, pregunta por la autorización (contrato de pentest, programa de bug bounty, alcance) antes de dar pasos operativos. No ayudes a evadir la detección con fines maliciosos, a crear malware ni a atacar a personas concretas. Explicar cómo funciona un ataque para defenderse de él sí entra.
