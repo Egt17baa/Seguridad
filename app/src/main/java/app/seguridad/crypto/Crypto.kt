@@ -53,15 +53,40 @@ enum class Aead(val id: Byte, val label: String, val detail: String) {
 
 /** Argon2id cost; stored with every ciphertext so it can be raised later without breaking old ones. */
 data class KdfParams(val memoryKiB: Int = DEFAULT_KDF_MEMORY_KIB, val iterations: Int = 3, val parallelism: Int = 1) {
-    /** Refuses absurd values from a crafted header (memory bombs); [heapKiB] is what this phone lets the app use. */
-    fun checkSane(heapKiB: Long = Runtime.getRuntime().maxMemory() / 1024) {
-        // Above the default cost, never more than half of what this phone lets the app use: a crafted header must not
-        // crash it. The default itself is always accepted, or a phone with a small heap could not open its own data.
-        val tooBigForHeap = memoryKiB > DEFAULT_KDF_MEMORY_KIB && memoryKiB > heapKiB / 2
-        if (memoryKiB !in 8 * parallelism..MAX_KDF_MEMORY_KIB || tooBigForHeap || iterations !in 1..10 || parallelism !in 1..4) {
-            throw CryptoFailure("Parámetros de cifrado no válidos")
-        }
+    /**
+     * Refuses absurd values from a crafted header (memory bombs) and costs that plainly cannot fit this phone.
+     * [heapKiB] is what this phone lets the app use ([appHeapKiB]).
+     */
+    fun checkSane(heapKiB: Long = appHeapKiB()) {
+        // Hard bounds, the same on every phone: no header may ask for more than MAX_KDF_MEMORY_KIB (128 MiB),
+        // 10 passes or 4 lanes, however big the heap is.
+        val outOfBounds = memoryKiB !in 8 * parallelism..MAX_KDF_MEMORY_KIB || iterations !in 1..10 || parallelism !in 1..4
+        // Above the default, refuse only what cannot fit: Bouncy Castle's Argon2 takes memoryKiB of the heap
+        // (plus about 3 % of object overhead) and the app needs room for itself, so a quarter of the heap stays
+        // free. «Alto» (128 MiB) then opens on any phone with at least 171 MiB per app, also on one that does not
+        // offer it for new data (see KdfProfile.availableOn); a 128 MiB phone could never run it, so it is refused
+        // before any work. Inside this bound an OutOfMemoryError is still possible and [argon2id] turns it into a
+        // CryptoFailure. The default is always accepted, or a phone with a small heap could not open its own data.
+        val cannotFit = memoryKiB > DEFAULT_KDF_MEMORY_KIB && memoryKiB > heapKiB * 3 / 4
+        if (outOfBounds || cannotFit) throw CryptoFailure("Parámetros de cifrado no válidos")
     }
+}
+
+/** What this phone lets the app use on the Java heap, in KiB (Bouncy Castle's Argon2 allocates its memory there). */
+fun appHeapKiB(): Long = Runtime.getRuntime().maxMemory() / 1024
+
+/** Shown when Argon2id runs out of memory instead of crashing the app. */
+const val KDF_OUT_OF_MEMORY = "Este móvil no tiene memoria suficiente para el coste «Alto» de Argon2id"
+
+/**
+ * Runs an Argon2id derivation and turns running out of heap into a [CryptoFailure] the screens show, instead of a
+ * crash. Only for that: Argon2's memory is allocated by Bouncy Castle when the generator is set up (before the
+ * password is touched) and is local to [block], so it is all garbage once this returns or throws.
+ */
+internal inline fun <T> outOfMemoryAsFailure(block: () -> T): T = try {
+    block()
+} catch (e: OutOfMemoryError) {
+    throw CryptoFailure(KDF_OUT_OF_MEMORY)
 }
 
 /** Wrong password, damaged or tampered data: deliberately one message, so it leaks nothing about which. */
@@ -80,7 +105,11 @@ val secureRandom: SecureRandom by lazy { SecureRandom() }
 
 fun randomBytes(n: Int, random: SecureRandom = secureRandom): ByteArray = ByteArray(n).also(random::nextBytes)
 
-/** Argon2id (RFC 9106, version 0x13) of [password]; the caller wipes the result when done. */
+/**
+ * Argon2id (RFC 9106, version 0x13) of [password]; the caller wipes the result when done. Throws [CryptoFailure]
+ * ([KDF_OUT_OF_MEMORY]) when the phone has no heap for [p]'s memory, so opening «Alto» data on a small phone fails
+ * with a clear message rather than crashing the app.
+ */
 fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = KEY_BYTES): ByteArray {
     val params = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
         .withVersion(Argon2Parameters.ARGON2_VERSION_13)
@@ -90,7 +119,7 @@ fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = K
         .withParallelism(p.parallelism)
         .build()
     val out = ByteArray(length)
-    Argon2BytesGenerator().apply { init(params) }.generateBytes(password, out)
+    outOfMemoryAsFailure { Argon2BytesGenerator().apply { init(params) }.generateBytes(password, out) }
     return out
 }
 
@@ -277,7 +306,7 @@ internal data class Header(
         fun nonceSize(kind: Byte) = if (kind == KIND_FILE) STREAM_PREFIX_BYTES else NONCE_BYTES
 
         /** Parses and validates; [expectedKind] guards against feeding a file header to the text decoder and vice versa. */
-        fun parse(buf: ByteBuffer, expectedKind: Byte): Header {
+        fun parse(buf: ByteBuffer, expectedKind: Byte, heapKiB: Long = appHeapKiB()): Header {
             if (buf.remaining() < SIZE_BEFORE_NONCE) throw CryptoFailure(NOT_COMPATIBLE)
             val magic = ByteArray(2).also { buf.get(it) }
             val dialect = Dialect.ofMagic(magic) ?: throw CryptoFailure(NOT_COMPATIBLE)
@@ -288,7 +317,7 @@ internal data class Header(
             val kdfId = buf.get()
             if (kdfId != KDF_ARGON2ID && !isRawKdf(kdfId)) throw CryptoFailure("Derivación de clave desconocida")
             val kdf = KdfParams(buf.int, buf.get().toInt() and 0xFF, buf.get().toInt() and 0xFF)
-            if (kdfId == KDF_ARGON2ID) kdf.checkSane()
+            if (kdfId == KDF_ARGON2ID) kdf.checkSane(heapKiB)
             val salt = ByteArray(SALT_BYTES).also { buf.get(it) }
             if (buf.remaining() < nonceSize(kind)) throw CryptoFailure()
             val nonce = ByteArray(nonceSize(kind)).also { buf.get(it) }
@@ -380,7 +409,8 @@ fun inspectText(token: String): Pair<Aead, Boolean>? = try {
     null
 }
 
-fun decryptText(token: String, secret: Secret): String {
+/** [heapKiB] is only for tests: what the reading phone lets the app use. */
+fun decryptText(token: String, secret: Secret, heapKiB: Long = appHeapKiB()): String {
     val clean = token.trim().filterNot { it.isWhitespace() }
     val dialect = textDialect(clean) ?: throw CryptoFailure("El texto cifrado debe empezar por $TEXT_PREFIX")
     val raw = try {
@@ -389,7 +419,7 @@ fun decryptText(token: String, secret: Secret): String {
         throw CryptoFailure("El texto cifrado está incompleto o dañado")
     }
     val buf = ByteBuffer.wrap(raw)
-    val header = Header.parse(buf, Header.KIND_TEXT)
+    val header = Header.parse(buf, Header.KIND_TEXT, heapKiB)
     // A prefix of one dialect on a header of the other was never written by either format.
     if (header.dialect != dialect) throw CryptoFailure(NOT_COMPATIBLE)
     val aad = raw.copyOfRange(0, raw.size - buf.remaining())
