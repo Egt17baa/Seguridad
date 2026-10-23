@@ -134,6 +134,7 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
                         TextButton(onClick = { store.lock() }) { Text("Bloquear") }
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Más opciones") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            FilterObscuredTouches() // The menu is its own window: no taps through an overlay on top of it.
                             val bio = BiometricVault.enabled(context)
                             if (BiometricVault.available(context)) {
                                 DropdownMenuItem(text = { Text(if (bio) "Desactivar huella" else "Activar huella") }, onClick = {
