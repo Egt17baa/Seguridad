@@ -154,6 +154,71 @@ Además, al final de cada fase se hace una revisión de código de esa fase.
 
 Estructura de paquetes, nombres de clases, el detalle de las pantallas, el texto exacto de los mensajes, la elección entre ViewModel y estado local, y cómo partir las tareas dentro de cada fase.
 
+## 1.0.0: extracción (implementada)
+
+Rama `claude/seguridad-1.0.0`, plan `docs/superpowers/plans/2026-10-23-seguridad-1.0.0-extraccion.md`, hecha con las skills de proceso de superpowers (plan, subagentes con TDD, revisión por tarea y revisión final) y la skill `experto-seguridad-cripto` en cada fase.
+
+### Lo que se portó de CriptoPanel
+
+Se portó de CriptoPanel 1.10.0 (rama `claude/superpower-671dj6`) con su comportamiento y sus pruebas. La revisión final comparó con `diff` cada archivo portado con su original:
+
+| Área | Archivos | Qué cambia frente al original |
+|---|---|---|
+| Criptografía | `crypto/Crypto.kt`, `FileCrypto.kt`, `Bip39.kt`, `Generator.kt`, `Totp.kt`, `Hashes.kt`, `Pwned.kt` | Parámetro de dialecto (`SG`/`CP`) en la cabecera y en las etiquetas HKDF; solo se escribe `SG1:`/`.sgenc`. |
+| Bóveda | `vault/Vault.kt`, `VaultStore.kt`, `android/BiometricVault.kt` | Formato `seguridad-vault` v2 con etiquetas sacadas del propio formato del archivo; importa `criptopanel-vault` v1, v2 y sin `version`, y lo reescribe en el formato nuevo. Coste de Argon2id y tiempo de bloqueo leídos de Ajustes. |
+| Red | `net/HttpClient.kt`, `DistrustedCertificates.kt`, `PwnedPasswords.kt` | Igual: un único cliente con el bloqueo de eMudhra y solo `api.pwnedpasswords.com`. |
+| Pantallas | `ui/screens/*` | Nombres y textos de Seguridad; las mismas protecciones (portapapeles sensible, sin Copiar del sistema en secretos, teclado de contraseña). |
+
+### Lo que cambia frente a CriptoPanel
+
+| Cambio | Motivo |
+|---|---|
+| App independiente con 4 pestañas (Bóveda, Códigos, Herramientas, Ajustes) y aviso inicial de una vez. | Diseño de esta app. |
+| `FLAG_SECURE` en toda la ventana desde `onCreate`, en lugar del contador por pantalla; `filterTouchesWhenObscured` en todos los diálogos y menús. | Restricción «en toda la app». |
+| Ajustes: bloqueo (al salir, 1, 5 o 15 min), portapapeles (15, 45 o 90 s), coste de Argon2id (estándar 64 MiB/3, alto 128 MiB/4) y tema. | Antes eran fijos. |
+| Escáner de QR con ZXing (`zxing-android-embedded` 4.3.0, Apache-2.0) en una actividad propia con `FLAG_SECURE`, y permiso de cámara solo al escanear. | Solo componentes libres: el escáner de Google Play Services es propietario. |
+| Pantalla de Licencias con los textos completos y una lista de licencias permitidas que la CI comprueba (`:app:checkLicense`). | El código de la app es privado: solo licencias permisivas, nada copyleft. |
+| Verificación de dependencias de Gradle (`verification-metadata.xml`, sha256 de cada componente). | Cadena de suministro, también con el espejo de Maven Central de Google. |
+| CI con secretos `SEGURIDAD_*`, huella del certificado de firma en el resumen y aviso si se firma con la clave de prueba. | Como en CriptoPanel, con la clave propia de Seguridad. |
+
+### Decisiones tomadas durante la implementación
+
+| Decisión | Motivo |
+|---|---|
+| `AppContainer` recibe `filesDir: File` y solo crea objetos JVM. | Se prueba en `jvm-check`, sin Android. |
+| `sha1Hex` solo en `crypto/Hashes.kt`; `crypto/Pwned.kt` solo tiene `pwnedCount`. | Evitar un símbolo duplicado. |
+| `idleLockMs() = 0` («Al salir») significa sin bloqueo por tiempo mientras se usa la app; al salir se bloquea siempre. Con un selector o el escáner abiertos, como mucho 2 minutos (revisión final, I-2). | Es la opción «Al salir» del diseño. |
+| `!app/debug.keystore` en `.gitignore`: la clave de prueba pública está en el repositorio, como en CriptoPanel. | La firma de depuración de la CI. |
+| Se mantiene el espejo de Maven Central de Google, con verificación sha256 de todo. | Evita los 429 de Maven Central; las sumas fijan cada artefacto venga de donde venga. |
+| La lista de palabras BIP-39 es MIT (comprobado en `bip-0039.mediawiki`). | CriptoPanel decía BSD-2-Clause, y era un error. |
+| Proveedor del coste de Argon2id desde Ajustes, reglas de exclusión de copias e importar desde «Crea tu bóveda». | Robustez dentro del diseño. |
+| ZXing en lugar de `play-services-code-scanner`; código propio privado («Todos los derechos reservados»); lista de licencias solo permisivas. | Decisión del usuario: todo libre, y la app privada. |
+| Permisos del APK: `INTERNET`, `CAMERA`, `USE_BIOMETRIC` y `USE_FINGERPRINT`. | El escáner y la huella los necesitan; el «solo INTERNET» del plan era anterior. |
+| La publicación avisa, sin fallar, si el APK sale firmado con la clave de prueba. | Como en CriptoPanel; ya hay secretos y el APK se firma con la clave propia. |
+| La revisión de la tarea 7 se hizo dentro de la revisión final, con la CI real en verde como comprobación. | Ahorro de coste, a petición del usuario. |
+
+### Revisión final (toda la rama)
+
+Se aplicaron `code-review`, `security-review` y la lista de `experto-seguridad-cripto` a los 15 commits sobre `main`, con 96 tests en verde. El veredicto fue «Lista tras los arreglos»: ningún hallazgo Crítico, 2 Importantes y 3 menores para arreglar ya. Todo quedó corregido, con tests, sin cambiar ningún formato:
+
+| Gravedad | Problema | Arreglo |
+|---|---|---|
+| Importante (I-1) | Lo cifrado con el coste «Alto» (128 MiB) no se abría en un móvil con menos de 256 MiB de memoria por app. El límite de la cabecera pedía que el coste no pasara de la mitad de la memoria del móvil que lee, así que una copia o una frase semilla cifradas en un móvil grande se quedaban sin poder abrirse en uno económico. | Al leer se acepta hasta 128 MiB salvo que no quepa: el coste no puede pasar de 3/4 de la memoria de la app. Así «Alto» se abre con 171 MiB o más, aunque ese móvil no lo ofrezca para cifrar. Los límites fijos se mantienen (128 MiB, 10 pasadas y 4 carriles) para que una cabecera manipulada no pueda pedir memoria sin tope. Si aun así se agota la memoria, Argon2id da un error claro en lugar de cerrar la app. El texto de Ajustes ya no promete que se abra igual en todas partes. |
+| Importante (I-2) | Con «Al salir», salir con Inicio (o apagar la pantalla) desde el selector de archivos o el escáner de QR dejaba la bóveda abierta indefinidamente: no había bloqueo por tiempo y `onStop` no bloquea mientras está abierto lo que pidió la bóveda. | Con «Al salir» y el selector o el escáner abiertos, la bóveda se bloquea a los 2 minutos sin uso (`AWAY_BACKSTOP_MS`). La comprobación se hace también en `onStart`, antes de mostrar nada, por si el sistema congeló la app y la comprobación periódica no llegó a ejecutarse. |
+| Menor (m-1) | El menú «Más opciones» de la bóveda es una ventana aparte sin `filterTouchesWhenObscured`, así que en Android 8–11 se podía hacer tapjacking sobre «Desactivar huella» o «Importar copia». | `FilterObscuredTouches()` dentro del menú. Era el único menú o ventana emergente sin él. |
+| Menor (m-2) | Los formatos que se leen para siempre no estaban fijados contra el cambio de etiqueta en sentido contrario. | Tests: una `seguridad-vault` sin `format` o con `criptopanel-vault` no se abre; sin huella para `criptopanel-vault` v2 aunque se comprobara hace poco; `write` rechaza un archivo antiguo. |
+| Menor (m-3) | Faltaba esta sección del diseño, y el plan seguía nombrando el escáner de Google. | Esta sección; el plan nombra `zxing-android-embedded` 4.3.0. |
+
+Quedan para más adelante (menores, sin riesgo para los datos):
+
+- quitar del manifiesto fusionado la `CaptureActivity` de ZXing, que no se usa;
+- capturar `ActivityNotFoundException` al abrir el selector de archivos;
+- un mensaje propio para copias de una versión más nueva con tipos de entrada desconocidos (1.1.0);
+- comprobar el resultado de `renameTo` al apartar una bóveda dañada;
+- `fsync` de la carpeta tras el renombrado atómico.
+
+En toda la rama sigue el riesgo que ya tenía CriptoPanel: lo que se escribe pasa por `String` de Compose, y un móvil con root o con malware de accesibilidad puede leer la pantalla.
+
 ## Comprobación manual en el móvil (no se puede hacer aquí)
 
 Activar la huella y desbloquear con ella; bloquear al salir; escanear un QR de 2FA y de Google Authenticator; comparar los códigos con otra app; la revisión del móvil en uno real; el aspecto en claro y en oscuro; importar una copia real de CriptoPanel.
