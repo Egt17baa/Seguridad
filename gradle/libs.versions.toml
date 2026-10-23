@@ -12,7 +12,7 @@ coroutines = "1.10.2"
 junit = "4.13.2"
 bouncycastle = "1.80"
 biometric = "1.1.0"
-codeScanner = "16.1.0"
+zxingEmbedded = "4.3.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -35,7 +35,7 @@ okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.
 junit = { module = "junit:junit", version.ref = "junit" }
 bouncycastle = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
+zxing-embedded = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxingEmbedded" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
