@@ -240,6 +240,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = {
                                 VaultLock.keepOpenOnce = true
+                                store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
                                 try {
                                     scanner.launch(scanQrOptions())
                                 } catch (e: Exception) {
