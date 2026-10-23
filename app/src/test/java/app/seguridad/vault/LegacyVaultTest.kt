@@ -1,6 +1,7 @@
 package app.seguridad.vault
 
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.KEY_BYTES
 import app.seguridad.crypto.KdfParams
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -146,5 +147,46 @@ class LegacyVaultTest {
         keptOpen = true
         clock += 60_000
         assertTrue(s.lockIfIdle())
+    }
+
+    @Test fun seguridadVaultWithoutFormatKeyFails() {
+        val (file, dek) = VaultCrypto.create(master.toCharArray(), clock, KdfParams(1024, 1, 1))
+        dek.fill(0)
+        val json = VaultCrypto.encodeFile(file)
+        assertTrue(json.contains("\"format\":\"seguridad-vault\","))
+        val stripped = VaultCrypto.decodeFile(json.replace("\"format\":\"seguridad-vault\",", ""))
+        assertEquals(VaultFile.LEGACY_FORMAT, stripped.format) // Reads as a legacy file…
+        assertUnlockFails(stripped) // …whose legacy labels do not open it.
+        assertUnlockFails(file.copy(format = VaultFile.LEGACY_FORMAT))
+        assertEquals(KEY_BYTES, VaultCrypto.unlock(file, master.toCharArray()).also { it.fill(0) }.size) // The original still opens.
+    }
+
+    private fun assertUnlockFails(f: VaultFile) {
+        try {
+            VaultCrypto.unlock(f, master.toCharArray())
+            fail()
+        } catch (e: CryptoFailure) {
+            // expected
+        }
+    }
+
+    @Test fun noBiometricsForLegacyV2EvenWhenRecentlyChecked() {
+        val legacy = VaultCrypto.decodeFile(fixture("vault-v2.json")).copy(masterCheckedAt = clock)
+        assertEquals(2, legacy.version)
+        assertFalse(VaultCrypto.biometricAllowed(legacy, clock + 1_000))
+        assertTrue(VaultCrypto.biometricAllowed(legacy.copy(format = VaultFile.FORMAT), clock + 1_000)) // Only the format differs.
+    }
+
+    @Test fun writeRefusesALegacyFile() {
+        val legacy = VaultCrypto.decodeFile(fixture("vault-v2.json"))
+        val dek = VaultCrypto.unlock(legacy, master.toCharArray())
+        try {
+            VaultCrypto.write(legacy, dek, emptyList())
+            fail()
+        } catch (e: IllegalStateException) {
+            // expected: a legacy file is only ever rewritten by afterMasterUnlock.
+        } finally {
+            dek.fill(0)
+        }
     }
 }
