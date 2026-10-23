@@ -13,6 +13,7 @@ junit = "4.13.2"
 bouncycastle = "1.80"
 biometric = "1.1.0"
 zxingEmbedded = "4.3.0"
+licenseReport = "3.1.4"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -43,3 +44,4 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+license-report = { id = "com.github.jk1.dependency-license-report", version.ref = "licenseReport" }
