@@ -212,7 +212,7 @@ Se aplicaron `code-review`, `security-review` y la lista de `experto-seguridad-c
 Quedan para más adelante (menores, sin riesgo para los datos):
 
 - quitar del manifiesto fusionado la `CaptureActivity` de ZXing, que no se usa;
-- capturar `ActivityNotFoundException` al abrir el selector de archivos;
+- ~~capturar `ActivityNotFoundException` al abrir el selector de archivos~~ (hecho en 1.0.0 y ampliado en 1.0.1 con `launchOrError`);
 - un mensaje propio para copias de una versión más nueva con tipos de entrada desconocidos (1.1.0);
 - comprobar el resultado de `renameTo` al apartar una bóveda dañada;
 - `fsync` de la carpeta tras el renombrado atómico.
