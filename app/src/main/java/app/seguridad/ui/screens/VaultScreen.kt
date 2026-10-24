@@ -116,7 +116,7 @@ fun VaultIdleTicker(store: VaultStore) {
 /** The vault (or only its 2FA codes when [totpOnly]): the Bóveda and Códigos tabs. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, onNew: (EntryType) -> Unit) {
+fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, onNew: (EntryType) -> Unit, onHealth: () -> Unit) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     LaunchedEffect(store) { store.load() }
@@ -152,6 +152,10 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
                                     }
                                 })
                             }
+                            DropdownMenuItem(text = { Text("🩺 Salud de la bóveda") }, onClick = {
+                                menu = false
+                                onHealth()
+                            })
                             DropdownMenuItem(text = { Text("Exportar copia cifrada") }, onClick = {
                                 menu = false
                                 actions.export()
