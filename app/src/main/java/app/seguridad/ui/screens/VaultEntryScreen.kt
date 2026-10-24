@@ -117,7 +117,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                 }
             }
             Field("Usuario", entry.username)
-            Field("Contraseña", entry.password, secret = true)
+            Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true)
             Field("Web", entry.url)
             if (entry.seedWords.isNotBlank()) {
                 val (n, valid) = seedWordCount(entry.seedWords)
@@ -240,7 +240,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                         PasswordField(seedPassphrase, { seedPassphrase = it }, label = "Passphrase BIP-39 (opcional)")
                         TextButton(onClick = { seedPassphrase = generatePassword(PasswordOptions(length = 20)) ?: seedPassphrase }) { Text("🎲 Generar una segura") }
                         Text(
-                            "Una passphrase crea una wallet distinta: apúntala junto a la frase. Si la pierdes, pierdes el acceso a esos fondos.",
+                            "Una passphrase crea una wallet distinta. Guárdala en un sitio distinto de la frase: quien tenga solo la frase no accede a esos fondos. Si la pierdes, tú tampoco.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
