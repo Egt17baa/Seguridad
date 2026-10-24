@@ -140,17 +140,17 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             export = {
                 VaultLock.keepOpenOnce = true
                 store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-                if (!exporter.launchOrFalse(VAULT_EXPORT_FILE_NAME)) {
+                exporter.launchOrError(VAULT_EXPORT_FILE_NAME)?.let { failure ->
                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
-                    scope.launch { snackbar.showSnackbar(NO_FILE_PICKER) }
+                    scope.launch { snackbar.showSnackbar(failure) }
                 }
             },
             import = {
                 VaultLock.keepOpenOnce = true
                 store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-                if (!importer.launchOrFalse(arrayOf("application/json", "application/octet-stream", "text/*"))) {
+                importer.launchOrError(arrayOf("application/json", "application/octet-stream", "text/*"))?.let { failure ->
                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
-                    scope.launch { snackbar.showSnackbar(NO_FILE_PICKER) }
+                    scope.launch { snackbar.showSnackbar(failure) }
                 }
             },
             changeMaster = { dialog = "master" },
