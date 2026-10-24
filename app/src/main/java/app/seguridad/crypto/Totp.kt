@@ -38,6 +38,24 @@ fun base32Decode(text: String): ByteArray? {
     return out.toByteArray()
 }
 
+/** RFC 4648 Base32, upper case and without padding (the way otpauth:// links and authenticator apps write keys). */
+fun base32Encode(bytes: ByteArray): String {
+    val out = StringBuilder((bytes.size * 8 + 4) / 5)
+    var buffer = 0
+    var bits = 0
+    for (b in bytes) {
+        buffer = (buffer shl 8) or (b.toInt() and 0xFF)
+        bits += 8
+        while (bits >= 5) {
+            out.append(BASE32[(buffer shr (bits - 5)) and 0x1F])
+            bits -= 5
+        }
+        buffer = buffer and ((1 shl bits) - 1) // Keep only the unused bits, so the Int never overflows.
+    }
+    if (bits > 0) out.append(BASE32[(buffer shl (5 - bits)) and 0x1F])
+    return out.toString()
+}
+
 /** Shortest TOTP key accepted (80 bits, what RFC 4226 allows as a minimum); shorter ones break the HMAC. */
 const val TOTP_MIN_KEY_BYTES = 10
 
@@ -98,4 +116,30 @@ fun parseOtpAuth(uri: String): TotpSecret? {
         digits = query["digits"]?.toIntOrNull()?.takeIf { it in 6..8 } ?: 6,
         period = query["period"]?.toIntOrNull()?.takeIf { it in 10..120 } ?: 30,
     )
+}
+
+/** Percent-encoding for otpauth:// labels and values: UTF-8, spaces as %20 (never '+', which [parseOtpAuth] reads as a space). */
+private fun otpEncode(text: String) = java.net.URLEncoder.encode(text, "UTF-8").replace("+", "%20")
+
+/**
+ * The otpauth://totp/ link of this code (Key-Uri-Format), for showing as a QR to another app; [parseOtpAuth] reads it back
+ * unchanged. The label is "Issuer:account", but a ':' in the issuer is left out of the label: the issuer parameter is the
+ * one that counts, and the account is whatever follows the label's first ':'.
+ */
+fun TotpSecret.toOtpAuthUri(): String {
+    val labelIssuer = issuer.replace(":", "")
+    val label = when {
+        labelIssuer.isNotEmpty() -> "$labelIssuer:$account"
+        ':' in account -> ":$account"
+        else -> account
+    }
+    val query = buildList {
+        add("secret=" + secret.uppercase().filter { it in BASE32 })
+        if (issuer.isNotEmpty()) add("issuer=" + otpEncode(issuer))
+        add("algorithm=" + algorithm.uppercase())
+        add("digits=$digits")
+        add("period=$period")
+    }
+    // ':' between issuer and account stays literal, as Google's examples write it; everything else is encoded.
+    return "otpauth://totp/" + label.split(':').joinToString(":") { otpEncode(it) } + "?" + query.joinToString("&")
 }

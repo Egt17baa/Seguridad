@@ -229,6 +229,15 @@ class VaultStore(
         }
     }
 
+    /**
+     * Adds new entries with a single write, all or none (a Google Authenticator batch). An id already in the vault is
+     * left as it is, and new entries start without password history, as with [upsert].
+     */
+    suspend fun addAll(entries: List<VaultEntry>) = modify { list ->
+        val ids = list.mapTo(HashSet()) { it.id }
+        list + entries.filter { ids.add(it.id) }.map { it.copy(passwordHistory = emptyList()) }
+    }
+
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }
 
     /**

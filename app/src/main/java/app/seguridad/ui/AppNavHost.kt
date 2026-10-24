@@ -33,6 +33,7 @@ import app.seguridad.AppContainer
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
 import app.seguridad.ui.screens.FileCryptoScreen
+import app.seguridad.ui.screens.OtpQrScreen
 import app.seguridad.ui.screens.FileHashScreen
 import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
@@ -118,7 +119,10 @@ fun AppNavHost(container: AppContainer) {
             composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
             composable("vault/entry/{id}") { entry ->
                 val id = entry.arguments?.getString("id").orEmpty()
-                VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=$id") }, onBack = back)
+                VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=$id") }, onShowQr = { nav.navigate("vault/entry/$id/qr") }, onBack = back)
+            }
+            composable("vault/entry/{id}/qr") { entry ->
+                OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
             }
             composable(
                 "vault/edit?id={id}&type={type}",
