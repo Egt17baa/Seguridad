@@ -96,11 +96,59 @@ class VaultStoreTest {
     @Test fun `change master and destroy`() = runTest {
         val s = store().apply { load(); create("vieja".toCharArray()); upsert(entry("1", "x")) }
         s.changeMaster("nueva".toCharArray())
-        s.lock()
         s.unlock("nueva".toCharArray())
         s.destroy()
         assertEquals(VaultState.NoVault, s.state.value)
         assertFalse(File(tmp.root, "vault.bin").exists())
+    }
+
+    // Seguridad 1.0.1: a changed master password locks the vault at once, so the user opens it with the new one
+    // (and proves they remember it) before going on; the old data key is not left in memory.
+    @Test fun changeMasterLocksVault() = runTest {
+        val s = store().apply { load(); create("vieja".toCharArray()); upsert(entry("1", "Wallet")) }
+        assertTrue(s.changeMaster("nueva".toCharArray()))
+        assertEquals(VaultState.Locked, s.state.value)
+        assertNull(s.dataKeyCopy())
+        // Locked means locked: no change can be saved until it is opened again.
+        assertFalse(s.upsert(entry("2", "Otra")))
+    }
+
+    @Test fun newMasterUnlocksOldDoesNot() = runTest {
+        val s = store().apply { load(); create("vieja".toCharArray()); upsert(entry("1", "Wallet")) }
+        assertTrue(s.changeMaster("nueva".toCharArray()))
+        try {
+            s.unlock("vieja".toCharArray())
+            fail()
+        } catch (e: CryptoFailure) {
+            // expected
+        }
+        assertEquals(VaultState.Locked, s.state.value)
+        s.unlock("nueva".toCharArray())
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+        // Same on disk, as another start of the app sees it.
+        val reopened = store().apply { load() }
+        reopened.unlock("nueva".toCharArray())
+        assertEquals(1, (reopened.state.value as VaultState.Unlocked).entries.size)
+    }
+
+    @Test fun failedChangeMasterKeepsVaultUnlockedAndUnchanged() = runTest {
+        val s = store().apply { load(); create("vieja".toCharArray()); upsert(entry("1", "Wallet")) }
+        val before = File(tmp.root, "vault.bin").readText()
+        val key = s.dataKeyCopy()!!
+        breakSaving()
+        try {
+            s.changeMaster("nueva".toCharArray())
+            fail()
+        } catch (e: java.io.IOException) {
+            // expected
+        }
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+        assertTrue(key.contentEquals(s.dataKeyCopy()!!))
+        assertEquals(before, File(tmp.root, "vault.bin").readText())
+        // The old master password still works; the new one was never saved.
+        s.lock()
+        s.unlock("vieja".toCharArray())
+        assertTrue(s.state.value is VaultState.Unlocked)
     }
 
     /** Runs [before] (once) as the computation is dispatched: a lock() that lands in the middle of a save. */

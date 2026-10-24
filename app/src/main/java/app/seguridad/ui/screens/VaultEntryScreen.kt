@@ -49,6 +49,8 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.initialPassword
+import app.seguridad.vault.passwordToSave
 import app.seguridad.vault.seedWordCount
 import com.journeyapps.barcodescanner.ScanContract
 import app.seguridad.android.scanQrOptions
@@ -115,7 +117,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                 }
             }
             Field("Usuario", entry.username)
-            Field("Contraseña", entry.password, secret = true)
+            Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true)
             Field("Web", entry.url)
             if (entry.seedWords.isNotBlank()) {
                 val (n, valid) = seedWordCount(entry.seedWords)
@@ -170,7 +172,9 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
     var type by remember { mutableStateOf(existing?.type ?: initialType) }
     var title by remember { mutableStateOf(existing?.title.orEmpty()) }
     var username by remember { mutableStateOf(existing?.username.orEmpty()) }
-    var password by remember { mutableStateOf(existing?.password.orEmpty()) }
+    // One field per type: a password generated under «Acceso» must never become a seed's passphrase.
+    var loginPassword by remember { mutableStateOf(initialPassword(existing, EntryType.LOGIN)) }
+    var seedPassphrase by remember { mutableStateOf(initialPassword(existing, EntryType.SEED)) }
     var url by remember { mutableStateOf(existing?.url.orEmpty()) }
     var notes by remember { mutableStateOf(existing?.notes.orEmpty()) }
     var seed by remember { mutableStateOf(existing?.seedWords.orEmpty()) }
@@ -180,7 +184,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
     // One id for a new entry, however many times Guardar is tapped.
     val newId = remember { UUID.randomUUID().toString() }
     // Typing counts as use too, so a long note is not lost to the idle lock.
-    LaunchedEffect(type, title, username, password, url, notes, seed, totp) { store.touch() }
+    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp) { store.touch() }
 
     fun applyOtpAuth(text: String) {
         val parsed = parseOtpAuth(text)
@@ -217,8 +221,8 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                 when (type) {
                     EntryType.LOGIN -> {
                         OutlinedTextField(username, { username = it }, label = { Text("Usuario o correo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        PasswordField(password, { password = it })
-                        TextButton(onClick = { password = generatePassword(PasswordOptions(length = 20)) ?: password }) { Text("🎲 Generar una segura") }
+                        PasswordField(loginPassword, { loginPassword = it })
+                        TextButton(onClick = { loginPassword = generatePassword(PasswordOptions(length = 20)) ?: loginPassword }) { Text("🎲 Generar una segura") }
                         OutlinedTextField(url, { url = it }, label = { Text("Web") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
                     EntryType.SEED -> {
@@ -233,7 +237,12 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                         )
                         val (n, valid) = seedWordCount(seed)
                         if (n > 0) Text("$n palabras" + if (valid) " ✓" else " (lo habitual son 12, 15, 18, 21 o 24)", style = MaterialTheme.typography.bodySmall)
-                        PasswordField(password, { password = it }, label = "Passphrase BIP-39 (opcional)")
+                        PasswordField(seedPassphrase, { seedPassphrase = it }, label = "Passphrase BIP-39 (opcional)")
+                        TextButton(onClick = { seedPassphrase = generatePassword(PasswordOptions(length = 20)) ?: seedPassphrase }) { Text("🎲 Generar una segura") }
+                        Text(
+                            "Una passphrase crea una wallet distinta. Guárdala en un sitio distinto de la frase: quien tenga solo la frase no accede a esos fondos. Si la pierdes, tú tampoco.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                     EntryType.NOTE -> Unit
                     EntryType.TOTP -> {
@@ -288,7 +297,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             type = type,
                             title = title.trim(),
                             username = if (type == EntryType.LOGIN) username.trim() else "",
-                            password = if (type == EntryType.LOGIN || type == EntryType.SEED) password else "",
+                            password = passwordToSave(type, loginPassword, seedPassphrase),
                             url = if (type == EntryType.LOGIN) url.trim() else "",
                             notes = notes,
                             seedWords = if (type == EntryType.SEED) seed.trim().split(Regex("\\s+")).joinToString(" ") { it.lowercase() } else "",

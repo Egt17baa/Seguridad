@@ -28,7 +28,7 @@ android {
         targetSdk = 36
         // Every Play upload needs a higher versionCode: pass -PversionCode=N (CI uses the run number).
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "1.0.0"
+        versionName = "1.0.1"
         // SHA-256 of the certificate in debug.keystore (public test key), for verifying the installed debug build.
         buildConfigField("String", "DEBUG_CERT_SHA256", "\"C0014DF66F103A436485115FE0880512C9F05DB39E0E3A94D659997EE9411834\"")
     }
@@ -94,6 +94,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.bouncycastle)
     implementation(libs.androidx.biometric)
+    // MainActivity is a FragmentActivity (for BiometricPrompt): fragment >= 1.3.0 or no picker or scanner opens.
+    // biometric 1.1.0 alone resolves fragment 1.2.5; checkFragmentVersion (below) fails the build if that comes back.
+    implementation(libs.androidx.fragment.ktx)
     implementation(libs.zxing.embedded)
 
     testImplementation(libs.junit)
@@ -108,3 +111,37 @@ licenseReport {
     filters = arrayOf(LicenseBundleNormalizer())
     allowedLicensesFile = rootProject.file("config/allowed-licenses.json")
 }
+
+// Regression guard for Seguridad 1.0.0: androidx.biometric 1.1.0 alone brings androidx.fragment 1.2.5, whose
+// FragmentActivity.startActivityForResult rejects the request codes of ActivityResultRegistry (>= 0x10000) with
+// "Can only use lower 16 bits for requestCode". MainActivity is a FragmentActivity (BiometricPrompt needs one), so
+// every file picker and the QR scanner failed on the phone. From 1.3.0 FragmentActivity uses the registry itself.
+val checkFragmentVersion by tasks.registering {
+    group = "verification"
+    description = "Falla si el APK llevaría androidx.fragment:fragment anterior a 1.3.0."
+    val root = configurations.named("releaseRuntimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent }
+    doLast {
+        val seen = mutableSetOf<ComponentIdentifier>()
+        val queue = ArrayDeque(listOf(root.get()))
+        var fragment: String? = null
+        while (queue.isNotEmpty()) {
+            val c = queue.removeFirst()
+            if (!seen.add(c.id)) continue
+            val id = c.moduleVersion
+            if (id != null && id.group == "androidx.fragment" && id.name == "fragment") fragment = id.version
+            c.dependencies.filterIsInstance<ResolvedDependencyResult>().forEach { queue.add(it.selected) }
+        }
+        val found = fragment ?: throw GradleException("androidx.fragment:fragment no está en releaseRuntimeClasspath.")
+        val parts = found.split('.', '-').take(3).map { p -> p.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
+        val (major, minor) = parts + listOf(0, 0)
+        if (major < 1 || (major == 1 && minor < 3)) {
+            throw GradleException(
+                "androidx.fragment:fragment $found es anterior a 1.3.0: su FragmentActivity rechaza los códigos de petición " +
+                    "de ActivityResultRegistry y el escáner QR y los selectores de archivos fallan. Declara fragment-ktx >= 1.3.0 " +
+                    "en gradle/libs.versions.toml.",
+            )
+        }
+        logger.lifecycle("androidx.fragment:fragment $found (>= 1.3.0)")
+    }
+}
+tasks.named("check") { dependsOn(checkFragmentVersion) }
