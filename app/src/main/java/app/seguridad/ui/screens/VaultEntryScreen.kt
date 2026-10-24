@@ -15,6 +15,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +51,7 @@ import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.initialPassword
+import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.passwordToSave
 import app.seguridad.vault.seedWordCount
 import com.journeyapps.barcodescanner.ScanContract
@@ -116,6 +118,13 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                     Field("Código", code, mono = true)
                 }
             }
+            if (entry.favorite || entry.tags.isNotEmpty()) {
+                Text(
+                    (listOf("★ Favorito").filter { entry.favorite } + entry.tags.map { "#$it" }).joinToString("  "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Field("Usuario", entry.username)
             Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true)
             Field("Web", entry.url)
@@ -179,12 +188,14 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
     var notes by remember { mutableStateOf(existing?.notes.orEmpty()) }
     var seed by remember { mutableStateOf(existing?.seedWords.orEmpty()) }
     var totp by remember { mutableStateOf(existing?.totp ?: TotpSecret("")) }
+    var favorite by remember { mutableStateOf(existing?.favorite ?: false) }
+    var tagsText by remember { mutableStateOf(existing?.tags.orEmpty().joinToString(", ")) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     // One id for a new entry, however many times Guardar is tapped.
     val newId = remember { UUID.randomUUID().toString() }
     // Typing counts as use too, so a long note is not lost to the idle lock.
-    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp) { store.touch() }
+    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp, tagsText) { store.touch() }
 
     fun applyOtpAuth(text: String) {
         val parsed = parseOtpAuth(text)
@@ -280,6 +291,18 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    tagsText,
+                    { tagsText = it },
+                    label = { Text("Etiquetas (separadas por comas)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Switch(checked = favorite, onCheckedChange = { favorite = it })
+                    Text("Favorito")
+                }
                 error?.let { Text(it, color = NegativeColor) }
                 Button(
                     onClick = {
@@ -304,6 +327,8 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             totp = if (type == EntryType.TOTP) totp.copy(secret = totp.secret.uppercase().filter { it.isLetterOrDigit() }) else null,
                             createdAt = existing?.createdAt ?: now,
                             updatedAt = now,
+                            favorite = favorite,
+                            tags = normalizeTags(tagsText),
                         )
                         saving = true
                         scope.launch {
