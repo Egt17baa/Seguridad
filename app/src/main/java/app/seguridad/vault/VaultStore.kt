@@ -215,7 +215,18 @@ class VaultStore(
     }
 
     suspend fun upsert(entry: VaultEntry) = modify { list ->
-        if (list.any { it.id == entry.id }) list.map { if (it.id == entry.id) entry else it } else list + entry
+        val saved = list.firstOrNull { it.id == entry.id }
+        if (saved == null) {
+            list + entry.copy(passwordHistory = emptyList())
+        } else {
+            // The history is the store's to keep: whatever the caller sends is replaced by the stored one plus this change.
+            val history = if (saved.type == EntryType.LOGIN && entry.type == EntryType.LOGIN) {
+                saved.withNewPassword(entry.password, now()).passwordHistory
+            } else {
+                emptyList() // A type change never files a passphrase or another secret as an old password.
+            }
+            list.map { if (it.id == entry.id) entry.copy(passwordHistory = history) else it }
+        }
     }
 
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }

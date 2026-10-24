@@ -46,6 +46,7 @@ import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.PasswordChange
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
@@ -83,6 +84,23 @@ private fun Field(label: String, value: String, secret: Boolean = false, mono: B
                 FilledTonalButton(onClick = { copySensitive(context, value) }) { Text("Copiar") }
                 if (secret) OutlinedButton(onClick = { shown = !shown }) { Text(if (shown) "Ocultar" else "Mostrar") }
             }
+        }
+    }
+}
+
+private val historyDate: java.time.format.DateTimeFormatter =
+    java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.MEDIUM).withLocale(java.util.Locale.forLanguageTag("es-ES"))
+
+/** Old passwords, folded away by default; each one is hidden until shown and copies as sensitive, like the current one. */
+@Composable
+private fun PasswordHistorySection(history: List<PasswordChange>) {
+    if (history.isEmpty()) return
+    var open by remember { mutableStateOf(false) }
+    TextButton(onClick = { open = !open }) { Text("${if (open) "▾" else "▸"} Contraseñas anteriores (${history.size})") }
+    if (open) {
+        history.forEach { h ->
+            val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
+            Field("Cambiada el $date", h.password, secret = true)
         }
     }
 }
@@ -128,6 +146,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
             Field("Usuario", entry.username)
             Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true)
             Field("Web", entry.url)
+            PasswordHistorySection(entry.passwordHistory)
             if (entry.seedWords.isNotBlank()) {
                 val (n, valid) = seedWordCount(entry.seedWords)
                 Field("Frase semilla ($n palabras${if (valid) "" else ", número poco habitual"})", entry.seedWords, secret = true)
