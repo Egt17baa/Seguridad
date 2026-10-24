@@ -90,7 +90,8 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                     try {
                         if (store.changeMaster(pw)) {
                             BiometricVault.disable(context) // It wrapped the old data key.
-                            "Contraseña maestra cambiada. Vuelve a activar la huella si la usabas."
+                            // changeMaster has locked the vault: it opens with the new password from now on.
+                            "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."
                         } else {
                             "La bóveda se bloqueó: no se ha cambiado nada"
                         }

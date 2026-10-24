@@ -220,17 +220,29 @@ class VaultStore(
 
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }
 
-    /** New master password and a new data key; false if the vault was locked, so nothing changed. */
+    /**
+     * New master password and a new data key; false if the vault was locked, so nothing changed. Once the new file
+     * is saved the vault locks (both data keys wiped), so the user opens it with the new password before going on,
+     * which also proves they remember it. If anything fails, it throws and the vault stays open as it was.
+     */
     suspend fun changeMaster(newMaster: CharArray): Boolean = mutex.withLock {
         val v = vault ?: return@withLock false
-        val since = epoch
         val key = dek?.copyOf() ?: return@withLock false
         val (next, newKey) = try {
             withContext(compute) { VaultCrypto.changeMaster(v, key, newMaster, now(), kdf()) }
         } finally {
             key.fill(0)
         }
-        commit(next, newKey, since)
+        // As in [commit]: leaving the screen cannot cut the save and the switch to the new file in half.
+        withContext(NonCancellable) {
+            try {
+                save(next)
+            } finally {
+                newKey.fill(0) // Never kept: the vault locks below, or stays on the old key if the save failed.
+            }
+            vault = next
+            lock()
+        }
         true
     }
 
