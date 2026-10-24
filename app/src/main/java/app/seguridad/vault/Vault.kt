@@ -35,6 +35,9 @@ data class VaultEntry(
     val totp: TotpSecret? = null,
     val createdAt: Long,
     val updatedAt: Long,
+    val favorite: Boolean = false,
+    /** Lowercase labels, see [normalizeTags]. */
+    val tags: List<String> = emptyList(),
 )
 
 @Serializable
