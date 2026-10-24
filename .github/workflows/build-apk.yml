@@ -45,7 +45,7 @@ jobs:
             echo "::warning::Sin secretos de firma: el APK se firma con la clave de prueba pública. Ver docs/PUBLICAR.md"
           fi
           status=0
-          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:checkLicense --no-daemon || status=$?
+          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:checkLicense :app:checkFragmentVersion --no-daemon || status=$?
           rm -f "$RUNNER_TEMP/upload.jks"
           exit $status
 
