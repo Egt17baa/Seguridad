@@ -298,7 +298,7 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedButton(onClick = {
-                fileMessage = if (openTxt.launchOrFalse(arrayOf("text/plain", "application/octet-stream", "*/*"))) null else false to NO_FILE_PICKER
+                fileMessage = openTxt.launchOrError(arrayOf("text/plain", "application/octet-stream", "*/*"))?.let { false to it }
             }, modifier = Modifier.fillMaxWidth()) {
                 Text("📂 Importar archivo .txt")
             }
@@ -372,7 +372,7 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                     if (encrypt) {
                         OutlinedButton(
                             onClick = {
-                                fileMessage = if (saveTxt.launchOrFalse(if (seedMode) "frase-cifrada.txt" else "texto-cifrado.txt")) null else false to NO_FILE_PICKER
+                                fileMessage = saveTxt.launchOrError(if (seedMode) "frase-cifrada.txt" else "texto-cifrado.txt")?.let { false to it }
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("💾 Guardar como archivo .txt") }
@@ -549,7 +549,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
             source = null
             message = null
         }
-        OutlinedButton(onClick = { if (!pick.launchOrFalse(arrayOf("*/*"))) message = false to NO_FILE_PICKER }, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { pick.launchOrError(arrayOf("*/*"))?.let { message = false to it } }, modifier = Modifier.fillMaxWidth()) {
             Text(if (source == null) (if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION o $LEGACY_ENCRYPTED_EXTENSION") else sourceName)
         }
         SecretInput(useKey, { useKey = it; message = null }, password, { password = it; message = null }, keyHex, { keyHex = it; message = null }, allowGenerate = encrypt)
@@ -561,7 +561,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
             enabled = !busy && source != null && hasSecret(useKey, password, keyHex),
             onClick = {
                 if (encrypt) {
-                    if (!saveEncrypted.launchOrFalse(sourceName + ENCRYPTED_EXTENSION)) message = false to NO_FILE_PICKER
+                    saveEncrypted.launchOrError(sourceName + ENCRYPTED_EXTENSION)?.let { message = false to it }
                 } else {
                     val src = source ?: return@Button
                     val secret = secretOf(useKey, password, keyHex) ?: return@Button
@@ -575,10 +575,10 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                                 }
                             }
                             pendingPath = tmp.path
-                            if (!saveDecrypted.launchOrFalse(safeFileName(name))) {
+                            saveDecrypted.launchOrError(safeFileName(name))?.let { failure ->
                                 pendingPath = null
                                 tmp.delete() // Never leave decrypted data behind in the cache.
-                                message = false to NO_FILE_PICKER
+                                message = false to failure
                             }
                         } catch (e: CryptoFailure) {
                             tmp.delete()
@@ -731,7 +731,7 @@ fun FileHashScreen(onBack: () -> Unit) {
     var hash by remember { mutableStateOf<String?>(null) }
     var expected by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    var noPicker by remember { mutableStateOf(false) }
+    var pickerError by remember { mutableStateOf<String?>(null) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         name = displayName(context, uri)
@@ -753,8 +753,8 @@ fun FileHashScreen(onBack: () -> Unit) {
                 "de tu wallet). Si no coinciden, el archivo se ha alterado o está dañado.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(onClick = { noPicker = !pick.launchOrFalse(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text(name ?: "Elegir archivo") }
-        if (noPicker) Text(NO_FILE_PICKER, color = NegativeColor)
+        OutlinedButton(onClick = { pickerError = pick.launchOrError(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text(name ?: "Elegir archivo") }
+        pickerError?.let { Text(it, color = NegativeColor) }
         if (busy) Busy("Calculando…")
         hash?.let { h ->
             SectionCard(Modifier.fillMaxWidth()) {
