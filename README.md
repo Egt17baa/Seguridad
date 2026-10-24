@@ -107,6 +107,7 @@ Lo que no se puede probar en la CI (no hay móvil ni emulador con huella). Antes
 - [ ] Tema claro, y el marco oscuro que se ve al arrancar antes de que cargue la interfaz.
 - [ ] Huella dactilar: activarla, abrir la bóveda con ella, y qué pasa al añadir o borrar una huella en el sistema.
 - [ ] Escáner QR con la cámara real, y con el permiso de cámara denegado (debe quedar la entrada a mano).
+- [ ] Escanear QR, exportar e importar abren su pantalla.
 - [ ] Bordes de la pantalla: barra de estado, barra de navegación y teclado, en vertical y en horizontal.
 - [ ] Importar una copia real de la bóveda de CriptoPanel y abrir un texto `CP1:` y un archivo `.cpenc` reales.
 - [ ] Menús desplegables bajo una superposición (filtro de toques) y exportar la bóveda sin tener bóveda (debe avisar).
