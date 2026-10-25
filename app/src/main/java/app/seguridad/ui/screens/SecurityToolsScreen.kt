@@ -492,6 +492,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
     val saveEncrypted = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         if (dest == null) return@rememberLauncherForActivityResult
         val src = source
+        val clearPasswordAfterUse = !useKey
         val secret = secretOf(useKey, password, keyHex)
         if (src == null || secret == null) {
             // The screen was rebuilt while the dialog was open: the file and secret are never kept in saved state.
@@ -514,6 +515,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                 false to "No se pudo cifrar el archivo."
             } finally {
                 secret.wipe()
+                if (clearPasswordAfterUse) password = ""
                 busy = false
             }
         }
@@ -576,6 +578,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                     saveEncrypted.launchOrError(sourceName + ENCRYPTED_EXTENSION)?.let { message = false to it }
                 } else {
                     val src = source ?: return@Button
+                    val clearPasswordAfterUse = !useKey
                     val secret = secretOf(useKey, password, keyHex) ?: return@Button
                     busy = true
                     scope.launch {
@@ -600,6 +603,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                             message = false to "No se pudo leer el archivo."
                         } finally {
                             secret.wipe()
+                            if (clearPasswordAfterUse) password = ""
                             busy = false
                         }
                     }
