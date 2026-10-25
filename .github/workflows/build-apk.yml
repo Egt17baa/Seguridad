@@ -38,20 +38,35 @@ jobs:
           SEGURIDAD_KEY_ALIAS: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEY_ALIAS || '' }}
           SEGURIDAD_KEY_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEY_PASSWORD || '' }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" && -z "$KEYSTORE_BASE64" ]]; then
-            echo "::error::No se publica desde main un APK firmado con la clave de prueba. Configura SEGURIDAD_* en Actions."
-            exit 1
-          fi
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
             export SEGURIDAD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
           else
-            echo "::warning::Sin secretos de firma: el APK se firma con la clave de prueba pública. Ver docs/PUBLICAR.md"
+            echo "::warning::Sin secretos de firma: las compilaciones de PR/ramas usan la clave de prueba pública."
           fi
+
+          # Run all validation before refusing a distributable build that lacks the production signing key.
           status=0
-          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:checkLicense :app:checkFragmentVersion --no-daemon || status=$?
+          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:checkLicense :app:checkFragmentVersion --no-daemon || status=$?
+          if [ "$status" -ne 0 ]; then
+            rm -f "$RUNNER_TEMP/upload.jks"
+            exit "$status"
+          fi
+
+          if [ -z "$KEYSTORE_BASE64" ] && {
+            { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; } ||
+            { [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; } ||
+            { [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; }
+          }; then
+            echo "::error::No se genera una release distribuible sin clave de firma de producción. Configura SEGURIDAD_* en Actions."
+            rm -f "$RUNNER_TEMP/upload.jks"
+            exit 1
+          fi
+
+          status=0
+          ./gradlew :app:assembleRelease --no-daemon || status=$?
           rm -f "$RUNNER_TEMP/upload.jks"
-          exit $status
+          exit "$status"
 
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk Seguridad.apk
