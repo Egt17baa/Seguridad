@@ -96,6 +96,43 @@ class CryptoTest {
         assertEquals("hola", decryptText(t.chunked(20).joinToString("\n "), "pw".toCharArray()))
     }
 
+
+    @Test fun `argon2id public API rejects invalid parameters before allocating memory`() {
+        val password = "pw".toCharArray()
+        val salt = ByteArray(SALT_BYTES)
+        try {
+            try {
+                argon2id(password, salt, KdfParams(memoryKiB = MAX_KDF_MEMORY_KIB + 1, iterations = 1))
+                fail("expected CryptoFailure for excessive memory")
+            } catch (e: CryptoFailure) {
+                // Rejected before the expensive KDF allocation.
+            }
+            try {
+                argon2id(password, salt, KdfParams(memoryKiB = 1024, iterations = 0))
+                fail("expected CryptoFailure for invalid iterations")
+            } catch (e: CryptoFailure) {
+                // Rejected before the expensive KDF allocation.
+            }
+        } finally {
+            password.fill('\\u0000')
+        }
+    }
+
+    @Test fun `argon2id public API rejects malformed salt and output length`() {
+        try {
+            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES - 1), FAST)
+            fail("expected IllegalArgumentException for malformed salt")
+        } catch (e: IllegalArgumentException) {
+            // expected
+        }
+        try {
+            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES), FAST, 1025)
+            fail("expected IllegalArgumentException for unbounded output")
+        } catch (e: IllegalArgumentException) {
+            // expected
+        }
+    }
+
     @Test fun `memory bomb headers are refused`() {
         val raw = Base64.getUrlDecoder().decode(encryptText("a", "p".toCharArray(), kdf = FAST).removePrefix(TEXT_PREFIX))
         raw[6] = 0x7F // memoryKiB high byte
