@@ -111,6 +111,10 @@ fun randomBytes(n: Int, random: SecureRandom = secureRandom): ByteArray = ByteAr
  * with a clear message rather than crashing the app.
  */
 fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = KEY_BYTES): ByteArray {
+    // Keep this public entry point safe too: callers must not be able to bypass header validation.
+    require(salt.size == SALT_BYTES) { "Argon2id salt must be 16 bytes" }
+    require(length in 4..1024) { "Argon2id output length is out of bounds" }
+    p.checkSane()
     val params = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
         .withVersion(Argon2Parameters.ARGON2_VERSION_13)
         .withSalt(salt)
