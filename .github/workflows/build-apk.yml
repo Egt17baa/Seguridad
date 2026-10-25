@@ -128,7 +128,7 @@ jobs:
   # Google Play bundle, signed with the upload key. Runs on tags v* or manually; Play rejects the public test key,
   # so without the SEGURIDAD_* secrets this job fails instead of building an unusable bundle.
   play-bundle:
-    # Signing secrets are used only for version tags or manual runs on main/tag, never arbitrary branches.
+    # Signing secrets are used only for pushed version tags or manual runs from main, never arbitrary branches.
     if: (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
