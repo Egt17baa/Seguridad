@@ -50,6 +50,16 @@ class PwnedPasswordsTest {
         assertEquals(0, api.times("password".toCharArray()))
     }
 
+    @Test fun oversizedResponseThrows() = runTest {
+        server.enqueue(MockResponse().setBody("x".repeat(2 * 1024 * 1024 + 1)))
+        try {
+            api.times("password".toCharArray())
+            fail("oversized response must be rejected")
+        } catch (e: IOException) {
+            // A hostile or broken response cannot allocate unbounded memory.
+        }
+    }
+
     @Test fun non200Throws() = runTest {
         server.enqueue(MockResponse().setResponseCode(503))
         try {
