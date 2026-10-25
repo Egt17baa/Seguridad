@@ -324,16 +324,28 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
             enabled = !busy && input.isNotBlank() && hasSecret(useKey, password, keyHex),
             onClick = {
                 val secret = secretOf(useKey, password, keyHex) ?: return@Button
+                // Snapshot the request before launching asynchronous work; controls remain interactive while busy.
+                val encryptNow = encrypt
+                val useKeyNow = useKey
+                val algNow = alg
+                val inputNow = input
+                val kdfNow = kdf
+                val plainNow = if (seedMode) bip39.normalize(inputNow).joinToString(" ") else inputNow
                 busy = true
                 reset()
-                val plain = if (seedMode) bip39.normalize(input).joinToString(" ") else input
                 scope.launch {
                     try {
-                        output = withContext(Dispatchers.Default) { if (encrypt) encryptText(plain, secret, alg, kdf) else decryptText(input, secret) }
+                        output = withContext(Dispatchers.Default) {
+                            if (encryptNow) encryptText(plainNow, secret, algNow, kdfNow) else decryptText(inputNow, secret)
+                        }
                     } catch (e: CryptoFailure) {
-                        error = if (useKey && e.message == CryptoFailure().message) "Clave incorrecta o texto dañado" else e.message
+                        error = if (useKeyNow && e.message == CryptoFailure().message) "Clave incorrecta o texto dañado" else e.message
                     } finally {
                         secret.wipe()
+                        // The operation has consumed the entered password; never leave it in the form after use.
+                        if (!useKeyNow) password = ""
+                        // A seed phrase or other plaintext entered for encryption is no longer needed once processed.
+                        if (encryptNow) input = ""
                         busy = false
                     }
                 }
