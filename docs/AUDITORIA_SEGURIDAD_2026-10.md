@@ -94,3 +94,21 @@ Revisión estática de los archivos accesibles en `main`: manifiesto Android, al
 - Confirmación de que la clave de firma de producción no está en el repositorio ni en logs.
 
 **Conclusión:** se han corregido cuatro problemas concretos de validación/endurecimiento y se han añadido pruebas. Con la evidencia disponible no es responsable afirmar que la aplicación sea ya «segura» o que la auditoría sea exhaustiva; la verificación pendiente forma parte del resultado.
+
+## Resultado de la comprobación de publicación (25 de octubre de 2026)
+
+Se realizó una comprobación heurística adicional del historial y de los archivos de texto actuales:
+
+- Se revisaron los diffs de los 53 commits accesibles en la rama principal con patrones comunes para claves privadas PEM, tokens de GitHub, AWS, Google, Slack y Stripe, URLs con credenciales y asignaciones de credenciales. No hubo coincidencias de alta confianza con esos patrones. Hubo una coincidencia genérica de contraseña en una prueba automatizada que parece ser un valor de prueba, no una credencial real.
+- Se analizaron los archivos de texto actuales de código, configuración, pruebas y documentación mediante los mismos patrones; no se detectaron coincidencias de alta confianza.
+- **Limitación importante:** esta fue una comprobación heurística, no la ejecución de Gitleaks/TruffleHog ni un escaneo nativo completo de GitHub Secret Scanning. No prueba que no existan secretos desconocidos, formatos no cubiertos, datos binarios o credenciales ya revocadas. La verificación automatizada completa del historial sigue recomendada.
+- **Hallazgo de privacidad:** 27 de los 53 mensajes de commit incluyen URLs de sesiones de Claude Code. Los metadatos de autor de los 53 commits incluyen direcciones de correo de dos dominios, uno de ellos Gmail. No se reproducen aquí las direcciones ni los identificadores de sesión. No son tokens de acceso identificados por los patrones anteriores, pero son metadatos que el propietario quizá no pretendía publicar. Considera revocar/cerrar las sesiones compartidas si procede y reescribir el historial para eliminar las URLs y direcciones antes de seguir difundiendo el repositorio. Reescribir la historia cambia los hashes y requiere coordinar un force-push; no se ha hecho automáticamente.
+- `app/debug.keystore` continúa versionada intencionalmente. Es una clave de depuración pública, no la clave privada de firma de producción. No debe usarse para firmar una release de confianza ni considerarse un secreto.
+- Las ejecuciones recientes de GitHub Actions para las correcciones revisadas finalizaron en estado `success`. Esto confirma esos trabajos de CI, no una auditoría criptográfica independiente ni pruebas en dispositivos reales.
+
+### Siguientes acciones recomendadas
+
+1. Ejecutar Gitleaks o TruffleHog localmente contra **todo el historial**, no solo la rama actual; revisar también los artefactos y logs de Actions.
+2. Si los enlaces de sesión o correos no deben ser públicos, acordar una reescritura de historial (por ejemplo, con `git-filter-repo`) y un force-push coordinado. Si aparece una credencial real, revocarla y rotarla; borrar el texto no basta.
+3. Opcionalmente dejar de versionar `app/debug.keystore` en futuras revisiones, manteniendo claro que eliminarla del último commit no la elimina de commits históricos.
+
