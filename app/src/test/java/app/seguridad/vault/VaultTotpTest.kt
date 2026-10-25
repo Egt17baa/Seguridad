@@ -131,6 +131,8 @@ class VaultTotpTest {
         assertNull(parseOtpAuth("otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP&counter=1"))
         assertNull(parseOtpAuth("https://example.com"))
         assertNull(parseOtpAuth("otpauth://totp/x?secret=!!!"))
+        assertNull(parseOtpAuth("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP%"))
+        assertNull(parseOtpAuth("otpauth://totp/x%"))
     }
 
     @Test fun `seed word counts`() {
