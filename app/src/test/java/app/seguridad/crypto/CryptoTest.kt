@@ -114,7 +114,7 @@ class CryptoTest {
                 // Rejected before the expensive KDF allocation.
             }
         } finally {
-            password.fill('\\u0000')
+            password.fill('\u0000')
         }
     }
 
