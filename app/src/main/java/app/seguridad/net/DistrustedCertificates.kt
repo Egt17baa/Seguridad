@@ -37,6 +37,9 @@ internal val DISTRUSTED_SPKI_SHA256 = setOf(
  * Uses exact SPKI matching only. Blocking issuers by distinguished name would also reject unrelated certificates
  * issued by a root with the same subject (including future renewals or re-keyed certificates).
  */
+internal fun X509Certificate.spkiSha256(): String =
+    MessageDigest.getInstance("SHA-256").digest(publicKey.encoded).joinToString("") { "%02X".format(it) }
+
 internal fun X509Certificate.isDistrusted(): Boolean = spkiSha256() in DISTRUSTED_SPKI_SHA256
 
 /**
