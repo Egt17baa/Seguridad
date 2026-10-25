@@ -1,10 +1,10 @@
 # Seguridad
 
-App Android de seguridad y criptografía, sin cuentas, sin nube y sin anuncios. Todo se queda en el móvil.
+App Android de seguridad y criptografía, sin cuentas, sin nube y sin anuncios. La bóveda y los datos cifrados se guardan localmente en el móvil.
 
-Código privado. Todos los derechos reservados.
+**Licencia: [Apache-2.0](LICENSE).** Se permite usar, estudiar, modificar y redistribuir el código conforme a esa licencia. Las dependencias conservan sus propias licencias.
 
-## Qué hace (1.0.0)
+## Funciones
 
 - **Bóveda** de accesos, frases semilla, notas y códigos 2FA, cifrada con una clave de datos envuelta con Argon2id y, si se quiere, con la huella (Android Keystore). Se bloquea por inactividad o al salir. Exportar e importar.
 - **Códigos 2FA** TOTP (RFC 6238), con escáner QR (ZXing, solo pide la cámara al escanear) o con la clave a mano.
@@ -53,7 +53,7 @@ gradle -p jvm-check test --no-daemon --max-workers=1
 - **publish** (solo en `main`): publica el APK en la versión `apk-latest` de *Releases*. No ve los secretos.
 - **play-bundle** (etiquetas `v*` y a mano): el AAB para Google Play. Sin los secretos falla, porque Play no acepta la clave de prueba.
 
-Todas las acciones están fijadas por SHA, los permisos son de solo lectura salvo en `publish`, y los secretos solo existen en el paso de Gradle que firma.
+Todas las acciones están fijadas por SHA y los permisos son de solo lectura salvo en `publish`. Los secretos de firma se limitan a ejecuciones de confianza; las compilaciones desde ramas o PR no fiables no deben recibirlos.
 
 ### Verificación de dependencias
 
@@ -99,6 +99,10 @@ Secretos del repositorio (*Settings → Secrets and variables → Actions*):
 | `SEGURIDAD_KEY_PASSWORD` | contraseña de la clave |
 
 La CI decodifica el almacén en un archivo temporal del runner, exporta `SEGURIDAD_KEYSTORE_FILE`, compila y lo borra. Huella esperada del certificado y pasos de Google Play: [docs/PUBLICAR.md](docs/PUBLICAR.md).
+
+## Seguridad y alcance de la auditoría
+
+La app contiene controles defensivos, pero este proyecto **no debe considerarse auditado de forma independiente**. La revisión automatizada y estática no sustituye las pruebas en dispositivos reales ni una auditoría criptográfica externa. Consulta el [informe de revisión de seguridad](docs/AUDITORIA_SEGURIDAD_2026-10.md) y la [política de reporte de vulnerabilidades](SECURITY.md). No guardes fondos o secretos críticos basándote únicamente en esta revisión.
 
 ## Comprobaciones manuales en el móvil
 
