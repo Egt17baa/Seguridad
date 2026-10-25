@@ -14,6 +14,8 @@ Revisión estática de los archivos accesibles en `main`: manifiesto Android, al
 | Media | La función pública de Argon2id no validaba los parámetros por sí misma | Corregido; test de regresión añadido |
 | Baja–media | Un QR TOTP malformado podía producir una excepción al decodificar escapes URL | Corregido; tests de regresión añadidos |
 | Baja | La respuesta de Have I Been Pwned no tenía límite de tamaño | Corregido; test de regresión añadido |
+| Baja | Las credenciales de formularios de seguridad permanecían en estado de pantalla tras su uso | Corregido; se vacían después de las operaciones |
+| Baja–media | El bloqueo de CA eMudhra incluía raíces y nombres de emisor no necesarios, con riesgo de falsos positivos | Corregido; solo se bloquean las ocho huellas SPKI de intermedias afectadas |
 | Bloqueante para publicación pública | No se había revisado con un escáner el historial completo por secretos y metadatos privados | Pendiente |
 | Bloqueante para declarar la app «auditada» | Faltan verificación dinámica independiente y pruebas manuales en dispositivos | Pendiente |
 
@@ -41,6 +43,20 @@ Revisión estática de los archivos accesibles en `main`: manifiesto Android, al
 - **Cambio:** la decodificación de la etiqueta y parámetros se incluye en manejo de errores; una carga malformada devuelve `null` en lugar de propagar la excepción.
 - **Pruebas añadidas:** `app/src/test/java/app/seguridad/vault/VaultTotpTest.kt`: escapes incompletos en query y etiqueta.
 - **Referencia:** CWE-20 (validación de entradas).
+
+### [Baja, corregido] Secretos temporales retenidos en el estado de pantalla
+
+- **Ubicación:** `app/src/main/java/app/seguridad/ui/screens/SecurityToolsScreen.kt` (cifrado de texto/archivos y comprobador de contraseñas).
+- **Problema:** las pantallas conservaban la contraseña introducida después de terminar la comprobación o el cifrado; en el caso de cifrar texto, la frase semilla o el texto claro seguía en el campo de entrada.
+- **Cambio:** el comprobador limpia el campo de contraseña al terminar; el cifrado de texto captura los parámetros al iniciar la operación, vacía el campo de contraseña y elimina el texto original del formulario tras procesarlo; el flujo de archivos limpia la contraseña tras su uso. Las claves aleatorias introducidas se conservan en el formulario para no perderlas accidentalmente; el usuario debe copiarlas/guardarlas antes de abandonar la pantalla.
+- **Limitación:** Kotlin `String` es inmutable, de modo que limpiar el estado elimina una referencia visible, pero no garantiza borrar inmediatamente todas las copias anteriores de la memoria.
+
+### [Baja–media, corregido] Bloqueo excesivo de certificados raíz
+
+- **Ubicación:** `app/src/main/java/app/seguridad/net/DistrustedCertificates.kt`.
+- **Problema:** la mitigación de eMudhra también rechazaba tres raíces por su nombre distinguido y por sus huellas, lo que podía denegar certificados legítimos no firmados por las ocho claves intermedias comprometidas.
+- **Cambio:** la denegación se limita a las ocho huellas SHA-256 SPKI específicas de las intermedias comprometidas; la validación normal de la cadena sigue delegada al almacén de confianza del sistema.
+- **Pruebas:** actualizadas para comprobar que se rechaza la intermedia comprometida y que los certificados raíz no afectados siguen las decisiones del sistema. La ejecución de CI debe confirmarlo.
 
 ### [Baja, corregido] Respuesta remota sin límite de tamaño
 
