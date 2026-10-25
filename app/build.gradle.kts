@@ -104,7 +104,7 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
 }
 
-// Licence gate (the app is private): checkLicense fails if any library shipped in the release APK has a licence
+// Licence gate: checkLicense fails if any library shipped in the release APK has a licence
 // outside config/allowed-licenses.json (Apache-2.0, MIT, BSD-2/3-Clause, ISC, CC BY). Copyleft and proprietary fail.
 licenseReport {
     configurations = arrayOf("releaseRuntimeClasspath")
