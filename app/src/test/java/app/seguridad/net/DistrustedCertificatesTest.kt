@@ -42,17 +42,17 @@ class DistrustedCertificatesTest {
         assertEquals("8D417DB2DD8BF5E3084D1E3F196D583849D81BDD4C00C70B9D39369E96B8C782", emsignEcc.spkiSha256())
     }
 
-    @Test fun `a compromised intermediate is refused without distrusting unrelated roots`() {
+    @Test fun `a chain through a compromised intermediate is refused even under a trusted root`() {
         assertTrue(refused(compromised, aaaRoot))
-        assertFalse(refused(emsignEcc))
+        assertTrue(refused(emsignEcc))
     }
 
     @Test fun `other chains are left to the system`() {
         assertFalse(refused(aaaRoot))
     }
 
-    @Test fun `root trust decisions remain with the system trust store`() {
-        assertEquals(listOf(aaaRoot, emsignEcc), tm.acceptedIssuers.toList())
+    @Test fun `distrusted roots are not offered as issuers`() {
+        assertEquals(listOf(aaaRoot), tm.acceptedIssuers.toList())
     }
 
     @Test fun `the app's HTTP client uses the distrusting trust manager`() {
