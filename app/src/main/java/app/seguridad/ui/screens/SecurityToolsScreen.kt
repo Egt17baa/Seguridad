@@ -712,6 +712,7 @@ fun BreachScreen(pwned: PwnedPasswords, onBack: () -> Unit) {
                         false to "No se pudo comprobar. Revisa la conexión."
                     } finally {
                         pw.fill('\u0000')
+                        password = ""
                         busy = false
                     }
                 }
