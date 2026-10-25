@@ -81,21 +81,28 @@ fun parseOtpAuth(uri: String): TotpSecret? {
     } catch (e: Exception) {
         return null
     }
-    if (u.scheme != "otpauth" || u.host != "totp") return null
-    val query = (u.rawQuery ?: "").split('&').mapNotNull {
-        val kv = it.split('=', limit = 2)
-        if (kv.size == 2) kv[0].lowercase() to URLDecoder.decode(kv[1], "UTF-8") else null
-    }.toMap()
-    val secret = query["secret"]?.takeIf { totpKey(it) != null } ?: return null
-    val label = URLDecoder.decode((u.rawPath ?: "").removePrefix("/"), "UTF-8")
-    val labelIssuer = label.substringBefore(':', "").trim()
-    val account = label.substringAfter(':').trim()
-    return TotpSecret(
-        secret = secret.uppercase().filter { it in BASE32 },
-        issuer = query["issuer"] ?: labelIssuer,
-        account = account,
-        algorithm = (query["algorithm"] ?: "SHA1").uppercase().takeIf { it in setOf("SHA1", "SHA256", "SHA512") } ?: return null,
-        digits = query["digits"]?.toIntOrNull()?.takeIf { it in 6..8 } ?: 6,
-        period = query["period"]?.toIntOrNull()?.takeIf { it in 10..120 } ?: 30,
-    )
+    if (!u.scheme.equals("otpauth", ignoreCase = true) || !u.host.equals("totp", ignoreCase = true)) return null
+
+    // A scanned QR code is untrusted input. Malformed percent-escapes make URLDecoder throw;
+    // treat them as an invalid QR instead of crashing the caller.
+    return try {
+        val query = (u.rawQuery ?: "").split('&').mapNotNull {
+            val kv = it.split('=', limit = 2)
+            if (kv.size == 2) kv[0].lowercase() to URLDecoder.decode(kv[1], "UTF-8") else null
+        }.toMap()
+        val secret = query["secret"]?.takeIf { totpKey(it) != null } ?: return null
+        val label = URLDecoder.decode((u.rawPath ?: "").removePrefix("/"), "UTF-8")
+        val labelIssuer = label.substringBefore(':', "").trim()
+        val account = label.substringAfter(':').trim()
+        TotpSecret(
+            secret = secret.uppercase().filter { it in BASE32 },
+            issuer = query["issuer"] ?: labelIssuer,
+            account = account,
+            algorithm = (query["algorithm"] ?: "SHA1").uppercase().takeIf { it in setOf("SHA1", "SHA256", "SHA512") } ?: return null,
+            digits = query["digits"]?.toIntOrNull()?.takeIf { it in 6..8 } ?: 6,
+            period = query["period"]?.toIntOrNull()?.takeIf { it in 10..120 } ?: 30,
+        )
+    } catch (e: Exception) {
+        null
+    }
 }
