@@ -4,8 +4,8 @@ on:
   push:
     branches: [main, "claude/**"]
     tags: ["v*"]
-  # Pull requests from forks get no repository secrets (GitHub withholds them), so they build with the public
-  # test key. Never switch this to pull_request_target: it would run fork code with access to the secrets.
+  # PRs and non-release branches build without signing secrets. Never use pull_request_target: it could expose them
+  # to untrusted code. A version tag is trusted only on a tag push; manual dispatch may use main only for signing.
   pull_request:
   workflow_dispatch:
 
@@ -33,10 +33,10 @@ jobs:
       # The secrets exist only inside this step (not in the job), so no other step or action can read them.
       - name: Test, lint, licences and build
         env:
-          KEYSTORE_BASE64: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))) && secrets.SEGURIDAD_KEYSTORE_BASE64 || '' }}
-          SEGURIDAD_KEYSTORE_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))) && secrets.SEGURIDAD_KEYSTORE_PASSWORD || '' }}
-          SEGURIDAD_KEY_ALIAS: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))) && secrets.SEGURIDAD_KEY_ALIAS || '' }}
-          SEGURIDAD_KEY_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))) && secrets.SEGURIDAD_KEY_PASSWORD || '' }}
+          KEYSTORE_BASE64: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEYSTORE_BASE64 || '' }}
+          SEGURIDAD_KEYSTORE_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEYSTORE_PASSWORD || '' }}
+          SEGURIDAD_KEY_ALIAS: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEY_ALIAS || '' }}
+          SEGURIDAD_KEY_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEY_PASSWORD || '' }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" && -z "$KEYSTORE_BASE64" ]]; then
             echo "::error::No se publica desde main un APK firmado con la clave de prueba. Configura SEGURIDAD_* en Actions."
@@ -129,7 +129,7 @@ jobs:
   # so without the SEGURIDAD_* secrets this job fails instead of building an unusable bundle.
   play-bundle:
     # Signing secrets are used only for version tags or manual runs on main/tag, never arbitrary branches.
-    if: (startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    if: (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
