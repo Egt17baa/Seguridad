@@ -140,6 +140,32 @@ jobs:
           prerelease: true
           files: Seguridad.apk
 
+  # Attaches the APK of a version tag to that tag's release (created if it does not exist yet). The build job only
+  # gets here with the production key: a tag push without it fails. Can write releases, but never sees the key.
+  release-apk:
+    needs: [build, jvm-check]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Seguridad-apk
+
+      - name: Name the APK after the version and write its SHA-256
+        run: |
+          mv Seguridad.apk "Seguridad-$GITHUB_REF_NAME.apk"
+          sha256sum "Seguridad-$GITHUB_REF_NAME.apk" > "Seguridad-$GITHUB_REF_NAME.apk.sha256"
+
+      - name: Attach to the release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            Seguridad-${{ github.ref_name }}.apk
+            Seguridad-${{ github.ref_name }}.apk.sha256
+
   # Google Play bundle, signed with the upload key. Runs on tags v* or manually; Play rejects the public test key,
   # so without the SEGURIDAD_* secrets this job fails instead of building an unusable bundle.
   play-bundle:
