@@ -6,8 +6,14 @@ App Android de seguridad y criptografía, sin cuentas, sin nube y sin anuncios. 
 
 ## Funciones
 
-- **Bóveda** de accesos, frases semilla, notas y códigos 2FA, cifrada con una clave de datos envuelta con Argon2id y, si se quiere, con la huella (Android Keystore). Se bloquea por inactividad o al salir. Exportar e importar.
-- **Códigos 2FA** TOTP (RFC 6238), con escáner QR (ZXing, solo pide la cámara al escanear) o con la clave a mano.
+- **Bóveda** de accesos, frases semilla, notas y códigos 2FA, cifrada con una clave de datos envuelta con Argon2id y, si se quiere, con la huella (Android Keystore). Se bloquea por inactividad o al salir.
+  - **Búsqueda**, **favoritos** y **etiquetas**. La búsqueda mira título, usuario, URL y etiquetas, nunca contraseñas, frases ni notas.
+  - **Historial de contraseñas:** las últimas 5 de cada acceso.
+  - **Salud de la bóveda:** contraseñas repetidas, débiles, antiguas y sin 2FA. Si se pulsa «Comprobar filtraciones», consulta Have I Been Pwned con k-anonimato, una contraseña a la vez; nunca lo hace por su cuenta.
+  - **Adjuntos cifrados** en las entradas (hasta 5 MB cada uno y 50 MB en total), cada uno con su propia clave AES-256-GCM.
+  - **Copia `.sgbak`:** exportar e importar la bóveda con sus adjuntos. Se siguen leyendo las exportaciones JSON de la 1.0.x y de CriptoPanel.
+  - **Copia automática** cifrada a una carpeta que eliges (almacenamiento del sistema), con rotación de las 3, 5 o 10 últimas. Si falla, lo avisa en Ajustes y no toca la bóveda.
+- **Códigos 2FA** TOTP (RFC 6238), con escáner QR (ZXing, solo pide la cámara al escanear) o con la clave a mano. **Importar de Google Authenticator** (`otpauth-migration://`) y **exportar un código por QR** para otra app.
 - **Cifrar y descifrar texto y archivos** con AES-256-GCM, ChaCha20-Poly1305, Twofish, Serpent, Camellia o la cascada, con contraseña (Argon2id) o con una clave AES-256 aleatoria. Modo frase semilla con BIP-39.
 - **Herramientas:** generador de contraseñas y frases EFF con su entropía, comprobador de contraseñas filtradas (Have I Been Pwned con k-anonimato: solo salen 5 caracteres del hash SHA-1) y huella SHA-256 de archivos.
 - **Ajustes:** bloqueo, borrado del portapapeles, coste de Argon2id, tema claro u oscuro, copia de seguridad y la pantalla de licencias.
@@ -16,10 +22,16 @@ Protecciones en toda la app: `FLAG_SECURE`, filtro de toques bajo superposicione
 
 ## Compatibilidad con CriptoPanel
 
-Seguridad escribe sus propios formatos (`SG1:`, `.sgenc`, `seguridad-vault`) y **lee también los de CriptoPanel**:
+Seguridad escribe sus propios formatos (`SG1:`, `.sgenc`, `seguridad-vault` y, desde la 1.1.0, `seguridad-backup` en archivos `.sgbak`) y **lee también los de CriptoPanel**:
 
 - textos `CP1:` y archivos `.cpenc`;
 - la copia exportada de la bóveda de CriptoPanel (`criptopanel-vault`, versiones 1 y 2, y las antiguas sin campo `version`). Al importarla se vuelve a cifrar con el formato nuevo.
+
+Copias de la bóveda:
+
+- **`.sgbak` (`seguridad-backup` v1):** lo que escribe la 1.1.0 al exportar y la copia automática. Es un ZIP con la bóveda cifrada y los adjuntos cifrados.
+- **JSON de la 1.0.x y de CriptoPanel:** se siguen importando. Una JSON con adjuntos se rechaza y se pide importar el `.sgbak`.
+- El diseño describe los dos formatos nuevos (`seguridad-backup` v1 y el de adjunto v1) byte a byte en [docs/superpowers/specs/2026-10-23-seguridad-design.md](docs/superpowers/specs/2026-10-23-seguridad-design.md).
 
 Lo que se cifre de nuevo sale en el formato de Seguridad. Estos formatos se leerán siempre: hay tests con datos reales generados por CriptoPanel 1.10.0.
 
@@ -116,3 +128,9 @@ Lo que no se puede probar en la CI (no hay móvil ni emulador con huella). Antes
 - [ ] Importar una copia real de la bóveda de CriptoPanel y abrir un texto `CP1:` y un archivo `.cpenc` reales.
 - [ ] Menús desplegables bajo una superposición (filtro de toques) y exportar la bóveda sin tener bóveda (debe avisar).
 - [ ] Pantalla de licencias: todos los textos se abren.
+- [ ] 1.1.0, QR de Google Authenticator: importar uno con varias cuentas (y uno con HOTP, que debe saltarse y decirlo), y uno que venga en varios lotes (debe pedir el siguiente). Comparar los códigos con la app de origen. Exportar una entrada por QR y escanearla con otra app.
+- [ ] 1.1.0, adjuntos: añadir uno de varios MB, verlo en el detalle, guardarlo descifrado y comparar con el original; uno de más de 5 MB debe rechazarse; quitarlo con confirmación; añadir adjuntos desde un proveedor lento (Drive sin conexión) sin que la bóveda se quede bloqueada.
+- [ ] 1.1.0, copia `.sgbak`: exportar con adjuntos e importar en otro móvil (o tras borrar los datos de la app) con la contraseña de la copia. En Android 14 o posterior, una copia con nombres de ZIP raros (`../`, `/` inicial) debe rechazarse o ignorarse sin escribir nada fuera.
+- [ ] 1.1.0, copia automática: elegir una carpeta, hacer un cambio y comprobar que aparece `seguridad-auto-….sgbak` y que no queda ningún `.tmp`. Con una opción de conservar 3, comprobar la rotación y que no se borra nada ajeno. **Revocar el permiso** de la carpeta en Ajustes del sistema (o borrar la carpeta): la app no se cierra, Ajustes avisa y la bóveda sigue igual.
+- [ ] 1.1.0, copia automática en proveedores distintos: uno que no sepa renombrar (sin `FLAG_SUPPORTS_RENAME`) y Drive, que permite nombres repetidos (no debe quedar ningún `.tmp` ni una copia a medias con el nombre definitivo).
+- [ ] 1.1.0, salud con filtraciones: con una contraseña conocida como filtrada (`password`) y una repetida, ver los avisos; «Comprobar filtraciones» con red, con la red cortada (debe fallar sin cerrar la app) y cancelándola a mitad.
