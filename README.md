@@ -8,7 +8,7 @@ App Android de seguridad y criptografía, sin cuentas, sin nube y sin anuncios. 
 
 **Privacidad:** la app no recoge datos. [Política de privacidad](https://egt17baa.github.io/Seguridad/privacidad.html) (fuente: [`docs/privacidad.html`](docs/privacidad.html)).
 
-**Identificador:** `io.github.egt17baa.seguridad` desde la 1.1.1 (antes `app.seguridad`). Android lo trata como otra app: para pasar de la 1.1.0 o anterior, exporta la bóveda (`.sgbak`) en la antigua, impórtala en la nueva y después desinstala la antigua.
+**Identificador:** `io.github.egt17baa.seguridad` desde la 1.1.1 (antes `app.seguridad`). Android lo trata como otra app: para pasar de una versión anterior hay que exportar la bóveda en la antigua e importarla en la nueva (pasos en [`docs/PUBLICAR.md`](docs/PUBLICAR.md#2-descargar-el-apk-instalación-directa)).
 
 ## Funciones
 
@@ -71,7 +71,7 @@ gradle -p jvm-check test --no-daemon --max-workers=1
 - **release-apk** (etiquetas `v*`): adjunta a la release de esa etiqueta `Seguridad-vX.Y.Z.apk` y su `.sha256`, y crea la release si no existe. No ve los secretos. Es la única forma de publicar un APK: los push a `main` solo lo dejan como artefacto de la ejecución.
 - **play-bundle** (etiquetas `v*` y a mano): el AAB para Google Play. Sin los secretos falla, porque Play no acepta la clave de prueba.
 
-Todas las acciones están fijadas por SHA y los permisos son de solo lectura salvo en `publish`. Los secretos de firma se limitan a ejecuciones de confianza; las compilaciones desde ramas o PR no fiables no deben recibirlos.
+Todas las acciones están fijadas por SHA y los permisos son de solo lectura salvo en `release-apk`, que puede escribir releases pero no ve los secretos. Los secretos de firma se limitan a ejecuciones de confianza; las compilaciones desde ramas o PR no fiables no deben recibirlos.
 
 ### Verificación de dependencias
 

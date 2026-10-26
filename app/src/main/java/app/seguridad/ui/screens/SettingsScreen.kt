@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -320,7 +321,10 @@ private fun OpenLinkButton(label: String, url: String) {
     val uriHandler = LocalUriHandler.current
     var failed by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { failed = runCatching { uriHandler.openUri(url) }.isFailure }, modifier = Modifier.fillMaxWidth()) { Text(label) }
-    if (failed) Hint("No hay un navegador para abrirlo. La dirección es $url")
+    if (failed) {
+        Hint("No hay un navegador para abrirlo. Puedes copiar la dirección:")
+        SelectionContainer { Text(url, style = MaterialTheme.typography.bodySmall) }
+    }
 }
 
 /** Version and what the app does not promise; the licenses of what it ships are one tap away. */

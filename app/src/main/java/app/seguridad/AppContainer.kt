@@ -26,7 +26,7 @@ const val SETTINGS_FILE = "settings.json"
 class AppContainer(
     filesDir: File,
     /** The installed version (BuildConfig.VERSION_NAME), for the User-Agent of the HIBP queries. */
-    appVersion: String = "0",
+    appVersion: String,
     backupFolder: (String) -> BackupTarget? = { null },
     releaseFolder: (String) -> Unit = {},
     /** Lives as long as the process: the automatic copies and the record of how they went. */
