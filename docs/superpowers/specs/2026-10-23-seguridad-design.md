@@ -384,7 +384,19 @@ Recoge el dictamen jurídico del 26 de octubre de 2026 (hecho sobre la 1.0.1, `9
 
 **Además (revisión del código):** el cliente HTTP enviaba `User-Agent: Seguridad/1.0.0` fijo; ahora es `Seguridad/<versionName>` (`secureClient(appVersion)`, pasado desde `SeguridadApp` con `BuildConfig.VERSION_NAME`; test en `PwnedPasswordsTest`). La pantalla «Acerca de» decía que solo «¿Filtrada?» usa la red; ahora nombra también «Comprobar filtraciones».
 
-**Queda para el propietario:** el nombre definitivo (TMview y Play), el correo dedicado de la ficha (la política usa de contacto las incidencias de GitHub), activar GitHub Pages y *Private vulnerability reporting*, los formularios de Play Console, registrar el APK de GitHub en la verificación de desarrolladores, borrar la release `apk-latest` (ya no se actualiza y lleva el identificador antiguo) y decidir si se reescribe el historial.
+**Lo que quedaba para el propietario** (el nombre definitivo, el correo de la ficha, GitHub Pages, *Private vulnerability reporting*, los formularios de Play Console, la verificación de desarrolladores y borrar `apk-latest`) está hecho según el propietario (26 de octubre de 2026); lo que se ve desde el repositorio está comprobado: etiqueta `v1.1.1` con su APK de producción, *Private vulnerability reporting* activo y `apk-latest` borrada. El historial se reescribió ese día: los correos de autor pasan a la dirección `noreply` de GitHub y se quitan los enlaces a sesiones de los mensajes, sin cambiar ningún árbol; las etiquetas se movieron a los commits nuevos.
+
+### Después de la 1.1.1: la Public Suffix List fuera del APK
+
+Revisión jurídica del 26 de octubre de 2026. OkHttp 5 mete en el APK `assets/PublicSuffixDatabase.list` (130 KB), una versión compilada de la Public Suffix List de la Mozilla Foundation, con licencia **MPL-2.0** y sin su aviso. La MPL-2.0 es compatible con distribuir la app como Apache-2.0 (§3.3, obra mayor), pero pide avisar de la licencia y de dónde está la fuente (§3.1 y §3.2), y es copyleft, que la regla del proyecto no admite. Riesgo bajo: §5.1 devuelve los derechos al corregirlo, y la protección de una lista de datos es dudosa (TJUE C-604/10; art. 11 de la Directiva 96/9/CE).
+
+| Hecho | Cambio |
+|---|---|
+| OkHttp solo lee la lista para las cookies (`receiveHeaders`, que sale antes con `CookieJar.NO_COOKIES`) y en `HttpUrl.topPrivateDomain()`, comprobado en las fuentes de 5.3.2. La app no usa ninguna de las dos. | `androidResources.ignoreAssetsPatterns` la deja fuera del APK, conservando los patrones por defecto de AGP (que dejan de aplicarse en cuanto la lista no está vacía). `HttpClientTest` fija que el cliente va sin cookies ni caché. |
+| `checkLicense` mira la licencia de cada biblioteca, no la de los datos que trae. | Tarea `checkAssets` (en `check` y en la CI): todo lo que va en `assets/` del APK release tiene que venir de `app/src/main/assets`. Un asset nuevo de una biblioteca hace fallar la compilación hasta revisar su licencia. |
+| El APK de la release `v1.1.1` ya publicado sigue llevándola. | Nota en esa release (la pone el propietario): «Incluye la Public Suffix List (Mozilla Foundation, MPL-2.0) a través de OkHttp. Fuente: https://github.com/publicsuffix/list». |
+
+El analizador de enlaces previsto necesita esa lista. Jurídicamente puede usarse con su aviso (el copyleft no pasa al código de la app), pero eso exige una excepción a la regla del proyecto para archivos de datos MPL-2.0 sin modificar: se decide al diseñar esa versión.
 
 ## Comprobación manual en el móvil (no se puede hacer aquí)
 
