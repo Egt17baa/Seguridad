@@ -30,7 +30,19 @@ data class Settings(
     val kdf: KdfProfile = KdfProfile.STANDARD,
     val theme: ThemeMode = ThemeMode.DARK,
     val noticeAccepted: Boolean = false,
+    /** The folder (a SAF tree URI, with a persistable permission) for the automatic copies; null when off. */
+    val autoBackupUri: String? = null,
+    /** How many automatic copies to keep: one of [AUTO_BACKUP_KEEP_CHOICES]. */
+    val autoBackupKeep: Int = AUTO_BACKUP_KEEP_DEFAULT,
+    /** Why the last automatic copy failed (a fixed Spanish message, never a path or file contents); null if it went well. */
+    val lastAutoBackupError: String? = null,
+    /** When the last automatic copy was written (epoch ms); null if none yet. */
+    val lastAutoBackupAt: Long? = null,
 )
+
+/** How many automatic copies can be kept. */
+val AUTO_BACKUP_KEEP_CHOICES = listOf(3, 5, 10)
+const val AUTO_BACKUP_KEEP_DEFAULT = 5
 
 /**
  * Whether to offer this profile for new data: STANDARD always; HIGH only when [heapKiB] / 2 can hold its memory.

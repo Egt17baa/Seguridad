@@ -147,7 +147,7 @@ fun AppNavHost(container: AppContainer) {
             composable("tools/generator") { GeneratorScreen(onBack = back) }
             composable("tools/breach") { BreachScreen(container.pwned, onBack = back) }
             composable("tools/hash") { FileHashScreen(onBack = back) }
-            composable("settings") { SettingsScreen(settingsStore, vault, onAbout = { nav.navigate("settings/about") }) }
+            composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
             composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
             composable("settings/licenses") { LicensesScreen(onBack = back) }
         }
