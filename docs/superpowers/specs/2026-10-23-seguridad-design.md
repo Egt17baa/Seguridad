@@ -231,6 +231,22 @@ Rama `claude/seguridad-1.0.1`, desde `main` (40f75dc). El usuario encontró esto
 
 **Por qué los tests no los vieron.** Los tests son de JVM (`jvm-check` y `testDebugUnitTest`) y no abren actividades, así que nunca llegan a pasar por `FragmentActivity.startActivityForResult`. Además, la versión de `fragment` venía de una dependencia transitiva que nadie había fijado. Los fallos B y C eran de comportamiento: no estaban especificados y no había ningún test que los describiera. Ahora la regresión de A la frena `checkFragmentVersion` al compilar, y B y C tienen sus tests. Lo que sigue sin poder probarse aquí (que las pantallas se abran de verdad) está en la lista de comprobación manual del README.
 
+## 1.0.2: código abierto y endurecimiento (implementada)
+
+El repositorio pasa a ser público con licencia **Apache-2.0** (`LICENSE`, `SECURITY.md`). La 1.0.2 recoge la revisión estática hecha en `main` al publicarlo (`docs/AUDITORIA_SEGURIDAD_2026-10.md`) y la revisión de esa revisión. No cambia ningún formato.
+
+| Cambio | Dónde |
+|---|---|
+| `argon2id()` valida en su propia entrada el salt (16 bytes), la longitud de salida (4–1024) y `KdfParams.checkSane()`. | `crypto/Crypto.kt` |
+| Un QR `otpauth://` con escapes `%` mal formados devuelve `null` en vez de lanzar. | `crypto/Totp.kt` |
+| La respuesta de HIBP se limita a 2 MiB. | `net/PwnedPasswords.kt` |
+| Las contraseñas de las herramientas se vacían del formulario al usarlas, y el texto en claro solo cuando se ha cifrado bien (si el cifrado falla no se pierde lo escrito). | `ui/screens/SecurityToolsScreen.kt` |
+| Los secretos de firma solo llegan a push a `main`, a etiquetas `v*` y a ejecuciones manuales desde `main`. Un push a `main` o a una etiqueta sin clave de producción falla después de pasar tests y lint. | `.github/workflows/build-apk.yml` |
+
+**Decisión revisada: las raíces de eMudhra siguen bloqueadas.** La revisión de `main` había quitado del bloqueo las tres raíces emSign G3 y sus nombres, por riesgo de «falsos positivos». Se restaura el bloqueo de la 1.0.0: son las raíces de las intermedias comprometidas, Mozilla y Chrome las retiraron, y la app solo se conecta a `api.pwnedpasswords.com`, que no tiene certificados de eMudhra; un falso positivo no puede ocurrir y quitar el bloqueo solo deja pasar más cadenas forjables en un Android sin actualizar.
+
+**Historial público.** Gitleaks 8.24.3 sobre todo el historial (`git --all`, 57 commits): 4 coincidencias, todas falsos positivos (el vector del RFC 6238 en `VaultTotpTest.kt` y las claves ya cifradas `wrappedKey` de los fixtures de CriptoPanel). Los mensajes de commit llevan enlaces a sesiones de Claude Code y los autores, correos; reescribir el historial es decisión del propietario y no se ha hecho.
+
 ## Comprobación manual en el móvil (no se puede hacer aquí)
 
 Activar la huella y desbloquear con ella; bloquear al salir; escanear un QR de 2FA y de Google Authenticator; comparar los códigos con otra app; la revisión del móvil en uno real; el aspecto en claro y en oscuro; importar una copia real de CriptoPanel.
