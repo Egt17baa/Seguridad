@@ -227,6 +227,34 @@ class CardTest {
         }
     }
 
+    /**
+     * Los separadores de línea y de párrafo y los caracteres de formato invisibles (ancho cero, unión de palabras,
+     * marca de orden de bytes…) permiten un nombre que no se ve o se ve partido: se rechazan al crear y, bien firmados,
+     * al leer. U+200C y U+200D se siguen admitiendo: son necesarios en escrituras como la persa y en los emoji.
+     */
+    @Test fun caracteresInvisiblesEnElNombre() {
+        val id = fixedIdentity()
+        val forbidden = listOf(
+            0x2028, 0x2029, 0x200B, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xFEFF, 0x180E,
+        )
+        for (code in forbidden) {
+            val what = "U+%04X".format(code)
+            val c = String(Character.toChars(code))
+            rejects("$what al crear, solo") { id.cardBytes(c) }
+            rejects("$what al crear, dentro") { id.cardBytes("An${c}a") }
+            rejects("$what al crear, al final") { id.cardBytes("Ana$c") }
+            rejects("$what al leer, solo") { parseCard(armada(id, c.toByteArray())) }
+            rejects("$what al leer, dentro") { parseCard(armada(id, "An${c}a".toByteArray())) }
+            rejects("$what al leer, al final") { parseCard(armada(id, "Ana$c".toByteArray())) }
+        }
+        // Los vecinos de esos rangos que no son de formato siguen valiendo, y U+200C y U+200D también.
+        for (ok in listOf("\u200C", "\u200D", "\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645", "\u2027", "\u202F", "\u205F", "\u2070", "\u180D")) {
+            val name = "An${ok}a"
+            assertEquals(name, parseCard(id.cardBytes(name)).name)
+            assertEquals(name, parseCard(armada(id, name.toByteArray())).name)
+        }
+    }
+
     /** Las funciones de Base64url son de todos los formatos: mensajes neutros y forma canónica. */
     @Test fun base64UrlDeLosFormatos() {
         val data = ByteArray(10) { (it * 37).toByte() }

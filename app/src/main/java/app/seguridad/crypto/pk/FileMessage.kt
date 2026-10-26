@@ -4,6 +4,7 @@ import app.seguridad.crypto.Aead
 import app.seguridad.crypto.CHUNK_BYTES
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KEY_BYTES
+import app.seguridad.crypto.MAX_FILE_NAME_BYTES
 import app.seguridad.crypto.STREAM_PREFIX_BYTES
 import app.seguridad.crypto.TAG_BYTES
 import app.seguridad.crypto.aead
@@ -46,9 +47,6 @@ import java.security.SecureRandom
  * firma de un `.sgsig` nunca vale dentro de un archivo cifrado. Cubre la cabecera (con su `enc` y su prefijo), la clave
  * del destinatario y el registro 0 (con el nombre), así que no se puede reenviar a otra persona ni cambiar el nombre.
  */
-
-/** Lo máximo que mide el nombre, en bytes de UTF-8. [safeFileName] lo deja muy por debajo (120 caracteres). */
-private const val MAX_FILE_NAME_BYTES = 1024
 
 private const val FILE_INFO = "seguridad-file-v1"
 private const val FILE_KEY_LABEL = "seguridad-file-key-v1"
@@ -122,57 +120,61 @@ internal fun encryptFileFor(
 ) {
     if (ikmE.size != IKM_E_BYTES || streamPrefix.size != STREAM_PREFIX_BYTES) throw CryptoFailure(CANNOT_ENCRYPT_FILE)
     val nameBytes = safeFileName(name).toByteArray(Charsets.UTF_8)
-    if (nameBytes.size > MAX_FILE_NAME_BYTES) throw CryptoFailure(CANNOT_ENCRYPT_FILE)
-    val context = bouncy(CANNOT_ENCRYPT_FILE) {
-        val suite = hpkeSuite()
-        suite.setupBaseS(suite.deserializePublicKey(recipient.kemPublic), asciiLabel(FILE_INFO), ikmE)
-    }
-    val enc = context.encapsulation
-    if (enc.size != ENC_BYTES) throw CryptoFailure(CANNOT_ENCRYPT_FILE)
-    val header = pkHeader(PkKind.FILE_MESSAGE) + enc + streamPrefix
-    val key = bouncy(CANNOT_ENCRYPT_FILE) { context.export(asciiLabel(FILE_KEY_LABEL), KEY_BYTES) }
-    val chunk = ByteArray(CHUNK_BYTES)
-    var record0: ByteArray? = null
     try {
-        val signer = sender?.fileSigner(FILE_SIGNATURE_CONTEXT)
-        record0 = if (sender == null) {
-            byteArrayOf(0) + nameBytes
-        } else {
-            byteArrayOf(FLAG_SIGNED.toByte()) + sender.edPublic + nameBytes
+        if (nameBytes.size > MAX_FILE_NAME_BYTES) throw CryptoFailure(CANNOT_ENCRYPT_FILE)
+        val context = bouncy(CANNOT_ENCRYPT_FILE) {
+            val suite = hpkeSuite()
+            suite.setupBaseS(suite.deserializePublicKey(recipient.kemPublic), asciiLabel(FILE_INFO), ikmE)
         }
-        // La firma cubre, en este orden: cabecera, clave X-Wing del destinatario, registro 0 en claro y datos en claro.
-        if (signer != null) {
-            val recipientKem = recipient.kemPublic
-            signer.update(header, 0, header.size)
-            signer.update(recipientKem, 0, recipientKem.size)
-            signer.update(record0, 0, record0.size)
-        }
-        output.write(header)
-        val sealed0 = sealRecord(key, header, streamPrefix, 0, false, record0)
-        output.write(ByteBuffer.allocate(2).putShort(sealed0.size.toShort()).array())
-        output.write(sealed0)
-
-        var counter = 1
-        while (true) {
-            val n = input.readFully(chunk)
-            if (n == 0) break
-            signer?.update(chunk, 0, n)
-            val plain = if (n == CHUNK_BYTES) chunk else chunk.copyOf(n)
-            try {
-                output.write(sealRecord(key, header, streamPrefix, counter, false, plain))
-            } finally {
-                if (plain !== chunk) plain.fill(0)
+        val enc = context.encapsulation
+        if (enc.size != ENC_BYTES) throw CryptoFailure(CANNOT_ENCRYPT_FILE)
+        val header = pkHeader(PkKind.FILE_MESSAGE) + enc + streamPrefix
+        val key = bouncy(CANNOT_ENCRYPT_FILE) { context.export(asciiLabel(FILE_KEY_LABEL), KEY_BYTES) }
+        val chunk = ByteArray(CHUNK_BYTES)
+        var record0: ByteArray? = null
+        try {
+            val signer = sender?.fileSigner(FILE_SIGNATURE_CONTEXT)
+            record0 = if (sender == null) {
+                byteArrayOf(0) + nameBytes
+            } else {
+                byteArrayOf(FLAG_SIGNED.toByte()) + sender.edPublic + nameBytes
             }
-            if (n < CHUNK_BYTES) { counter++; break } // un registro corto solo puede ser el último de datos
-            if (++counter == -1) throw CryptoFailure(TOO_BIG_FILE) // Nunca se repite un nonce.
+            // La firma cubre, en este orden: cabecera, clave X-Wing del destinatario, registro 0 en claro y datos en claro.
+            if (signer != null) {
+                val recipientKem = recipient.kemPublic
+                signer.update(header, 0, header.size)
+                signer.update(recipientKem, 0, recipientKem.size)
+                signer.update(record0, 0, record0.size)
+            }
+            output.write(header)
+            val sealed0 = sealRecord(key, header, streamPrefix, 0, false, record0)
+            output.write(ByteBuffer.allocate(2).putShort(sealed0.size.toShort()).array())
+            output.write(sealed0)
+
+            var counter = 1
+            while (true) {
+                val n = input.readFully(chunk)
+                if (n == 0) break
+                signer?.update(chunk, 0, n)
+                val plain = if (n == CHUNK_BYTES) chunk else chunk.copyOf(n)
+                try {
+                    output.write(sealRecord(key, header, streamPrefix, counter, false, plain))
+                } finally {
+                    if (plain !== chunk) plain.fill(0)
+                }
+                if (n < CHUNK_BYTES) { counter++; break } // un registro corto solo puede ser el último de datos
+                if (++counter == -1) throw CryptoFailure(TOO_BIG_FILE) // Nunca se repite un nonce.
+            }
+            val finalPlain = bouncy(CANNOT_ENCRYPT_FILE) { signer?.generateSignature() } ?: ByteArray(0)
+            output.write(sealRecord(key, header, streamPrefix, counter, true, finalPlain))
+            output.flush()
+        } finally {
+            key.fill(0)
+            chunk.fill(0)
+            record0?.fill(0)
         }
-        val finalPlain = bouncy(CANNOT_ENCRYPT_FILE) { signer?.generateSignature() } ?: ByteArray(0)
-        output.write(sealRecord(key, header, streamPrefix, counter, true, finalPlain))
-        output.flush()
     } finally {
-        key.fill(0)
-        chunk.fill(0)
-        record0?.fill(0)
+        nameBytes.fill(0)
     }
 }
 
@@ -243,7 +245,7 @@ fun decryptFileFor(input: InputStream, output: OutputStream, me: Identity): Open
                 writeData(key, header, streamPrefix, counter, window, 0, RECORD_BYTES, verifier, output)
                 if (++counter == -1) throw CryptoFailure(TOO_BIG_FILE) // Nunca se repite un nonce.
                 System.arraycopy(window, RECORD_BYTES, window, 0, finalSize)
-                have = finalSize + input.readFully(window, RECORD_BYTES, finalSize)
+                have = finalSize + input.readFully(window, len = RECORD_BYTES, off = finalSize)
             } else {
                 // Se acabó el flujo: los últimos `finalSize` bytes son el final y lo anterior, a lo sumo un registro de datos corto.
                 if (have < finalSize) throw CryptoFailure(DAMAGED_FILE)

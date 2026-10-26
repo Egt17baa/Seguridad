@@ -2,7 +2,6 @@ package app.seguridad.crypto.pk
 
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
-import app.seguridad.crypto.extractPrefixedToken
 import app.seguridad.crypto.extractToken
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -365,6 +364,37 @@ class MessageTest {
         opens("antes y después con el mensaje partido", "Te paso esto: " + token.chunked(60).joinToString(" ") + " Gracias")
     }
 
+    /**
+     * Detrás del mensaje puede venir una frase sin acentos ni puntuación: cada palabra es un trozo de Base64url más. Las
+     * uniones que no pueden ser un mensaje (Base64url no canónico, tamaño imposible) no gastan ninguno de los 8 intentos
+     * de apertura: solo cuentan las que llegan a HPKE.
+     */
+    @Test fun elPegadoDelChatConMuchasPalabrasSinAcentosDetrasSeAbre() {
+        val b = anaIdentity()
+        val token = encryptMessage("Quedamos a las diez", cardOf(b), fixedIdentity())
+        val frase = "Te lo paso por aqui que es mas seguro" // 9 palabras
+        assertEquals(9, frase.split(" ").size)
+        fun opens(label: String, pasted: String) {
+            assertEquals(label, "Quedamos a las diez", decryptMessage(pasted, b).text)
+        }
+        opens("tras un espacio", "$token $frase")
+        opens("en la línea siguiente", "$token\n$frase")
+        opens("con punto final", "$token $frase.")
+        opens("partido en líneas", token.chunked(60).joinToString("\n") + "\n" + frase)
+        // Con otras longitudes de frase, para que las uniones caigan en las cuatro clases de longitud módulo 4.
+        for (n in 1..9) opens("$n palabras", token + " " + frase.split(" ").take(n).joinToString(" "))
+    }
+
+    /** Miles de trozos detrás no dan miles de aperturas HPKE ni tardan: se prueban como mucho 8 y falla con [NOT_FOR_ME]. */
+    @Test fun muchosTrozosDetrasNoHacenTrabajoSinLimite() {
+        val b = anaIdentity()
+        val token = encryptMessage("Hola", cardOf(b), null)
+        val pasted = token + " A".repeat(30_000)
+        val start = System.nanoTime()
+        assertEquals(NOT_FOR_ME, rejects("demasiados trozos") { decryptMessage(pasted, b) }.message)
+        assertTrue("tardó ${(System.nanoTime() - start) / 1_000_000} ms", System.nanoTime() - start < 10_000_000_000L)
+    }
+
     @Test fun elPegadoDelChatSinElPrefijoSeRechaza() {
         val b = anaIdentity()
         val token = encryptMessage("Hola", cardOf(b), null)
@@ -372,17 +402,15 @@ class MessageTest {
         rejects("prefijo en minúsculas") { decryptMessage(token.replace("SGM1:", "sgm1:"), b) }
     }
 
-    @Test fun extractPrefixedTokenGeneralizaExtractToken() {
-        assertEquals("SGM1:abc_-", extractPrefixedToken("nota\nSGM1:abc_-\nGuardado el lunes", "SGM1:"))
-        assertEquals("SGM1:abcd", extractPrefixedToken("SGM1:ab\ncd\n", "SGM1:"))
-        assertEquals("SGM1:abc", extractPrefixedToken("Mira: SGM1:abc. Gracias", "SGM1:"))
-        assertEquals("SGS1:xyz", extractPrefixedToken("texto\nSGS1:xyz", "SGS1:"))
-        assertNull(extractPrefixedToken("SGM1:", "SGM1:"))
-        assertNull(extractPrefixedToken("nada", "SGM1:"))
-        assertNull(extractPrefixedToken("SG1:abc", "SGM1:"))
-        // extractToken sigue igual para SG1: y CP1:.
+    /** `extractToken` (solo `SG1:` y `CP1:`) se queda como estaba: los formatos de clave pública tienen su propio lector. */
+    @Test fun extractTokenSigueIgualParaLosFormatosAntiguos() {
         assertEquals("CP1:abc_-", extractToken("nota\nCP1:abc_-\nGuardado el lunes"))
         assertEquals("SG1:abcd", extractToken("SG1:ab\ncd\n"))
+        assertEquals("SG1:abc", extractToken("Mira: SG1:abc. Gracias"))
+        assertNull(extractToken("SG1:"))
+        assertNull(extractToken("nada"))
+        assertNull(extractToken("SGM1:abc"))
+        assertNull(extractToken("SGS1:abc"))
     }
 
     // ---- BC rechaza la clave ----

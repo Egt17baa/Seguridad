@@ -2,6 +2,7 @@ package app.seguridad.crypto.pk
 
 import app.seguridad.core.base45Decode
 import app.seguridad.core.base45Encode
+import app.seguridad.core.isBase45Char
 import app.seguridad.crypto.CryptoFailure
 import org.bouncycastle.math.ec.rfc7748.X25519
 import java.nio.ByteBuffer
@@ -17,8 +18,9 @@ import java.text.Normalizer
  *   | longitud del nombre (1) | nombre en UTF-8, NFC (0 a 64 bytes)
  *   | firma Ed25519 (64) de labeled("seguridad-card-v1") ‖ todo lo anterior
  *
- * El nombre no puede llevar caracteres de control (categoría Cc) ni controles de dirección del texto, y la parte X25519
- * de la clave X-Wing tiene que pasar la comprobación de RFC 7748 §6.1 (los puntos de orden pequeño se rechazan).
+ * El nombre no puede llevar caracteres de control (categoría Cc), controles de dirección del texto, separadores de
+ * línea y de párrafo ni caracteres de formato invisibles, y la parte X25519 de la clave X-Wing tiene que pasar la
+ * comprobación de RFC 7748 §6.1 (los puntos de orden pequeño se rechazan).
  *
  * La firma demuestra que quien tiene la clave Ed25519 eligió esa clave X-Wing y ese nombre. El nombre es solo una
  * sugerencia, sin ningún valor de seguridad: se enseña tal cual y quien guarda el contacto lo cambia.
@@ -43,14 +45,15 @@ private const val ED_AT = 5 // tras la cabecera (`pkHeader` mide 5 bytes)
 private const val KEM_AT = ED_AT + ED_PUBLIC_BYTES
 private const val NAME_LENGTH_AT = KEM_AT + KEM_PUBLIC_BYTES
 private const val NAME_AT = NAME_LENGTH_AT + 1
-private const val MIN_CARD_BYTES = NAME_AT + SIG_BYTES
+/** Lo que mide la tarjeta más corta (con el nombre vacío). */
+internal const val MIN_CARD_BYTES = NAME_AT + SIG_BYTES
 
 private const val TOO_BIG = "La tarjeta es demasiado grande"
 private const val DAMAGED = "La tarjeta está dañada o incompleta"
 private const val BAD_SIGNATURE = "La firma de la tarjeta no es válida"
 private const val BAD_NAME = "El nombre de la tarjeta no es válido"
 private const val NAME_TOO_LONG = "El nombre es demasiado largo: como máximo $MAX_NAME_BYTES bytes en UTF-8"
-private const val BAD_NAME_CHARACTERS = "El nombre de la tarjeta tiene caracteres de control o de dirección del texto"
+private const val BAD_NAME_CHARACTERS = "El nombre de la tarjeta tiene caracteres de control, de dirección del texto o invisibles"
 private const val BAD_KEY = "La clave de cifrado de la tarjeta no es válida"
 private const val NOT_A_CARD = "El texto de la tarjeta debe empezar por $CARD_TEXT_PREFIX"
 private const val BAD_CHARACTERS = "La tarjeta tiene caracteres que no son válidos"
@@ -73,13 +76,14 @@ data class Card(val edPublic: ByteArray, val kemPublic: ByteArray, val name: Str
  * si no, lanza [CryptoFailure]. Ed25519 es determinista: el mismo nombre da siempre los mismos bytes.
  */
 fun Identity.cardBytes(name: String): ByteArray {
+    val normalized = Normalizer.normalize(name, Normalizer.Form.NFC)
     val nameBytes = try {
-        strictUtf8(Normalizer.normalize(name, Normalizer.Form.NFC))
+        strictUtf8(normalized)
     } catch (e: CharacterCodingException) {
         throw CryptoFailure(BAD_NAME)
     }
     if (nameBytes.size > MAX_NAME_BYTES) throw CryptoFailure(NAME_TOO_LONG)
-    if (hasForbiddenNameCharacter(Normalizer.normalize(name, Normalizer.Form.NFC))) throw CryptoFailure(BAD_NAME_CHARACTERS)
+    if (hasForbiddenNameCharacter(normalized)) throw CryptoFailure(BAD_NAME_CHARACTERS)
     val body = pkHeader(PkKind.CARD) + edPublic + kemPublic + byteArrayOf(nameBytes.size.toByte()) + nameBytes
     return body + sign(CARD_LABEL, body)
 }
@@ -179,14 +183,30 @@ fun cardFromAnyText(text: String): Card {
 }
 
 /**
- * Si [name] (ya en NFC) tiene un carácter de control Unicode (categoría Cc: U+0000 a U+001F y U+007F a U+009F, con CR,
- * LF y TAB) o un control de dirección del texto (U+061C, U+200E, U+200F, U+202A a U+202E, U+2066 a U+2069), que
- * permiten que un nombre se enseñe distinto de lo que dice.
+ * Si [name] (ya en NFC) tiene un carácter que permite que se enseñe distinto de lo que dice o que no se vea:
+ * - un control Unicode (categoría Cc: U+0000 a U+001F y U+007F a U+009F, con CR, LF y TAB);
+ * - un control de dirección del texto (U+061C, U+200E, U+200F, U+202A a U+202E, U+2066 a U+2069);
+ * - un separador de línea o de párrafo (U+2028, U+2029);
+ * - un carácter de formato invisible: espacio de ancho cero (U+200B), U+2060 a U+2064 (unión de palabras y operadores
+ *   invisibles), marca de orden de bytes (U+FEFF) y separador de vocales mongol (U+180E).
+ *
+ * U+200C y U+200D (no unir y unir de ancho cero) **sí se admiten**: hacen falta en escrituras como la persa o la
+ * devanagari y en los emoji compuestos.
  */
 private fun hasForbiddenNameCharacter(name: String): Boolean = name.any {
     Character.getType(it) == Character.CONTROL.toInt() ||
-        it == '\u061C' || it == '\u200E' || it == '\u200F' || it in '\u202A'..'\u202E' || it in '\u2066'..'\u2069'
+        it == '\u061C' || it == '\u200E' || it == '\u200F' || it in '\u202A'..'\u202E' || it in '\u2066'..'\u2069' ||
+        it == '\u2028' || it == '\u2029' ||
+        it == '\u200B' || it in '\u2060'..'\u2064' || it == '\uFEFF' || it == '\u180E'
 }
+
+/**
+ * Si [bytes] mide lo que dice su longitud de nombre: [MIN_CARD_BYTES] (la tarjeta sin nombre) más esa longitud. Es una de
+ * las comprobaciones de [parseCard] que no gasta ninguna verificación de firma: «Abrir lo recibido» la usa para no
+ * contar como intento una unión de trozos que no puede ser una tarjeta.
+ */
+internal fun hasCardLength(bytes: ByteArray): Boolean =
+    bytes.size >= MIN_CARD_BYTES && bytes.size == MIN_CARD_BYTES + (bytes[NAME_LENGTH_AT].toInt() and 0xFF)
 
 /** [base45Decode] con [CryptoFailure] en vez de [IllegalArgumentException]. */
 private fun base45DecodeOrFail(text: String): ByteArray = try {
@@ -194,8 +214,6 @@ private fun base45DecodeOrFail(text: String): ByteArray = try {
 } catch (e: IllegalArgumentException) {
     throw CryptoFailure(DAMAGED)
 }
-
-private fun isBase45Char(c: Char) = c in '0'..'9' || c in 'A'..'Z' || c in " $%*+-./:"
 
 /** Los bytes UTF-8 de [s]; lanza [CharacterCodingException] con un sustituto suelto en vez de poner «?». */
 internal fun strictUtf8(s: String): ByteArray {

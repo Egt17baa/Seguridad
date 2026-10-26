@@ -112,4 +112,13 @@ class Base45Test {
         assertArrayEquals(ascii("Hello!!"), base45Decode("%69 VD92EX0"))
         rejects("%69VD92EX0") // sin el espacio, 10 caracteres: un grupo de 1
     }
+
+    /** `isBase45Char` es exactamente el alfabeto: los 45 caracteres, y ningún otro (minúsculas, saltos, Unicode). */
+    @Test fun isBase45CharEsElAlfabeto() {
+        val alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
+        assertEquals(45, alphabet.length)
+        val accepted = (0..0x3000).map { it.toChar() }.filter { isBase45Char(it) }.joinToString("")
+        assertEquals(alphabet.toSet(), accepted.toSet())
+        assertEquals(45, accepted.length)
+    }
 }

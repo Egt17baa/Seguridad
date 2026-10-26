@@ -13,6 +13,9 @@ private const val BASE_SQUARED = BASE * BASE
 /** Valor de cada carácter ASCII del alfabeto, y -1 para el resto. */
 private val DIGIT_OF = IntArray(128) { -1 }.also { table -> ALPHABET.forEachIndexed { value, c -> table[c.code] = value } }
 
+/** Si [c] es uno de los 45 caracteres del alfabeto de Base45 (el espacio también lo es). */
+fun isBase45Char(c: Char): Boolean = c.code < DIGIT_OF.size && DIGIT_OF[c.code] >= 0
+
 /** Codifica [b] en Base45: 3 caracteres por cada 2 bytes y 2 por el byte final si sobra uno. */
 fun base45Encode(b: ByteArray): String {
     val out = StringBuilder(b.size / 2 * 3 + b.size % 2 * 2)
