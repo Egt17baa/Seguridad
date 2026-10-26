@@ -64,7 +64,8 @@ jobs:
           fi
 
           status=0
-          ./gradlew :app:assembleRelease --no-daemon || status=$?
+          # Same versionCode as the Play bundle of this run, so every published APK is newer than the one before.
+          ./gradlew :app:assembleRelease -PversionCode="$GITHUB_RUN_NUMBER" --no-daemon || status=$?
           rm -f "$RUNNER_TEMP/upload.jks"
           exit "$status"
 
