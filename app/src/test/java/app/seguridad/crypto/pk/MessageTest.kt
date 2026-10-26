@@ -1,6 +1,7 @@
 package app.seguridad.crypto.pk
 
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.extractPrefixedToken
 import app.seguridad.crypto.extractToken
 import kotlinx.serialization.json.Json
@@ -313,8 +314,20 @@ class MessageTest {
 
     @Test fun unTextoEnormeSeRechazaSinProcesarlo() {
         val b = anaIdentity()
-        rejects("1 MiB") { decryptMessage("SGM1:" + "A".repeat(1 shl 20), b) }
-        rejects("1 MiB con relleno") { decryptMessage("hola ".repeat(1 shl 18) + "SGM1:AAAA", b) }
+        rejects("más de 1 MiB") { decryptMessage("SGM1:" + "A".repeat(1 shl 20), b) }
+        rejects("más de 1 MiB con relleno") { decryptMessage("hola ".repeat(1 shl 18) + "SGM1:AAAA", b) }
+        // Dentro del límite del pegado pero sin ser un mensaje: se descarta por tamaño, sin intentar abrirlo.
+        assertEquals(NOT_FOR_ME, rejects("1 MiB de Base64url") { decryptMessage("SGM1:" + "A".repeat((1 shl 20) - 10), b) }.message)
+        rejects("miles de trozos") { decryptMessage("SGM1:" + "A ".repeat(400_000), b) }
+    }
+
+    @Test fun unMensajeEntreMuchoTextoSeAbre() {
+        val b = anaIdentity()
+        val token = encryptMessage("Entre mucho texto", cardOf(b), fixedIdentity())
+        val filler = "Esto es una conversación larga. ".repeat(5_000) // ~160.000 caracteres
+        val pasted = filler + "\n" + token.chunked(70).joinToString("\n") + "\n" + filler
+        assertTrue(pasted.length in 300_000..MAX_TEXT_FILE_BYTES)
+        assertEquals("Entre mucho texto", decryptMessage(pasted, b).text)
     }
 
     @Test fun unTextoQueNoSePuedeCodificarSeRechaza() {
@@ -341,6 +354,15 @@ class MessageTest {
         opens("líneas con sangría y espacios al final", token.chunked(50).joinToString("  \n   "))
         opens("partido y con notas", "Hola:\n" + token.chunked(64).joinToString("\n") + "\nGuardado el lunes")
         opens("entre comillas", "«$token »")
+        opens("trozos de 60 separados por espacios", token.chunked(60).joinToString(" "))
+        opens("trozos de 60 separados por saltos", token.chunked(60).joinToString("\n"))
+        opens("espacios y saltos mezclados", token.chunked(37).mapIndexed { i, c -> if (i % 3 == 0) "$c \n" else "$c " }.joinToString(""))
+        opens("una palabra de Base64url en la línea siguiente", "$token\nGracias")
+        opens("una palabra de Base64url tras un espacio", "$token Gracias")
+        opens("varias palabras de Base64url detrás", "$token Gracias de nuevo")
+        opens("partido con espacios y una palabra detrás", token.chunked(60).joinToString(" ") + "\nGracias")
+        opens("palabra de Base64url y punto", "$token Gracias.")
+        opens("antes y después con el mensaje partido", "Te paso esto: " + token.chunked(60).joinToString(" ") + " Gracias")
     }
 
     @Test fun elPegadoDelChatSinElPrefijoSeRechaza() {
@@ -409,8 +431,9 @@ class MessageTest {
 
     /**
      * Un mensaje de la identidad fija (semilla 00 01 … 1F) a «Ana» (semilla A0 A1 … BF) con `ikmE` = 40 41 … 7F, guardado
-     * en `seguridad-pk.json` como `message_signed` y `message_unsigned`. Se generó una vez y se lee para siempre: si este
-     * test falla, el formato ha cambiado y no se puede actualizar el vector, hay que arreglar el código.
+     * en `seguridad-pk.json` como `message_signed` y `message_unsigned`. Se generó una vez. Lo permanente es que los
+     * mensajes guardados se abran (las primeras comprobaciones): si fallan, el formato ha cambiado y no se puede
+     * actualizar el vector, hay que arreglar el código.
      */
     @Test fun mensajesGuardados() {
         val sender = fixedIdentity()
@@ -426,7 +449,8 @@ class MessageTest {
         assertEquals(vectorText, openedUnsigned.text)
         assertNull(openedUnsigned.senderEd)
 
-        // Hoy se escribe exactamente lo mismo (Ed25519 y HPKE con `ikmE` son deterministas).
+        // Si esto falla, cambió cómo Bouncy Castle usa `ikmE`; los mensajes guardados siguen abriéndose si el resto del test
+        // pasa. (Ed25519 es determinista y HPKE con `ikmE` fijo también, con esta versión de Bouncy Castle.)
         assertEquals(signed, encryptMessage(vectorText, cardOf(ana, "Ana"), sender, ikm))
         assertEquals(unsigned, encryptMessage(vectorText, cardOf(ana, "Ana"), null, ikm))
 
