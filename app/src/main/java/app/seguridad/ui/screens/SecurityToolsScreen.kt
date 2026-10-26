@@ -335,12 +335,17 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                 reset()
                 scope.launch {
                     try {
-                        output = withContext(Dispatchers.Default) {
+                        val result = withContext(Dispatchers.Default) {
                             if (encryptNow) encryptText(plainNow, secret, algNow, kdfNow) else decryptText(inputNow, secret)
                         }
-                        // The plaintext (often a seed phrase) is no longer needed once it is encrypted. Only on
-                        // success: a failed encryption must not lose what the user typed.
-                        if (encryptNow) input = ""
+                        // The form stays editable while busy: a result for a mode or text the user has since changed
+                        // is dropped, and never wipes what they typed after starting.
+                        if (encrypt == encryptNow && input == inputNow) {
+                            output = result
+                            // The plaintext (often a seed phrase) is no longer needed once it is encrypted. Only on
+                            // success: a failed encryption must not lose what the user typed.
+                            if (encryptNow) input = ""
+                        }
                     } catch (e: CryptoFailure) {
                         error = if (useKeyNow && e.message == CryptoFailure().message) "Clave incorrecta o texto dañado" else e.message
                     } finally {
