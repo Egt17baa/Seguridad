@@ -149,7 +149,15 @@ fun cardQr(bytes: ByteArray): String = CARD_TEXT_PREFIX + base45Encode(bytes)
  *   sobrantes distintos de cero se rechazan, para que cada tarjeta tenga un único texto.
  * Lanza [CryptoFailure] con cualquier fallo, también de decodificación.
  */
-fun cardFromAnyText(text: String): Card {
+fun cardFromAnyText(text: String): Card = readCardText(text).first
+
+/**
+ * Los bytes canónicos de la tarjeta de [text] (la misma lectura y los mismos rechazos que [cardFromAnyText], firma
+ * incluida): los que guarda un contacto (`newContactEntry`). Siempre son bytes que `parseCard` acepta.
+ */
+fun cardBytesFromAnyText(text: String): ByteArray = readCardText(text).second
+
+private fun readCardText(text: String): Pair<Card, ByteArray> {
     if (text.length > MAX_CARD_BYTES) throw CryptoFailure(TOO_BIG)
     val trimmed = text.trim()
     if (!trimmed.startsWith(CARD_TEXT_PREFIX)) throw CryptoFailure(NOT_A_CARD)
@@ -161,20 +169,20 @@ fun cardFromAnyText(text: String): Card {
     var failure: CryptoFailure? = null
     if (compact.all(::isBase64UrlChar)) {
         try {
-            return parseCard(
-                try {
-                    base64UrlDecode(compact)
-                } catch (e: CryptoFailure) {
-                    throw CryptoFailure(DAMAGED)
-                },
-            )
+            val bytes = try {
+                base64UrlDecode(compact)
+            } catch (e: CryptoFailure) {
+                throw CryptoFailure(DAMAGED)
+            }
+            return parseCard(bytes) to bytes
         } catch (e: CryptoFailure) {
             failure = e
         }
     }
     if (body.all(::isBase45Char)) {
         try {
-            return parseCard(base45DecodeOrFail(body))
+            val bytes = base45DecodeOrFail(body)
+            return parseCard(bytes) to bytes
         } catch (e: CryptoFailure) {
             failure = failure ?: e
         }
