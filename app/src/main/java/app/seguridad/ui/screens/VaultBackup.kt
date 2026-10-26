@@ -157,7 +157,8 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             import = {
                 VaultLock.keepOpenOnce = true
                 store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-                importer.launchOrError(arrayOf("application/octet-stream", "application/zip", "application/json", "text/*"))?.let { failure ->
+                // Some cloud providers label a ZIP uploaded from a computer x-zip-compressed; the content is sniffed anyway.
+                importer.launchOrError(arrayOf("application/octet-stream", "application/zip", "application/x-zip-compressed", "application/json", "text/*"))?.let { failure ->
                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                     scope.launch { snackbar.showSnackbar(failure) }
                 }
