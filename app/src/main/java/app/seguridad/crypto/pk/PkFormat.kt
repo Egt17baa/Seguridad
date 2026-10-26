@@ -2,6 +2,7 @@ package app.seguridad.crypto.pk
 
 import app.seguridad.crypto.CryptoFailure
 import org.bouncycastle.crypto.hpke.HPKE
+import java.util.Base64
 
 /*
  * Base de los formatos de clave pública de la 1.2.0 (diseño: «Primitivas y parámetros» y «Formatos»).
@@ -77,3 +78,27 @@ internal fun asciiLabel(label: String): ByteArray {
  * (En Ed25519ph la etiqueta es el contexto del RFC 8032, y en el `info` y el `export` de HPKE va en ASCII, sin `0x00`.)
  */
 fun labeled(label: String): ByteArray = asciiLabel(label) + 0
+
+/** Base64url (RFC 4648 §5) sin relleno: el texto de las tarjetas, los mensajes y las firmas. */
+internal fun base64UrlEncode(bytes: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+
+/** Si [c] es de `A-Z a-z 0-9 - _`, el alfabeto de Base64url. */
+internal fun isBase64UrlChar(c: Char) = c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '-' || c == '_'
+
+/**
+ * Lee Base64url sin relleno y en su forma canónica; lanza [CryptoFailure] con el relleno `=`, un carácter que no es
+ * del alfabeto, una longitud imposible o bits sobrantes distintos de cero (el decodificador del JDK los acepta, y así
+ * un mismo dato tendría varios textos). Quien llama limita antes el tamaño de [text].
+ */
+internal fun base64UrlDecode(text: String): ByteArray {
+    if (!text.all(::isBase64UrlChar)) throw CryptoFailure(BAD_BASE64)
+    val raw = try {
+        Base64.getUrlDecoder().decode(text)
+    } catch (e: IllegalArgumentException) {
+        throw CryptoFailure(BAD_BASE64)
+    }
+    if (base64UrlEncode(raw) != text) throw CryptoFailure(BAD_BASE64)
+    return raw
+}
+
+private const val BAD_BASE64 = "El texto no es Base64url válido"

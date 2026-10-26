@@ -180,6 +180,64 @@ class CardTest {
         rejects("dos bytes fuera de rango, bien firmada") { parseCard(armada(id, name, kem = badStart)) }
     }
 
+    /** Los 7 puntos de orden pequeño de Curve25519 (u en little-endian, RFC 7748 §6.1 y §7): el acuerdo da todo ceros. */
+    private val smallOrderU = mapOf(
+        "u = 0" to "00".repeat(32),
+        "u = 1" to "01" + "00".repeat(31),
+        "orden 8 (a)" to "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+        "orden 8 (b)" to "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157",
+        "u = p - 1" to "ecff" + "ff".repeat(29) + "7f",
+        "u = p" to "edff" + "ff".repeat(29) + "7f",
+        "u = p + 1" to "eeff" + "ff".repeat(29) + "7f",
+    )
+
+    /** Una clave X-Wing con la parte X25519 de orden pequeño, bien firmada por su dueña, no vale: cifrarle fallaría. */
+    @Test fun claveX25519DeOrdenPequeno() {
+        val id = fixedIdentity()
+        val name = "Ana".toByteArray()
+        for ((what, u) in smallOrderU) {
+            val kem = id.kemPublic.also { Hex.decode(u).copyInto(it, 1184) }
+            assertEquals(1216, kem.size)
+            rejects("$what, bien firmada") { parseCard(armada(id, name, kem = kem)) }
+        }
+        // Control: con el resto igual y una X25519 de verdad, vale.
+        assertEquals("Ana", parseCard(armada(id, name, kem = id.kemPublic)).name)
+    }
+
+    /** Un nombre con control (Cc) o con dirección del texto se rechaza al crear y, bien firmado, al leer. */
+    @Test fun caracteresProhibidosEnElNombre() {
+        val id = fixedIdentity()
+        val forbidden = listOf(
+            "U+0000", "\u0000", "LF", "\n", "CR", "\r", "TAB", "\t", "U+001F", "\u001F", "U+007F", "\u007F",
+            "U+0080", "\u0080", "U+0085", "\u0085", "U+009F", "\u009F",
+            "U+061C", "\u061C", "U+200E", "\u200E", "U+200F", "\u200F",
+            "U+202A", "\u202A", "U+202B", "\u202B", "U+202C", "\u202C", "U+202D", "\u202D", "U+202E", "\u202E",
+            "U+2066", "\u2066", "U+2067", "\u2067", "U+2068", "\u2068", "U+2069", "\u2069",
+        ).chunked(2).map { it[0] to it[1] }
+        for ((what, c) in forbidden) {
+            rejects("$what al crear, solo") { id.cardBytes(c) }
+            rejects("$what al crear, dentro") { id.cardBytes("An${c}a") }
+            rejects("$what al leer, solo") { parseCard(armada(id, c.toByteArray())) }
+            rejects("$what al leer, dentro") { parseCard(armada(id, "An${c}a".toByteArray())) }
+        }
+        // Los que no son de control siguen valiendo: espacio, ancho cero unido (emoji), letras con acento, CJK.
+        for (ok in listOf("Ana María", "Ana\u00A0M", "\u4F60\u597D", "\uD83D\uDC68\u200D\uD83D\uDC69", "\u05D0\u05D1")) {
+            assertEquals(ok, parseCard(id.cardBytes(ok)).name)
+            assertEquals(ok, parseCard(armada(id, ok.toByteArray())).name)
+        }
+    }
+
+    /** Las funciones de Base64url son de todos los formatos: mensajes neutros y forma canónica. */
+    @Test fun base64UrlDeLosFormatos() {
+        val data = ByteArray(10) { (it * 37).toByte() }
+        val text = base64UrlEncode(data)
+        assertArrayEquals(data, base64UrlDecode(text))
+        for (bad in listOf("$text=", "+/+/", "AA A", "A", text.dropLast(1) + "B")) {
+            val e = rejects(bad) { base64UrlDecode(bad) }
+            assertFalse(e.message!!.contains("tarjeta"))
+        }
+    }
+
     @Test fun firmaDeOtraIdentidad() {
         val ana = fixedIdentity()
         val eve = Identity(ByteArray(32) { (it + 1).toByte() })
