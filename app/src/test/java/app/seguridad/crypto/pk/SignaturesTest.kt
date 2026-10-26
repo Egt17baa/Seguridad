@@ -185,12 +185,24 @@ class SignaturesTest {
         assertEquals("Hola\nmundo", verifySignedText(text + three).text)
         // Cortada justo detrás del prefijo.
         assertEquals("Hola\nmundo", verifySignedText(text + "SGS1:\n" + token.removePrefix("SGS1:")).text)
-        // Con una nota o una palabra de Base64url detrás (no se pega a la firma).
-        assertEquals("Hola\nmundo", verifySignedText("$block\nGracias").text)
-        assertEquals("Hola\nmundo", verifySignedText("$block\nGracias\nde nada").text)
-        assertEquals("Hola\nmundo", verifySignedText("$block Gracias").text)
-        assertEquals("Hola\nmundo", verifySignedText("$block.").text)
-        assertEquals("Hola\nmundo", verifySignedText(text + token.substring(0, 50) + "\n" + token.substring(50) + "\nGracias").text)
+        // Solo espacios y saltos detrás: vale.
+        assertEquals("Hola\nmundo", verifySignedText("$block \r\n\n  \t").text)
+        assertEquals("Hola\nmundo", verifySignedText(text + token.substring(0, 50) + "\n" + token.substring(50) + "\n\n ").text)
+    }
+
+    @Test fun textoDespuesDeLaFirmaSeRechaza() {
+        val block = signText("Hola\nmundo", fixedIdentity())
+        val token = tokenOf(block)
+        val text = block.substring(0, block.lastIndexOf(SIGNATURE_PREFIX))
+        val expected = "Hay texto después de la firma: no se puede comprobar qué está firmado"
+        for (extra in listOf("\nGracias", "\nGracias\nde nada", " Gracias", ".", "\nPD: mi nueva cuenta es ES00 0000", "\n\nPD: mi nueva cuenta es ES00 0000\n", "\u200b", "=", "A", "-")) {
+            assertEquals(extra, expected, rejects(extra) { verifySignedText(block + extra) }.message)
+        }
+        // También con la firma partida por el chat.
+        val split = text + token.substring(0, 50) + "\n" + token.substring(50)
+        assertEquals(expected, rejects { verifySignedText("$split\nPD: mi nueva cuenta es ES00 0000") }.message)
+        // Y una línea SGS1: añadida después no se salta la regla: gana la última, que no cuadra.
+        rejects { verifySignedText("$block\nPD: SGS1:" + "A".repeat(135)) }
     }
 
     @Test fun conDosLineasSgs1VaLaUltima() {
