@@ -46,7 +46,6 @@ import app.seguridad.vault.IDENTITY_EXPLANATION
 import app.seguridad.vault.IDENTITY_RISK
 import app.seguridad.vault.MyCard
 import app.seguridad.vault.VaultEntry
-import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.checkOwnName
 import app.seguridad.vault.identity
@@ -131,7 +130,7 @@ private fun IdentityBody(store: VaultStore, identity: VaultEntry?, snackbar: Sna
             ) { Text("Crear mi identidad") }
             return@Column
         }
-        MyCardSection(store, identity, snackbar)
+        MyCardSection(identity, snackbar)
         NameField(name, { name = it }, nameCheck)
         Button(
             enabled = !busy && nameCheck is ContactName.Valid && nameCheck.name != identity.username,
@@ -165,7 +164,7 @@ private fun NameField(name: String, onChange: (String) -> Unit, check: ContactNa
 
 /** The QR, the fingerprint and «Compartir mi tarjeta». The card is worked out off the main thread once per identity and name. */
 @Composable
-private fun MyCardSection(store: VaultStore, identity: VaultEntry, snackbar: SnackbarHostState) {
+private fun MyCardSection(identity: VaultEntry, snackbar: SnackbarHostState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // The identity itself is opened inside `myCard()` and closed there: only the public card is kept.
@@ -213,15 +212,14 @@ private fun MyCardSection(store: VaultStore, identity: VaultEntry, snackbar: Sna
             )
             Button(
                 onClick = {
-                    // The share sheet is another screen: leaving for it must not lock the vault (the picker rule).
-                    VaultLock.keepOpenOnce = true
-                    store.touch()
+                    // Never sets VaultLock.keepOpenOnce: that flag is reset by a result callback (pickers, the QR scanner)
+                    // and ACTION_SEND has none, so it would stay on. The card is public: leaving for the chat locks the
+                    // vault as usual, and coming back shows the gate.
                     try {
                         // The card text is public (name and public keys): no read permission is granted to the receiver.
                         val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, s.card.text)
                         context.startActivity(Intent.createChooser(send, "Compartir mi tarjeta"))
                     } catch (e: Exception) {
-                        VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                         scope.launch { snackbar.showSnackbar("No se pudo abrir el menú de compartir") }
                     }
                 },

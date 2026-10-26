@@ -273,12 +273,101 @@ class ContactsViewTest {
         assertEquals("", parseCard(mine.bytes).name)
     }
 
-    @Test fun miTarjetaEsLaMismaEnCadaAperturaYNoGuardaLaIdentidad() {
+    @Test fun miTarjetaEsLaMismaEnCadaApertura() {
         val me = person("Bea")
         val a = me.entry.myCard()
         val b = me.entry.myCard()
         assertEquals(a.text, b.text)
         assertEquals(a.fingerprint, b.fingerprint)
+    }
+
+    @Test fun miTarjetaSoloGuardaDatosPublicosNiLaIdentidadNiLaSemilla() {
+        val me = person("Bea")
+        val mine = me.entry.myCard()
+        // Por la forma: ningún campo es una Identity ni nada que no sean bytes o textos.
+        // (Sin los campos estáticos que añade el compilador de Compose, como `$stable`.)
+        for (f in MyCard::class.java.declaredFields.filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) }) {
+            assertTrue("${f.name}: ${f.type}", f.type == ByteArray::class.java || f.type == String::class.java)
+        }
+        // Por el contenido: ni la semilla ni sus claves privadas aparecen en lo que guarda.
+        val seed = java.util.Base64.getDecoder().decode(me.entry.identitySeed)
+        val seedHex = seed.joinToString("") { "%02x".format(it) }
+        val seedB64 = java.util.Base64.getEncoder().encodeToString(seed)
+        val seedUrl = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(seed)
+        assertFalse(indexOf(mine.bytes, seed) >= 0)
+        for (t in listOf(mine.text, mine.qrText, mine.fingerprint)) {
+            for (needle in listOf(seedHex, seedB64, seedUrl)) assertFalse(t.contains(needle, ignoreCase = true))
+        }
+        // Y lo que hay es una tarjeta pública: se lee sin ninguna clave.
+        assertEquals(me.open { it.edPublic }.toList(), parseCard(mine.bytes).edPublic.toList())
+    }
+
+    private fun indexOf(haystack: ByteArray, needle: ByteArray): Int =
+        (0..haystack.size - needle.size).firstOrNull { i -> needle.indices.all { haystack[i + it] == needle[it] } } ?: -1
+
+    // ---- De la tarjeta real al aviso (checkIncomingCard + incomingCardNotice) ----
+
+    private fun noticeFor(card: Card, entries: List<VaultEntry>, viaQr: Boolean = false) =
+        checkIncomingCard(card, entries).let { it to incomingCardNotice(it, viaQr) }
+
+    @Test fun deLaTarjetaRealAlAvisoNuevaYaLaTienesYMiPropiaTarjeta() {
+        val me = person("Bea")
+        val ana = person()
+        val entries = listOf(me.entry, contactOf(ana, "Ana", title = "Ana García"))
+        // Nueva: otra persona.
+        val (newCheck, newNotice) = noticeFor(cardOf(person(), "Carlos"), entries)
+        assertTrue(newCheck is CardCheck.New)
+        assertEquals("Guardar contacto", newNotice.saveLabel)
+        // Un contacto que ya tengo, aunque llegue con otro nombre en la tarjeta.
+        val (sameCheck, sameNotice) = noticeFor(cardOf(ana, "Ana otra vez"), entries, viaQr = true)
+        assertTrue(sameCheck is CardCheck.Same)
+        assertEquals("Ya lo tienes: Ana García", sameNotice.title)
+        assertNull(sameNotice.saveLabel)
+        // Mi propia tarjeta.
+        val (ownCheck, ownNotice) = noticeFor(cardOf(me, "Bea"), entries)
+        assertTrue(ownCheck is CardCheck.Same && (ownCheck as CardCheck.Same).entry.type == EntryType.IDENTITY)
+        assertEquals("Es tu propia tarjeta", ownNotice.title)
+        assertNull(ownNotice.saveLabel)
+    }
+
+    @Test fun deLaTarjetaRealAlAvisoSharedKemNuncaTieneCaminoParaGuardar() {
+        val me = person("Bea")
+        val ana = person()
+        val entries = listOf(me.entry, contactOf(ana, "Ana", title = "Ana García"))
+        // La X-Wing de un contacto con otra Ed25519 y OTRO nombre (que no puede pasar por «claves cambiadas»).
+        val onContact = forged(person(), ana.open { it.kemPublic }, "Mallory")
+        val (c1, n1) = noticeFor(onContact, entries)
+        assertTrue(c1 is CardCheck.SharedKem)
+        assertEquals(NoticeLevel.DANGER, n1.level)
+        assertNull(n1.saveLabel)
+        assertTrue(n1.body.contains("Ana García"))
+        // También con el mismo nombre que el contacto, por QR o pegada.
+        for (qr in listOf(true, false)) {
+            val (c, n) = noticeFor(forged(person(), ana.open { it.kemPublic }, "Ana"), entries, qr)
+            assertTrue(c is CardCheck.SharedKem)
+            assertNull(n.saveLabel)
+        }
+        // La X-Wing de mi propia identidad.
+        val onMine = forged(person(), me.open { it.kemPublic }, "Bea")
+        val (c2, n2) = noticeFor(onMine, entries)
+        assertTrue(c2 is CardCheck.SharedKem)
+        assertNull(n2.saveLabel)
+        assertTrue(n2.body.contains("tu identidad"))
+    }
+
+    @Test fun deLaTarjetaRealAlAvisoClavesCambiadasSoloOfreceGuardarComoNuevo() {
+        val ana = person()
+        val entries = listOf(contactOf(ana, "Ana", title = "Ana García"))
+        // Mismo nombre, otras claves.
+        val (c1, n1) = noticeFor(cardOf(person(), "Ana García"), entries)
+        assertTrue(c1 is CardCheck.KeysChanged)
+        assertEquals("Guardar como contacto nuevo", n1.saveLabel)
+        // Misma Ed25519 con otra X-Wing y otro nombre.
+        val newKem = person().open { it.kemPublic }
+        val (c2, n2) = noticeFor(forged(ana, newKem, "Anita"), entries, viaQr = true)
+        assertTrue(c2 is CardCheck.KeysChanged)
+        assertEquals("Guardar como contacto nuevo", n2.saveLabel)
+        assertEquals("Las claves de este contacto han cambiado", n2.title)
     }
 
     @Test fun unaIdentidadConNombreNoValidoNoDaTarjeta() {
