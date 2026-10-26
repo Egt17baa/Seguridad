@@ -18,9 +18,9 @@ import java.text.Normalizer
  *   | longitud del nombre (1) | nombre en UTF-8, NFC (0 a 64 bytes)
  *   | firma Ed25519 (64) de labeled("seguridad-card-v1") ‖ todo lo anterior
  *
- * El nombre no puede llevar caracteres de control (categoría Cc), controles de dirección del texto, separadores de
- * línea y de párrafo ni caracteres de formato invisibles, y la parte X25519 de la clave X-Wing tiene que pasar la
- * comprobación de RFC 7748 §6.1 (los puntos de orden pequeño se rechazan).
+ * El nombre no puede llevar ningún carácter de la lista fija de [hasForbiddenNameCharacter] (controles, controles de
+ * dirección del texto, separadores de línea y de párrafo, caracteres invisibles, uso privado…), y la parte X25519 de la
+ * clave X-Wing tiene que pasar la comprobación de RFC 7748 §6.1 (los puntos de orden pequeño se rechazan).
  *
  * La firma demuestra que quien tiene la clave Ed25519 eligió esa clave X-Wing y ese nombre. El nombre es solo una
  * sugerencia, sin ningún valor de seguridad: se enseña tal cual y quien guarda el contacto lo cambia.
@@ -53,7 +53,7 @@ private const val DAMAGED = "La tarjeta está dañada o incompleta"
 private const val BAD_SIGNATURE = "La firma de la tarjeta no es válida"
 private const val BAD_NAME = "El nombre de la tarjeta no es válido"
 private const val NAME_TOO_LONG = "El nombre es demasiado largo: como máximo $MAX_NAME_BYTES bytes en UTF-8"
-private const val BAD_NAME_CHARACTERS = "El nombre de la tarjeta tiene caracteres de control, de dirección del texto o invisibles"
+private const val BAD_NAME_CHARACTERS = "El nombre de la tarjeta tiene caracteres de control, de dirección del texto, invisibles o no permitidos"
 private const val BAD_KEY = "La clave de cifrado de la tarjeta no es válida"
 private const val NOT_A_CARD = "El texto de la tarjeta debe empezar por $CARD_TEXT_PREFIX"
 private const val BAD_CHARACTERS = "La tarjeta tiene caracteres que no son válidos"
@@ -183,21 +183,56 @@ fun cardFromAnyText(text: String): Card {
 }
 
 /**
- * Si [name] (ya en NFC) tiene un carácter que permite que se enseñe distinto de lo que dice o que no se vea:
- * - un control Unicode (categoría Cc: U+0000 a U+001F y U+007F a U+009F, con CR, LF y TAB);
- * - un control de dirección del texto (U+061C, U+200E, U+200F, U+202A a U+202E, U+2066 a U+2069);
- * - un separador de línea o de párrafo (U+2028, U+2029);
- * - un carácter de formato invisible: espacio de ancho cero (U+200B), U+2060 a U+2064 (unión de palabras y operadores
- *   invisibles), marca de orden de bytes (U+FEFF) y separador de vocales mongol (U+180E).
+ * Si [name] (ya en NFC) tiene un carácter que permite que se enseñe distinto de lo que dice o que no se vea. Recorre el
+ * nombre por **puntos de código** (no por `Char`: así ve los caracteres fuera del BMP) y rechaza esta **lista fija**:
  *
- * U+200C y U+200D (no unir y unir de ancho cero) **sí se admiten**: hacen falta en escrituras como la persa o la
- * devanagari y en los emoji compuestos.
+ * | Rango | Qué es |
+ * |---|---|
+ * | U+0000–001F, U+007F–009F | controles (Cc) |
+ * | U+00AD | guion débil |
+ * | U+034F | combining grapheme joiner |
+ * | U+061C | marca de letra árabe |
+ * | U+115F–1160, U+3164, U+FFA0 | rellenos de Hangul |
+ * | U+17B4–17B5 | vocales inherentes jemer |
+ * | U+180E | separador de vocales mongol |
+ * | U+200B, U+200E, U+200F | ancho cero, LRM y RLM |
+ * | U+2028, U+2029 | separadores de línea y de párrafo |
+ * | U+202A–202E | incrustaciones de dirección |
+ * | U+2060–206F | unión de palabras, invisibles, aislados bidi y obsoletos |
+ * | U+FEFF | marca de orden de bytes |
+ * | U+FFF0–FFFB | incluye las anotaciones interlineales |
+ * | U+FFFE, U+FFFF | no caracteres |
+ * | U+D800–DFFF | sustitutos sueltos (un `String` con un sustituto sin pareja) |
+ * | U+E000–F8FF, U+F0000–10FFFF | uso privado, con los no caracteres de esos planos |
+ * | U+1BCA0–1BCA3 | controles de formato shorthand |
+ * | U+1D173–1D17A | formato musical |
+ * | U+E0000–E0FFF | etiquetas y selectores de variación suplementarios (se pierden las banderas de subdivisión, a cambio de evitar el «ASCII smuggling») |
+ *
+ * **Se admiten expresamente** U+200C y U+200D (no unir y unir de ancho cero: hacen falta en persa, devanagari y emoji
+ * compuestos), U+FE00–FE0F (selectores de variación; U+FE0F hace falta en los emoji) y U+180B–180D y U+180F
+ * (selectores de variación mongoles).
+ *
+ * **La lista es fija a propósito.** No se usa `Character.getType`: una categoría que cambie con la versión de Unicode
+ * o de ICU haría que un móvil aceptase una tarjeta que otro rechaza. La base es Default_Ignorable_Code_Point de
+ * Unicode 15.1, más Cc, Zl y Zp, el uso privado, los sustitutos sueltos y los no caracteres. Se aplica igual al crear
+ * ([cardBytes]) y al leer ([parseCard]). **A partir de la 1.2.0, cualquier endurecimiento posterior se hará solo al
+ * mostrar el nombre, nunca al leerlo**: la 1.2.x tiene que seguir leyendo toda tarjeta que la 1.2.0 aceptaba.
  */
-private fun hasForbiddenNameCharacter(name: String): Boolean = name.any {
-    Character.getType(it) == Character.CONTROL.toInt() ||
-        it == '\u061C' || it == '\u200E' || it == '\u200F' || it in '\u202A'..'\u202E' || it in '\u2066'..'\u2069' ||
-        it == '\u2028' || it == '\u2029' ||
-        it == '\u200B' || it in '\u2060'..'\u2064' || it == '\uFEFF' || it == '\u180E'
+internal fun hasForbiddenNameCharacter(name: String): Boolean = name.codePoints().anyMatch(::isForbiddenNameCodePoint)
+
+private fun isForbiddenNameCodePoint(cp: Int): Boolean = when (cp) {
+    in 0x0000..0x001F, in 0x007F..0x009F,
+    0x00AD, 0x034F, 0x061C,
+    in 0x115F..0x1160, 0x3164, 0xFFA0,
+    in 0x17B4..0x17B5, 0x180E,
+    0x200B, 0x200E, 0x200F,
+    in 0x2028..0x2029, in 0x202A..0x202E, in 0x2060..0x206F,
+    0xFEFF, in 0xFFF0..0xFFFB, 0xFFFE, 0xFFFF,
+    in 0xD800..0xDFFF,
+    in 0xE000..0xF8FF, in 0xF0000..0x10FFFF,
+    in 0x1BCA0..0x1BCA3, in 0x1D173..0x1D17A, in 0xE0000..0xE0FFF,
+    -> true
+    else -> false
 }
 
 /**
