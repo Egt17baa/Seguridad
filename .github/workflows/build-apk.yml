@@ -120,27 +120,6 @@ jobs:
       - name: JVM tests
         run: ./gradlew -p jvm-check test --no-daemon -Porg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64 -Porg.gradle.java.installations.auto-download=false
 
-  # Publishes the download link. Can write releases, but has no access to the signing key. Only pushes to main.
-  publish:
-    needs: [build, jvm-check]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: Seguridad-apk
-
-      - name: Publish download link
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          tag_name: apk-latest
-          name: Seguridad (última versión)
-          body: APK generado automáticamente desde ${{ github.ref_name }} (${{ github.sha }}). No es la versión de Google Play.
-          prerelease: true
-          files: Seguridad.apk
-
   # Attaches the APK of a version tag to that tag's release (created if it does not exist yet). The build job only
   # gets here with the production key: a tag push without it fails. Can write releases, but never sees the key.
   release-apk:

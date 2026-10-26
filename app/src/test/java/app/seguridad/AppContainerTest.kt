@@ -24,7 +24,7 @@ class AppContainerTest {
         File(tmp.root, "vault").mkdirs()
         File(File(tmp.root, "vault"), "vault.bin").writeText("dañado")
         val released = mutableListOf<String>()
-        val c = AppContainer(tmp.root, releaseFolder = { released += it }, appScope = backgroundScope)
+        val c = AppContainer(tmp.root, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)
         c.settings.load()
         c.settings.update { it.copy(autoBackupUri = folder, lastAutoBackupAt = 5L) }
         c.vault.load()
@@ -39,7 +39,7 @@ class AppContainerTest {
 
     @Test fun newVaultWithAutoBackupOffReleasesNothing() = runTest {
         val released = mutableListOf<String>()
-        val c = AppContainer(tmp.root, releaseFolder = { released += it }, appScope = backgroundScope)
+        val c = AppContainer(tmp.root, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)
         c.settings.load()
         c.vault.load()
         c.vault.create("maestra-larga".toCharArray())

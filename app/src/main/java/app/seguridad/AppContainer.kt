@@ -25,6 +25,8 @@ const val SETTINGS_FILE = "settings.json"
  */
 class AppContainer(
     filesDir: File,
+    /** The installed version (BuildConfig.VERSION_NAME), for the User-Agent of the HIBP queries. */
+    appVersion: String,
     backupFolder: (String) -> BackupTarget? = { null },
     releaseFolder: (String) -> Unit = {},
     /** Lives as long as the process: the automatic copies and the record of how they went. */
@@ -33,7 +35,7 @@ class AppContainer(
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE))
 
     /** The only connection of the app (Have I Been Pwned), with the eMudhra keys distrusted; built on first use. */
-    val client: OkHttpClient by lazy { secureClient() }
+    val client: OkHttpClient by lazy { secureClient(appVersion) }
 
     /** Password vault (files/vault/vault.bin); never in backups (allowBackup is off). Lock time and Argon2id cost come from the settings. */
     val vault = VaultStore(

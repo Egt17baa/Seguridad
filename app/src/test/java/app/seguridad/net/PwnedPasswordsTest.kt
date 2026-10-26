@@ -21,7 +21,7 @@ class PwnedPasswordsTest {
 
     @Before fun setUp() {
         server = MockWebServer().apply { start() }
-        api = PwnedPasswords(secureClient(), server.url("/"))
+        api = PwnedPasswords(secureClient(appVersion = "9.8.7"), server.url("/"))
     }
 
     @After fun tearDown() = server.shutdown()
@@ -34,7 +34,8 @@ class PwnedPasswordsTest {
         assertTrue(path, Regex("/range/[0-9A-F]{5}").matches(path))
         assertEquals("/range/5BAA6", path)
         assertEquals("true", req.getHeader("Add-Padding"))
-        assertEquals("Seguridad/1.0.0", req.getHeader("User-Agent"))
+        // The app's real version, never a fixed one: it goes stale (it said 1.0.0 in 1.1.0).
+        assertEquals("Seguridad/9.8.7", req.getHeader("User-Agent"))
         assertFalse(req.requestLine.contains("password"))
         assertFalse(req.requestLine.contains(suffix))
         assertEquals(0, req.bodySize)

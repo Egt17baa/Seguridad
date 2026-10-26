@@ -28,13 +28,21 @@ keytool -list -v -keystore tu.jks -alias TU_ALIAS | grep SHA256
 
 ## 2. Descargar el APK (instalación directa)
 
-Cada push a `main` publica el APK en la versión **`apk-latest`** de *Releases* (marcada como *pre-release*):
+Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo `v1.1.1`) adjunta a su release `Seguridad-v1.1.1.apk` y `Seguridad-v1.1.1.apk.sha256`; si la release no existe aún, se crea con el nombre de la etiqueta. Los push a `main` ya no publican nada (antes iba a `apk-latest`): así no llegan a nadie versiones sin estabilizar.
 
-1. En GitHub, abre el repositorio → *Releases* → **Seguridad (última versión)**.
-2. Descarga `Seguridad.apk` y comprueba su huella (apartado 1).
+1. En GitHub, abre el repositorio → *Releases* → la última versión.
+2. Descarga `Seguridad-vX.Y.Z.apk` y comprueba su huella (apartado 1) y su SHA-256.
 3. En el móvil, permite instalar apps de esa fuente e instálalo. Después puedes volver a quitar ese permiso.
 
-Cada etiqueta de versión `v*` (por ejemplo `v1.1.0`) adjunta a su release `Seguridad-v1.1.0.apk` y `Seguridad-v1.1.0.apk.sha256`: esa es la descarga de una versión concreta. Si la release no existe aún, se crea con el nombre de la etiqueta.
+**Verificación de desarrolladores Android.** Desde el 30 de septiembre de 2026, los móviles certificados de algunos países solo instalan apps de desarrolladores verificados, y en 2027 se extiende al resto. Registra también este APK (el de GitHub) en Play Console, en la misma cuenta, para que siga instalándose.
+
+**En la 1.1.1 cambia el identificador** (`app.seguridad` → `io.github.egt17baa.seguridad`). Para Android es otra app: no se actualiza encima de la anterior. Para pasar:
+
+1. En la app antigua, si usas la copia automática, **desactívala** (Ajustes → Copia automática). Si las dos apps escriben copias en la misma carpeta, la rotación de cada una borra las copias de la otra.
+2. Exporta la bóveda: en la 1.1.0, Ajustes → Exportar bóveda (archivo `.sgbak`, con los adjuntos); en la 1.0.x, la exportación es un `.json`. La nueva importa los dos.
+3. Instala la nueva, importa la copia con la contraseña maestra y comprueba que se abre.
+4. En la nueva, vuelve a configurar lo que no viaja en la copia: los ajustes (bloqueo, portapapeles, coste de Argon2id), la huella y la carpeta de la copia automática.
+5. Desinstala la antigua.
 
 Las ramas `claude/**` y los pull requests no publican nada: su APK queda como artefacto `Seguridad-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
 
@@ -44,7 +52,8 @@ Un APK firmado con la clave de subida y otro firmado con la de prueba no se actu
 
 ### 3.1 Antes de la primera subida
 
-- El `applicationId` es `app.seguridad`. **No se puede cambiar una vez publicado** y tiene que estar libre en Google Play.
+- El `applicationId` es `io.github.egt17baa.seguridad`, bajo el espacio de GitHub del propietario (desde la 1.1.1). **No se puede cambiar una vez publicado.**
+- El nombre «Seguridad» es genérico: no se puede registrar como marca y puede confundirse con los ajustes «Seguridad» del sistema. Antes de la primera subida, decide un nombre distintivo (comprobado en TMview y en Google Play); el nombre visible sí se puede cambiar después, el `applicationId` no.
 - Cuenta de desarrollador en <https://play.google.com/console> (pago único y verificación de identidad). Las cuentas **personales** nuevas tienen que hacer una prueba cerrada con al menos 12 testers durante 14 días antes de pasar a producción.
 
 ### 3.2 Crear la app
@@ -72,11 +81,14 @@ Las instalaciones desde Play y las del APK de *Releases* tienen firmas distintas
 
 ### 3.5 Formularios de la ficha
 
-- **Política de privacidad:** Play pide una URL pública. La app no tiene cuentas ni analíticas y solo envía a Have I Been Pwned los 5 primeros caracteres del hash SHA-1 de la contraseña que se comprueba, cuando el usuario lo pide.
-- **Seguridad de los datos:** no recoge ni comparte datos personales; todo se guarda cifrado en el móvil.
-- **Cifrado / exportación:** sí usa cifrado, solo con algoritmos estándar (AES, ChaCha20, Twofish, Serpent, Camellia, Argon2id) para proteger datos del propio usuario. Encaja en la exención de mercado masivo.
-- **Permisos:** Internet (comprobación de filtraciones) y cámara (solo al escanear un QR de 2FA). La huella usa la API biométrica del sistema; la app nunca la ve.
-- **Anuncios:** no tiene.
+- **Política de privacidad:** <https://egt17baa.github.io/Seguridad/privacidad.html> (se publica desde `docs/privacidad.html` con GitHub Pages: *Settings → Pages → Deploy from a branch → `main` / `docs`*). Es la misma que enlaza la app en *Ajustes → Acerca de*. Cuando la cambies, actualiza su fecha.
+- **Seguridad de los datos:** la app no tiene cuentas, analítica ni anuncios, y todo se guarda cifrado en el móvil. La única transmisión es la consulta a Have I Been Pwned (5 caracteres del hash SHA-1 de cada contraseña comprobada, más la IP que ve cualquier servidor), solo cuando el usuario la pide. Declárala como **tratamiento efímero, iniciado por el usuario y cifrado en tránsito**: Google cuenta como recogida cualquier transmisión fuera del móvil, y esta es la respuesta más coherente con su definición.
+- **Cifrado / exportación:** sí usa cifrado, solo con algoritmos estándar y publicados (AES, ChaCha20, Twofish, Serpent, Camellia, Argon2id) para proteger datos del propio usuario. El fundamento es que el código es abierto y está públicamente disponible: así queda fuera del control de exportaciones en la UE (Nota General de Software del Reglamento (UE) 2021/821) y de las EAR de EE. UU. Opcional y sin coste: enviar a la BIS y a la NSA el correo de notificación con la URL del repositorio.
+- **Funciones financieras:** ninguna. No es un exchange ni una wallet: guarda frases semilla, pero no firma ni envía transacciones. No uses la palabra «wallet» en la ficha.
+- **Público objetivo:** mayores de 13 años, sin dirigirse a menores (fuera de la política de Familias). Completa el cuestionario de clasificación de contenido.
+- **Descripción:** exacta y sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar»), con los avisos de «sin recuperación» y «sin auditoría independiente», y mencionando la conexión opcional con HIBP. Borrador en [`docs/ficha-google-play.md`](ficha-google-play.md).
+- **Permisos:** Internet (comprobación de filtraciones) y cámara (solo al escanear un QR de 2FA o de Google Authenticator). La huella usa la API biométrica del sistema; la app nunca la ve.
+- **Anuncios:** no tiene. Tampoco compras ni donaciones: la app es gratuita y no se monetizará (ver el README).
 
 ## 4. Si se pierde la clave de subida
 

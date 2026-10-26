@@ -366,6 +366,26 @@ Menores aceptados y diferidos:
 
 Riesgos que quedan: la clave de cada adjunto vive como `String` Base64 en la entrada mientras la bóveda está abierta y no puede ponerse a cero en Java, igual que las contraseñas; el contenido de un adjunto se descifra en memoria (máximo 5 MB) y el búfer sí se pone a cero. Las comprobaciones que dependen de un móvil real están en la lista de abajo y en el README.
 
+## 1.1.1: lista para Google Play (implementada)
+
+Recoge el dictamen jurídico del 26 de octubre de 2026 (hecho sobre la 1.0.1, `980dd65`), contrastado con el código de la 1.1.0. No cambia ningún formato ni ninguna función.
+
+| Punto del dictamen | Cambio |
+|---|---|
+| `applicationId` bajo un espacio propio, irreversible en Play | `io.github.egt17baa.seguridad` (decisión del propietario). El `namespace` de Kotlin sigue siendo `app.seguridad`: no cambia ningún archivo de código. Para Android es otra app: se pasa de la 1.1.0 exportando e importando la `.sgbak` (README y `docs/PUBLICAR.md`). |
+| Política de privacidad pública y enlazada en la app (bloqueante) | `docs/privacidad.html`, publicada con GitHub Pages (`docs/.nojekyll`: se sirve tal cual, sin Jekyll), y botón en *Ajustes → Acerca de*. Se abre en el navegador: la app no hace ninguna petición. El borrador del dictamen se amplía con lo que añadió la 1.1: «Comprobar filtraciones» (una consulta por contraseña), la copia automática a una carpeta que puede estar en la nube y la cámara para Google Authenticator. |
+| Seguridad de los datos coherente con HIBP | `docs/PUBLICAR.md`: tratamiento efímero, iniciado por el usuario y cifrado en tránsito. |
+| Exportaciones: el fundamento es el código abierto | `docs/PUBLICAR.md` corregido (ya no se apoya en el «mercado masivo»). |
+| `NOTICE` con copyright propio; `NOTICE` de dependencias | `NOTICE` con «Copyright 2026 Egt17baa» (seudónimo, decisión mía a falta de nombre). Ninguna biblioteca del APK trae `META-INF/NOTICE` (comprobado en la caché de Gradle sobre `releaseRuntimeClasspath`; los que hay son de herramientas de compilación). |
+| EFF con CC BY 3.0 US | Pantalla de licencias, generador y `assets/licenses/cc-by-3.0.txt`, con el enlace `…/by/3.0/us/`. |
+| Compromiso de no monetizar | README. |
+| APK solo en versiones etiquetadas | Se quita el trabajo `publish` (`apk-latest` en cada push a `main`); queda `release-apk`, que adjunta el APK a la release de cada etiqueta. |
+| Ficha sin superlativos, sin «wallet» y con los avisos | Borrador en `docs/ficha-google-play.md`. |
+
+**Además (revisión del código):** el cliente HTTP enviaba `User-Agent: Seguridad/1.0.0` fijo; ahora es `Seguridad/<versionName>` (`secureClient(appVersion)`, pasado desde `SeguridadApp` con `BuildConfig.VERSION_NAME`; test en `PwnedPasswordsTest`). La pantalla «Acerca de» decía que solo «¿Filtrada?» usa la red; ahora nombra también «Comprobar filtraciones».
+
+**Queda para el propietario:** el nombre definitivo (TMview y Play), el correo dedicado de la ficha (la política usa de contacto las incidencias de GitHub), activar GitHub Pages y *Private vulnerability reporting*, los formularios de Play Console, registrar el APK de GitHub en la verificación de desarrolladores, borrar la release `apk-latest` (ya no se actualiza y lleva el identificador antiguo) y decidir si se reescribe el historial.
+
 ## Comprobación manual en el móvil (no se puede hacer aquí)
 
 Activar la huella y desbloquear con ella; bloquear al salir; escanear un QR de 2FA y de Google Authenticator; comparar los códigos con otra app; la revisión del móvil en uno real; el aspecto en claro y en oscuro; importar una copia real de CriptoPanel. Desde la 1.1.0, además: el QR de Google Authenticator (también en varios lotes), los adjuntos, la copia automática a una carpeta y revocar después el permiso, la salud con filtraciones, un proveedor de documentos que no sepa renombrar, Drive con nombres repetidos y la lectura de nombres de ZIP en Android 14 o posterior. La lista completa está en el README.
