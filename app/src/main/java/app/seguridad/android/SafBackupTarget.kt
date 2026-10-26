@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import androidx.core.net.toUri
+import app.seguridad.vault.BackupFile
 import app.seguridad.vault.BackupTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,7 +22,7 @@ import java.io.OutputStream
 class SafBackupTarget(private val resolver: ContentResolver, private val tree: Uri) : BackupTarget {
     private fun folderId(): String = DocumentsContract.getTreeDocumentId(tree)
 
-    override suspend fun write(name: String, writer: suspend (OutputStream) -> Unit) {
+    override suspend fun create(name: String): BackupFile {
         val doc = withContext(Dispatchers.IO) {
             saf {
                 val folder = DocumentsContract.buildDocumentUriUsingTree(tree, folderId())
@@ -29,8 +30,23 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
                 DocumentsContract.createDocument(resolver, folder, "application/octet-stream", name)
             } ?: throw FileNotFoundException()
         }
-        val out = withContext(Dispatchers.IO) { saf { resolver.openOutputStream(doc, "wt") } } ?: throw FileNotFoundException()
-        out.use { writer(it) }
+        return Created(doc)
+    }
+
+    /** The document [create] made, by the URI the provider gave back: never another one with the same name. */
+    private inner class Created(private var doc: Uri) : BackupFile {
+        override suspend fun write(writer: suspend (OutputStream) -> Unit) {
+            val out = withContext(Dispatchers.IO) { saf { resolver.openOutputStream(doc, "wt") } } ?: throw FileNotFoundException()
+            out.use { writer(it) }
+        }
+
+        override fun rename(to: String) {
+            doc = saf { DocumentsContract.renameDocument(resolver, doc, to) } ?: throw IOException()
+        }
+
+        override fun delete() {
+            saf { if (!DocumentsContract.deleteDocument(resolver, doc)) throw IOException() }
+        }
     }
 
     override fun list(prefix: String): List<String> = children().map { it.second }.filter { it.startsWith(prefix) }
@@ -40,11 +56,6 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
         saf {
             if (!DocumentsContract.deleteDocument(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, id))) throw IOException()
         }
-    }
-
-    override fun rename(from: String, to: String) {
-        val id = idOf(from) ?: throw FileNotFoundException()
-        saf { DocumentsContract.renameDocument(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, id), to) } ?: throw IOException()
     }
 
     private fun idOf(name: String): String? = children().firstOrNull { it.second == name }?.first

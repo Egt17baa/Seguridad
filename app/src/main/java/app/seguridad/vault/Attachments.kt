@@ -59,11 +59,6 @@ class AttachmentStore(val dir: File, private val random: SecureRandom = secureRa
     /** The file of [id]; the caller has checked [isAttachmentId]. */
     internal fun fileOf(id: String) = File(dir, "$id.bin")
 
-    /** Every `<id>.bin` of this store, by id (for a copy made while the vault is locked). */
-    internal fun files(): Map<String, File> =
-        dir.listFiles()?.mapNotNull { f -> OWN_FILE.matchEntire(f.name)?.takeIf { it.groupValues[2].isEmpty() && f.isFile }?.let { it.groupValues[1] to f } }
-            ?.toMap() ?: emptyMap()
-
     /**
      * Reads at most [MAX_ATTACHMENT_BYTES] + 1 bytes of [input] (refused above the limit, nothing written), then
      * encrypts it with a fresh key and writes it atomically. The caller saves the returned reference in the vault.

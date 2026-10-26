@@ -378,35 +378,30 @@ class VaultStore(
     suspend fun exportText(): String? = mutex.withLock { vault?.let(VaultCrypto::encodeFile) }
 
     /**
-     * Writes the vault and its attachment files, as stored (still encrypted), to [out] as a `seguridad-backup` copy
-     * ([writeBackup]); [out] is left open. False if there is no vault, so nothing was written.
-     * With the vault open, only the attachments of its entries go, each checked against its SHA-256 while it is
-     * written: a missing or damaged one throws [CryptoFailure] naming it, as such a copy could never be restored.
-     * While locked the entries cannot be read, so every attachment file in the folder goes (unchecked).
+     * Writes the vault and the attachment files of its entries, as stored (still encrypted), to [out] as a
+     * `seguridad-backup` copy ([writeBackup]); [out] is left open. Each attachment is checked against its SHA-256
+     * while it is written: a missing or damaged one throws [CryptoFailure] naming it, as such a copy could never be
+     * restored. False if there is no vault or it is locked (its entries, and so which attachments go and what they
+     * must hash to, cannot be read): nothing was written, so an unchecked copy is never made.
      * Only the snapshot is taken with the mutex held; [out] (maybe a slow document provider) is written without it.
      * Attachment files never change once written, so the worst a concurrent change can do is delete one of them,
      * which makes this fail rather than write a wrong copy.
      */
     suspend fun exportBackup(out: OutputStream): Boolean {
-        val refs: List<AttachmentRef>?
+        val refs: List<AttachmentRef>
         val json: String
-        val files: Map<String, File>
         mutex.withLock {
             val v = vault ?: return false
+            refs = (_state.value as? VaultState.Unlocked)?.entries?.flatMap { it.attachments } ?: return false
             json = VaultCrypto.encodeFile(v)
-            refs = (_state.value as? VaultState.Unlocked)?.entries?.flatMap { it.attachments }
-            files = if (refs == null) {
-                withContext(io) { attachments.files() }
-            } else {
-                refs.firstOrNull { !isAttachmentId(it.id) }?.let { throw CryptoFailure(attachmentUnusable(it.name)) }
-                refs.associate { it.id to attachments.fileOf(it.id) }
-            }
+            refs.firstOrNull { !isAttachmentId(it.id) }?.let { throw CryptoFailure(attachmentUnusable(it.name)) }
         }
-        val expected = refs?.associate { it.id to it.sha256 } ?: emptyMap()
+        val files = refs.associate { it.id to attachments.fileOf(it.id) }
+        val expected = refs.associate { it.id to it.sha256 }
         try {
             withContext(io) { writeBackup(out, json, files, expected) }
         } catch (e: BackupAttachmentMismatch) {
-            throw CryptoFailure(attachmentUnusable(refs?.firstOrNull { it.id == e.id }?.name ?: e.id))
+            throw CryptoFailure(attachmentUnusable(refs.firstOrNull { it.id == e.id }?.name ?: e.id))
         }
         return true
     }
