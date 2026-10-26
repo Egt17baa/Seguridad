@@ -255,6 +255,97 @@ class CardTest {
         }
     }
 
+    /**
+     * La lista fija de puntos de código prohibidos en el nombre (diseño, «Tarjeta de contacto»), escrita aquí otra vez a
+     * mano y por separado del código. Es fija a propósito: no depende de la versión de Unicode ni de ICU del móvil.
+     */
+    private val forbiddenRanges = listOf(
+        0x0000..0x001F, 0x007F..0x009F, // Cc
+        0x00AD..0x00AD, 0x034F..0x034F, 0x061C..0x061C,
+        0x115F..0x1160, 0x3164..0x3164, 0xFFA0..0xFFA0, // rellenos de Hangul
+        0x17B4..0x17B5, 0x180E..0x180E,
+        0x200B..0x200B, 0x200E..0x200F, 0x2028..0x2029, 0x202A..0x202E, 0x2060..0x206F,
+        0xFEFF..0xFEFF, 0xFFF0..0xFFFB, 0xFFFE..0xFFFF,
+        0xD800..0xDFFF, // sustitutos sueltos
+        0xE000..0xF8FF, 0xF0000..0x10FFFF, // uso privado
+        0x1BCA0..0x1BCA3, 0x1D173..0x1D17A, 0xE0000..0xE0FFF,
+    )
+
+    private fun inForbiddenRanges(cp: Int) = forbiddenRanges.any { cp in it }
+
+    /** El filtro, punto de código por punto de código y sin muestreo: coincide con la tabla de arriba en los 0x110000. */
+    @Test fun laListaFijaCoincideConLaTablaEnTodosLosPuntosDeCodigo() {
+        for (cp in 0..0x10FFFF) {
+            val s = String(Character.toChars(cp))
+            assertEquals("U+%04X".format(cp), inForbiddenRanges(cp), hasForbiddenNameCharacter(s))
+        }
+        // Admitidos expresamente.
+        for (cp in listOf(0x200C, 0x200D, 0xFE00, 0xFE0A, 0xFE0F, 0x180B, 0x180C, 0x180D, 0x180F)) {
+            assertFalse("U+%04X".format(cp), hasForbiddenNameCharacter(String(Character.toChars(cp))))
+        }
+        // Un carácter suplementario normal (emoji) no se confunde con un sustituto suelto; uno suelto, sí.
+        assertFalse(hasForbiddenNameCharacter("\uD83D\uDC68"))
+        assertTrue(hasForbiddenNameCharacter("a\uD83D"))
+        assertTrue(hasForbiddenNameCharacter("\uDC68a"))
+        assertTrue(hasForbiddenNameCharacter("\uDC68\uD83D"))
+    }
+
+    /** Un caso por rango rechazado (los dos extremos y, en los largos, uno de en medio), al crear y, bien firmado, al leer. */
+    @Test fun cadaRangoProhibidoSeRechazaAlCrearYAlLeer() {
+        val id = fixedIdentity()
+        fun check(cp: Int) {
+            val what = "U+%04X".format(cp)
+            val c = String(Character.toChars(cp))
+            rejects("$what al crear, solo") { id.cardBytes(c) }
+            rejects("$what al crear, dentro") { id.cardBytes("An${c}a") }
+            rejects("$what al crear, al final") { id.cardBytes("Ana$c") }
+            // Un sustituto suelto no es UTF-8: al leer solo puede llegar como CESU-8, que también se rechaza.
+            val utf8 = if (cp in 0xD800..0xDFFF) byteArrayOf(0xED.toByte(), (0x80 or ((cp shr 6) and 0x3F)).toByte(), (0x80 or (cp and 0x3F)).toByte())
+                else c.toByteArray()
+            rejects("$what al leer, solo") { parseCard(armada(id, utf8)) }
+            rejects("$what al leer, dentro") { parseCard(armada(id, "An".toByteArray() + utf8 + "a".toByteArray())) }
+            rejects("$what al leer, al final") { parseCard(armada(id, "Ana".toByteArray() + utf8)) }
+        }
+        for (r in forbiddenRanges) {
+            check(r.first)
+            check(r.last)
+            if (r.last - r.first > 2) check((r.first + r.last) / 2)
+        }
+        // Los que pedía la revisión, por nombre.
+        for (cp in listOf(0x00AD, 0x034F, 0x3164, 0x2066, 0xFFF9, 0xE0041, 0xD83D, 0xDC68, 0xFFFE, 0xFFFF, 0x10FFFF, 0xF0000, 0x1D173)) check(cp)
+    }
+
+    /** Se admiten ZWJ, ZWNJ, selectores de variación y letras normales: lo necesario para persa, devanagari y emoji. */
+    @Test fun caracteresAdmitidosEnElNombre() {
+        val id = fixedIdentity()
+        val admitted = listOf(
+            "familia con ZWJ" to "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67", // U+1F468 U+200D U+1F469 U+200D U+1F467
+            "corazón con U+FE0F" to "\u2764\uFE0F",
+            "persa con ZWNJ" to "\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645",
+            "devanagari con ZWJ" to "\u0915\u094D\u200D\u0937",
+            "selectores mongoles" to "\u1820\u180B\u180C\u180D\u180F",
+            "selectores de variación" to "\u2764\uFE00\uFE0E\uFE0F",
+            "U+FFFC y U+FFFD" to "a\uFFFCb\uFFFD",
+            "emoji suplementario" to "\uD83D\uDD10",
+            "CJK" to "\u4F60\u597D",
+        )
+        for ((what, name) in admitted) {
+            assertEquals("$what al crear", name, parseCard(id.cardBytes(name)).name)
+            assertEquals("$what al leer", name, parseCard(armada(id, name.toByteArray())).name)
+        }
+    }
+
+    /** «Zoë» en NFD (e + U+0308) se normaliza a NFC al crear; al leer solo se admite ya normalizada. */
+    @Test fun zoeEnNfdSeNormalizaAlCrear() {
+        val id = fixedIdentity()
+        val nfd = "Zoe\u0308"
+        val nfc = "Zo\u00EB"
+        assertEquals(nfc, parseCard(id.cardBytes(nfd)).name)
+        assertArrayEquals(id.cardBytes(nfc), id.cardBytes(nfd))
+        assertEquals(nfc, parseCard(armada(id, nfc.toByteArray())).name)
+        rejects("NFD al leer") { parseCard(armada(id, nfd.toByteArray())) }
+    }
+
     /** Las funciones de Base64url son de todos los formatos: mensajes neutros y forma canónica. */
     @Test fun base64UrlDeLosFormatos() {
         val data = ByteArray(10) { (it * 37).toByte() }

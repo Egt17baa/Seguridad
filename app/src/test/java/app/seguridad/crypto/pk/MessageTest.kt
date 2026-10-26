@@ -395,6 +395,41 @@ class MessageTest {
         assertTrue("tardó ${(System.nanoTime() - start) / 1_000_000} ms", System.nanoTime() - start < 10_000_000_000L)
     }
 
+    /**
+     * El valor del tope, fijado: [MAX_OPEN_ATTEMPTS] = 8 aperturas HPKE. Detrás del mensaje real van `m` trozos de un solo
+     * carácter «A» (que es todo ceros en Base64url, así que no estorba al canónico). Las uniones se prueban de la más larga
+     * a la más corta y la real, sin trozos de más, es **la última**. La unión con `k` «A» de más mide `L + k` caracteres y
+     * es plausible salvo con resto 1 módulo 4 (un solo carácter suelto no es un byte): el test cuenta las plausibles con
+     * esa regla, escrita aparte, y elige `m` para que la real sea exactamente la n-ésima apertura. Determinista: no
+     * depende del orden de nada más que de la longitud del cuerpo.
+     * - Con la 1.ª a la 8.ª, se abre.
+     * - Con la 9.ª o más, no se llega a abrir y da [NOT_FOR_ME] (el mismo error que un mensaje de otra persona).
+     */
+    @Test fun elTopeDeAperturasEsExactamenteOcho() {
+        assertEquals(8, MAX_OPEN_ATTEMPTS)
+        val b = anaIdentity()
+        val token = encryptMessage("Hola", cardOf(b), null)
+        val bodyChars = token.length - MESSAGE_PREFIX.length
+        fun plausibles(m: Int) = (0..m).count { (bodyChars + it) % 4 != 1 }
+        fun trailingFor(n: Int): Int = generateSequence(0) { it + 1 }.first { plausibles(it) == n }
+        for (n in 1..8) {
+            val m = trailingFor(n)
+            assertEquals(n, plausibles(m))
+            assertEquals("la apertura $n de 8 (con $m trozos detrás)", "Hola", decryptMessage(token + " A".repeat(m), b).text)
+        }
+        for (n in 9..12) {
+            val m = trailingFor(n)
+            assertEquals(n, plausibles(m))
+            assertEquals(
+                "la apertura $n (con $m trozos detrás) ya no se prueba",
+                NOT_FOR_ME,
+                rejects("la apertura $n") { decryptMessage(token + " A".repeat(m), b) }.message,
+            )
+        }
+        // Control: con los mismos trozos, un mensaje que no es para mí da lo mismo (y sin llegar a más de 8 aperturas).
+        assertEquals(NOT_FOR_ME, rejects("de otra persona") { decryptMessage(token + " A".repeat(trailingFor(8)), fixedIdentity()) }.message)
+    }
+
     @Test fun elPegadoDelChatSinElPrefijoSeRechaza() {
         val b = anaIdentity()
         val token = encryptMessage("Hola", cardOf(b), null)
