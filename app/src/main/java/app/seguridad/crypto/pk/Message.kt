@@ -1,7 +1,7 @@
 package app.seguridad.crypto.pk
 
 import app.seguridad.crypto.CryptoFailure
-import app.seguridad.crypto.extractPrefixedToken
+import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.randomBytes
 import app.seguridad.crypto.secureRandom
 import java.nio.charset.CharacterCodingException
@@ -56,8 +56,8 @@ private const val MAX_RAW_BYTES = HEADER_BYTES + 1 + SIGNED_PART_BYTES + MAX_MES
 /** Lo máximo que mide el cuerpo en Base64url (los caracteres de [MAX_RAW_BYTES] bytes). */
 private const val MAX_BODY_CHARS = (MAX_RAW_BYTES + 2) / 3 * 4
 
-/** Lo máximo que se mira de lo pegado: el mensaje más grande, sus saltos de línea y mucho texto alrededor. */
-private const val MAX_PASTE_CHARS = 2 * MAX_BODY_CHARS
+/** Cuántas uniones de trozos se prueban al abrir un texto pegado (la unión de todos y, quitando el último, las demás). */
+private const val MAX_JOINS = 8
 
 private const val NOT_A_MESSAGE = "El texto debe empezar por $MESSAGE_PREFIX"
 private const val TOO_BIG = "El mensaje cifrado es demasiado grande"
@@ -139,44 +139,66 @@ internal fun encryptMessage(text: String, recipient: Card, sender: Identity?, ik
 }
 
 /**
- * Abre un mensaje de [encryptMessage] para la identidad [me]. [token] puede ser lo que se pegó de un chat: se toma el
- * primer texto que empieza por [MESSAGE_PREFIX] (partido en varias líneas, con texto antes y después).
+ * Abre un mensaje de [encryptMessage] para la identidad [me]. [token] puede ser lo que se pegó de un chat: tras el
+ * primer [MESSAGE_PREFIX] se leen los trozos de Base64url separados por espacios o saltos de línea (los chats parten
+ * las líneas largas y a veces meten espacios), hasta el primer trozo con un carácter que no es de Base64url (de él se
+ * toma el principio válido). Como detrás puede venir texto que también parece Base64url («Gracias»), se prueba la unión
+ * de todos los trozos y, si no se abre, quitando de uno en uno los últimos: como mucho [MAX_JOINS] intentos, y solo con
+ * uniones que decodifican en su forma canónica y miden lo que puede medir un mensaje. Lo que abre HPKE es el mensaje:
+ * una unión equivocada no pasa la etiqueta de autenticación.
  *
  * Lanza [CryptoFailure] y nunca devuelve un texto sin comprobar:
- * - con una cabecera que no es de la suite 1 o no es de un mensaje de texto, o con un tamaño imposible;
- * - [NOT_FOR_ME] si HPKE no lo abre, sea por ser de otra persona, por estar manipulado (cualquier byte, incluida la
- *   `enc`) o por el Base64url mal formado;
+ * - [NOT_FOR_ME] si ninguna unión se abre, sea por ser de otra persona, por estar manipulado (cualquier byte, incluida
+ *   la `enc`), por un Base64url mal formado o por un tamaño imposible;
+ * - si ninguna se abre y la mejor unión tiene una cabecera que no es de la suite 1 o no es de un mensaje de texto,
+ *   el rechazo de la cabecera;
  * - con una marca desconocida (un bit distinto de 0 que no es el de «firmado») o un interior que no cuadra;
  * - con la marca de «firmado» y una firma que no es válida: se rechaza entero, nunca se enseña como «sin firmar».
+ *
+ * Con más de [MAX_TEXT_FILE_BYTES] caracteres pegados se rechaza sin mirarlos.
  *
  * Cuando hay firma válida, [OpenedMessage.senderEd] es la clave con la que se comprobó, pero **nada dice que esa clave
  * sea de ningún contacto**: quien llama la compara con las que conoce. El texto devuelto es un `String` y no se puede
  * poner a cero; el `texto_interior` descifrado y los bytes del mensaje sí.
  */
 fun decryptMessage(token: String, me: Identity): OpenedMessage {
-    if (token.length > MAX_PASTE_CHARS) throw CryptoFailure(TOO_BIG)
-    val extracted = extractPrefixedToken(token, MESSAGE_PREFIX) ?: throw CryptoFailure(NOT_A_MESSAGE)
-    val body = extracted.substring(MESSAGE_PREFIX.length)
-    if (body.length > MAX_BODY_CHARS) throw CryptoFailure(TOO_BIG)
-    val raw = try {
-        base64UrlDecode(body)
-    } catch (e: CryptoFailure) {
-        throw CryptoFailure(NOT_FOR_ME)
-    }
-    parsePkHeader(raw, PkKind.TEXT_MESSAGE)
-    if (raw.size < MIN_RAW_BYTES || raw.size > MAX_RAW_BYTES) throw CryptoFailure(NOT_FOR_ME)
-
-    val header = raw.copyOf(HEADER_BYTES)
-    val enc = raw.copyOfRange(5, HEADER_BYTES)
-    val sealed = raw.copyOfRange(HEADER_BYTES, raw.size)
+    if (token.length > MAX_TEXT_FILE_BYTES) throw CryptoFailure(TOO_BIG)
+    val start = token.indexOf(MESSAGE_PREFIX)
+    if (start < 0) throw CryptoFailure(NOT_A_MESSAGE)
+    val runs = base64UrlRuns(token, start + MESSAGE_PREFIX.length)
     val keyPair = me.kemKeyPair() // una identidad cerrada es un error de programa, no de datos
     val info = asciiLabel(MESSAGE_INFO)
-    val inner = try {
-        hpkeSuite().setupBaseR(enc, keyPair, info).open(header, sealed)
-    } catch (e: Exception) {
-        // InvalidCipherTextException (la etiqueta no cuadra) y cualquier otra de Bouncy Castle: es lo mismo para quien lee.
-        throw CryptoFailure(NOT_FOR_ME)
+
+    var headerFailure: CryptoFailure? = null
+    var opened: ByteArray? = null
+    var header = ByteArray(0)
+    var attempts = 0
+    var count = runs.size
+    while (count > 0 && attempts < MAX_JOINS && opened == null) {
+        attempts++
+        val candidate = runs.subList(0, count--).joinToString("")
+        if (candidate.length > MAX_BODY_CHARS) continue
+        val raw = try {
+            base64UrlDecode(candidate)
+        } catch (e: CryptoFailure) {
+            continue
+        }
+        if (raw.size < MIN_RAW_BYTES || raw.size > MAX_RAW_BYTES) continue
+        try {
+            parsePkHeader(raw, PkKind.TEXT_MESSAGE)
+        } catch (e: CryptoFailure) {
+            if (headerFailure == null) headerFailure = e
+            continue
+        }
+        val h = raw.copyOf(HEADER_BYTES)
+        try {
+            opened = hpkeSuite().setupBaseR(raw.copyOfRange(5, HEADER_BYTES), keyPair, info).open(h, raw.copyOfRange(HEADER_BYTES, raw.size))
+            header = h
+        } catch (e: Exception) {
+            // InvalidCipherTextException (la etiqueta no cuadra) y cualquier otra de Bouncy Castle: es lo mismo para quien lee.
+        }
     }
+    val inner = opened ?: throw (headerFailure ?: CryptoFailure(NOT_FOR_ME))
     var message: ByteArray? = null
     var signedData: ByteArray? = null
     try {
@@ -207,6 +229,27 @@ fun decryptMessage(token: String, me: Identity): OpenedMessage {
         message?.fill(0)
         signedData?.fill(0)
     }
+}
+
+/**
+ * Los trozos de Base64url de [text] desde [from], separados por espacios o saltos de línea: se para en el primero con un
+ * carácter que no es de Base64url (del que se guarda su principio válido) o al pasar de [MAX_BODY_CHARS] caracteres.
+ */
+private fun base64UrlRuns(text: String, from: Int): List<String> {
+    val runs = ArrayList<String>()
+    var total = 0
+    var i = from
+    while (i < text.length && total <= MAX_BODY_CHARS) {
+        while (i < text.length && text[i].isWhitespace()) i++
+        val begin = i
+        while (i < text.length && isBase64UrlChar(text[i])) i++
+        if (i > begin) {
+            runs.add(text.substring(begin, i))
+            total += i - begin
+        }
+        if (i < text.length && !text[i].isWhitespace()) break // un carácter que no es de Base64url: aquí acaba
+    }
+    return runs
 }
 
 /**
