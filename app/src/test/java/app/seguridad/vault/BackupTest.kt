@@ -382,6 +382,31 @@ class BackupTest {
         assertEquals(4, File(phone("b"), "att").list()!!.size)
     }
 
+    @Test fun importLeftoversAreRemovedOnLoadAndNothingElse() = runTest {
+        val a = phoneA()
+        val dir = phone("a")
+        val before = snapshot(dir)
+        // What an import killed halfway leaves: import-<16 hex>/ with the copy's files and the displaced ones.
+        File(dir, "import-0123456789abcdef/prev").mkdirs()
+        File(dir, "import-0123456789abcdef/vault.json").writeText("{}")
+        File(dir, "import-0123456789abcdef/prev/x.bin").writeBytes(bytes(10))
+        File(dir, "import-fedcba9876543210").writeBytes(bytes(5)) // A file with the name, too.
+        // Near misses: not ours, never touched.
+        val kept = listOf("import-0123456789ABCDEF", "import-0123456789abcde", "import-0123456789abcdef0", "ximport-0123456789abcdef", "import-")
+        kept.forEach { File(File(dir, it).apply { mkdirs() }, "f").writeBytes(bytes(3)) }
+
+        val again = store(dir).apply { load() }
+        assertEquals(VaultState.Locked, again.state.value)
+        assertFalse(File(dir, "import-0123456789abcdef").exists())
+        assertFalse(File(dir, "import-fedcba9876543210").exists())
+        kept.forEach { assertTrue(it, File(dir, "$it/f").isFile) }
+        kept.forEach { File(dir, it).deleteRecursively() }
+        // The vault and its attachments are exactly as they were, and still open.
+        assertEquals(before, snapshot(dir))
+        again.unlock(master.toCharArray())
+        for (e in again.entries()) for (ref in e.attachments) again.openAttachment(e.id, ref.id)
+    }
+
     @Test fun formatPinned() = runTest {
         val a = phoneA()
         val zip = a.backup()
