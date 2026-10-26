@@ -47,6 +47,7 @@ import app.seguridad.ui.screens.VaultEntryEditScreen
 import app.seguridad.ui.screens.VaultIdleTicker
 import app.seguridad.ui.screens.VaultScreen
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.VAULT_ENTRY_TYPES
 import kotlinx.coroutines.launch
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -134,7 +135,7 @@ fun AppNavHost(container: AppContainer) {
                 VaultEntryEditScreen(
                     vault,
                     id = entry.arguments?.getString("id"),
-                    initialType = EntryType.entries.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
+                    initialType = VAULT_ENTRY_TYPES.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
                     onDone = back,
                 )
             }

@@ -12,5 +12,5 @@ internal fun initialPassword(existing: VaultEntry?, type: EntryType): String =
 internal fun passwordToSave(type: EntryType, loginPassword: String, seedPassphrase: String): String = when (type) {
     EntryType.LOGIN -> loginPassword
     EntryType.SEED -> seedPassphrase
-    EntryType.NOTE, EntryType.TOTP -> ""
+    EntryType.NOTE, EntryType.TOTP, EntryType.IDENTITY, EntryType.CONTACT -> ""
 }

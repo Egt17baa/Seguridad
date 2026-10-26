@@ -121,10 +121,10 @@ class VaultTamperTest {
         assertEquals(listOf("Wallet"), VaultCrypto.read(old, oldKey).map { it.title })
         assertEquals(1, VaultCrypto.resolve(old, oldKey).version)
         val upgraded = VaultCrypto.afterMasterUnlock(old, oldKey, master, now = 10, kdf = QUICK)
-        assertTrue(VaultCrypto.encodeFile(upgraded).contains("\"version\":2"))
+        assertTrue(VaultCrypto.encodeFile(upgraded).contains("\"version\":3"))
         // 1.9.3: version 2 without the key.
         val (v2, dek) = vault()
-        val stripped = VaultCrypto.decodeFile(VaultCrypto.encodeFile(v2).replace("\"version\":2,", ""))
+        val stripped = VaultCrypto.decodeFile(VaultCrypto.encodeFile(v2).replace("\"version\":3,", ""))
         assertEquals(VaultFile.VERSION_UNKNOWN, stripped.version)
         assertTrue(VaultCrypto.unlock(stripped, "maestra".toCharArray()).contentEquals(dek))
         assertEquals(VaultFile.VERSION, VaultCrypto.resolve(stripped, dek).version)
@@ -132,6 +132,6 @@ class VaultTamperTest {
     }
 
     @Test fun `new files always say their version`() {
-        assertTrue(VaultCrypto.encodeFile(vault().first).contains("\"version\":2"))
+        assertTrue(VaultCrypto.encodeFile(vault().first).contains("\"version\":3"))
     }
 }
