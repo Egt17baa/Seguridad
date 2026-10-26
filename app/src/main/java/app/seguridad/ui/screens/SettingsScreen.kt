@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.BuildConfig
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES
+import app.seguridad.settings.AUTO_BACKUP_OFF_NEW_VAULT
 import app.seguridad.settings.ClipboardClear
 import app.seguridad.settings.KdfProfile
 import app.seguridad.settings.LockAfter
@@ -133,7 +134,7 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             val chosen = uri.toString()
             val previous = store.settings.value.autoBackupUri
             try {
-                store.update { it.copy(autoBackupUri = chosen, lastAutoBackupError = null, lastAutoBackupAt = null) }
+                store.update { it.copy(autoBackupUri = chosen, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = false) }
             } catch (e: Exception) {
                 if (chosen != previous) SafBackupTarget.releaseFolder(resolver, chosen)
                 snackbar.showSnackbar("No se pudo guardar el ajuste")
@@ -166,6 +167,9 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
                 "Guarda una copia cifrada (.sgbak, con los adjuntos) en una carpeta que elijas, unos segundos después de cada " +
                     "cambio en la bóveda. Elige una carpeta que se sincronice o que copies fuera del móvil.",
             )
+            if (settings.autoBackupOffForNewVault) {
+                Text(AUTO_BACKUP_OFF_NEW_VAULT, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+            }
             OutlinedButton(onClick = choose, modifier = Modifier.fillMaxWidth()) { Text("Elegir carpeta") }
             return@Section
         }

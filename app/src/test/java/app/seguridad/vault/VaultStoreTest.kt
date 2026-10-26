@@ -270,4 +270,53 @@ class VaultStoreTest {
         assertFalse(unreadable.isDirectory)
         assertTrue(tmp.root.listFiles()!!.any { it.name.startsWith("vault.bin.bad-") && File(it, "keep").exists() })
     }
+
+    @Test fun `opening keeps the time of the last change on the vault file`() = runTest {
+        val s = store().apply { load(); create("maestra".toCharArray()) }
+        s.upsert(entry("a", "Agua"))
+        val f = File(tmp.root, "vault.bin")
+        assertTrue(f.setLastModified(1_600_000_000_000L))
+        assertEquals(1_600_000_000_000L, s.lastChangeSavedAt())
+        s.lock()
+        clock += 60_000
+        val before = f.readText()
+        s.unlock("maestra".toCharArray()) // Saves the last master check: bookkeeping, not a change.
+        assertFalse("Sí se guardó la comprobación", before == f.readText())
+        assertEquals(1_600_000_000_000L, s.lastChangeSavedAt())
+        s.upsert(entry("b", "Banco")) // A real change moves it.
+        assertTrue(s.lastChangeSavedAt()!! > 1_600_000_000_000L)
+    }
+
+    @Test fun `no vault file, no time`() = runTest {
+        val s = store().apply { load() }
+        assertNull(s.lastChangeSavedAt())
+    }
+
+    @Test fun `creating a vault runs beforeCreate first`() = runTest {
+        var calls = 0
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            beforeCreate = { calls++; assertFalse("Antes de escribir", File(tmp.root, "vault.bin").exists()) })
+        s.load()
+        s.create("maestra".toCharArray())
+        assertEquals(1, calls)
+        assertTrue(s.state.value is VaultState.Unlocked)
+        // Opening, editing or locking is not creating.
+        s.upsert(entry("a", "Agua"))
+        s.lock()
+        s.unlock("maestra".toCharArray())
+        assertEquals(1, calls)
+    }
+
+    @Test fun `a failing beforeCreate creates nothing and keeps the damaged file`() = runTest {
+        val f = File(tmp.root, "vault.bin").apply { writeText("dañado") }
+        val s = VaultStore(f, Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            beforeCreate = { throw java.io.IOException("disco lleno") })
+        s.load()
+        assertEquals(VaultState.NoVault, s.state.value)
+        assertTrue(runCatching { s.create("maestra".toCharArray()) }.isFailure)
+        assertEquals(VaultState.NoVault, s.state.value)
+        assertFalse(f.exists())
+        assertEquals(0L, s.revision.value)
+        assertTrue(tmp.root.listFiles()!!.any { it.name.startsWith("vault.bin.bad-") && it.readText() == "dañado" })
+    }
 }

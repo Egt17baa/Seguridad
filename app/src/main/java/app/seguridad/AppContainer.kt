@@ -3,7 +3,9 @@ package app.seguridad
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.net.secureClient
 import app.seguridad.settings.SettingsStore
+import app.seguridad.settings.withAutoBackupResult
 import app.seguridad.vault.AutoBackup
+import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupTarget
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CoroutineScope
@@ -18,11 +20,13 @@ const val SETTINGS_FILE = "settings.json"
 
 /**
  * Manual dependency graph, one per process. Plain JVM: no Android types, so jvm-check compiles it too.
- * [backupFolder] opens the folder saved for the automatic copies (Android passes the SAF one).
+ * [backupFolder] opens the folder saved for the automatic copies (Android passes the SAF one), and [releaseFolder]
+ * gives its access back when creating a new vault turns them off.
  */
 class AppContainer(
     filesDir: File,
     backupFolder: (String) -> BackupTarget? = { null },
+    releaseFolder: (String) -> Unit = {},
     /** Lives as long as the process: the automatic copies and the record of how they went. */
     private val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
@@ -36,6 +40,9 @@ class AppContainer(
         File(File(filesDir, "vault"), "vault.bin"),
         kdf = { settings.settings.value.kdf.params },
         idleLockMs = { settings.settings.value.lockAfter.ms },
+        // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
+        // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
+        beforeCreate = { settings.turnOffAutoBackupForNewVault()?.let(releaseFolder) },
     )
 
     val pwned: PwnedPasswords by lazy { PwnedPasswords(client) }
@@ -43,25 +50,20 @@ class AppContainer(
     /** Encrypted copies to the folder chosen in Ajustes, a few seconds after each change to the vault. */
     val autoBackup = AutoBackup(
         vault,
-        target = { settings.settings.value.autoBackupUri?.let(backupFolder) },
+        folder = { settings.settings.value.autoBackupUri },
+        open = backupFolder,
         appScope,
         now = System::currentTimeMillis,
         keep = { settings.settings.value.autoBackupKeep },
-        onError = ::recordAutoBackup,
+        lastCopyAt = { settings.settings.value.lastAutoBackupAt },
+        onResult = ::recordAutoBackup,
     )
 
-    /** Keeps how the last automatic copy went, for Ajustes: [error] null means it was written now. */
-    private fun recordAutoBackup(error: String?) {
-        val at = System.currentTimeMillis()
+    /** Keeps how the last automatic copy went, for Ajustes, if it went to the folder still chosen. */
+    private fun recordAutoBackup(result: AutoBackupResult) {
         appScope.launch {
             try {
-                settings.update { s ->
-                    when {
-                        s.autoBackupUri == null -> s // Turned off meanwhile: nothing to show.
-                        error == null -> s.copy(lastAutoBackupError = null, lastAutoBackupAt = at)
-                        else -> s.copy(lastAutoBackupError = error)
-                    }
-                }
+                settings.update { it.withAutoBackupResult(result) }
             } catch (e: Exception) {
                 // A full disk: Ajustes just shows the previous state; never closes the app.
             }

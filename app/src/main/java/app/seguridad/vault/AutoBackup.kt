@@ -12,6 +12,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -45,10 +46,13 @@ interface BackupTarget {
 
 /** A file [BackupTarget.create] made. */
 interface BackupFile {
+    /** False when the provider says it cannot rename it: the copy is then written straight under its real name. */
+    val canRename: Boolean get() = true
+
     /** Lets [writer] fill the file; [writer]'s stream is closed afterwards. */
     suspend fun write(writer: suspend (OutputStream) -> Unit)
 
-    /** Renames it to [to], a name not in the folder. */
+    /** Renames it to [to], a name not in the folder; throws if the provider cannot. */
     fun rename(to: String)
 
     fun delete()
@@ -76,28 +80,43 @@ const val AUTO_BACKUP_FAILED = "No se pudo hacer la copia automática."
 const val AUTO_BACKUP_OLD_NOT_DELETED = "La copia automática se hizo, pero no se pudieron borrar las antiguas."
 
 /**
+ * How a copy went: [folder] is the one it was made for (as [AutoBackup]'s folder gave it), [writtenAt] when the copy
+ * was taken (its name's time) if it was written, even when [error] says its old copies could not be deleted; [error]
+ * null when all went well.
+ */
+data class AutoBackupResult(val folder: String, val writtenAt: Long?, val error: String?)
+
+/**
  * Writes a `seguridad-backup` copy ([VaultStore.exportBackup], still encrypted with the master password) to the
  * folder [target] gives, [AUTO_BACKUP_DEBOUNCE_MS] after the last change saved ([VaultStore.revision]) or after
  * [request], as `seguridad-auto-AAAAMMDD-HHMMSS.sgbak`, keeping the newest [keep] copies (3, 5 or 10; anything
  * else counts as 5). It is first written under a `.tmp` name and only renamed once complete, so the folder never
- * holds a cut copy with the real name. A name already in the folder is never reused (the next free second is), so
+ * holds a cut copy with the real name. A provider that cannot rename gets it written straight under the real name
+ * (deleted if that fails), the only way to have a copy there at all. A name already in the folder is never reused (the next free second is), so
  * no complete copy is deleted to make room. It only ever deletes files with exactly those names, never the copy
  * just written, and only after a copy was written and checked.
  *
  * Copies are only made from an open vault, where [VaultStore.exportBackup] checks every attachment against its
- * SHA-256: a copy due while the vault is locked waits, and is made as soon as the vault is opened again.
+ * SHA-256: a copy due while the vault is locked waits, and is made as soon as the vault is opened again. So that
+ * this survives the app being closed meanwhile, opening the vault also makes a copy when the last change saved
+ * ([VaultStore.lastChangeSavedAt]) is newer than the last copy ([lastCopyAt]), or there is none yet.
  *
- * Nothing here can close the app or touch the vault: every failure goes to [onError] as a fixed Spanish message;
- * [onError] gets null after a copy that went well. With no folder ([target] null) or no vault nothing happens.
+ * Nothing here can close the app or touch the vault: every outcome goes to [onResult], failures as a fixed Spanish
+ * message. With no folder ([folder] null, or [open] null) or no vault nothing happens.
  */
 @OptIn(FlowPreview::class)
 class AutoBackup(
     private val store: VaultStore,
-    private val target: () -> BackupTarget?,
+    /** The folder chosen for the copies (on Android, a SAF tree URI); null when they are off. */
+    private val folder: () -> String?,
+    /** That folder, to write to; null if it cannot be used. */
+    private val open: (String) -> BackupTarget?,
     scope: CoroutineScope,
     private val now: () -> Long,
     private val keep: () -> Int,
-    private val onError: (String?) -> Unit,
+    /** When the last copy to the chosen folder was taken (epoch ms); null if none yet. */
+    private val lastCopyAt: () -> Long?,
+    private val onResult: (AutoBackupResult) -> Unit,
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
     private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -109,9 +128,10 @@ class AutoBackup(
         scope.launch {
             // drop(1): the revision the store starts with is not a change.
             val due = merge(store.revision.drop(1).map { }, requests).debounce(AUTO_BACKUP_DEBOUNCE_MS).map { true }
-            val opened = store.state.filter { it is VaultState.Unlocked }.map { false }
-            // One collector: copies never overlap. An opened vault only copies if one is waiting.
-            merge(due, opened).collect { isDue -> if (isDue || pending) runOnce() }
+            // Each time the vault is opened (not each change saved while it is open: those wait for the debounce).
+            val opened = store.state.map { it is VaultState.Unlocked }.distinctUntilChanged().filter { it }.map { false }
+            // One collector: copies never overlap. An opened vault only copies if one is waiting or was missed.
+            merge(due, opened).collect { isDue -> if (isDue || pending || missed()) runOnce() }
         }
     }
 
@@ -120,20 +140,36 @@ class AutoBackup(
         requests.tryEmit(Unit)
     }
 
+    /** A change saved after the last copy (or no copy yet): one was due when the app was closed. */
+    private fun missed(): Boolean = try {
+        val changed = store.lastChangeSavedAt()
+        val last = lastCopyAt()
+        changed != null && (last == null || changed > last)
+    } catch (e: Exception) {
+        false
+    }
+
     private suspend fun runOnce() {
         pending = false
+        val uri = folder() ?: return
         try {
-            val folder = target() ?: return
+            val target = open(uri) ?: return
             if (store.state.value !is VaultState.Unlocked) return defer()
-            val written = copyTo(folder) ?: return
-            onError(rotate(folder, written))
+            val at = now()
+            val written = copyTo(target, at) ?: return
+            val rotated = try {
+                rotate(target, written)
+            } catch (e: Exception) {
+                AUTO_BACKUP_OLD_NOT_DELETED // The copy is there all the same.
+            }
+            onResult(AutoBackupResult(uri, at, rotated))
         } catch (e: CancellationException) {
             // Only this class's scope being cancelled ends the copies; one thrown by the folder is just a failure.
             currentCoroutineContext().ensureActive()
-            onError(AUTO_BACKUP_FAILED)
+            onResult(AutoBackupResult(uri, null, AUTO_BACKUP_FAILED))
         } catch (e: Throwable) {
             // Never closes the app: even an Error here only means there is no copy this time.
-            onError(messageFor(e))
+            onResult(AutoBackupResult(uri, null, messageFor(e)))
         }
     }
 
@@ -142,36 +178,55 @@ class AutoBackup(
         pending = store.state.value !is VaultState.NoVault
     }
 
-    /** Writes the copy under its temporary name, then renames it; its name, or null if there was nothing to copy. */
-    private suspend fun copyTo(folder: BackupTarget): String? {
-        val name = freeName(folder.list(AUTO_BACKUP_PREFIX).toSet())
-        val file = folder.create(name + TEMP_SUFFIX)
-        var exported = false
+    /**
+     * Writes the copy under its temporary name, then renames it; its name, or null if there was nothing to copy.
+     * If the provider cannot rename, the copy is written again straight under its name.
+     */
+    private suspend fun copyTo(folder: BackupTarget, now: Long): String? {
+        val name = freeName(folder.list(AUTO_BACKUP_PREFIX).toSet(), now)
+        val temp = folder.create(name + TEMP_SUFFIX)
+        if (temp.canRename) {
+            if (!fill(temp)) return null
+            try {
+                temp.rename(name)
+                return name
+            } catch (e: Exception) {
+                discard(temp) // Refused (some providers cannot rename): written again below.
+            }
+        } else {
+            discard(temp)
+        }
+        return if (fill(folder.create(name))) name else null
+    }
+
+    /** Writes the copy to [file]; false if there was nothing to copy. On false or a failure, [file] is deleted. */
+    private suspend fun fill(file: BackupFile): Boolean {
         try {
+            var exported = false
             file.write { out -> exported = store.exportBackup(out) }
             if (!exported) {
                 file.delete() // Locked or deleted meanwhile: no empty file left.
                 defer()
-                return null
             }
-            file.rename(name)
-            return name
+            return exported
         } catch (e: Throwable) {
-            // A cut or refused copy never stays in the folder, not even under its temporary name.
-            withContext(NonCancellable) {
-                try {
-                    file.delete()
-                } catch (ignored: Exception) {
-                    // Gone with the folder, or cleaned up by the next copy.
-                }
-            }
+            // A cut or refused copy never stays in the folder, under either name.
+            discard(file)
             throw e
         }
     }
 
-    /** The name for now, or (clock set back) the next second whose copy and temporary names are both free. */
-    private fun freeName(taken: Set<String>): String {
-        var at = Instant.ofEpochMilli(now())
+    private suspend fun discard(file: BackupFile) = withContext(NonCancellable) {
+        try {
+            file.delete()
+        } catch (ignored: Exception) {
+            // Gone with the folder; a temporary one is cleaned up by the next copy.
+        }
+    }
+
+    /** The name for [now], or (clock set back) the next second whose copy and temporary names are both free. */
+    private fun freeName(taken: Set<String>, now: Long): String {
+        var at = Instant.ofEpochMilli(now)
         while (true) {
             val name = AUTO_BACKUP_PREFIX + STAMP.format(at.atZone(zone)) + SUFFIX
             if (name !in taken && name + TEMP_SUFFIX !in taken) return name

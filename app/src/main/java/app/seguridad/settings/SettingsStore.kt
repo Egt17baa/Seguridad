@@ -33,8 +33,22 @@ class SettingsStore(
         _settings.value = sane(loaded)
     }
 
-    suspend fun update(change: (Settings) -> Settings) = mutex.withLock {
-        val next = sane(change(_settings.value))
+    suspend fun update(change: (Settings) -> Settings) = mutex.withLock { write(change(_settings.value)) }
+
+    /**
+     * A new vault is about to be created: turns the automatic copies off, as their rotation would delete the copies of
+     * the previous vault (maybe the only good ones) without knowing which vault each belongs to. Returns the folder
+     * that was chosen, so the caller gives its permission back; null if they were already off (nothing written).
+     */
+    suspend fun turnOffAutoBackupForNewVault(): String? = mutex.withLock {
+        val s = _settings.value
+        val folder = s.autoBackupUri ?: return@withLock null
+        write(s.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = true))
+        folder
+    }
+
+    private suspend fun write(change: Settings) {
+        val next = sane(change)
         withContext(io) { file.writeTextAtomically(appJson.encodeToString(Settings.serializer(), next)) }
         _settings.value = next
     }
