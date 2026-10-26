@@ -10,6 +10,7 @@ import java.security.cert.CertificateException
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import javax.net.ssl.X509TrustManager
+import javax.security.auth.x500.X500Principal
 
 private fun cert(name: String): X509Certificate {
     val file = listOf("src/test/resources/emudhra", "../app/src/test/resources/emudhra").map { File(it, name) }.first { it.exists() }
@@ -53,6 +54,20 @@ class DistrustedCertificatesTest {
 
     @Test fun `distrusted roots are not offered as issuers`() {
         assertEquals(listOf(aaaRoot), tm.acceptedIssuers.toList())
+    }
+
+    @Test fun `emSign G3 roots are recognised by name with or without the OU`() {
+        for (cn in listOf("emSign ECC Root CA - G3", "emSign Root TLS CA - G3", "emSign Root CS CA - G3")) {
+            assertTrue(X500Principal("CN=$cn,O=eMudhra Technologies Limited,C=IN").isDistrustedRootName())
+            assertTrue(X500Principal("CN=$cn,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN").isDistrustedRootName())
+        }
+        assertTrue(emsignEcc.subjectX500Principal.isDistrustedRootName())
+    }
+
+    @Test fun `other names are not matched`() {
+        assertFalse(X500Principal("CN=emSign Root CA - G1,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN").isDistrustedRootName())
+        assertFalse(X500Principal("CN=emSign Root TLS CA - G3,O=Someone Else,C=IN").isDistrustedRootName())
+        assertFalse(aaaRoot.subjectX500Principal.isDistrustedRootName())
     }
 
     @Test fun `the app's HTTP client uses the distrusting trust manager`() {
