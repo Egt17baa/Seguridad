@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.seguridad.health.DAY_MS
 import app.seguridad.health.HealthItem
 import app.seguridad.health.Issue
 import app.seguridad.health.uniquePasswords
@@ -92,7 +93,9 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
             Text("Desbloquea la bóveda para ver su salud.", Modifier.padding(padding).padding(16.dp))
             return@BackScaffold
         }
-        val items = vaultHealth(entries, System.currentTimeMillis(), breached)
+        // Not on every recomposition (scrolling, the check's progress): only when its inputs change, or the day.
+        val day = System.currentTimeMillis() / DAY_MS
+        val items = remember(entries, breached, day) { vaultHealth(entries, System.currentTimeMillis(), breached) }
         val byId = entries.associateBy { it.id }
         LazyColumn(Modifier.padding(padding).fillMaxSize().touchesVault(store), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {

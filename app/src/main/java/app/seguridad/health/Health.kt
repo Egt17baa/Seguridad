@@ -12,7 +12,7 @@ data class HealthItem(val entryId: String, val issues: Set<Issue>)
 
 const val WEAK_BITS = 50.0
 const val OLD_DAYS = 365L
-private const val DAY_MS = 86_400_000L
+internal const val DAY_MS = 86_400_000L
 
 private val COMMON = setOf(
     "123456", "password", "qwerty", "contraseña", "111111", "admin", "iloveyou", "000000", "abc123", "12345678",
