@@ -292,14 +292,16 @@ Un ZIP (`java.util.zip`) con estas entradas, **en este orden**:
 - **Reconocerlo:** `isBackup` mira los primeros 64 bytes: la firma `PK\3\4` y que el nombre de la primera entrada sea exactamente `seguridad-backup`. Así se distingue de una exportación JSON y de otro ZIP.
 - **Leer:** la primera entrada tiene que ser `seguridad-backup` con exactamente `1\n`. Si el contenido es un número mayor que 1, el error es «La copia es de una versión más nueva de Seguridad»; en otro caso, «dañada». Se rechazan los duplicados del marcador, de `vault.json` y de un mismo `att/<id>.bin`. Los nombres válidos se comprueban con una regex exacta (`att/([0-9a-f]{32})\.bin`) y el archivo temporal se nombra solo con esos 32 dígitos, nunca con el nombre de la entrada: no hay zip-slip. Cualquier otro nombre se ignora, pero sus bytes cuentan para los límites.
 - **Límites**, sobre los bytes realmente leídos y no sobre los tamaños de la cabecera: 100 MB en total, 6 MB por entrada y 2 000 entradas. Los adjuntos van a una carpeta temporal en streaming, nunca todo en memoria.
-- **Escribir:** se niega a escribir una copia que el lector rechazaría (`vault.json` de más de 6 MB, más de 2 000 entradas, una entrada o el total por encima del límite). Con la bóveda abierta comprueba el SHA-256 de cada adjunto mientras lo escribe: si falta o no coincide, no acaba la copia y dice cuál es. Con la bóveda bloqueada incluye todos los `<id>.bin` sin comprobarlos.
+- **Escribir:** se niega a escribir una copia que el lector rechazaría (`vault.json` de más de 6 MB, más de 2 000 entradas, una entrada o el total por encima del límite). Con la bóveda abierta comprueba el SHA-256 de cada adjunto mientras lo escribe: si falta o no coincide, no acaba la copia y dice cuál es. Con la bóveda bloqueada no escribe nada (`exportBackup` devuelve false): nunca sale una copia sin comprobar (revisión final, I1).
 - **Importar:** se lee a una carpeta `import-<16hex>` junto a `att/` (el mismo sistema de archivos, así mover es un rename atómico) **antes** de tomar el cerrojo de la bóveda. Después, con el cerrojo: se abre con la contraseña de la copia; se comprueba cada adjunto referenciado (id, presencia y SHA-256); y solo entonces se mueven los archivos y se escribe `vault.bin` de forma atómica. Si algo falla, se deshace todo y la bóveda local no se toca. Un adjunto manipulado o que falta hace fallar la importación entera y nombra el adjunto. La carpeta temporal se borra siempre.
 - **Tamaño máximo real:** 50 MB de adjuntos más 28 bytes por adjunto, que cabe en los 100 MB del formato.
 
 ### Copia automática
 
 - Observa `VaultStore.revision`, un contador que sube **solo después de guardar bien un cambio del usuario** (no con los guardados de contabilidad, ni al exportar, ni si el guardado falla). Con 3 s de espera (`debounce`), 3 cambios seguidos dan una copia. Arrancar no hace copia.
-- Nombre: `seguridad-auto-AAAAMMDD-HHMMSS.sgbak`. **Primero se escribe `….sgbak.tmp` y solo se renombra al terminar bien**; si falla o se cancela, se borra el temporal. Nunca queda una copia a medias con el nombre definitivo.
+- **Solo con la bóveda abierta**, para que `exportBackup` compruebe el SHA-256 de cada adjunto. Si toca una copia con la bóveda bloqueada (salir de la app en los 3 s, o cambiar la contraseña maestra, que la bloquea), queda pendiente y se hace nada más desbloquearla. «Hacer una copia ahora» con la bóveda bloqueada pide abrirla. Un adjunto que falta o está dañado hace fallar la copia con el aviso de Ajustes, sin dejar archivo y **sin rotar**: las copias buenas anteriores se conservan.
+- Nombre: `seguridad-auto-AAAAMMDD-HHMMSS.sgbak`. **Primero se escribe `….sgbak.tmp` y solo se renombra al terminar bien**; si falla o se cancela, se borra el temporal. Nunca queda una copia a medias con el nombre definitivo. El temporal se escribe, renombra y borra por la URI que devolvió `createDocument`, nunca buscándolo por nombre. Si ese nombre (o su `.tmp`) ya existe en la carpeta (reloj atrasado), se usa el siguiente segundo libre: nunca se borra una copia completa para hacer sitio.
+- Una `CancellationException` que lanza la carpeta se avisa como error genérico y las copias siguen; solo la cancelación del propio ámbito las detiene.
 - **Rotación:** conserva las 3, 5 (por defecto) o 10 más recientes y solo borra nombres que encajan **exactamente** con `seguridad-auto-\d{8}-\d{6}\.sgbak` (y sus `.tmp` sueltos). Nunca borra la copia recién escrita ni archivos ajenos de la carpeta.
 - **Errores:** nunca cierran la app ni tocan la bóveda local. Se guardan en los ajustes como uno de seis mensajes fijos en español, sin ruta, URI, nombre de adjunto ni texto de la excepción, y se muestran en Ajustes: sin permiso, carpeta no encontrada, adjunto dañado o bóveda que no cabe, error de escritura, error genérico y «se hizo, pero no se pudieron borrar las antiguas».
 - La carpeta se elige con el selector del sistema (`OpenDocumentTree`) y el permiso persistente se devuelve al cambiar de carpeta y al desactivar. Desactivar no borra las copias ya hechas.
@@ -310,19 +312,29 @@ Un ZIP (`java.util.zip`) con estas entradas, **en este orden**:
 | Decisión | Motivo y coste |
 |---|---|
 | Una exportación JSON cuyas entradas llevan adjuntos se rechaza con «Esta copia tiene adjuntos: importa el archivo .sgbak». | Ninguna versión publicada escribe ese JSON (la 1.0.x no tiene adjuntos y la 1.1 exporta `.sgbak`), y aceptarlo dejaría referencias sin archivo. Si alguien tiene un JSON de una compilación de desarrollo, tiene que volver a exportar. |
-| La copia automática escribe a un nombre temporal y solo lo renombra si la exportación termina bien. | Evita una copia parcial con nombre definitivo en la carpeta del usuario. Obliga a añadir `rename` a `BackupTarget`. |
+| La copia automática escribe a un nombre temporal y solo lo renombra si la exportación termina bien. | Evita una copia parcial con nombre definitivo en la carpeta del usuario. `BackupTarget.create` devuelve el archivo creado (`BackupFile`, con `write`, `rename` y `delete`), que se usa por su URI y no por su nombre. |
 | `upsert` conserva los adjuntos guardados de una entrada, como ya hacía con el historial. | El editor construye la entrada sin `attachments`; sin esto, al guardar se perderían las referencias y la recolección borraría los archivos. |
 | Al apartar una bóveda dañada se aparta también `att/` a `att.bad-<hora>`. | La recolección de la bóveda nueva no debe borrar archivos que solo podría abrir la apartada. |
 | Las rutas de `android/` quedan fuera de `jvm-check`. | `SafBackupTarget` usa `DocumentsContract`; la lógica (`AutoBackup`, `BackupTarget`) es JVM pura y se prueba con un destino en memoria. |
 | La lectura del documento de entrada de un adjunto se hace antes de tomar el cerrojo de la bóveda (corrección tras la revisión de la tarea 5), y `exportBackup` escribe fuera del cerrojo, con una instantánea. | Un proveedor de documentos lento (Drive sin conexión, SMB) no puede bloquear la bóveda. |
 | `writeBackup` gana un parámetro opcional `expectedSha256`; `AutoBackup` gana `zone`; `Settings` gana `lastAutoBackupAt`. | Un cambio mínimo cada uno, sobre el plan: no se acaba una copia que no podría restaurarse, los tests dan nombres deterministas y la pantalla muestra la fecha de la última copia. |
-| `write` y su `writer` de `BackupTarget` son `suspend`. | `exportBackup` es `suspend`; así se evita `runBlocking`. |
+| `create` de `BackupTarget` y `write` de `BackupFile` (y su `writer`) son `suspend`. | `exportBackup` es `suspend`; así se evita `runBlocking`. |
+| La copia automática solo se hace con la bóveda abierta; con ella bloqueada queda pendiente hasta el siguiente desbloqueo, y `exportBackup` no escribe nada si está bloqueada (revisión final, I1). | Una copia hecha bloqueada no podía comprobar los adjuntos: con uno dañado, la rotación habría sustituido todas las copias buenas por copias que no se pueden importar. Los cambios ya están guardados en el móvil, así que esperar al desbloqueo no pierde nada. La importación sigue siendo todo o nada (no hay modo «importar sin los adjuntos dañados»). |
 
-**Diferencias entre el plan y el código** (el código manda): `BackupTarget` tiene `rename` y `write` es `suspend`; los parámetros y campos de la fila anterior; y `VAULT_IMPORT_MAX_BYTES` (20 MB para la JSON) pasó de la interfaz a `VaultStore`.
+**Diferencias entre el plan y el código** (el código manda): `BackupTarget` tiene `create`, que devuelve un `BackupFile` con `write`, `rename` y `delete`, en vez de `write`; los parámetros y campos de la fila anterior; y `VAULT_IMPORT_MAX_BYTES` (20 MB para la JSON) pasó de la interfaz a `VaultStore`.
 
 ### Revisión
 
-Cada tarea de la 5 a la 7 pasó una revisión de especificación y de código con la skill `experto-seguridad-cripto`, y un arreglo en la 5 (lectura del flujo bajo el cerrojo de la bóveda) se re-revisó sin hallazgos nuevos. Pendiente al escribir esto: la revisión final de toda la rama (`code-review`, `security-review` y esta skill) antes de fusionar.
+Cada tarea de la 5 a la 7 pasó una revisión de especificación y de código con la skill `experto-seguridad-cripto`, y un arreglo en la 5 (lectura del flujo bajo el cerrojo de la bóveda) se re-revisó sin hallazgos nuevos.
+
+La revisión final de toda la rama, con esta skill, está hecha: sin críticos y con un Important (I1, copias automáticas sin comprobar con la bóveda bloqueada). Se corrigió en una ronda de arreglos, junto con:
+- T7-1 y T7-2: el temporal por su URI y un nombre libre en vez de borrar la copia con el mismo nombre;
+- T7-4: una `CancellationException` suelta ya no para las copias;
+- T7-7: el test engañoso, y T7-8: el texto de Ajustes («se hará en unos segundos y tras cada cambio»);
+- T6-3: test de la limpieza de `import-<16hex>` al arrancar, y T6-5: `application/x-zip-compressed` en el selector de importación;
+- la comprobación de HIBP se cancela al bloquearse la bóveda y descarta sus resultados.
+
+Quedan `code-review` y `security-review` sobre la rama antes de fusionar.
 
 Menores aceptados y diferidos:
 
@@ -332,10 +344,7 @@ Menores aceptados y diferidos:
 | Al restaurar una bóveda dañada, sus adjuntos quedan en `att.bad-*`. | Quedan en disco apartados; se pueden borrar a mano. |
 | El tope de 6 MB por entrada se aplica a los bytes descomprimidos, no a los comprimidos. | Un ZIP muy comprimido tarda más en rechazarse, pero la memoria y el disco siguen acotados. |
 | En Android 14 o posterior, `ZipInputStream` lanza `ZipException` con nombres con `..` o `/` inicial. | Una copia con esos nombres se **rechaza** como dañada en el móvil y se **ignora** en la JVM de los tests; ambas formas son seguras. |
-| La copia automática busca el temporal por nombre en la carpeta (`SafBackupTarget`). | Si el proveedor renombra por colisión (`… (1).tmp`), puede renombrar un resto antiguo, y Drive permite nombres repetidos. Es improbable; la solución es guardar la URI que devuelve `createDocument`. |
 | Una copia fechada en el futuro (reloj mal puesto una vez) ocupa para siempre un hueco de la rotación. | Se conservan `keep - 1` copias útiles en vez de `keep`. |
-| Con la misma hora de nombre, la copia anterior se borra antes del renombrado. | Si el renombrado falla se pierden las dos; solo ocurre con el reloj atrasado. |
-| Una `CancellationException` suelta puede parar la copia automática. | Se reanuda al reiniciar la app. |
 | Si falla `list` en la rotación después de escribir bien, se avisa de «sin permiso» aunque la copia se hizo. | Mensaje engañoso, sin pérdida de datos. |
 
 Riesgos que quedan: la clave de cada adjunto vive como `String` Base64 en la entrada mientras la bóveda está abierta y no puede ponerse a cero en Java, igual que las contraseñas; el contenido de un adjunto se descifra en memoria (máximo 5 MB) y el búfer sí se pone a cero. Las comprobaciones que dependen de un móvil real están en la lista de abajo y en el README.
