@@ -26,11 +26,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -307,6 +310,19 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
     }
 }
 
+/** Published from docs/privacidad.html with GitHub Pages; Google Play requires the same link in the store listing. */
+const val PRIVACY_POLICY_URL = "https://egt17baa.github.io/Seguridad/privacidad.html"
+const val SOURCE_CODE_URL = "https://github.com/Egt17baa/Seguridad"
+
+/** Opens [url] in the browser (the app itself makes no request); without a browser the address is shown to copy. */
+@Composable
+private fun OpenLinkButton(label: String, url: String) {
+    val uriHandler = LocalUriHandler.current
+    var failed by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { failed = runCatching { uriHandler.openUri(url) }.isFailure }, modifier = Modifier.fillMaxWidth()) { Text(label) }
+    if (failed) Hint("No hay un navegador para abrirlo. La dirección es $url")
+}
+
 /** Version and what the app does not promise; the licenses of what it ships are one tap away. */
 @Composable
 fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
@@ -320,11 +336,16 @@ fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
             Section("Avisos") {
                 Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una wallet hardware y un gestor de contraseñas auditado.")
                 Hint("• Sin recuperación: si olvidas la contraseña maestra o la de algo cifrado, nadie puede recuperar lo guardado.")
-                Hint("• Red: solo «¿Filtrada?» se conecta, a api.pwnedpasswords.com, y solo envía los 5 primeros caracteres de la huella SHA-1 de la contraseña.")
+                Hint("• Red: solo se conectan «¿Filtrada?» y «Comprobar filtraciones» de la salud de la bóveda, cuando las pulsas, a api.pwnedpasswords.com, y solo envían los 5 primeros caracteres de la huella SHA-1 de cada contraseña.")
+            }
+            Section("Privacidad") {
+                Hint("La app no recoge datos: no hay cuentas, analítica ni anuncios. La política completa está en la web.")
+                OpenLinkButton("Ver la política de privacidad", PRIVACY_POLICY_URL)
             }
             Section("Licencias") {
-                Hint("Solo componentes de código abierto con licencia libre y gratuita.")
+                Hint("Solo componentes de código abierto con licencia libre y gratuita. La app es gratuita, sin anuncios ni compras, y su código es abierto: © 2026 Egt17baa, licencia Apache-2.0.")
                 OutlinedButton(onClick = onLicenses, modifier = Modifier.fillMaxWidth()) { Text("Ver licencias") }
+                OpenLinkButton("Ver el código fuente", SOURCE_CODE_URL)
             }
         }
     }
