@@ -700,4 +700,36 @@ class FileMessageTest {
         // Y cada bit tocado del final se rechaza.
         rejects { decrypt(flip(file, file.size - 1), ana) }
     }
+
+    /**
+     * Lo mismo sin firmar: los mismos 70.000 bytes, nombre, destinataria, `ikmE` y prefijo STREAM que `file_signed_hex`, y
+     * sin remitente (marcas = 0, registro final vacío), guardado como `file_unsigned_hex`. Se generó una vez; si falla, el
+     * formato ha cambiado y no se puede actualizar el vector, hay que arreglar el código.
+     */
+    @Test fun archivoSinFirmarGuardado() {
+        val sender = fixedIdentity()
+        val ana = anaIdentity()
+        val file = Hex.decode(vector("file_unsigned_hex"))
+        assertEquals(PkKind.FILE_MESSAGE, pkKindOfFile(file.copyOf(5)))
+        val out = ByteArrayOutputStream()
+        val opened = decrypt(file, ana, out)
+        assertEquals("doc.pdf", opened.name)
+        assertNull(opened.senderEd)
+        assertArrayEquals(vectorPlain, out.toByteArray())
+
+        // Mismo `ikmE` y prefijo que el firmado: la cabecera es idéntica y solo cambian el registro 0 y el final.
+        val signed = Hex.decode(vector("file_signed_hex"))
+        assertArrayEquals(signed.copyOf(1132), file.copyOf(1132))
+        assertEquals(signed.size - (32 + 64), file.size)
+
+        val again = ByteArrayOutputStream()
+        encryptFileFor(ByteArrayInputStream(vectorPlain), again, "doc.pdf", cardOf(ana, "Ana"), null, ikm, prefix)
+        assertEquals(Hex.toHexString(file), Hex.toHexString(again.toByteArray()))
+        assertEquals(Hex.toHexString(file), Hex.toHexString(hand(cardOf(ana, "Ana"), null, vectorPlain).bytes))
+
+        assertEquals(NOT_FOR_ME, rejects { decrypt(file, sender) }.message)
+        rejects { decrypt(flip(file, file.size - 1), ana) }
+        // Un archivo sin firmar no se hace pasar por firmado: la marca de «firmado» está sellada en el registro 0.
+        rejects { decrypt(flip(file, 1132 + 2), ana) }
+    }
 }
