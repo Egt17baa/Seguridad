@@ -120,6 +120,7 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
     val folder = settings.autoBackupUri
     // Copies are only made from the open vault (each attachment is checked): while locked, one waits for it.
     val locked = vaultState is VaultState.Locked
+    val noVault = vaultState is VaultState.NoVault
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
@@ -141,10 +142,10 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             if (previous != null && previous != chosen) SafBackupTarget.releaseFolder(resolver, previous)
             autoBackup.request()
             snackbar.showSnackbar(
-                if (vault.state.value is VaultState.Locked) {
-                    "Copia automática activada: se hará una en cuanto abras la bóveda y después tras cada cambio."
-                } else {
-                    "Copia automática activada: se hará una ahora y tras cada cambio en la bóveda."
+                when (vault.state.value) {
+                    VaultState.Locked -> "Copia automática activada: se hará una en cuanto abras la bóveda y después tras cada cambio."
+                    VaultState.NoVault -> "Copia automática activada: se hará una cuando crees la bóveda y después tras cada cambio."
+                    else -> "Copia automática activada: se hará una ahora y tras cada cambio en la bóveda."
                 },
             )
         }
@@ -181,7 +182,11 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
         val last = settings.lastAutoBackupAt
         Hint(
             if (last == null) {
-                "Aún no se ha hecho ninguna copia: se hará " + if (locked) "en cuanto abras la bóveda." else "en unos segundos y tras cada cambio."
+                "Aún no se ha hecho ninguna copia: se hará " + when {
+                    noVault -> "cuando crees la bóveda."
+                    locked -> "en cuanto abras la bóveda."
+                    else -> "en unos segundos y tras cada cambio."
+                }
             } else {
                 "Última copia: " + backupDate.format(Instant.ofEpochMilli(last).atZone(ZoneId.systemDefault()))
             },
@@ -190,9 +195,11 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
         OutlinedButton(
             onClick = {
                 autoBackup.request() // While locked it waits, and is made as soon as the vault is opened.
-                if (vault.state.value is VaultState.Locked) {
-                    scope.launch { snackbar.showSnackbar("Abre la bóveda (pestaña Bóveda) para hacer la copia: se hará en cuanto la abras.") }
-                }
+                when (vault.state.value) {
+                    VaultState.Locked -> "Abre la bóveda (pestaña Bóveda) para hacer la copia: se hará en cuanto la abras."
+                    VaultState.NoVault -> "Aún no tienes bóveda: no hay nada que copiar."
+                    else -> null
+                }?.let { scope.launch { snackbar.showSnackbar(it) } }
             },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Hacer una copia ahora") }

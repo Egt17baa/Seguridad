@@ -332,7 +332,8 @@ La revisión final de toda la rama, con esta skill, está hecha: sin críticos y
 - T7-4: una `CancellationException` suelta ya no para las copias;
 - T7-7: el test engañoso, y T7-8: el texto de Ajustes («se hará en unos segundos y tras cada cambio»);
 - T6-3: test de la limpieza de `import-<16hex>` al arrancar, y T6-5: `application/x-zip-compressed` en el selector de importación;
-- la comprobación de HIBP se cancela al bloquearse la bóveda y descarta sus resultados.
+- la comprobación de HIBP vigila la bóveda desde su propia corrutina y se para en cuanto se bloquea, también al salir de la app, cuando la pantalla ya no se recompone; no envía más consultas y descarta sus resultados. El primer arreglo solo la paraba al recomponer, y lo corrigió la re-revisión;
+- Ajustes ya no promete una copia «en unos segundos» cuando no hay bóveda.
 
 Quedan `code-review` y `security-review` sobre la rama antes de fusionar.
 

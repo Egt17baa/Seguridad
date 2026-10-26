@@ -39,6 +39,9 @@ import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 
 private fun Issue.label() = when (this) {
@@ -65,18 +68,21 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
     var running by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) { onDispose { job?.cancel() } }
-    // Locking (idle or leaving the app) does not close this screen: the check stops there, nothing more is sent,
-    // the passwords it held are let go and its results are dropped.
+    fun dropResults() {
+        breached = emptyMap()
+        message = null
+        running = false
+        done = 0
+        total = 0
+    }
+    // Locking does not close this screen, and leaving the app (ON_STOP) stops recomposition: the check itself
+    // watches the vault (below). This only drops the results of a check that had already finished.
     val unlocked = state is VaultState.Unlocked
     LaunchedEffect(unlocked) {
         if (!unlocked) {
             job?.cancelAndJoin()
             job = null
-            breached = emptyMap()
-            message = null
-            running = false
-            done = 0
-            total = 0
+            dropResults()
         }
     }
 
@@ -127,9 +133,18 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
                                 total = groups.size
                                 running = true
                                 job = scope.launch {
+                                    // The vault locks (idle, or leaving the app, when this screen no longer
+                                    // recomposes): the check stops at once, nothing more is sent, the passwords it
+                                    // held are let go and its results are dropped.
+                                    val check = coroutineContext.job
+                                    launch {
+                                        store.state.first { it !is VaultState.Unlocked }
+                                        check.cancel()
+                                    }
                                     val found = HashMap<String, Int>()
                                     try {
                                         for ((password, ids) in groups) {
+                                            if (store.state.value !is VaultState.Unlocked) throw CancellationException()
                                             val chars = password.toCharArray()
                                             val n = try {
                                                 pwned.times(chars)
@@ -143,12 +158,17 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
                                         }
                                         message = "Comprobación terminada: ${found.size} ${if (found.size == 1) "acceso filtrado" else "accesos filtrados"}."
                                     } catch (e: CancellationException) {
-                                        message = "Comprobación cancelada ($done de $total)."
+                                        if (store.state.value is VaultState.Unlocked) {
+                                            message = "Comprobación cancelada ($done de $total)."
+                                        } else {
+                                            dropResults()
+                                        }
                                         throw e
                                     } catch (e: Exception) {
                                         message = "No se pudo completar la comprobación ($done de $total). Revisa la conexión."
                                     } finally {
                                         running = false
+                                        coroutineContext.cancelChildren() // The vault watcher: done with this check.
                                     }
                                 }
                             },
