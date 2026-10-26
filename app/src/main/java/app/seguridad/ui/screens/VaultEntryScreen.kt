@@ -440,6 +440,10 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                                 error = "La bóveda se bloqueó: no se ha importado nada"
                             } else if (more) {
                                 info = "Lote $batch de ${result.batchSize} importado (${entries.size}). Lote ${batch + 1} de ${result.batchSize}: escanea el siguiente"
+                            } else if (existing != null) {
+                                // Editing an entry: leaving would lose its unsaved changes, so it stays here.
+                                info = "Importados ${entries.size} códigos de Google Authenticator. Esta entrada sigue abierta: " +
+                                    "guárdala si la has cambiado."
                             } else {
                                 onDone()
                             }
