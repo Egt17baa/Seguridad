@@ -80,6 +80,8 @@ class VaultStore(
         if (file.exists()) {
             val stamp = now()
             file.renameTo(File(file.path + ".bad-" + stamp))
+            // If this rename fails, the new vault's collection deletes these files: no loss, as their keys are only
+            // in the vault.bin.bad-<time> just set aside, which no one opens again without manual recovery.
             if (attachments.dir.exists()) attachments.dir.renameTo(File(attachments.dir.path + ".bad-" + stamp))
         }
     }
@@ -225,19 +227,23 @@ class VaultStore(
 
     /**
      * Saves the change even if the vault locks meanwhile (with a copy of the key), then reopens only if it did not.
-     * False if the vault was already locked, so nothing was saved.
+     * False if the vault was already locked, or [change] returned null (nothing to change), so nothing was saved.
+     * [change] runs with the mutex held: it must never wait on anything outside the app (a document provider).
      */
-    private suspend fun modify(change: suspend (List<VaultEntry>) -> List<VaultEntry>): Boolean = mutex.withLock {
+    private suspend fun modify(change: suspend (List<VaultEntry>) -> List<VaultEntry>?): Boolean = mutex.withLock {
         val v = vault ?: return@withLock false
         val since = epoch
         val key = dek?.copyOf() ?: return@withLock false
         val current = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock false.also { key.fill(0) }
         val next = try {
-            val changed = change(current)
-            withContext(compute) { VaultCrypto.write(v, key, changed) }
+            withContext(compute) { change(current)?.let { VaultCrypto.write(v, key, it) } }
         } catch (e: Exception) {
             key.fill(0)
             throw e
+        }
+        if (next == null) {
+            key.fill(0)
+            return@withLock false
         }
         commit(next, key, since)
         true
@@ -275,34 +281,36 @@ class VaultStore(
     /**
      * Encrypts [input] as a new attachment of entry [entryId] and saves the vault. Throws [AttachmentLimit] over
      * [MAX_ATTACHMENT_BYTES], or when the vault's attachments would pass [MAX_ATTACHMENTS_TOTAL_BYTES] (the file is
-     * deleted then). False if the vault was locked or the entry no longer exists, so nothing was saved. The file is
-     * written with the mutex held, so no collection can run between writing it and saving its reference; if the
-     * save fails, the next collection deletes it.
+     * deleted then). False if the vault was locked or the entry no longer exists, so nothing was saved.
+     * [input] (maybe a slow or stuck document provider) is read before taking the mutex, so it can never block
+     * unlocking or saving. Only encrypting, writing the file and saving the vault run with the mutex held, so no
+     * collection can run between writing the file and saving its reference; if the save fails, the next collection
+     * deletes it.
      */
     suspend fun addAttachment(entryId: String, input: java.io.InputStream, name: String): Boolean {
-        var found = false
-        val saved = modify { list ->
-            val entry = list.firstOrNull { it.id == entryId } ?: return@modify list
-            found = true
-            val ref = withContext(io) { attachments.add(input, name) }
-            if (attachments.totalBytes(list.flatMap { it.attachments }) + ref.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
-                withContext(io) { attachments.delete(ref.id) }
-                throw AttachmentLimit(ATTACHMENTS_TOTAL_TOO_BIG)
+        val plain = withContext(io) { attachments.read(input) }
+        try {
+            return modify { list ->
+                val entry = list.firstOrNull { it.id == entryId } ?: return@modify null
+                val ref = withContext(io) { attachments.add(plain, name) }
+                if (attachments.totalBytes(list.flatMap { it.attachments }) + ref.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
+                    withContext(io) { attachments.delete(ref.id) }
+                    throw AttachmentLimit(ATTACHMENTS_TOTAL_TOO_BIG)
+                }
+                list.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now()) else it }
             }
-            list.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now()) else it }
+        } finally {
+            plain.fill(0)
         }
-        return saved && found
     }
 
-    /** Removes an attachment from entry [entryId]; its file goes with the collection after the save. False if locked. */
+    /**
+     * Removes an attachment from entry [entryId]; its file goes with the collection after the save. False if locked
+     * or there is no such attachment, so nothing was saved.
+     */
     suspend fun removeAttachment(entryId: String, attachmentId: String): Boolean = modify { list ->
-        list.map { e ->
-            if (e.id == entryId && e.attachments.any { it.id == attachmentId }) {
-                e.copy(attachments = e.attachments.filterNot { it.id == attachmentId }, updatedAt = now())
-            } else {
-                e
-            }
-        }
+        val entry = list.firstOrNull { e -> e.id == entryId && e.attachments.any { it.id == attachmentId } } ?: return@modify null
+        list.map { e -> if (e === entry) e.copy(attachments = e.attachments.filterNot { it.id == attachmentId }, updatedAt = now()) else e }
     }
 
     /**
