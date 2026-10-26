@@ -37,14 +37,19 @@ private const val BAD_PUBLIC_KEY = "La clave pública no es válida"
  */
 class Identity(seed: ByteArray) : AutoCloseable {
     private val seedCopy: ByteArray
-    private var edPrivate: Ed25519PrivateKeyParameters?
-    private var kemPair: AsymmetricCipherKeyPair?
 
-    /** Clave pública de Ed25519 (32 bytes). No se modifica. */
-    val edPublic: ByteArray
+    // @Volatile: un close() desde otro hilo lo ven sign(), fileSigner() y kemKeyPair().
+    @Volatile private var edPrivate: Ed25519PrivateKeyParameters?
+    @Volatile private var kemPair: AsymmetricCipherKeyPair?
 
-    /** Clave pública de X-Wing (1216 bytes). No se modifica. */
-    val kemPublic: ByteArray
+    private val edPublicBytes: ByteArray
+    private val kemPublicBytes: ByteArray
+
+    /** Clave pública de Ed25519 (32 bytes). Una copia en cada llamada: quien la recibe puede modificarla sin efecto. */
+    val edPublic: ByteArray get() = edPublicBytes.copyOf()
+
+    /** Clave pública de X-Wing (1216 bytes). Una copia en cada llamada: quien la recibe puede modificarla sin efecto. */
+    val kemPublic: ByteArray get() = kemPublicBytes.copyOf()
 
     init {
         if (seed.size != KEY_BYTES) throw CryptoFailure(BAD_SEED)
@@ -52,9 +57,9 @@ class Identity(seed: ByteArray) : AutoCloseable {
         val h = hpkeSuite()
         // Nunca `HPKE.deriveKeyPair`: en Bouncy Castle 1.86 no coincide con el borrador. La pública sale de la privada.
         val kem = derived(seed, XWING_INFO, KEM_SECRET_BYTES) { h.deserializePrivateKey(it, null) }
-        edPublic = ed.generatePublicKey().encoded
-        kemPublic = h.serializePublicKey(kem.public)
-        check(edPublic.size == ED_PUBLIC_BYTES && kemPublic.size == KEM_PUBLIC_BYTES) { "Tamaños de clave inesperados" }
+        edPublicBytes = ed.generatePublicKey().encoded
+        kemPublicBytes = h.serializePublicKey(kem.public)
+        check(edPublicBytes.size == ED_PUBLIC_BYTES && kemPublicBytes.size == KEM_PUBLIC_BYTES) { "Tamaños de clave inesperados" }
         edPrivate = ed
         kemPair = kem
         seedCopy = seed.copyOf()
@@ -80,9 +85,9 @@ class Identity(seed: ByteArray) : AutoCloseable {
     fun kemKeyPair(): AsymmetricCipherKeyPair = kemPair ?: throw closed()
 
     override fun close() {
-        seedCopy.fill(0)
         edPrivate = null
         kemPair = null
+        seedCopy.fill(0)
     }
 
     private fun edKey(): Ed25519PrivateKeyParameters = edPrivate ?: throw closed()
@@ -148,7 +153,13 @@ fun fingerprint(edPublic: ByteArray, kemPublic: ByteArray): String {
     }
 }
 
-/** HKDF-SHA256 (RFC 5869) de [seed] con sal vacía y [info]; [build] usa la clave y después se pone a cero. */
+/**
+ * HKDF-SHA256 (RFC 5869) de [seed] con sal vacía y [info]; [build] usa la clave y después se pone a cero.
+ *
+ * Lo que no se puede poner a cero con la API de Bouncy Castle: `HKDFParameters` clona la semilla, y el HMAC del
+ * `HKDFBytesGenerator` guarda la clave pseudoaleatoria (PRK) y sus bloques internos hasta que el recolector de basura
+ * libere esos objetos. Solo se pone a cero lo que es nuestro: la clave derivada [key].
+ */
 private inline fun <T> derived(seed: ByteArray, info: String, length: Int, build: (ByteArray) -> T): T {
     val key = ByteArray(length)
     try {
