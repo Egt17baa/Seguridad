@@ -1,6 +1,10 @@
 package app.seguridad.net
 
 import okhttp3.OkHttpClient
+import org.bouncycastle.asn1.ASN1ObjectIdentifier
+import org.bouncycastle.asn1.x500.X500Name
+import org.bouncycastle.asn1.x500.style.BCStyle
+import org.bouncycastle.asn1.x500.style.IETFUtils
 import java.net.Socket
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -31,16 +35,39 @@ internal val DISTRUSTED_SPKI_SHA256 = setOf(
     "5C0660A2B164910D8FF589C18E14552E9E0EC237DCEFE2CB736D41A4811F81A0", // EM EV TLS CA - G3C
     "EC4FFA1AD0AC88081314B7AAFFEF6A91F97CD57291BB5BA686C5415F5EB4F6B6", // EM OV CS CA - G3B
     "92C063D67E8F14DB71D288E11266FFDAF69CBF115F7BAB14F3BC2F68D25E0E30", // EM OV CS CA - G3C
+    "8D417DB2DD8BF5E3084D1E3F196D583849D81BDD4C00C70B9D39369E96B8C782", // emSign ECC Root CA - G3 (removed by Mozilla and Chrome)
+    "C619E4780ED8E0ABEDA24AD732567DE4383A7EA941338F6D1A7D1B49AC792FE9", // emSign Root TLS CA - G3
+    "0A6C2B2CA5B364207954171987AC9D2178561569D8205457E77CA90C32EDE282", // emSign Root CS CA - G3
 )
 
 /**
- * Uses exact SPKI matching only. Blocking issuers by distinguished name would also reject unrelated certificates
- * issued by a root with the same subject (including future renewals or re-keyed certificates).
+ * The same roots by name: a chain anchored on one of them may not include the root certificate itself.
+ * The roots are distrusted on purpose, as browsers did: they are the eMudhra roots of the compromised intermediates,
+ * not unrelated ones, and the app only talks to api.pwnedpasswords.com, which no eMudhra CA issues for.
+ * Matched by CN and O only, so an OU present in one root and not in another cannot make the check miss.
  */
+internal val DISTRUSTED_ROOT_CNS = setOf("emSign ECC Root CA - G3", "emSign Root TLS CA - G3", "emSign Root CS CA - G3")
+private const val EMUDHRA_ORG = "eMudhra Technologies Limited"
+
+private fun X500Name.values(type: ASN1ObjectIdentifier): List<String> =
+    getRDNs(type).flatMap { rdn -> rdn.typesAndValues.filter { it.type == type }.map { IETFUtils.valueToString(it.value) } }
+
+/** True for the subject or issuer name of an emSign G3 root (see [DISTRUSTED_ROOT_CNS]). */
+internal fun X500Principal.isDistrustedRootName(): Boolean {
+    val name = try {
+        X500Name.getInstance(encoded)
+    } catch (e: IllegalArgumentException) {
+        return false
+    }
+    return EMUDHRA_ORG in name.values(BCStyle.O) && name.values(BCStyle.CN).any { it in DISTRUSTED_ROOT_CNS }
+}
+
 internal fun X509Certificate.spkiSha256(): String =
     MessageDigest.getInstance("SHA-256").digest(publicKey.encoded).joinToString("") { "%02X".format(it) }
 
-internal fun X509Certificate.isDistrusted(): Boolean = spkiSha256() in DISTRUSTED_SPKI_SHA256
+// Names first: they are cheap, and the SPKI hash is only needed when they do not match.
+internal fun X509Certificate.isDistrusted(): Boolean =
+    subjectX500Principal.isDistrustedRootName() || issuerX500Principal.isDistrustedRootName() || spkiSha256() in DISTRUSTED_SPKI_SHA256
 
 /**
  * The system's trust decisions, plus a refusal of any chain that goes through a distrusted key, whichever root

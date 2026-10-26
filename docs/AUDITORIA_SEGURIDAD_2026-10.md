@@ -15,8 +15,8 @@ Revisión estática de los archivos accesibles en `main`: manifiesto Android, al
 | Baja–media | Un QR TOTP malformado podía producir una excepción al decodificar escapes URL | Corregido; tests de regresión añadidos |
 | Baja | La respuesta de Have I Been Pwned no tenía límite de tamaño | Corregido; test de regresión añadido |
 | Baja | Las credenciales de formularios de seguridad permanecían en estado de pantalla tras su uso | Corregido; se vacían después de las operaciones |
-| Baja–media | El bloqueo de CA eMudhra incluía raíces y nombres de emisor no necesarios, con riesgo de falsos positivos | Corregido; solo se bloquean las ocho huellas SPKI de intermedias afectadas |
-| Bloqueante para publicación pública | No se había revisado con un escáner el historial completo por secretos y metadatos privados | Pendiente |
+| — | El bloqueo de CA eMudhra incluía raíces y nombres de emisor | Revertido en la 1.0.2: las raíces se vuelven a bloquear (ver abajo) |
+| Bloqueante para publicación pública | No se había revisado con un escáner el historial completo por secretos y metadatos privados | Hecho en la 1.0.2 con Gitleaks: sin secretos reales |
 | Bloqueante para declarar la app «auditada» | Faltan verificación dinámica independiente y pruebas manuales en dispositivos | Pendiente |
 
 ## Hallazgos y correcciones
@@ -112,3 +112,10 @@ Se realizó una comprobación heurística adicional del historial y de los archi
 2. Si los enlaces de sesión o correos no deben ser públicos, acordar una reescritura de historial (por ejemplo, con `git-filter-repo`) y un force-push coordinado. Si aparece una credencial real, revocarla y rotarla; borrar el texto no basta.
 3. Opcionalmente dejar de versionar `app/debug.keystore` en futuras revisiones, manteniendo claro que eliminarla del último commit no la elimina de commits históricos.
 
+
+## Actualización de la 1.0.2
+
+- **Gitleaks 8.24.3** sobre todo el historial (`gitleaks git --log-opts=--all`, 57 commits): 4 coincidencias de la regla `generic-api-key`, todas falsos positivos: el secreto de prueba del RFC 6238 en `VaultTotpTest.kt` y el campo `wrappedKey` (una clave ya cifrada) de los fixtures `app/src/test/resources/criptopanel/vault-*.json`. No hay secretos reales.
+- **Bloqueo de eMudhra:** se revierte el cambio «Bloqueo excesivo de certificados raíz». Las tres raíces emSign G3 son las de las intermedias comprometidas (no raíces «no relacionadas»), los navegadores las retiraron, y la app solo habla con `api.pwnedpasswords.com`, que no usa eMudhra, así que el falso positivo descrito no puede darse. `DistrustedCertificates.kt` vuelve a bloquearlas por SPKI y por nombre, y sus tests vuelven a exigirlo.
+- **Texto en claro tras cifrar:** la corrección vaciaba el campo en el `finally`, también si el cifrado fallaba, y se perdía lo escrito (por ejemplo, una frase semilla). Ahora se vacía solo cuando el cifrado ha terminado bien.
+- Los metadatos de los commits (enlaces de sesión y correos) siguen en el historial: reescribirlo es decisión del propietario.
