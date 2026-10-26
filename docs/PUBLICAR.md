@@ -36,7 +36,13 @@ Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo 
 
 **Verificación de desarrolladores Android.** Desde el 30 de septiembre de 2026, los móviles certificados de algunos países solo instalan apps de desarrolladores verificados, y en 2027 se extiende al resto. Registra también este APK (el de GitHub) en Play Console, en la misma cuenta, para que siga instalándose.
 
-**De la 1.1.0 a la 1.1.1 cambia el identificador** (`app.seguridad` → `io.github.egt17baa.seguridad`). Para Android es otra app: no se actualiza encima de la anterior y las dos pueden convivir. Exporta la bóveda en la versión antigua (Ajustes → Exportar bóveda, `.sgbak`), impórtala en la nueva, comprueba que abre y después desinstala la antigua.
+**En la 1.1.1 cambia el identificador** (`app.seguridad` → `io.github.egt17baa.seguridad`). Para Android es otra app: no se actualiza encima de la anterior. Para pasar:
+
+1. En la app antigua, si usas la copia automática, **desactívala** (Ajustes → Copia automática). Si las dos apps escriben copias en la misma carpeta, la rotación de cada una borra las copias de la otra.
+2. Exporta la bóveda: en la 1.1.0, Ajustes → Exportar bóveda (archivo `.sgbak`, con los adjuntos); en la 1.0.x, la exportación es un `.json`. La nueva importa los dos.
+3. Instala la nueva, importa la copia con la contraseña maestra y comprueba que se abre.
+4. En la nueva, vuelve a configurar lo que no viaja en la copia: los ajustes (bloqueo, portapapeles, coste de Argon2id), la huella y la carpeta de la copia automática.
+5. Desinstala la antigua.
 
 Las ramas `claude/**` y los pull requests no publican nada: su APK queda como artefacto `Seguridad-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
 
