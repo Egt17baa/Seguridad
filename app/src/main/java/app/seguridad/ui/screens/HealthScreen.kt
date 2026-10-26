@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 
 private fun Issue.label() = when (this) {
@@ -63,6 +65,20 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
     var running by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) { onDispose { job?.cancel() } }
+    // Locking (idle or leaving the app) does not close this screen: the check stops there, nothing more is sent,
+    // the passwords it held are let go and its results are dropped.
+    val unlocked = state is VaultState.Unlocked
+    LaunchedEffect(unlocked) {
+        if (!unlocked) {
+            job?.cancelAndJoin()
+            job = null
+            breached = emptyMap()
+            message = null
+            running = false
+            done = 0
+            total = 0
+        }
+    }
 
     BackScaffold("Salud de la bóveda", onBack) { padding ->
         val entries = (state as? VaultState.Unlocked)?.entries
@@ -120,6 +136,7 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
                                             } finally {
                                                 chars.fill('\u0000')
                                             }
+                                            store.touch() // A check the user is watching is not idle time.
                                             if (n > 0) ids.forEach { found[it] = n }
                                             breached = HashMap(found)
                                             done++
