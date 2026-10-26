@@ -247,6 +247,125 @@ El repositorio pasa a ser público con licencia **Apache-2.0** (`LICENSE`, `SECU
 
 **Historial público.** Gitleaks 8.24.3 sobre todo el historial (`git --all`, 57 commits): 4 coincidencias, todas falsos positivos (el vector del RFC 6238 en `VaultTotpTest.kt` y las claves ya cifradas `wrappedKey` de los fixtures de CriptoPanel). Los mensajes de commit llevan enlaces a sesiones de Claude Code y los autores, correos; reescribir el historial es decisión del propietario y no se ha hecho.
 
+## 1.1.0: bóveda mejorada (implementada)
+
+Rama `sg-1.1`, desde la 1.0.2. Plan: `docs/superpowers/plans/2026-10-24-seguridad-1.1.0-boveda.md`. Cada tarea se hizo con TDD, la skill `experto-seguridad-cripto` y una revisión independiente. No cambia ningún formato existente: `SG1:`, `.sgenc`, `seguridad-vault` v2, `CP1:`, `.cpenc`, `criptopanel-vault` y las exportaciones JSON de la 1.0.x se siguen leyendo. Los campos nuevos de `VaultEntry` llevan valor por defecto (`favorite = false`, `tags = []`, `passwordHistory = []`, `attachments = []`) y `encodeDefaults` sigue en false, así que la JSON antigua se decodifica igual y una entrada sin adjuntos no escribe la clave.
+
+| Función | Qué hace | Dónde |
+|---|---|---|
+| Búsqueda, favoritos, etiquetas | Busca por título, usuario, URL y etiquetas, sin distinguir mayúsculas ni tildes. **Nunca** mira contraseñas, frases, notas ni secretos TOTP. Favoritos primero, y después por título (`Collator` es-ES). Hasta 10 etiquetas de 24 caracteres. | `vault/EntryQuery.kt` |
+| Historial de contraseñas | Al cambiar la contraseña de un acceso (LOGIN) se guarda la anterior, hasta 5, con su fecha. Se ve plegado en el detalle. | `vault/History.kt` |
+| Salud de la bóveda | Contraseñas repetidas, débiles (menos de 50 bits estimados), con más de 365 días y sin 2FA. «Comprobar filtraciones» consulta HIBP solo cuando el usuario lo pulsa, una contraseña a la vez y con k-anonimato; los resultados quedan en memoria y no se guardan. | `health/Health.kt` |
+| Google Authenticator | Importa `otpauth-migration://` (escaneado o pegado) y exporta una entrada TOTP como QR. Lector protobuf mínimo con límites (64 KB por URI, 100 parámetros, 1 KB por campo). Salta HOTP, MD5 y claves de menos de 10 bytes y dice por qué; si hay varios lotes, pide escanear el siguiente. | `crypto/OtpMigration.kt`, `crypto/Totp.kt` |
+| Adjuntos cifrados | Hasta 5 MB por adjunto y 50 MB en total. | `vault/Attachments.kt` |
+| Copia `.sgbak` | Exportar e importar la bóveda con sus adjuntos. | `vault/Backup.kt` |
+| Copia automática | Copia cifrada a una carpeta elegida por el usuario, con rotación. | `vault/AutoBackup.kt`, `android/SafBackupTarget.kt` |
+
+### Formato de adjunto v1 (no podrá cambiar)
+
+Un archivo por adjunto, `files/vault/att/<id>.bin`:
+
+| Bytes | Contenido |
+|---|---|
+| 0–11 | nonce de 12 bytes aleatorios (CSPRNG) |
+| 12–… | AES-256-GCM del contenido; el texto cifrado lleva la etiqueta de 16 bytes al final |
+
+- Tamaño del archivo: 12 + n + 16 bytes, con n el tamaño en claro.
+- **Clave:** 32 bytes aleatorios por adjunto. Cada clave cifra un solo mensaje, así que el nonce nunca se repite con la misma clave.
+- **AAD:** los bytes UTF-8 de `seguridad-attachment-v1`, un byte `0x00` y el `id` en texto (32 caracteres hex). Un archivo no puede moverse a otro id.
+- **`id`:** 16 bytes aleatorios en hexadecimal minúsculo (`[0-9a-f]{32}`). Es el único nombre que se usa para el archivo, así que no hay rutas controladas desde fuera.
+- **La referencia** (`AttachmentRef`) vive dentro de la entrada, que cifra y autentica la clave de datos de la bóveda: `id`, `name` (pasado por `safeFileName`), `size` (en claro), `sha256` (hex del **archivo cifrado**) y `key` (Base64 de la clave del adjunto).
+- **Al abrir:** se valida el formato del id y del `sha256` y que `size` esté entre 0 y 5 MB; se lee el archivo con tope; se compara su SHA-256 en tiempo constante; se descifra con GCM; y se comprueba que el tamaño en claro es `size`. Cualquier fallo da el mismo mensaje, «El adjunto está dañado o se ha cambiado», y la clave se pone a cero.
+- **Recolección:** al guardar y al desbloquear se borran los `<id>.bin` (y los `.bin.tmp` de un cierre brusco) cuyo id no está en ninguna entrada. Solo se tocan nombres que encajan exactamente con `[0-9a-f]{32}\.bin(\.tmp)?`, nunca se borra el archivo de una entrada que existe, y un fallo aquí no afecta a la bóveda.
+
+### Formato `seguridad-backup` v1 (`.sgbak`, no podrá cambiar)
+
+Un ZIP (`java.util.zip`) con estas entradas, **en este orden**:
+
+| # | Nombre | Contenido |
+|---|---|---|
+| 1 | `seguridad-backup` | el texto ASCII `1\n` (2 bytes) |
+| 2 | `vault.json` | el `VaultFile` tal como está en disco (UTF-8, sigue cifrado) |
+| 3… | `att/<id>.bin` | un adjunto por entrada, con los bytes tal como están cifrados, con los ids en orden ascendente |
+
+- Los adjuntos se guardan sin comprimir (`Deflater.NO_COMPRESSION`): los bytes cifrados no se comprimen.
+- **Reconocerlo:** `isBackup` mira los primeros 64 bytes: la firma `PK\3\4` y que el nombre de la primera entrada sea exactamente `seguridad-backup`. Así se distingue de una exportación JSON y de otro ZIP.
+- **Leer:** la primera entrada tiene que ser `seguridad-backup` con exactamente `1\n`. Si el contenido es un número mayor que 1, el error es «La copia es de una versión más nueva de Seguridad»; en otro caso, «dañada». Se rechazan los duplicados del marcador, de `vault.json` y de un mismo `att/<id>.bin`. Los nombres válidos se comprueban con una regex exacta (`att/([0-9a-f]{32})\.bin`) y el archivo temporal se nombra solo con esos 32 dígitos, nunca con el nombre de la entrada: no hay zip-slip. Cualquier otro nombre se ignora, pero sus bytes cuentan para los límites.
+- **Límites**, sobre los bytes realmente leídos y no sobre los tamaños de la cabecera: 100 MB en total, 6 MB por entrada y 2 000 entradas. Los adjuntos van a una carpeta temporal en streaming, nunca todo en memoria.
+- **Escribir:** se niega a escribir una copia que el lector rechazaría (`vault.json` de más de 6 MB, más de 2 000 entradas, una entrada o el total por encima del límite). Con la bóveda abierta comprueba el SHA-256 de cada adjunto mientras lo escribe: si falta o no coincide, no acaba la copia y dice cuál es. Con la bóveda bloqueada no escribe nada (`exportBackup` devuelve false): nunca sale una copia sin comprobar (revisión final, I1).
+- **Importar:** se lee a una carpeta `import-<16hex>` junto a `att/` (el mismo sistema de archivos, así mover es un rename atómico) **antes** de tomar el cerrojo de la bóveda. Después, con el cerrojo: se abre con la contraseña de la copia; se comprueba cada adjunto referenciado (id, presencia y SHA-256); y solo entonces se mueven los archivos y se escribe `vault.bin` de forma atómica. Si algo falla, se deshace todo y la bóveda local no se toca. Un adjunto manipulado o que falta hace fallar la importación entera y nombra el adjunto. La carpeta temporal se borra siempre.
+- **Tamaño máximo real:** 50 MB de adjuntos más 28 bytes por adjunto, que cabe en los 100 MB del formato.
+
+### Copia automática
+
+- Observa `VaultStore.revision`, un contador que sube **solo después de guardar bien un cambio del usuario** (no con los guardados de contabilidad, ni al exportar, ni si el guardado falla). Con 3 s de espera (`debounce`), 3 cambios seguidos dan una copia. Arrancar no hace copia.
+- **Solo con la bóveda abierta**, para que `exportBackup` compruebe el SHA-256 de cada adjunto. Si toca una copia con la bóveda bloqueada (salir de la app en los 3 s, o cambiar la contraseña maestra, que la bloquea), queda pendiente y se hace nada más desbloquearla. Para que eso sobreviva a que el sistema cierre la app, al desbloquear también se hace una copia si `vault.bin` se modificó después de la última copia (`lastAutoBackupAt`) o aún no hay ninguna (CR-1). Los guardados de contabilidad (la última comprobación de la maestra, la subida de formato) devuelven a `vault.bin` su fecha de modificación anterior, así que abrir la bóveda no cuenta como cambio. «Hacer una copia ahora» con la bóveda bloqueada pide abrirla. Un adjunto que falta o está dañado hace fallar la copia con el aviso de Ajustes, sin dejar archivo y **sin rotar**: las copias buenas anteriores se conservan.
+- Nombre: `seguridad-auto-AAAAMMDD-HHMMSS.sgbak`. **Primero se escribe `….sgbak.tmp` y solo se renombra al terminar bien**; si falla o se cancela, se borra el temporal. Nunca queda una copia a medias con el nombre definitivo. Si el proveedor no sabe renombrar (el documento no tiene `FLAG_SUPPORTS_RENAME`, o `renameDocument` falla), se borra el temporal y la copia se escribe directamente con su nombre definitivo, y se borra si la exportación falla (CR-3); solo un cierre brusco a mitad podría dejarla cortada en ese proveedor. El temporal se escribe, renombra y borra por la URI que devolvió `createDocument`, nunca buscándolo por nombre. Si ese nombre (o su `.tmp`) ya existe en la carpeta (reloj atrasado), se usa el siguiente segundo libre: nunca se borra una copia completa para hacer sitio.
+- Una `CancellationException` que lanza la carpeta se avisa como error genérico y las copias siguen; solo la cancelación del propio ámbito las detiene.
+- **Rotación:** conserva las 3, 5 (por defecto) o 10 más recientes y solo borra nombres que encajan **exactamente** con `seguridad-auto-\d{8}-\d{6}\.sgbak` (y sus `.tmp` sueltos). Nunca borra la copia recién escrita ni archivos ajenos de la carpeta.
+- **Errores:** nunca cierran la app ni tocan la bóveda local. Se guardan en los ajustes como uno de seis mensajes fijos en español, sin ruta, URI, nombre de adjunto ni texto de la excepción, y se muestran en Ajustes: sin permiso, carpeta no encontrada, adjunto dañado o bóveda que no cabe, error de escritura, error genérico y «se hizo, pero no se pudieron borrar las antiguas».
+- La carpeta se elige con el selector del sistema (`OpenDocumentTree`) y el permiso persistente se devuelve al cambiar de carpeta y al desactivar. Desactivar no borra las copias ya hechas.
+- **Crear una bóveda nueva desactiva la copia automática** (CR-2): la rotación no sabe de qué bóveda es cada copia y, tras apartar una `vault.bin` dañada, habría borrado las únicas copias buenas de la anterior. `VaultStore.create` llama antes de escribir nada a `beforeCreate`, que borra la carpeta de los ajustes, devuelve su permiso y deja `autoBackupOffForNewVault`; Ajustes muestra «La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. Elige la carpeta otra vez para activarla.» hasta que se elige carpeta. Importar una copia no la desactiva.
+- El resultado de una copia lleva la carpeta a la que fue y la hora en que se tomó: solo se guarda si esa carpeta sigue elegida (CR-5), y una copia escrita cuya rotación falla también actualiza la fecha de la última copia (CR-4).
+- Las copias quedan fuera del sandbox de la app. Su confidencialidad depende de la contraseña maestra (ataque de diccionario offline contra Argon2id), igual que con la exportación manual, y las copias antiguas siguen abriéndose con la contraseña maestra de cuando se hicieron.
+
+### Decisiones tomadas durante la implementación
+
+| Decisión | Motivo y coste |
+|---|---|
+| Una exportación JSON cuyas entradas llevan adjuntos se rechaza con «Esta copia tiene adjuntos: importa el archivo .sgbak». | Ninguna versión publicada escribe ese JSON (la 1.0.x no tiene adjuntos y la 1.1 exporta `.sgbak`), y aceptarlo dejaría referencias sin archivo. Si alguien tiene un JSON de una compilación de desarrollo, tiene que volver a exportar. |
+| La copia automática escribe a un nombre temporal y solo lo renombra si la exportación termina bien. | Evita una copia parcial con nombre definitivo en la carpeta del usuario. `BackupTarget.create` devuelve el archivo creado (`BackupFile`, con `write`, `rename` y `delete`), que se usa por su URI y no por su nombre. |
+| `upsert` conserva los adjuntos guardados de una entrada, como ya hacía con el historial. | El editor construye la entrada sin `attachments`; sin esto, al guardar se perderían las referencias y la recolección borraría los archivos. |
+| Al apartar una bóveda dañada se aparta también `att/` a `att.bad-<hora>`. | La recolección de la bóveda nueva no debe borrar archivos que solo podría abrir la apartada. |
+| Las rutas de `android/` quedan fuera de `jvm-check`. | `SafBackupTarget` usa `DocumentsContract`; la lógica (`AutoBackup`, `BackupTarget`) es JVM pura y se prueba con un destino en memoria. |
+| La lectura del documento de entrada de un adjunto se hace antes de tomar el cerrojo de la bóveda (corrección tras la revisión de la tarea 5), y `exportBackup` escribe fuera del cerrojo, con una instantánea. | Un proveedor de documentos lento (Drive sin conexión, SMB) no puede bloquear la bóveda. |
+| `writeBackup` gana un parámetro opcional `expectedSha256`; `AutoBackup` gana `zone`; `Settings` gana `lastAutoBackupAt`. | Un cambio mínimo cada uno, sobre el plan: no se acaba una copia que no podría restaurarse, los tests dan nombres deterministas y la pantalla muestra la fecha de la última copia. |
+| `create` de `BackupTarget` y `write` de `BackupFile` (y su `writer`) son `suspend`. | `exportBackup` es `suspend`; así se evita `runBlocking`. |
+| La copia automática solo se hace con la bóveda abierta; con ella bloqueada queda pendiente hasta el siguiente desbloqueo, y `exportBackup` no escribe nada si está bloqueada (revisión final, I1). | Una copia hecha bloqueada no podía comprobar los adjuntos: con uno dañado, la rotación habría sustituido todas las copias buenas por copias que no se pueden importar. Los cambios ya están guardados en el móvil, así que esperar al desbloqueo no pierde nada. La importación sigue siendo todo o nada (no hay modo «importar sin los adjuntos dañados»). |
+
+**Diferencias entre el plan y el código** (el código manda): `BackupTarget` tiene `create`, que devuelve un `BackupFile` con `write`, `rename` y `delete`, en vez de `write`; los parámetros y campos de la fila anterior; y `VAULT_IMPORT_MAX_BYTES` (20 MB para la JSON) pasó de la interfaz a `VaultStore`.
+
+### Revisión
+
+Cada tarea de la 5 a la 7 pasó una revisión de especificación y de código con la skill `experto-seguridad-cripto`, y un arreglo en la 5 (lectura del flujo bajo el cerrojo de la bóveda) se re-revisó sin hallazgos nuevos.
+
+La revisión final de toda la rama, con esta skill, está hecha: sin críticos y con un Important (I1, copias automáticas sin comprobar con la bóveda bloqueada). Se corrigió en una ronda de arreglos, junto con:
+- T7-1 y T7-2: el temporal por su URI y un nombre libre en vez de borrar la copia con el mismo nombre;
+- T7-4: una `CancellationException` suelta ya no para las copias;
+- T7-7: el test engañoso, y T7-8: el texto de Ajustes («se hará en unos segundos y tras cada cambio»);
+- T6-3: test de la limpieza de `import-<16hex>` al arrancar, y T6-5: `application/x-zip-compressed` en el selector de importación;
+- la comprobación de HIBP vigila la bóveda desde su propia corrutina y se para en cuanto se bloquea, también al salir de la app, cuando la pantalla ya no se recompone; no envía más consultas y descarta sus resultados. El primer arreglo solo la paraba al recomponer, y lo corrigió la re-revisión;
+- Ajustes ya no promete una copia «en unos segundos» cuando no hay bóveda.
+
+Quedan `code-review` y `security-review` sobre la rama antes de fusionar.
+
+#### `code-review` de la rama: hallazgos y decisiones
+
+| Hallazgo | Decisión |
+|---|---|
+| CR-1: una copia pendiente con la bóveda bloqueada solo vivía en memoria y se perdía si el sistema cerraba la app. | Arreglado: al desbloquear se copia si `vault.bin` es más reciente que `lastAutoBackupAt` o no hay copia; los guardados de contabilidad conservan la fecha de modificación. Solo al pasar a abierta, no con cada cambio guardado (esos siguen esperando los 3 s). |
+| CR-2: la rotación no sabe de qué bóveda es cada copia; tras apartar una bóveda dañada y crear otra, borraría las copias buenas de la anterior. | Arreglado: crear una bóveda desactiva la copia automática, devuelve el permiso de la carpeta y Ajustes lo explica. |
+| CR-3: sin alternativa si el proveedor no sabe renombrar, y el error decía «¿Queda espacio?». | Arreglado: se mira `FLAG_SUPPORTS_RENAME` y, si no se puede renombrar o el renombrado falla, la copia se escribe con su nombre definitivo y se borra si falla. Un fallo de renombrado ya no llega al usuario como error de espacio. |
+| CR-4: copia escrita y rotación fallida no actualizaban la fecha de la última copia. | Arreglado: se guarda la fecha y el aviso «no se pudieron borrar las antiguas», también si falla el listado de la rotación. |
+| CR-5: el resultado de una copia se guardaba aunque entretanto se hubiera elegido otra carpeta. | Arreglado: `AutoBackupResult` lleva la carpeta y solo se guarda si sigue siendo la elegida. |
+| CR-6: «más de 365 días» se calcula desde `updatedAt` cuando no hay historial. | Aparcado: cualquier edición reinicia el plazo; es un aviso orientativo, sin riesgo para los datos. |
+| CR-7: importar el último lote de Google Authenticator desde el editor de una entrada existente salía del editor y perdía sus cambios sin guardar. | Arreglado: editando una entrada existente se queda en el editor con un aviso; con una entrada nueva sigue volviendo a la lista. |
+| CR-8: una exportación puede cruzarse con `removeAttachment` y fallar por un adjunto recién quitado. | Aparcado: la copia falla con su aviso y la siguiente sale bien; nunca se escribe una copia incorrecta. |
+| CR-9: `vaultHealth` se recalculaba en cada recomposición. | Arreglado: `remember(entries, breached, día)`. |
+| CR-10: el tope de 50 MB de adjuntos se comprobaba después de cifrar y escribir el archivo. | Arreglado: se comprueba antes, con el cerrojo tomado (no hay carrera que vigilar después). |
+
+Menores aceptados y diferidos:
+
+| Menor | Efecto |
+|---|---|
+| `removeAttachment` con un id que no existe muestra «La bóveda se bloqueó». | Solo un mensaje equivocado en un caso que la interfaz no produce. |
+| Al restaurar una bóveda dañada, sus adjuntos quedan en `att.bad-*`. | Quedan en disco apartados; se pueden borrar a mano. |
+| El tope de 6 MB por entrada se aplica a los bytes descomprimidos, no a los comprimidos. | Un ZIP muy comprimido tarda más en rechazarse, pero la memoria y el disco siguen acotados. |
+| En Android 14 o posterior, `ZipInputStream` lanza `ZipException` con nombres con `..` o `/` inicial. | Una copia con esos nombres se **rechaza** como dañada en el móvil y se **ignora** en la JVM de los tests; ambas formas son seguras. |
+| Una copia fechada en el futuro (reloj mal puesto una vez) ocupa para siempre un hueco de la rotación. | Se conservan `keep - 1` copias útiles en vez de `keep`. |
+
+Riesgos que quedan: la clave de cada adjunto vive como `String` Base64 en la entrada mientras la bóveda está abierta y no puede ponerse a cero en Java, igual que las contraseñas; el contenido de un adjunto se descifra en memoria (máximo 5 MB) y el búfer sí se pone a cero. Las comprobaciones que dependen de un móvil real están en la lista de abajo y en el README.
+
 ## Comprobación manual en el móvil (no se puede hacer aquí)
 
-Activar la huella y desbloquear con ella; bloquear al salir; escanear un QR de 2FA y de Google Authenticator; comparar los códigos con otra app; la revisión del móvil en uno real; el aspecto en claro y en oscuro; importar una copia real de CriptoPanel.
+Activar la huella y desbloquear con ella; bloquear al salir; escanear un QR de 2FA y de Google Authenticator; comparar los códigos con otra app; la revisión del móvil en uno real; el aspecto en claro y en oscuro; importar una copia real de CriptoPanel. Desde la 1.1.0, además: el QR de Google Authenticator (también en varios lotes), los adjuntos, la copia automática a una carpeta y revocar después el permiso, la salud con filtraciones, un proveedor de documentos que no sepa renombrar, Drive con nombres repetidos y la lectura de nombres de ZIP en Android 14 o posterior. La lista completa está en el README.

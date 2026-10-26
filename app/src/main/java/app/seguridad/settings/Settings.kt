@@ -1,6 +1,7 @@
 package app.seguridad.settings
 
 import app.seguridad.crypto.KdfParams
+import app.seguridad.vault.AutoBackupResult
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -30,7 +31,36 @@ data class Settings(
     val kdf: KdfProfile = KdfProfile.STANDARD,
     val theme: ThemeMode = ThemeMode.DARK,
     val noticeAccepted: Boolean = false,
+    /** The folder (a SAF tree URI, with a persistable permission) for the automatic copies; null when off. */
+    val autoBackupUri: String? = null,
+    /** How many automatic copies to keep: one of [AUTO_BACKUP_KEEP_CHOICES]. */
+    val autoBackupKeep: Int = AUTO_BACKUP_KEEP_DEFAULT,
+    /** Why the last automatic copy failed (a fixed Spanish message, never a path or file contents); null if it went well. */
+    val lastAutoBackupError: String? = null,
+    /** When the last automatic copy was written (epoch ms); null if none yet. */
+    val lastAutoBackupAt: Long? = null,
+    /** The automatic copies were turned off by creating a new vault: Ajustes says so until a folder is chosen again. */
+    val autoBackupOffForNewVault: Boolean = false,
 )
+
+/** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
+const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
+    "Elige la carpeta otra vez para activarla."
+
+/**
+ * How the last automatic copy went, for Ajustes: only when [r] went to the folder still chosen (turned off or another
+ * folder chosen meanwhile, that copy says nothing about the current one). A written copy updates the date even if its
+ * old copies could not be deleted.
+ */
+fun Settings.withAutoBackupResult(r: AutoBackupResult): Settings = when {
+    autoBackupUri != r.folder -> this
+    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt)
+    else -> copy(lastAutoBackupError = r.error)
+}
+
+/** How many automatic copies can be kept. */
+val AUTO_BACKUP_KEEP_CHOICES = listOf(3, 5, 10)
+const val AUTO_BACKUP_KEEP_DEFAULT = 5
 
 /**
  * Whether to offer this profile for new data: STANDARD always; HIGH only when [heapKiB] / 2 can hold its memory.

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -66,10 +67,12 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.totpCode
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
+import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.query
 import app.seguridad.vault.seedWordCount
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -113,7 +116,7 @@ fun VaultIdleTicker(store: VaultStore) {
 /** The vault (or only its 2FA codes when [totpOnly]): the Bóveda and Códigos tabs. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, onNew: (EntryType) -> Unit) {
+fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, onNew: (EntryType) -> Unit, onHealth: () -> Unit) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     LaunchedEffect(store) { store.load() }
@@ -149,6 +152,10 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
                                     }
                                 })
                             }
+                            DropdownMenuItem(text = { Text("🩺 Salud de la bóveda") }, onClick = {
+                                menu = false
+                                onHealth()
+                            })
                             DropdownMenuItem(text = { Text("Exportar copia cifrada") }, onClick = {
                                 menu = false
                                 actions.export()
@@ -239,7 +246,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
         OutlinedButton(onClick = onImport, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Importar una copia exportada") }
         Text(
-            "Sirve una copia de esta app o una exportación criptopanel-vault (se vuelve a cifrar con el formato nuevo).",
+            "Sirve una copia .sgbak de esta app (con los adjuntos), una exportación .json de la 1.0 o una criptopanel-vault (se vuelve a cifrar con el formato nuevo).",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -331,13 +338,17 @@ private fun EntryList(entries: List<VaultEntry>, totpOnly: Boolean, onOpen: (Str
             delay(1_000)
         }
     }
-    val shown = entries.filter { e ->
-        (type == null || e.type == type) &&
-            (query.isBlank() || listOf(e.title, e.username, e.url, e.totp?.issuer.orEmpty()).any { it.contains(query, ignoreCase = true) })
-    }
+    var tag by remember { mutableStateOf<String?>(null) }
+    val allTags = remember(entries) { entries.flatMap { it.tags }.distinct().sorted() }
+    // A tag no entry has any more (deleted or renamed) must not keep filtering the list.
+    val activeTag = tag?.takeIf { it in allTags }
+    val shown = remember(entries, query, type, activeTag) { entries.query(EntryFilter(query, activeTag, type)) }
     LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         item {
-            OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Buscar") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Buscar") }, singleLine = true,
+                // Search text is not typed history: no learning or suggestions from the keyboard.
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                modifier = Modifier.fillMaxWidth())
         }
         if (!totpOnly) {
             item {
@@ -345,6 +356,15 @@ private fun EntryList(entries: List<VaultEntry>, totpOnly: Boolean, onOpen: (Str
                     FilterChip(selected = type == null, onClick = { type = null }, label = { Text("Todo (${entries.size})") })
                     EntryType.entries.forEach { t ->
                         FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${t.label} (${entries.count { it.type == t }})") })
+                    }
+                }
+            }
+        }
+        if (allTags.isNotEmpty()) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    allTags.forEach { t ->
+                        FilterChip(selected = activeTag == t, onClick = { tag = if (activeTag == t) null else t }, label = { Text("#$t") })
                     }
                 }
             }
@@ -375,6 +395,7 @@ private fun EntryList(entries: List<VaultEntry>, totpOnly: Boolean, onOpen: (Str
                     }
                     if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
+                if (e.favorite) Text("★", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 e.totp?.let { t ->
                     totpCode(t, now)?.let { (code, left) ->
                         Column(horizontalAlignment = Alignment.End) {

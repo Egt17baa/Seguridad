@@ -1,12 +1,20 @@
 package app.seguridad
 
 import android.app.Application
+import androidx.core.net.toUri
+import app.seguridad.android.SafBackupTarget
 import app.seguridad.ui.screens.DECRYPT_TMP_PREFIX
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 class SeguridadApp : Application() {
-    val container: AppContainer by lazy { AppContainer(filesDir) }
+    val container: AppContainer by lazy {
+        AppContainer(
+            filesDir,
+            backupFolder = { uri -> SafBackupTarget(contentResolver, uri.toUri()) },
+            releaseFolder = { uri -> SafBackupTarget.releaseFolder(contentResolver, uri) },
+        )
+    }
 
     override fun onCreate() {
         super.onCreate()
