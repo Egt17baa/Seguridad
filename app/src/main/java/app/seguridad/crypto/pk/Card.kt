@@ -198,7 +198,7 @@ private fun base45DecodeOrFail(text: String): ByteArray = try {
 private fun isBase45Char(c: Char) = c in '0'..'9' || c in 'A'..'Z' || c in " $%*+-./:"
 
 /** Los bytes UTF-8 de [s]; lanza [CharacterCodingException] con un sustituto suelto en vez de poner «?». */
-private fun strictUtf8(s: String): ByteArray {
+internal fun strictUtf8(s: String): ByteArray {
     val encoded = Charsets.UTF_8.newEncoder()
         .onMalformedInput(CodingErrorAction.REPORT)
         .onUnmappableCharacter(CodingErrorAction.REPORT)
@@ -207,7 +207,7 @@ private fun strictUtf8(s: String): ByteArray {
 }
 
 /** El texto de [b]; lanza [CharacterCodingException] con UTF-8 mal formado, sobrelargo, CESU-8 o mayor que U+10FFFF. */
-private fun decodeStrictUtf8(b: ByteArray): String =
+internal fun decodeStrictUtf8(b: ByteArray): String =
     Charsets.UTF_8.newDecoder()
         .onMalformedInput(CodingErrorAction.REPORT)
         .onUnmappableCharacter(CodingErrorAction.REPORT)
