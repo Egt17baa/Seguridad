@@ -1,5 +1,7 @@
 package app.seguridad.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -34,6 +36,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.BuildConfig
+import app.seguridad.android.SafBackupTarget
+import app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES
 import app.seguridad.settings.ClipboardClear
 import app.seguridad.settings.KdfProfile
 import app.seguridad.settings.LockAfter
@@ -42,10 +46,20 @@ import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.ThemeMode
 import app.seguridad.settings.availableOn
 import app.seguridad.ui.theme.BackScaffold
+import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.vault.AutoBackup
+import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
 
 private fun ThemeMode.label() = when (this) {
     ThemeMode.DARK -> "Oscuro"
@@ -91,10 +105,107 @@ private fun <T> Choices(options: List<T>, selected: T, label: (T) -> String, ena
     }
 }
 
+private val backupDate: DateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withLocale(Locale.forLanguageTag("es-ES"))
+
+/**
+ * «Copia automática»: the folder (chosen with OpenDocumentTree, its access kept with a persistable permission and
+ * given back when turned off or replaced), how many copies to keep, and how the last one went.
+ */
+@Composable
+private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBackup: AutoBackup, snackbar: SnackbarHostState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings by store.settings.collectAsStateWithLifecycle()
+    val folder = settings.autoBackupUri
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
+        if (uri != null) scope.launch {
+            val resolver = context.contentResolver
+            if (!withContext(Dispatchers.IO) { SafBackupTarget.takeFolder(resolver, uri) }) {
+                snackbar.showSnackbar("No se pudo obtener permiso para usar esa carpeta. Elige otra.")
+                return@launch
+            }
+            val chosen = uri.toString()
+            val previous = store.settings.value.autoBackupUri
+            try {
+                store.update { it.copy(autoBackupUri = chosen, lastAutoBackupError = null, lastAutoBackupAt = null) }
+            } catch (e: Exception) {
+                if (chosen != previous) SafBackupTarget.releaseFolder(resolver, chosen)
+                snackbar.showSnackbar("No se pudo guardar el ajuste")
+                return@launch
+            }
+            if (previous != null && previous != chosen) SafBackupTarget.releaseFolder(resolver, previous)
+            autoBackup.request()
+            snackbar.showSnackbar("Copia automática activada: se hará una ahora y tras cada cambio en la bóveda.")
+        }
+    }
+    val choose = {
+        VaultLock.keepOpenOnce = true
+        vault.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
+        picker.launchOrError(null)?.let { failure ->
+            VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
+            scope.launch { snackbar.showSnackbar(failure) }
+        }
+        Unit
+    }
+
+    Section("Copia automática") {
+        if (folder == null) {
+            Hint(
+                "Guarda una copia cifrada (.sgbak, con los adjuntos) en una carpeta que elijas, unos segundos después de cada " +
+                    "cambio en la bóveda. Elige una carpeta que se sincronice o que copies fuera del móvil.",
+            )
+            OutlinedButton(onClick = choose, modifier = Modifier.fillMaxWidth()) { Text("Elegir carpeta") }
+            return@Section
+        }
+        Text("Carpeta: ${SafBackupTarget.label(folder)}", style = MaterialTheme.typography.bodyMedium)
+        Choices(AUTO_BACKUP_KEEP_CHOICES, settings.autoBackupKeep, { "Conservar las $it últimas" }) { k ->
+            scope.launch {
+                try {
+                    store.update { it.copy(autoBackupKeep = k) }
+                } catch (e: Exception) {
+                    snackbar.showSnackbar("No se pudo guardar el ajuste")
+                }
+            }
+        }
+        val last = settings.lastAutoBackupAt
+        Hint(
+            if (last == null) {
+                "Aún no se ha hecho ninguna copia: se hará con el próximo cambio."
+            } else {
+                "Última copia: " + backupDate.format(Instant.ofEpochMilli(last).atZone(ZoneId.systemDefault()))
+            },
+        )
+        settings.lastAutoBackupError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = NegativeColor) }
+        OutlinedButton(onClick = { autoBackup.request() }, modifier = Modifier.fillMaxWidth()) { Text("Hacer una copia ahora") }
+        OutlinedButton(onClick = choose, modifier = Modifier.fillMaxWidth()) { Text("Cambiar de carpeta") }
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    try {
+                        store.update { it.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null) }
+                        SafBackupTarget.releaseFolder(context.contentResolver, folder)
+                        snackbar.showSnackbar("Copia automática desactivada. Las copias ya hechas siguen en la carpeta.")
+                    } catch (e: Exception) {
+                        snackbar.showSnackbar("No se pudo guardar el ajuste")
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Desactivar") }
+        Hint(
+            "Cada copia va cifrada con la contraseña maestra que tenía la bóveda al hacerla: si la cambias, las copias anteriores " +
+                "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…), nunca " +
+                "otros archivos de la carpeta.",
+        )
+    }
+}
+
 /** The Ajustes tab: lock, clipboard, Argon2id cost and theme; the vault's copies and master password; Acerca de. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(store: SettingsStore, vault: VaultStore, onAbout: () -> Unit) {
+fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBackup, onAbout: () -> Unit) {
     VaultIdleLock(vault)
     val settings by store.settings.collectAsStateWithLifecycle()
     val vaultState by vault.state.collectAsStateWithLifecycle()
@@ -160,6 +271,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, onAbout: () -> Unit)
                 )
                 Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia, la exportación .json de la 1.0 y la criptopanel-vault, que se vuelve a cifrar con el formato nuevo.")
             }
+            AutoBackupSection(store, vault, autoBackup, snackbar)
             Section("Información") {
                 TextButton(onClick = onAbout) { Text("Acerca de, licencias y avisos") }
             }

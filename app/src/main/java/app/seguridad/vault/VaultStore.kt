@@ -54,6 +54,18 @@ class VaultStore(
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
 
+    private val _revision = MutableStateFlow(0L)
+
+    /**
+     * Goes up by one after each change the user made is saved to disk (create, edit, attachment, new master
+     * password, import); not for bookkeeping saves such as the last master check on unlock. [AutoBackup] follows it.
+     */
+    val revision: StateFlow<Long> = _revision.asStateFlow()
+
+    private fun changed() {
+        _revision.value += 1
+    }
+
     private val mutex = Mutex()
     private var vault: VaultFile? = null
     private var dek: ByteArray? = null
@@ -127,6 +139,7 @@ class VaultStore(
     private suspend fun commit(next: VaultFile, key: ByteArray, since: Int, mustSave: Boolean = true) = withContext(NonCancellable) {
         try {
             save(next)
+            if (mustSave) changed()
         } catch (e: Exception) {
             if (mustSave) {
                 key.fill(0)
@@ -351,6 +364,7 @@ class VaultStore(
         withContext(NonCancellable) {
             try {
                 save(next)
+                changed()
             } finally {
                 newKey.fill(0) // Never kept: the vault locks below, or stays on the old key if the save failed.
             }
@@ -469,6 +483,7 @@ class VaultStore(
             }
             try {
                 save(checked)
+                changed()
             } catch (e: Exception) {
                 withContext(io) { putBack(moved) }
                 key.fill(0)

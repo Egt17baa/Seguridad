@@ -135,4 +135,41 @@ class SettingsTest {
         clock += 2_000
         assertTrue(vault.lockIfIdle())
     }
+
+    @Test fun autoBackupDefaultsAndOldFiles() = runTest {
+        // A 1.0.x settings file, without the new fields.
+        file().writeText("""{"lockAfter":"MIN_1","theme":"LIGHT","noticeAccepted":true}""")
+        val s = store().apply { load() }
+        assertEquals(LockAfter.MIN_1, s.settings.value.lockAfter)
+        assertEquals(null, s.settings.value.autoBackupUri)
+        assertEquals(5, s.settings.value.autoBackupKeep)
+        assertEquals(null, s.settings.value.lastAutoBackupError)
+        assertEquals(null, s.settings.value.lastAutoBackupAt)
+    }
+
+    @Test fun autoBackupPersists() = runTest {
+        store().apply {
+            load()
+            update { it.copy(autoBackupUri = "content://x/tree/primary%3ACopias", autoBackupKeep = 10, lastAutoBackupError = "Falló", lastAutoBackupAt = 5L) }
+        }
+        val again = store().apply { load() }.settings.value
+        assertEquals("content://x/tree/primary%3ACopias", again.autoBackupUri)
+        assertEquals(10, again.autoBackupKeep)
+        assertEquals("Falló", again.lastAutoBackupError)
+        assertEquals(5L, again.lastAutoBackupAt)
+    }
+
+    @Test fun autoBackupKeepOnlyThreeFiveOrTen() = runTest {
+        val s = store().apply { load() }
+        for (k in listOf(3, 5, 10)) {
+            s.update { it.copy(autoBackupKeep = k) }
+            assertEquals(k, s.settings.value.autoBackupKeep)
+        }
+        for (k in listOf(0, -1, 1, 4, 11, 1000, Int.MAX_VALUE)) {
+            s.update { it.copy(autoBackupKeep = k) }
+            assertEquals(5, s.settings.value.autoBackupKeep)
+        }
+        file().writeText("""{"autoBackupKeep":7}""")
+        assertEquals(5, store().apply { load() }.settings.value.autoBackupKeep)
+    }
 }

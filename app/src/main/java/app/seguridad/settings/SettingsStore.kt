@@ -39,6 +39,10 @@ class SettingsStore(
         _settings.value = next
     }
 
-    private fun sane(s: Settings) =
-        if (s.kdf == KdfProfile.HIGH && !KdfProfile.HIGH.availableOn(heapKiB())) s.copy(kdf = KdfProfile.STANDARD) else s
+    private fun sane(settings: Settings): Settings {
+        var s = settings
+        if (s.kdf == KdfProfile.HIGH && !KdfProfile.HIGH.availableOn(heapKiB())) s = s.copy(kdf = KdfProfile.STANDARD)
+        if (s.autoBackupKeep !in AUTO_BACKUP_KEEP_CHOICES) s = s.copy(autoBackupKeep = AUTO_BACKUP_KEEP_DEFAULT)
+        return s
+    }
 }
