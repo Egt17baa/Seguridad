@@ -246,7 +246,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
         OutlinedButton(onClick = onImport, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Importar una copia exportada") }
         Text(
-            "Sirve una copia de esta app o una exportación criptopanel-vault (se vuelve a cifrar con el formato nuevo).",
+            "Sirve una copia .sgbak de esta app (con los adjuntos), una exportación .json de la 1.0 o una criptopanel-vault (se vuelve a cifrar con el formato nuevo).",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

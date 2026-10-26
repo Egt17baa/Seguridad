@@ -43,6 +43,9 @@ private fun lowerHex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(
 
 private fun unhex(text: String) = ByteArray(text.length / 2) { text.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 
+/** Whether [id] has the form of an attachment id (16 bytes in lower-case hex), so it is safe in a file name. */
+internal fun isAttachmentId(id: String) = ID.matches(id)
+
 private fun aad(id: String) = (AAD_PREFIX + id).toByteArray(Charsets.UTF_8)
 
 /**
@@ -53,7 +56,13 @@ private fun aad(id: String) = (AAD_PREFIX + id).toByteArray(Charsets.UTF_8)
  */
 class AttachmentStore(val dir: File, private val random: SecureRandom = secureRandom) {
 
-    private fun fileOf(id: String) = File(dir, "$id.bin")
+    /** The file of [id]; the caller has checked [isAttachmentId]. */
+    internal fun fileOf(id: String) = File(dir, "$id.bin")
+
+    /** Every `<id>.bin` of this store, by id (for a copy made while the vault is locked). */
+    internal fun files(): Map<String, File> =
+        dir.listFiles()?.mapNotNull { f -> OWN_FILE.matchEntire(f.name)?.takeIf { it.groupValues[2].isEmpty() && f.isFile }?.let { it.groupValues[1] to f } }
+            ?.toMap() ?: emptyMap()
 
     /**
      * Reads at most [MAX_ATTACHMENT_BYTES] + 1 bytes of [input] (refused above the limit, nothing written), then
