@@ -1,6 +1,7 @@
 package app.seguridad.settings
 
 import app.seguridad.crypto.KdfParams
+import app.seguridad.vault.AutoBackupResult
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -38,7 +39,24 @@ data class Settings(
     val lastAutoBackupError: String? = null,
     /** When the last automatic copy was written (epoch ms); null if none yet. */
     val lastAutoBackupAt: Long? = null,
+    /** The automatic copies were turned off by creating a new vault: Ajustes says so until a folder is chosen again. */
+    val autoBackupOffForNewVault: Boolean = false,
 )
+
+/** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
+const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
+    "Elige la carpeta otra vez para activarla."
+
+/**
+ * How the last automatic copy went, for Ajustes: only when [r] went to the folder still chosen (turned off or another
+ * folder chosen meanwhile, that copy says nothing about the current one). A written copy updates the date even if its
+ * old copies could not be deleted.
+ */
+fun Settings.withAutoBackupResult(r: AutoBackupResult): Settings = when {
+    autoBackupUri != r.folder -> this
+    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt)
+    else -> copy(lastAutoBackupError = r.error)
+}
 
 /** How many automatic copies can be kept. */
 val AUTO_BACKUP_KEEP_CHOICES = listOf(3, 5, 10)

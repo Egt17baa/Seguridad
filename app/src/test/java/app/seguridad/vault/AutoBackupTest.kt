@@ -33,6 +33,9 @@ private class MemoryTarget : BackupTarget {
     var failAfterBytes: Int? = null
     var failRename: Exception? = null
     var failList: Exception? = null
+    var failDelete: Exception? = null
+    /** What each file's flags say: a provider without FLAG_SUPPORTS_RENAME. */
+    var renames = true
     var writes = 0
     val written = mutableListOf<String>()
 
@@ -44,6 +47,8 @@ private class MemoryTarget : BackupTarget {
         files[created] = ByteArray(0)
         return object : BackupFile {
             var current = created
+
+            override val canRename: Boolean get() = renames
 
             override suspend fun write(writer: suspend (OutputStream) -> Unit) {
                 val out = object : OutputStream() {
@@ -76,6 +81,7 @@ private class MemoryTarget : BackupTarget {
     }
 
     override fun delete(name: String) {
+        failDelete?.let { throw it }
         files.remove(name)
     }
 }
@@ -94,11 +100,27 @@ class AutoBackupTest {
 
     private fun note(id: String) = VaultEntry(id, EntryType.NOTE, "Nota $id", notes = "secreto $id", createdAt = 0, updatedAt = 0)
 
+    private val results = mutableListOf<AutoBackupResult>()
     private val errors = mutableListOf<String?>()
 
+    /** The folder chosen in Ajustes; the copies go to [target] whatever it is. */
+    private var folder: String? = FOLDER
+
+    /** When the last copy was written, as Ajustes keeps it: by default after any change to the vault file. */
+    private var lastCopy: Long? = Long.MAX_VALUE
+
     private fun TestScope.auto(store: VaultStore, target: BackupTarget?, keep: () -> Int = { 5 }): AutoBackup =
-        AutoBackup(store, { target }, backgroundScope, now = { clock }, keep = keep, onError = { errors += it }, zone = ZoneOffset.UTC)
-            .also { runCurrent() }
+        AutoBackup(
+            store,
+            folder = { folder },
+            open = { target },
+            backgroundScope,
+            now = { clock },
+            keep = keep,
+            lastCopyAt = { lastCopy },
+            onResult = { results += it; errors += it.error },
+            zone = ZoneOffset.UTC,
+        ).also { runCurrent() }
 
     private suspend fun opened(s: VaultStore = store()) = s.apply {
         load()
@@ -237,13 +259,17 @@ class AutoBackupTest {
         settle()
         assertEquals(AUTO_BACKUP_WRITE_FAILED, errors.last())
         assertTrue(target.files.keys.toString(), target.files.isEmpty())
-        // Rename refused: the temporary copy is deleted too.
+        // Rename refused and the copy written again straight under its name also fails: nothing is left either.
         target.failAfterBytes = null
         target.failRename = UnsupportedOperationException("rename")
+        target.renames = false
+        target.failAfterBytes = 100
         s.upsert(note("5"))
         settle()
-        assertEquals(AUTO_BACKUP_FAILED, errors.last())
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, errors.last())
         assertTrue(target.files.keys.toString(), target.files.isEmpty())
+        target.failAfterBytes = null
+        target.renames = true
         // Listing fails: reported too.
         target.failRename = null
         target.failList = IllegalStateException("cursor")
@@ -433,19 +459,21 @@ class AutoBackupTest {
         target.failRename = IOException("rename")
         s.upsert(note("1"))
         settle()
-        // The rename failed: the older complete copy is still there.
-        assertEquals(AUTO_BACKUP_WRITE_FAILED, errors.last())
+        // The rename failed: written again under the next free name, and the older complete copy is still there.
+        assertNull(errors.last())
+        assertEquals(listOf("seguridad-auto-20261026-100002.sgbak.tmp", "seguridad-auto-20261026-100002.sgbak"), target.written)
         assertArrayEquals(byteArrayOf(1, 2, 3), target.files.getValue("seguridad-auto-20261026-100000.sgbak"))
+        // The new copy is the complete one written now, never the cut leftover, which rotation removed.
+        assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100002.sgbak").copyOf(BACKUP_HEAD_BYTES)))
+        assertFalse(target.files.containsKey("seguridad-auto-20261026-100001.sgbak.tmp"))
 
         target.failRename = null
         s.upsert(note("2"))
         settle()
         assertNull(errors.last())
-        assertEquals(List(2) { "seguridad-auto-20261026-100002.sgbak.tmp" }, target.written)
+        assertEquals("seguridad-auto-20261026-100001.sgbak.tmp", target.written.last())
         assertArrayEquals(byteArrayOf(1, 2, 3), target.files.getValue("seguridad-auto-20261026-100000.sgbak"))
-        // The new copy is the complete one written now, never the cut leftover, which rotation removed.
-        assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100002.sgbak").copyOf(BACKUP_HEAD_BYTES)))
-        assertFalse(target.files.containsKey("seguridad-auto-20261026-100001.sgbak.tmp"))
+        assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100001.sgbak").copyOf(BACKUP_HEAD_BYTES)))
     }
 
     @Test fun revisionCountsSavedChangesOnly() = runTest {
@@ -480,4 +508,149 @@ class AutoBackupTest {
         assertTrue(runCatching { s.upsert(note("1")) }.isFailure)
         assertEquals(before, s.revision.value)
     }
+
+    @Test fun providerWithoutRenameGetsTheCopyUnderItsName() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        target.renames = false
+        auto(s, target)
+        s.upsert(note("1"))
+        settle()
+        assertNull(errors.last())
+        // The temporary file is only made to read its flags: the copy is written once, straight under its name.
+        assertEquals(listOf("seguridad-auto-20261026-100000.sgbak.tmp", "seguridad-auto-20261026-100000.sgbak"), target.written)
+        assertEquals(setOf("seguridad-auto-20261026-100000.sgbak"), target.files.keys)
+        assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100000.sgbak").copyOf(BACKUP_HEAD_BYTES)))
+    }
+
+    @Test fun renameRefusedWritesTheCopyAgainUnderItsName() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        target.failRename = UnsupportedOperationException("Rename not supported")
+        auto(s, target)
+        s.upsert(note("1"))
+        settle()
+        assertNull(errors.last())
+        assertEquals(setOf("seguridad-auto-20261026-100000.sgbak"), target.files.keys)
+        val read = BackupReader().read(ByteArrayInputStream(target.files.getValue("seguridad-auto-20261026-100000.sgbak")), File(tmp.root, "read"))
+        assertTrue(read.vaultJson.isNotEmpty())
+    }
+
+    @Test fun resultNamesTheFolderAndTheTimeOfTheCopy() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        auto(s, target)
+        s.upsert(note("1"))
+        settle()
+        val r = results.single()
+        assertEquals(FOLDER, r.folder)
+        assertEquals(1_793_008_800_000L, r.writtenAt) // The time in its name.
+        assertNull(r.error)
+
+        // Another folder chosen: the next result names that one.
+        folder = "content://otra/tree/primary%3AOtra"
+        s.upsert(note("2"))
+        settle()
+        assertEquals("content://otra/tree/primary%3AOtra", results.last().folder)
+
+        // Turned off: no copy, nothing to report.
+        folder = null
+        s.upsert(note("3"))
+        settle()
+        assertEquals(2, results.size)
+    }
+
+    @Test fun oldCopiesNotDeletedStillCountsAsWritten() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        repeat(6) { target.files["seguridad-auto-2020010$it-000000.sgbak"] = byteArrayOf(1) }
+        target.failDelete = IOException("borrar")
+        auto(s, target)
+        s.upsert(note("1"))
+        settle()
+        val r = results.single()
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, r.error)
+        assertEquals(1_793_008_800_000L, r.writtenAt) // The copy exists: Ajustes shows its date.
+        assertTrue(target.files.containsKey("seguridad-auto-20261026-100000.sgbak"))
+    }
+
+    @Test fun failedCopyIsNotWritten() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        target.failWrite = IOException("disco lleno")
+        auto(s, target)
+        s.upsert(note("1"))
+        settle()
+        assertNull(results.single().writtenAt)
+        assertEquals(FOLDER, results.single().folder)
+    }
+
+    /** The app closed with a copy waiting (locked, or within the 3 s): the next unlock in a new process makes it. */
+    @Test fun changeNotCopiedBeforeTheAppClosedIsCopiedAtTheNextUnlock() = runTest {
+        opened().apply { upsert(note("1")) }
+        val vaultFile = File(tmp.root, "vault.bin")
+        val changedAt = 1_700_000_000_000L
+        assertTrue(vaultFile.setLastModified(changedAt))
+        lastCopy = changedAt - 60_000 // The last copy is older than the last change.
+
+        val s = store().apply { load() } // A new process: nothing pending in memory.
+        val target = MemoryTarget()
+        auto(s, target)
+        settle()
+        assertTrue("Bloqueada: sin copia", target.files.isEmpty())
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(1, target.writes)
+        assertNull(errors.single())
+        // Opening wrote the last master check, but the file keeps the time of the last change.
+        assertEquals(changedAt, vaultFile.lastModified())
+
+        // With the copy recorded, opening again copies nothing.
+        lastCopy = results.single().writtenAt
+        s.lock()
+        s.unlock(master.toCharArray())
+        settle()
+        assertEquals(1, target.writes)
+    }
+
+    @Test fun upToDateCopyIsNotRepeatedAtUnlock() = runTest {
+        opened().apply { upsert(note("1")) }
+        val vaultFile = File(tmp.root, "vault.bin")
+        assertTrue(vaultFile.setLastModified(1_700_000_000_000L))
+        lastCopy = 1_700_000_000_000L + 1
+        val s = store().apply { load() }
+        val target = MemoryTarget()
+        auto(s, target)
+        s.unlock(master.toCharArray())
+        settle()
+        assertEquals(0, target.writes)
+    }
+
+    @Test fun noCopyYetIsMadeAtUnlock() = runTest {
+        opened().apply { upsert(note("1")) }
+        lastCopy = null // A folder chosen while locked, and the app closed before the vault was opened.
+        val s = store().apply { load() }
+        val target = MemoryTarget()
+        auto(s, target)
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(1, target.writes)
+    }
+
+    @Test fun changesWhileOpenStillWaitForTheDebounce() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        lastCopy = 0L // Behind: but only opening the vault checks it, not each change saved while it is open.
+        auto(s, target)
+        settle() // Already open when AutoBackup started: the check at start copies once.
+        val atStart = target.writes
+        s.upsert(note("1"))
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(atStart, target.writes)
+        settle()
+        assertEquals(atStart + 1, target.writes)
+    }
 }
+
+private const val FOLDER = "content://com.android.externalstorage.documents/tree/primary%3ACopias"

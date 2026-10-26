@@ -9,7 +9,11 @@ import kotlinx.coroutines.runBlocking
 
 class SeguridadApp : Application() {
     val container: AppContainer by lazy {
-        AppContainer(filesDir, backupFolder = { uri -> SafBackupTarget(contentResolver, uri.toUri()) })
+        AppContainer(
+            filesDir,
+            backupFolder = { uri -> SafBackupTarget(contentResolver, uri.toUri()) },
+            releaseFolder = { uri -> SafBackupTarget.releaseFolder(contentResolver, uri) },
+        )
     }
 
     override fun onCreate() {

@@ -50,6 +50,11 @@ class VaultStore(
     private val keptOpen: () -> Boolean = { VaultLock.keepOpenOnce },
     /** Encrypted attachments, in files/vault/att/ next to the vault file. */
     private val attachments: AttachmentStore = AttachmentStore(File(file.absoluteFile.parentFile, "att")),
+    /**
+     * Runs before [create] writes a new vault (the app turns the automatic copies off there, so their rotation never
+     * deletes the previous vault's copies). If it throws, nothing is created.
+     */
+    private val beforeCreate: suspend () -> Unit = {},
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -127,6 +132,23 @@ class VaultStore(
     private suspend fun save(v: VaultFile) = withContext(io) { file.writeTextAtomically(VaultCrypto.encodeFile(v)) }
 
     /**
+     * [save] for bookkeeping only (the last master check, a format upgrade): the file keeps the time of the last
+     * change the user made, which [lastChangeSavedAt] gives. If the time cannot be set back, the worst is one more copy.
+     */
+    private suspend fun saveBookkeeping(v: VaultFile) = withContext(io) {
+        val changedAt = file.lastModified()
+        file.writeTextAtomically(VaultCrypto.encodeFile(v))
+        if (changedAt > 0) file.setLastModified(changedAt)
+    }
+
+    /**
+     * When the last change the user made was saved to the vault file (its modification time, which bookkeeping
+     * saves leave as it was); null with no file. [AutoBackup] compares it with its last copy when the vault is opened,
+     * so a copy that was due when the app closed is still made.
+     */
+    fun lastChangeSavedAt(): Long? = file.lastModified().takeIf { it > 0 }
+
+    /**
      * Shows [v] unlocked with [key], which the store now owns; if a [lock] happened since [since], it stays locked
      * and [key] is wiped instead. The entries are read before the key is kept, so a wrong key is never held.
      */
@@ -138,8 +160,12 @@ class VaultStore(
      */
     private suspend fun commit(next: VaultFile, key: ByteArray, since: Int, mustSave: Boolean = true) = withContext(NonCancellable) {
         try {
-            save(next)
-            if (mustSave) changed()
+            if (mustSave) {
+                save(next)
+                changed()
+            } else {
+                saveBookkeeping(next)
+            }
         } catch (e: Exception) {
             if (mustSave) {
                 key.fill(0)
@@ -173,6 +199,12 @@ class VaultStore(
     suspend fun create(master: CharArray) = mutex.withLock {
         val since = epoch
         val (v, key) = withContext(compute) { VaultCrypto.create(master, now(), kdf()) }
+        try {
+            beforeCreate()
+        } catch (e: Exception) {
+            key.fill(0)
+            throw e // Nothing moved or written: still no vault.
+        }
         withContext(io) { keepAside() } // Only reached with no readable vault: whatever file is there is kept.
         _state.value = VaultState.Locked
         try {

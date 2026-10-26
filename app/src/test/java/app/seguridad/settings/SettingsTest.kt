@@ -1,5 +1,8 @@
 package app.seguridad.settings
 
+import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED
+import app.seguridad.vault.AUTO_BACKUP_FAILED
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KDF_OUT_OF_MEMORY
 import app.seguridad.crypto.KdfParams
@@ -171,5 +174,49 @@ class SettingsTest {
         }
         file().writeText("""{"autoBackupKeep":7}""")
         assertEquals(5, store().apply { load() }.settings.value.autoBackupKeep)
+    }
+
+    private val folder = "content://x/tree/primary%3ACopias"
+
+    @Test fun autoBackupResultOnlyForTheFolderItWentTo() {
+        val on = Settings(autoBackupUri = folder, lastAutoBackupAt = 1L, lastAutoBackupError = "antes")
+        // Written: date and no error.
+        assertEquals(on.copy(lastAutoBackupAt = 9L, lastAutoBackupError = null), on.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
+        // Written, but old copies not deleted: the date too, and the error.
+        assertEquals(
+            on.copy(lastAutoBackupAt = 9L, lastAutoBackupError = AUTO_BACKUP_OLD_NOT_DELETED),
+            on.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED)),
+        )
+        // Not written: only the error; the last copy is still the one before.
+        assertEquals(on.copy(lastAutoBackupError = AUTO_BACKUP_FAILED), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)))
+        // Another folder chosen, or turned off, meanwhile: that copy says nothing about the current state.
+        val other = on.copy(autoBackupUri = "content://y/tree/otra")
+        assertEquals(other, other.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
+        val off = on.copy(autoBackupUri = null)
+        assertEquals(off, off.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
+    }
+
+    @Test fun newVaultTurnsAutoBackupOff() = runTest {
+        val s = store().apply { load() }
+        s.update { it.copy(autoBackupUri = folder, autoBackupKeep = 10, lastAutoBackupAt = 5L, lastAutoBackupError = "Falló") }
+        assertEquals(folder, s.turnOffAutoBackupForNewVault())
+        val off = s.settings.value
+        assertEquals(null, off.autoBackupUri)
+        assertEquals(null, off.lastAutoBackupAt)
+        assertEquals(null, off.lastAutoBackupError)
+        assertTrue(off.autoBackupOffForNewVault)
+        assertEquals(10, off.autoBackupKeep)
+        // Saved: Ajustes still says why after a restart.
+        assertTrue(store().apply { load() }.settings.value.autoBackupOffForNewVault)
+        // Already off: nothing to do, nothing to give back.
+        assertEquals(null, s.turnOffAutoBackupForNewVault())
+        assertEquals(off, s.settings.value)
+    }
+
+    @Test fun newVaultWithAutoBackupOffChangesNothing() = runTest {
+        val s = store().apply { load() }
+        assertEquals(null, s.turnOffAutoBackupForNewVault())
+        assertFalse(s.settings.value.autoBackupOffForNewVault)
+        assertFalse(file().exists())
     }
 }

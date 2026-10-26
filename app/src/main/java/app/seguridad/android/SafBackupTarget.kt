@@ -35,11 +35,22 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
 
     /** The document [create] made, by the URI the provider gave back: never another one with the same name. */
     private inner class Created(private var doc: Uri) : BackupFile {
+        /** What the provider says of it (FLAG_SUPPORTS_RENAME); if it cannot be read, renaming is tried. */
+        override val canRename: Boolean
+            get() = try {
+                resolver.query(doc, arrayOf(Document.COLUMN_FLAGS), null, null, null)?.use { c ->
+                    !c.moveToFirst() || c.isNull(0) || (c.getInt(0) and Document.FLAG_SUPPORTS_RENAME) != 0
+                } ?: true
+            } catch (e: Exception) {
+                true
+            }
+
         override suspend fun write(writer: suspend (OutputStream) -> Unit) {
             val out = withContext(Dispatchers.IO) { saf { resolver.openOutputStream(doc, "wt") } } ?: throw FileNotFoundException()
             out.use { writer(it) }
         }
 
+        /** Throws if the provider cannot (UnsupportedOperationException, or null): [AutoBackup] then writes the copy under its name. */
         override fun rename(to: String) {
             doc = saf { DocumentsContract.renameDocument(resolver, doc, to) } ?: throw IOException()
         }
