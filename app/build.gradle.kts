@@ -70,6 +70,14 @@ android {
         compose = true
         buildConfig = true
     }
+    androidResources {
+        // AGP's default patterns (copied from AGP 8.13) stop applying once the list is not empty, so they are kept here.
+        ignoreAssetsPatterns += "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~".split(':')
+        // OkHttp 5 ships Mozilla's Public Suffix List (MPL-2.0) as an asset. It reads it only to parse cookies and in
+        // HttpUrl.topPrivateDomain(): the app uses CookieJar.NO_COOKIES and never calls topPrivateDomain(). Without the
+        // file both throw IllegalStateException on the phone (the JVM tests still find it in okhttp-jvm). See checkAssets.
+        ignoreAssetsPatterns += "!PublicSuffixDatabase.list"
+    }
 }
 
 kotlin {
@@ -146,3 +154,35 @@ val checkFragmentVersion by tasks.registering {
     }
 }
 tasks.named("check") { dependsOn(checkFragmentVersion) }
+
+// Licence gate for data files: checkLicense reads each library's licence, but a library can ship an asset under another
+// one (OkHttp 5 brings Mozilla's Public Suffix List, MPL-2.0, excluded above). Every asset of the release APK must come
+// from app/src/main/assets, so an asset a new library adds fails the build until its licence has been reviewed.
+// Only assets/: Java resources of library jars are not checked (OkHttp's Android artifact ships the list as an asset).
+val releaseAssets = objects.listProperty<Directory>()
+androidComponents.onVariants(androidComponents.selector().withBuildType("release")) { variant ->
+    releaseAssets.add(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.ASSETS))
+}
+val checkAssets by tasks.registering {
+    group = "verification"
+    description = "Falla si el APK llevaría un archivo en assets/ que no sea de app/src/main/assets."
+    val merged = releaseAssets
+    val own = layout.projectDirectory.dir("src/main/assets").asFile
+    val stamp = layout.buildDirectory.file("checkAssets/ok")
+    // The merged assets already hold the app's own, so they are the only input.
+    inputs.files(merged)
+    outputs.file(stamp)
+    doLast {
+        fun relative(root: File) = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).invariantSeparatorsPath }.toSet()
+        val foreign = merged.get().flatMap { relative(it.asFile) }.toSet() - relative(own)
+        if (foreign.isNotEmpty()) {
+            throw GradleException(
+                "El APK llevaría assets que no son de la app: ${foreign.sorted().joinToString()}. Una biblioteca puede traer " +
+                    "datos con otra licencia que la suya: revísala y, si no se usan, exclúyelos en androidResources.",
+            )
+        }
+        stamp.get().asFile.writeText("ok\n")
+        logger.lifecycle("assets/: solo archivos de app/src/main/assets")
+    }
+}
+tasks.named("check") { dependsOn(checkAssets) }
