@@ -165,7 +165,7 @@ fun decryptMessage(token: String, me: Identity): OpenedMessage {
     if (token.length > MAX_TEXT_FILE_BYTES) throw CryptoFailure(TOO_BIG)
     val start = token.indexOf(MESSAGE_PREFIX)
     if (start < 0) throw CryptoFailure(NOT_A_MESSAGE)
-    val runs = base64UrlRuns(token, start + MESSAGE_PREFIX.length)
+    val runs = base64UrlRuns(token, start + MESSAGE_PREFIX.length, MAX_BODY_CHARS)
     val keyPair = me.kemKeyPair() // una identidad cerrada es un error de programa, no de datos
     val info = asciiLabel(MESSAGE_INFO)
 
@@ -233,13 +233,14 @@ fun decryptMessage(token: String, me: Identity): OpenedMessage {
 
 /**
  * Los trozos de Base64url de [text] desde [from], separados por espacios o saltos de línea: se para en el primero con un
- * carácter que no es de Base64url (del que se guarda su principio válido) o al pasar de [MAX_BODY_CHARS] caracteres.
+ * carácter que no es de Base64url (del que se guarda su principio válido) o al pasar de [limit] caracteres en total.
+ * Lo usan también las firmas de texto y «Abrir lo recibido» (`Signatures.kt`, `Received.kt`).
  */
-private fun base64UrlRuns(text: String, from: Int): List<String> {
+internal fun base64UrlRuns(text: String, from: Int, limit: Int): List<String> {
     val runs = ArrayList<String>()
     var total = 0
     var i = from
-    while (i < text.length && total <= MAX_BODY_CHARS) {
+    while (i < text.length && total <= limit) {
         while (i < text.length && text[i].isWhitespace()) i++
         val begin = i
         while (i < text.length && isBase64UrlChar(text[i])) i++
