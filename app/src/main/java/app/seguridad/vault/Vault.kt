@@ -35,7 +35,15 @@ data class VaultEntry(
     val totp: TotpSecret? = null,
     val createdAt: Long,
     val updatedAt: Long,
+    val favorite: Boolean = false,
+    /** Lowercase labels, see [normalizeTags]. */
+    val tags: List<String> = emptyList(),
+    /** Previous LOGIN passwords, newest first, at most [MAX_PASSWORD_HISTORY]; kept by [withNewPassword]. */
+    val passwordHistory: List<PasswordChange> = emptyList(),
 )
+
+@Serializable
+data class PasswordChange(val password: String, val changedAt: Long)
 
 @Serializable
 data class VaultKdf(val memoryKiB: Int, val iterations: Int, val parallelism: Int) {

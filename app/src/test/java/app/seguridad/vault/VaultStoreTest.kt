@@ -102,6 +102,21 @@ class VaultStoreTest {
         assertFalse(File(tmp.root, "vault.bin").exists())
     }
 
+    // Seguridad 1.1.0: a Google Authenticator batch goes in with one write, all or nothing.
+    @Test fun addAllSavesNewEntriesInOneWrite() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()); upsert(entry("1", "Wallet")) }
+        val h = listOf(PasswordChange("vieja", 1))
+        assertTrue(s.addAll(listOf(entry("2", "B").copy(passwordHistory = h), entry("3", "C"), entry("1", "Pisada"))))
+        val titles = (s.state.value as VaultState.Unlocked).entries.map { it.title }
+        // An id already in the vault is never overwritten, and a new entry starts without history.
+        assertEquals(listOf("B", "C", "Wallet"), titles)
+        assertTrue((s.state.value as VaultState.Unlocked).entries.all { it.passwordHistory.isEmpty() })
+        val reopened = store().apply { load(); unlock("m".toCharArray()) }
+        assertEquals(3, (reopened.state.value as VaultState.Unlocked).entries.size)
+        s.lock()
+        assertFalse(s.addAll(listOf(entry("4", "D"))))
+    }
+
     // Seguridad 1.0.1: a changed master password locks the vault at once, so the user opens it with the new one
     // (and proves they remember it) before going on; the old data key is not left in memory.
     @Test fun changeMasterLocksVault() = runTest {
