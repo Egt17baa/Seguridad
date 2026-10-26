@@ -299,12 +299,14 @@ Un ZIP (`java.util.zip`) con estas entradas, **en este orden**:
 ### Copia automática
 
 - Observa `VaultStore.revision`, un contador que sube **solo después de guardar bien un cambio del usuario** (no con los guardados de contabilidad, ni al exportar, ni si el guardado falla). Con 3 s de espera (`debounce`), 3 cambios seguidos dan una copia. Arrancar no hace copia.
-- **Solo con la bóveda abierta**, para que `exportBackup` compruebe el SHA-256 de cada adjunto. Si toca una copia con la bóveda bloqueada (salir de la app en los 3 s, o cambiar la contraseña maestra, que la bloquea), queda pendiente y se hace nada más desbloquearla. «Hacer una copia ahora» con la bóveda bloqueada pide abrirla. Un adjunto que falta o está dañado hace fallar la copia con el aviso de Ajustes, sin dejar archivo y **sin rotar**: las copias buenas anteriores se conservan.
-- Nombre: `seguridad-auto-AAAAMMDD-HHMMSS.sgbak`. **Primero se escribe `….sgbak.tmp` y solo se renombra al terminar bien**; si falla o se cancela, se borra el temporal. Nunca queda una copia a medias con el nombre definitivo. El temporal se escribe, renombra y borra por la URI que devolvió `createDocument`, nunca buscándolo por nombre. Si ese nombre (o su `.tmp`) ya existe en la carpeta (reloj atrasado), se usa el siguiente segundo libre: nunca se borra una copia completa para hacer sitio.
+- **Solo con la bóveda abierta**, para que `exportBackup` compruebe el SHA-256 de cada adjunto. Si toca una copia con la bóveda bloqueada (salir de la app en los 3 s, o cambiar la contraseña maestra, que la bloquea), queda pendiente y se hace nada más desbloquearla. Para que eso sobreviva a que el sistema cierre la app, al desbloquear también se hace una copia si `vault.bin` se modificó después de la última copia (`lastAutoBackupAt`) o aún no hay ninguna (CR-1). Los guardados de contabilidad (la última comprobación de la maestra, la subida de formato) devuelven a `vault.bin` su fecha de modificación anterior, así que abrir la bóveda no cuenta como cambio. «Hacer una copia ahora» con la bóveda bloqueada pide abrirla. Un adjunto que falta o está dañado hace fallar la copia con el aviso de Ajustes, sin dejar archivo y **sin rotar**: las copias buenas anteriores se conservan.
+- Nombre: `seguridad-auto-AAAAMMDD-HHMMSS.sgbak`. **Primero se escribe `….sgbak.tmp` y solo se renombra al terminar bien**; si falla o se cancela, se borra el temporal. Nunca queda una copia a medias con el nombre definitivo. Si el proveedor no sabe renombrar (el documento no tiene `FLAG_SUPPORTS_RENAME`, o `renameDocument` falla), se borra el temporal y la copia se escribe directamente con su nombre definitivo, y se borra si la exportación falla (CR-3); solo un cierre brusco a mitad podría dejarla cortada en ese proveedor. El temporal se escribe, renombra y borra por la URI que devolvió `createDocument`, nunca buscándolo por nombre. Si ese nombre (o su `.tmp`) ya existe en la carpeta (reloj atrasado), se usa el siguiente segundo libre: nunca se borra una copia completa para hacer sitio.
 - Una `CancellationException` que lanza la carpeta se avisa como error genérico y las copias siguen; solo la cancelación del propio ámbito las detiene.
 - **Rotación:** conserva las 3, 5 (por defecto) o 10 más recientes y solo borra nombres que encajan **exactamente** con `seguridad-auto-\d{8}-\d{6}\.sgbak` (y sus `.tmp` sueltos). Nunca borra la copia recién escrita ni archivos ajenos de la carpeta.
 - **Errores:** nunca cierran la app ni tocan la bóveda local. Se guardan en los ajustes como uno de seis mensajes fijos en español, sin ruta, URI, nombre de adjunto ni texto de la excepción, y se muestran en Ajustes: sin permiso, carpeta no encontrada, adjunto dañado o bóveda que no cabe, error de escritura, error genérico y «se hizo, pero no se pudieron borrar las antiguas».
 - La carpeta se elige con el selector del sistema (`OpenDocumentTree`) y el permiso persistente se devuelve al cambiar de carpeta y al desactivar. Desactivar no borra las copias ya hechas.
+- **Crear una bóveda nueva desactiva la copia automática** (CR-2): la rotación no sabe de qué bóveda es cada copia y, tras apartar una `vault.bin` dañada, habría borrado las únicas copias buenas de la anterior. `VaultStore.create` llama antes de escribir nada a `beforeCreate`, que borra la carpeta de los ajustes, devuelve su permiso y deja `autoBackupOffForNewVault`; Ajustes muestra «La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. Elige la carpeta otra vez para activarla.» hasta que se elige carpeta. Importar una copia no la desactiva.
+- El resultado de una copia lleva la carpeta a la que fue y la hora en que se tomó: solo se guarda si esa carpeta sigue elegida (CR-5), y una copia escrita cuya rotación falla también actualiza la fecha de la última copia (CR-4).
 - Las copias quedan fuera del sandbox de la app. Su confidencialidad depende de la contraseña maestra (ataque de diccionario offline contra Argon2id), igual que con la exportación manual, y las copias antiguas siguen abriéndose con la contraseña maestra de cuando se hicieron.
 
 ### Decisiones tomadas durante la implementación
@@ -337,6 +339,21 @@ La revisión final de toda la rama, con esta skill, está hecha: sin críticos y
 
 Quedan `code-review` y `security-review` sobre la rama antes de fusionar.
 
+#### `code-review` de la rama: hallazgos y decisiones
+
+| Hallazgo | Decisión |
+|---|---|
+| CR-1: una copia pendiente con la bóveda bloqueada solo vivía en memoria y se perdía si el sistema cerraba la app. | Arreglado: al desbloquear se copia si `vault.bin` es más reciente que `lastAutoBackupAt` o no hay copia; los guardados de contabilidad conservan la fecha de modificación. Solo al pasar a abierta, no con cada cambio guardado (esos siguen esperando los 3 s). |
+| CR-2: la rotación no sabe de qué bóveda es cada copia; tras apartar una bóveda dañada y crear otra, borraría las copias buenas de la anterior. | Arreglado: crear una bóveda desactiva la copia automática, devuelve el permiso de la carpeta y Ajustes lo explica. |
+| CR-3: sin alternativa si el proveedor no sabe renombrar, y el error decía «¿Queda espacio?». | Arreglado: se mira `FLAG_SUPPORTS_RENAME` y, si no se puede renombrar o el renombrado falla, la copia se escribe con su nombre definitivo y se borra si falla. Un fallo de renombrado ya no llega al usuario como error de espacio. |
+| CR-4: copia escrita y rotación fallida no actualizaban la fecha de la última copia. | Arreglado: se guarda la fecha y el aviso «no se pudieron borrar las antiguas», también si falla el listado de la rotación. |
+| CR-5: el resultado de una copia se guardaba aunque entretanto se hubiera elegido otra carpeta. | Arreglado: `AutoBackupResult` lleva la carpeta y solo se guarda si sigue siendo la elegida. |
+| CR-6: «más de 365 días» se calcula desde `updatedAt` cuando no hay historial. | Aparcado: cualquier edición reinicia el plazo; es un aviso orientativo, sin riesgo para los datos. |
+| CR-7: importar el último lote de Google Authenticator desde el editor de una entrada existente salía del editor y perdía sus cambios sin guardar. | Arreglado: editando una entrada existente se queda en el editor con un aviso; con una entrada nueva sigue volviendo a la lista. |
+| CR-8: una exportación puede cruzarse con `removeAttachment` y fallar por un adjunto recién quitado. | Aparcado: la copia falla con su aviso y la siguiente sale bien; nunca se escribe una copia incorrecta. |
+| CR-9: `vaultHealth` se recalculaba en cada recomposición. | Arreglado: `remember(entries, breached, día)`. |
+| CR-10: el tope de 50 MB de adjuntos se comprobaba después de cifrar y escribir el archivo. | Arreglado: se comprueba antes, con el cerrojo tomado (no hay carrera que vigilar después). |
+
 Menores aceptados y diferidos:
 
 | Menor | Efecto |
@@ -346,7 +363,6 @@ Menores aceptados y diferidos:
 | El tope de 6 MB por entrada se aplica a los bytes descomprimidos, no a los comprimidos. | Un ZIP muy comprimido tarda más en rechazarse, pero la memoria y el disco siguen acotados. |
 | En Android 14 o posterior, `ZipInputStream` lanza `ZipException` con nombres con `..` o `/` inicial. | Una copia con esos nombres se **rechaza** como dañada en el móvil y se **ignora** en la JVM de los tests; ambas formas son seguras. |
 | Una copia fechada en el futuro (reloj mal puesto una vez) ocupa para siempre un hueco de la rotación. | Se conservan `keep - 1` copias útiles en vez de `keep`. |
-| Si falla `list` en la rotación después de escribir bien, se avisa de «sin permiso» aunque la copia se hizo. | Mensaje engañoso, sin pérdida de datos. |
 
 Riesgos que quedan: la clave de cada adjunto vive como `String` Base64 en la entrada mientras la bóveda está abierta y no puede ponerse a cero en Java, igual que las contraseñas; el contenido de un adjunto se descifra en memoria (máximo 5 MB) y el búfer sí se pone a cero. Las comprobaciones que dependen de un móvil real están en la lista de abajo y en el README.
 
