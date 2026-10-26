@@ -303,4 +303,21 @@ class AttachmentsTest {
         assertEquals(before, File(tmp.root, "vault.bin").readText())
         assertTrue(attDir.listFiles().orEmpty().isEmpty())
     }
+
+    @Test fun total50MbCheckedBeforeWritingTheFile() = runTest {
+        val s = store().apply { load(); create("maestra-larga".toCharArray()) }
+        s.upsert(note("a"))
+        val five = 5 * 1024 * 1024
+        repeat(10) { assertTrue(s.addAttachment("a", ByteArrayInputStream(ByteArray(five)), "a$it.bin")) }
+        // The folder cannot take a new file: refused for the limit, without trying to encrypt or write one.
+        attDir.deleteRecursively()
+        attDir.writeText("no es una carpeta")
+        try {
+            s.addAttachment("a", ByteArrayInputStream(ByteArray(1)), "uno-más.bin")
+            fail("Debía rechazarlo")
+        } catch (e: AttachmentLimit) {
+            assertEquals("Los adjuntos de la bóveda pasan de 50 MB en total", e.message)
+        }
+        assertEquals(10, s.entry("a").attachments.size)
+    }
 }

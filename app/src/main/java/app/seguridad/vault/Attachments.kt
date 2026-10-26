@@ -136,9 +136,6 @@ class AttachmentStore(val dir: File, private val random: SecureRandom = secureRa
         }
     }
 
-    /** Deletes the file of [id] (an attachment just refused or never saved in the vault); false if not ours. */
-    internal fun delete(id: String): Boolean = ID.matches(id) && fileOf(id).delete()
-
     /**
      * Deletes every file of this store whose id is not in [live] (and any temporary file left by a crash). Other
      * files in [dir] are left alone. Never throws: a failure here must not affect the vault.
