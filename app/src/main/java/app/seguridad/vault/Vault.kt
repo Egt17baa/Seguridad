@@ -140,11 +140,12 @@ data class VaultFile(
         /** The older format this app imports: read only, and rewritten as [FORMAT] on import or unlock. */
         const val LEGACY_FORMAT = "criptopanel-vault"
         /**
-         * The version this app writes. Version 1.1 only reads [VERSION_2], so it never rewrites a 3 and loses nothing:
-         * with the master password it says "No es una bóveda compatible"; opened with the fingerprint, a 3 without an
-         * identity shows its entries but every save fails and the file does not change, and a 3 with an identity gives
-         * "Contraseña incorrecta o datos dañados". It only happens if 1.1 is installed over 1.2, which Android does not
-         * allow for a published app without uninstalling it first.
+         * The version this app writes. Version 1.1 only reads [VERSION_2] and loses nothing: with the master password it
+         * says "No es una bóveda compatible"; opened with the fingerprint, a 3 without an identity or contacts shows its
+         * entries, every save fails and the file does not change, except that changing the master password rewrites it as
+         * a 2 holding the same entries (all of them types 1.1 knows); a 3 with an identity gives "Contraseña incorrecta o
+         * datos dañados". It only happens if 1.1 is installed over 1.2, which Android does not allow for a published app
+         * without uninstalling it first.
          */
         const val VERSION = 3
 

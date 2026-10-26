@@ -484,9 +484,14 @@ class VaultV3Test {
         // Y con la huella (en la tienda) queda en la 2: nada de identidad hasta la maestra.
         val dir = phone("sinversion")
         File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(stripped))
+        val before = File(dir, "vault.bin").readText()
         val s = store(dir).apply { load() }
         s.unlockWithKey(fixtureDek())
+        assertTrue(s.state.value is VaultState.Unlocked)
         assertTrue(s.needsMasterForContacts.value)
+        // Abrir con la huella no reescribe el archivo: sigue sin el campo version.
+        assertEquals(before, File(dir, "vault.bin").readText())
+        assertFalse(File(dir, "vault.bin").readText().contains("\"version\""))
     }
 
     @Test fun deLaVersion3NoSePasaALa2PorLaHuella() = runTest {
@@ -518,6 +523,10 @@ class VaultV3Test {
         // Y la clave envuelta de la 2 sola, con la sal y el coste de la 3: no abre con la maestra (la clave de datos
         // no va ligada a esa clave envuelta, así que con ella las entradas de la 3 siguen siendo las suyas).
         val onlyKey = listOf(3, 2).map { v -> v3.copy(version = v, wrappedKey = v2.wrappedKey) }
+        // Lo que dice la nota: con la clave de datos, la 3 con la clave envuelta de la 2 sigue dando sus propias entradas.
+        onlyKey.filter { it.version == 3 }.forEach { h ->
+            assertEquals(VaultCrypto.read(v3, dek).map { it.title }, VaultCrypto.read(h, dek).map { it.title })
+        }
         (hybrids + onlyKey).forEach { h ->
             // Con la maestra, o no abre la clave (AAD con otra versión o sal) o no abre las entradas.
             failsWith<CryptoFailure> {
