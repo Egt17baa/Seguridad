@@ -221,11 +221,11 @@ class VaultStoreTest {
         val s = store().apply { load(); create("m".toCharArray()); upsert(entry("1", "Wallet")); lock() }
         // Make it look like a file from before the version key was always written.
         val f = File(tmp.root, "vault.bin")
-        f.writeText(f.readText().replace("\"version\":2,", ""))
+        f.writeText(f.readText().replace("\"version\":3,", ""))
         val again = store().apply { load() }
         again.unlock("m".toCharArray())
         assertEquals(listOf("Wallet"), (again.state.value as VaultState.Unlocked).entries.map { it.title })
-        assertTrue(f.readText().contains("\"version\":2"))
+        assertTrue(f.readText().contains("\"version\":3"))
     }
 
     /** A directory where the temporary file goes makes every save fail (even for root, unlike permissions). */
