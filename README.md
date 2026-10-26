@@ -63,6 +63,7 @@ gradle -p jvm-check test --no-daemon --max-workers=1
 - **build:** tests, lint, comprobación de licencias y APK de release `Seguridad.apk`, firmado con los secretos `SEGURIDAD_*`. Escribe en el resumen del trabajo la huella SHA-256 del certificado y avisa si es la de la clave de prueba.
 - **jvm-check:** los tests en la JVM.
 - **publish** (solo en `main`): publica el APK en la versión `apk-latest` de *Releases*. No ve los secretos.
+- **release-apk** (etiquetas `v*`): adjunta a la release de esa etiqueta `Seguridad-vX.Y.Z.apk` y su `.sha256`, y crea la release si no existe. No ve los secretos.
 - **play-bundle** (etiquetas `v*` y a mano): el AAB para Google Play. Sin los secretos falla, porque Play no acepta la clave de prueba.
 
 Todas las acciones están fijadas por SHA y los permisos son de solo lectura salvo en `publish`. Los secretos de firma se limitan a ejecuciones de confianza; las compilaciones desde ramas o PR no fiables no deben recibirlos.
