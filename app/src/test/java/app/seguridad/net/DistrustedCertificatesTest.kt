@@ -71,7 +71,7 @@ class DistrustedCertificatesTest {
     }
 
     @Test fun `the app's HTTP client uses the distrusting trust manager`() {
-        val client = secureClient()
+        val client = secureClient(appVersion = "test")
         assertTrue(client.x509TrustManager is DistrustingTrustManager)
         try {
             client.x509TrustManager!!.checkServerTrusted(arrayOf(compromised, aaaRoot), "ECDHE_ECDSA")

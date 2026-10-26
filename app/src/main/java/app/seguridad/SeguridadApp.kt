@@ -11,6 +11,7 @@ class SeguridadApp : Application() {
     val container: AppContainer by lazy {
         AppContainer(
             filesDir,
+            appVersion = BuildConfig.VERSION_NAME,
             backupFolder = { uri -> SafBackupTarget(contentResolver, uri.toUri()) },
             releaseFolder = { uri -> SafBackupTarget.releaseFolder(contentResolver, uri) },
         )
