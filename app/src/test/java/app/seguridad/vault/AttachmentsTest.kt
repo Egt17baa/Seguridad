@@ -4,6 +4,9 @@ import app.seguridad.core.appJson
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KdfParams
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -15,6 +18,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.Cipher
@@ -153,7 +159,8 @@ class AttachmentsTest {
         assertFalse(fileOf(one).exists())
         assertTrue(fileOf(two).exists())
         assertEquals(listOf(two), s.entry("n").attachments)
-        assertTrue(fileOf(live).exists() == false) // Not referenced by this vault: collected on save.
+        // Same folder as the standalone store above: its file is not referenced by this vault, so a save collects it.
+        assertFalse(fileOf(live).exists())
 
         // An orphan left on disk (say, a crash) goes on the next unlock, the live one stays.
         val orphan = File(attDir, "${"cd".repeat(16)}.bin").apply { writeBytes(bytes(40)) }
@@ -245,5 +252,55 @@ class AttachmentsTest {
         // The new vault's collection never touches the files only the damaged one can open.
         val aside = tmp.root.listFiles()!!.single { it.name.startsWith("att.bad-") }
         assertTrue(File(aside, "$id.bin").exists())
+    }
+
+    @Test fun readingTheInputNeverHoldsTheVaultLock() = runBlocking {
+        // A real I/O dispatcher, so the blocked read waits on its own thread.
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.IO, Dispatchers.Unconfined, now = { 5_000L }, kdf = { KdfParams(1024, 1, 1) })
+        s.load()
+        s.create("maestra-larga".toCharArray())
+        s.upsert(note("n"))
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        // A document provider that hangs (a Drive file not available offline) until released.
+        val slow = object : InputStream() {
+            private var sent = false
+            override fun read(): Int = throw UnsupportedOperationException()
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                started.countDown()
+                release.await()
+                if (sent) return -1
+                sent = true
+                b[off] = 7
+                return 1
+            }
+        }
+        val adding = async(Dispatchers.Default) { s.addAttachment("n", slow, "lento.txt") }
+        assertTrue(started.await(5, TimeUnit.SECONDS))
+        // While the read hangs, saving, locking and unlocking all go through.
+        try {
+            withTimeout(10_000) {
+                s.upsert(note("m"))
+                s.lock()
+                s.unlock("maestra-larga".toCharArray())
+            }
+        } finally {
+            release.countDown() // Also on failure, or the hung read would keep the test from ending.
+        }
+        assertEquals(2, (s.state.value as VaultState.Unlocked).entries.size)
+        assertTrue(adding.await())
+        val ref = s.entry("n").attachments.single()
+        assertTrue(fileOf(ref).exists()) // Written and saved after the unlock: never collected.
+        assertArrayEquals(byteArrayOf(7), s.openAttachment("n", ref.id))
+    }
+
+    @Test fun nothingToChangeSavesNothing() = runTest {
+        val s = store().apply { load(); create("maestra-larga".toCharArray()) }
+        s.upsert(note("n"))
+        val before = File(tmp.root, "vault.bin").readText()
+        assertFalse(s.addAttachment("no-existe", ByteArrayInputStream(bytes(10)), "a"))
+        assertFalse(s.removeAttachment("n", "ab".repeat(16)))
+        assertEquals(before, File(tmp.root, "vault.bin").readText())
+        assertTrue(attDir.listFiles().orEmpty().isEmpty())
     }
 }

@@ -60,10 +60,32 @@ class AttachmentStore(val dir: File, private val random: SecureRandom = secureRa
      * encrypts it with a fresh key and writes it atomically. The caller saves the returned reference in the vault.
      */
     fun add(input: InputStream, name: String): AttachmentRef {
+        val plain = read(input)
+        try {
+            return add(plain, name)
+        } finally {
+            plain.fill(0)
+        }
+    }
+
+    /**
+     * At most [MAX_ATTACHMENT_BYTES] + 1 bytes of [input]; [AttachmentLimit] (and the bytes wiped) above the limit.
+     * The caller wipes the result when done.
+     */
+    fun read(input: InputStream): ByteArray {
         val plain = input.readAtMost(MAX_ATTACHMENT_BYTES + 1)
+        if (plain.size > MAX_ATTACHMENT_BYTES) {
+            plain.fill(0)
+            throw AttachmentLimit(ATTACHMENT_TOO_BIG)
+        }
+        return plain
+    }
+
+    /** Encrypts [plain] (from [read]; the caller wipes it) with a fresh key and writes it atomically. */
+    fun add(plain: ByteArray, name: String): AttachmentRef {
+        if (plain.size > MAX_ATTACHMENT_BYTES) throw AttachmentLimit(ATTACHMENT_TOO_BIG)
         val key = randomBytes(KEY_BYTES, random)
         try {
-            if (plain.size > MAX_ATTACHMENT_BYTES) throw AttachmentLimit(ATTACHMENT_TOO_BIG)
             val id = lowerHex(randomBytes(16, random))
             val nonce = randomBytes(NONCE_BYTES, random)
             val sealed = nonce + aead(Aead.AES_256_GCM, true, key, nonce, aad(id), plain)
@@ -77,7 +99,6 @@ class AttachmentStore(val dir: File, private val random: SecureRandom = secureRa
             )
         } finally {
             key.fill(0)
-            plain.fill(0)
         }
     }
 
