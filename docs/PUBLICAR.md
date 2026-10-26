@@ -34,6 +34,8 @@ Cada push a `main` publica el APK en la versión **`apk-latest`** de *Releases* 
 2. Descarga `Seguridad.apk` y comprueba su huella (apartado 1).
 3. En el móvil, permite instalar apps de esa fuente e instálalo. Después puedes volver a quitar ese permiso.
 
+Cada etiqueta de versión `v*` (por ejemplo `v1.1.0`) adjunta a su release `Seguridad-v1.1.0.apk` y `Seguridad-v1.1.0.apk.sha256`: esa es la descarga de una versión concreta. Si la release no existe aún, se crea con el nombre de la etiqueta.
+
 Las ramas `claude/**` y los pull requests no publican nada: su APK queda como artefacto `Seguridad-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
 
 Un APK firmado con la clave de subida y otro firmado con la de prueba no se actualizan entre sí: Android pide desinstalar, y al desinstalar se borra la bóveda. Exporta antes una copia.
