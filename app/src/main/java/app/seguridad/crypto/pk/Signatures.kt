@@ -53,6 +53,7 @@ private const val TOO_LONG_TEXT = "El texto es demasiado largo para firmarlo"
 private const val TOO_BIG_TEXT = "El texto es demasiado grande"
 private const val BAD_TEXT = "El texto no es válido"
 private const val NOT_SIGNED = "El texto no lleva una firma ($SIGNATURE_PREFIX)"
+private const val TEXT_AFTER_SIGNATURE = "Hay texto después de la firma: no se puede comprobar qué está firmado"
 private const val DAMAGED_SIGNATURE = "La firma está dañada o incompleta"
 private const val BAD_TEXT_SIGNATURE = "La firma no es válida: el texto ha cambiado o no es de quien dice"
 private const val CANNOT_SIGN_FILE = "No se ha podido firmar el archivo"
@@ -105,7 +106,9 @@ data class SignedText(val text: String, val signerEd: ByteArray) {
  *   firmado, y la firma tiene que cuadrar con eso. Una línea `SGS1:` falsa antes (o dentro del texto) solo forma parte
  *   del texto; una añadida después deja el bloque sin firma válida.
  * - La firma mide siempre [SIGNATURE_TOKEN_CHARS] caracteres: si el chat la ha partido en varias líneas o con espacios se
- *   juntan los trozos hasta completarlos, y lo que venga después («Gracias») no se pega. Se lee en Base64url canónico.
+ *   juntan hasta completarlos. Se lee en Base64url canónico. **Detrás de la firma solo puede haber espacios y saltos de
+ *   línea**: con cualquier otra cosa (una nota, «PD: mi cuenta nueva es…») se rechaza, para que nadie pueda añadir texto
+ *   que parezca avalado por una firma válida.
  * - Con más de [MAX_TEXT_FILE_BYTES] caracteres se rechaza sin mirarlo.
  *
  * La clave que se devuelve es con la que se comprobó la firma, pero **nada dice que sea de un contacto**.
@@ -134,15 +137,25 @@ fun verifySignedText(block: String): SignedText {
     return SignedText(text, signerEd)
 }
 
-/** Los [SIGNATURE_TOKEN_CHARS] caracteres de Base64url que empiezan en [from], con los trozos que haya partido el chat. */
+/**
+ * Los [SIGNATURE_TOKEN_CHARS] caracteres de Base64url que empiezan en [from], con los espacios y saltos de línea que haya
+ * metido el chat entre ellos. Detrás solo puede haber espacios y saltos de línea: cualquier otra cosa (una nota, un punto)
+ * se rechaza, porque quien lee creería que también está firmada.
+ */
 private fun signatureToken(block: String, from: Int): String {
     val token = StringBuilder()
-    for (run in base64UrlRuns(block, from, SIGNATURE_TOKEN_CHARS)) {
-        if (token.length + run.length > SIGNATURE_TOKEN_CHARS) throw CryptoFailure(DAMAGED_SIGNATURE)
-        token.append(run)
-        if (token.length == SIGNATURE_TOKEN_CHARS) return token.toString()
+    var i = from
+    while (i < block.length && token.length < SIGNATURE_TOKEN_CHARS) {
+        val c = block[i++]
+        when {
+            c.isWhitespace() -> {}
+            isBase64UrlChar(c) -> token.append(c)
+            else -> throw CryptoFailure(DAMAGED_SIGNATURE)
+        }
     }
-    throw CryptoFailure(DAMAGED_SIGNATURE)
+    if (token.length != SIGNATURE_TOKEN_CHARS) throw CryptoFailure(DAMAGED_SIGNATURE)
+    if (!block.substring(i).all { it.isWhitespace() }) throw CryptoFailure(TEXT_AFTER_SIGNATURE)
+    return token.toString()
 }
 
 /**

@@ -25,6 +25,9 @@ sealed interface Received {
 /** Cuántas uniones de trozos se prueban al leer una tarjeta pegada (la de todos y, quitando el último, las demás). */
 private const val CARD_JOINS = 8
 
+/** Lo más largo que se lee del texto de una tarjeta, en caracteres: el límite que aplica [cardFromAnyText] (la mayor válida mide unos 2.100). */
+private const val MAX_CARD_TEXT_CHARS = MAX_CARD_BYTES
+
 /**
  * Decide qué es [text] por el **último** prefijo que haya entre [SIGNATURE_PREFIX] (`SGS1:`), [MESSAGE_PREFIX] (`SGM1:`) y
  * [CARD_TEXT_PREFIX] (`SGK1:`):
@@ -61,7 +64,7 @@ fun detectReceived(text: String): Received {
 private fun cardAt(text: String, at: Int): Card? {
     val tail = text.substring(at)
     cardOrNull(tail)?.let { return it }
-    val runs = base64UrlRuns(text, at + CARD_TEXT_PREFIX.length, MAX_CARD_BYTES)
+    val runs = base64UrlRuns(text, at + CARD_TEXT_PREFIX.length, MAX_CARD_TEXT_CHARS)
     var count = runs.size
     var attempts = 0
     while (count > 0 && attempts < CARD_JOINS) {
