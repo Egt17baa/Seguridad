@@ -42,7 +42,7 @@ private const val MESSAGE_INFO = "seguridad-msg-v1"
 private const val MESSAGE_SIGNATURE_LABEL = "seguridad-msg-sig-v1"
 
 /** Semilla efímera de la encapsulación de X-Wing (`Neseed` de la especificación, 64 bytes): el `ikmE` de [encryptMessage]. */
-private const val IKM_E_BYTES = 64
+internal const val IKM_E_BYTES = 64
 
 private const val MARK_SIGNED = 0x01
 private const val HEADER_BYTES = 5 + ENC_BYTES // cabecera de 5 bytes y `enc`
@@ -257,7 +257,7 @@ private fun base64UrlRuns(text: String, from: Int): List<String> {
  * `IllegalArgumentException`, `InvalidCipherTextException`…) en un [CryptoFailure] con [failure]. No atrapa los
  * `Error` (falta de memoria).
  */
-private inline fun <T> bouncy(failure: String, block: () -> T): T = try {
+internal inline fun <T> bouncy(failure: String, block: () -> T): T = try {
     block()
 } catch (e: CryptoFailure) {
     throw e

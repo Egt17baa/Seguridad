@@ -16,13 +16,14 @@ const val LEGACY_ENCRYPTED_EXTENSION = ".cpenc"
 private const val MAX_NAME_BYTES = 1024
 
 /** STREAM nonce: prefix (7) ‖ counter (4, big-endian) ‖ last-record flag (1). */
-private fun streamNonce(prefix: ByteArray, counter: Int, last: Boolean): ByteArray =
+internal fun streamNonce(prefix: ByteArray, counter: Int, last: Boolean): ByteArray =
     ByteBuffer.allocate(NONCE_BYTES).put(prefix).putInt(counter).put(if (last) 1 else 0).array()
 
-private fun InputStream.readFully(buf: ByteArray, len: Int = buf.size): Int {
+/** Reads until [len] bytes are in [buf] (from [off]) or the stream ends; returns how many arrived. */
+internal fun InputStream.readFully(buf: ByteArray, len: Int = buf.size, off: Int = 0): Int {
     var n = 0
     while (n < len) {
-        val r = read(buf, n, len - n)
+        val r = read(buf, off + n, len - n)
         if (r < 0) break
         n += r
     }
