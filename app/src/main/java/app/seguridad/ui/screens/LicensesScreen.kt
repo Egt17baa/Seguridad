@@ -32,7 +32,7 @@ private val components = listOf(
     Component("ZXing y ZXing Android Embedded", "Apache-2.0", "https://github.com/journeyapps/zxing-android-embedded", "apache-2.0.txt", "Lectura de códigos QR con la cámara."),
     Component("Bouncy Castle", "MIT", "https://www.bouncycastle.org/", "bouncycastle.txt", "Algoritmos criptográficos: Argon2id, ChaCha20-Poly1305, Twofish, Serpent y Camellia."),
     Component("Lista de palabras BIP-39", "MIT", "https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md", "bip39.txt", "Las 2.048 palabras en inglés de las frases semilla, sin cambios."),
-    Component("Lista de palabras larga de la EFF", "CC BY 3.0", "https://www.eff.org/dice", "cc-by-3.0.txt", "Se usa sin cambios en el Generador."),
+    Component("Lista de palabras larga de la EFF", "CC BY 3.0 US", "https://www.eff.org/dice", "cc-by-3.0.txt", "De la Electronic Frontier Foundation. Se usa sin cambios en el Generador. Licencia: https://creativecommons.org/licenses/by/3.0/us/"),
 )
 
 /** One entry per component, each with its license text that can be unfolded. */

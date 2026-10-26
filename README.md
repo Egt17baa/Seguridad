@@ -2,7 +2,13 @@
 
 App Android de seguridad y criptografía, sin cuentas, sin nube y sin anuncios. La bóveda y los datos cifrados se guardan localmente en el móvil.
 
-**Licencia: [Apache-2.0](LICENSE).** Se permite usar, estudiar, modificar y redistribuir el código conforme a esa licencia. Las dependencias conservan sus propias licencias.
+**Licencia: [Apache-2.0](LICENSE).** Se permite usar, estudiar, modificar y redistribuir el código conforme a esa licencia. Las dependencias conservan sus propias licencias. Copyright 2026 Egt17baa ([NOTICE](NOTICE)).
+
+**Gratuita y sin monetizar, por compromiso.** La app no tendrá nunca precio, anuncios, compras integradas, versión de pago, donaciones que condicionen funciones ni uso de datos con fines comerciales. No es solo una preferencia: la publicación se plantea como la de un particular sin actividad económica, y cualquier cambio de modelo obligaría a revisar sus obligaciones legales (consumo, Cyber Resilience Act, responsabilidad por productos).
+
+**Privacidad:** la app no recoge datos. [Política de privacidad](https://egt17baa.github.io/Seguridad/privacidad.html) (fuente: [`docs/privacidad.html`](docs/privacidad.html)).
+
+**Identificador:** `io.github.egt17baa.seguridad` desde la 1.1.1 (antes `app.seguridad`). Android lo trata como otra app: para pasar de una versión anterior hay que exportar la bóveda en la antigua e importarla en la nueva (pasos en [`docs/PUBLICAR.md`](docs/PUBLICAR.md#2-descargar-el-apk-instalación-directa)).
 
 ## Funciones
 
@@ -62,11 +68,10 @@ gradle -p jvm-check test --no-daemon --max-workers=1
 
 - **build:** tests, lint, comprobación de licencias y APK de release `Seguridad.apk`, firmado con los secretos `SEGURIDAD_*`. Escribe en el resumen del trabajo la huella SHA-256 del certificado y avisa si es la de la clave de prueba.
 - **jvm-check:** los tests en la JVM.
-- **publish** (solo en `main`): publica el APK en la versión `apk-latest` de *Releases*. No ve los secretos.
-- **release-apk** (etiquetas `v*`): adjunta a la release de esa etiqueta `Seguridad-vX.Y.Z.apk` y su `.sha256`, y crea la release si no existe. No ve los secretos.
+- **release-apk** (etiquetas `v*`): adjunta a la release de esa etiqueta `Seguridad-vX.Y.Z.apk` y su `.sha256`, y crea la release si no existe. No ve los secretos. Es la única forma de publicar un APK: los push a `main` solo lo dejan como artefacto de la ejecución.
 - **play-bundle** (etiquetas `v*` y a mano): el AAB para Google Play. Sin los secretos falla, porque Play no acepta la clave de prueba.
 
-Todas las acciones están fijadas por SHA y los permisos son de solo lectura salvo en `publish`. Los secretos de firma se limitan a ejecuciones de confianza; las compilaciones desde ramas o PR no fiables no deben recibirlos.
+Todas las acciones están fijadas por SHA y los permisos son de solo lectura salvo en `release-apk`, que puede escribir releases pero no ve los secretos. Los secretos de firma se limitan a ejecuciones de confianza; las compilaciones desde ramas o PR no fiables no deben recibirlos.
 
 ### Verificación de dependencias
 

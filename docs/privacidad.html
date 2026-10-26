@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad de Seguridad</title>
+<style>
+  :root { --fg: #1b1b1f; --bg: #ffffff; --muted: #55565c; --link: #1a5fb4; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e4e2e6; --bg: #1b1b1f; --muted: #b0b0b8; --link: #99c1f1; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 42rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; }
+  p.meta { color: var(--muted); }
+  a { color: var(--link); }
+  code { font-size: 0.95em; }
+</style>
+</head>
+<body>
+<main>
+<h1>Política de privacidad de Seguridad</h1>
+<p class="meta">App Android «Seguridad» (<code>io.github.egt17baa.seguridad</code>). Última actualización: 26 de octubre de 2026.</p>
+
+<h2>Quién la desarrolla</h2>
+<p>Egt17baa (seudónimo), desarrollador particular residente en España. No hay empresa detrás ni ánimo de lucro: la app es gratuita, sin anuncios, sin compras y sin donaciones, y su código es abierto (Apache-2.0): <a href="https://github.com/Egt17baa/Seguridad">github.com/Egt17baa/Seguridad</a>.</p>
+<p>Contacto: abre una incidencia en <a href="https://github.com/Egt17baa/Seguridad/issues">github.com/Egt17baa/Seguridad/issues</a>. Para un problema de seguridad, usa el aviso privado que explica <a href="https://github.com/Egt17baa/Seguridad/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+<h2>Qué datos recogemos</h2>
+<p>Ninguno. La app no tiene cuentas, analítica, anuncios ni servidores propios. No recibimos, vemos ni guardamos tus contraseñas, códigos 2FA, frases semilla, notas, adjuntos ni archivos.</p>
+
+<h2>Dónde se guardan tus datos</h2>
+<p>Solo en tu móvil, cifrados. Las copias de seguridad automáticas de Android están desactivadas para esta app.</p>
+<p>Si exportas una copia, o activas la copia automática eligiendo una carpeta, el archivo se guarda cifrado con tu contraseña maestra donde tú elijas. Si esa carpeta está sincronizada con un servicio en la nube (por ejemplo, Google Drive), ese servicio recibe el archivo cifrado según su propia política; no puede leer su contenido sin tu contraseña.</p>
+<p>Si olvidas la contraseña maestra, nadie puede recuperar los datos.</p>
+
+<h2>La única conexión a Internet: comprobar si una contraseña está filtrada</h2>
+<p>Solo cuando pulsas «¿Filtrada?» o «Comprobar filtraciones» (en la salud de la bóveda), la app consulta el servicio Pwned Passwords de Have I Been Pwned (<code>api.pwnedpasswords.com</code>), una vez por cada contraseña distinta. Tus contraseñas nunca salen del móvil: se envían únicamente los 5 primeros caracteres de su huella SHA-1, que comparten cientos de contraseñas distintas, y la respuesta lleva relleno. Nada se guarda.</p>
+<p>Como en cualquier conexión, ese servicio y tu proveedor de red ven la dirección IP de tu dispositivo y la versión de la app, y los tratan según su propia política: <a href="https://haveibeenpwned.com/Privacy">haveibeenpwned.com/Privacy</a>. Nosotros no recibimos nada de esa consulta.</p>
+
+<h2>Permisos</h2>
+<ul>
+<li>Internet: solo para la comprobación de contraseñas filtradas descrita arriba.</li>
+<li>Cámara: solo mientras escaneas un código QR (de 2FA o de exportación de Google Authenticator). Las imágenes no se guardan ni se envían.</li>
+<li>Biometría: la huella la gestiona Android; la app nunca accede a ella.</li>
+</ul>
+
+<h2>Seguridad</h2>
+<p>Los datos se cifran en el dispositivo con algoritmos estándar. La app no ha pasado una auditoría de seguridad independiente.</p>
+
+<h2>Menores</h2>
+<p>La app no está dirigida a menores de 13 años.</p>
+
+<h2>Tus derechos</h2>
+<p>Como no tratamos datos personales, no podemos atender solicitudes de acceso o supresión sobre datos que no tenemos. Para borrar todo, desinstala la app o borra sus datos desde los Ajustes de Android. Puedes escribirnos por el contacto de arriba con cualquier duda y, si lo consideras necesario, reclamar ante la Agencia Española de Protección de Datos (<a href="https://www.aepd.es">www.aepd.es</a>).</p>
+
+<h2>Cambios</h2>
+<p>Si esta política cambia, se publicará aquí con su nueva fecha. El historial de cambios está en el repositorio.</p>
+</main>
+</body>
+</html>

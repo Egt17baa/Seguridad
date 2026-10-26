@@ -1,0 +1,12 @@
+Seguridad
+Copyright 2026 Egt17baa
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes third-party components under their own licenses, listed in the app
+(Ajustes → Acerca de → Ver licencias) and in app/src/main/assets/licenses/:
+- the EFF Long Wordlist, by the Electronic Frontier Foundation, licensed under
+  the Creative Commons Attribution 3.0 United States License (CC BY 3.0 US),
+  https://creativecommons.org/licenses/by/3.0/us/ — used without changes;
+- the BIP-39 English wordlist (MIT);
+- Bouncy Castle (MIT).
