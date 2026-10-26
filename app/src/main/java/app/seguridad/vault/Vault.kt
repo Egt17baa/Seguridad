@@ -40,6 +40,26 @@ data class VaultEntry(
     val tags: List<String> = emptyList(),
     /** Previous LOGIN passwords, newest first, at most [MAX_PASSWORD_HISTORY]; kept by [withNewPassword]. */
     val passwordHistory: List<PasswordChange> = emptyList(),
+    /** Encrypted files kept in files/vault/att/ (see [AttachmentStore]); the store keeps them across edits. */
+    val attachments: List<AttachmentRef> = emptyList(),
+)
+
+/**
+ * One encrypted attachment: its file is files/vault/att/<[id]>.bin (format v1 in [AttachmentStore]). Its own
+ * random [key] lives only here, inside the entries the data key encrypts and authenticates.
+ */
+@Serializable
+data class AttachmentRef(
+    /** 16 random bytes, lowercase hex. */
+    val id: String,
+    /** Name to save it under ([app.seguridad.crypto.safeFileName]). */
+    val name: String,
+    /** Size of the content in plain. */
+    val size: Long,
+    /** SHA-256 of the encrypted file, lowercase hex. */
+    val sha256: String,
+    /** The attachment's AES-256 key, Base64. */
+    val key: String,
 )
 
 @Serializable

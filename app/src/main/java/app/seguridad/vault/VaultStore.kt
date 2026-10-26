@@ -39,6 +39,8 @@ class VaultStore(
     private val idleLockMs: () -> Long = { 5 * 60_000L },
     /** Whether a picker or the QR scanner we opened keeps the vault open in the background ([VaultLock.keepOpenOnce]). */
     private val keptOpen: () -> Boolean = { VaultLock.keepOpenOnce },
+    /** Encrypted attachments, in files/vault/att/ next to the vault file. */
+    private val attachments: AttachmentStore = AttachmentStore(File(file.absoluteFile.parentFile, "att")),
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -70,9 +72,32 @@ class VaultStore(
         _state.value = if (vault == null) VaultState.NoVault else VaultState.Locked
     }
 
-    /** Renames an existing vault file to vault.bin.bad-<time> instead of losing it. */
+    /**
+     * Renames an existing vault file to vault.bin.bad-<time> instead of losing it, and its attachments folder to
+     * att.bad-<time>: the new vault's garbage collection must not delete files only the old one can open.
+     */
     private fun keepAside() {
-        if (file.exists()) file.renameTo(File(file.path + ".bad-" + now()))
+        if (file.exists()) {
+            val stamp = now()
+            file.renameTo(File(file.path + ".bad-" + stamp))
+            if (attachments.dir.exists()) attachments.dir.renameTo(File(attachments.dir.path + ".bad-" + stamp))
+        }
+    }
+
+    /**
+     * Deletes the attachment files no entry of the open vault refers to (a deleted entry, a removed attachment, a
+     * crash between writing a file and saving the vault). Only with the vault open, from the entries just read or
+     * saved, so a live file is never deleted. Called with the mutex held. Any failure is ignored: the vault is
+     * already saved and the next collection tries again.
+     */
+    private suspend fun collectGarbage() {
+        val entries = (_state.value as? VaultState.Unlocked)?.entries ?: return
+        val live = entries.flatMapTo(HashSet()) { e -> e.attachments.map { it.id } }
+        try {
+            withContext(io) { attachments.collectGarbage(live) }
+        } catch (e: Exception) {
+            // Never affects the vault.
+        }
     }
 
     private suspend fun save(v: VaultFile) = withContext(io) { file.writeTextAtomically(VaultCrypto.encodeFile(v)) }
@@ -97,6 +122,8 @@ class VaultStore(
             }
         }
         opened(next, key, since)
+        // After a failed save that did not have to succeed, the disk differs only by bookkeeping: same attachments.
+        collectGarbage()
     }
 
     private fun opened(v: VaultFile, key: ByteArray, since: Int) {
@@ -163,6 +190,7 @@ class VaultStore(
             throw MasterRequired()
         }
         opened(known, key, epoch)
+        collectGarbage()
     }
 
     /** A copy of the open data key, to wrap it with the biometric key; null while locked. */
@@ -199,13 +227,14 @@ class VaultStore(
      * Saves the change even if the vault locks meanwhile (with a copy of the key), then reopens only if it did not.
      * False if the vault was already locked, so nothing was saved.
      */
-    private suspend fun modify(change: (List<VaultEntry>) -> List<VaultEntry>): Boolean = mutex.withLock {
+    private suspend fun modify(change: suspend (List<VaultEntry>) -> List<VaultEntry>): Boolean = mutex.withLock {
         val v = vault ?: return@withLock false
         val since = epoch
         val key = dek?.copyOf() ?: return@withLock false
         val current = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock false.also { key.fill(0) }
         val next = try {
-            withContext(compute) { VaultCrypto.write(v, key, change(current)) }
+            val changed = change(current)
+            withContext(compute) { VaultCrypto.write(v, key, changed) }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -217,7 +246,7 @@ class VaultStore(
     suspend fun upsert(entry: VaultEntry) = modify { list ->
         val saved = list.firstOrNull { it.id == entry.id }
         if (saved == null) {
-            list + entry.copy(passwordHistory = emptyList())
+            list + entry.copy(passwordHistory = emptyList(), attachments = emptyList())
         } else {
             // The history is the store's to keep: whatever the caller sends is replaced by the stored one plus this change.
             val history = if (saved.type == EntryType.LOGIN && entry.type == EntryType.LOGIN) {
@@ -225,7 +254,9 @@ class VaultStore(
             } else {
                 emptyList() // A type change never files a passphrase or another secret as an old password.
             }
-            list.map { if (it.id == entry.id) entry.copy(passwordHistory = history) else it }
+            // The attachments too: only [addAttachment] and [removeAttachment] change them, so an editor that does
+            // not send them never drops one (and the collection after the save never deletes its file).
+            list.map { if (it.id == entry.id) entry.copy(passwordHistory = history, attachments = saved.attachments) else it }
         }
     }
 
@@ -235,10 +266,55 @@ class VaultStore(
      */
     suspend fun addAll(entries: List<VaultEntry>) = modify { list ->
         val ids = list.mapTo(HashSet()) { it.id }
-        list + entries.filter { ids.add(it.id) }.map { it.copy(passwordHistory = emptyList()) }
+        list + entries.filter { ids.add(it.id) }.map { it.copy(passwordHistory = emptyList(), attachments = emptyList()) }
     }
 
+    /** Deletes the entry; its attachment files go with the collection after the save. */
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }
+
+    /**
+     * Encrypts [input] as a new attachment of entry [entryId] and saves the vault. Throws [AttachmentLimit] over
+     * [MAX_ATTACHMENT_BYTES], or when the vault's attachments would pass [MAX_ATTACHMENTS_TOTAL_BYTES] (the file is
+     * deleted then). False if the vault was locked or the entry no longer exists, so nothing was saved. The file is
+     * written with the mutex held, so no collection can run between writing it and saving its reference; if the
+     * save fails, the next collection deletes it.
+     */
+    suspend fun addAttachment(entryId: String, input: java.io.InputStream, name: String): Boolean {
+        var found = false
+        val saved = modify { list ->
+            val entry = list.firstOrNull { it.id == entryId } ?: return@modify list
+            found = true
+            val ref = withContext(io) { attachments.add(input, name) }
+            if (attachments.totalBytes(list.flatMap { it.attachments }) + ref.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
+                withContext(io) { attachments.delete(ref.id) }
+                throw AttachmentLimit(ATTACHMENTS_TOTAL_TOO_BIG)
+            }
+            list.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now()) else it }
+        }
+        return saved && found
+    }
+
+    /** Removes an attachment from entry [entryId]; its file goes with the collection after the save. False if locked. */
+    suspend fun removeAttachment(entryId: String, attachmentId: String): Boolean = modify { list ->
+        list.map { e ->
+            if (e.id == entryId && e.attachments.any { it.id == attachmentId }) {
+                e.copy(attachments = e.attachments.filterNot { it.id == attachmentId }, updatedAt = now())
+            } else {
+                e
+            }
+        }
+    }
+
+    /**
+     * The decrypted content of an attachment of the open vault; null if locked or it is no longer there. Throws
+     * [CryptoFailure] when the file is damaged or was changed. The caller wipes the result when done.
+     */
+    suspend fun openAttachment(entryId: String, attachmentId: String): ByteArray? {
+        val entries = (_state.value as? VaultState.Unlocked)?.entries ?: return null
+        val ref = entries.firstOrNull { it.id == entryId }?.attachments?.firstOrNull { it.id == attachmentId } ?: return null
+        touch()
+        return withContext(io) { attachments.open(ref) }
+    }
 
     /**
      * New master password and a new data key; false if the vault was locked, so nothing changed. Once the new file
@@ -290,6 +366,12 @@ class VaultStore(
     suspend fun destroy() = mutex.withLock {
         lock()
         withContext(io) { file.delete() }
+        // Their keys were in the vault: the files are useless now.
+        try {
+            withContext(io) { attachments.collectGarbage(emptySet()) }
+        } catch (e: Exception) {
+            // Never affects the vault.
+        }
         vault = null
         _state.value = VaultState.NoVault
     }

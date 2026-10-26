@@ -164,6 +164,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                 Field("Clave secreta 2FA", it.secret, secret = true, mono = true)
                 OutlinedButton(onClick = onShowQr) { Text("Mostrar QR para otra app") }
             }
+            AttachmentsSection(store, entry.id, entry.attachments)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onEdit) { Text("Editar") }
                 TextButton(onClick = { confirm = true }) { Text("Borrar", color = NegativeColor) }
@@ -345,6 +346,12 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Switch(checked = favorite, onCheckedChange = { favorite = it })
                     Text("Favorito")
+                }
+                if (existing == null) {
+                    Text("Guarda la entrada para poder añadirle adjuntos.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    // The live list: adding or removing saves at once, apart from the rest of the form.
+                    AttachmentsSection(store, existing.id, unlocked.entries.firstOrNull { it.id == existing.id }?.attachments.orEmpty())
                 }
                 error?.let { Text(it, color = NegativeColor) }
                 info?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
