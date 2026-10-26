@@ -212,6 +212,21 @@ class IdentityTest {
         failsWith<IllegalStateException> { id3.sign("a", ByteArray(0)) }
     }
 
+    /** Quien recibe una clave pública no puede cambiar la que usan la tarjeta y la huella. */
+    @Test fun clavesPublicasSonCopias() {
+        val id = Identity(fixedSeed())
+        val ed = id.edPublic
+        val kem = id.kemPublic
+        assertFalse(ed === id.edPublic)
+        assertFalse(kem === id.kemPublic)
+        val fp = fingerprint(ed, kem)
+        ed.fill(0)
+        kem.fill(0)
+        assertEquals(PINNED_IDENTITY_SHA256, sha256Hex(id.edPublic, id.kemPublic))
+        assertEquals(fp, fingerprint(id.edPublic, id.kemPublic))
+        assertTrue(verify(id.edPublic, "a", "b".toByteArray(), id.sign("a", "b".toByteArray())))
+    }
+
     @Test fun semillaNueva() {
         val a = newIdentitySeed()
         val b = newIdentitySeed()
@@ -256,6 +271,27 @@ class IdentityTest {
         assertFalse(verify(ByteArray(0), "a", "b".toByteArray(), sig))
         assertFalse(verify(ByteArray(32) { 0xFF.toByte() }, "a", "b".toByteArray(), sig)) // no es un punto de la curva
         assertFalse(verify(ByteArray(32), "a", "b".toByteArray(), sig))
+    }
+
+    /**
+     * Con una clave de orden pequeño y R = neutro, S = 0, la ecuación de verificación `[S]B = R + [k]A` se cumple para
+     * cualquier mensaje (siempre con el neutro; con las de orden 2 o 4, cuando `k` es múltiplo del orden: una de cada
+     * 2 o 4 veces). Una biblioteca que aceptara esas claves dejaría a cualquiera firmar «en nombre» de quien tenga una
+     * tarjeta con una de ellas. Se prueban 64 mensajes: aceptada la clave, fallaría casi seguro.
+     */
+    @Test fun claveDeOrdenPequenoRechazada() {
+        val neutral = ByteArray(32).also { it[0] = 1 } // (0, 1): el elemento neutro, orden 1
+        val order2 = ByteArray(32) { 0xFF.toByte() }.also { it[0] = 0xEC.toByte(); it[31] = 0x7F } // (0, -1): orden 2
+        val order4 = ByteArray(32) // y = 0: orden 4
+        val forged = neutral + ByteArray(32) // R = neutro (codificado como 01 00…00), S = 0
+        assertEquals(SIG_BYTES, forged.size)
+        for ((name, pk) in listOf("orden 1" to neutral, "orden 2" to order2, "orden 4" to order4)) {
+            for (i in 0 until 64) {
+                assertFalse("$name, mensaje $i", verify(pk, "x", byteArrayOf(i.toByte()), forged))
+            }
+            val e = failsWith<CryptoFailure>(name) { fileVerifier(pk, "x") }
+            assertEquals("La clave pública no es válida", e.message)
+        }
     }
 
     /** En Ed25519 puro se firma `etiqueta ‖ 0x00 ‖ datos`, comprobado con la biblioteca sin pasar por `Identity.sign`. */
