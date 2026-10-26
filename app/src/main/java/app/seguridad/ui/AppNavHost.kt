@@ -33,8 +33,10 @@ import app.seguridad.AppContainer
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
 import app.seguridad.ui.screens.FileCryptoScreen
+import app.seguridad.ui.screens.OtpQrScreen
 import app.seguridad.ui.screens.FileHashScreen
 import app.seguridad.ui.screens.GeneratorScreen
+import app.seguridad.ui.screens.HealthScreen
 import app.seguridad.ui.screens.LicensesScreen
 import app.seguridad.ui.screens.NoticeScreen
 import app.seguridad.ui.screens.SettingsScreen
@@ -89,6 +91,7 @@ fun AppNavHost(container: AppContainer) {
     val currentTab = onTab ?: lastTab
     val back: () -> Unit = { nav.popBackStack() }
     val onOpen: (String) -> Unit = { id -> nav.navigate("vault/entry/$id") }
+    val onHealth: () -> Unit = { nav.navigate("vault/health") }
     val onNew: (EntryType) -> Unit = { type -> nav.navigate("vault/edit?type=${type.name}") }
 
     Scaffold(
@@ -112,11 +115,14 @@ fun AppNavHost(container: AppContainer) {
         },
     ) { padding ->
         NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
-            composable("vault") { VaultScreen(vault, totpOnly = false, onOpen = onOpen, onNew = onNew) }
-            composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew) }
+            composable("vault") { VaultScreen(vault, totpOnly = false, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
+            composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
             composable("vault/entry/{id}") { entry ->
                 val id = entry.arguments?.getString("id").orEmpty()
-                VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=$id") }, onBack = back)
+                VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=$id") }, onShowQr = { nav.navigate("vault/entry/$id/qr") }, onBack = back)
+            }
+            composable("vault/entry/{id}/qr") { entry ->
+                OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
             }
             composable(
                 "vault/edit?id={id}&type={type}",
@@ -131,6 +137,9 @@ fun AppNavHost(container: AppContainer) {
                     initialType = EntryType.entries.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
                     onDone = back,
                 )
+            }
+            composable("vault/health") {
+                HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=$id") }, onBack = back)
             }
             composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
             composable("tools/text") { TextCryptoScreen(settings.kdf.params, onBack = back) }

@@ -215,7 +215,27 @@ class VaultStore(
     }
 
     suspend fun upsert(entry: VaultEntry) = modify { list ->
-        if (list.any { it.id == entry.id }) list.map { if (it.id == entry.id) entry else it } else list + entry
+        val saved = list.firstOrNull { it.id == entry.id }
+        if (saved == null) {
+            list + entry.copy(passwordHistory = emptyList())
+        } else {
+            // The history is the store's to keep: whatever the caller sends is replaced by the stored one plus this change.
+            val history = if (saved.type == EntryType.LOGIN && entry.type == EntryType.LOGIN) {
+                saved.withNewPassword(entry.password, now()).passwordHistory
+            } else {
+                emptyList() // A type change never files a passphrase or another secret as an old password.
+            }
+            list.map { if (it.id == entry.id) entry.copy(passwordHistory = history) else it }
+        }
+    }
+
+    /**
+     * Adds new entries with a single write, all or none (a Google Authenticator batch). An id already in the vault is
+     * left as it is, and new entries start without password history, as with [upsert].
+     */
+    suspend fun addAll(entries: List<VaultEntry>) = modify { list ->
+        val ids = list.mapTo(HashSet()) { it.id }
+        list + entries.filter { ids.add(it.id) }.map { it.copy(passwordHistory = emptyList()) }
     }
 
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }

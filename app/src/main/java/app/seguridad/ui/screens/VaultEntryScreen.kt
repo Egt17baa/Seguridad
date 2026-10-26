@@ -15,6 +15,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,7 +37,9 @@ import app.seguridad.android.copySensitive
 import app.seguridad.crypto.PasswordOptions
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.generatePassword
+import app.seguridad.crypto.MigrationResult
 import app.seguridad.crypto.parseOtpAuth
+import app.seguridad.crypto.parseOtpMigration
 import app.seguridad.crypto.totpCode
 import app.seguridad.crypto.totpKey
 import app.seguridad.ui.theme.BackScaffold
@@ -45,13 +48,16 @@ import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.PasswordChange
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.initialPassword
+import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.passwordToSave
 import app.seguridad.vault.seedWordCount
+import app.seguridad.vault.totpImportEntries
 import com.journeyapps.barcodescanner.ScanContract
 import app.seguridad.android.scanQrOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -85,8 +91,25 @@ private fun Field(label: String, value: String, secret: Boolean = false, mono: B
     }
 }
 
+private val historyDate: java.time.format.DateTimeFormatter =
+    java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.MEDIUM).withLocale(java.util.Locale.forLanguageTag("es-ES"))
+
+/** Old passwords, folded away by default; each one is hidden until shown and copies as sensitive, like the current one. */
 @Composable
-fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, onBack: () -> Unit) {
+private fun PasswordHistorySection(history: List<PasswordChange>) {
+    if (history.isEmpty()) return
+    var open by remember { mutableStateOf(false) }
+    TextButton(onClick = { open = !open }) { Text("${if (open) "▾" else "▸"} Contraseñas anteriores (${history.size})") }
+    if (open) {
+        history.forEach { h ->
+            val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
+            Field("Cambiada el $date", h.password, secret = true)
+        }
+    }
+}
+
+@Composable
+fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, onShowQr: () -> Unit, onBack: () -> Unit) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     val entry = (state as? VaultState.Unlocked)?.entries?.firstOrNull { it.id == id }
@@ -116,9 +139,17 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                     Field("Código", code, mono = true)
                 }
             }
+            if (entry.favorite || entry.tags.isNotEmpty()) {
+                Text(
+                    (listOf("★ Favorito").filter { entry.favorite } + entry.tags.map { "#$it" }).joinToString("  "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Field("Usuario", entry.username)
             Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true)
             Field("Web", entry.url)
+            PasswordHistorySection(entry.passwordHistory)
             if (entry.seedWords.isNotBlank()) {
                 val (n, valid) = seedWordCount(entry.seedWords)
                 Field("Frase semilla ($n palabras${if (valid) "" else ", número poco habitual"})", entry.seedWords, secret = true)
@@ -129,7 +160,10 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                 )
             }
             Field("Notas", entry.notes, secret = entry.type == EntryType.NOTE)
-            entry.totp?.let { Field("Clave secreta 2FA", it.secret, secret = true, mono = true) }
+            entry.totp?.let {
+                Field("Clave secreta 2FA", it.secret, secret = true, mono = true)
+                OutlinedButton(onClick = onShowQr) { Text("Mostrar QR para otra app") }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onEdit) { Text("Editar") }
                 TextButton(onClick = { confirm = true }) { Text("Borrar", color = NegativeColor) }
@@ -179,14 +213,34 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
     var notes by remember { mutableStateOf(existing?.notes.orEmpty()) }
     var seed by remember { mutableStateOf(existing?.seedWords.orEmpty()) }
     var totp by remember { mutableStateOf(existing?.totp ?: TotpSecret("")) }
+    var favorite by remember { mutableStateOf(existing?.favorite ?: false) }
+    var tagsText by remember { mutableStateOf(existing?.tags.orEmpty().joinToString(", ")) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     // One id for a new entry, however many times Guardar is tapped.
     val newId = remember { UUID.randomUUID().toString() }
     // Typing counts as use too, so a long note is not lost to the idle lock.
-    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp) { store.touch() }
+    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp, tagsText) { store.touch() }
+
+    // A Google Authenticator export waiting for the user's confirmation, with the entries it would add.
+    var migration by remember { mutableStateOf<Pair<MigrationResult, List<VaultEntry>>?>(null) }
+    var migrationLeftOut by remember { mutableStateOf(emptyList<String>()) }
+    var info by remember { mutableStateOf<String?>(null) }
 
     fun applyOtpAuth(text: String) {
+        info = null
+        if (text.trimStart().startsWith("otpauth-migration://", ignoreCase = true)) {
+            val result = parseOtpMigration(text)
+            if (result == null) {
+                error = "El QR de Google Authenticator no es válido o está dañado"
+            } else {
+                val (entries, dupes) = totpImportEntries(result.imported, unlocked.entries, System.currentTimeMillis()) { UUID.randomUUID().toString() }
+                migration = result to entries
+                migrationLeftOut = result.skipped + dupes
+                error = null
+            }
+            return
+        }
         val parsed = parseOtpAuth(text)
         if (parsed == null) {
             error = "El QR o enlace no es un código 2FA (otpauth://totp/…)"
@@ -280,7 +334,20 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    tagsText,
+                    { tagsText = it },
+                    label = { Text("Etiquetas (separadas por comas)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Switch(checked = favorite, onCheckedChange = { favorite = it })
+                    Text("Favorito")
+                }
                 error?.let { Text(it, color = NegativeColor) }
+                info?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                 Button(
                     onClick = {
                         if (saving) return@Button // A second tap before the button redraws as disabled.
@@ -304,6 +371,8 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             totp = if (type == EntryType.TOTP) totp.copy(secret = totp.secret.uppercase().filter { it.isLetterOrDigit() }) else null,
                             createdAt = existing?.createdAt ?: now,
                             updatedAt = now,
+                            favorite = favorite,
+                            tags = normalizeTags(tagsText),
                         )
                         saving = true
                         scope.launch {
@@ -321,5 +390,62 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                 ) { Text("Guardar") }
             }
         }
+    }
+    migration?.let { (result, entries) ->
+        val batch = result.batchIndex + 1
+        val more = result.batchSize > 1 && batch < result.batchSize
+        val batchNote = when {
+            result.batchSize <= 1 -> null
+            more -> "Lote $batch de ${result.batchSize}: escanea el siguiente"
+            else -> "Lote $batch de ${result.batchSize}: es el último"
+        }
+        AlertDialog(
+            onDismissRequest = { if (!saving) migration = null },
+            title = { Text("Importar de Google Authenticator") },
+            text = {
+                FilterObscuredTouches()
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        when (entries.size) {
+                            0 -> "No hay códigos nuevos que importar."
+                            1 -> "Se añadirá 1 código nuevo a la bóveda: ${entries.single().title}."
+                            else -> "Se añadirán ${entries.size} códigos nuevos a la bóveda: ${entries.joinToString(", ") { it.title }}."
+                        },
+                    )
+                    if (migrationLeftOut.isNotEmpty()) {
+                        Text("No se importan (${migrationLeftOut.size}):", style = MaterialTheme.typography.labelLarge)
+                        migrationLeftOut.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                    }
+                    batchNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !saving, onClick = {
+                    if (entries.isEmpty()) {
+                        migration = null
+                        if (more) info = "Lote $batch de ${result.batchSize}: escanea el siguiente"
+                        return@TextButton
+                    }
+                    saving = true
+                    scope.launch {
+                        try {
+                            if (!store.addAll(entries)) {
+                                error = "La bóveda se bloqueó: no se ha importado nada"
+                            } else if (more) {
+                                info = "Lote $batch de ${result.batchSize} importado (${entries.size}). Lote ${batch + 1} de ${result.batchSize}: escanea el siguiente"
+                            } else {
+                                onDone()
+                            }
+                        } catch (x: Exception) {
+                            error = "No se pudo importar"
+                        } finally {
+                            migration = null
+                            saving = false
+                        }
+                    }
+                }) { Text(if (entries.isEmpty()) "Aceptar" else "Importar ${entries.size}") }
+            },
+            dismissButton = { if (entries.isNotEmpty()) TextButton(enabled = !saving, onClick = { migration = null }) { Text("Cancelar") } },
+        )
     }
 }
