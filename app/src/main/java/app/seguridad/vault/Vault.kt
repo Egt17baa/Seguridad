@@ -139,7 +139,13 @@ data class VaultFile(
         const val FORMAT = "seguridad-vault"
         /** The older format this app imports: read only, and rewritten as [FORMAT] on import or unlock. */
         const val LEGACY_FORMAT = "criptopanel-vault"
-        /** The version this app writes. Version 1.1 only reads [VERSION_2], so it refuses (and never rewrites) a 3. */
+        /**
+         * The version this app writes. Version 1.1 only reads [VERSION_2], so it never rewrites a 3 and loses nothing:
+         * with the master password it says "No es una bóveda compatible"; opened with the fingerprint, a 3 without an
+         * identity shows its entries but every save fails and the file does not change, and a 3 with an identity gives
+         * "Contraseña incorrecta o datos dañados". It only happens if 1.1 is installed over 1.2, which Android does not
+         * allow for a published app without uninstalling it first.
+         */
         const val VERSION = 3
 
         /** What 1.1 wrote and 1.2 still reads: no identity or contacts, and it stays 2 until the master password is typed. */
@@ -285,6 +291,16 @@ object VaultCrypto {
             return appJson.decodeFromString<List<VaultEntry>>(json.toString(Charsets.UTF_8))
         } catch (e: kotlinx.serialization.SerializationException) {
             throw CryptoFailure()
+        } finally {
+            json.fill(0)
+        }
+    }
+
+    /** The entries' JSON exactly as stored (decrypted, not decoded): for tests that check what was really written. */
+    internal fun readJson(file: VaultFile, dek: ByteArray): String {
+        val json = openAny(dek, file.data, file) { dataAad(file, it) }.first
+        try {
+            return json.toString(Charsets.UTF_8)
         } finally {
             json.fill(0)
         }
