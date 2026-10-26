@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -32,11 +33,16 @@ import androidx.navigation.navArgument
 import app.seguridad.AppContainer
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
+import app.seguridad.ui.screens.ComingSoonScreen
+import app.seguridad.ui.screens.ContactAddScreen
+import app.seguridad.ui.screens.ContactDetailScreen
+import app.seguridad.ui.screens.ContactsScreen
 import app.seguridad.ui.screens.FileCryptoScreen
 import app.seguridad.ui.screens.OtpQrScreen
 import app.seguridad.ui.screens.FileHashScreen
 import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
+import app.seguridad.ui.screens.IdentityScreen
 import app.seguridad.ui.screens.LicensesScreen
 import app.seguridad.ui.screens.NoticeScreen
 import app.seguridad.ui.screens.SettingsScreen
@@ -55,6 +61,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 private val tabs = listOf(
     Tab("vault", "Bóveda", Icons.Default.Lock),
     Tab("codes", "Códigos", Icons.Default.Refresh),
+    Tab("contacts", "Contactos", Icons.Default.Person),
     Tab("tools", "Herramientas", Icons.Default.Build),
     Tab("settings", "Ajustes", Icons.Default.Settings),
 )
@@ -141,6 +148,26 @@ fun AppNavHost(container: AppContainer) {
             }
             composable("vault/health") {
                 HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=$id") }, onBack = back)
+            }
+            // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
+            // The fixed routes (me, add, encrypt, sign, open) are not ids: Navigation picks a route with no argument over contacts/{id}.
+            composable("contacts") {
+                ContactsScreen(
+                    vault,
+                    onIdentity = { nav.navigate("contacts/me") },
+                    onAdd = { nav.navigate("contacts/add") },
+                    onContact = { id -> nav.navigate("contacts/$id") },
+                    onAction = { route -> nav.navigate(route) },
+                )
+            }
+            composable("contacts/me") { IdentityScreen(vault, onBack = back) }
+            composable("contacts/add") { ContactAddScreen(vault, onBack = back) }
+            // Task 10 replaces these three with the real screens.
+            composable("contacts/encrypt") { ComingSoonScreen(vault, "Cifrar para…", onBack = back) }
+            composable("contacts/sign") { ComingSoonScreen(vault, "Firmar", onBack = back) }
+            composable("contacts/open") { ComingSoonScreen(vault, "Abrir lo recibido", onBack = back) }
+            composable("contacts/{id}") { entry ->
+                ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
             }
             composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
             composable("tools/text") { TextCryptoScreen(settings.kdf.params, onBack = back) }

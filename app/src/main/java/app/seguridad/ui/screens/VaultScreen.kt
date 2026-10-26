@@ -184,13 +184,25 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
             }
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize().touchesVault(store)) {
-            when (val s = state) {
-                VaultState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                VaultState.NoVault -> CreateVault(store, onImport = actions.import)
-                VaultState.Locked -> UnlockVault(store)
-                is VaultState.Unlocked -> EntryList(s.entries, totpOnly, onOpen)
-            }
+        VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) { entries -> EntryList(entries, totpOnly, onOpen) }
+    }
+}
+
+/**
+ * What every screen that needs the open vault shows until it is: a spinner while loading, «Crea tu bóveda» with no vault
+ * and «Bóveda bloqueada» when locked. Only with the vault open does it draw [content], with the entries; when the vault
+ * locks, [content] leaves the composition at once, so no data stays on screen. Any touch counts as use for the idle lock.
+ * [onImport] is the «Importar una copia exportada» button of the creation screen (see [vaultActions]).
+ */
+@Composable
+fun VaultGate(store: VaultStore, onImport: () -> Unit, modifier: Modifier = Modifier, content: @Composable (List<VaultEntry>) -> Unit) {
+    val state by store.state.collectAsStateWithLifecycle()
+    Box(modifier.fillMaxSize().touchesVault(store)) {
+        when (val s = state) {
+            VaultState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            VaultState.NoVault -> CreateVault(store, onImport = onImport)
+            VaultState.Locked -> UnlockVault(store)
+            is VaultState.Unlocked -> content(s.entries)
         }
     }
 }

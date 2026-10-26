@@ -490,6 +490,25 @@ class CardTest {
         }
     }
 
+    /** Los bytes que guarda un contacto (`newContactEntry` los vuelve a leer): los de la tarjeta, en las dos formas de texto. */
+    @Test fun losBytesDeUnaTarjetaLeidaDeTextoSonLosCanonicos() {
+        val id = fixedIdentity()
+        for (name in listOf("", "Ana", "Aná", "a".repeat(64), "😀")) {
+            val bytes = id.cardBytes(name)
+            assertArrayEquals("«$name» Base64url", bytes, cardBytesFromAnyText(cardText(bytes)))
+            assertArrayEquals("«$name» Base45", bytes, cardBytesFromAnyText(cardQr(bytes)))
+            assertArrayEquals("«$name» con espacios", bytes, cardBytesFromAnyText("  \n" + cardText(bytes).chunked(60).joinToString("\n") + " \n"))
+        }
+    }
+
+    @Test fun losBytesDeUnTextoQueNoEsTarjetaSeRechazanComoLaTarjeta() {
+        val bytes = fixedIdentity().cardBytes("Ana")
+        rejects("sin prefijo") { cardBytesFromAnyText(cardText(bytes).removePrefix("SGK1:")) }
+        rejects("un byte cambiado") { cardBytesFromAnyText(cardText(bytes.copyOf().also { it[100] = (it[100] + 1).toByte() })) }
+        rejects("vacío") { cardBytesFromAnyText("") }
+        rejects("demasiado grande") { cardBytesFromAnyText("SGK1:" + "A".repeat(MAX_CARD_BYTES)) }
+    }
+
     /** Muchas identidades, para tocar los dos finales posibles de Base64url (1 o 2 caracteres) y de Base45 (2 o 3). */
     @Test fun lasDosFormasConMuchasIdentidades() {
         val random = java.util.Random(1216)
