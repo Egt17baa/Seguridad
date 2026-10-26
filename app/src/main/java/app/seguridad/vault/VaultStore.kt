@@ -303,8 +303,9 @@ class VaultStore(
 
     /**
      * Encrypts [input] as a new attachment of entry [entryId] and saves the vault. Throws [AttachmentLimit] over
-     * [MAX_ATTACHMENT_BYTES], or when the vault's attachments would pass [MAX_ATTACHMENTS_TOTAL_BYTES] (the file is
-     * deleted then). False if the vault was locked or the entry no longer exists, so nothing was saved.
+     * [MAX_ATTACHMENT_BYTES], or when the vault's attachments would pass [MAX_ATTACHMENTS_TOTAL_BYTES] (checked
+     * before encrypting or writing anything, with the mutex held, so no other attachment can be added meanwhile).
+     * False if the vault was locked or the entry no longer exists, so nothing was saved.
      * [input] (maybe a slow or stuck document provider) is read before taking the mutex, so it can never block
      * unlocking or saving. Only encrypting, writing the file and saving the vault run with the mutex held, so no
      * collection can run between writing the file and saving its reference; if the save fails, the next collection
@@ -315,11 +316,10 @@ class VaultStore(
         try {
             return modify { list ->
                 val entry = list.firstOrNull { it.id == entryId } ?: return@modify null
-                val ref = withContext(io) { attachments.add(plain, name) }
-                if (attachments.totalBytes(list.flatMap { it.attachments }) + ref.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
-                    withContext(io) { attachments.delete(ref.id) }
+                if (attachments.totalBytes(list.flatMap { it.attachments }) + plain.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
                     throw AttachmentLimit(ATTACHMENTS_TOTAL_TOO_BIG)
                 }
+                val ref = withContext(io) { attachments.add(plain, name) }
                 list.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now()) else it }
             }
         } finally {
