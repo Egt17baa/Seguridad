@@ -396,7 +396,7 @@ Revisión jurídica del 26 de octubre de 2026. OkHttp 5 mete en el APK `assets/P
 | `checkLicense` mira la licencia de cada biblioteca, no la de los datos que trae. | Tarea `checkAssets` (en `check` y en la CI): todo lo que va en `assets/` del APK release tiene que venir de `app/src/main/assets`. Un asset nuevo de una biblioteca hace fallar la compilación hasta revisar su licencia. |
 | El APK de la release `v1.1.1` ya publicado sigue llevándola. | Nota en esa release (la pone el propietario): «Incluye la Public Suffix List (Mozilla Foundation, MPL-2.0) a través de OkHttp. Fuente: https://github.com/publicsuffix/list». |
 
-El analizador de enlaces previsto necesita esa lista. Jurídicamente puede usarse con su aviso (el copyleft no pasa al código de la app), pero eso exige una excepción a la regla del proyecto para archivos de datos MPL-2.0 sin modificar: se decide al diseñar esa versión.
+Sin el archivo, `HttpUrl.topPrivateDomain()` y leer cookies lanzan `IllegalStateException` en el móvil, aunque los tests JVM pasen (allí `okhttp-jvm` sí lo trae): no se llaman sin volver a meter la lista. `checkAssets` solo mira `assets/`, no los recursos Java de los `.jar`. El analizador de enlaces previsto necesita esa lista. Jurídicamente puede usarse con su aviso (el copyleft no pasa al código de la app), pero eso exige una excepción a la regla del proyecto para archivos de datos MPL-2.0 sin modificar: se decide al diseñar esa versión.
 
 ## Comprobación manual en el móvil (no se puede hacer aquí)
 
