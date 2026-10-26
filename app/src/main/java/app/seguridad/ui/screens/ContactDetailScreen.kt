@@ -91,11 +91,11 @@ private fun ContactDetail(store: VaultStore, entry: VaultEntry, snackbar: Snackb
         }
     }
 
-    /** Saves [updated] in place of the contact and says why not if it did not work. */
-    fun save(updated: VaultEntry) {
+    /** Saves the contact [change] makes (inside `attempt`, so a broken precondition is a message, not a crash). */
+    fun save(change: () -> VaultEntry) {
         busy = true
         scope.launch {
-            saveFailureMessage(attempt { store.upsert(updated) })?.let { snackbar.showSnackbar(it) }
+            saveFailureMessage(attempt { store.upsert(change()) })?.let { snackbar.showSnackbar(it) }
             busy = false
         }
     }
@@ -139,7 +139,7 @@ private fun ContactDetail(store: VaultStore, entry: VaultEntry, snackbar: Snackb
             confirmButton = {
                 TextButton(onClick = {
                     dialog = NONE
-                    save(markVerified(entry, System.currentTimeMillis()))
+                    save { markVerified(entry, System.currentTimeMillis()) }
                 }) { Text("Sí, coincide") }
             },
             dismissButton = { TextButton(onClick = { dialog = NONE }) { Text("Cancelar") } },
@@ -149,7 +149,7 @@ private fun ContactDetail(store: VaultStore, entry: VaultEntry, snackbar: Snackb
             onDismiss = { dialog = NONE },
             onConfirm = { name ->
                 dialog = NONE
-                save(renamedContact(entry, name, System.currentTimeMillis()))
+                save { renamedContact(entry, name, System.currentTimeMillis()) }
             },
         )
         DELETE -> AlertDialog(
