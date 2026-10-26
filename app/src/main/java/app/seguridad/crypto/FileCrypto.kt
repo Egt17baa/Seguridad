@@ -13,7 +13,8 @@ const val CHUNK_BYTES = 64 * 1024
 const val ENCRYPTED_EXTENSION = ".sgenc"
 /** Extension of the legacy dialect's files (.cpenc), still read. */
 const val LEGACY_ENCRYPTED_EXTENSION = ".cpenc"
-private const val MAX_NAME_BYTES = 1024
+/** The most the sealed file name may measure, in UTF-8 bytes ([safeFileName] keeps it far below: 120 characters). Shared with the public-key files (`pk/FileMessage.kt`). */
+internal const val MAX_FILE_NAME_BYTES = 1024
 
 /** STREAM nonce: prefix (7) ‖ counter (4, big-endian) ‖ last-record flag (1). */
 internal fun streamNonce(prefix: ByteArray, counter: Int, last: Boolean): ByteArray =
@@ -59,7 +60,7 @@ fun encryptStream(
     val key = keyForHeader(secret, header)
     try {
         output.write(aad)
-        val nameBytes = safeFileName(name).toByteArray(Charsets.UTF_8).let { if (it.size > MAX_NAME_BYTES) it.copyOf(MAX_NAME_BYTES) else it }
+        val nameBytes = safeFileName(name).toByteArray(Charsets.UTF_8).let { if (it.size > MAX_FILE_NAME_BYTES) it.copyOf(MAX_FILE_NAME_BYTES) else it }
         val sealedName = aead(alg, true, key, streamNonce(header.nonce, 0, false), aad, nameBytes, header.dialect)
         output.write(ByteBuffer.allocate(2).putShort(sealedName.size.toShort()).array())
         output.write(sealedName)
@@ -101,7 +102,7 @@ fun decryptStream(input: InputStream, output: OutputStream, secret: Secret): Str
         if (pin.readFully(lenBytes) != 2) throw CryptoFailure()
         val nameLen = ByteBuffer.wrap(lenBytes).short.toInt() and 0xFFFF
         val overhead = header.alg.overhead
-        if (nameLen < overhead || nameLen > MAX_NAME_BYTES + overhead) throw CryptoFailure()
+        if (nameLen < overhead || nameLen > MAX_FILE_NAME_BYTES + overhead) throw CryptoFailure()
         val sealedName = ByteArray(nameLen)
         if (pin.readFully(sealedName) != nameLen) throw CryptoFailure()
         val name = aead(header.alg, false, key, streamNonce(header.nonce, 0, false), aad, sealedName, header.dialect).toString(Charsets.UTF_8)

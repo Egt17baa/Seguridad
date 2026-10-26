@@ -56,8 +56,12 @@ private const val MAX_RAW_BYTES = HEADER_BYTES + 1 + SIGNED_PART_BYTES + MAX_MES
 /** Lo máximo que mide el cuerpo en Base64url (los caracteres de [MAX_RAW_BYTES] bytes). */
 private const val MAX_BODY_CHARS = (MAX_RAW_BYTES + 2) / 3 * 4
 
-/** Cuántas uniones de trozos se prueban al abrir un texto pegado (la unión de todos y, quitando el último, las demás). */
-private const val MAX_JOINS = 8
+/**
+ * Cuántas uniones de trozos se abren de verdad al leer un texto pegado (un descifrado HPKE o una lectura de tarjeta, que
+ * es lo que cuesta): la unión de todos los trozos y, quitando el último, las demás. Las uniones que se descartan antes
+ * (Base64url no canónico o tamaño imposible) no cuentan.
+ */
+internal const val MAX_OPEN_ATTEMPTS = 8
 
 private const val NOT_A_MESSAGE = "El texto debe empezar por $MESSAGE_PREFIX"
 private const val TOO_BIG = "El mensaje cifrado es demasiado grande"
@@ -140,12 +144,14 @@ internal fun encryptMessage(text: String, recipient: Card, sender: Identity?, ik
 
 /**
  * Abre un mensaje de [encryptMessage] para la identidad [me]. [token] puede ser lo que se pegó de un chat: tras el
- * primer [MESSAGE_PREFIX] se leen los trozos de Base64url separados por espacios o saltos de línea (los chats parten
- * las líneas largas y a veces meten espacios), hasta el primer trozo con un carácter que no es de Base64url (de él se
- * toma el principio válido). Como detrás puede venir texto que también parece Base64url («Gracias»), se prueba la unión
- * de todos los trozos y, si no se abre, quitando de uno en uno los últimos: como mucho [MAX_JOINS] intentos, y solo con
- * uniones que decodifican en su forma canónica y miden lo que puede medir un mensaje. Lo que abre HPKE es el mensaje:
- * una unión equivocada no pasa la etiqueta de autenticación.
+ * **último** [MESSAGE_PREFIX] (la misma regla que `detectReceived`) se leen los trozos de Base64url separados por
+ * espacios o saltos de línea (los chats parten las líneas largas y a veces meten espacios), hasta el primer trozo con un
+ * carácter que no es de Base64url (de él se toma el principio válido). Como detrás puede venir texto que también parece
+ * Base64url («Gracias»), se prueba la unión de todos los trozos y, si no se abre, quitando de uno en uno los últimos.
+ * Solo se consideran las uniones que decodifican en su forma canónica y miden lo que puede medir un mensaje, y de ellas
+ * se abren como mucho [MAX_OPEN_ATTEMPTS] con HPKE: las descartadas antes no gastan intento, así que una frase larga sin
+ * acentos ni puntuación detrás no impide abrir el mensaje. Lo que abre HPKE es el mensaje: una unión equivocada no pasa
+ * la etiqueta de autenticación.
  *
  * Lanza [CryptoFailure] y nunca devuelve un texto sin comprobar:
  * - [NOT_FOR_ME] si ninguna unión se abre, sea por ser de otra persona, por estar manipulado (cualquier byte, incluida
@@ -163,7 +169,7 @@ internal fun encryptMessage(text: String, recipient: Card, sender: Identity?, ik
  */
 fun decryptMessage(token: String, me: Identity): OpenedMessage {
     if (token.length > MAX_TEXT_FILE_BYTES) throw CryptoFailure(TOO_BIG)
-    val start = token.indexOf(MESSAGE_PREFIX)
+    val start = token.lastIndexOf(MESSAGE_PREFIX)
     if (start < 0) throw CryptoFailure(NOT_A_MESSAGE)
     val runs = base64UrlRuns(token, start + MESSAGE_PREFIX.length, MAX_BODY_CHARS)
     val keyPair = me.kemKeyPair() // una identidad cerrada es un error de programa, no de datos
@@ -173,30 +179,30 @@ fun decryptMessage(token: String, me: Identity): OpenedMessage {
     var opened: ByteArray? = null
     var header = ByteArray(0)
     var attempts = 0
-    var count = runs.size
-    while (count > 0 && attempts < MAX_JOINS && opened == null) {
-        attempts++
-        val candidate = runs.subList(0, count--).joinToString("")
-        if (candidate.length > MAX_BODY_CHARS) continue
+    for (count in plausibleJoins(runs, MIN_RAW_BYTES, MAX_RAW_BYTES)) {
         val raw = try {
-            base64UrlDecode(candidate)
+            base64UrlDecode(runs.subList(0, count).joinToString(""))
         } catch (e: CryptoFailure) {
             continue
         }
-        if (raw.size < MIN_RAW_BYTES || raw.size > MAX_RAW_BYTES) continue
         try {
             parsePkHeader(raw, PkKind.TEXT_MESSAGE)
         } catch (e: CryptoFailure) {
-            if (headerFailure == null) headerFailure = e
-            continue
+            // Todas las uniones empiezan igual (cada una es el principio de la más larga) y la cabecera cabe en sus
+            // primeros caracteres: si esta no es de un mensaje de texto, ninguna lo es.
+            headerFailure = e
+            break
         }
+        attempts++
         val h = raw.copyOf(HEADER_BYTES)
         try {
             opened = hpkeSuite().setupBaseR(raw.copyOfRange(5, HEADER_BYTES), keyPair, info).open(h, raw.copyOfRange(HEADER_BYTES, raw.size))
             header = h
+            break
         } catch (e: Exception) {
             // InvalidCipherTextException (la etiqueta no cuadra) y cualquier otra de Bouncy Castle: es lo mismo para quien lee.
         }
+        if (attempts >= MAX_OPEN_ATTEMPTS) break
     }
     val inner = opened ?: throw (headerFailure ?: CryptoFailure(NOT_FOR_ME))
     var message: ByteArray? = null
@@ -234,7 +240,7 @@ fun decryptMessage(token: String, me: Identity): OpenedMessage {
 /**
  * Los trozos de Base64url de [text] desde [from], separados por espacios o saltos de línea: se para en el primero con un
  * carácter que no es de Base64url (del que se guarda su principio válido) o al pasar de [limit] caracteres en total.
- * Lo usan también las firmas de texto y «Abrir lo recibido» (`Signatures.kt`, `Received.kt`).
+ * Lo usa también «Abrir lo recibido» para leer una tarjeta (`Received.kt`).
  */
 internal fun base64UrlRuns(text: String, from: Int, limit: Int): List<String> {
     val runs = ArrayList<String>()
@@ -251,6 +257,44 @@ internal fun base64UrlRuns(text: String, from: Int, limit: Int): List<String> {
         if (i < text.length && !text[i].isWhitespace()) break // un carácter que no es de Base64url: aquí acaba
     }
     return runs
+}
+
+/**
+ * Los números de trozos de [runs] cuya unión (los primeros `count` trozos) puede ser un dato en Base64url canónico de
+ * entre [minBytes] y [maxBytes] bytes, de la unión más larga a la más corta. No construye ninguna unión: lo decide con
+ * las longitudes acumuladas y con el último carácter (con un resto de 2 caracteres los 4 bits sobrantes tienen que ser
+ * cero, y con 3 los 2), que es lo mismo que comprueba [base64UrlDecode]. Cuesta lo que miden los trozos, y no lo que
+ * mide cada unión por el número de uniones.
+ */
+internal fun plausibleJoins(runs: List<String>, minBytes: Int, maxBytes: Int): List<Int> {
+    val totals = IntArray(runs.size)
+    var total = 0
+    for (i in runs.indices) {
+        total += runs[i].length
+        totals[i] = total
+    }
+    val counts = ArrayList<Int>()
+    for (count in runs.size downTo 1) {
+        val chars = totals[count - 1]
+        val rest = chars % 4
+        if (rest == 1) continue // un solo carácter no es un byte
+        val bytes = chars / 4 * 3 + if (rest == 0) 0 else rest - 1
+        if (bytes < minBytes || bytes > maxBytes) continue
+        val last = base64UrlValue(runs[count - 1].last())
+        if (rest == 2 && last and 0x0F != 0) continue
+        if (rest == 3 && last and 0x03 != 0) continue
+        counts.add(count)
+    }
+    return counts
+}
+
+/** El valor de 6 bits de un carácter de Base64url (RFC 4648 §5); [c] tiene que ser de [isBase64UrlChar]. */
+private fun base64UrlValue(c: Char): Int = when (c) {
+    in 'A'..'Z' -> c - 'A'
+    in 'a'..'z' -> c - 'a' + 26
+    in '0'..'9' -> c - '0' + 52
+    '-' -> 62
+    else -> 63
 }
 
 /**

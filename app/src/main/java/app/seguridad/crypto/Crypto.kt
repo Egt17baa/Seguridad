@@ -349,12 +349,14 @@ fun extractToken(text: String): String? {
 }
 
 /**
- * The first token that starts with [prefix] ("SG1:", "SGM1:", "SGS1:"…) inside [text], which may be a chat message or
- * a file with other lines; null if there is none or nothing follows the prefix. The token is Base64url: on its own
- * line it ends at the first other character (a space, a full stop…), and chat apps and editors that wrap it are
- * handled by joining the following lines as long as they are nothing but Base64url.
+ * The first token that starts with [prefix] inside [text], which may be a chat message or a file with other lines; null
+ * if there is none or nothing follows the prefix. Only for the "SG1:" and "CP1:" texts, through [extractToken]: the
+ * public-key formats ("SGM1:", "SGS1:", "SGK1:") have their own reader (`pk/Message.kt`, `pk/Received.kt`), which tries
+ * every way of joining the pieces because a word after the token can look like Base64url too.
+ * The token is Base64url: on its own line it ends at the first other character (a space, a full stop…), and chat apps
+ * and editors that wrap it are handled by joining the following lines as long as they are nothing but Base64url.
  */
-internal fun extractPrefixedToken(text: String, prefix: String): String? {
+private fun extractPrefixedToken(text: String, prefix: String): String? {
     val start = text.indexOf(prefix)
     if (start < 0) return null
     fun isB64(c: Char) = c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '-' || c == '_'

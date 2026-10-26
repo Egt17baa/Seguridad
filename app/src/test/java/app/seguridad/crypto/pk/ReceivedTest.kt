@@ -50,6 +50,66 @@ class ReceivedTest {
         assertEquals(expected, detectReceived(text.chunked(77).joinToString(" ")))
     }
 
+    /** Una frase sin acentos ni puntuación detrás (cada palabra parece un trozo de Base64url) no impide leer la tarjeta. */
+    @Test fun unaTarjetaConUnaFraseSinAcentosDetrasEsCardText() {
+        val me = fixedIdentity()
+        val text = cardTextOf(me, "Beto")
+        val expected = Received.CardText(cardOf(me, "Beto"))
+        val frase = "Te lo paso por aqui que es mas seguro" // 9 palabras
+        assertEquals(expected, detectReceived("$text $frase"))
+        assertEquals(expected, detectReceived("$text\n$frase"))
+        assertEquals(expected, detectReceived("Mi tarjeta: $text $frase"))
+        assertEquals(expected, detectReceived(text.chunked(60).joinToString("\n") + "\n" + frase))
+        for (n in 1..9) assertEquals(expected, detectReceived(text + " " + frase.split(" ").take(n).joinToString(" ")))
+    }
+
+    /** Lo mismo con el mensaje: `detectReceived` lo reconoce y `decryptMessage` lo abre con la frase detrás. */
+    @Test fun unMensajeConUnaFraseSinAcentosDetrasEsMessageYSeAbre() {
+        val frase = "Te lo paso por aqui que es mas seguro"
+        val received = detectReceived("${messageOf()} $frase")
+        assertTrue(received is Received.Message)
+        assertEquals("Hola Ana", decryptMessage((received as Received.Message).token, anaIdentity()).text)
+    }
+
+    /**
+     * Miles de trozos detrás de una tarjeta no dan miles de lecturas: solo se lee la unión que mide lo que dice su longitud
+     * de nombre (las demás se descartan sin verificar firmas), así que la tarjeta se lee y una rota se rechaza, rápido.
+     */
+    @Test fun muchosTrozosDetrasDeUnaTarjetaNoHacenTrabajoSinLimite() {
+        val text = cardTextOf(fixedIdentity(), "Beto")
+        val broken = text.substring(0, 300) + (if (text[300] == 'A') 'B' else 'A') + text.substring(301)
+        val start = System.nanoTime()
+        assertEquals(Received.CardText(cardOf(fixedIdentity(), "Beto")), detectReceived(text + " A".repeat(1_500)))
+        assertEquals(Received.Unknown, detectReceived(broken + " A".repeat(1_500)))
+        assertEquals(Received.Unknown, detectReceived(broken + " A".repeat(300_000)))
+        assertTrue("tardó ${(System.nanoTime() - start) / 1_000_000} ms", System.nanoTime() - start < 10_000_000_000L)
+    }
+
+    /**
+     * El cuerpo Base45 de un QR puede contener `SGK1:` o `SGM1:` (S, G, M, K, 1 y «:» son del alfabeto Base45): es parte
+     * de la tarjeta, no un prefijo nuevo. Los nombres de aquí se buscaron para que el Base45 de la tarjeta (con el nombre en
+     * una posición par, así que cada pareja de bytes da su grupo de 3 caracteres) lleve esa subcadena:
+     * `A¡ 'a` da «…SGK1:4…» y `A°` + U+BDB00 (sin asignar) + `x` da «…SGM1:N…».
+     */
+    @Test fun unaTarjetaDeQrConUnPrefijoDentroDeSuCuerpoEsCardText() {
+        val me = fixedIdentity()
+        for ((prefijo, name) in listOf(CARD_TEXT_PREFIX to "A\u00A1 'a", MESSAGE_PREFIX to "A\u00B0\uDAB6\uDF00x")) {
+            val qr = cardQr(me.cardBytes(name))
+            assertTrue("el Base45 de «$name» no lleva $prefijo", qr.indexOf(prefijo, CARD_TEXT_PREFIX.length) > 0)
+            assertEquals(prefijo, Received.CardText(cardOf(me, name)), detectReceived(qr))
+            assertEquals(prefijo, Received.CardText(cardOf(me, name)), detectReceived("  \n$qr\n"))
+        }
+    }
+
+    /** Un texto que no es entero una tarjeta sigue decidiéndose por el último prefijo, también con una tarjeta de QR delante (con su `SGK1:` dentro). */
+    @Test fun elUltimoPrefijoSigueGanandoSiElTextoNoEsEnteroUnaTarjeta() {
+        val me = fixedIdentity()
+        val qr = cardQr(me.cardBytes("A\u00A1 'a")) // lleva «SGK1:» dentro
+        val message = messageOf()
+        assertTrue(detectReceived("$qr\n$message") is Received.Message)
+        assertTrue(detectReceived("$qr\n${signText("hola", me)}") is Received.Signed)
+    }
+
     @Test fun unMensajeEsMessage() {
         val token = messageOf()
         val received = detectReceived(token)

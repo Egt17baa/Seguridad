@@ -30,14 +30,13 @@ private const val BAD_PUBLIC_KEY = "La clave pública no es válida"
  * cada una, la clave privada de Ed25519 (firmar) y la de X-Wing (recibir mensajes). Con la misma semilla salen siempre
  * las mismas claves.
  *
- * Copia la semilla: quien la pasa sigue siendo dueño de su array y lo pone a cero cuando quiera. [close] pone a cero la
- * copia y suelta las claves privadas; después, [sign], [fileSigner] y [kemKeyPair] lanzan [IllegalStateException].
- * Los objetos de clave de Bouncy Castle no se pueden poner a cero (guardan su propia copia): [close] solo suelta la
- * referencia, y la copia vive hasta que el recolector de basura la libere. Las claves públicas siguen disponibles.
+ * No guarda la semilla: solo la lee al construirse, y quien la pasa sigue siendo dueño de su array y lo pone a cero cuando
+ * quiera. [close] suelta las claves privadas; después, [sign], [fileSigner] y [kemKeyPair] lanzan
+ * [IllegalStateException]. Los objetos de clave de Bouncy Castle no se pueden poner a cero (guardan su propia copia):
+ * [close] solo suelta la referencia, y esa copia vive hasta que el recolector de basura la libere. Las claves públicas
+ * siguen disponibles.
  */
 class Identity(seed: ByteArray) : AutoCloseable {
-    private val seedCopy: ByteArray
-
     // @Volatile: un close() desde otro hilo lo ven sign(), fileSigner() y kemKeyPair().
     @Volatile private var edPrivate: Ed25519PrivateKeyParameters?
     @Volatile private var kemPair: AsymmetricCipherKeyPair?
@@ -62,7 +61,6 @@ class Identity(seed: ByteArray) : AutoCloseable {
         check(edPublicBytes.size == ED_PUBLIC_BYTES && kemPublicBytes.size == KEM_PUBLIC_BYTES) { "Tamaños de clave inesperados" }
         edPrivate = ed
         kemPair = kem
-        seedCopy = seed.copyOf()
     }
 
     /** Firma [data] con Ed25519 puro: el mensaje firmado es `labeled(label) ‖ data`. */
@@ -87,7 +85,6 @@ class Identity(seed: ByteArray) : AutoCloseable {
     override fun close() {
         edPrivate = null
         kemPair = null
-        seedCopy.fill(0)
     }
 
     private fun edKey(): Ed25519PrivateKeyParameters = edPrivate ?: throw closed()
@@ -101,6 +98,9 @@ fun newIdentitySeed(random: SecureRandom = secureRandom): ByteArray = randomByte
 /**
  * Comprueba una firma de [Identity.sign]. Da `false`, nunca lanza, con una clave o una firma que no miden lo que deben
  * o que no son válidas. Ed25519 de Bouncy Castle (RFC 8032 §5.1.7) rechaza también las firmas con `S` fuera de rango.
+ * Las claves de orden pequeño (con las que una firma con R neutro y S = 0 valdría para casi cualquier mensaje) las
+ * rechaza Bouncy Castle, no este código: `IdentityTest.claveDeOrdenPequenoRechazada` lo fija, y si una versión nueva
+ * dejara de hacerlo ese test falla.
  */
 fun verify(edPublic: ByteArray, label: String, data: ByteArray, sig: ByteArray): Boolean {
     if (sig.size != SIG_BYTES) return false
