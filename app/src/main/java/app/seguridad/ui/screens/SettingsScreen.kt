@@ -158,7 +158,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, onAbout: () -> Unit)
                             "Al importar se reemplaza la bóveda de este móvil."
                     },
                 )
-                Hint("«Importar copia» acepta también la exportación criptopanel-vault, que se vuelve a cifrar con el formato nuevo.")
+                Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia, la exportación .json de la 1.0 y la criptopanel-vault, que se vuelve a cifrar con el formato nuevo.")
             }
             Section("Información") {
                 TextButton(onClick = onAbout) { Text("Acerca de, licencias y avisos") }

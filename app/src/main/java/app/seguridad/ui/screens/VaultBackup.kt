@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -23,26 +24,25 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
+import app.seguridad.vault.BACKUP_HEAD_BYTES
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.backupFileName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 const val MIN_MASTER = 10
-
-/** Name offered when exporting the vault. */
-const val VAULT_EXPORT_FILE_NAME = "seguridad-boveda.json"
-
-private const val VAULT_IMPORT_MAX_BYTES = 20 * 1024 * 1024
 
 /** What the vault menu and Ajustes can do with the vault file; each one shows its own dialog or picker. */
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
 
 /**
- * Export, import (also an export of the older app) and change of master password, with their pickers and
- * dialogs; results are shown in [snackbar]. Call once per screen, where its dialogs belong.
+ * Export (a .sgbak copy with the attachments), import (a .sgbak copy, or a JSON export of 1.0.x or CriptoPanel)
+ * and change of master password, with their pickers and dialogs; results are shown in [snackbar]. Call once per
+ * screen, where its dialogs belong.
  */
 @Composable
 fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
@@ -50,30 +50,34 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
     val scope = rememberCoroutineScope()
     var dialog by remember { mutableStateOf<String?>(null) }
 
-    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+    // A copy (.sgbak) is a ZIP, but saved as plain bytes so no app treats it as one to open or rename.
+    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) scope.launch {
-            val text = store.exportText() ?: run {
-                discardDocument(context, uri)
-                return@launch
+            // Written as a stream straight into the chosen document: never a copy in memory or in the cache.
+            val result = runCatching {
+                withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")!!.use { store.exportBackup(it) } }
             }
-            val ok = runCatching {
-                withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")!!.use { it.write(text.toByteArray()) } }
-            }.isSuccess
+            val ok = result.getOrNull() == true
             if (!ok) discardDocument(context, uri) // Never leave an empty or cut copy that looks like a backup.
-            snackbar.showSnackbar(if (ok) "Copia cifrada guardada. Necesitarás tu contraseña maestra para abrirla." else "No se pudo guardar la copia")
+            // A CryptoFailure names the attachment that is missing or damaged.
+            val failure = (result.exceptionOrNull() as? CryptoFailure)?.message
+            snackbar.showSnackbar(if (ok) "Copia cifrada guardada. Necesitarás tu contraseña maestra para abrirla." else failure ?: "No se pudo guardar la copia")
         }
     }
-    var importText by remember { mutableStateOf<String?>(null) }
+    // Only the document's address is kept until the password is typed; the file is read as a stream then.
+    var importUri by remember { mutableStateOf<Uri?>(null) }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
-            importText = runCatching {
-                withContext(Dispatchers.IO) {
-                    // A real export is a few hundred KB; a huge file must not exhaust memory.
-                    context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(VAULT_IMPORT_MAX_BYTES + 1) }
-                        .also { require(it.size <= VAULT_IMPORT_MAX_BYTES) }.decodeToString()
-                }
-            }.getOrNull()
-            if (importText == null) snackbar.showSnackbar("No se pudo leer el archivo") else dialog = "import"
+            // Its first bytes, to say now (not after the password) if it cannot be read.
+            val readable = runCatching {
+                withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(BACKUP_HEAD_BYTES) } }
+            }.isSuccess
+            if (!readable) {
+                snackbar.showSnackbar("No se pudo leer el archivo")
+            } else {
+                importUri = uri
+                dialog = "import"
+            }
         }
     }
 
@@ -111,15 +115,16 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             warning = "Se reemplazará la bóveda actual de este móvil por la de la copia.",
             onDismiss = {
                 dialog = null
-                importText = null
+                importUri = null
             },
         ) { pw ->
-            val text = importText ?: return@PasswordDialog
-            importText = null
+            val uri = importUri ?: return@PasswordDialog
+            importUri = null
             scope.launch {
                 val msg = withContext(NonCancellable) {
                     try {
-                        store.importReplace(text, pw)
+                        // A .sgbak copy or a JSON export: the store tells them apart by their first bytes.
+                        withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { store.importReplace(it, pw) } }
                         BiometricVault.disable(context)
                         "Copia importada"
                     } catch (e: CryptoFailure) {
@@ -141,7 +146,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             export = {
                 VaultLock.keepOpenOnce = true
                 store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-                exporter.launchOrError(VAULT_EXPORT_FILE_NAME)?.let { failure ->
+                exporter.launchOrError(backupFileName(LocalDate.now()))?.let { failure ->
                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                     scope.launch { snackbar.showSnackbar(failure) }
                 }
@@ -149,7 +154,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             import = {
                 VaultLock.keepOpenOnce = true
                 store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-                importer.launchOrError(arrayOf("application/json", "application/octet-stream", "text/*"))?.let { failure ->
+                importer.launchOrError(arrayOf("application/octet-stream", "application/zip", "application/json", "text/*"))?.let { failure ->
                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                     scope.launch { snackbar.showSnackbar(failure) }
                 }
