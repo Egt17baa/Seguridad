@@ -102,6 +102,21 @@ class VaultStoreTest {
         assertFalse(File(tmp.root, "vault.bin").exists())
     }
 
+    // Seguridad 1.1.0: a Google Authenticator batch goes in with one write, all or nothing.
+    @Test fun addAllSavesNewEntriesInOneWrite() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()); upsert(entry("1", "Wallet")) }
+        val h = listOf(PasswordChange("vieja", 1))
+        assertTrue(s.addAll(listOf(entry("2", "B").copy(passwordHistory = h), entry("3", "C"), entry("1", "Pisada"))))
+        val titles = (s.state.value as VaultState.Unlocked).entries.map { it.title }
+        // An id already in the vault is never overwritten, and a new entry starts without history.
+        assertEquals(listOf("B", "C", "Wallet"), titles)
+        assertTrue((s.state.value as VaultState.Unlocked).entries.all { it.passwordHistory.isEmpty() })
+        val reopened = store().apply { load(); unlock("m".toCharArray()) }
+        assertEquals(3, (reopened.state.value as VaultState.Unlocked).entries.size)
+        s.lock()
+        assertFalse(s.addAll(listOf(entry("4", "D"))))
+    }
+
     // Seguridad 1.0.1: a changed master password locks the vault at once, so the user opens it with the new one
     // (and proves they remember it) before going on; the old data key is not left in memory.
     @Test fun changeMasterLocksVault() = runTest {
@@ -254,5 +269,54 @@ class VaultStoreTest {
         assertEquals(1, (s.state.value as VaultState.Unlocked).entries.size)
         assertFalse(unreadable.isDirectory)
         assertTrue(tmp.root.listFiles()!!.any { it.name.startsWith("vault.bin.bad-") && File(it, "keep").exists() })
+    }
+
+    @Test fun `opening keeps the time of the last change on the vault file`() = runTest {
+        val s = store().apply { load(); create("maestra".toCharArray()) }
+        s.upsert(entry("a", "Agua"))
+        val f = File(tmp.root, "vault.bin")
+        assertTrue(f.setLastModified(1_600_000_000_000L))
+        assertEquals(1_600_000_000_000L, s.lastChangeSavedAt())
+        s.lock()
+        clock += 60_000
+        val before = f.readText()
+        s.unlock("maestra".toCharArray()) // Saves the last master check: bookkeeping, not a change.
+        assertFalse("Sí se guardó la comprobación", before == f.readText())
+        assertEquals(1_600_000_000_000L, s.lastChangeSavedAt())
+        s.upsert(entry("b", "Banco")) // A real change moves it.
+        assertTrue(s.lastChangeSavedAt()!! > 1_600_000_000_000L)
+    }
+
+    @Test fun `no vault file, no time`() = runTest {
+        val s = store().apply { load() }
+        assertNull(s.lastChangeSavedAt())
+    }
+
+    @Test fun `creating a vault runs beforeCreate first`() = runTest {
+        var calls = 0
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            beforeCreate = { calls++; assertFalse("Antes de escribir", File(tmp.root, "vault.bin").exists()) })
+        s.load()
+        s.create("maestra".toCharArray())
+        assertEquals(1, calls)
+        assertTrue(s.state.value is VaultState.Unlocked)
+        // Opening, editing or locking is not creating.
+        s.upsert(entry("a", "Agua"))
+        s.lock()
+        s.unlock("maestra".toCharArray())
+        assertEquals(1, calls)
+    }
+
+    @Test fun `a failing beforeCreate creates nothing and keeps the damaged file`() = runTest {
+        val f = File(tmp.root, "vault.bin").apply { writeText("dañado") }
+        val s = VaultStore(f, Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            beforeCreate = { throw java.io.IOException("disco lleno") })
+        s.load()
+        assertEquals(VaultState.NoVault, s.state.value)
+        assertTrue(runCatching { s.create("maestra".toCharArray()) }.isFailure)
+        assertEquals(VaultState.NoVault, s.state.value)
+        assertFalse(f.exists())
+        assertEquals(0L, s.revision.value)
+        assertTrue(tmp.root.listFiles()!!.any { it.name.startsWith("vault.bin.bad-") && it.readText() == "dañado" })
     }
 }
