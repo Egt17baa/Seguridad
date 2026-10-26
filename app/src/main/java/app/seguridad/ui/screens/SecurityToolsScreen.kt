@@ -688,7 +688,7 @@ fun GeneratorScreen(onBack: () -> Unit) {
             Option("Primera letra en mayúscula", w.capitalize) { w = w.copy(capitalize = it) }
             Option("Añadir un número", w.addNumber) { w = w.copy(addNumber = it) }
             Text(
-                "Palabras de la lista de la EFF (7.776 palabras en inglés, CC BY 3.0). Una frase de 6 palabras es fácil de recordar y muy difícil de adivinar.",
+                "Palabras de la lista de la EFF (7.776 palabras en inglés, CC BY 3.0 US). Una frase de 6 palabras es fácil de recordar y muy difícil de adivinar.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

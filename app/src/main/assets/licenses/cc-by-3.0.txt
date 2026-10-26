@@ -1,7 +1,7 @@
 EFF Large Wordlist for Passphrases
 Copyright (c) Electronic Frontier Foundation (https://www.eff.org/dice)
-Licensed under the Creative Commons Attribution 3.0 United States License (CC BY 3.0).
-Full license: https://creativecommons.org/licenses/by/3.0/
+Licensed under the Creative Commons Attribution 3.0 United States License (CC BY 3.0 US).
+Full license: https://creativecommons.org/licenses/by/3.0/us/
 
 Summary (not a substitute for the license):
 You are free to share (copy and redistribute the material in any medium or format) and to adapt (remix,
