@@ -70,6 +70,13 @@ android {
         compose = true
         buildConfig = true
     }
+    androidResources {
+        // AGP's default patterns stop applying once the list is not empty, so they are kept here.
+        ignoreAssetsPatterns += "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~".split(':')
+        // OkHttp 5 ships Mozilla's Public Suffix List (MPL-2.0) as an asset. It reads it only to parse cookies and in
+        // HttpUrl.topPrivateDomain(): the app uses CookieJar.NO_COOKIES and never calls topPrivateDomain(). See checkAssets.
+        ignoreAssetsPatterns += "!PublicSuffixDatabase.list"
+    }
 }
 
 kotlin {
@@ -146,3 +153,31 @@ val checkFragmentVersion by tasks.registering {
     }
 }
 tasks.named("check") { dependsOn(checkFragmentVersion) }
+
+// Licence gate for data files: checkLicense reads each library's licence, but a library can ship an asset under another
+// one (OkHttp 5 brings Mozilla's Public Suffix List, MPL-2.0, excluded above). Every asset of the release APK must come
+// from app/src/main/assets, so an asset a new library adds fails the build until its licence has been reviewed.
+val releaseAssets = objects.directoryProperty()
+androidComponents.onVariants(androidComponents.selector().withBuildType("release")) { variant ->
+    releaseAssets.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.ASSETS))
+}
+val checkAssets by tasks.registering {
+    group = "verification"
+    description = "Falla si el APK llevaría un archivo en assets/ que no sea de app/src/main/assets."
+    val merged = releaseAssets
+    val own = layout.projectDirectory.dir("src/main/assets")
+    inputs.dir(merged)
+    inputs.dir(own)
+    doLast {
+        fun relative(root: File) = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).invariantSeparatorsPath }.toSet()
+        val foreign = relative(merged.get().asFile) - relative(own.asFile)
+        if (foreign.isNotEmpty()) {
+            throw GradleException(
+                "El APK llevaría assets que no son de la app: ${foreign.sorted().joinToString()}. Una biblioteca puede traer " +
+                    "datos con otra licencia que la suya: revísala y, si no se usan, exclúyelos en androidResources.",
+            )
+        }
+        logger.lifecycle("assets/: solo archivos de app/src/main/assets")
+    }
+}
+tasks.named("check") { dependsOn(checkAssets) }

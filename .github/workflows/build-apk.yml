@@ -47,7 +47,7 @@ jobs:
 
           # Run all validation before refusing a distributable build that lacks the production signing key.
           status=0
-          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:checkLicense :app:checkFragmentVersion --no-daemon || status=$?
+          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon || status=$?
           if [ "$status" -ne 0 ]; then
             rm -f "$RUNNER_TEMP/upload.jks"
             exit "$status"

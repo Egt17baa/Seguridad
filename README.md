@@ -103,6 +103,8 @@ Para actualizar la lista:
 2. Comprueba la licencia en el repositorio de la biblioteca. Si es permisiva y gratuita, añade su nombre exacto (tal como sale en el informe, después de normalizar) como una entrada `{ "moduleLicense": "…" }` en `config/allowed-licenses.json`. Si es copyleft o propietaria, no la añadas: cambia de biblioteca.
 3. Añade su texto a la pantalla de licencias de la app.
 
+Una biblioteca puede traer datos con otra licencia que la suya. Por eso `:app:checkAssets` (en `check` y en la CI) falla si en `assets/` del APK hay algún archivo que no venga de `app/src/main/assets`. Así quedó fuera la Public Suffix List (MPL-2.0) que trae OkHttp 5, que la app no usa porque no guarda cookies. Si la tarea falla, revisa la licencia de ese archivo y, si la app no lo necesita, exclúyelo en `androidResources.ignoreAssetsPatterns` (`app/build.gradle.kts`).
+
 ## Firma
 
 El APK de release y el AAB se firman con la clave de subida si existe, en `keystore.properties` (en local, nunca en Git) o en variables de entorno (en la CI). Si no, el APK se firma con la clave de prueba pública, que sirve para probar pero que cualquiera puede usar: no distribuyas un APK así.
