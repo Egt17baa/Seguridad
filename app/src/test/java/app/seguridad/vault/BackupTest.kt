@@ -153,14 +153,16 @@ class BackupTest {
         for (e in a.entries()) for (ref in e.attachments) a.openAttachment(e.id, ref.id)
     }
 
-    @Test fun exportWhileLockedCarriesTheFiles() = runTest {
+    @Test fun exportWhileLockedWritesNothing() = runTest {
+        // Locked, the entries (which attachments go, and their SHA-256) cannot be read: no unchecked copy is made.
         val a = phoneA()
         a.lock()
+        val out = ByteArrayOutputStream()
+        assertFalse(a.exportBackup(out))
+        assertEquals(0, out.size())
+        a.unlock(master.toCharArray())
         val zip = a.backup()
         assertEquals(3, entriesOf(zip).count { it.first.startsWith("att/") })
-        val b = store(phone("b")).apply { load() }
-        b.importReplace(ByteArrayInputStream(zip), master.toCharArray())
-        assertEquals(2, b.entries().size)
     }
 
     @Test fun exportRefusesADamagedLocalAttachment() = runTest {

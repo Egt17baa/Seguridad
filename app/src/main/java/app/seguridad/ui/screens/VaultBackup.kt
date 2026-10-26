@@ -26,6 +26,7 @@ import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BACKUP_HEAD_BYTES
 import app.seguridad.vault.VaultLock
+import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.backupFileName
 import kotlinx.coroutines.Dispatchers
@@ -59,8 +60,10 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             }
             val ok = result.getOrNull() == true
             if (!ok) discardDocument(context, uri) // Never leave an empty or cut copy that looks like a backup.
-            // A CryptoFailure names the attachment that is missing or damaged.
+            // A CryptoFailure names the attachment that is missing or damaged; false with a vault means it locked
+            // meanwhile, and only an open vault's attachments can be checked.
             val failure = (result.exceptionOrNull() as? CryptoFailure)?.message
+                ?: "La bóveda se bloqueó: ábrela y vuelve a exportarla".takeIf { result.isSuccess && store.state.value is VaultState.Locked }
             snackbar.showSnackbar(if (ok) "Copia cifrada guardada. Necesitarás tu contraseña maestra para abrirla." else failure ?: "No se pudo guardar la copia")
         }
     }

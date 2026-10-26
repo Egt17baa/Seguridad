@@ -23,7 +23,10 @@ import java.io.IOException
 import java.io.OutputStream
 import java.time.ZoneOffset
 
-/** A folder in memory; a file exists (with what was written so far) from the moment it is created, as in SAF. */
+/**
+ * A folder in memory; a file exists (with what was written so far) from the moment it is created, as in SAF, and a
+ * name already taken gets « (1)» added, as ExternalStorageProvider does.
+ */
 private class MemoryTarget : BackupTarget {
     val files = LinkedHashMap<String, ByteArray>()
     var failWrite: Exception? = null
@@ -33,20 +36,38 @@ private class MemoryTarget : BackupTarget {
     var writes = 0
     val written = mutableListOf<String>()
 
-    override suspend fun write(name: String, writer: suspend (OutputStream) -> Unit) {
+    override suspend fun create(name: String): BackupFile {
         failWrite?.let { throw it }
         writes++
         written += name
-        files[name] = ByteArray(0)
-        val out = object : OutputStream() {
-            override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
-            override fun write(b: ByteArray, off: Int, len: Int) {
-                val next = files.getValue(name) + b.copyOfRange(off, off + len)
-                failAfterBytes?.let { if (next.size > it) throw IOException("disco lleno") }
-                files[name] = next
+        val created = if (name in files) "$name (1)" else name
+        files[created] = ByteArray(0)
+        return object : BackupFile {
+            var current = created
+
+            override suspend fun write(writer: suspend (OutputStream) -> Unit) {
+                val out = object : OutputStream() {
+                    override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
+                    override fun write(b: ByteArray, off: Int, len: Int) {
+                        val next = files.getValue(current) + b.copyOfRange(off, off + len)
+                        failAfterBytes?.let { if (next.size > it) throw IOException("disco lleno") }
+                        files[current] = next
+                    }
+                }
+                writer(out)
+            }
+
+            override fun rename(to: String) {
+                failRename?.let { throw it }
+                check(to !in files) { "Renombrar encima de $to" }
+                files[to] = files.remove(current) ?: throw FileNotFoundException()
+                current = to
+            }
+
+            override fun delete() {
+                files.remove(current)
             }
         }
-        writer(out)
     }
 
     override fun list(prefix: String): List<String> {
@@ -56,11 +77,6 @@ private class MemoryTarget : BackupTarget {
 
     override fun delete(name: String) {
         files.remove(name)
-    }
-
-    override fun rename(from: String, to: String) {
-        failRename?.let { throw it }
-        files[to] = files.remove(from) ?: throw FileNotFoundException()
     }
 }
 
@@ -200,9 +216,8 @@ class AutoBackupTest {
     @Test fun targetErrorReportedNotThrown() = runTest {
         val s = opened()
         s.upsert(note("1"))
-        val vaultBytes = File(tmp.root, "vault.bin").readBytes()
         val target = MemoryTarget()
-        auto(s, target)
+        val a = auto(s, target)
 
         // Permission revoked.
         target.failWrite = SecurityException("Permission Denial: content://secret/tree")
@@ -246,7 +261,15 @@ class AutoBackupTest {
         settle()
         assertNull(errors.last())
         assertEquals(1, target.files.keys.count { name.matches(it) })
-        assertFalse(vaultBytes.contentEquals(File(tmp.root, "vault.bin").readBytes())) // Only by the user's own saves.
+
+        // A failing copy with no change by the user leaves the vault file byte for byte as it was.
+        val vaultBytes = File(tmp.root, "vault.bin").readBytes()
+        target.failWrite = IOException("disco lleno")
+        clock += 60_000
+        a.request()
+        settle()
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, errors.last())
+        assertArrayEquals(vaultBytes, File(tmp.root, "vault.bin").readBytes())
     }
 
     @Test fun damagedAttachmentLeavesNoCopyAndNamesNothing() = runTest {
@@ -303,14 +326,126 @@ class AutoBackupTest {
         assertArrayEquals(ByteArray(5_000) { it.toByte() }, other.openAttachment("1", att.id))
     }
 
-    @Test fun cancellationIsNotReported() = runTest {
+    @Test fun strayCancellationIsReportedAndCopiesGoOn() = runTest {
         val s = opened()
         val target = MemoryTarget()
         target.failWrite = CancellationException("cancelado")
         auto(s, target)
         s.upsert(note("1"))
         settle()
+        // Thrown by the folder, not by cancelling AutoBackup's scope: a failure like any other, not the end of the copies.
+        assertEquals(listOf<String?>(AUTO_BACKUP_FAILED), errors)
+        target.failWrite = null
+        s.upsert(note("2"))
+        settle()
+        assertNull(errors.last())
+        assertEquals(1, target.files.keys.count { name.matches(it) })
+    }
+
+    @Test fun lockedVaultCopiesOnlyAfterUnlock() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        s.upsert(note("1"))
+        s.lock() // Left the app within the 3 s.
+        settle()
+        assertTrue("Sin copia con la bóveda bloqueada", target.files.isEmpty())
+        assertEquals(0, target.writes)
         assertTrue(errors.isEmpty())
+        // «Hacer una copia ahora» while locked waits too.
+        a.request()
+        settle()
+        assertTrue(target.files.isEmpty())
+
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(1, target.writes)
+        assertEquals(listOf("seguridad-auto-20261026-100000.sgbak"), target.files.keys.toList())
+        assertEquals(listOf<String?>(null), errors)
+
+        // Nothing waits any more: locking and opening again makes no other copy.
+        s.lock()
+        s.unlock(master.toCharArray())
+        settle()
+        assertEquals(1, target.writes)
+    }
+
+    @Test fun changeMasterCopiesAfterTheNextUnlock() = runTest {
+        val s = opened()
+        s.upsert(note("1"))
+        val target = MemoryTarget()
+        auto(s, target)
+        assertTrue(s.changeMaster("otra-maestra-larga".toCharArray())) // Locks the vault.
+        settle()
+        assertTrue(target.files.isEmpty())
+        s.unlock("otra-maestra-larga".toCharArray())
+        runCurrent()
+        val copy = target.files.getValue("seguridad-auto-20261026-100000.sgbak")
+        val other = store(File(tmp.root, "otro").apply { mkdirs() }).apply { load() }
+        other.importReplace(ByteArrayInputStream(copy), "otra-maestra-larga".toCharArray())
+        assertEquals(listOf("1"), (other.state.value as VaultState.Unlocked).entries.map { it.id })
+    }
+
+    @Test fun damagedOrMissingAttachmentFailsAndKeepsOlderCopies() = runTest {
+        val s = opened()
+        s.upsert(note("1"))
+        assertTrue(s.addAttachment("1", ByteArrayInputStream(ByteArray(100) { 7 }), "foto.jpg"))
+        val target = MemoryTarget()
+        val a = auto(s, target, keep = { 3 })
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("n$i"))
+            settle()
+        }
+        val good = target.files.toMap()
+        assertEquals(3, good.size)
+        assertTrue(errors.all { it == null })
+
+        val att = File(tmp.root, "att").listFiles()!!.single()
+        for (damage in listOf<() -> Unit>({ att.writeBytes(ByteArray(140)) }, { att.delete() })) {
+            damage()
+            repeat(4) { i ->
+                clock += 60_000
+                s.upsert(note("d$i"))
+                settle()
+                assertEquals(AUTO_BACKUP_VAULT_PROBLEM, errors.last())
+            }
+            // Locked and opened again: still checked, still refused.
+            s.lock()
+            a.request()
+            settle()
+            s.unlock(master.toCharArray())
+            runCurrent()
+            assertEquals(AUTO_BACKUP_VAULT_PROBLEM, errors.last())
+            // No new file, not even a temporary one, and the good copies are all still there, unchanged.
+            assertEquals(good.keys, target.files.keys)
+            good.forEach { (n, bytes) -> assertArrayEquals(n, bytes, target.files.getValue(n)) }
+        }
+    }
+
+    @Test fun anExistingNameIsNeverReplaced() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        // A complete copy with the name of now (clock set back), and a cut temporary one with the next second's.
+        target.files["seguridad-auto-20261026-100000.sgbak"] = byteArrayOf(1, 2, 3)
+        target.files["seguridad-auto-20261026-100001.sgbak.tmp"] = byteArrayOf(9)
+        auto(s, target)
+        target.failRename = IOException("rename")
+        s.upsert(note("1"))
+        settle()
+        // The rename failed: the older complete copy is still there.
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, errors.last())
+        assertArrayEquals(byteArrayOf(1, 2, 3), target.files.getValue("seguridad-auto-20261026-100000.sgbak"))
+
+        target.failRename = null
+        s.upsert(note("2"))
+        settle()
+        assertNull(errors.last())
+        assertEquals(List(2) { "seguridad-auto-20261026-100002.sgbak.tmp" }, target.written)
+        assertArrayEquals(byteArrayOf(1, 2, 3), target.files.getValue("seguridad-auto-20261026-100000.sgbak"))
+        // The new copy is the complete one written now, never the cut leftover, which rotation removed.
+        assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100002.sgbak").copyOf(BACKUP_HEAD_BYTES)))
+        assertFalse(target.files.containsKey("seguridad-auto-20261026-100001.sgbak.tmp"))
     }
 
     @Test fun revisionCountsSavedChangesOnly() = runTest {
