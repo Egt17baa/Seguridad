@@ -143,10 +143,11 @@ Cada fase es una versión que compila, pasa todos los tests y se sube a `main` m
 
 1. **1.0.0: extracción.** Proyecto nuevo, tema, navegación y ajustes, el código de Seguridad portado y sin nada de CriptoPanel, los formatos nuevos más la lectura de los de CriptoPanel, el proyecto `jvm-check` y la CI. Todos los tests heredados pasan.
 2. **1.1.0: bóveda mejorada.** Búsqueda, favoritos, etiquetas, historial, adjuntos, copia automática, salud de la bóveda e importación desde Google Authenticator.
-3. **1.2.0: criptografía de clave pública.** Claves propias, contactos, firmas Ed25519 y HPKE.
-4. **1.3.0: secretos compartidos y laboratorios.** SLIP-0039, laboratorio de hashes y laboratorio clásico con Enigma.
-5. **1.4.0: revisión del móvil y Aprende.**
-6. **Revisión final:** `security-review` y `code-review` (al máximo) sobre todo el código, más la skill `experto-seguridad-cripto`; se corrige todo lo confirmado y queda documentado en este diseño, como en CriptoPanel.
+3. **1.2.0: criptografía de clave pública.** Identidad propia, contactos, firmas Ed25519 y cifrado para un contacto con HPKE y el KEM híbrido X-Wing. Diseño propio: `2026-10-26-seguridad-1.2.0-clave-publica-design.md`.
+4. **1.3.0: siete herramientas nuevas** (elegidas por el propietario el 26-10-2026): limpiar fotos, inspector de QR, analizador de enlaces, tachar en imágenes, revisar un correo sospechoso, PIN y códigos, y compartir cifrado.
+5. **1.4.0: secretos compartidos y laboratorios.** SLIP-0039, laboratorio de hashes y laboratorio clásico con Enigma.
+6. **1.5.0: revisión del móvil y Aprende.**
+7. **Revisión final:** `security-review` y `code-review` (al máximo) sobre todo el código, más la skill `experto-seguridad-cripto`; se corrige todo lo confirmado y queda documentado en este diseño, como en CriptoPanel.
 
 Además, al final de cada fase se hace una revisión de código de esa fase.
 
