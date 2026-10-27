@@ -115,7 +115,7 @@ const val PHOTO_LOST = "No se ha guardado: vuelve a elegir la foto."
 
 /** Not in the annex: a HEIC/HEIF/AVIF whose header declares more than the conversion accepts (MAX_DECLARED_*). */
 const val PHOTO_TOO_LARGE =
-    "La foto es demasiado grande para convertirla: pasa de 100 megapíxeles o de 20.000 píxeles de lado. No se ha " +
+    "La foto es demasiado grande para convertirla: pasa de 260 megapíxeles o de 32.768 píxeles de lado. No se ha " +
         "guardado nada."
 
 /** Anexo: «Al terminar»; [list] replaces «[lista]». */
@@ -194,7 +194,7 @@ const val REDACT_UNDO = "Deshacer"
 const val REDACT_REDO = "Rehacer"
 const val REDACT_TOO_BIG = "La imagen ocupa más de 50 MB."
 const val REDACT_TOO_LARGE =
-    "La imagen es demasiado grande para editarla: pasa de 100 megapíxeles o de 20.000 píxeles de lado."
+    "La imagen es demasiado grande para editarla: pasa de 260 megapíxeles o de 32.768 píxeles de lado."
 const val REDACT_CHANGED =
     "Los bloques cambiaron mientras se preparaba la copia, así que no se ha guardado ni compartido. Vuelve a intentarlo."
 const val REDACT_DAMAGED =
