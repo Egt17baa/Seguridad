@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.safeFileName
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.AttachmentLimit
@@ -117,13 +118,13 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
             }
             attachments.forEach { ref ->
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("📎 ${ref.name} · ${sizeText(ref.size)}")
+                    Text("📎 ${safeFileName(ref.name)} · ${sizeText(ref.size)}")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilledTonalButton(enabled = !busy, onClick = {
                             pendingSave = ref.id
                             VaultLock.keepOpenOnce = true
                             store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-                            save.launchOrError(ref.name)?.let { failure ->
+                            save.launchOrError(safeFileName(ref.name))?.let { failure ->
                                 VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                                 pendingSave = null
                                 message = false to failure
@@ -156,7 +157,7 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
     removing?.let { ref ->
         AlertDialog(
             onDismissRequest = { removing = null },
-            title = { Text("¿Quitar «${ref.name}»?") },
+            title = { Text("¿Quitar «${safeFileName(ref.name)}»?") },
             text = {
                 FilterObscuredTouches()
                 Text("Se borrará de la bóveda. No se puede deshacer.")

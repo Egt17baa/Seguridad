@@ -41,6 +41,11 @@ data class Settings(
     val lastAutoBackupAt: Long? = null,
     /** The automatic copies were turned off by creating a new vault: Ajustes says so until a folder is chosen again. */
     val autoBackupOffForNewVault: Boolean = false,
+    /**
+     * The document ids of the automatic copies made in [autoBackupUri], oldest first: the only ones rotation deletes
+     * ([app.seguridad.vault.AutoBackupResult.copies]). Emptied whenever the folder changes.
+     */
+    val autoBackupCopies: List<String> = emptyList(),
 )
 
 /** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
@@ -54,7 +59,7 @@ const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al
  */
 fun Settings.withAutoBackupResult(r: AutoBackupResult): Settings = when {
     autoBackupUri != r.folder -> this
-    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt)
+    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupCopies = r.copies ?: autoBackupCopies)
     else -> copy(lastAutoBackupError = r.error)
 }
 
