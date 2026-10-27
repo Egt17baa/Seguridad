@@ -167,8 +167,10 @@ class AutoBackup(
             val target = open(uri) ?: return
             if (store.state.value !is VaultState.Unlocked) return defer()
             val at = now()
-            val owned = copies()
             val written = copyTo(target, at) ?: return
+            // Read after the copy: an import that ran meanwhile (it waits for the vault, as the copy does) has already
+            // forgotten the replaced vault's copies, so they are never put back on the list.
+            val owned = copies()
             val (rotated, mine) = try {
                 rotate(target, owned, written)
             } catch (e: Exception) {
