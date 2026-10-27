@@ -166,20 +166,25 @@ class RedactionTest {
     }
 
     @Test fun declaredSizeIsCheckedBeforeDecoding() {
-        // Sides: up to 20 000 px.
-        assertTrue(declaredSizeAllowed(20_000, 1))
-        assertTrue(declaredSizeAllowed(1, 20_000))
-        assertTrue(declaredSizeAllowed(20_000, 5_000)) // exactly 100 MP too
-        assertFalse(declaredSizeAllowed(20_001, 1))
-        assertFalse(declaredSizeAllowed(1, 20_001))
-        // Pixels: up to 100 MP.
-        assertTrue(declaredSizeAllowed(10_000, 10_000))
-        assertFalse(declaredSizeAllowed(10_000, 10_001))
-        assertFalse(declaredSizeAllowed(10_001, 10_000))
-        assertFalse(declaredSizeAllowed(20_000, 20_000))
-        // A real 200 MP sensor is refused; 50 MP is not.
-        assertTrue(declaredSizeAllowed(8160, 6120))
-        assertFalse(declaredSizeAllowed(16320, 12240))
+        // Sides: up to 32 768 px.
+        assertTrue(declaredSizeAllowed(32_768, 1))
+        assertTrue(declaredSizeAllowed(1, 32_768))
+        assertTrue(declaredSizeAllowed(32_768, 7_934)) // 259 981 312 px, both limits nearly reached
+        assertFalse(declaredSizeAllowed(32_769, 1))
+        assertFalse(declaredSizeAllowed(1, 32_769))
+        assertFalse(declaredSizeAllowed(32_769, 7_000))
+        // Pixels: up to 260 MP. 260 000 001 has no factor pair within the sides, so one row or column more is the
+        // smallest step over.
+        assertTrue(declaredSizeAllowed(20_000, 13_000)) // exactly 260 000 000
+        assertTrue(declaredSizeAllowed(13_000, 20_000))
+        assertFalse(declaredSizeAllowed(20_000, 13_001))
+        assertFalse(declaredSizeAllowed(20_001, 13_000))
+        assertFalse(declaredSizeAllowed(32_768, 7_935)) // 260 014 080
+        assertFalse(declaredSizeAllowed(32_768, 32_768))
+        // The owner's phone shoots about 200 MP at full resolution: allowed, as are smaller sensors.
+        assertTrue(declaredSizeAllowed(16_320, 12_240))
+        assertTrue(declaredSizeAllowed(12_240, 16_320))
+        assertTrue(declaredSizeAllowed(8_160, 6_120))
         // Nonsense never passes, nor does a product that would overflow an Int.
         assertFalse(declaredSizeAllowed(0, 100))
         assertFalse(declaredSizeAllowed(100, 0))
@@ -188,8 +193,8 @@ class RedactionTest {
         assertFalse(declaredSizeAllowed(Int.MIN_VALUE, Int.MIN_VALUE))
         assertFalse(declaredSizeAllowed(Int.MAX_VALUE, Int.MAX_VALUE))
         assertFalse(declaredSizeAllowed(65_536, 65_536))
-        assertEquals(100_000_000L, MAX_DECLARED_PIXELS)
-        assertEquals(20_000, MAX_DECLARED_SIDE)
+        assertEquals(260_000_000L, MAX_DECLARED_PIXELS)
+        assertEquals(32_768, MAX_DECLARED_SIDE)
     }
 
     @Test fun megapixelsAreRoundedAndNeverZero() {
