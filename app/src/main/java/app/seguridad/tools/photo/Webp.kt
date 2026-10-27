@@ -60,13 +60,27 @@ object Webp {
         fun accept(id: String): Boolean = when (id) {
             "ICCP" -> (!iccp && !alph && !anim && noImage).also { if (it) iccp = true }
             "ANIM" -> (!anim && !alph && noImage).also { if (it) anim = true }
-            "ALPH" -> (!alph && noImage).also { if (it) alph = true }
-            "VP8 ", "VP8L" -> (noImage).also { if (it) bitstream = true }
+            // ALPH belongs to a still VP8 image: not in an animation, and never before VP8L.
+            "ALPH" -> (!alph && !anim && noImage).also { if (it) alph = true }
+            "VP8 " -> noImage.also { if (it) bitstream = true }
+            "VP8L" -> (noImage && !alph).also { if (it) bitstream = true }
             "ANMF" -> (!bitstream && anim).also { if (it) frames++ }
             else -> false
         }
 
+        /** ALPH needs its VP8 (frames cannot follow an ALPH, so this holds for animations too). */
         fun complete() = bitstream || frames > 0
+
+        val animated get() = anim || frames > 0
+
+        /** The VP8X flags that follow from the kept chunks; alpha is kept from [input] unless ALPH is there. */
+        fun flags(input: Int): Int {
+            var f = input and ALPHA_BIT
+            if (alph) f = f or ALPHA_BIT
+            if (iccp) f = f or ICC_BIT
+            if (animated) f = f or ANIM_BIT
+            return f
+        }
     }
 
     private fun parse(b: ByteArray): Parsed {
@@ -77,6 +91,7 @@ object Webp {
         val order = Order()
         var exif: ExifInfo? = null
         var extended = false
+        var vp8xPayload: ByteArray? = null
         var p = 12
         var index = 0
         while (p < end) {
@@ -86,11 +101,12 @@ object Webp {
                 "VP8X" -> {
                     if (index != 0 || c.size != VP8X_SIZE) damaged()
                     extended = true
-                    write(body, "VP8X", vp8x(b, c, found))
+                    vp8xPayload = vp8x(b, c, found)
                 }
                 "ICCP", "ALPH", "VP8 ", "VP8L", "ANIM", "ANMF" -> {
                     if (!extended && c.id != "VP8 " && c.id != "VP8L") damaged()
                     if (!order.accept(c.id)) damaged()
+                    if (c.id == "ANIM" && c.size != ANIM_SIZE) damaged()
                     if (c.id == "ICCP") found += Found.ICC_KEPT
                     write(body, c.id, if (c.id == "ANMF") anmf(b, c, found) else b.copyOfRange(c.dataAt, c.dataEnd))
                 }
@@ -100,6 +116,7 @@ object Webp {
                     val info = Exif.read(b, c.dataAt + skip, c.dataEnd)
                     found += info.found
                     if (info.found.isEmpty()) found += Found.OTHER
+                    // Several EXIF chunks: gps and orientation come from the first, `found` merges all.
                     if (exif == null) exif = info
                 }
                 "XMP " -> { found += Found.XMP_COMMENTS; found += Xmp.flags(b, c.dataAt, c.dataEnd) }
@@ -110,13 +127,20 @@ object Webp {
             index++
         }
         if (!order.complete()) damaged()
-        val total = 4L + body.size()
+        // The VP8X flags describe exactly the chunks that were kept.
+        val head = ByteArrayOutputStream()
+        if (vp8xPayload != null) {
+            vp8xPayload[0] = order.flags(vp8xPayload[0].toInt() and 0xFF).toByte()
+            write(head, "VP8X", vp8xPayload)
+        }
+        val total = 4L + head.size() + body.size()
         if (total > Int.MAX_VALUE - 16) damaged()
-        val out = ByteArray(12 + body.size())
+        val out = ByteArray(12 + head.size() + body.size())
         RIFF.copyInto(out)
         putLe32(out, 4, total)
         WEBP.copyInto(out, 8)
-        body.toByteArray().copyInto(out, 12)
+        head.toByteArray().copyInto(out, 12)
+        body.toByteArray().copyInto(out, 12 + head.size())
         return Parsed(PhotoReport(PhotoFormat.WEBP, found.toSet(), exif?.gps, exif?.orientation ?: 1), out)
     }
 
@@ -136,7 +160,11 @@ object Webp {
     private fun anmf(b: ByteArray, c: Chunk, found: MutableSet<Found>): ByteArray {
         if (c.size < ANMF_HEADER) damaged()
         val out = ByteArrayOutputStream()
-        out.write(b, c.dataAt, ANMF_HEADER)
+        val header = b.copyOfRange(c.dataAt, c.dataAt + ANMF_HEADER)
+        // Last byte: reserved bits 2..7 cleared, blending and disposal kept.
+        if (header[ANMF_HEADER - 1].toInt() and ANMF_RESERVED != 0) found += Found.OTHER
+        header[ANMF_HEADER - 1] = (header[ANMF_HEADER - 1].toInt() and ANMF_RESERVED.inv()).toByte()
+        out.write(header)
         var alph = false
         var bitstream = false
         var p = c.dataAt + ANMF_HEADER
@@ -178,6 +206,7 @@ object Webp {
         if (end != b.size) return false
         val order = Order()
         var extended = false
+        var vp8xFlags = 0
         var p = 12
         while (p < end) {
             val c = chunkAt(b, p, end) ?: return false
@@ -188,10 +217,12 @@ object Webp {
                     val found = HashSet<Found>()
                     if (!vp8x(b, c, found).contentEquals(b.copyOfRange(c.dataAt, c.dataEnd)) || found.isNotEmpty()) return false
                     extended = true
+                    vp8xFlags = b[c.dataAt].toInt() and 0xFF
                 }
                 "ICCP", "ALPH", "VP8 ", "VP8L", "ANIM", "ANMF" -> {
                     if (!extended && c.id != "VP8 " && c.id != "VP8L") return false
                     if (!order.accept(c.id)) return false
+                    if (c.id == "ANIM" && c.size != ANIM_SIZE) return false
                     if (c.id == "ANMF") {
                         val found = HashSet<Found>()
                         val again = try { anmf(b, c, found) } catch (e: PhotoFailure) { return false }
@@ -203,6 +234,8 @@ object Webp {
             p = c.next
         }
         // A lone VP8X is not a file; a simple file is one VP8 or VP8L, which [Order] already limits to one.
+        // The flags match the kept chunks (alpha may also be set for VP8L or frames that carry it).
+        if (extended && vp8xFlags != order.flags(vp8xFlags)) return false
         return order.complete()
     }
 
@@ -211,6 +244,11 @@ object Webp {
     private val EXIF_PREFIX = Bytes.ascii("Exif\u0000\u0000")
     private const val VP8X_SIZE = 10
     private const val ANMF_HEADER = 16
+    private const val ANIM_SIZE = 6
+    private const val ANMF_RESERVED = 0xFC
+    private const val ICC_BIT = 0x20
+    private const val ALPHA_BIT = 0x10
+    private const val ANIM_BIT = 0x02
     // Flags: ICC 0x20, alpha 0x10, EXIF 0x08, XMP 0x04, animation 0x02. Bits 0xC1 are reserved.
     private const val RESERVED_BITS = 0xC1
     private const val VP8X_KEPT = 0x32

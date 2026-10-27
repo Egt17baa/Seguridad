@@ -155,6 +155,60 @@ class WebpTest {
         damaged(concat(ascii("RIFF"), bytes(4, 0, 0, 0), ascii("WAVE")))
     }
 
+    @Test fun animSizeIsFixed() {
+        for (n in listOf(0, 5, 7, 100)) {
+            val x = riff(vp8x(ANIM_FLAG), riffChunk("ANIM", ByteArray(n)), anmf(vp8))
+            damaged(x)
+            assertFalse(Webp.isCleanOutput(x))
+        }
+    }
+
+    @Test fun alphaOnlyBeforeVp8InAStillImage() {
+        val alph = riffChunk("ALPH", bytes(0, 1, 2))
+        val anim = riffChunk("ANIM", ByteArray(6))
+        damaged(riff(vp8x(ANIM_FLAG), anim, alph, anmf(vp8))) // ALPH in an animated file
+        damaged(riff(vp8x(ANIM_FLAG or ALPHA_FLAG), alph, anim, anmf(vp8)))
+        damaged(riff(vp8x(ALPHA_FLAG), alph, vp8l)) // ALPH must be followed by VP8
+        damaged(riff(vp8x(ALPHA_FLAG), alph)) // and by something
+        assertTrue(Webp.isCleanOutput(riff(vp8x(ALPHA_FLAG), alph, vp8)))
+        assertFalse(Webp.isCleanOutput(riff(vp8x(ANIM_FLAG or ALPHA_FLAG), alph, anim, anmf(vp8))))
+        assertFalse(Webp.isCleanOutput(riff(vp8x(ALPHA_FLAG), alph, vp8l)))
+    }
+
+    @Test fun vp8xFlagsMatchTheKeptChunks() {
+        val anim = riffChunk("ANIM", ByteArray(6))
+        // ICC bit without ICCP goes, ICCP without the bit sets it.
+        assertArrayEquals(riff(vp8x(0), vp8), Webp.clean(riff(vp8x(ICC_FLAG), vp8)))
+        assertArrayEquals(riff(vp8x(ICC_FLAG), icc, vp8), Webp.clean(riff(vp8x(0), icc, vp8)))
+        // Animation bit follows ANIM and ANMF.
+        assertArrayEquals(riff(vp8x(0), vp8), Webp.clean(riff(vp8x(ANIM_FLAG), vp8)))
+        assertArrayEquals(riff(vp8x(ANIM_FLAG), anim, anmf(vp8)), Webp.clean(riff(vp8x(0), anim, anmf(vp8))))
+        // Alpha is set when ALPH is kept.
+        val alph = riffChunk("ALPH", bytes(0, 1, 2))
+        assertArrayEquals(riff(vp8x(ALPHA_FLAG), alph, vp8), Webp.clean(riff(vp8x(0), alph, vp8)))
+        // The structural check refuses each mismatch.
+        for (m in listOf(
+            riff(vp8x(ICC_FLAG), vp8), riff(vp8x(0), icc, vp8), riff(vp8x(ANIM_FLAG), vp8),
+            riff(vp8x(0), anim, anmf(vp8)), riff(vp8x(0), alph, vp8),
+        )) assertFalse(Webp.isCleanOutput(m))
+        assertTrue(Webp.isCleanOutput(riff(vp8x(ICC_FLAG or ALPHA_FLAG), icc, vp8))) // alpha may come from VP8L-like data
+    }
+
+    @Test fun frameHeaderReservedBitsAreCleared() {
+        val anim = riffChunk("ANIM", ByteArray(6))
+        val dirty = riff(vp8x(ANIM_FLAG), anim, anmf(vp8))
+        val at = indexOf(dirty, ascii("ANMF")) + 8 + 15
+        dirty[at] = 0xFF.toByte()
+        val out = Webp.clean(dirty)
+        assertEquals(0x03, out[at].toInt())
+        assertTrue(Found.OTHER in Webp.inspect(dirty).found)
+        assertFalse(Webp.isCleanOutput(dirty))
+        assertTrue(Webp.isCleanOutput(out))
+        // Blending and disposal stay.
+        val kept = riff(vp8x(ANIM_FLAG), anim, anmf(vp8)); kept[at] = 0x03
+        assertArrayEquals(kept, Webp.clean(kept))
+    }
+
     private fun indexOf(hay: ByteArray, needle: ByteArray): Int {
         outer@ for (i in 0..hay.size - needle.size) {
             for (j in needle.indices) if (hay[i + j] != needle[j]) continue@outer

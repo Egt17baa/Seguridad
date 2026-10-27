@@ -54,6 +54,23 @@ object Png {
         return Chunk(String(b, p + 4, 4, Charsets.ISO_8859_1), dataAt, dataEnd, dataEnd + 4)
     }
 
+    /**
+     * The size table of the kept chunks, used by [parse] and [isCleanOutput]: a kept chunk of
+     * the wrong size could carry arbitrary bytes, so it is damage (not dropped).
+     */
+    private fun sizeOk(c: Chunk): Boolean {
+        val n = c.dataEnd - c.dataAt
+        return when (c.type) {
+            "gAMA" -> n == 4
+            "cHRM" -> n == 32
+            "sRGB" -> n == 1
+            "sBIT" -> n in 1..4
+            "PLTE" -> n in 3..768 && n % 3 == 0
+            "tRNS" -> n in 1..256
+            else -> true // iCCP is a compressed profile of any size
+        }
+    }
+
     private fun ihdrOk(b: ByteArray, c: Chunk): Boolean {
         if (c.type != "IHDR" || c.dataEnd - c.dataAt != 13) return false
         val w = Bytes.u32be(b, c.dataAt)
@@ -85,7 +102,7 @@ object Png {
                     break
                 }
                 in KEPT_ONCE -> {
-                    if (sawIdat || !seen.add(c.type)) damaged()
+                    if (sawIdat || !seen.add(c.type) || !sizeOk(c)) damaged()
                     if (c.type == "iCCP") found += Found.ICC_KEPT
                     true
                 }
@@ -94,7 +111,9 @@ object Png {
             if (keep) {
                 spans += Span(p, c.next)
             } else {
-                if (exif == null) exif = report(b, c, found) else report(b, c, found)
+                // Several eXIf chunks: gps and orientation come from the first, `found` merges all.
+                val info = report(b, c, found)
+                if (exif == null) exif = info
             }
             p = c.next
         }
@@ -130,6 +149,7 @@ object Png {
         when {
             keyword == "Author" || keyword == "Copyright" -> found += Found.AUTHOR_RIGHTS
             keyword == "Creation Time" || keyword == "Software" -> found += Found.DATE_SOFTWARE
+            keyword == "Source" -> found += Found.DEVICE
             keyword == "XML:com.adobe.xmp" -> {
                 found += Found.XMP_COMMENTS
                 xmpStart(b, c, k + 1)?.let { found += Xmp.flags(b, it, c.dataEnd) }
@@ -176,7 +196,7 @@ object Png {
                 "IHDR" -> {}
                 "IDAT" -> sawIdat = true
                 "IEND" -> return sawIdat && c.dataEnd == c.dataAt && c.next == b.size
-                in KEPT_ONCE -> if (sawIdat || !seen.add(c.type)) return false
+                in KEPT_ONCE -> if (sawIdat || !seen.add(c.type) || !sizeOk(c)) return false
                 else -> return false
             }
             p = c.next
