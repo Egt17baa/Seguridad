@@ -32,9 +32,8 @@ class PngTest {
             *idats().toTypedArray(), TestImages.iend(),
         )
         assertArrayEquals(expected, out)
-        assertEquals(
-            setOf(Found.XMP_COMMENTS, Found.AUTHOR_RIGHTS, Found.C2PA, Found.ICC_KEPT, Found.DATE_SOFTWARE, Found.OTHER),
-            Png.inspect(TestImages.everythingPng()).found.intersect(
+        assertTrue(
+            Png.inspect(TestImages.everythingPng()).found.containsAll(
                 setOf(Found.XMP_COMMENTS, Found.AUTHOR_RIGHTS, Found.C2PA, Found.ICC_KEPT, Found.DATE_SOFTWARE, Found.OTHER),
             ),
         )
@@ -50,6 +49,7 @@ class PngTest {
         assertEquals(setOf(Found.DATE_SOFTWARE), found(TestImages.text("Creation Time", "x")))
         assertEquals(setOf(Found.DATE_SOFTWARE), found(TestImages.itxt("Software", "x")))
         assertEquals(setOf(Found.XMP_COMMENTS), found(TestImages.ztxt("Comment", "x")))
+        assertEquals(setOf(Found.DEVICE), found(TestImages.text("Source", "Aparato Inventado")))
         assertEquals(setOf(Found.OTHER), found(TestImages.text("Clave inventada", "x")))
         assertEquals(setOf(Found.DATE_SOFTWARE), found(pngChunk("tIME", bytes(0x07, 0xD1, 2, 3, 4, 5, 6))))
         assertEquals(setOf(Found.OTHER), found(pngChunk("pHYs", ByteArray(9))))
@@ -154,6 +154,27 @@ class PngTest {
         val y = png(TestImages.ihdr(), *idat, TestImages.iend())
         y[indexOf(y, ascii("IEND"))] = '1'.code.toByte()
         damaged(y)
+    }
+
+    /** Kept chunks of a fixed size: the wrong size is damage, never bytes carried through. */
+    @Test fun keptChunksHaveTheirSize() {
+        fun withKept(c: ByteArray) = png(TestImages.ihdr(), c, *idats().toTypedArray(), TestImages.iend())
+        val good = listOf(
+            pngChunk("gAMA", ByteArray(4)), pngChunk("cHRM", ByteArray(32)), pngChunk("sRGB", ByteArray(1)),
+            pngChunk("sBIT", ByteArray(1)), pngChunk("sBIT", ByteArray(4)),
+            pngChunk("PLTE", ByteArray(3)), pngChunk("PLTE", ByteArray(768)), pngChunk("tRNS", ByteArray(1)), pngChunk("tRNS", ByteArray(256)),
+        )
+        for (c in good) { assertTrue(Png.isCleanOutput(withKept(c))); assertArrayEquals(withKept(c), Png.clean(withKept(c))) }
+        val bad = listOf(
+            pngChunk("gAMA", ByteArray(5)), pngChunk("gAMA", ByteArray(0)), pngChunk("cHRM", ByteArray(31)), pngChunk("cHRM", ByteArray(33)),
+            pngChunk("sRGB", ByteArray(2)), pngChunk("sBIT", ByteArray(0)), pngChunk("sBIT", ByteArray(5)),
+            pngChunk("PLTE", ByteArray(0)), pngChunk("PLTE", ByteArray(4)), pngChunk("PLTE", ByteArray(771)),
+            pngChunk("tRNS", ByteArray(0)), pngChunk("tRNS", ByteArray(257)),
+        )
+        for ((i, c) in bad.withIndex()) {
+            damaged(withKept(c))
+            assertFalse("caso $i", Png.isCleanOutput(withKept(c)))
+        }
     }
 
     private fun indexOf(hay: ByteArray, needle: ByteArray): Int {
