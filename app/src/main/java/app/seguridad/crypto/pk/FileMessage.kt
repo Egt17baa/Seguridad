@@ -31,7 +31,8 @@ import java.security.SecureRandom
  *   datos      = registros de 64 KiB de texto en claro (el último puede ser más corto), ninguno marcado como último
  *   final      = marcado como último: vacío si no está firmado, o la firma (64) si lo está
  *   firma      = Ed25519ph(contexto "seguridad-file-msg-sig-v1",
- *                          cabecera ‖ clave X-Wing del destinatario ‖ registro 0 en claro ‖ datos en claro)
+ *                          cabecera ‖ clave Ed25519 del destinatario (32) ‖ clave X-Wing del destinatario (1216)
+ *                          ‖ registro 0 en claro ‖ datos en claro)
  *
  * Todos los registros se sellan con ChaCha20-Poly1305, con el nonce STREAM de `FileCrypto.kt` (prefijo ‖ contador de
  * 4 bytes ‖ marca de último) y la cabecera completa como datos asociados: el registro 0 lleva el contador 0, los de datos
@@ -44,8 +45,10 @@ import java.security.SecureRandom
  * anterior son los registros de datos.
  *
  * La firma lleva su propio contexto (`seguridad-file-msg-sig-v1`), distinto del de `.sgsig` (`seguridad-file-sig-v1`): una
- * firma de un `.sgsig` nunca vale dentro de un archivo cifrado. Cubre la cabecera (con su `enc` y su prefijo), la clave
- * del destinatario y el registro 0 (con el nombre), así que no se puede reenviar a otra persona ni cambiar el nombre.
+ * firma de un `.sgsig` nunca vale dentro de un archivo cifrado. Cubre la cabecera (con su `enc` y su prefijo), la
+ * identidad entera del destinatario (Ed25519 ‖ X-Wing) y el registro 0 (con el nombre), así que no se puede reenviar a
+ * otra persona ni cambiar el nombre, y una tarjeta con la X-Wing de otra persona y su propia Ed25519 (unknown key-share:
+ * Davis, «Defective Sign & Encrypt», USENIX 2001) no hace que la dueña de esa X-Wing lo vea como firmado para ella.
  */
 
 private const val FILE_INFO = "seguridad-file-v1"
@@ -139,10 +142,13 @@ internal fun encryptFileFor(
             } else {
                 byteArrayOf(FLAG_SIGNED.toByte()) + sender.edPublic + nameBytes
             }
-            // La firma cubre, en este orden: cabecera, clave X-Wing del destinatario, registro 0 en claro y datos en claro.
+            // La firma cubre, en este orden: cabecera, clave Ed25519 y clave X-Wing del destinatario, registro 0 en claro y
+            // datos en claro.
             if (signer != null) {
+                val recipientEd = recipient.edPublic
                 val recipientKem = recipient.kemPublic
                 signer.update(header, 0, header.size)
+                signer.update(recipientEd, 0, recipientEd.size)
                 signer.update(recipientKem, 0, recipientKem.size)
                 signer.update(record0, 0, record0.size)
             }
@@ -236,8 +242,10 @@ internal fun decryptFileFor(input: InputStream, output: OutputStream, me: Identi
         val senderEd = if (signed) plain0.copyOfRange(1, nameAt) else null
         val verifier = senderEd?.let { fileVerifier(it, FILE_SIGNATURE_CONTEXT) }
         if (verifier != null) {
+            val myEd = me.edPublic
             val myKem = me.kemPublic
             verifier.update(header, 0, header.size)
+            verifier.update(myEd, 0, myEd.size)
             verifier.update(myKem, 0, myKem.size)
             verifier.update(plain0, 0, plain0.size)
         }
