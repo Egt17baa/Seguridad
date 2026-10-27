@@ -29,7 +29,7 @@ android {
         targetSdk = 36
         // Every Play upload needs a higher versionCode: pass -PversionCode=N (CI uses the run number).
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "1.2.1"
+        versionName = "1.2.2"
         // SHA-256 of the certificate in debug.keystore (public test key), for verifying the installed debug build.
         buildConfigField("String", "DEBUG_CERT_SHA256", "\"C0014DF66F103A436485115FE0880512C9F05DB39E0E3A94D659997EE9411834\"")
     }

@@ -47,10 +47,9 @@ object BiometricVault {
             .setInvalidatedByBiometricEnrollment(true)
             .apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
-                // The key only works while the phone is unlocked. Only new keys get it (enable() creates a fresh one); the keys
-                // already in the Keystore keep working as they were. StrongBox is left for 1.3.0: some makers fail with StrongBox
-                // plus per-use authentication, and there is no phone here to test it on.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) setUnlockedDeviceRequired(true)
+                // No setUnlockedDeviceRequired: 1.2.0 added it and some phones then refuse to create the key («Este móvil no
+                // permite guardar la clave con huella»), so the fingerprint could not be turned on. The fingerprint is still
+                // asked for on every use. StrongBox, with a fallback, is for 1.3.0, tested on a real phone.
             }
             .build()
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply { init(spec) }.generateKey()
