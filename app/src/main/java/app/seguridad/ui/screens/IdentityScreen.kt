@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import android.content.Intent
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -212,14 +211,9 @@ private fun MyCardSection(identity: VaultEntry, snackbar: SnackbarHostState) {
             )
             Button(
                 onClick = {
-                    // Never sets VaultLock.keepOpenOnce: that flag is reset by a result callback (pickers, the QR scanner)
-                    // and ACTION_SEND has none, so it would stay on. The card is public: leaving for the chat locks the
-                    // vault as usual, and coming back shows the gate.
-                    try {
-                        // The card text is public (name and public keys): no read permission is granted to the receiver.
-                        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, s.card.text)
-                        context.startActivity(Intent.createChooser(send, "Compartir mi tarjeta"))
-                    } catch (e: Exception) {
+                    // The card is public (name and public keys). `shareText` never sets VaultLock.keepOpenOnce: leaving
+                    // for the chat locks the vault as usual, and coming back shows the gate.
+                    if (!shareText(context, s.card.text, "Compartir mi tarjeta")) {
                         scope.launch { snackbar.showSnackbar("No se pudo abrir el menú de compartir") }
                     }
                 },

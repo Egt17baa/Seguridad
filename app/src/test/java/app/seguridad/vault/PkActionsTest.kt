@@ -456,6 +456,52 @@ class PkActionsTest {
         assertEquals(PickStep.READY_TO_VERIFY, nextPickStep(PickedKind.OTHER, haveSignature = true, haveFile = true))
     }
 
+    // ---- Lo elegido, en cualquier orden (también un .txt antes que su .sgsig) ----
+
+    /** Elige [bytes] (con el URI [uri]) sobre [selection], como hace la pantalla: `classifyPicked` y `afterPicking`. */
+    private fun pick(selection: FileSelection<String>, uri: String, bytes: ByteArray) =
+        selection.afterPicking(classifyPicked(bytes, haveSignature = selection.signature != null), uri, "$uri.nombre")
+
+    @Test fun unTxtElegidoAntesQueSuSgsigEsElArchivoFirmado() {
+        // Un .txt con un texto firmado dentro: se lee como texto, y también tiene su .sgsig.
+        val txt = utf8(me().use { signText("Acta de la reunión", it) })
+        val sig = signFileAs(ByteArrayInputStream(txt), entries)
+        val afterText = pick(FileSelection(), "content://acta.txt", txt)
+        assertTrue(classifyPicked(txt, haveSignature = false) is PickedFile.Text)
+        assertNull(afterText.signed)
+        assertEquals("content://acta.txt", afterText.textCandidate)
+        // Después, su .sgsig: el archivo firmado es el .txt, y la firma se comprueba contra él.
+        val afterSig = pick(afterText, "content://acta.txt.sgsig", sig)
+        assertEquals("content://acta.txt", afterSig.signed)
+        assertEquals("content://acta.txt.nombre", afterSig.signedName)
+        assertEquals(PickStep.READY_TO_VERIFY, nextPickStep(PickedKind.SIGNATURE, haveSignature = true, haveFile = afterSig.signed != null))
+        assertEquals(Sender.Me, verifyFileAgainst(ByteArrayInputStream(txt), afterSig.signature!!, entries))
+        // En el otro orden ya funcionaba: con un .sgsig elegido, el .txt es el archivo firmado.
+        val sigFirst = pick(pick(FileSelection(), "content://acta.txt.sgsig", sig), "content://acta.txt", txt)
+        assertEquals("content://acta.txt", sigFirst.signed)
+    }
+
+    @Test fun unArchivoFirmadoYaElegidoGanaAlTextoYUnSgencEmpiezaDeCero() {
+        val txt = utf8(me().use { signText("hecho", it) })
+        val other = data(500)
+        val sig = signFileAs(ByteArrayInputStream(other), entries)
+        // Texto, luego otro archivo, luego el .sgsig: el archivo firmado es el otro, no el texto.
+        val s = pick(pick(pick(FileSelection(), "content://t", txt), "content://otro", other), "content://firma", sig)
+        assertEquals("content://otro", s.signed)
+        assertNull(s.textCandidate)
+        // Un .sgenc después de un texto lo olvida: un .sgsig de después no tiene archivo firmado.
+        val enc = fileFromAna(data(10))
+        val afterEnc = pick(pick(FileSelection(), "content://t", txt), "content://c.sgenc", enc)
+        assertEquals("content://c.sgenc", afterEnc.encrypted)
+        assertNull(afterEnc.textCandidate)
+        val noFile = pick(afterEnc, "content://firma", sig)
+        assertNull(noFile.encrypted)
+        assertNull(noFile.signed)
+        assertEquals(PickStep.NEED_SIGNED_FILE, nextPickStep(PickedKind.SIGNATURE, haveSignature = true, haveFile = noFile.signed != null))
+        // Y nada de lo elegido sale en toString.
+        assertFalse(s.toString().contains("content://"))
+    }
+
     // ---- Descifrar un archivo a una carpeta temporal ----
 
     private fun decryptToTemp(bytes: ByteArray, dir: File, entries: List<VaultEntry> = this.entries, check: () -> Unit = {}) =

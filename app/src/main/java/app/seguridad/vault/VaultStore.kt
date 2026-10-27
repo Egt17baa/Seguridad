@@ -86,7 +86,7 @@ class VaultStore(
     private var vault: VaultFile? = null
         set(value) {
             field = value
-            _needsMaster.value = value != null && (value.format != VaultFile.FORMAT || value.version != VaultFile.VERSION)
+            _needsMaster.value = needsMaster(value)
         }
     private var dek: ByteArray? = null
     private var lastUse = 0L
@@ -391,12 +391,18 @@ class VaultStore(
      * entry edited, with its own id, is fine). [VaultCrypto.write] checks the version once more.
      */
     private fun checkCanHold(current: List<VaultEntry>, incoming: List<VaultEntry>) {
-        val needsMaster = vault?.let { it.version != VaultFile.VERSION } ?: false
-        check(!(needsMaster && incoming.any { it.type.isPersonal })) { NEEDS_MASTER_FOR_CONTACTS }
+        check(!(needsMaster(vault) && incoming.any { it.type.isPersonal })) { NEEDS_MASTER_FOR_CONTACTS }
         val identities = incoming.filter { it.type == EntryType.IDENTITY }
         val taken = current.filter { it.type == EntryType.IDENTITY }.mapTo(HashSet()) { it.id }
         check(identities.map { it.id }.distinct().size <= 1 && identities.all { id -> taken.all { it == id.id } }) { ONLY_ONE_IDENTITY }
     }
+
+    /**
+     * Whether [file] is not yet a [VaultFile.FORMAT] version-3 file, so identity and contacts need the master password
+     * first; false with no vault. The one rule behind [needsMasterForContacts] and [checkCanHold].
+     */
+    private fun needsMaster(file: VaultFile?): Boolean =
+        file != null && (file.format != VaultFile.FORMAT || file.version != VaultFile.VERSION)
 
     /** Deletes the entry; its attachment files go with the collection after the save. */
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }
