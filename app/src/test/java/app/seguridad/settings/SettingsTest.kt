@@ -197,18 +197,25 @@ class SettingsTest {
     }
 
     @Test fun autoBackupCopiesAreKeptOnlyForTheFolderTheyAreIn() {
-        val on = Settings(autoBackupUri = folder, autoBackupCopies = listOf("a"))
-        assertEquals(listOf("a", "b"), on.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a", "b"))).autoBackupCopies)
+        val on = Settings(autoBackupUri = folder, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder)
+        val written = on.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a", "b")))
+        assertEquals(listOf("a", "b"), written.currentAutoBackupCopies)
         // Nothing written: the list stays.
-        assertEquals(listOf("a"), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)).autoBackupCopies)
-        // Another folder chosen meanwhile: never the ids of a folder the copies no longer go to.
-        val other = on.copy(autoBackupUri = "content://y/tree/otra", autoBackupCopies = emptyList())
-        assertEquals(emptyList<String>(), other.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a", "b"))).autoBackupCopies)
+        assertEquals(listOf("a"), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)).currentAutoBackupCopies)
+        // Another folder chosen: none of these is in it. Back to the first: they are again, and go on rotating.
+        val other = written.copy(autoBackupUri = "content://y/tree/otra")
+        assertEquals(emptyList<String>(), other.currentAutoBackupCopies)
+        assertEquals(other, other.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("x"))))
+        assertEquals(listOf("a", "b"), other.copy(autoBackupUri = folder).currentAutoBackupCopies)
+        // Turned off: none in use, but kept for the same folder chosen again.
+        assertEquals(emptyList<String>(), written.copy(autoBackupUri = null).currentAutoBackupCopies)
+        // An imported vault: forgotten for good.
+        assertEquals(emptyList<String>(), written.forgettingAutoBackupCopies().currentAutoBackupCopies)
     }
 
     @Test fun newVaultTurnsAutoBackupOff() = runTest {
         val s = store().apply { load() }
-        s.update { it.copy(autoBackupUri = folder, autoBackupKeep = 10, lastAutoBackupAt = 5L, lastAutoBackupError = "Falló", autoBackupCopies = listOf("a")) }
+        s.update { it.copy(autoBackupUri = folder, autoBackupKeep = 10, lastAutoBackupAt = 5L, lastAutoBackupError = "Falló", autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder) }
         assertEquals(folder, s.turnOffAutoBackupForNewVault())
         val off = s.settings.value
         assertEquals(null, off.autoBackupUri)

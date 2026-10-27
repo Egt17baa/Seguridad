@@ -42,11 +42,21 @@ data class Settings(
     /** The automatic copies were turned off by creating a new vault: Ajustes says so until a folder is chosen again. */
     val autoBackupOffForNewVault: Boolean = false,
     /**
-     * The document ids of the automatic copies made in [autoBackupUri], oldest first: the only ones rotation deletes
-     * ([app.seguridad.vault.AutoBackupResult.copies]). Emptied whenever the folder changes.
+     * The document ids of the automatic copies made in [autoBackupCopiesFolder], oldest first: the only ones rotation
+     * deletes ([app.seguridad.vault.AutoBackupResult.copies]), and only while that is still [autoBackupUri]. Kept
+     * when the copies are turned off, so choosing the same folder again goes on rotating them; forgotten with a new
+     * or an imported vault (they are the previous vault's).
      */
     val autoBackupCopies: List<String> = emptyList(),
+    val autoBackupCopiesFolder: String? = null,
 )
+
+/** [Settings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */
+val Settings.currentAutoBackupCopies: List<String>
+    get() = if (autoBackupUri != null && autoBackupCopiesFolder == autoBackupUri) autoBackupCopies else emptyList()
+
+/** Settings with no automatic copy listed as this app's (see [Settings.autoBackupCopies]). */
+fun Settings.forgettingAutoBackupCopies(): Settings = copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null)
 
 /** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
 const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
@@ -59,7 +69,9 @@ const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al
  */
 fun Settings.withAutoBackupResult(r: AutoBackupResult): Settings = when {
     autoBackupUri != r.folder -> this
-    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupCopies = r.copies ?: autoBackupCopies)
+    r.writtenAt != null && r.copies != null ->
+        copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupCopies = r.copies, autoBackupCopiesFolder = r.folder)
+    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt)
     else -> copy(lastAutoBackupError = r.error)
 }
 

@@ -182,5 +182,8 @@ class CryptoTest {
     @Test fun `stored names cannot escape a folder`() {
         assertEquals("passwd", safeFileName("../../etc/passwd"))
         assertEquals("archivo", safeFileName("  "))
+        // RLO would show «factura\u202Efdp.exe» as «facturaexe.pdf»; isolates and marks go too.
+        assertEquals("facturafdp.exe", safeFileName("factura\u202Efdp.exe"))
+        assertEquals("a.txt", safeFileName("\u2066a\u200F.txt\u2069"))
     }
 }

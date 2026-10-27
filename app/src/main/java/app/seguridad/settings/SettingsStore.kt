@@ -43,9 +43,12 @@ class SettingsStore(
     suspend fun turnOffAutoBackupForNewVault(): String? = mutex.withLock {
         val s = _settings.value
         val folder = s.autoBackupUri ?: return@withLock null
-        write(s.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = true, autoBackupCopies = emptyList()))
+        write(s.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = true).forgettingAutoBackupCopies())
         folder
     }
+
+    /** An imported vault replaces this one: its automatic copies are no longer listed as ours, so none is ever rotated away. */
+    suspend fun forgetAutoBackupCopies() = update { it.forgettingAutoBackupCopies() }
 
     private suspend fun write(change: Settings) {
         val next = sane(change)

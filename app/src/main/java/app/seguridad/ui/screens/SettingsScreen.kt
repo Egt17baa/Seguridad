@@ -138,11 +138,9 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             val chosen = uri.toString()
             val previous = store.settings.value.autoBackupUri
             try {
-                store.update {
-                    // Another folder: the copies listed are not in it. The same one again keeps them, so they still rotate.
-                    val copies = if (it.autoBackupUri == chosen) it.autoBackupCopies else emptyList()
-                    it.copy(autoBackupUri = chosen, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = false, autoBackupCopies = copies)
-                }
+                // The copies listed stay with the folder they are in ([Settings.currentAutoBackupCopies]): the same one
+                // chosen again goes on rotating them, another one starts with none.
+                store.update { it.copy(autoBackupUri = chosen, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = false) }
             } catch (e: Exception) {
                 if (chosen != previous) SafBackupTarget.releaseFolder(resolver, chosen)
                 snackbar.showSnackbar("No se pudo guardar el ajuste")
@@ -220,7 +218,7 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             onClick = {
                 scope.launch {
                     try {
-                        store.update { it.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupCopies = emptyList()) }
+                        store.update { it.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null) }
                         SafBackupTarget.releaseFolder(context.contentResolver, folder)
                         snackbar.showSnackbar("Copia automática desactivada. Las copias ya hechas siguen en la carpeta.")
                     } catch (e: Exception) {

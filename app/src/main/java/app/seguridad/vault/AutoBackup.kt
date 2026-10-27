@@ -199,12 +199,15 @@ class AutoBackup(
         val temp = folder.create(name + TEMP_SUFFIX)
         if (temp.canRename) {
             if (!fill(temp)) return null
-            try {
+            val renamed = try {
                 temp.rename(name)
-                return BackupEntry(temp.id, name)
+                true
             } catch (e: Exception) {
                 discard(temp) // Refused (some providers cannot rename): written again below.
+                false
             }
+            // Outside the try: once renamed, the complete copy is never discarded, whatever reading its id does.
+            if (renamed) return BackupEntry(temp.id, name)
         } else {
             discard(temp)
         }

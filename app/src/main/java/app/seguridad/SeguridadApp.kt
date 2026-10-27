@@ -29,8 +29,8 @@ class SeguridadApp : Application() {
         // (the screen's own clean-up only runs while it is in view, and a save picker may be on top). A recursive delete,
         // so off the main thread. Nothing can be decrypted before the first one ends in practice (the vault opens first);
         // if it ever did, the copy would vanish and saving it fails closed («vuelve a descifrar»).
+        // The first state collected is Loading, so it is also wiped at start.
         container.appScope.launch(Dispatchers.IO) {
-            wipePkTemp(cacheDir)
             container.vault.state.collect { if (it !is VaultState.Unlocked) wipePkTemp(cacheDir) }
         }
         // A few hundred bytes, read before the first frame: the theme, the start notice and the lock time must be the

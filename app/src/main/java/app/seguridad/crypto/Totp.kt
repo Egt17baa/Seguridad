@@ -97,14 +97,10 @@ const val OTPAUTH_MAX_CHARS = 4096
 const val OTPAUTH_MAX_NAME_CHARS = 256
 
 /**
- * An issuer or account from a scanned link, as it will be shown: without control characters nor the ones that turn
- * text around (bidi overrides, isolates and marks, which could make «Banco» look like another name), and at most
- * [OTPAUTH_MAX_NAME_CHARS] characters.
+ * An issuer or account from a scanned link or a Google Authenticator export, as it will be shown: without control
+ * characters nor the ones that turn text around ([withoutBidiControls]), and at most [OTPAUTH_MAX_NAME_CHARS] characters.
  */
-private fun otpName(text: String): String =
-    text.filterNot { it.isISOControl() || it in '\u202A'..'\u202E' || it in '\u2066'..'\u2069' || it == '\u200E' || it == '\u200F' || it == '\u061C' }
-        .trim()
-        .take(OTPAUTH_MAX_NAME_CHARS)
+internal fun otpName(text: String): String = withoutBidiControls(text.filterNot { it.isISOControl() }).trim().take(OTPAUTH_MAX_NAME_CHARS)
 
 /** Parses an otpauth://totp/… link as QR codes carry it; null if it is not a usable TOTP link. */
 fun parseOtpAuth(uri: String): TotpSecret? {
