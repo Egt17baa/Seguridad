@@ -2,7 +2,9 @@ package app.seguridad.vault
 
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KdfParams
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -91,6 +93,60 @@ class VaultStoreTest {
         assertTrue((b.state.value as VaultState.Unlocked).entries.isEmpty())
         b.importReplace(exported, "m".toCharArray())
         assertEquals(listOf("Wallet"), (b.state.value as VaultState.Unlocked).entries.map { it.title })
+    }
+
+    /** An export written by hand with its master password, holding [entries] as they are (no store checks). */
+    private fun handMadeExport(vararg entries: VaultEntry): String {
+        val (file, dek) = VaultCrypto.create("m".toCharArray(), clock, KdfParams(1024, 1, 1))
+        return VaultCrypto.encodeFile(VaultCrypto.write(file, dek, entries.toList()))
+    }
+
+    private fun ref(id: String, size: Long) = AttachmentRef(id, "a.bin", size, "00".repeat(32), "AA".repeat(22))
+
+    @Test fun `a copy that breaks what new entries keep is refused and nothing changes`() = runTest {
+        val identity = VaultEntry("i", EntryType.IDENTITY, "Yo", createdAt = 0, updatedAt = 0)
+        val big = (0 until 11).map { ref("%032x".format(it), MAX_ATTACHMENT_BYTES.toLong()) } // 55 MB in all.
+        val all = listOf(
+            "La copia está dañada: no se puede importar" to handMadeExport(entry("1", "a"), entry("1", "b")),
+            "La copia está dañada: no se puede importar" to handMadeExport(identity.copy(attachments = listOf(ref("%032x".format(1), 1)))),
+            "La copia está dañada: no se puede importar" to handMadeExport(identity.copy(passwordHistory = listOf(PasswordChange("vieja", 0)))),
+            "Los adjuntos de la bóveda pasan de 50 MB en total" to handMadeExport(entry("1", "a").copy(attachments = big)),
+            "Los adjuntos de la bóveda pasan de 50 MB en total" to handMadeExport(entry("1", "a").copy(attachments = listOf(ref("%032x".format(1), -1)))),
+        )
+        val s = store().apply { load(); create("m".toCharArray()); upsert(entry("x", "Mía")) }
+        val before = File(tmp.root, "vault.bin").readText()
+        for ((message, export) in all) {
+            try {
+                s.importReplace(export, "m".toCharArray())
+                fail(message)
+            } catch (e: CryptoFailure) {
+                assertEquals(message, e.message)
+            }
+            assertEquals(listOf("Mía"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+            assertEquals(before, File(tmp.root, "vault.bin").readText())
+        }
+    }
+
+    @Test fun `a locked vault is never replaced by an import`() = runTest {
+        val export = handMadeExport(entry("1", "Otra"))
+        val s = store().apply { load(); create("m".toCharArray()); upsert(entry("x", "Mía")); lock() }
+        val before = File(tmp.root, "vault.bin").readText()
+        for (import in listOf<suspend () -> Unit>(
+            { s.importReplace(export, "m".toCharArray()) },
+            { s.importReplace(export.byteInputStream(), "m".toCharArray()) },
+        )) {
+            try {
+                import()
+                fail()
+            } catch (e: CryptoFailure) {
+                assertEquals("Abre la bóveda antes de importar una copia", e.message)
+            }
+        }
+        assertEquals(before, File(tmp.root, "vault.bin").readText())
+        // With no vault at all («Crea tu bóveda»), importing is the way in.
+        val fresh = store("otra.bin").apply { load() }
+        fresh.importReplace(export, "m".toCharArray())
+        assertEquals(listOf("Otra"), (fresh.state.value as VaultState.Unlocked).entries.map { it.title })
     }
 
     @Test fun `change master and destroy`() = runTest {
@@ -205,6 +261,64 @@ class VaultStoreTest {
         s.unlock("maestra".toCharArray())
         assertEquals(VaultState.Locked, s.state.value)
         assertFalse(s.changeMaster("x".toCharArray()))
+    }
+
+    /** Holds every block dispatched while closed, until [release]: an operation that keeps the mutex meanwhile. */
+    private class GateDispatcher : kotlinx.coroutines.CoroutineDispatcher() {
+        private val held = ArrayList<Runnable>()
+        var open = true
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+            if (open) block.run() else held += block
+        }
+        fun release() {
+            open = true
+            held.toList().also { held.clear() }.forEach { it.run() }
+        }
+    }
+
+    @Test fun `leaving the app while an unlock waits for another one keeps the vault locked`() = runTest {
+        val compute = GateDispatcher()
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+        s.load()
+        s.create("maestra".toCharArray())
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        for (waiting in listOf<suspend () -> Unit>({ s.unlockWithKey(key.copyOf()) }, { s.unlock("maestra".toCharArray()) })) {
+            compute.open = false
+            // The first one holds the mutex (its key derivation is held back); the second waits for it.
+            val first = launch(start = CoroutineStart.UNDISPATCHED) { s.unlock("maestra".toCharArray()) }
+            val second = launch(start = CoroutineStart.UNDISPATCHED) { waiting() }
+            s.lock() // Home: MainActivity.onStop.
+            compute.release()
+            first.join()
+            second.join()
+            assertEquals(VaultState.Locked, s.state.value)
+            assertNull(s.dataKeyCopy())
+        }
+        // Nothing was harmed: it opens as usual afterwards.
+        s.unlockWithKey(key.copyOf())
+        assertTrue(s.state.value is VaultState.Unlocked)
+    }
+
+    @Test fun `leaving the app while an import waits for the mutex keeps the vault locked`() = runTest {
+        val compute = GateDispatcher()
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+        s.load()
+        s.create("maestra".toCharArray())
+        s.upsert(entry("1", "Wallet"))
+        val export = s.exportText()!!
+        compute.open = false
+        val first = launch(start = CoroutineStart.UNDISPATCHED) { s.upsert(entry("2", "Otra")) }
+        val second = launch(start = CoroutineStart.UNDISPATCHED) { s.importReplace(export, "maestra".toCharArray()) }
+        s.lock()
+        compute.release()
+        first.join()
+        second.join()
+        assertEquals(VaultState.Locked, s.state.value)
+        assertNull(s.dataKeyCopy())
+        // The import was still saved: the master password opens the copy's content.
+        s.unlock("maestra".toCharArray())
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
     }
 
     @Test fun `a damaged vault file is kept aside, never overwritten`() = runTest {

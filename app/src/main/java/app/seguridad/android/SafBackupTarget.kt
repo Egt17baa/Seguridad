@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import androidx.core.net.toUri
+import app.seguridad.vault.BackupEntry
 import app.seguridad.vault.BackupFile
 import app.seguridad.vault.BackupTarget
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,8 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
 
     /** The document [create] made, by the URI the provider gave back: never another one with the same name. */
     private inner class Created(private var doc: Uri) : BackupFile {
+        override val id: String get() = DocumentsContract.getDocumentId(doc)
+
         /** What the provider says of it (FLAG_SUPPORTS_RENAME); if it cannot be read, renaming is tried. */
         override val canRename: Boolean
             get() = try {
@@ -60,26 +63,25 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
         }
     }
 
-    override fun list(prefix: String): List<String> = children().map { it.second }.filter { it.startsWith(prefix) }
+    override fun list(prefix: String): List<BackupEntry> = children().filter { it.name.startsWith(prefix) }
 
-    override fun delete(name: String) {
-        val id = idOf(name) ?: return
+    /** Only a document in the folder ([children]): an id from the settings never reaches anything else. */
+    override fun delete(id: String) {
+        if (children().none { it.id == id }) return
         saf {
             if (!DocumentsContract.deleteDocument(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, id))) throw IOException()
         }
     }
 
-    private fun idOf(name: String): String? = children().firstOrNull { it.second == name }?.first
-
-    /** (document id, display name) of each file in the folder. */
-    private fun children(): List<Pair<String, String>> = saf {
+    /** Each file in the folder, with its document id. */
+    private fun children(): List<BackupEntry> = saf {
         val uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, folderId())
         resolver.query(uri, arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
             buildList {
                 while (c.moveToNext()) {
                     val id = c.getString(0) ?: continue
                     val name = c.getString(1) ?: continue
-                    add(id to name)
+                    add(BackupEntry(id, name))
                 }
             }
         } ?: throw FileNotFoundException() // The provider no longer knows the folder.

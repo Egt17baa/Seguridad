@@ -134,9 +134,9 @@ private fun ProtoReader.otpParameters(): Pair<TotpSecret?, String?> {
             }
         }
         // «Issuer:cuenta» in the name, as in parseOtpAuth; the issuer field wins when present.
-        val labelIssuer = name.substringBefore(':', "").trim()
-        val account = name.substringAfter(':').trim()
-        val finalIssuer = issuer.trim().ifEmpty { labelIssuer }
+        val labelIssuer = otpName(name.substringBefore(':', ""))
+        val account = otpName(name.substringAfter(':'))
+        val finalIssuer = otpName(issuer).ifEmpty { labelIssuer }
         val who = listOf(finalIssuer, account).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "Sin nombre" }.take(80)
         val alg = when (algorithm) {
             0, 1 -> "SHA1" // 0 is "unspecified", which Google's own exports use for SHA-1.

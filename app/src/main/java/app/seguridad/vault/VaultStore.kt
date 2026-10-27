@@ -55,6 +55,11 @@ class VaultStore(
      * deletes the previous vault's copies). If it throws, nothing is created.
      */
     private val beforeCreate: suspend () -> Unit = {},
+    /**
+     * Runs before an import replaces the vault, once the copy is checked (the app forgets which automatic copies it
+     * made, so they are never rotated away: they are the replaced vault's). If it throws, nothing is replaced.
+     */
+    private val beforeReplace: suspend () -> Unit = {},
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -94,8 +99,15 @@ class VaultStore(
     /**
      * Bumped by every [lock]. [lock] runs on the main thread without the mutex (leaving the app must lock at once),
      * so operations work on their own copy of the key and only reopen the vault if no lock happened meanwhile.
+     * Each one reads it when called, before waiting for the mutex: a lock while it waits counts too.
      */
     @Volatile private var epoch = 0
+
+    /**
+     * Held by [lock] and by the last step of [opened] (check [epoch], then keep the key and show the entries), which
+     * may run on another thread (an import runs on Dispatchers.IO): a lock can never land between the two.
+     */
+    private val opening = Any()
 
     suspend fun load() = mutex.withLock {
         if (_state.value != VaultState.Loading) return@withLock
@@ -194,25 +206,31 @@ class VaultStore(
 
     private fun opened(v: VaultFile, key: ByteArray, since: Int) {
         vault = v
-        if (epoch != since) {
-            key.fill(0)
-            if (_state.value !is VaultState.NoVault) _state.value = VaultState.Locked
-            return
-        }
-        val entries = try {
+        val entries = if (epoch != since) null else try {
             VaultCrypto.read(v, key).sortedBy { it.title.lowercase() }
         } catch (e: CryptoFailure) {
             key.fill(0)
             throw e
         }
-        if (dek !== key) dek?.fill(0)
-        dek = key
-        lastUse = now()
-        _state.value = VaultState.Unlocked(entries)
+        synchronized(opening) {
+            if (entries == null || epoch != since) {
+                key.fill(0)
+                if (_state.value !is VaultState.NoVault) _state.value = VaultState.Locked
+                return
+            }
+            if (dek !== key) dek?.fill(0)
+            dek = key
+            lastUse = now()
+            _state.value = VaultState.Unlocked(entries)
+        }
     }
 
-    suspend fun create(master: CharArray) = mutex.withLock {
+    suspend fun create(master: CharArray) {
         val since = epoch
+        mutex.withLock { createLocked(master, since) }
+    }
+
+    private suspend fun createLocked(master: CharArray, since: Int) {
         val (v, key) = withContext(compute) { VaultCrypto.create(master, now(), kdf()) }
         try {
             beforeCreate()
@@ -231,9 +249,13 @@ class VaultStore(
     }
 
     /** Throws [CryptoFailure] for a wrong password. */
-    suspend fun unlock(master: CharArray) = mutex.withLock {
-        val v = vault ?: return@withLock
+    suspend fun unlock(master: CharArray) {
         val since = epoch
+        mutex.withLock { unlockLocked(master, since) }
+    }
+
+    private suspend fun unlockLocked(master: CharArray, since: Int) {
+        val v = vault ?: return
         val key = withContext(compute) { VaultCrypto.unlock(v, master) }
         val checked = try {
             withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
@@ -248,8 +270,13 @@ class VaultStore(
     val biometricAllowed: Boolean get() = vault?.let { VaultCrypto.biometricAllowed(it, now()) } ?: false
 
     /** With a data key released by the biometric prompt. Throws [MasterRequired] when the 7-day recheck is due. */
-    suspend fun unlockWithKey(key: ByteArray) = mutex.withLock {
-        val v = vault ?: return@withLock
+    suspend fun unlockWithKey(key: ByteArray) {
+        val since = epoch
+        mutex.withLock { unlockWithKeyLocked(key, since) }
+    }
+
+    private suspend fun unlockWithKeyLocked(key: ByteArray, since: Int) {
+        val v = vault ?: return key.fill(0)
         // The real version first: a version-1 file (date not authenticated) needs the master password once.
         val known = try {
             VaultCrypto.resolve(v, key)
@@ -261,7 +288,7 @@ class VaultStore(
             key.fill(0)
             throw MasterRequired()
         }
-        opened(known, key, epoch)
+        opened(known, key, since)
         collectGarbage()
     }
 
@@ -296,7 +323,7 @@ class VaultStore(
     /** A copy of the open data key, to wrap it with the biometric key; null while locked. */
     fun dataKeyCopy(): ByteArray? = dek?.copyOf()
 
-    fun lock() {
+    fun lock() = synchronized(opening) {
         epoch++
         dek?.fill(0)
         dek = null
@@ -519,8 +546,21 @@ class VaultStore(
      * one identity; nothing changes.
      */
     suspend fun importReplace(text: String, master: CharArray) {
+        checkCanReplace()
+        importText(text, master, epoch)
+    }
+
+    /**
+     * Only an open vault, or none (the "Crea tu bóveda" screen), is ever replaced: never one that is locked. A
+     * [CryptoFailure], as the import dialog shows its message.
+     */
+    private fun checkCanReplace() {
+        if (vault != null && _state.value !is VaultState.Unlocked) throw CryptoFailure(REPLACE_NEEDS_OPEN)
+    }
+
+    private suspend fun importText(text: String, master: CharArray, since: Int) {
         val incoming = withContext(compute) { VaultCrypto.decodeFile(text) }
-        replace(incoming, master, null)
+        replace(incoming, master, null, since)
     }
 
     /**
@@ -532,6 +572,8 @@ class VaultStore(
      * The attachments the old vault had and the new one does not are collected after the save.
      */
     suspend fun importReplace(input: InputStream, master: CharArray) {
+        checkCanReplace()
+        val since = epoch // Leaving the app while the file is read still locks: the copy is imported, but stays locked.
         val buffered = BufferedInputStream(input)
         val head = withContext(io) {
             buffered.mark(BACKUP_HEAD_BYTES)
@@ -540,22 +582,24 @@ class VaultStore(
         if (!isBackup(head)) {
             val bytes = withContext(io) { buffered.readAtMost(VAULT_IMPORT_MAX_BYTES + 1) }
             if (bytes.size > VAULT_IMPORT_MAX_BYTES) throw CryptoFailure(IMPORT_TOO_BIG)
-            importReplace(bytes.decodeToString(), master)
+            importText(bytes.decodeToString(), master, since)
             return
         }
         val temp = File(attachments.dir.absoluteFile.parentFile, IMPORT_DIR_PREFIX + randomBytes(8).joinToString("") { "%02x".format(it) })
         try {
             val contents = withContext(io) { BackupReader().read(buffered, temp) }
             val incoming = withContext(compute) { VaultCrypto.decodeFile(contents.vaultJson) }
-            replace(incoming, master, contents to temp)
+            replace(incoming, master, contents to temp, since)
         } finally {
             withContext(NonCancellable) { withContext(io) { temp.deleteRecursively() } }
         }
     }
 
-    /** [importReplace]; [backup] is the copy read and its temporary folder, null for a JSON export. */
-    private suspend fun replace(incoming: VaultFile, master: CharArray, backup: Pair<BackupContents, File>?) = mutex.withLock {
-        val since = epoch
+    /**
+     * [importReplace]; [backup] is the copy read and its temporary folder, null for a JSON export. [since] is [epoch]
+     * when the import started: a lock since then leaves the imported vault locked.
+     */
+    private suspend fun replace(incoming: VaultFile, master: CharArray, backup: Pair<BackupContents, File>?, since: Int) = mutex.withLock {
         val key = withContext(compute) { VaultCrypto.unlock(incoming, master) }
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
@@ -563,12 +607,14 @@ class VaultStore(
             val incomingEntries = withContext(compute) { VaultCrypto.read(checked, key) }
             // Only one identity per vault (see [upsert]): a copy with more is refused before anything changes.
             if (incomingEntries.count { it.type == EntryType.IDENTITY } > 1) throw CryptoFailure(SEVERAL_IDENTITIES)
+            checkRestorable(incomingEntries)
             val refs = incomingEntries.flatMap { it.attachments }
             if (backup == null) {
                 if (refs.isNotEmpty()) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
             } else {
                 withContext(io) { refs.forEach { checkInBackup(it, backup.first) } }
             }
+            beforeReplace() // Last: only when all of the copy is fine.
             checked to refs
         } catch (e: Exception) {
             key.fill(0)
@@ -600,11 +646,27 @@ class VaultStore(
         }
     }
 
+    /**
+     * What [upsert] and [addAttachment] keep for entries added here holds for a copy too, or it is refused before
+     * anything changes: no two entries with the same id, no attachments or password history in an identity or a
+     * contact, and the attachments within [MAX_ATTACHMENT_BYTES] each and [MAX_ATTACHMENTS_TOTAL_BYTES] in all.
+     * A copy this app made always passes; one written by hand (with its master password) may not.
+     */
+    private fun checkRestorable(entries: List<VaultEntry>) {
+        if (entries.map { it.id }.distinct().size != entries.size) throw CryptoFailure(COPY_DAMAGED)
+        if (entries.any { it.type.isPersonal && (it.attachments.isNotEmpty() || it.passwordHistory.isNotEmpty()) }) throw CryptoFailure(COPY_DAMAGED)
+        val refs = entries.flatMap { it.attachments }
+        if (refs.any { it.size !in 0..MAX_ATTACHMENT_BYTES.toLong() } || attachments.totalBytes(refs) > MAX_ATTACHMENTS_TOTAL_BYTES) {
+            throw CryptoFailure(ATTACHMENTS_TOTAL_TOO_BIG)
+        }
+    }
+
     /** [ref] has its file in the copy, with the SHA-256 the entry records (authenticated by the copy's data key). */
     private fun checkInBackup(ref: AttachmentRef, contents: BackupContents) {
         val file = contents.attachments[ref.id]
         val limit = MAX_ATTACHMENT_BYTES.toLong() + NONCE_BYTES + TAG_BYTES
-        if (!isAttachmentId(ref.id) || file == null || !fileMatchesSha256(file, ref.sha256, limit)) {
+        // The file is nonce + content + tag: its length proves the size the entry declares (and [checkRestorable] counts).
+        if (!isAttachmentId(ref.id) || file == null || file.length() != ref.size + NONCE_BYTES + TAG_BYTES || !fileMatchesSha256(file, ref.sha256, limit)) {
             throw CryptoFailure("La copia está incompleta o dañada: falta o no coincide el adjunto «${ref.name}»")
         }
     }
@@ -681,6 +743,8 @@ const val VAULT_IMPORT_MAX_BYTES = 20 * 1024 * 1024
 
 private const val NEEDS_MASTER_FOR_CONTACTS = "Hace falta la contraseña maestra para guardar la identidad o los contactos"
 private const val SEVERAL_IDENTITIES = "La copia tiene más de una identidad: no se puede importar"
+private const val COPY_DAMAGED = "La copia está dañada: no se puede importar"
+private const val REPLACE_NEEDS_OPEN = "Abre la bóveda antes de importar una copia"
 private const val ONLY_ONE_IDENTITY = "Solo puede haber una identidad"
 private const val IMPORT_TOO_BIG = "El archivo pasa de 20 MB: no es una copia de la bóveda"
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"

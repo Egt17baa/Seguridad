@@ -64,6 +64,16 @@ class OtpMigrationTest {
         assertEquals(1, r.batchSize)
     }
 
+    @Test fun namesCannotBeTurnedAroundNorBeHuge() {
+        val payload = Pb().msg(1, otp(KEY, "\u2066x:\u202Eana\u200F", "\u202EBanco"))
+        val s = parseOtpMigration(uri(payload.toByteArray()))!!.imported.single()
+        assertEquals("Banco", s.issuer)
+        assertEquals("ana", s.account)
+        val long = parseOtpMigration(uri(Pb().msg(1, otp(KEY, "a".repeat(400), "b".repeat(400))).toByteArray()))!!.imported.single()
+        assertEquals(OTPAUTH_MAX_NAME_CHARS, long.issuer.length)
+        assertEquals(OTPAUTH_MAX_NAME_CHARS, long.account.length)
+    }
+
     @Test fun issuerFromNameWhenFieldEmptyAndDefaults() {
         // Algorithm, digits and type left unset (0): SHA1, 6 digits, TOTP, as Google's own example below.
         val payload = Pb().msg(1, Pb().bytes(1, KEY).str(2, "Banco: ana "))

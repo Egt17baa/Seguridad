@@ -46,4 +46,28 @@ class AppContainerTest {
         assertFalse(c.settings.settings.value.autoBackupOffForNewVault)
         assertTrue(released.isEmpty())
     }
+
+    @Test fun importingAVaultForgetsTheAutomaticCopiesMadeOfTheOldOne() = runTest {
+        val c = AppContainer(tmp.root, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create("maestra-larga".toCharArray())
+        c.settings.update { it.copy(autoBackupUri = folder, autoBackupCopies = listOf("doc-1"), autoBackupCopiesFolder = folder) }
+        val other = AppContainer(File(tmp.root, "otro").apply { mkdirs() }, appVersion = "test", appScope = backgroundScope)
+        other.settings.load()
+        other.vault.load()
+        other.vault.create("otra-maestra-larga".toCharArray())
+        c.vault.importReplace(other.vault.exportText()!!, "otra-maestra-larga".toCharArray())
+        // Copies stay on, to the same folder, but the old vault's are never rotated away.
+        assertEquals(folder, c.settings.settings.value.autoBackupUri)
+        assertTrue(c.settings.settings.value.autoBackupCopies.isEmpty())
+        // A wrong password changes nothing, the list included.
+        c.settings.update { it.copy(autoBackupCopies = listOf("doc-2"), autoBackupCopiesFolder = folder) }
+        try {
+            c.vault.importReplace(other.vault.exportText()!!, "mala".toCharArray())
+        } catch (e: app.seguridad.crypto.CryptoFailure) {
+            // expected
+        }
+        assertEquals(listOf("doc-2"), c.settings.settings.value.autoBackupCopies)
+    }
 }

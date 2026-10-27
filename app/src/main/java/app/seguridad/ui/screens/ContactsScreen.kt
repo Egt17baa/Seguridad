@@ -228,7 +228,8 @@ private fun ContactsList(entries: List<VaultEntry>, onIdentity: () -> Unit, onCo
                     onValueChange = { query = it },
                     label = { Text("Buscar contacto") },
                     singleLine = true,
-                    // Search text is not typed history: no learning or suggestions from the keyboard.
+                    // No corrections or suggestions. The keyboard may still learn the words (Compose has no
+                    // IME_FLAG_NO_PERSONALIZED_LEARNING): only titles and names go here, never a secret.
                     keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
