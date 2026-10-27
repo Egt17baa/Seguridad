@@ -26,9 +26,9 @@ Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una b
 
 **Contactos**
 • Tu identidad y tus contactos viven en la bóveda cifrada de tu móvil. Añade a un contacto escaneando su QR o pegando su tarjeta y comparando la huella.
-• Cifra un texto o un archivo para un contacto y envíalo por el canal que quieras (WhatsApp, Telegram, correo). Solo tu contacto, con Seguridad, podrá abrirlo.
+• Cifra un texto o un archivo para un contacto y envíalo por el canal que quieras (WhatsApp, Telegram, correo). Solo quien tenga la identidad de ese contacto podrá abrirlo; comprueba su huella para estar seguro de que es suya.
 • Firma un texto o un archivo: demuestra a tus contactos que es tuyo y que no ha cambiado.
-• Diseñado para resistir también a ordenadores cuánticos futuros (cifrado híbrido X-Wing, en proceso de estandarización).
+• El cifrado entre contactos está diseñado para resistir también a ordenadores cuánticos futuros (cifrado híbrido X-Wing, en proceso de estandarización). Las firmas no: usan Ed25519.
 
 **Herramientas**
 • Generador de contraseñas y frases, huella SHA-256 de archivos y comprobación de contraseñas filtradas.

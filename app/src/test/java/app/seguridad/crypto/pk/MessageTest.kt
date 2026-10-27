@@ -6,6 +6,8 @@ import app.seguridad.crypto.extractToken
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -593,5 +595,43 @@ class MessageTest {
 
         // Y nadie más lo abre.
         assertEquals(NOT_FOR_ME, rejects { decryptMessage(signed, sender) }.message)
+    }
+
+    /**
+     * T13-5 (M2 de la revisión de la tarea 12): la firma de dentro del vector `message_signed` la verifica la Ed25519 del
+     * remitente fijo con los datos del diseño armados **a mano**: `labeled("seguridad-msg-sig-v1") ‖ cabecera ‖ Ed25519 de
+     * Ana ‖ X-Wing de Ana ‖ mensaje`. Ni `encryptMessage`, ni `decryptMessage`, ni `verify` ni `Identity.sign` intervienen: solo
+     * el HPKE a mano de `rawInner` y el `Ed25519Signer` de Bouncy Castle. Si un cambio alterase a la vez el cifrado y el
+     * descifrado (otro orden de claves, por ejemplo), el vector no cambia y este test falla.
+     */
+    @Test fun laFirmaDelVectorSeVerificaConLosDatosArmadosAMano() {
+        val sender = fixedIdentity()
+        val ana = anaIdentity()
+        val signed = vector("message_signed")
+        val raw = decode(signed)
+        val header = raw.copyOf(5 + 1120)
+        val message = vectorText.toByteArray(Charsets.UTF_8)
+
+        // Descifrado con la identidad fija de la destinataria: marcas ‖ Ed25519 del remitente ‖ firma ‖ mensaje.
+        val inner = rawInner(signed, ana)
+        assertEquals(1 + 32 + 64 + message.size, inner.size)
+        assertEquals(1, inner[0].toInt())
+        assertArrayEquals(sender.edPublic, inner.copyOfRange(1, 33))
+        assertArrayEquals(message, inner.copyOfRange(97, inner.size))
+        val signature = inner.copyOfRange(33, 97)
+
+        fun checks(data: ByteArray): Boolean = Ed25519Signer().run {
+            init(false, Ed25519PublicKeyParameters(sender.edPublic, 0))
+            update(data, 0, data.size)
+            verifySignature(signature)
+        }
+        val label = "seguridad-msg-sig-v1".toByteArray(Charsets.US_ASCII) + 0
+        assertTrue(checks(label + header + ana.edPublic + ana.kemPublic + message))
+        // Lo que sobra o falta, o el orden cambiado, no vale: la firma ata la identidad entera de la destinataria.
+        assertFalse(checks(label + header + ana.kemPublic + message))
+        assertFalse(checks(label + header + ana.edPublic + message))
+        assertFalse(checks(label + header + ana.kemPublic + ana.edPublic + message))
+        assertFalse(checks(header + ana.edPublic + ana.kemPublic + message))
+        assertFalse(checks(label + header + sender.edPublic + ana.kemPublic + message))
     }
 }

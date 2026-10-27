@@ -385,7 +385,9 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilledTonalButton(onClick = { copySensitive(context, out) }) { Text("Copiar") }
                         if (encrypt) {
-                            OutlinedButton(onClick = { shareText(context, out, "Compartir") }) { Text("Compartir") }
+                            OutlinedButton(onClick = {
+                                if (!shareText(context, out, "Compartir")) fileMessage = false to "No se pudo abrir el menú de compartir"
+                            }) { Text("Compartir") }
                         }
                     }
                     if (encrypt) {
