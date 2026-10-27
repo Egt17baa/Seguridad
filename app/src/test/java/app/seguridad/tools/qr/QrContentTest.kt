@@ -76,7 +76,7 @@ class QrContentTest {
             classifyQr("BITCOIN:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"),
         )
         assertEquals(
-            QrKind.Crypto("ethereum", "0x32Be343B94f860124dC4fEe278FDCBD38C102D88", "1000000"),
+            QrKind.Crypto("ethereum", "0x32Be343B94f860124dC4fEe278FDCBD38C102D88", "1000000 wei"),
             classifyQr("ethereum:0x32Be343B94f860124dC4fEe278FDCBD38C102D88?value=1000000"),
         )
         assertEquals(QrKind.Crypto("lightning", "lnbc1pvjluezpp5qqqsyq", null), classifyQr("lightning:lnbc1pvjluezpp5qqqsyq"))
@@ -169,7 +169,7 @@ class QrContentTest {
 
     @Test
     fun anythingElseIsPlainText() {
-        for (t in listOf("hola", "", "   ", "Nota: comprar pan", "C:\\Users\\ana", "www.banco.es", "hora:10:30", "https", "1:2", "a b:c", "@@@")) {
+        for (t in listOf("hola", "", "   ", "Nota: comprar pan", "C:\\Users\\ana", "www", "www.", "www.a b.es", "hora:10:30", "https", "1:2", "a b:c", "@@@")) {
             assertEquals(t, QrKind.PlainText(t), classifyQr(t))
         }
     }
@@ -295,13 +295,80 @@ class QrContentTest {
         for (piece in listOf(";", ":", "\\", "%", "\n", "@", "[", ".", "xn--", "\u202E")) {
             val t = piece.repeat(MAX_QR_TEXT_BYTES / piece.length)
             for (prefix in listOf("", "WIFI:", "https://", "BEGIN:VCARD\n", "MECARD:", "mailto:", "sms:", "BCD\n", "bitcoin:")) {
+                val text = prefix + t.take(MAX_QR_TEXT_BYTES - prefix.length)
+                // The parsers prove they never throw on their own, without the catch-all or the size check.
+                classifyQrUnguarded(text)
                 // Over the limit in bytes (a 3-byte character): the size error, and only that, is what comes out.
                 try {
-                    classifyQr(prefix + t.take(MAX_QR_TEXT_BYTES - prefix.length))
+                    classifyQr(text)
                 } catch (e: IllegalArgumentException) {
                     assertEquals(QR_TOO_BIG, e.message)
                 }
             }
+        }
+    }
+
+    @Test
+    fun ethereumTokenTransferShowsTheRecipientNotTheContract() {
+        val token = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+        val recipient = "0x32Be343B94f860124dC4fEe278FDCBD38C102D88"
+        // ERC-681: the contract is in front, the person paid is in the query; the amount is in token units (unknown).
+        assertEquals(
+            QrKind.Crypto("ethereum", recipient, null),
+            classifyQr("ethereum:$token@1/transfer?address=$recipient&uint256=1000000"),
+        )
+        assertEquals(
+            QrKind.Crypto("ethereum", recipient, null),
+            classifyQr("ethereum:pay-$token@1/TRANSFER?address=$recipient&uint256=1"),
+        )
+        // Without a recipient in the query the contract is all there is; a chain id is not part of the address.
+        assertEquals(QrKind.Crypto("ethereum", token, null), classifyQr("ethereum:$token@1/transfer?uint256=1"))
+        assertEquals(QrKind.Crypto("ethereum", token, "5 wei"), classifyQr("ethereum:$token@1?value=5"))
+        assertEquals(QrKind.Crypto("ethereum", token, null), classifyQr("ethereum:$token@1/approve?address=$recipient&uint256=1"))
+        assertEquals(QrKind.PlainText("ethereum:"), classifyQr("ethereum:"))
+    }
+
+    @Test
+    fun aLinkKeepsBeingALinkEvenWithASignedTextMarkerInIt() {
+        // A first line that is a web address wins over an «SGS1:» or «SGM1:» further down: it is shown as a link, with
+        // its signals (the line break inside raises HIDDEN_CHARS).
+        for (marker in listOf("SGS1:abc", "SGM1:abc")) {
+            val k = classifyQr("https://banco.es/x\n$marker")
+            assertTrue(k.toString(), k is QrKind.Link)
+            assertEquals("banco.es", (k as QrKind.Link).host)
+            assertTrue(Signal.HIDDEN_CHARS in k.signals)
+        }
+        assertTrue(classifyQr("https://banco.es/SGM1:abc") is QrKind.Link)
+    }
+
+    @Test
+    fun wwwWithoutSchemeIsALinkWithTheSignalsOfHttps() {
+        val l = classifyQr("www.banco.es/ruta") as QrKind.Link
+        assertEquals("www.banco.es/ruta", l.uri)
+        assertEquals("", l.scheme)
+        assertEquals("www.banco.es", l.host)
+        assertEquals(emptyList<Signal>(), l.signals)
+        assertEquals(8443, (classifyQr("WWW.banco.es:8443") as QrKind.Link).port)
+        assertTrue(Signal.ODD_PORT in (classifyQr("www.banco.es:8443") as QrKind.Link).signals)
+        assertEquals(listOf(Signal.MIXED_SCRIPTS, Signal.PUNYCODE), (classifyQr("www.b\u0430nco.es") as QrKind.Link).signals)
+        assertTrue(Signal.HIDDEN_CHARS in (classifyQr("www.banco.es/r\u202Eta") as QrKind.Link).signals)
+        assertTrue(Signal.SHORTENER in (classifyQr("www.bit.ly/x") as QrKind.Link).signals)
+        // Not a link: a sentence, or too short to be a name.
+        assertTrue(classifyQr("www.banco.es y mas") is QrKind.PlainText)
+        assertTrue(classifyQr("www.") is QrKind.PlainText)
+    }
+
+    @Test
+    fun visibleTextMarksTheOtherInvisibleCharacters() {
+        for (cp in listOf(0x00AD, 0x115F, 0x1160, 0x3164, 0xFFA0, 0x2061, 0x2062, 0x2063, 0x2064, 0x180E, 0x2028, 0x2029, 0xFE00, 0xFE0F, 0xE0100, 0xE01EF)) {
+            val s = String(Character.toChars(cp))
+            assertEquals("\u27E8U+%04X\u27E9".format(cp), visibleText("a${s}b").removePrefix("a").removeSuffix("b"))
+            assertTrue(cp.toString(), hasHiddenChars(s))
+        }
+        // Just outside the ranges.
+        for (cp in listOf(0x00AC, 0x00AE, 0x2065, 0xFE10, 0xE00FF, 0xE01F0)) {
+            val s = String(Character.toChars(cp))
+            assertEquals(cp.toString(), s, visibleText(s))
         }
     }
 }
