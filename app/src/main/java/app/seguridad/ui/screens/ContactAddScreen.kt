@@ -59,11 +59,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** A card read from text, with its canonical bytes and what to do with it. [otherFingerprint] is the saved contact's, if keys changed. */
+/**
+ * A card read from text, with its canonical bytes and what to do with it. [otherFingerprint] is the saved contact's, if
+ * keys changed. [source] is the text it was read from: while a new card is being read the old result is still there,
+ * and it must never be shown (or saved) as the new one, with the new one's «verified».
+ */
 private sealed interface Incoming {
     class Failed(val message: String) : Incoming
 
-    class Ready(val card: Card, val bytes: ByteArray, val check: CardCheck, val otherFingerprint: String?) : Incoming
+    class Ready(val source: String, val card: Card, val bytes: ByteArray, val check: CardCheck, val otherFingerprint: String?) : Incoming
 }
 
 /**
@@ -151,7 +155,7 @@ internal fun IncomingCardSection(
                 val (card, bytes) = cardAndBytesFromAnyText(text)
                 val check = checkIncomingCard(card, entries)
                 val other = savedFingerprint(check)
-                Incoming.Ready(card, bytes, check, other)
+                Incoming.Ready(text, card, bytes, check, other)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -162,7 +166,8 @@ internal fun IncomingCardSection(
     when (val i = incoming) {
         null -> Unit
         is Incoming.Failed -> Text(i.message, color = NegativeColor)
-        is Incoming.Ready -> ReadyCard(store, i, text, viaQr, snackbar, onSaved)
+        // A pasted card, then a QR scanned at once: until the scan is read, nothing (the pasted card is not «verified»).
+        is Incoming.Ready -> if (i.source == text) ReadyCard(store, i, text, viaQr, snackbar, onSaved)
     }
 }
 

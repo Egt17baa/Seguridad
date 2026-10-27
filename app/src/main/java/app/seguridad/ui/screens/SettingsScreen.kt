@@ -138,6 +138,8 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             val chosen = uri.toString()
             val previous = store.settings.value.autoBackupUri
             try {
+                // The copies listed stay with the folder they are in ([Settings.currentAutoBackupCopies]): the same one
+                // chosen again goes on rotating them, another one starts with none.
                 store.update { it.copy(autoBackupUri = chosen, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = false) }
             } catch (e: Exception) {
                 if (chosen != previous) SafBackupTarget.releaseFolder(resolver, chosen)

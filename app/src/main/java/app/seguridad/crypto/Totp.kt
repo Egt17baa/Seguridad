@@ -92,8 +92,19 @@ fun totpCode(s: TotpSecret, nowMillis: Long): Pair<String, Int>? {
     }
 }
 
+/** Longest otpauth:// link read (a real one is under 300 characters), and longest issuer or account kept from it. */
+const val OTPAUTH_MAX_CHARS = 4096
+const val OTPAUTH_MAX_NAME_CHARS = 256
+
+/**
+ * An issuer or account from a scanned link or a Google Authenticator export, as it will be shown: without control
+ * characters nor the ones that turn text around ([withoutBidiControls]), and at most [OTPAUTH_MAX_NAME_CHARS] characters.
+ */
+internal fun otpName(text: String): String = withoutBidiControls(text.filterNot { it.isISOControl() }).trim().take(OTPAUTH_MAX_NAME_CHARS)
+
 /** Parses an otpauth://totp/… link as QR codes carry it; null if it is not a usable TOTP link. */
 fun parseOtpAuth(uri: String): TotpSecret? {
+    if (uri.length > OTPAUTH_MAX_CHARS) return null
     val u = try {
         URI(uri.trim())
     } catch (e: Exception) {
@@ -114,8 +125,8 @@ fun parseOtpAuth(uri: String): TotpSecret? {
         val account = label.substringAfter(':').trim()
         TotpSecret(
             secret = secret.uppercase().filter { it in BASE32 },
-            issuer = query["issuer"] ?: labelIssuer,
-            account = account,
+            issuer = otpName(query["issuer"] ?: labelIssuer),
+            account = otpName(account),
             algorithm = (query["algorithm"] ?: "SHA1").uppercase().takeIf { it in setOf("SHA1", "SHA256", "SHA512") } ?: return null,
             digits = query["digits"]?.toIntOrNull()?.takeIf { it in 6..8 } ?: 6,
             period = query["period"]?.toIntOrNull()?.takeIf { it in 10..120 } ?: 30,

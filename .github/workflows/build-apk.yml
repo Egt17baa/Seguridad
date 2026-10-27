@@ -25,6 +25,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # gradlew runs this JAR before anything else is checked: it must be Gradle's own (the official checksum of the
+      # wrapper JAR of Gradle 8.14.5, which generated it, at gradle.org/release-checksums; the wrapper then downloads
+      # 8.14.6 and checks its SHA-256 from gradle-wrapper.properties). A new JAR means changing this line, in review.
+      - name: Check the Gradle wrapper
+        run: echo "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
+
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -109,6 +115,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check the Gradle wrapper (see the build job)
+        run: echo "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
+
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -156,6 +165,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+
+      - name: Check the Gradle wrapper (see the build job)
+        run: echo "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
 
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:

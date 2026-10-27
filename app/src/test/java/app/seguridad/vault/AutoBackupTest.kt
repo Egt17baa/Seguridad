@@ -25,10 +25,15 @@ import java.time.ZoneOffset
 
 /**
  * A folder in memory; a file exists (with what was written so far) from the moment it is created, as in SAF, and a
- * name already taken gets « (1)» added, as ExternalStorageProvider does.
+ * name already taken gets « (1)» added, as ExternalStorageProvider does. Each file has a document id, which a rename
+ * changes (as with ExternalStorageProvider, whose ids are paths); a file put straight into [files] (by another app)
+ * gets one the first time it is listed.
  */
 private class MemoryTarget : BackupTarget {
     val files = LinkedHashMap<String, ByteArray>()
+    private val ids = HashMap<String, String>()
+    private var nextId = 0
+    private fun idOf(name: String) = ids.getOrPut(name) { "doc-${nextId++}" }
     var failWrite: Exception? = null
     var failAfterBytes: Int? = null
     var failRename: Exception? = null
@@ -45,8 +50,11 @@ private class MemoryTarget : BackupTarget {
         written += name
         val created = if (name in files) "$name (1)" else name
         files[created] = ByteArray(0)
+        ids[created] = "doc-${nextId++}"
         return object : BackupFile {
             var current = created
+
+            override val id: String get() = idOf(current)
 
             override val canRename: Boolean get() = renames
 
@@ -66,23 +74,28 @@ private class MemoryTarget : BackupTarget {
                 failRename?.let { throw it }
                 check(to !in files) { "Renombrar encima de $to" }
                 files[to] = files.remove(current) ?: throw FileNotFoundException()
+                ids.remove(current)
+                ids[to] = "doc-${nextId++}"
                 current = to
             }
 
             override fun delete() {
                 files.remove(current)
+                ids.remove(current)
             }
         }
     }
 
-    override fun list(prefix: String): List<String> {
+    override fun list(prefix: String): List<BackupEntry> {
         failList?.let { throw it }
-        return files.keys.filter { it.startsWith(prefix) }
+        return files.keys.filter { it.startsWith(prefix) }.map { BackupEntry(idOf(it), it) }
     }
 
-    override fun delete(name: String) {
+    override fun delete(id: String) {
         failDelete?.let { throw it }
+        val name = ids.entries.firstOrNull { it.value == id }?.key ?: return
         files.remove(name)
+        ids.remove(name)
     }
 }
 
@@ -109,6 +122,9 @@ class AutoBackupTest {
     /** When the last copy was written, as Ajustes keeps it: by default after any change to the vault file. */
     private var lastCopy: Long? = Long.MAX_VALUE
 
+    /** The copies made, as Ajustes keeps them from each result (only those to the folder still chosen). */
+    private var copies: List<String> = emptyList()
+
     private fun TestScope.auto(store: VaultStore, target: BackupTarget?, keep: () -> Int = { 5 }): AutoBackup =
         AutoBackup(
             store,
@@ -118,7 +134,12 @@ class AutoBackupTest {
             now = { clock },
             keep = keep,
             lastCopyAt = { lastCopy },
-            onResult = { results += it; errors += it.error },
+            copies = { copies },
+            onResult = { r ->
+                results += r
+                errors += r.error
+                if (r.folder == folder) r.copies?.let { copies = it }
+            },
             zone = ZoneOffset.UTC,
         ).also { runCurrent() }
 
@@ -201,15 +222,45 @@ class AutoBackupTest {
         assertTrue(errors.all { it == null })
     }
 
-    @Test fun rotationNeverDeletesTheNewestEvenWithTheClockBack() = runTest {
+    @Test fun rotationGoesByWhenCopiesWereMadeEvenWithTheClockBack() = runTest {
         val s = opened()
         val target = MemoryTarget()
-        listOf("20300101-000000", "20300102-000000", "20300103-000000").forEach { target.files["seguridad-auto-$it.sgbak"] = byteArrayOf(1) }
         auto(s, target, keep = { 3 })
-        s.upsert(note("1"))
+        clock += 4L * 365 * 24 * 3_600_000 // Ahead (2030), then back to the right time.
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("$i"))
+            settle()
+        }
+        clock = 1_793_008_800_000L
+        s.upsert(note("x"))
         settle()
-        assertTrue(target.files.containsKey("seguridad-auto-20261026-100000.sgbak"))
-        assertEquals(3, target.files.keys.count { name.matches(it) })
+        // The copy just written always stays, then the newest made: the oldest made (the first 2030 one) goes.
+        val left = target.files.keys.filter { name.matches(it) }.sorted()
+        assertEquals(listOf("seguridad-auto-20261026-100000.sgbak", "seguridad-auto-20301025-100200.sgbak", "seguridad-auto-20301025-100300.sgbak"), left)
+    }
+
+    @Test fun filesLeftByAnotherAppWithLaterDatesNeverDisplaceTheRealCopies() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        auto(s, target, keep = { 3 })
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("$i"))
+            settle()
+        }
+        val genuine = target.files.keys.filter { name.matches(it) }.toSet()
+        assertEquals(3, genuine.size)
+        // Another app that can write to the folder leaves two with the latest possible dates, and a copy of 1.2.0's.
+        val planted = listOf("seguridad-auto-99991231-235958.sgbak", "seguridad-auto-99991231-235959.sgbak", "seguridad-auto-20200101-000000.sgbak")
+        planted.forEach { target.files[it] = byteArrayOf(1) }
+        clock += 60_000
+        s.upsert(note("3"))
+        settle()
+        // Only the oldest real copy went: the planted files neither take the kept places nor get deleted.
+        val oldest = genuine.min()
+        assertEquals(genuine - oldest + "seguridad-auto-20261026-100400.sgbak" + planted, target.files.keys.toSet())
+        assertTrue(errors.all { it == null })
     }
 
     @Test fun unknownKeepFallsBackToFive() = runTest {
@@ -563,15 +614,28 @@ class AutoBackupTest {
     @Test fun oldCopiesNotDeletedStillCountsAsWritten() = runTest {
         val s = opened()
         val target = MemoryTarget()
-        repeat(6) { target.files["seguridad-auto-2020010$it-000000.sgbak"] = byteArrayOf(1) }
+        auto(s, target, keep = { 3 })
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("$i"))
+            settle()
+        }
         target.failDelete = IOException("borrar")
-        auto(s, target)
-        s.upsert(note("1"))
+        clock += 60_000
+        s.upsert(note("3"))
         settle()
-        val r = results.single()
+        val r = results.last()
         assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, r.error)
-        assertEquals(1_793_008_800_000L, r.writtenAt) // The copy exists: Ajustes shows its date.
-        assertTrue(target.files.containsKey("seguridad-auto-20261026-100000.sgbak"))
+        assertEquals(clock, r.writtenAt) // The copy exists: Ajustes shows its date.
+        assertTrue(target.files.containsKey("seguridad-auto-20261026-100400.sgbak"))
+        // The one that could not be deleted is still listed as ours, and goes at the next copy.
+        target.failDelete = null
+        clock += 60_000
+        s.upsert(note("4"))
+        settle()
+        assertNull(errors.last())
+        assertEquals(3, target.files.keys.count { name.matches(it) })
+        assertEquals(3, copies.size)
     }
 
     @Test fun failedCopyIsNotWritten() = runTest {

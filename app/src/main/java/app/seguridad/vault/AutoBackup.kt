@@ -38,14 +38,21 @@ interface BackupTarget {
      */
     suspend fun create(name: String): BackupFile
 
-    /** The names of the files in the folder that start with [prefix]. */
-    fun list(prefix: String): List<String>
+    /** The files in the folder whose names start with [prefix]. */
+    fun list(prefix: String): List<BackupEntry>
 
-    fun delete(name: String)
+    /** Deletes the file whose [BackupEntry.id] is [id]; nothing if there is none. */
+    fun delete(id: String)
 }
+
+/** A file in a [BackupTarget]: [id] is the provider's handle for it (on Android, its document id), [name] what it is called. */
+data class BackupEntry(val id: String, val name: String)
 
 /** A file [BackupTarget.create] made. */
 interface BackupFile {
+    /** Its [BackupEntry.id] as it is now (a rename may change it). */
+    val id: String
+
     /** False when the provider says it cannot rename it: the copy is then written straight under its real name. */
     val canRename: Boolean get() = true
 
@@ -65,8 +72,7 @@ const val AUTO_BACKUP_PREFIX = "seguridad-auto-"
 private const val SUFFIX = ".sgbak"
 private const val TEMP_SUFFIX = ".tmp"
 
-/** Exactly the names this class writes: the only files it ever deletes. */
-private val COPY_NAME = Regex("seguridad-auto-\\d{8}-\\d{6}\\.sgbak")
+/** The temporary names this class writes: the only files it deletes by name (cut copies, never complete ones). */
 private val TEMP_NAME = Regex("seguridad-auto-\\d{8}-\\d{6}\\.sgbak\\.tmp")
 private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 
@@ -82,9 +88,10 @@ const val AUTO_BACKUP_OLD_NOT_DELETED = "La copia automática se hizo, pero no s
 /**
  * How a copy went: [folder] is the one it was made for (as [AutoBackup]'s folder gave it), [writtenAt] when the copy
  * was taken (its name's time) if it was written, even when [error] says its old copies could not be deleted; [error]
- * null when all went well.
+ * null when all went well. [copies] is, after a written copy, the ids of this app's copies in that folder, oldest
+ * first, to keep for the next rotation; null when nothing was written (the list stays as it was).
  */
-data class AutoBackupResult(val folder: String, val writtenAt: Long?, val error: String?)
+data class AutoBackupResult(val folder: String, val writtenAt: Long?, val error: String?, val copies: List<String>? = null)
 
 /**
  * Writes a `seguridad-backup` copy ([VaultStore.exportBackup], still encrypted with the master password) to the
@@ -93,8 +100,9 @@ data class AutoBackupResult(val folder: String, val writtenAt: Long?, val error:
  * else counts as 5). It is first written under a `.tmp` name and only renamed once complete, so the folder never
  * holds a cut copy with the real name. A provider that cannot rename gets it written straight under the real name
  * (deleted if that fails), the only way to have a copy there at all. A name already in the folder is never reused (the next free second is), so
- * no complete copy is deleted to make room. It only ever deletes files with exactly those names, never the copy
- * just written, and only after a copy was written and checked.
+ * no complete copy is deleted to make room. It only ever deletes the copies it made itself ([copies], by id, never by
+ * name alone) and temporary files with exactly its names, never the copy just written, and only after a copy was
+ * written and checked.
  *
  * Copies are only made from an open vault, where [VaultStore.exportBackup] checks every attachment against its
  * SHA-256: a copy due while the vault is locked waits, and is made as soon as the vault is opened again. So that
@@ -116,7 +124,10 @@ class AutoBackup(
     private val keep: () -> Int,
     /** When the last copy to the chosen folder was taken (epoch ms); null if none yet. */
     private val lastCopyAt: () -> Long?,
-    private val onResult: (AutoBackupResult) -> Unit,
+    /** The ids of the copies this class made in the chosen folder, oldest first, as [AutoBackupResult.copies] last gave them. */
+    private val copies: () -> List<String>,
+    /** Keeps the result before the next copy starts (it holds [AutoBackupResult.copies]); must not throw. */
+    private val onResult: suspend (AutoBackupResult) -> Unit,
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
     private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -157,12 +168,15 @@ class AutoBackup(
             if (store.state.value !is VaultState.Unlocked) return defer()
             val at = now()
             val written = copyTo(target, at) ?: return
-            val rotated = try {
-                rotate(target, written)
+            // Read after the copy: an import that ran meanwhile (it waits for the vault, as the copy does) has already
+            // forgotten the replaced vault's copies, so they are never put back on the list.
+            val owned = copies()
+            val (rotated, mine) = try {
+                rotate(target, owned, written)
             } catch (e: Exception) {
-                AUTO_BACKUP_OLD_NOT_DELETED // The copy is there all the same.
+                AUTO_BACKUP_OLD_NOT_DELETED to (owned + written.id) // The copy is there all the same.
             }
-            onResult(AutoBackupResult(uri, at, rotated))
+            onResult(AutoBackupResult(uri, at, rotated, mine))
         } catch (e: CancellationException) {
             // Only this class's scope being cancelled ends the copies; one thrown by the folder is just a failure.
             currentCoroutineContext().ensureActive()
@@ -179,24 +193,28 @@ class AutoBackup(
     }
 
     /**
-     * Writes the copy under its temporary name, then renames it; its name, or null if there was nothing to copy.
+     * Writes the copy under its temporary name, then renames it; the copy, or null if there was nothing to copy.
      * If the provider cannot rename, the copy is written again straight under its name.
      */
-    private suspend fun copyTo(folder: BackupTarget, now: Long): String? {
-        val name = freeName(folder.list(AUTO_BACKUP_PREFIX).toSet(), now)
+    private suspend fun copyTo(folder: BackupTarget, now: Long): BackupEntry? {
+        val name = freeName(folder.list(AUTO_BACKUP_PREFIX).mapTo(HashSet()) { it.name }, now)
         val temp = folder.create(name + TEMP_SUFFIX)
         if (temp.canRename) {
             if (!fill(temp)) return null
-            try {
+            val renamed = try {
                 temp.rename(name)
-                return name
+                true
             } catch (e: Exception) {
                 discard(temp) // Refused (some providers cannot rename): written again below.
+                false
             }
+            // Outside the try: once renamed, the complete copy is never discarded, whatever reading its id does.
+            if (renamed) return BackupEntry(temp.id, name)
         } else {
             discard(temp)
         }
-        return if (fill(folder.create(name))) name else null
+        val direct = folder.create(name)
+        return if (fill(direct)) BackupEntry(direct.id, name) else null
     }
 
     /** Writes the copy to [file]; false if there was nothing to copy. On false or a failure, [file] is deleted. */
@@ -234,22 +252,34 @@ class AutoBackup(
         }
     }
 
-    /** Deletes the oldest copies beyond [keep] and leftover temporary ones; null if all went well. */
-    private fun rotate(folder: BackupTarget, newest: String): String? {
-        val names = folder.list(AUTO_BACKUP_PREFIX)
+    /**
+     * Deletes the oldest of this class's own copies beyond [keep], and leftover temporary ones. Returns the error (null
+     * if all went well) and the ids of its copies still in the folder, oldest first, [newest] last.
+     *
+     * Its own copies are only those in [owned], the documents it created, by id: never a file by its name alone, as
+     * another app that can write to the folder could leave some with a later date in the name to have the real ones
+     * deleted. They are ordered by when they were made, not by the date in their names, so a clock set back changes
+     * nothing either. Copies made before 1.2.1 are not on the list: they stay until deleted by hand.
+     */
+    private fun rotate(folder: BackupTarget, owned: List<String>, newest: BackupEntry): Pair<String?, List<String>> {
+        val present = folder.list(AUTO_BACKUP_PREFIX)
+        val ids = present.mapTo(HashSet()) { it.id }
         val kept = keep().takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: AUTO_BACKUP_KEEP_DEFAULT
-        // The name sorts by date (fixed width): the one just written always stays, plus the newest others.
-        val old = names.filter { COPY_NAME.matches(it) && it != newest }.sortedDescending().drop(kept - 1)
-        val leftovers = names.filter { TEMP_NAME.matches(it) }
+        // The one just written always stays, plus the newest others; a copy already gone is forgotten.
+        val others = owned.filter { it in ids && it != newest.id }.distinct()
+        val old = others.dropLast(kept - 1)
+        val leftovers = present.filter { TEMP_NAME.matches(it.name) }.map { it.id }
+        val notDeleted = ArrayList<String>()
         var failed = false
-        for (n in old + leftovers) {
+        for (id in old + leftovers) {
             try {
-                folder.delete(n)
+                folder.delete(id)
             } catch (e: Exception) {
                 failed = true
+                if (id in old) notDeleted += id // Still ours: tried again next time.
             }
         }
-        return if (failed) AUTO_BACKUP_OLD_NOT_DELETED else null
+        return (if (failed) AUTO_BACKUP_OLD_NOT_DELETED else null) to (notDeleted + others.takeLast(kept - 1) + newest.id)
     }
 
     private fun messageFor(e: Throwable): String = when (e) {

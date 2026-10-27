@@ -114,6 +114,21 @@ class BackupTest {
         assertTrue("No deja nada en el directorio temporal", tempDir.listFiles().isNullOrEmpty())
     }
 
+    @Test fun anAttachmentWhoseFileIsNotTheSizeItsEntryDeclaresIsRefused() = runTest {
+        val a = phoneA()
+        val parts = entriesOf(a.backup())
+        // Rewritten with the master password (as someone holding it could): the 70 000-byte attachment declared as 0,
+        // so it would not count towards the 50 MB in all. Its file and SHA-256 are untouched.
+        val file = VaultCrypto.decodeFile(parts.single { it.first == BACKUP_VAULT }.second.decodeToString())
+        val dek = VaultCrypto.unlock(file, master.toCharArray())
+        val lying = VaultCrypto.read(file, dek).map { e -> e.copy(attachments = e.attachments.map { if (it.size == 70_000L) it.copy(size = 0) else it }) }
+        val json = VaultCrypto.encodeFile(VaultCrypto.write(file, dek, lying)).toByteArray()
+        val zip = zipOf(parts.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json else it })
+        val b = store(phone("b")).apply { load() }
+        assertImportFails(b, zip, "La copia está incompleta o dañada: falta o no coincide el adjunto «pasaporte.jpg»")
+        assertEquals(VaultState.NoVault, b.state.value)
+    }
+
     @Test fun roundTripWithAttachments() = runTest {
         val a = phoneA()
         val zip = a.backup()
