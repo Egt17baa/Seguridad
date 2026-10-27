@@ -126,6 +126,25 @@ class JpegTest {
         }
     }
 
+    /** The Dublin Core namespace can be bound to any prefix. */
+    @Test fun dublinCoreUnderAnyPrefixIsAuthorRights() {
+        val ns = "xmlns:foo='http://purl.org/dc/elements/1.1/'"
+        for (inner in listOf("$ns><foo:creator>Autora</foo:creator></rdf:Description", "$ns foo:rights='Nadie'", "xmlns:b = \"http://purl.org/dc/elements/1.1/\" b:creator='x'")) {
+            val input = concat(SOI, TestImages.xmp(TestImages.xmpPacket(inner)), baseline.body(), EOI)
+            assertEquals(inner, setOf(AUTHOR_RIGHTS, XMP_COMMENTS), Jpeg.inspect(input).found)
+        }
+        val titleOnly = concat(SOI, TestImages.xmp(TestImages.xmpPacket("$ns foo:title='x'")), baseline.body(), EOI)
+        assertEquals(setOf(XMP_COMMENTS), Jpeg.inspect(titleOnly).found)
+    }
+
+    @Test fun standaloneMarkersOutsideAScanAreOther() {
+        for (m in listOf(0x01, 0xD0, 0xD7)) {
+            val input = concat(SOI, bytes(0xFF, m), baseline.body(), EOI)
+            assertEquals(setOf(OTHER), Jpeg.inspect(input).found)
+            assertArrayEquals(TestImages.plainJpeg(), Jpeg.clean(input))
+        }
+    }
+
     @Test fun unknownSegmentsAreOtherAndDropped() {
         val input = concat(
             SOI, seg(0xE3, ascii("fabricante")), seg(0xEC, ascii("Ducky")), seg(0xE1, ascii("desconocido")),
@@ -309,6 +328,8 @@ class JpegTest {
                 val r = Jpeg.inspect(out)
                 assertTrue("iteración $i: ${r.found}", (r.found - ICC_KEPT).isEmpty())
                 assertTrue(Jpeg.clean(out).contentEquals(out))
+                assertTrue("iteración $i: estructura", Jpeg.isCleanOutput(out))
+                PhotoCleaner.verify(PhotoFormat.JPEG, out)
             } catch (e: PhotoFailure) {
                 assertEquals(PHOTO_DAMAGED, e.message)
             }

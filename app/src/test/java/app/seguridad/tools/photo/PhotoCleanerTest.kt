@@ -8,8 +8,10 @@ import app.seguridad.tools.photo.TestImages.bytes
 import app.seguridad.tools.photo.TestImages.concat
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Format detection, the dispatch and the check after cleaning. */
@@ -67,6 +69,8 @@ class PhotoCleanerTest {
     @Test fun checkAfterCleaningFailsClosed() {
         PhotoCleaner.verify(PhotoFormat.JPEG, TestImages.plainJpeg())
         PhotoCleaner.verify(PhotoFormat.JPEG, concat(SOI, TestImages.icc(), baseline.body(), EOI))
+        PhotoCleaner.verify(PhotoFormat.JPEG, concat(SOI, TestImages.orientationApp1(6), TestImages.icc(), TestImages.adobe(), baseline.body(), EOI))
+        for (o in 2..8) PhotoCleaner.verify(PhotoFormat.JPEG, concat(SOI, TestImages.orientationApp1(o), baseline.body(), EOI))
         val dirty = listOf(
             concat(SOI, TestImages.com("x"), baseline.body(), EOI),
             concat(SOI, TestImages.fullExif(), baseline.body(), EOI),
@@ -74,8 +78,30 @@ class PhotoCleanerTest {
             concat(TestImages.plainJpeg(), TestImages.plainJpeg()),
             concat(SOI, baseline.body()),
             ascii("GIF89a"),
+            // (a) JFIF with a 0x0 thumbnail and bytes hidden after it: inspect reports nothing.
+            concat(SOI, TestImages.seg(0xE0, concat(ascii("JFIF"), bytes(0, 1, 1, 0, 0, 1, 0, 1, 0, 0), ascii("secreto"))), baseline.body(), EOI),
+            // (b) EXIF with an empty IFD0, and the canonical Orientation APP1 with bytes appended.
+            concat(SOI, TestImages.exifSegment(TestImages.Tiff().build(emptyList())), baseline.body(), EOI),
+            concat(SOI, TestImages.seg(0xE1, concat(TestImages.orientationApp1(6).copyOfRange(4, 36), ascii("secreto"))), baseline.body(), EOI),
+            // (c) APP14 Adobe longer than its 12 bytes.
+            concat(SOI, TestImages.seg(0xEE, concat(ascii("Adobe"), bytes(0, 100, 0, 0, 0, 0, 1), ascii("secreto"))), baseline.body(), EOI),
+            // (d) Standalone RST and TEM markers at the top level.
+            concat(SOI, bytes(0xFF, 0xD0), baseline.body(), EOI),
+            concat(SOI, bytes(0xFF, 0x01), baseline.body(), EOI),
+            // Fill bytes: clean never writes them.
+            concat(SOI, bytes(0xFF), TestImages.icc(), baseline.body(), EOI),
+            // Orientation 1 is never written, and an APP1 out of the canonical bytes is refused.
+            concat(SOI, TestImages.orientationApp1(1), baseline.body(), EOI),
+            // SOS before SOF, and no SOS at all.
+            concat(SOI, baseline.sos, baseline.scan, *baseline.tables.toTypedArray(), EOI),
+            concat(SOI, *baseline.tables.toTypedArray(), EOI),
         )
-        for (d in dirty) fails(PHOTO_DAMAGED) { PhotoCleaner.verify(PhotoFormat.JPEG, d) }
+        for ((i, d) in dirty.withIndex()) {
+            fails(PHOTO_DAMAGED) { PhotoCleaner.verify(PhotoFormat.JPEG, d) }
+            // The structural check alone refuses each one, without help from inspect or idempotence.
+            assertFalse("caso $i", Jpeg.isCleanOutput(d))
+        }
+        assertTrue(Jpeg.isCleanOutput(concat(SOI, TestImages.orientationApp1(6), TestImages.icc(), TestImages.adobe(), baseline.body(), EOI)))
     }
 
     @Test fun messagesAreTheAnnexTexts() {

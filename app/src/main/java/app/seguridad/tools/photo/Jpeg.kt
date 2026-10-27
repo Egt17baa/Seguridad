@@ -32,9 +32,6 @@ object Jpeg {
         return out
     }
 
-    /** Offset just past the first top-level EOI: the cleaned file must end exactly there. */
-    internal fun imageEnd(bytes: ByteArray): Int = parse(bytes).imageEnd
-
     // --- Parsing ---------------------------------------------------------------------------
 
     /** A run of the input to copy, or replacement bytes. */
@@ -42,7 +39,7 @@ object Jpeg {
         val length get() = bytes?.size ?: (end - start)
     }
 
-    private class Parsed(val report: PhotoReport, val pieces: List<Piece>, val imageEnd: Int)
+    private class Parsed(val report: PhotoReport, val pieces: List<Piece>)
 
     private fun damaged(): Nothing = throw PhotoFailure(PHOTO_DAMAGED)
 
@@ -68,7 +65,7 @@ object Jpeg {
             when (m) {
                 0xD9 -> { imageEnd = p; break }
                 0x00, 0xD8 -> damaged()
-                0x01, in 0xD0..0xD7 -> continue // standalone markers with no length: dropped
+                0x01, in 0xD0..0xD7 -> { found += Found.OTHER; continue } // standalone, no length: dropped
             }
             if (p + 2 > n) damaged()
             val len = (u8(p) shl 8) or u8(p + 1)
@@ -91,7 +88,7 @@ object Jpeg {
                 in 0xE0..0xEF -> {
                     val keep = app(b, m, payload, segEnd, found)
                     if (keep != null) pieces += keep
-                    if (m == 0xE1 && startsWith(b, payload, segEnd, EXIF)) {
+                    if (m == 0xE1 && Bytes.startsWith(b, payload, segEnd, EXIF)) {
                         // Every EXIF segment is reported; the first one gives orientation and GPS.
                         val info = Exif.read(b, payload + 6, segEnd)
                         found += info.found
@@ -105,7 +102,7 @@ object Jpeg {
 
         if (hasTrailingData(b, imageEnd)) found += Found.MOTION_VIDEO
         val report = PhotoReport(PhotoFormat.JPEG, found.toSet(), exif?.gps, exif?.orientation ?: 1)
-        return Parsed(report, pieces, imageEnd)
+        return Parsed(report, pieces)
     }
 
     /**
@@ -135,7 +132,7 @@ object Jpeg {
 
     /** Reports an APPn segment and returns the piece to keep, if it is one of the two kept. */
     private fun app(b: ByteArray, m: Int, payload: Int, end: Int, found: MutableSet<Found>): Piece? {
-        fun has(prefix: ByteArray) = startsWith(b, payload, end, prefix)
+        fun has(prefix: ByteArray) = Bytes.startsWith(b, payload, end, prefix)
         when (m) {
             0xE0 -> when {
                 has(JFIF) -> {
@@ -157,10 +154,10 @@ object Jpeg {
                 has(MPF) -> found += Found.MOTION_VIDEO
                 else -> found += Found.OTHER
             }
-            0xEB -> found += if (has(JP) && contains(b, payload, minOf(end, payload + 32), JUMB)) Found.C2PA else Found.OTHER
+            0xEB -> found += if (has(JP) && Bytes.contains(b, payload, minOf(end, payload + 32), JUMB)) Found.C2PA else Found.OTHER
             0xED -> if (has(PHOTOSHOP)) {
                 found += Found.XMP_COMMENTS
-                if (contains(b, payload, end, IPTC_BYLINE) || contains(b, payload, end, IPTC_COPYRIGHT)) found += Found.AUTHOR_RIGHTS
+                if (Bytes.contains(b, payload, end, IPTC_BYLINE) || Bytes.contains(b, payload, end, IPTC_COPYRIGHT)) found += Found.AUTHOR_RIGHTS
             } else {
                 found += Found.OTHER
             }
@@ -181,11 +178,62 @@ object Jpeg {
     private fun xmpFlags(b: ByteArray, from: Int, to: Int): Set<Found> {
         val text = String(b, from, to - from, Charsets.ISO_8859_1)
         val f = HashSet<Found>()
-        if (XMP_AUTHOR.any { it in text }) f += Found.AUTHOR_RIGHTS
+        if (XMP_AUTHOR.any { it in text } || dublinCoreAuthor(text)) f += Found.AUTHOR_RIGHTS
         if (XMP_GPS.any { it in text }) f += Found.GPS
         if (XMP_DEVICE.any { it in text }) f += Found.DEVICE
         if (XMP_MOTION.any { it in text }) f += Found.MOTION_VIDEO
         return f
+    }
+
+    /** creator or rights under whatever prefix the XMP binds to the Dublin Core namespace. */
+    private fun dublinCoreAuthor(text: String): Boolean {
+        if (DC_NS !in text) return false
+        return DC_PREFIX.findAll(text).any { m ->
+            val prefix = m.groupValues[1]
+            "$prefix:creator" in text || "$prefix:rights" in text
+        }
+    }
+
+    /**
+     * Structural whitelist check of a cleaned file, independent of what [inspect] knows how to
+     * report: SOI; then only the canonical Orientation APP1, APP2 ICC_PROFILE, the 12-byte
+     * APP14 Adobe, DQT, DHT, DRI, SOFn (not C4, C8, CC), DAC and SOS with its scan data; at
+     * least one SOF before the first SOS; and a final EOI with nothing after. No fill bytes,
+     * no standalone markers, nothing else: exactly the shapes [clean] writes.
+     */
+    internal fun isCleanOutput(b: ByteArray): Boolean {
+        val n = b.size
+        fun u8(i: Int) = b[i].toInt() and 0xFF
+        if (n < 4 || u8(0) != 0xFF || u8(1) != 0xD8) return false
+        val canonicalApp1 = (2..8).map { orientationApp1(it) }
+        var sawSof = false
+        var sawSos = false
+        var p = 2
+        while (true) {
+            if (p + 2 > n || u8(p) != 0xFF) return false
+            val m = u8(p + 1)
+            if (m == 0xD9) return sawSos && p + 2 == n
+            if (p + 4 > n) return false
+            val len = (u8(p + 2) shl 8) or u8(p + 3)
+            val end = p + 2 + len
+            if (len < 2 || end > n) return false
+            val ok = when (m) {
+                0xDB, 0xC4, 0xDD, 0xCC -> true
+                in 0xC0..0xCF -> if (m == 0xC8) false else { sawSof = true; true }
+                0xE1 -> p == 2 && canonicalApp1.any { Bytes.startsWith(b, p, end, it) && end - p == it.size }
+                0xE2 -> Bytes.startsWith(b, p + 4, end, ICC)
+                0xEE -> len == ADOBE_PAYLOAD + 2 && Bytes.startsWith(b, p + 4, end, ADOBE)
+                0xDA -> sawSof
+                else -> false
+            }
+            if (!ok) return false
+            p = if (m == 0xDA) {
+                sawSos = true
+                try { scanEnd(b, end) } catch (e: PhotoFailure) { return false }
+            } else {
+                end
+            }
+        }
     }
 
     /** Big-endian APP1 with a TIFF holding one IFD0 entry (0x0112, SHORT, 1, value) and no IFD1. */
@@ -224,22 +272,27 @@ object Jpeg {
     private val XMP_GPS = listOf("GPSLatitude", "GPSLongitude")
     private val XMP_DEVICE = listOf("tiff:Make", "tiff:Model", "SerialNumber")
     private val XMP_MOTION = listOf("MotionPhoto", "MicroVideo")
+    private const val DC_NS = "http://purl.org/dc/elements/1.1/"
+    private val DC_PREFIX = Regex("""xmlns:([A-Za-z_][A-Za-z0-9_.-]{0,63})\s{0,16}=\s{0,16}["']http://purl\.org/dc/elements/1\.1/["']""")
 }
 
-internal fun startsWith(b: ByteArray, from: Int, end: Int, prefix: ByteArray): Boolean {
-    if (from < 0 || end > b.size || end - from < prefix.size) return false
-    for (i in prefix.indices) if (b[from + i] != prefix[i]) return false
-    return true
-}
-
-internal fun contains(b: ByteArray, from: Int, end: Int, needle: ByteArray): Boolean {
-    val last = minOf(end, b.size) - needle.size
-    var i = maxOf(from, 0)
-    while (i <= last) {
-        if (startsWith(b, i, i + needle.size, needle)) return true
-        i++
+/** Bounds-checked byte comparisons shared by the container readers. */
+internal object Bytes {
+    fun startsWith(b: ByteArray, from: Int, end: Int, prefix: ByteArray): Boolean {
+        if (from < 0 || end > b.size || end - from < prefix.size) return false
+        for (i in prefix.indices) if (b[from + i] != prefix[i]) return false
+        return true
     }
-    return false
+
+    fun contains(b: ByteArray, from: Int, end: Int, needle: ByteArray): Boolean {
+        val last = minOf(end, b.size) - needle.size
+        var i = maxOf(from, 0)
+        while (i <= last) {
+            if (startsWith(b, i, i + needle.size, needle)) return true
+            i++
+        }
+        return false
+    }
 }
 
 internal class ExifInfo(val found: Set<Found>, val gps: Pair<Double, Double>?, val orientation: Int)
