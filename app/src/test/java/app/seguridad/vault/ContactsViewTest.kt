@@ -94,13 +94,14 @@ class ContactsViewTest {
                 assertFalse("«$accusation» en «$text»", text.contains(accusation))
             }
         }
-        // Con mi identidad no hay nombre guardado: «tu identidad».
+        // T13-3: con mi identidad no hay duda de cuál es la copia (la X-Wing es mía): texto propio, sin «compara con las dos personas».
         val mine = incomingCardNotice(CardCheck.SharedKem(person().entry, impostor), viaQr = true)
         assertEquals(
-            "Esta tarjeta usa la misma clave de cifrado que tu identidad, con otra firma. Una de las dos es falsa: compara la " +
-                "huella con las dos personas, en persona o por llamada. No se guarda.",
+            "Esta tarjeta usa la clave de cifrado de tu identidad con otra firma: es una copia falsa de tu clave. No se guarda.",
             mine.body,
         )
+        assertFalse(mine.body.contains("compara la huella con las dos personas"))
+        assertEquals(NoticeLevel.DANGER, mine.level)
         assertNull(mine.saveLabel)
         assertEquals(notice.title, mine.title)
     }

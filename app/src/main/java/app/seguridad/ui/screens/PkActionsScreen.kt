@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.seguridad.SeguridadApp
@@ -178,6 +179,7 @@ private fun SenderText(line: SenderLine) {
     }
     // Plain Text: a name is never read as a link or markdown.
     Text(line.text, color = color, style = MaterialTheme.typography.titleMedium)
+    line.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
 @Composable
@@ -297,7 +299,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
                 onValueChange = { text = it; output = null; message = null },
                 label = { Text("Texto a cifrar") },
                 minLines = 4,
-                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -466,7 +468,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
                 onValueChange = { text = it; output = null; message = null },
                 label = { Text("Texto a firmar") },
                 minLines = 4,
-                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(
@@ -583,7 +585,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                     context.contentResolver.openOutputStream(dest, "wt")!!.use { out -> saveReceivedFile(received, out, check) }
                 }
                 // Only now, with everything done, the sender is shown (the signature is at the end of the file).
-                fileLine = senderLine(received.sender)
+                fileLine = senderLine(received.sender, addressedToMe = true)
                 message = true to "Archivo descifrado y guardado."
             } catch (e: CancellationException) {
                 discardDocument(context, dest)
@@ -620,6 +622,9 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 textUri = chosen.textCandidate
                 textName = chosen.textCandidateName
                 symmetric = picked == PickedFile.Symmetric
+                // A signature file is checked against the file, not the text: the earlier text result (with its own
+                // sender line) would sit next to the one for the signature.
+                if (picked is PickedFile.Signature) textResult = null
                 val kind = when (picked) {
                     PickedFile.Encrypted -> PickedKind.ENCRYPTED
                     is PickedFile.Signature -> PickedKind.SIGNATURE
@@ -627,6 +632,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 }
                 if (picked is PickedFile.Text) {
                     pasted = picked.text
+                    fileLine = null
                     textResult = withContext(Dispatchers.Default) { openReceivedText(picked.text, entries) }
                 }
                 prompt = if (picked is PickedFile.Symmetric || picked is PickedFile.Text) {
@@ -686,6 +692,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 onClick = {
                     val text = pasted
                     message = null
+                    fileLine = null
                     textResult = null
                     job = scope.launchBusy({ busy = it }) {
                         try {
@@ -782,13 +789,14 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 onClick = {
                     message = null
                     fileLine = null
+                    textResult = null
                     job = scope.launchBusy({ busy = it }) {
                         try {
                             val sender = withContext(Dispatchers.Default) {
                                 val check = cancellationCheck()
                                 context.contentResolver.openInputStream(signed)!!.use { verifyFileAgainst(it.buffered(), sig, entries, check) }
                             }
-                            fileLine = senderLine(sender)
+                            fileLine = senderLine(sender, addressedToMe = false)
                             message = true to "La firma es válida: el archivo no ha cambiado."
                         } catch (e: CancellationException) {
                             throw e

@@ -105,6 +105,8 @@ data class CardNotice(
  *   cifrado. El aviso es **neutro**: no dice cuál de las dos es la falsa, porque quien publica una tarjeta con una clave
  *   ajena puede haber llegado antes, y entonces la que se rechaza es la legítima. Desde que la firma del remitente cubre
  *   la identidad entera del destinatario, a quien copia la clave no le sirve para leer ni para hacerse pasar por nadie.
+ *   **Con mi propia identidad** no hay neutralidad que guardar (la clave de cifrado es mía y solo yo tengo su clave
+ *   privada): el texto dice que es una copia falsa de mi clave.
  * - [CardCheck.KeysChanged]: aviso, y solo «Guardar como contacto nuevo»: nunca sustituye al antiguo.
  *
  * Los nombres que salen de aquí son los **guardados** por el usuario (`VaultEntry.title`); el que trae la tarjeta no se usa.
@@ -135,8 +137,13 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
     is CardCheck.SharedKem -> CardNotice(
         NoticeLevel.DANGER,
         "Clave de cifrado repetida",
-        "Esta tarjeta usa la misma clave de cifrado que ${ownerName(check.entry)}, con otra firma. Una de las dos es falsa: " +
-            "compara la huella con las dos personas, en persona o por llamada. No se guarda.",
+        if (check.entry.type == EntryType.IDENTITY) {
+            // La X-Wing es mía y solo yo tengo su clave privada: no hay duda de cuál es la copia.
+            "Esta tarjeta usa la clave de cifrado de tu identidad con otra firma: es una copia falsa de tu clave. No se guarda."
+        } else {
+            "Esta tarjeta usa la misma clave de cifrado que ${check.entry.title}, con otra firma. Una de las dos es falsa: " +
+                "compara la huella con las dos personas, en persona o por llamada. No se guarda."
+        },
         null,
     )
     is CardCheck.KeysChanged -> CardNotice(
@@ -171,9 +178,6 @@ fun savedFingerprint(check: CardCheck): String? = try {
 } catch (e: CryptoFailure) {
     null
 }
-
-/** El nombre con el que se habla de la entrada que comparte la clave: el guardado del contacto, o «tu identidad». */
-private fun ownerName(entry: VaultEntry): String = if (entry.type == EntryType.IDENTITY) "tu identidad" else entry.title
 
 /**
  * El nombre con el que se rellena el campo al guardar [check]: el de la tarjeta si es nueva; con las claves cambiadas, el

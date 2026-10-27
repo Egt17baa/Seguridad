@@ -81,23 +81,60 @@ class PkActionsTest {
     // ---- El remitente ----
 
     @Test fun elRemitenteSeDiceConLosTextosDelDiseno() {
-        assertEquals(SenderLine("Firmado por ti", TrustLevel.GOOD), senderLine(Sender.Me))
-        assertEquals(SenderLine("De Ana (verificado)", TrustLevel.GOOD), senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = true))))
+        assertEquals(SenderLine("Firmado por ti", TrustLevel.GOOD), senderLine(Sender.Me, addressedToMe = true))
+        assertEquals(
+            SenderLine("De Ana (verificado)", TrustLevel.GOOD),
+            senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = true)), addressedToMe = true),
+        )
         assertEquals(
             SenderLine("De Ana, sin verificar: compara la huella", TrustLevel.CAUTION),
-            senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = false))),
+            senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = false)), addressedToMe = true),
         )
-        assertEquals(SenderLine("Firmado por una clave que no está en tus contactos", TrustLevel.WARNING), senderLine(Sender.UnknownKey))
-        assertEquals(SenderLine("Sin firmar: cualquiera pudo enviarlo", TrustLevel.WARNING), senderLine(Sender.Unsigned))
+        assertEquals(
+            SenderLine("Firmado por una clave que no está en tus contactos", TrustLevel.WARNING),
+            senderLine(Sender.UnknownKey, addressedToMe = true),
+        )
+        assertEquals(SenderLine("Sin firmar: cualquiera pudo enviarlo", TrustLevel.WARNING), senderLine(Sender.Unsigned, addressedToMe = true))
+    }
+
+    /** T13-2: una firma pública (SGS1:, .sgsig) no nombra destinatario: nunca «De …», y siempre la nota de reenvío. */
+    @Test fun unaFirmaDeUnContactoVerificadoDiceFirmadoPorYNuncaDe() {
+        val line = senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = true)), addressedToMe = false)
+        assertEquals(SenderLine("Firmado por Ana (verificado)", TrustLevel.GOOD, SIGNATURE_FORWARD_NOTE), line)
+        assertEquals("Una firma dice quién lo firmó, no a quién iba dirigido.", line.note)
+        assertFalse(line.text.startsWith("De "))
+    }
+
+    @Test fun unaFirmaDeUnContactoSinVerificarDiceFirmadoPorSinVerificar() {
+        val line = senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = false)), addressedToMe = false)
+        assertEquals(SenderLine("Firmado por Ana, sin verificar: compara la huella", TrustLevel.CAUTION, SIGNATURE_FORWARD_NOTE), line)
+        assertFalse(line.text.startsWith("De "))
+    }
+
+    @Test fun unaFirmaMiaUnaClaveDesconocidaYSinFirmarNoCambian() {
+        assertEquals(SenderLine("Firmado por ti", TrustLevel.GOOD), senderLine(Sender.Me, addressedToMe = false))
+        assertEquals(
+            SenderLine("Firmado por una clave que no está en tus contactos", TrustLevel.WARNING),
+            senderLine(Sender.UnknownKey, addressedToMe = false),
+        )
+        assertEquals(SenderLine("Sin firmar: cualquiera pudo enviarlo", TrustLevel.WARNING), senderLine(Sender.Unsigned, addressedToMe = false))
+    }
+
+    @Test fun losMensajesYArchivosCifradosSiguenConDeYSinNota() {
+        val line = senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = true)), addressedToMe = true)
+        assertEquals("De Ana (verificado)", line.text)
+        assertNull(line.note)
     }
 
     @Test fun elNombreEsElGuardadoYNuncaElDeLaTarjeta() {
         val entry = contactOf(ana(), cardName = "Ana Falsa", title = "Ana", verified = true)
-        val line = senderLine(Sender.Contact(entry))
-        assertTrue(line.text.contains("Ana"))
-        assertFalse(line.text.contains("Falsa"))
-        // Un mensaje de un extraño no pone ningún nombre.
-        assertFalse(senderLine(Sender.UnknownKey).text.contains("Ana"))
+        for (addressed in listOf(true, false)) {
+            val line = senderLine(Sender.Contact(entry), addressedToMe = addressed)
+            assertTrue(line.text.contains("Ana"))
+            assertFalse(line.text.contains("Falsa"))
+            // Un mensaje de un extraño no pone ningún nombre.
+            assertFalse(senderLine(Sender.UnknownKey, addressedToMe = addressed).text.contains("Ana"))
+        }
     }
 
     // ---- Errores en español ----
@@ -273,7 +310,8 @@ class PkActionsTest {
         val signed = ana().use { signText("Mi cuenta nueva", it) }
         val outcome = openReceivedText(signed, listOf(anaContact)) as ReceivedOutcome.Opened // sin identidad también vale
         assertEquals("Mi cuenta nueva", outcome.text)
-        assertEquals("De Ana (verificado)", outcome.line.text)
+        assertEquals("Firmado por Ana (verificado)", outcome.line.text)
+        assertEquals(SIGNATURE_FORWARD_NOTE, outcome.line.note)
     }
 
     @Test fun miPropioTextoFirmadoDiceFirmadoPorTi() {
@@ -783,7 +821,7 @@ class PkActionsTest {
         }.toByteArray()
         val received = decryptToTemp(unsigned, dir, s.anaEntries)
         assertEquals(Sender.Unsigned, received.sender)
-        assertEquals("Sin firmar: cualquiera pudo enviarlo", senderLine(received.sender).text)
+        assertEquals("Sin firmar: cualquiera pudo enviarlo", senderLine(received.sender, addressedToMe = true).text)
         assertArrayEquals(plain, received.file.readBytes())
         received.discard()
         assertEquals(0, dir.listFiles()!!.size)

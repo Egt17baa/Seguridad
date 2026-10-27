@@ -92,18 +92,28 @@ private const val TEMP_PREFIX = "recibido"
 /** Cuánto hay que fiarse de lo que dice una línea de remitente: la pantalla elige el color. */
 enum class TrustLevel { GOOD, CAUTION, WARNING }
 
-/** Lo que la pantalla escribe de quién es lo que se acaba de abrir. */
-data class SenderLine(val text: String, val level: TrustLevel)
+/** Lo que la pantalla escribe de quién es lo que se acaba de abrir; [note], si hay, va debajo en letra pequeña. */
+data class SenderLine(val text: String, val level: TrustLevel, val note: String? = null)
+
+/** Debajo de «Firmado por …» en un `SGS1:` o un `.sgsig`: son públicos, cualquiera puede reenviarlos (Davis 2001). */
+const val SIGNATURE_FORWARD_NOTE = "Una firma dice quién lo firmó, no a quién iba dirigido."
 
 /**
  * El texto del remitente [sender] (el de `senderOf`). El nombre de un contacto es el **guardado** en la bóveda (su título,
  * que eligió el usuario y pasó por `checkContactName`), nunca el de ninguna tarjeta. Sin género («verificado»).
+ *
+ * [addressedToMe] es `true` para lo cifrado (`SGM1:`, `.sgenc` de tipo 3), cuya firma cubre mi identidad: «De Ana». Es `false`
+ * para una firma pública (`SGS1:`, `.sgsig`), que no nombra destinatario y puede reenviarla cualquiera: «Firmado por Ana» y,
+ * debajo, [SIGNATURE_FORWARD_NOTE]. «Firmado por ti», la clave desconocida y «Sin firmar» son iguales en los dos casos.
  */
-fun senderLine(sender: Sender): SenderLine = when (sender) {
+fun senderLine(sender: Sender, addressedToMe: Boolean): SenderLine = when (sender) {
     Sender.Me -> SenderLine("Firmado por ti", TrustLevel.GOOD)
-    is Sender.Contact ->
-        if (sender.entry.verified) SenderLine("De ${sender.entry.title} (verificado)", TrustLevel.GOOD)
-        else SenderLine("De ${sender.entry.title}, sin verificar: compara la huella", TrustLevel.CAUTION)
+    is Sender.Contact -> {
+        val from = if (addressedToMe) "De" else "Firmado por"
+        val note = if (addressedToMe) null else SIGNATURE_FORWARD_NOTE
+        if (sender.entry.verified) SenderLine("$from ${sender.entry.title} (verificado)", TrustLevel.GOOD, note)
+        else SenderLine("$from ${sender.entry.title}, sin verificar: compara la huella", TrustLevel.CAUTION, note)
+    }
     Sender.UnknownKey -> SenderLine("Firmado por una clave que no está en tus contactos", TrustLevel.WARNING)
     Sender.Unsigned -> SenderLine("Sin firmar: cualquiera pudo enviarlo", TrustLevel.WARNING)
 }
@@ -234,11 +244,11 @@ fun openReceivedText(text: String, entries: List<VaultEntry>): ReceivedOutcome {
             is ReceivedPlan.Message -> {
                 val identity = entries.identity() ?: return ReceivedOutcome.Failed(NO_IDENTITY_TO_OPEN)
                 val opened = identity.openIdentity().use { decryptMessage(plan.token, it) }
-                opened(opened.text, opened.senderEd, entries)
+                opened(opened.text, opened.senderEd, entries, addressedToMe = true)
             }
             is ReceivedPlan.Signed -> {
                 val signed = verifySignedText(plan.block)
-                opened(signed.text, signed.signerEd, entries)
+                opened(signed.text, signed.signerEd, entries, addressedToMe = false)
             }
         }
     } catch (e: CancellationException) {
@@ -248,9 +258,9 @@ fun openReceivedText(text: String, entries: List<VaultEntry>): ReceivedOutcome {
     }
 }
 
-private fun opened(text: String, senderEd: ByteArray?, entries: List<VaultEntry>): ReceivedOutcome.Opened {
+private fun opened(text: String, senderEd: ByteArray?, entries: List<VaultEntry>, addressedToMe: Boolean): ReceivedOutcome.Opened {
     val sender = senderOf(senderEd, entries)
-    return ReceivedOutcome.Opened(text, sender, senderLine(sender))
+    return ReceivedOutcome.Opened(text, sender, senderLine(sender, addressedToMe))
 }
 
 // ---- Cifrar y firmar ----
