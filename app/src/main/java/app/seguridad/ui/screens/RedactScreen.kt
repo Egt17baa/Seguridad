@@ -58,6 +58,8 @@ import app.seguridad.tools.PHOTO_DONE_SHORT
 import app.seguridad.tools.PHOTO_SAVE_COPY
 import app.seguridad.tools.PHOTO_SAVE_FAILED
 import app.seguridad.tools.PHOTO_SHARE_FAILED
+import app.seguridad.tools.ImageTooLarge
+import app.seguridad.tools.REDACT_CHANGED
 import app.seguridad.tools.REDACT_COPY_FAILED
 import app.seguridad.tools.REDACT_DAMAGED
 import app.seguridad.tools.REDACT_EXPLANATION
@@ -70,13 +72,14 @@ import app.seguridad.tools.REDACT_REDO
 import app.seguridad.tools.REDACT_RENDERING
 import app.seguridad.tools.REDACT_TOOL_TITLE
 import app.seguridad.tools.REDACT_TOO_BIG
+import app.seguridad.tools.REDACT_TOO_LARGE
 import app.seguridad.tools.REDACT_UNDO
 import app.seguridad.tools.SHARE
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoFailure
 import app.seguridad.tools.photo.PhotoFormat
-import app.seguridad.tools.redact.Box
+import app.seguridad.tools.redact.Box as RedactBox
 import app.seguridad.tools.redact.RedactHistory
 import app.seguridad.tools.redact.ViewRect
 import app.seguridad.tools.redact.boxFromDrag
@@ -140,6 +143,7 @@ private class SourceHolder(private val bitmap: Bitmap) {
  */
 private class Picture(
     val holder: SourceHolder,
+    val previewBitmap: Bitmap,
     val preview: ImageBitmap,
     val width: Int,
     val height: Int,
@@ -148,6 +152,9 @@ private class Picture(
 ) {
     val history = RedactHistory()
 }
+
+/** The boxes changed while the copy was being made: it is thrown away. */
+private class BoxesChanged : Exception()
 
 /** On Dispatchers.Default: the preview of [source]. Its own bitmap, so recycling the source never touches it. */
 private fun makePicture(source: RedactSource): Picture {
@@ -159,6 +166,7 @@ private fun makePicture(source: RedactSource): Picture {
     val preview = if (scaled === src) src.copy(Bitmap.Config.ARGB_8888, false) ?: throw PhotoFailure(PHOTO_DAMAGED) else scaled
     return Picture(
         SourceHolder(src),
+        preview,
         preview.asImageBitmap(),
         src.width,
         src.height,
@@ -168,7 +176,7 @@ private fun makePicture(source: RedactSource): Picture {
 }
 
 /** On Dispatchers.Default: the copy with [boxes]. Fails with PhotoFailure, never a half-made copy. */
-private suspend fun renderCopy(p: Picture, boxes: List<Box>): ByteArray = withContext(Dispatchers.Default) {
+private suspend fun renderCopy(p: Picture, boxes: List<RedactBox>): ByteArray = withContext(Dispatchers.Default) {
     val bitmap = p.holder.borrow() ?: throw PhotoFailure(PHOTO_DAMAGED)
     try {
         renderRedacted(bitmap, boxes, p.output)
@@ -190,7 +198,7 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var picture by remember { mutableStateOf<Picture?>(null) }
-    var boxes by remember { mutableStateOf(emptyList<Box>()) }
+    var boxes by remember { mutableStateOf(emptyList<RedactBox>()) }
     var canUndo by remember { mutableStateOf(false) }
     var canRedo by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf<String?>(null) }
@@ -205,9 +213,20 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
         done = null // A change after saving: the saved copy no longer matches what is shown.
     }
 
-    // Leaving the screen: the full-size bitmap goes (once no copy is being made from it); the preview goes with the
-    // composition.
-    DisposableEffect(Unit) { onDispose { picture?.holder?.close() } }
+    // Leaving the screen: the full-size bitmap goes (once no copy is being made from it), and the preview too
+    // (RedactCanvas also recycles it when it leaves the composition; recycling twice does nothing).
+    DisposableEffect(Unit) {
+        onDispose {
+            picture?.let {
+                it.holder.close()
+                it.previewBitmap.recycle()
+            }
+        }
+    }
+
+    // A copy is made from the boxes at the moment the button was pressed; if they differ when it is ready (input is
+    // already blocked while busy, so this is the second line), nothing is saved or shared.
+    fun stillMatches(p: Picture, snapshot: List<RedactBox>) = picture === p && p.history.boxes == snapshot
 
     val onSaveTarget: (Uri?) -> Unit = saved@{ dest ->
         if (dest == null) return@saved
@@ -222,6 +241,7 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
             var written = false
             try {
                 val bytes = renderCopy(p, snapshot)
+                if (!stillMatches(p, snapshot)) throw BoxesChanged()
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(bytes) }
                     written = true
@@ -232,6 +252,10 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                 // Screen gone: a fully written copy stays; an empty document does not.
                 if (!written) discardDocument(context, dest)
                 throw e
+            } catch (e: BoxesChanged) {
+                discardDocument(context, dest)
+                done = null
+                error = REDACT_CHANGED
             } catch (e: PhotoFailure) {
                 discardDocument(context, dest) // Never a half-made copy.
                 done = null
@@ -250,7 +274,7 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        // The previous image goes before the next file is read.
+        // The previous image goes before the next file is read (its preview, once RedactCanvas leaves the composition).
         picture?.holder?.close()
         picture = null
         sync(null)
@@ -273,6 +297,8 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                 throw e
             } catch (e: PhotoTooBig) {
                 error = REDACT_TOO_BIG
+            } catch (e: ImageTooLarge) {
+                error = REDACT_TOO_LARGE
             } catch (e: PhotoFailure) {
                 error = if (e.message == PHOTO_UNSUPPORTED) PHOTO_UNSUPPORTED else REDACT_DAMAGED
             } catch (e: Exception) {
@@ -312,19 +338,21 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                 error?.let { Text(it, color = NegativeColor) }
                 picture?.let { p ->
                     p.downscaledNote?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    RedactCanvas(p, boxes, onBox = { box ->
-                        p.history.add(box)
-                        sync(p)
+                    RedactCanvas(p, boxes, enabled = busy == null, onBox = { box ->
+                        if (busy == null) {
+                            p.history.add(box)
+                            sync(p)
+                        }
                     })
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
-                            onClick = { if (p.history.undo()) sync(p) },
-                            enabled = canUndo,
+                            onClick = { if (busy == null && p.history.undo()) sync(p) },
+                            enabled = canUndo && busy == null,
                             modifier = Modifier.weight(1f),
                         ) { Text(REDACT_UNDO) }
                         OutlinedButton(
-                            onClick = { if (p.history.redo()) sync(p) },
-                            enabled = canRedo,
+                            onClick = { if (busy == null && p.history.redo()) sync(p) },
+                            enabled = canRedo && busy == null,
                             modifier = Modifier.weight(1f),
                         ) { Text(REDACT_REDO) }
                     }
@@ -351,6 +379,7 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                                 }
                                 try {
                                     val bytes = renderCopy(p, snapshot)
+                                    if (!stillMatches(p, snapshot)) throw BoxesChanged()
                                     val file = withContext(Dispatchers.IO) {
                                         shareTemp.prepare(redactFileName(p.output), bytes).also { prepared = it }
                                     }
@@ -360,6 +389,10 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                                 } catch (e: CancellationException) {
                                     discardPrepared()
                                     throw e
+                                } catch (e: BoxesChanged) {
+                                    discardPrepared()
+                                    done = null
+                                    error = REDACT_CHANGED
                                 } catch (e: PhotoFailure) {
                                     discardPrepared()
                                     done = null
@@ -386,11 +419,16 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
 /**
  * The preview: the image fitted to the width (and to 60 % of the window's height, so the page can still be scrolled
  * outside it), with every box painted opaque black at the image coordinates the copy uses ([boxToView] of the same
- * [Box]). The box being dragged is painted the same way, from the same [boxFromDrag] that will store it.
+ * [RedactBox]). The box being dragged is painted the same way, from the same [boxFromDrag] that will store it.
+ * While a copy is being made ([enabled] false) it takes no input and shows no box in progress: the copy is made from
+ * the boxes at the moment the button was pressed, and the screen must not show one the copy lacks. The preview bitmap
+ * is recycled once this preview leaves the composition (another image picked, or the screen gone).
  */
 @Composable
-private fun RedactCanvas(p: Picture, boxes: List<Box>, onBox: (Box) -> Unit) {
+private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, onBox: (RedactBox) -> Unit) {
     val currentOnBox by rememberUpdatedState(onBox)
+    val currentEnabled by rememberUpdatedState(enabled)
+    DisposableEffect(p) { onDispose { p.previewBitmap.recycle() } }
     var dragFrom by remember(p) { mutableStateOf<Offset?>(null) }
     var dragTo by remember(p) { mutableStateOf<Offset?>(null) }
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
@@ -405,6 +443,8 @@ private fun RedactCanvas(p: Picture, boxes: List<Box>, onBox: (Box) -> Unit) {
                     awaitEachGesture {
                         // The box starts where the finger went down, not where the drag was recognised.
                         val down = awaitFirstDown()
+                        // Busy: not consumed, so the page still scrolls.
+                        if (!currentEnabled) return@awaitEachGesture
                         dragFrom = down.position
                         dragTo = down.position
                         val start = awaitTouchSlopOrCancellation(down.id) { change, _ ->
@@ -419,7 +459,7 @@ private fun RedactCanvas(p: Picture, boxes: List<Box>, onBox: (Box) -> Unit) {
                         val to = dragTo
                         dragFrom = null
                         dragTo = null
-                        if (ended && from != null && to != null) {
+                        if (ended && currentEnabled && from != null && to != null) {
                             val viewW = size.width.toFloat()
                             val viewH = size.height.toFloat()
                             boxFromDrag(from.x, from.y, to.x, to.y, viewW, viewH, p.width, p.height)?.let { currentOnBox(it) }
@@ -435,7 +475,7 @@ private fun RedactCanvas(p: Picture, boxes: List<Box>, onBox: (Box) -> Unit) {
                 for (b in boxes) drawBlack(boxToView(b, size.width, size.height, p.width, p.height))
                 val from = dragFrom
                 val to = dragTo
-                if (from != null && to != null) {
+                if (enabled && from != null && to != null) {
                     boxFromDrag(from.x, from.y, to.x, to.y, size.width, size.height, p.width, p.height)?.let {
                         drawBlack(boxToView(it, size.width, size.height, p.width, p.height))
                     }

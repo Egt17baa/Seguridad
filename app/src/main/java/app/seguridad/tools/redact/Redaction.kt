@@ -1,5 +1,7 @@
 package app.seguridad.tools.redact
 
+import app.seguridad.tools.MAX_DECLARED_PIXELS
+import app.seguridad.tools.MAX_DECLARED_SIDE
 import app.seguridad.tools.MAX_REDACT_PIXELS
 import app.seguridad.tools.photo.PhotoFormat
 import kotlin.math.ceil
@@ -123,3 +125,11 @@ fun redactSampleSize(w: Int, h: Int): Int {
 
 /** Megapixels for «se ha reducido a unos N megapíxeles», rounded, and never 0. */
 fun redactMegapixels(w: Int, h: Int): Int = max(1L, (w.toLong() * h / 1_000_000.0).roundToLong()).toInt()
+
+/**
+ * False when a [w]×[h] header is not worth decoding: a side over [MAX_DECLARED_SIDE], more than [MAX_DECLARED_PIXELS],
+ * or a size that is not positive. Checked from the header alone (ImageDecoder's header listener, BitmapFactory's
+ * bounds), so a hostile file stops before its pixels are inflated.
+ */
+fun declaredSizeAllowed(w: Int, h: Int): Boolean =
+    w in 1..MAX_DECLARED_SIDE && h in 1..MAX_DECLARED_SIDE && w.toLong() * h <= MAX_DECLARED_PIXELS
