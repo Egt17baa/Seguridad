@@ -24,13 +24,17 @@ object PhotoCleaner {
     }
 
     /**
-     * Fails closed unless [out] parses again as [format], reports nothing but the kept colour
-     * profile, and ends exactly where the image ends.
+     * Fails closed unless [out] is, segment by segment, only what the format's whitelist allows
+     * (each format gives its own `isCleanOutput`), reports nothing but the kept colour profile,
+     * and cleans to itself.
      */
     internal fun verify(format: PhotoFormat, out: ByteArray) {
         val ok = try {
             detectFormat(out) == format && when (format) {
-                PhotoFormat.JPEG -> (Jpeg.inspect(out).found - Found.ICC_KEPT).isEmpty() && Jpeg.imageEnd(out) == out.size
+                // Structural whitelist first, then the report, then idempotence.
+                PhotoFormat.JPEG -> Jpeg.isCleanOutput(out) &&
+                    (Jpeg.inspect(out).found - Found.ICC_KEPT).isEmpty() &&
+                    Jpeg.clean(out).contentEquals(out)
                 else -> false
             }
         } catch (e: PhotoFailure) {
