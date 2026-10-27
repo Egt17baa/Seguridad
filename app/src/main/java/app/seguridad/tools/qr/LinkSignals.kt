@@ -1,6 +1,7 @@
 package app.seguridad.tools.qr
 
 import java.net.IDN
+import java.text.Normalizer
 import java.util.Locale
 
 /**
@@ -18,7 +19,7 @@ private val DANGEROUS_SCHEMES = setOf("javascript", "data", "file", "intent")
 internal val LINK_SCHEMES = setOf("http", "https", "ftp", "ftps", "ws", "wss") + DANGEROUS_SCHEMES
 
 /** Schemes a browser reads with the host after any number of «/» or «\», so «http:evil.com» goes to evil.com. */
-private val SPECIAL_SCHEMES = setOf("http", "https", "ftp", "ftps", "ws", "wss")
+private val SPECIAL_SCHEMES = setOf("http", "https", "ftp", "ws", "wss")
 
 private val DEFAULT_PORTS = mapOf("http" to 80, "https" to 443, "ftp" to 21, "ftps" to 990, "ws" to 80, "wss" to 443)
 
@@ -26,8 +27,9 @@ private val DEFAULT_PORTS = mapOf("http" to 80, "https" to 443, "ftp" to 21, "ft
 private const val MAX_SUBDOMAINS = 4
 
 /**
- * What [parseLink] reads out of a link the way a browser would: [host] lower-case and without the trailing dot,
- * [unicodeHost] its Unicode form, and what is needed for the signals.
+ * What [parseLink] reads out of a link the way a browser would: [host] in the form the browser connects to (ASCII,
+ * lower-case, without one trailing dot; a numeric host as the dotted IPv4 it means), [unicodeHost] the form it is
+ * shown in, and what is needed for the signals.
  */
 internal class ParsedLink(
     val scheme: String,
@@ -38,18 +40,25 @@ internal class ParsedLink(
     val port: Int?,
     val oddPort: Boolean,
     val hasUserInfo: Boolean,
+    /** The host is an IP address: IPv6 in brackets, or a number a browser reads as IPv4. */
+    val isIp: Boolean = false,
+    /** The host, once percent-decoded, holds characters [hasHiddenChars] finds (a browser drops some of them). */
+    val hostHidden: Boolean = false,
 )
+
+private val NOT_A_LINK = ParsedLink("", false, null, null, null, false, false)
 
 /**
  * Reads [uri] without throwing, whatever it holds. It does not use `java.net.URI`: that rejects spaces, backslashes,
  * underscores and non-ASCII names, and where it does parse it can disagree with the browser that will really open the
  * link. This follows the browser (WHATWG URL) on what matters for the signals: tabs and line breaks inside are
- * dropped, «\» counts as «/» in web links, the user info ends at the **last** «@» of the authority, and the host is
- * percent-decoded and lower-cased.
+ * dropped, «\» counts as «/» in web links, the user info ends at the **last** «@» of the authority, the port starts at
+ * the first «:» after the host, and the host is percent-decoded and then mapped like a browser does (UTS #46: full-width
+ * letters become ASCII, invisible characters vanish, non-ASCII labels become `xn--`).
  */
 internal fun parseLink(uri: String): ParsedLink {
     val u = uri.filterNot { it == '\t' || it == '\n' || it == '\r' }.trim { it <= ' ' || it.isWhitespace() }
-    val scheme = schemeOf(u) ?: return ParsedLink("", false, null, null, null, false, false)
+    val scheme = schemeOf(u) ?: return NOT_A_LINK
     val rest = u.substring(scheme.length + 1)
     val hierarchical = rest.startsWith("//")
     val special = scheme in SPECIAL_SCHEMES
@@ -74,7 +83,7 @@ internal fun parseLink(uri: String): ParsedLink {
             if (after.startsWith(":")) portText = after.substring(1)
         }
     } else {
-        val colon = hostPort.lastIndexOf(':')
+        val colon = hostPort.indexOf(':')
         if (colon >= 0) {
             rawHost = hostPort.substring(0, colon)
             portText = hostPort.substring(colon + 1)
@@ -87,14 +96,20 @@ internal fun parseLink(uri: String): ParsedLink {
     val port = digits?.toIntOrNull()
     val oddPort = digits != null && port != DEFAULT_PORTS[scheme]
 
-    val host = percentDecode(rawHost)
-        .map { if (it == '。' || it == '．' || it == '｡') '.' else it }
-        .joinToString("")
-        .lowercase(Locale.ROOT)
-        .trimEnd('.')
-        .ifEmpty { null }
-    val unicodeHost = host?.let { if (it.startsWith("[")) it else toUnicodeOrNull(it) }
-    return ParsedLink(scheme, hierarchical, host, unicodeHost, port, oddPort, at >= 0)
+    val decoded = percentDecode(rawHost)
+    val hostHidden = hasHiddenChars(decoded)
+    val host: String?
+    val isIp: Boolean
+    if (rawHost.startsWith("[")) {
+        host = decoded.lowercase(Locale.ROOT).ifEmpty { null }
+        isIp = true
+    } else {
+        val mapped = mapHost(decoded)
+        isIp = isIpHost(mapped)
+        host = (if (isIp) canonicalIpv4(mapped) ?: mapped else mapped).ifEmpty { null }
+    }
+    val unicodeHost = host?.let { if (isIp) it else toUnicodeOrNull(it) }
+    return ParsedLink(scheme, hierarchical, host, unicodeHost, port, oddPort, at >= 0, isIp, hostHidden)
 }
 
 /** The scheme of [text], lower-case, if it starts with a valid «scheme:»; null otherwise (a drive letter included). */
@@ -106,23 +121,52 @@ internal fun schemeOf(text: String): String? {
     return if (ok) text.substring(0, colon).lowercase(Locale.ROOT) else null
 }
 
+/**
+ * The host as a browser connects to it: the dots written as ideographic or full-width full stops are dots, one trailing
+ * dot goes, and each label is mapped (UTS #46 / nameprep: NFKC, case folding, invisible characters dropped) and
+ * encoded as `xn--` if it is not ASCII. A label the encoder rejects is still normalised, and stays Unicode.
+ */
+private fun mapHost(decoded: String): String {
+    val dotted = decoded.map { if (it == '。' || it == '．' || it == '｡') '.' else it }.joinToString("").removeSuffix(".")
+    return dotted.split('.').joinToString(".") { label ->
+        if (label.all { it.code < 128 }) label.lowercase(Locale.ROOT) else (toAsciiOrNull(label) ?: normalizeLabel(label)).lowercase(Locale.ROOT)
+    }
+}
+
+private fun toAsciiOrNull(label: String): String? = try {
+    IDN.toASCII(label, IDN.ALLOW_UNASSIGNED)
+} catch (e: Exception) {
+    null
+}
+
 private fun toUnicodeOrNull(host: String): String? = try {
     IDN.toUnicode(host, IDN.ALLOW_UNASSIGNED)
 } catch (e: Exception) {
     null
 }
 
+/** Fallback for a label [IDN.toASCII] rejects (too long, say): NFKC, lower-case, and without the default-ignorable characters. */
+private fun normalizeLabel(label: String): String {
+    val sb = StringBuilder()
+    Normalizer.normalize(label, Normalizer.Form.NFKC).codePoints().forEach { cp ->
+        val ignorable = Character.getType(cp) == Character.FORMAT.toInt() || cp in 0xFE00..0xFE0F || cp in 0xE0100..0xE01EF ||
+            cp == 0x00AD || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 || cp == 0x180E
+        if (!ignorable) sb.appendCodePoint(cp)
+    }
+    return sb.toString().lowercase(Locale.ROOT)
+}
+
 /** The signals of an already read link; [uri] is the original text (hidden characters are looked for in all of it). */
 internal fun signalsOf(p: ParsedLink, uri: String): List<Signal> {
     val host = p.host
-    val isIp = host != null && isIpHost(host)
-    val asciiLabels = if (host != null && !isIp) host.split('.') else emptyList()
-    val unicodeLabels = if (host != null && !isIp) (p.unicodeHost ?: host).split('.') else emptyList()
+    val asciiLabels = if (host != null && !p.isIp) host.split('.') else emptyList()
+    val unicodeLabels = if (host != null && !p.isIp) (p.unicodeHost ?: host).split('.') else emptyList()
     return Signal.entries.filter { s ->
         when (s) {
             Signal.MIXED_SCRIPTS -> unicodeLabels.any(::mixesScripts)
-            Signal.PUNYCODE -> asciiLabels.any { it.startsWith("xn--") }
-            Signal.IP_HOST -> isIp
+            // The label the browser really connects to is the `xn--` one; a label it could not encode counts too.
+            Signal.PUNYCODE -> asciiLabels.any { label -> label.startsWith("xn--") || label.any { it.code > 127 } }
+            Signal.IP_HOST -> p.isIp
             Signal.PLAIN_HTTP -> p.scheme == "http"
             Signal.USERINFO -> p.hasUserInfo
             Signal.ODD_PORT -> p.oddPort
@@ -130,7 +174,7 @@ internal fun signalsOf(p: ParsedLink, uri: String): List<Signal> {
             Signal.MANY_LEVELS -> asciiLabels.size - 2 > MAX_SUBDOMAINS
             Signal.DANGEROUS_SCHEME -> p.scheme in DANGEROUS_SCHEMES
             // A line break inside a link is dropped by a browser, so it can hide a different address.
-            Signal.HIDDEN_CHARS -> hasHiddenChars(uri) || '\n' in uri.trim()
+            Signal.HIDDEN_CHARS -> p.hostHidden || hasHiddenChars(uri) || '\n' in uri.trim()
         }
     }
 }
@@ -139,20 +183,47 @@ internal fun signalsOf(p: ParsedLink, uri: String): List<Signal> {
 fun linkSignals(uri: String): List<Signal> = signalsOf(parseLink(uri), uri)
 
 /**
- * IPv6 between brackets, or what a browser reads as an IPv4 address: the last label is a number, written in decimal
- * («192.168.1.1», «3232235777», «127.1») or hexadecimal («0x7f.1»). A real name never ends in a number.
+ * What a browser reads as an IPv4 address: the last label is a number, written in decimal («192.168.1.1»,
+ * «3232235777», «127.1») or hexadecimal («0x7f.1»). A real name never ends in a number.
  */
 private fun isIpHost(host: String): Boolean {
-    if (host.startsWith("[")) return true
     val last = host.substringAfterLast('.')
     if (last.isEmpty()) return false
     if (last.all { it in '0'..'9' }) return true
     return (last.startsWith("0x") || last.startsWith("0X")) && last.drop(2).all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
 }
 
+/**
+ * The dotted IPv4 a browser opens for a numeric [host] (WHATWG): parts in decimal, octal («0300») or hex («0x7f»), the
+ * last one filling the bytes that remain («3232235777», «127.1»). Null if it is not a valid address.
+ */
+private fun canonicalIpv4(host: String): String? {
+    val parts = host.split('.')
+    if (parts.size > 4 || parts.any { it.isEmpty() }) return null
+    val numbers = parts.map { parseIpv4Part(it) ?: return null }
+    if (numbers.last() >= 1L shl (8 * (5 - parts.size))) return null
+    var value = numbers.last()
+    for (i in 0 until numbers.size - 1) {
+        if (numbers[i] > 255) return null
+        value += numbers[i] shl (8 * (3 - i))
+    }
+    return "${(value shr 24) and 255}.${(value shr 16) and 255}.${(value shr 8) and 255}.${value and 255}"
+}
+
+private fun parseIpv4Part(s: String): Long? {
+    val (digits, radix) = when {
+        s.length >= 2 && (s.startsWith("0x") || s.startsWith("0X")) -> s.substring(2) to 16
+        s.length >= 2 && s.startsWith("0") -> s.substring(1) to 8
+        else -> s to 10
+    }
+    if (digits.isEmpty()) return 0
+    if (digits.any { Character.digit(it, radix) < 0 || it.code > 127 }) return null
+    return digits.toLongOrNull(radix)
+}
+
 /** More than one alphabet in [label], not counting digits, hyphens and combining marks (COMMON and INHERITED). */
 private fun mixesScripts(label: String): Boolean {
-    var first: Character.UnicodeScript? = null
+    val scripts = HashSet<Character.UnicodeScript>()
     var i = 0
     while (i < label.length) {
         val cp = label.codePointAt(i)
@@ -163,7 +234,14 @@ private fun mixesScripts(label: String): Boolean {
             continue
         }
         if (script == Character.UnicodeScript.COMMON || script == Character.UnicodeScript.INHERITED) continue
-        if (first == null) first = script else if (first != script) return true
+        scripts += script
     }
-    return false
+    return scripts.size > 1 && ALLOWED_COMBINATIONS.none { it.containsAll(scripts) }
 }
+
+/** Scripts written together in one language (UTS #39): Japanese, Chinese with Bopomofo, Korean with Hanja. */
+private val ALLOWED_COMBINATIONS = listOf(
+    setOf(Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA),
+    setOf(Character.UnicodeScript.HAN, Character.UnicodeScript.BOPOMOFO),
+    setOf(Character.UnicodeScript.HAN, Character.UnicodeScript.HANGUL),
+)

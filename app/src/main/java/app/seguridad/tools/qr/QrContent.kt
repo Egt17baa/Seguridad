@@ -123,12 +123,27 @@ private val CRYPTO_SCHEMES = setOf("bitcoin", "ethereum", "lightning")
 private fun crypto(t: String): QrKind? {
     val scheme = schemeOf(t)?.takeIf { it in CRYPTO_SCHEMES } ?: return null
     val rest = t.substring(scheme.length + 1).removePrefix("//")
-    var address = percentDecode(rest.substringBefore('?')).trim()
-    if (scheme == "ethereum") address = address.removePrefix("pay-").substringBefore('@').substringBefore('/')
-    if (address.isEmpty()) return null
+    val path = percentDecode(rest.substringBefore('?')).trim()
     val query = queryParams(rest.substringAfter('?', ""))
-    val amount = (query["amount"] ?: query["value"] ?: query["uint256"])?.trim()?.ifEmpty { null }
-    return QrKind.Crypto(scheme, address, amount)
+    if (scheme == "ethereum") return ethereum(path, query)
+    if (path.isEmpty()) return null
+    return QrKind.Crypto(scheme, path, query["amount"]?.trim()?.ifEmpty { null })
+}
+
+/**
+ * An EIP-681 request: «ethereum:[pay-]target[@chain][/function]?query». A token transfer
+ * («0xTOKEN@1/transfer?address=0xRECIPIENT&uint256=…») is paid to the `address` in the query, not to the contract in
+ * front, so that is the one shown, and no amount: `uint256` is in the token's smallest unit, whose decimals are not
+ * known here. A plain payment's `value` is in wei, and says so.
+ */
+private fun ethereum(path: String, query: Map<String, String>): QrKind? {
+    val target = path.removePrefix("pay-")
+    val function = target.substringAfter('/', "").trim()
+    val recipient = query["address"]?.trim()?.ifEmpty { null }
+    if (function.equals("transfer", ignoreCase = true) && recipient != null) return QrKind.Crypto("ethereum", recipient, null)
+    val address = target.substringBefore('@').substringBefore('/').trim().ifEmpty { return null }
+    val wei = query["value"]?.trim()?.ifEmpty { null }
+    return QrKind.Crypto("ethereum", address, wei?.let { "$it wei" })
 }
 
 // ---- Contacts and messages ----
@@ -228,8 +243,16 @@ private fun geo(t: String): QrKind? {
 
 private fun link(t: String): QrKind? {
     val p = parseLink(t)
-    if (p.scheme.isEmpty() || (p.scheme !in LINK_SCHEMES && !p.hierarchical)) return null
-    return QrKind.Link(t, p.scheme, p.host, p.unicodeHost, p.port, signalsOf(p, t))
+    if (p.scheme.isNotEmpty() && (p.scheme in LINK_SCHEMES || p.hierarchical)) {
+        return QrKind.Link(t, p.scheme, p.host, p.unicodeHost, p.port, signalsOf(p, t))
+    }
+    // «www.banco.es» with no scheme: a phone opens it as a web address, so the signals are those of «https://» + text.
+    // The scheme is shown as the QR gives it: none.
+    if (t.length > 4 && t.startsWithIgnoreCase("www.") && t.none { it.isWhitespace() }) {
+        val w = parseLink("https://$t")
+        return QrKind.Link(t, "", w.host, w.unicodeHost, w.port, signalsOf(w, t))
+    }
+    return null
 }
 
 // ---- Helpers ----
