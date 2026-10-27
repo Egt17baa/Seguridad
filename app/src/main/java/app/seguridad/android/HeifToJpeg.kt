@@ -3,12 +3,14 @@ package app.seguridad.android
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.os.Build
+import app.seguridad.tools.ImageTooLarge
 import app.seguridad.tools.MAX_REDACT_PIXELS
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoCleaner
 import app.seguridad.tools.photo.PhotoFailure
 import app.seguridad.tools.photo.isAvif
+import app.seguridad.tools.redact.declaredSizeAllowed
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import kotlin.math.sqrt
@@ -18,7 +20,8 @@ import kotlin.math.sqrt
  * the original's metadata, and the result goes through PhotoCleaner, which also drops the JFIF APP0 the encoder adds.
  * Images above [MAX_REDACT_PIXELS] are scaled down while decoding, so a huge one never takes the memory.
  * Fails closed: [PHOTO_UNSUPPORTED] before Android 9 (no ImageDecoder) and for AVIF before Android 12 (ImageDecoder
- * reads AVIF only from API 31), [PHOTO_DAMAGED] for anything else that goes wrong.
+ * reads AVIF only from API 31), [ImageTooLarge] when the header declares more than declaredSizeAllowed accepts
+ * (thrown from the header listener, before any pixel is inflated), [PHOTO_DAMAGED] for anything else that goes wrong.
  */
 fun heifToJpeg(bytes: ByteArray): ByteArray {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) throw PhotoFailure(PHOTO_UNSUPPORTED)
@@ -32,6 +35,7 @@ fun heifToJpeg(bytes: ByteArray): ByteArray {
             val w = info.size.width.toLong()
             val h = info.size.height.toLong()
             if (w <= 0 || h <= 0) throw PhotoFailure(PHOTO_DAMAGED)
+            if (!declaredSizeAllowed(info.size.width, info.size.height)) throw ImageTooLarge()
             if (w * h > MAX_REDACT_PIXELS) {
                 val scale = sqrt(MAX_REDACT_PIXELS.toDouble() / (w * h))
                 decoder.setTargetSize((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1))
@@ -45,6 +49,8 @@ fun heifToJpeg(bytes: ByteArray): ByteArray {
         } finally {
             bitmap.recycle()
         }
+    } catch (e: ImageTooLarge) {
+        throw e
     } catch (e: OutOfMemoryError) {
         throw PhotoFailure(PHOTO_DAMAGED)
     } catch (e: Exception) {

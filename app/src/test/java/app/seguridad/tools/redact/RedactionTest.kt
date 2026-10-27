@@ -1,5 +1,7 @@
 package app.seguridad.tools.redact
 
+import app.seguridad.tools.MAX_DECLARED_PIXELS
+import app.seguridad.tools.MAX_DECLARED_SIDE
 import app.seguridad.tools.MAX_REDACT_PIXELS
 import app.seguridad.tools.photo.PhotoFormat
 import org.junit.Assert.assertEquals
@@ -161,6 +163,33 @@ class RedactionTest {
             assertTrue("$w×$h / $s", px <= MAX_REDACT_PIXELS)
             assertEquals("power of two: $s", 0, s and (s - 1))
         }
+    }
+
+    @Test fun declaredSizeIsCheckedBeforeDecoding() {
+        // Sides: up to 20 000 px.
+        assertTrue(declaredSizeAllowed(20_000, 1))
+        assertTrue(declaredSizeAllowed(1, 20_000))
+        assertTrue(declaredSizeAllowed(20_000, 5_000)) // exactly 100 MP too
+        assertFalse(declaredSizeAllowed(20_001, 1))
+        assertFalse(declaredSizeAllowed(1, 20_001))
+        // Pixels: up to 100 MP.
+        assertTrue(declaredSizeAllowed(10_000, 10_000))
+        assertFalse(declaredSizeAllowed(10_000, 10_001))
+        assertFalse(declaredSizeAllowed(10_001, 10_000))
+        assertFalse(declaredSizeAllowed(20_000, 20_000))
+        // A real 200 MP sensor is refused; 50 MP is not.
+        assertTrue(declaredSizeAllowed(8160, 6120))
+        assertFalse(declaredSizeAllowed(16320, 12240))
+        // Nonsense never passes, nor does a product that would overflow an Int.
+        assertFalse(declaredSizeAllowed(0, 100))
+        assertFalse(declaredSizeAllowed(100, 0))
+        assertFalse(declaredSizeAllowed(-1, 100))
+        assertFalse(declaredSizeAllowed(100, -1))
+        assertFalse(declaredSizeAllowed(Int.MIN_VALUE, Int.MIN_VALUE))
+        assertFalse(declaredSizeAllowed(Int.MAX_VALUE, Int.MAX_VALUE))
+        assertFalse(declaredSizeAllowed(65_536, 65_536))
+        assertEquals(100_000_000L, MAX_DECLARED_PIXELS)
+        assertEquals(20_000, MAX_DECLARED_SIDE)
     }
 
     @Test fun megapixelsAreRoundedAndNeverZero() {

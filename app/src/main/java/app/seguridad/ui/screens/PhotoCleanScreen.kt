@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import app.seguridad.android.heifToJpeg
 import app.seguridad.android.shareImage
 import app.seguridad.core.readAtMost
+import app.seguridad.tools.ImageTooLarge
 import app.seguridad.tools.MAX_IMAGE_BYTES
 import app.seguridad.tools.PHOTO_ANALYSING
 import app.seguridad.tools.PHOTO_EXPLANATION
@@ -47,6 +48,7 @@ import app.seguridad.tools.PHOTO_SAVE_FAILED
 import app.seguridad.tools.PHOTO_SHARE_FAILED
 import app.seguridad.tools.PHOTO_TOOL_TITLE
 import app.seguridad.tools.PHOTO_TOO_BIG
+import app.seguridad.tools.PHOTO_TOO_LARGE
 import app.seguridad.tools.SHARE
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
@@ -184,6 +186,8 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                 throw e
             } catch (e: PhotoTooBig) {
                 error = PHOTO_TOO_BIG
+            } catch (e: ImageTooLarge) {
+                error = PHOTO_TOO_LARGE
             } catch (e: PhotoFailure) {
                 error = e.message ?: PHOTO_DAMAGED
             } catch (e: Exception) {

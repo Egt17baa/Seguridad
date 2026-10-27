@@ -11,6 +11,7 @@ import android.graphics.Rect
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.graphics.createBitmap
+import app.seguridad.tools.ImageTooLarge
 import app.seguridad.tools.MAX_REDACT_PIXELS
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
@@ -20,6 +21,7 @@ import app.seguridad.tools.photo.PhotoFormat
 import app.seguridad.tools.photo.detectFormat
 import app.seguridad.tools.photo.isAvif
 import app.seguridad.tools.redact.Box
+import app.seguridad.tools.redact.declaredSizeAllowed
 import app.seguridad.tools.redact.redactSampleSize
 import app.seguridad.tools.redact.redactTargetSize
 import java.io.ByteArrayOutputStream
@@ -38,8 +40,9 @@ class RedactSource(val bitmap: Bitmap, val format: PhotoFormat, val downscaled: 
  * - Android 8: BitmapFactory with inSampleSize, and the JPEG's EXIF orientation applied with a Matrix.
  *
  * Fails closed with [PhotoFailure]: [PHOTO_UNSUPPORTED] for an unknown format, HEIC before Android 9 and AVIF before
- * Android 12; [PHOTO_DAMAGED] for anything else, out of memory included. Whatever the preview shows is what the copy
- * gets: both come from this one bitmap.
+ * Android 12; [PHOTO_DAMAGED] for anything else, out of memory included. A header that declares more than
+ * declaredSizeAllowed accepts throws [ImageTooLarge] before any pixel is inflated. Whatever the preview shows is what
+ * the copy gets: both come from this one bitmap.
  */
 fun decodeForRedaction(bytes: ByteArray): RedactSource {
     val format = detectFormat(bytes) ?: throw PhotoFailure(PHOTO_UNSUPPORTED)
@@ -56,6 +59,9 @@ fun decodeForRedaction(bytes: ByteArray): RedactSource {
         }
         return RedactSource(decoded, format, downscaled)
     } catch (e: PhotoFailure) {
+        bitmap?.recycle()
+        throw e
+    } catch (e: ImageTooLarge) {
         bitmap?.recycle()
         throw e
     } catch (e: OutOfMemoryError) {
@@ -77,6 +83,8 @@ private fun withImageDecoder(bytes: ByteArray): Pair<Bitmap, Boolean> {
         val w = info.size.width
         val h = info.size.height
         if (w <= 0 || h <= 0) throw PhotoFailure(PHOTO_DAMAGED)
+        // Thrown here, the decode stops before inflating anything.
+        if (!declaredSizeAllowed(w, h)) throw ImageTooLarge()
         redactTargetSize(w, h)?.let { (tw, th) ->
             decoder.setTargetSize(tw, th)
             downscaled = true
@@ -89,6 +97,7 @@ private fun withBitmapFactory(bytes: ByteArray, format: PhotoFormat): Pair<Bitma
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw PhotoFailure(PHOTO_DAMAGED)
+    if (!declaredSizeAllowed(bounds.outWidth, bounds.outHeight)) throw ImageTooLarge()
     val sample = redactSampleSize(bounds.outWidth, bounds.outHeight)
     val options = BitmapFactory.Options().apply {
         inSampleSize = sample

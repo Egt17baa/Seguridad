@@ -113,6 +113,11 @@ const val PHOTO_SAVE_FAILED = "No se ha podido guardar la copia. No se ha guarda
 const val PHOTO_SHARE_FAILED = "No se ha podido compartir la copia."
 const val PHOTO_LOST = "No se ha guardado: vuelve a elegir la foto."
 
+/** Not in the annex: a HEIC/HEIF/AVIF whose header declares more than the conversion accepts (MAX_DECLARED_*). */
+const val PHOTO_TOO_LARGE =
+    "La foto es demasiado grande para convertirla: pasa de 100 megapíxeles o de 20.000 píxeles de lado. No se ha " +
+        "guardado nada."
+
 /** Anexo: «Al terminar»; [list] replaces «[lista]». */
 fun photoDoneText(list: String) =
     "Copia lista, sin estos datos: $list. El original no se ha tocado y sigue teniéndolos: comparte la copia, no el original."
@@ -188,6 +193,10 @@ const val REDACT_RENDERING = "Preparando la copia…"
 const val REDACT_UNDO = "Deshacer"
 const val REDACT_REDO = "Rehacer"
 const val REDACT_TOO_BIG = "La imagen ocupa más de 50 MB."
+const val REDACT_TOO_LARGE =
+    "La imagen es demasiado grande para editarla: pasa de 100 megapíxeles o de 20.000 píxeles de lado."
+const val REDACT_CHANGED =
+    "Los bloques cambiaron mientras se preparaba la copia, así que no se ha guardado ni compartido. Vuelve a intentarlo."
 const val REDACT_DAMAGED =
     "No se ha podido abrir esta imagen: el archivo está dañado o tiene un formato que no conocemos."
 const val REDACT_COPY_FAILED = "No se ha podido crear la copia tachada. No se ha guardado nada."
@@ -297,11 +306,11 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
 ) + PHOTO_FOUND_TEXTS.values + PHOTO_REMOVED_NAMES.values + listOf(
     PHOTO_DONE_CONVERTED, PHOTO_DONE_SHORT, "$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT.", PHOTO_NOTHING_FOUND,
     PHOTO_HEIF_NOTICE, PHOTO_FILE_NAME_NOTE, PHOTO_SAVE_COPY, SHARE,
-    PHOTO_TOO_BIG, PHOTO_SAVE_FAILED, PHOTO_SHARE_FAILED, PHOTO_LOST, photoDoneText("[lista]"),
+    PHOTO_TOO_BIG, PHOTO_TOO_LARGE, PHOTO_SAVE_FAILED, PHOTO_SHARE_FAILED, PHOTO_LOST, photoDoneText("[lista]"),
     PHOTO_DAMAGED, PHOTO_UNSUPPORTED,
     REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE, REDACT_EXPLANATION, REDACT_LIMITS, REDACT_DOWNSCALED, redactDownscaledText(6),
     REDACT_PICK, REDACT_PICK_OTHER, REDACT_OPENING, REDACT_RENDERING, REDACT_UNDO, REDACT_REDO, REDACT_TOO_BIG,
-    REDACT_DAMAGED, REDACT_COPY_FAILED, REDACT_LOST,
+    REDACT_TOO_LARGE, REDACT_CHANGED, REDACT_DAMAGED, REDACT_COPY_FAILED, REDACT_LOST,
     QR_EXPLANATION, QR_NO_ALERTS, qrAlertsTitle("N"), QR_MIXED_SCRIPTS, qrPunycode("…"), QR_IP_HOST, QR_HTTP,
     qrUserInfo("[host]"), qrPort("[:puerto]"), QR_SHORTENER, QR_SUBDOMAINS, qrScheme("[esquema]"), qrBidi("⟨U+202E⟩"),
     QR_WIFI_OPEN, QR_WIFI_WEP, QR_SEPA, QR_CRYPTO, QR_SMS, QR_SGK1,
