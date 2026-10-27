@@ -252,6 +252,9 @@ const val QR_CRYPTO =
     "Comprueba la dirección completa con quien te la dio, por otro medio. Un pago en criptomonedas normalmente no se " +
         "puede deshacer. Seguridad no hace pagos."
 const val QR_SMS = "Un SMS a un número corto puede tener coste."
+
+/** Not in the annex: the text is over [app.seguridad.tools.qr.MAX_QR_TEXT_BYTES]; nothing is analysed. */
+const val QR_TOO_BIG = "El código QR tiene demasiado texto para inspeccionarlo."
 const val QR_SGK1 =
     "Se añadirá como contacto sin verificar. Para verificarlo, compara la huella con la persona, en persona o por llamada."
 
@@ -313,7 +316,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     REDACT_TOO_LARGE, REDACT_CHANGED, REDACT_DAMAGED, REDACT_COPY_FAILED, REDACT_LOST,
     QR_EXPLANATION, QR_NO_ALERTS, qrAlertsTitle("N"), QR_MIXED_SCRIPTS, qrPunycode("…"), QR_IP_HOST, QR_HTTP,
     qrUserInfo("[host]"), qrPort("[:puerto]"), QR_SHORTENER, QR_SUBDOMAINS, qrScheme("[esquema]"), qrBidi("⟨U+202E⟩"),
-    QR_WIFI_OPEN, QR_WIFI_WEP, QR_SEPA, QR_CRYPTO, QR_SMS, QR_SGK1,
+    QR_WIFI_OPEN, QR_WIFI_WEP, QR_SEPA, QR_CRYPTO, QR_SMS, QR_SGK1, QR_TOO_BIG,
     pinText("N", "X"), RECOVERY_CODES_TEXT,
     ANSWERS_TITLE, ANSWERS_EXPLANATION, ANSWERS_LIMIT, ANSWERS_WARNINGS, ANSWERS_NO_ACCENTS, ANSWERS_NO_ACCENTS_NOTE,
     KEY_LOCATION_TITLE, KEY_LOCATION_STRONGBOX, KEY_LOCATION_TEE, KEY_LOCATION_SOFTWARE, STRONGBOX_AVAILABLE_NOTICE,
