@@ -42,6 +42,7 @@ import app.seguridad.ui.screens.SignScreen
 import app.seguridad.ui.screens.FileCryptoScreen
 import app.seguridad.ui.screens.OtpQrScreen
 import app.seguridad.ui.screens.PhotoCleanScreen
+import app.seguridad.ui.screens.RedactScreen
 import app.seguridad.ui.screens.FileHashScreen
 import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
@@ -178,6 +179,7 @@ fun AppNavHost(container: AppContainer) {
             composable("tools/breach") { BreachScreen(container.pwned, onBack = back) }
             composable("tools/hash") { FileHashScreen(onBack = back) }
             composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
+            composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
             composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
             composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
             composable("settings/licenses") { LicensesScreen(onBack = back) }

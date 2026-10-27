@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import app.seguridad.settings.Settings
 import app.seguridad.tools.PHOTO_TOOL_SUBTITLE
 import app.seguridad.tools.PHOTO_TOOL_TITLE
+import app.seguridad.tools.REDACT_TOOL_SUBTITLE
+import app.seguridad.tools.REDACT_TOOL_TITLE
 import app.seguridad.ui.theme.SectionCard
 
 data class Tool(val route: String, val icon: String, val title: String, val subtitle: String)
@@ -34,6 +36,7 @@ val TOOLS = listOf(
     Tool("tools/breach", "🕵", "¿Filtrada?", "Have I Been Pwned, sin enviar tu contraseña"),
     Tool("tools/hash", "#", "Huella de archivo", "SHA-256 para comprobar una descarga"),
     Tool("tools/photo", "🧽", PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE),
+    Tool("tools/redact", "⬛", REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE),
 )
 
 /** The Herramientas tab: every tool that is not the vault, two per row. */
