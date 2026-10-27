@@ -49,6 +49,7 @@ import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.PasswordChange
+import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
@@ -269,7 +270,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
             Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (existing == null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                        EntryType.entries.forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${typeIcon(t)} ${t.label}") }) }
+                        VAULT_ENTRY_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${typeIcon(t)} ${t.label}") }) }
                     }
                 }
                 OutlinedTextField(title, { title = it }, label = { Text("Nombre (p. ej. «Binance» o «Ledger»)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -299,7 +300,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                    EntryType.NOTE -> Unit
+                    EntryType.NOTE, EntryType.IDENTITY, EntryType.CONTACT -> Unit // The last two have their own tab.
                     EntryType.TOTP -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = {

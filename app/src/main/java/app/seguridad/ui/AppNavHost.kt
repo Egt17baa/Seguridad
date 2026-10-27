@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -32,11 +33,18 @@ import androidx.navigation.navArgument
 import app.seguridad.AppContainer
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
+import app.seguridad.ui.screens.ContactAddScreen
+import app.seguridad.ui.screens.ContactDetailScreen
+import app.seguridad.ui.screens.ContactsScreen
+import app.seguridad.ui.screens.EncryptForScreen
+import app.seguridad.ui.screens.OpenReceivedScreen
+import app.seguridad.ui.screens.SignScreen
 import app.seguridad.ui.screens.FileCryptoScreen
 import app.seguridad.ui.screens.OtpQrScreen
 import app.seguridad.ui.screens.FileHashScreen
 import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
+import app.seguridad.ui.screens.IdentityScreen
 import app.seguridad.ui.screens.LicensesScreen
 import app.seguridad.ui.screens.NoticeScreen
 import app.seguridad.ui.screens.SettingsScreen
@@ -47,6 +55,7 @@ import app.seguridad.ui.screens.VaultEntryEditScreen
 import app.seguridad.ui.screens.VaultIdleTicker
 import app.seguridad.ui.screens.VaultScreen
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.VAULT_ENTRY_TYPES
 import kotlinx.coroutines.launch
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -54,6 +63,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 private val tabs = listOf(
     Tab("vault", "Bóveda", Icons.Default.Lock),
     Tab("codes", "Códigos", Icons.Default.Refresh),
+    Tab("contacts", "Contactos", Icons.Default.Person),
     Tab("tools", "Herramientas", Icons.Default.Build),
     Tab("settings", "Ajustes", Icons.Default.Settings),
 )
@@ -134,16 +144,35 @@ fun AppNavHost(container: AppContainer) {
                 VaultEntryEditScreen(
                     vault,
                     id = entry.arguments?.getString("id"),
-                    initialType = EntryType.entries.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
+                    initialType = VAULT_ENTRY_TYPES.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
                     onDone = back,
                 )
             }
             composable("vault/health") {
                 HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=$id") }, onBack = back)
             }
+            // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
+            // The fixed routes (me, add, encrypt, sign, open) are not ids: Navigation picks a route with no argument over contacts/{id}.
+            composable("contacts") {
+                ContactsScreen(
+                    vault,
+                    onIdentity = { nav.navigate("contacts/me") },
+                    onAdd = { nav.navigate("contacts/add") },
+                    onContact = { id -> nav.navigate("contacts/$id") },
+                    onAction = { route -> nav.navigate(route) },
+                )
+            }
+            composable("contacts/me") { IdentityScreen(vault, onBack = back) }
+            composable("contacts/add") { ContactAddScreen(vault, onBack = back) }
+            composable("contacts/encrypt") { EncryptForScreen(vault, onBack = back) }
+            composable("contacts/sign") { SignScreen(vault, onBack = back) }
+            composable("contacts/open") { OpenReceivedScreen(vault, onBack = back, onOpenSymmetric = { nav.navigate("tools/file") }) }
+            composable("contacts/{id}") { entry ->
+                ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
+            }
             composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
             composable("tools/text") { TextCryptoScreen(settings.kdf.params, onBack = back) }
-            composable("tools/file") { FileCryptoScreen(settings.kdf.params, onBack = back) }
+            composable("tools/file") { FileCryptoScreen(settings.kdf.params, onBack = back, onOpenReceived = { nav.navigate("contacts/open") }) }
             composable("tools/generator") { GeneratorScreen(onBack = back) }
             composable("tools/breach") { BreachScreen(container.pwned, onBack = back) }
             composable("tools/hash") { FileHashScreen(onBack = back) }

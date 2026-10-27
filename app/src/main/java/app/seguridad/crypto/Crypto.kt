@@ -341,10 +341,24 @@ const val MAX_TEXT_FILE_BYTES = 1024 * 1024
 
 /** The first "SG1:" or "CP1:" ciphertext inside a text file, which may also hold other lines; null if there is none. */
 fun extractToken(text: String): String? {
-    val (start, prefix) = Dialect.entries
-        .map { text.indexOf(it.textPrefix) to it.textPrefix }
-        .filter { it.first >= 0 }
-        .minByOrNull { it.first } ?: return null
+    // One pass over the text per prefix: where each one first appears, and the earliest wins (two prefixes never start at
+    // the same place).
+    val (prefix, start) = Dialect.entries
+        .map { it.textPrefix to text.indexOf(it.textPrefix) }
+        .filter { (_, at) -> at >= 0 }
+        .minByOrNull { (_, at) -> at } ?: return null
+    return extractPrefixedToken(text, prefix, start)
+}
+
+/**
+ * The token that starts with [prefix] at [start] (its first appearance) inside [text], which may be a chat message or a
+ * file with other lines; null if nothing follows the prefix. Only for the "SG1:" and "CP1:" texts, through [extractToken]: the
+ * public-key formats ("SGM1:", "SGS1:", "SGK1:") have their own reader (`pk/Message.kt`, `pk/Received.kt`), which tries
+ * every way of joining the pieces because a word after the token can look like Base64url too.
+ * The token is Base64url: on its own line it ends at the first other character (a space, a full stop…), and chat apps
+ * and editors that wrap it are handled by joining the following lines as long as they are nothing but Base64url.
+ */
+private fun extractPrefixedToken(text: String, prefix: String, start: Int): String? {
     fun isB64(c: Char) = c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '-' || c == '_'
     val lines = text.substring(start + prefix.length).lines()
     // On its own line the token ends at the first other character (a space, a full stop…).

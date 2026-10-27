@@ -69,6 +69,7 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
@@ -183,13 +184,25 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
             }
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize().touchesVault(store)) {
-            when (val s = state) {
-                VaultState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                VaultState.NoVault -> CreateVault(store, onImport = actions.import)
-                VaultState.Locked -> UnlockVault(store)
-                is VaultState.Unlocked -> EntryList(s.entries, totpOnly, onOpen)
-            }
+        VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) { entries -> EntryList(entries, totpOnly, onOpen) }
+    }
+}
+
+/**
+ * What every screen that needs the open vault shows until it is: a spinner while loading, «Crea tu bóveda» with no vault
+ * and «Bóveda bloqueada» when locked. Only with the vault open does it draw [content], with the entries; when the vault
+ * locks, [content] leaves the composition at once, so no data stays on screen. Any touch counts as use for the idle lock.
+ * [onImport] is the «Importar una copia exportada» button of the creation screen (see [vaultActions]).
+ */
+@Composable
+fun VaultGate(store: VaultStore, onImport: () -> Unit, modifier: Modifier = Modifier, content: @Composable (List<VaultEntry>) -> Unit) {
+    val state by store.state.collectAsStateWithLifecycle()
+    Box(modifier.fillMaxSize().touchesVault(store)) {
+        when (val s = state) {
+            VaultState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            VaultState.NoVault -> CreateVault(store, onImport = onImport)
+            VaultState.Locked -> UnlockVault(store)
+            is VaultState.Unlocked -> content(s.entries)
         }
     }
 }
@@ -328,7 +341,9 @@ private fun UnlockVault(store: VaultStore) {
 }
 
 @Composable
-private fun EntryList(entries: List<VaultEntry>, totpOnly: Boolean, onOpen: (String) -> Unit) {
+private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (String) -> Unit) {
+    // Identity and contacts have their own tab (and no chip or row here): the list only shows what the vault tab always did.
+    val entries = remember(allEntries) { allEntries.filterNot { it.type.isPersonal } }
     var query by remember { mutableStateOf("") }
     var type by remember { mutableStateOf<EntryType?>(if (totpOnly) EntryType.TOTP else null) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -354,7 +369,7 @@ private fun EntryList(entries: List<VaultEntry>, totpOnly: Boolean, onOpen: (Str
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     FilterChip(selected = type == null, onClick = { type = null }, label = { Text("Todo (${entries.size})") })
-                    EntryType.entries.forEach { t ->
+                    VAULT_ENTRY_TYPES.forEach { t ->
                         FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${t.label} (${entries.count { it.type == t }})") })
                     }
                 }
@@ -392,6 +407,7 @@ private fun EntryList(entries: List<VaultEntry>, totpOnly: Boolean, onOpen: (Str
                         EntryType.SEED -> "${seedWordCount(e.seedWords).first} palabras"
                         EntryType.NOTE -> "Nota"
                         EntryType.TOTP -> listOf(e.totp?.issuer, e.totp?.account).filter { !it.isNullOrBlank() }.joinToString(" · ")
+                        EntryType.IDENTITY, EntryType.CONTACT -> "" // Never listed here.
                     }
                     if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
@@ -415,4 +431,6 @@ fun typeIcon(t: EntryType) = when (t) {
     EntryType.SEED -> "🌱"
     EntryType.NOTE -> "📝"
     EntryType.TOTP -> "⏱"
+    EntryType.IDENTITY -> "🪪"
+    EntryType.CONTACT -> "👤"
 }

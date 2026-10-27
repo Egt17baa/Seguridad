@@ -53,6 +53,15 @@ fun copySensitive(context: Context, text: String) {
 }
 
 /**
+ * The text in the clipboard, or `null` if it is empty, holds no text, or Android does not let the app read it (in the
+ * background, or any exception from the system service). Never throws: pasting must not close the app.
+ */
+fun readClipboardText(context: Context): String? = runCatching {
+    val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip
+    if (clip == null || clip.itemCount == 0) null else clip.getItemAt(0)?.text?.toString()
+}.getOrNull()
+
+/**
  * Clears a copy of ours older than the chosen time, left behind because the app was closed before its timer ran
  * (Android 8–12 never clear the clipboard themselves). Call when the app has focus (needed to read it).
  */

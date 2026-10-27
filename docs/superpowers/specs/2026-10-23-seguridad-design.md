@@ -143,10 +143,13 @@ Cada fase es una versión que compila, pasa todos los tests y se sube a `main` m
 
 1. **1.0.0: extracción.** Proyecto nuevo, tema, navegación y ajustes, el código de Seguridad portado y sin nada de CriptoPanel, los formatos nuevos más la lectura de los de CriptoPanel, el proyecto `jvm-check` y la CI. Todos los tests heredados pasan.
 2. **1.1.0: bóveda mejorada.** Búsqueda, favoritos, etiquetas, historial, adjuntos, copia automática, salud de la bóveda e importación desde Google Authenticator.
-3. **1.2.0: criptografía de clave pública.** Claves propias, contactos, firmas Ed25519 y HPKE.
-4. **1.3.0: secretos compartidos y laboratorios.** SLIP-0039, laboratorio de hashes y laboratorio clásico con Enigma.
-5. **1.4.0: revisión del móvil y Aprende.**
-6. **Revisión final:** `security-review` y `code-review` (al máximo) sobre todo el código, más la skill `experto-seguridad-cripto`; se corrige todo lo confirmado y queda documentado en este diseño, como en CriptoPanel.
+3. **1.2.0: criptografía de clave pública.** Identidad propia, contactos, firmas Ed25519 y cifrado para un contacto con HPKE y el KEM híbrido X-Wing. Diseño propio: `2026-10-26-seguridad-1.2.0-clave-publica-design.md`.
+4. **1.3.0: siete herramientas nuevas** (elegidas por el propietario el 26-10-2026): limpiar fotos, inspector de QR, analizador de enlaces, tachar en imágenes, revisar un correo sospechoso, PIN y códigos, y compartir cifrado.
+5. **1.4.0: secretos compartidos y laboratorios.** SLIP-0039, laboratorio de hashes y laboratorio clásico con Enigma.
+6. **1.5.0: revisión del móvil y Aprende.** La revisión del móvil incluye un **aviso de integridad** (decisión de los expertos, 26-10-2026, tras la pregunta del propietario sobre root): la atestación de claves del Keystore, comprobada en el propio móvil, dice si el cargador de arranque está desbloqueado, y se suman comprobaciones sencillas de root. Es solo un aviso («Este móvil tiene root o el arranque desbloqueado: cualquier app con root podría leer la bóveda mientras está abierta») y nunca bloquea la app, porque la detección de root se esquiva y castigaría a quien rootea su propio móvil. Sin Play Integrity: solo tiene sentido comprobada en un servidor y exigiría red hacia Google.
+   - **Endurecer la clave de la huella** (decisión de los expertos, 26-10-2026): StrongBox cuando el móvil lo tenga, con respaldo al TEE, y `setUnlockedDeviceRequired(true)` desde Android 9. **Hecho en la 1.2.0 lo de «desbloqueado»:** `BiometricVault.createKey` añade `setUnlockedDeviceRequired(true)` desde Android 9 y solo a las claves nuevas (se crean al activar la huella); las que ya existen siguen valiendo. **StrongBox pasa a la 1.3.0:** algunos fabricantes fallan con StrongBox más autenticación por uso, y sin un móvil para probarlo el riesgo de dejar a alguien sin huella no compensa.
+   - **Descartado por ahora:** atar `vault.bin` a una clave del Keystore además de la maestra. Impediría atacar una copia del archivo fuera del móvil, pero un fallo del Keystore dejaría la bóveda sin abrir; con una maestra fuerte y Argon2id (64 MiB, 3 pasadas) el riesgo no compensa.
+7. **Revisión final:** `security-review` y `code-review` (al máximo) sobre todo el código, más la skill `experto-seguridad-cripto`; se corrige todo lo confirmado y queda documentado en este diseño, como en CriptoPanel.
 
 Además, al final de cada fase se hace una revisión de código de esa fase.
 
