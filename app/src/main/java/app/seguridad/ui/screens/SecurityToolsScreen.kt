@@ -1,7 +1,6 @@
 package app.seguridad.ui.screens
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -386,9 +385,7 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilledTonalButton(onClick = { copySensitive(context, out) }) { Text("Copiar") }
                         if (encrypt) {
-                            OutlinedButton(onClick = {
-                                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, out), "Compartir"))
-                            }) { Text("Compartir") }
+                            OutlinedButton(onClick = { shareText(context, out, "Compartir") }) { Text("Compartir") }
                         }
                     }
                     if (encrypt) {
@@ -500,6 +497,10 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
     var pendingPath by rememberSaveable { mutableStateOf<String?>(null) }
     // The chosen file is a `.sgenc` for a contact or a `.sgsig`: it opens in Contactos → Abrir lo recibido, not here.
     var forContacts by remember { mutableStateOf(false) }
+    // The file and mode the check below finished for. Until it matches the current ones the check is still running
+    // («comprobando») and «Descifrar» stays off, so a contact's file can never be tried with a password meanwhile.
+    var checkedFor by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
+    val checking = !encrypt && source != null && checkedFor != (source to encrypt)
 
     val saveEncrypted = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         if (dest == null) return@rememberLauncherForActivityResult
@@ -563,6 +564,9 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
+            // Another file: «Descifrar» is off from this very frame until its check ends. The same file again keeps its
+            // check (the effect below is keyed on it and does not run again).
+            if (uri != source) checkedFor = null
             source = uri
             sourceName = displayName(context, uri)
             message = null
@@ -572,6 +576,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
     // changes, so a stale result can never overwrite a newer one.
     LaunchedEffect(source, encrypt) {
         forContacts = false
+        checkedFor = null
         val uri = source
         if (uri != null && !encrypt) {
             forContacts = try {
@@ -583,6 +588,8 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             } catch (e: Exception) {
                 false // Unreadable: decrypting says so with its own message.
             }
+            // Only a check that ran to the end says it is done: a cancelled one (another file, another mode) never does.
+            checkedFor = uri to false
         }
     }
 
@@ -605,13 +612,14 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             )
             Button(onClick = onOpenReceived, modifier = Modifier.fillMaxWidth()) { Text("Abrir lo recibido") }
         }
+        if (checking) Text("Comprobando el archivo…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         SecretInput(useKey, { useKey = it; message = null }, password, { password = it; message = null }, keyHex, { keyHex = it; message = null }, allowGenerate = encrypt)
         if (encrypt) {
             Text("Algoritmo", style = MaterialTheme.typography.titleSmall)
             AlgorithmPicker(alg) { alg = it }
         }
         Button(
-            enabled = !busy && source != null && !(forContacts && !encrypt) && hasSecret(useKey, password, keyHex),
+            enabled = !busy && source != null && !checking && !(forContacts && !encrypt) && hasSecret(useKey, password, keyHex),
             onClick = {
                 if (encrypt) {
                     saveEncrypted.launchOrError(sourceName + ENCRYPTED_EXTENSION)?.let { message = false to it }

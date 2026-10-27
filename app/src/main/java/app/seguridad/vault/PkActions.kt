@@ -379,6 +379,48 @@ fun nextPickStep(kind: PickedKind, haveSignature: Boolean, haveFile: Boolean): P
     PickedKind.OTHER -> if (haveSignature) PickStep.READY_TO_VERIFY else PickStep.NEED_SIGNATURE
 }
 
+/**
+ * Los archivos elegidos hasta ahora en «Abrir lo recibido». [U] es el tipo del URI (genérico: así se prueba sin Android).
+ * Solo lleva datos que no son secretos (URIs, nombres que da el proveedor y los bytes de una firma pública).
+ *  - [encrypted] y [encryptedName]: un `.sgenc` de tipo 3;
+ *  - [signature]: los primeros bytes de un `.sgsig`;
+ *  - [signed] y [signedName]: el archivo que firma el `.sgsig`;
+ *  - [textCandidate] y [textCandidateName]: el último archivo elegido que se leyó como texto ([PickedFile.Text]). Un `.txt`
+ *    con un texto firmado dentro también puede ser el archivo de un `.sgsig`: si después se elige el `.sgsig` y no hay
+ *    otro archivo firmado elegido, se comprueba contra este.
+ */
+class FileSelection<U : Any>(
+    val encrypted: U? = null,
+    val encryptedName: String = "",
+    val signature: ByteArray? = null,
+    val signed: U? = null,
+    val signedName: String = "",
+    val textCandidate: U? = null,
+    val textCandidateName: String = "",
+) {
+    override fun toString(): String =
+        "FileSelection(encrypted=${encrypted != null}, signature=${signature != null}, signed=${signed != null}, text=${textCandidate != null})"
+}
+
+/**
+ * Lo elegido después de elegir [uri] (con el nombre [name]), que [classifyPicked] dice que es [picked]:
+ *  - un `.sgenc` de tipo 3, uno con contraseña o un texto empiezan de cero (el texto queda como [FileSelection.textCandidate]);
+ *  - un `.sgsig` quita el `.sgenc` y, si todavía no hay archivo firmado, toma como tal el último texto elegido;
+ *  - cualquier otro archivo quita el `.sgenc` y es el archivo firmado.
+ */
+fun <U : Any> FileSelection<U>.afterPicking(picked: PickedFile, uri: U, name: String): FileSelection<U> = when (picked) {
+    PickedFile.Encrypted -> FileSelection(encrypted = uri, encryptedName = name)
+    PickedFile.Symmetric -> FileSelection()
+    is PickedFile.Text -> FileSelection(textCandidate = uri, textCandidateName = name)
+    is PickedFile.Signature ->
+        if (signed != null) {
+            FileSelection(signature = picked.bytes, signed = signed, signedName = signedName)
+        } else {
+            FileSelection(signature = picked.bytes, signed = textCandidate, signedName = if (textCandidate != null) textCandidateName else "")
+        }
+    PickedFile.Other -> FileSelection(signature = signature, signed = uri, signedName = name)
+}
+
 // ---- Descifrar un archivo a una carpeta temporal ----
 
 /**

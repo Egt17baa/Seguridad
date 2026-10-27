@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import android.content.ClipboardManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,11 +27,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import app.seguridad.android.readClipboardText
 import app.seguridad.android.scanQrOptions
 import app.seguridad.crypto.pk.Card
 import app.seguridad.crypto.pk.MAX_CARD_BYTES
-import app.seguridad.crypto.pk.cardBytesFromAnyText
-import app.seguridad.crypto.pk.parseCard
+import app.seguridad.crypto.pk.cardAndBytesFromAnyText
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
@@ -125,7 +124,7 @@ fun ContactAddScreen(store: VaultStore, onBack: () -> Unit) {
                     }
                 }) { Text("📷 Escanear QR") }
                 OutlinedButton(onClick = {
-                    val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip?.getItemAt(0)?.text?.toString()
+                    val clip = readClipboardText(context)
                     if (clip.isNullOrBlank()) error = "El portapapeles está vacío" else accept(clip, qr = false)
                 }) { Text("Pegar tarjeta") }
             }
@@ -148,8 +147,8 @@ internal fun IncomingCardSection(
     val incoming by produceState<Incoming?>(null, text, entries) {
         value = withContext(Dispatchers.Default) {
             try {
-                val bytes = cardBytesFromAnyText(text)
-                val card = parseCard(bytes)
+                // One read: the card and its canonical bytes (the signature is checked once).
+                val (card, bytes) = cardAndBytesFromAnyText(text)
                 val check = checkIncomingCard(card, entries)
                 val other = savedFingerprint(check)
                 Incoming.Ready(card, bytes, check, other)

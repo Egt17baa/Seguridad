@@ -1,8 +1,6 @@
 package app.seguridad.ui.screens
 
-import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,7 +41,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.seguridad.SeguridadApp
 import app.seguridad.android.copySensitive
+import app.seguridad.android.readClipboardText
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.pk.cardText
@@ -53,6 +53,7 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PositiveColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.ENCRYPT_HELP
+import app.seguridad.vault.FileSelection
 import app.seguridad.vault.NO_IDENTITY_TO_SIGN
 import app.seguridad.vault.PK_OPEN_TEMP_DIR
 import app.seguridad.vault.PickStep
@@ -70,6 +71,7 @@ import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.actionErrorMessage
+import app.seguridad.vault.afterPicking
 import app.seguridad.vault.clearTempDir
 import app.seguridad.vault.contactsList
 import app.seguridad.vault.decryptReceivedFileToTemp
@@ -124,13 +126,14 @@ private suspend fun cancellationCheck(): () -> Unit {
     return { job?.ensureActive() }
 }
 
-/** Abre el menú de compartir con [text] (público: un `SGM1:`, un `SGS1:`). Nunca toca `VaultLock.keepOpenOnce`. */
-private fun share(context: Context, text: String, title: String): Boolean = try {
-    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-    context.startActivity(Intent.createChooser(send, title))
-    true
-} catch (e: Exception) {
-    false
+/**
+ * Borra la subcarpeta de [received] fuera del hilo principal (`Dispatchers.IO`) y en el ámbito de la app, que vive lo que
+ * el proceso: el borrado termina aunque la pantalla se vaya o la corrutina que lo pide esté cancelada.
+ */
+private fun discardInBackground(context: Context, received: ReceivedFile?) {
+    if (received == null) return
+    val scope = (context.applicationContext as? SeguridadApp)?.container?.appScope ?: CoroutineScope(Dispatchers.IO)
+    scope.launch(Dispatchers.IO) { received.discard() }
 }
 
 /** Pone [VaultLock.keepOpenOnce] y cuenta el tiempo fuera desde aquí; lo quita si el selector no se abre. Devuelve el error, o `null`. */
@@ -193,7 +196,7 @@ private fun PublicOutput(context: Context, output: String, shareTitle: String, o
             Text(output, maxLines = 6, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = { copySensitive(context, output) }) { Text("Copiar") }
-                OutlinedButton(onClick = { if (!share(context, output, shareTitle)) onError("No se pudo abrir el menú de compartir") }) { Text("Compartir") }
+                OutlinedButton(onClick = { if (!shareText(context, output, shareTitle)) onError("No se pudo abrir el menú de compartir") }) { Text("Compartir") }
             }
             Text(SHARE_HINT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
@@ -523,6 +526,9 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
     var sigBytes by rememberSaveable { mutableStateOf<ByteArray?>(null) }
     var signedUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var signedName by rememberSaveable { mutableStateOf("") }
+    // The last file read as text: it may also be the file a `.sgsig` picked afterwards signs (`afterPicking`).
+    var textUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var textName by rememberSaveable { mutableStateOf("") }
     var pending by remember { mutableStateOf<ReceivedFile?>(null) }
     var fileLine by remember { mutableStateOf<SenderLine?>(null) }
     var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
@@ -535,7 +541,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
     // away (also when the vault locks), and the whole folder is wiped at app start and when the vault locks.
     DisposableEffect(Unit) {
         onDispose {
-            pending?.discard()
+            discardInBackground(context, pending)
             pending = null
         }
     }
@@ -546,6 +552,8 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         sigBytes = null
         signedUri = null
         signedName = ""
+        textUri = null
+        textName = ""
         prompt = null
         symmetric = false
     }
@@ -563,7 +571,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
             return@rememberLauncherForActivityResult
         }
         if (dest == null) {
-            received.discard()
+            discardInBackground(context, received)
             pending = null
             message = false to "No se ha guardado nada."
             return@rememberLauncherForActivityResult
@@ -584,7 +592,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 discardDocument(context, dest)
                 message = false to actionErrorMessage(e, "No se ha podido guardar el archivo.")
             } finally {
-                received.discard()
+                discardInBackground(context, received)
                 pending = null
             }
         }
@@ -603,34 +611,23 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                     classifyPicked(bytes, haveSignature = sigBytes != null)
                 }
                 val name = displayName(context, uri)
-                symmetric = false
-                var kind = PickedKind.OTHER
-                when (picked) {
-                    PickedFile.Encrypted -> {
-                        kind = PickedKind.ENCRYPTED
-                        resetFiles()
-                        encUri = uri
-                        encName = name
-                    }
-                    is PickedFile.Signature -> {
-                        kind = PickedKind.SIGNATURE
-                        encUri = null
-                        sigBytes = picked.bytes
-                    }
-                    PickedFile.Symmetric -> {
-                        resetFiles()
-                        symmetric = true
-                    }
-                    is PickedFile.Text -> {
-                        resetFiles()
-                        pasted = picked.text
-                        textResult = withContext(Dispatchers.Default) { openReceivedText(picked.text, entries) }
-                    }
-                    PickedFile.Other -> {
-                        encUri = null
-                        signedUri = uri
-                        signedName = name
-                    }
+                val chosen = FileSelection(encUri, encName, sigBytes, signedUri, signedName, textUri, textName).afterPicking(picked, uri, name)
+                encUri = chosen.encrypted
+                encName = chosen.encryptedName
+                sigBytes = chosen.signature
+                signedUri = chosen.signed
+                signedName = chosen.signedName
+                textUri = chosen.textCandidate
+                textName = chosen.textCandidateName
+                symmetric = picked == PickedFile.Symmetric
+                val kind = when (picked) {
+                    PickedFile.Encrypted -> PickedKind.ENCRYPTED
+                    is PickedFile.Signature -> PickedKind.SIGNATURE
+                    else -> PickedKind.OTHER
+                }
+                if (picked is PickedFile.Text) {
+                    pasted = picked.text
+                    textResult = withContext(Dispatchers.Default) { openReceivedText(picked.text, entries) }
                 }
                 prompt = if (picked is PickedFile.Symmetric || picked is PickedFile.Text) {
                     null
@@ -675,7 +672,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
-                val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip?.getItemAt(0)?.text?.toString()
+                val clip = readClipboardText(context)
                 if (clip.isNullOrBlank()) message = false to "El portapapeles está vacío"
                 else if (clip.length > MAX_TEXT_FILE_BYTES) message = false to "El texto es demasiado grande"
                 else {
@@ -759,16 +756,16 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                             store.touch()
                             saveDecrypted.launchOrError(received.name)?.let { failure ->
                                 VaultLock.keepOpenOnce = false
-                                received.discard()
+                                discardInBackground(context, received)
                                 pending = null
                                 message = false to failure
                             }
                         } catch (e: CancellationException) {
-                            pending?.discard()
+                            discardInBackground(context, pending)
                             pending = null
                             throw e
                         } catch (e: Exception) {
-                            pending?.discard()
+                            discardInBackground(context, pending)
                             pending = null
                             message = false to openErrorMessage(e)
                         }
