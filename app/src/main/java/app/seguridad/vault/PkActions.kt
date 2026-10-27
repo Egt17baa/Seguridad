@@ -490,7 +490,7 @@ fun saveReceivedFile(received: ReceivedFile, out: OutputStream, checkCancelled: 
     }
 }
 
-/** Borra la carpeta de temporales de «Abrir lo recibido» de la caché [cacheDir], con todo lo que tenga: al arrancar la app. */
+/** Borra la carpeta de temporales de «Abrir lo recibido» de la caché [cacheDir], con todo lo que tenga: al arrancar la app y cada vez que la bóveda no está abierta. */
 fun wipePkTemp(cacheDir: File) {
     File(cacheDir, PK_OPEN_TEMP_DIR).deleteRecursively()
 }

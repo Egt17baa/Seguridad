@@ -1,6 +1,7 @@
 package app.seguridad.net
 
 import okhttp3.CookieJar
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -14,5 +15,11 @@ class HttpClientTest {
 
     @Test fun noCache() {
         assertNull(secureClient(appVersion = "1.0").cache)
+    }
+
+    @Test fun noRedirects() {
+        val client = secureClient(appVersion = "1.0")
+        assertFalse(client.followRedirects)
+        assertFalse(client.followSslRedirects)
     }
 }

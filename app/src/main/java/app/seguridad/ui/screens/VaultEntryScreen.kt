@@ -287,7 +287,8 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             { seed = it },
                             label = { Text("Palabras de recuperación, separadas por espacios") },
                             minLines = 3,
-                            // A password keyboard neither learns nor suggests the words, nor syncs them to the cloud.
+                            // A password field: well-behaved keyboards (Gboard among them) neither learn nor suggest from it, nor sync
+                            // it. That is up to the keyboard: Compose cannot force it.
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -332,7 +333,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                     { notes = it },
                     label = { Text(if (type == EntryType.NOTE) "Nota" else "Notas") },
                     minLines = if (type == EntryType.NOTE) 5 else 2,
-                    // Secure notes: no keyboard learning or suggestions (same as the seed words).
+                    // Secure notes: a password field, as the seed words (no learning or suggestions from well-behaved keyboards).
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )

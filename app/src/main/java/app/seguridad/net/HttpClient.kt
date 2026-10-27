@@ -18,6 +18,9 @@ fun secureClient(appVersion: String): OkHttpClient =
         .callTimeout(Duration.ofSeconds(15))
         .cache(null as Cache?)
         .cookieJar(CookieJar.NO_COOKIES)
+        // Only api.pwnedpasswords.com: a redirect (to another host, or to plain http) is never followed.
+        .followRedirects(false)
+        .followSslRedirects(false)
         .addInterceptor { chain ->
             chain.proceed(chain.request().newBuilder().header("User-Agent", "Seguridad/$appVersion").build())
         }
