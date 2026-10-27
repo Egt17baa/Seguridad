@@ -150,8 +150,10 @@ sealed interface CardCheck {
     data class Same(val entry: VaultEntry) : CardCheck
 
     /**
-     * La clave X-Wing de la tarjeta es la de [entry] (un contacto o mi identidad) y la Ed25519 no: alguien quiere hacerse
-     * pasar por un contacto o recibir lo que se cifra para él (unknown key-share). Aviso fuerte; no se debe añadir.
+     * La clave X-Wing de la tarjeta es la de [entry] (un contacto o mi identidad) y la Ed25519 no: una de las dos tarjetas
+     * copia la clave de cifrado de la otra (unknown key-share), y no se sabe cuál, porque la copia pudo llegar antes. Aviso
+     * fuerte y neutro; no se debe añadir. La firma del remitente cubre la Ed25519 y la X-Wing del destinatario, así que
+     * la copia no sirve para que lo firmado para una se tome por firmado para la otra.
      */
     data class SharedKem(val entry: VaultEntry, val card: Card) : CardCheck
 

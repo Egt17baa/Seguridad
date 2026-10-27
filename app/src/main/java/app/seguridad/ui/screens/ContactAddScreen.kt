@@ -38,6 +38,7 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.CardCheck
 import app.seguridad.vault.ContactName
+import app.seguridad.vault.EntryType
 import app.seguridad.vault.NoticeLevel
 import app.seguridad.vault.TOO_BIG_CARD
 import app.seguridad.vault.VaultEntry
@@ -47,10 +48,10 @@ import app.seguridad.vault.cardFingerprint
 import app.seguridad.vault.cardReadErrorMessage
 import app.seguridad.vault.checkContactName
 import app.seguridad.vault.checkIncomingCard
-import app.seguridad.vault.contactCard
 import app.seguridad.vault.incomingCardNotice
 import app.seguridad.vault.newContactEntry
 import app.seguridad.vault.saveFailureMessage
+import app.seguridad.vault.savedFingerprint
 import app.seguridad.vault.suggestedContactName
 import com.google.zxing.client.android.Intents
 import com.journeyapps.barcodescanner.ScanContract
@@ -150,7 +151,7 @@ internal fun IncomingCardSection(
                 val bytes = cardBytesFromAnyText(text)
                 val card = parseCard(bytes)
                 val check = checkIncomingCard(card, entries)
-                val other = (check as? CardCheck.KeysChanged)?.let { cardFingerprint(it.entry.contactCard()) }
+                val other = savedFingerprint(check)
                 Incoming.Ready(card, bytes, check, other)
             } catch (e: CancellationException) {
                 throw e
@@ -185,9 +186,13 @@ private fun ReadyCard(store: VaultStore, ready: Incoming.Ready, text: String, vi
             // All of these are plain Text: a name from a card is never read as a link or markdown.
             Text(notice.title, style = MaterialTheme.typography.titleMedium, color = noticeColor)
             if (notice.body.isNotEmpty()) Text(notice.body, color = if (notice.level == NoticeLevel.INFO) Color.Unspecified else noticeColor)
-            // The fingerprint is always in view before saving.
-            if (notice.saveLabel != null) {
-                ready.otherFingerprint?.let { FingerprintBlock("Huella del contacto que ya tienes", it) }
+            // The fingerprint is always in view before saving, and with the same encryption key in two cards both are shown
+            // (the notice asks to compare them with both people; it still has no save button).
+            if (notice.saveLabel != null || ready.check is CardCheck.SharedKem) {
+                ready.otherFingerprint?.let { other ->
+                    val sharedWithMe = (ready.check as? CardCheck.SharedKem)?.entry?.type == EntryType.IDENTITY
+                    FingerprintBlock(if (sharedWithMe) "Huella de tu identidad" else "Huella del contacto que ya tienes", other)
+                }
                 FingerprintBlock(if (ready.otherFingerprint != null) "Huella de la tarjeta nueva" else "Huella de la tarjeta", fingerprint)
             }
             if (notice.footer.isNotEmpty()) Text(notice.footer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

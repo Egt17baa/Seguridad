@@ -74,7 +74,9 @@ class FileMessageTest {
 
     /**
      * El diseño escrito a mano. [flags] y [finalPlain] pisan lo que haría un cifrador correcto; [signContext] es el
-     * contexto de Ed25519ph con el que se firma; [signer] es quien firma (por defecto [sender]).
+     * contexto de Ed25519ph con el que se firma; [signer] es quien firma (por defecto [sender]). La firma cubre
+     * `cabecera ‖ [recipientEdForSignature] ‖ [recipientForSignature] ‖ registro 0 en claro ‖ datos en claro`: por defecto,
+     * la Ed25519 (32) y la X-Wing (1216) del destinatario, tal cual salen de su tarjeta.
      */
     private fun hand(
         recipient: Card,
@@ -87,6 +89,7 @@ class FileMessageTest {
         signContext: String = msgContext,
         signer: Identity? = sender,
         recipientForSignature: ByteArray = recipient.kemPublic,
+        recipientEdForSignature: ByteArray = recipient.edPublic,
         chunk: Int = CHUNK_BYTES,
     ): Hand {
         val h = hpkeSuite()
@@ -111,6 +114,8 @@ class FileMessageTest {
 
         val sig = signer?.fileSigner(signContext)
         sig?.update(header, 0, header.size)
+        val re = recipientEdForSignature
+        sig?.update(re, 0, re.size)
         val rk = recipientForSignature
         sig?.update(rk, 0, rk.size)
         sig?.update(record0, 0, record0.size)
@@ -442,11 +447,11 @@ class FileMessageTest {
         val header = honest.bytes.copyOf(1132)
         val record0 = byteArrayOf(1) + a.edPublic + "doc.pdf".toByteArray()
         val crossSigner = a.fileSigner(sgsigContext)
-        for (part in listOf(header, card.kemPublic, record0, data(1000))) crossSigner.update(part, 0, part.size)
+        for (part in listOf(header, card.edPublic, card.kemPublic, record0, data(1000))) crossSigner.update(part, 0, part.size)
         val crossSig = crossSigner.generateSignature()
         // Es una firma válida de `.sgsig` sobre esos bytes: lo comprueba el verificador del `.sgsig`.
         val check = fileVerifier(a.edPublic, sgsigContext)
-        for (part in listOf(header, card.kemPublic, record0, data(1000))) check.update(part, 0, part.size)
+        for (part in listOf(header, card.edPublic, card.kemPublic, record0, data(1000))) check.update(part, 0, part.size)
         assertTrue(check.verifySignature(crossSig))
 
         val forged = hand(card, a, data(1000), finalPlain = crossSig).bytes
@@ -487,7 +492,7 @@ class FileMessageTest {
             val s = a.fileSigner(msgContext)
             val header = honest.bytes.copyOf(1132)
             val record0 = byteArrayOf(1) + a.edPublic + "doc.pdf".toByteArray()
-            for (part in listOf(header, card.kemPublic, record0, data(50))) s.update(part, 0, part.size)
+            for (part in listOf(header, card.edPublic, card.kemPublic, record0, data(50))) s.update(part, 0, part.size)
             s.generateSignature()
         }
         rejects("nombre cambiado") { decrypt(hand(card, a, data(50), name = "otro.pdf", finalPlain = sigPlain).bytes, b) }
@@ -508,11 +513,66 @@ class FileMessageTest {
         assertEquals(64, sig.size)
         val forwarded = hand(cardOf(carol), a, data(2000), finalPlain = sig)
         rejects("a Carol con la firma de Ana") { decrypt(forwarded.bytes, carol) }
-        // Aunque la firma cubriera la clave de Ana en vez de la de Carol, la cabecera es otra.
-        val forwarded2 = hand(cardOf(carol), a, data(2000), recipientForSignature = cardOf(ana).kemPublic)
+        // Aunque la firma cubriera las claves de Ana en vez de las de Carol, la cabecera es otra.
+        val forwarded2 = hand(
+            cardOf(carol), a, data(2000),
+            recipientForSignature = cardOf(ana).kemPublic, recipientEdForSignature = cardOf(ana).edPublic,
+        )
         rejects("firma sobre la clave de Ana") { decrypt(forwarded2.bytes, carol) }
         // Y la firma correcta de A para Carol, sí.
         assertArrayEquals(a.edPublic, decrypt(hand(cardOf(carol), a, data(2000)).bytes, carol).senderEd)
+    }
+
+    // ---- Unknown key-share (Davis, «Defective Sign & Encrypt», USENIX 2001) ----
+
+    private fun malloryIdentity() = Identity(ByteArray(32) { (0x30 + it).toByte() })
+
+    /** La tarjeta de Mallory armada a mano: su Ed25519 con la X-Wing de [victim], firmada por Mallory (válida para `parseCard`). */
+    private fun malloryCardWithKemOf(mallory: Identity, victim: Identity, name: String = "Mallory"): Card {
+        val nameBytes = name.toByteArray(Charsets.UTF_8)
+        val body = byteArrayOf(0x53, 0x47, 0x02, 0x01, 0x01) + mallory.edPublic + victim.kemPublic +
+            byteArrayOf(nameBytes.size.toByte()) + nameBytes
+        return parseCard(body + mallory.sign("seguridad-card-v1", body))
+    }
+
+    /**
+     * El ataque con un archivo: Bob cifra un archivo firmado para la tarjeta de Mallory (la Ed25519 de Mallory y la X-Wing
+     * de Ana) y Mallory se lo pasa a Ana. Se descifra entero (la X-Wing es la de Ana), pero la firma de Bob cubre la
+     * Ed25519 de Mallory como destinatario: se rechaza con la firma inválida y nunca se dice que es de Bob.
+     */
+    @Test fun unaTarjetaConLaXWingDeOtraPersonaNoHacePasarUnArchivoFirmadoComoDirigidoAElla() {
+        val ana = anaIdentity()
+        val bob = fixedIdentity()
+        val card = malloryCardWithKemOf(malloryIdentity(), ana)
+        val forwarded = ByteArrayOutputStream().also {
+            encryptFileFor(ByteArrayInputStream(data(CHUNK_BYTES + 10)), it, "doc.pdf", card, bob)
+        }.toByteArray()
+        val e = rejects { decrypt(forwarded, ana) }
+        assertEquals("La firma del archivo no es válida", e.message)
+
+        // Control: sin firmar, Ana lo abre, sin remitente.
+        val unsigned = ByteArrayOutputStream().also {
+            encryptFileFor(ByteArrayInputStream(data(CHUNK_BYTES + 10)), it, "doc.pdf", card, null)
+        }.toByteArray()
+        val out = ByteArrayOutputStream()
+        assertNull(decrypt(unsigned, ana, out).senderEd)
+        assertArrayEquals(data(CHUNK_BYTES + 10), out.toByteArray())
+    }
+
+    /**
+     * La firma de antes de la revisión final (sin la Ed25519 del destinatario) ya no vale, ni la que pone la Ed25519 de otra
+     * persona delante de la X-Wing de la destinataria. La del diseño, a mano, sí.
+     */
+    @Test fun unaFirmaQueNoCubreLaEd25519DelDestinatarioSeRechaza() {
+        val a = fixedIdentity()
+        val b = anaIdentity()
+        val card = cardOf(b)
+        rejects("solo la X-Wing") { decrypt(hand(card, a, data(50), recipientEdForSignature = ByteArray(0)).bytes, b) }
+        rejects("la Ed25519 de otro") { decrypt(hand(card, a, data(50), recipientEdForSignature = malloryIdentity().edPublic).bytes, b) }
+        rejects("las claves al revés") {
+            decrypt(hand(card, a, data(50), recipientEdForSignature = card.kemPublic, recipientForSignature = card.edPublic).bytes, b)
+        }
+        assertArrayEquals(a.edPublic, decrypt(hand(card, a, data(50)).bytes, b).senderEd)
     }
 
     /** La clave de ChaCha20-Poly1305 de [file] según [me], con HPKE a mano. */
@@ -674,8 +734,10 @@ class FileMessageTest {
     /**
      * Un archivo firmado de 70.000 bytes fijos con el nombre «doc.pdf», de la identidad fija (semilla 00 01 … 1F) a «Ana»
      * (semilla A0 A1 … BF), con `ikmE` = 40 41 … 7F y prefijo STREAM = 20 21 … 26, guardado en `seguridad-pk.json` como
-     * `file_signed_hex`. Se generó una vez. Lo permanente es que el archivo guardado se abra (las primeras
-     * comprobaciones): si falla, el formato ha cambiado y no se puede actualizar el vector, hay que arreglar el código.
+     * `file_signed_hex`. Se generó una vez y se regeneró el 27-10-2026, antes de publicar la 1.2.0, cuando la firma pasó a
+     * cubrir la Ed25519 del destinatario (revisión de seguridad final), con las mismas entradas. Lo permanente es que el
+     * archivo guardado se abra (las primeras comprobaciones): si falla, el formato ha cambiado y no se puede actualizar el
+     * vector, hay que arreglar el código.
      */
     @Test fun archivoGuardado() {
         val sender = fixedIdentity()

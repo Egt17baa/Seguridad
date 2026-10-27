@@ -684,6 +684,65 @@ class PkActionsTest {
         assertEquals(0, dir.listFiles()!!.size)
     }
 
+    // ---- Unknown key-share (Davis, «Defective Sign & Encrypt», USENIX 2001): el ataque de punta a punta ----
+
+    /**
+     * Las tres bóvedas del ataque. Ana es «yo» ([meEntry]) y tiene a Bob como contacto verificado. Bob tiene su identidad y
+     * guarda como «Mallory» la tarjeta de Mallory, que lleva la Ed25519 de Mallory y **la X-Wing de Ana**, firmada por
+     * Mallory: una tarjeta válida, armada a mano porque `cardBytes` usa las dos claves de una misma identidad.
+     */
+    private inner class UnknownKeyShare {
+        val bobEntry = newIdentityEntry(now)
+        val anaEntries = listOf(meEntry, bobEntry.openIdentity().use { contactOf(it, "Bob", verified = true) })
+        val malloryCardBytes: ByteArray = stranger().use { mallory ->
+            val name = "Mallory".toByteArray(Charsets.UTF_8)
+            val body = byteArrayOf(0x53, 0x47, 0x02, 0x01, 0x01) + mallory.edPublic + me().use { it.kemPublic } +
+                byteArrayOf(name.size.toByte()) + name
+            body + mallory.sign("seguridad-card-v1", body)
+        }
+        val malloryContact = newContactEntry(parseCard(malloryCardBytes), malloryCardBytes, now, viaQr = false).copy(title = "Mallory")
+        val bobEntries = listOf(bobEntry, malloryContact)
+    }
+
+    @Test fun unMensajeFirmadoParaUnaTarjetaConMiXWingNuncaDiceDeBob() {
+        val s = UnknownKeyShare()
+        // Bob escribe a «Mallory», firmado; Mallory se lo reenvía a Ana tal cual.
+        val forwarded = encryptTextForContact("Te paso las cuentas", s.malloryContact, sign = true, s.bobEntries)
+        val outcome = openReceivedText(forwarded, s.anaEntries)
+        assertEquals(ReceivedOutcome.Failed("La firma del mensaje no es válida"), outcome)
+        assertFalse(outcome.toString().contains("Bob"))
+
+        // Control: sin firmar, Ana lo abre como «Sin firmar».
+        val unsigned = openReceivedText(encryptTextForContact("Te paso las cuentas", s.malloryContact, sign = false, s.bobEntries), s.anaEntries)
+        unsigned as ReceivedOutcome.Opened
+        assertEquals("Te paso las cuentas", unsigned.text)
+        assertEquals(Sender.Unsigned, unsigned.sender)
+        assertEquals("Sin firmar: cualquiera pudo enviarlo", unsigned.line.text)
+    }
+
+    @Test fun unArchivoFirmadoParaUnaTarjetaConMiXWingNuncaDiceDeBobYNoDejaNada() {
+        val s = UnknownKeyShare()
+        val dir = tempDir()
+        val plain = data(200_000)
+        val forwarded = ByteArrayOutputStream().also {
+            encryptFileForContact(ByteArrayInputStream(plain), it, "cuentas.pdf", s.malloryContact, sign = true, s.bobEntries)
+        }.toByteArray()
+        val e = assertThrows(CryptoFailure::class.java) { decryptToTemp(forwarded, dir, s.anaEntries) }
+        assertEquals("La firma del archivo no es válida", e.message)
+        assertEquals("la carpeta temporal queda vacía", 0, dir.listFiles()!!.size)
+
+        // Control: sin firmar, Ana lo abre como «Sin firmar».
+        val unsigned = ByteArrayOutputStream().also {
+            encryptFileForContact(ByteArrayInputStream(plain), it, "cuentas.pdf", s.malloryContact, sign = false, s.bobEntries)
+        }.toByteArray()
+        val received = decryptToTemp(unsigned, dir, s.anaEntries)
+        assertEquals(Sender.Unsigned, received.sender)
+        assertEquals("Sin firmar: cualquiera pudo enviarlo", senderLine(received.sender).text)
+        assertArrayEquals(plain, received.file.readBytes())
+        received.discard()
+        assertEquals(0, dir.listFiles()!!.size)
+    }
+
     // ---- M6: elegir un archivo que es texto, y el cifrado con contraseña ----
 
     private fun utf8(s: String) = s.toByteArray(Charsets.UTF_8)

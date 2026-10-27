@@ -101,7 +101,10 @@ data class CardNotice(
  *
  * - [CardCheck.New]: se puede guardar.
  * - [CardCheck.Same]: «Ya lo tienes: <nombre guardado>», o «Es tu propia tarjeta» si es la de mi identidad. No se guarda.
- * - [CardCheck.SharedKem]: aviso fuerte y **sin botón para guardar**: dos tarjetas legítimas nunca comparten la clave de cifrado.
+ * - [CardCheck.SharedKem]: aviso fuerte y **sin botón para guardar**: dos tarjetas legítimas nunca comparten la clave de
+ *   cifrado. El aviso es **neutro**: no dice cuál de las dos es la falsa, porque quien publica una tarjeta con una clave
+ *   ajena puede haber llegado antes, y entonces la que se rechaza es la legítima. Desde que la firma del remitente cubre
+ *   la identidad entera del destinatario, a quien copia la clave no le sirve para leer ni para hacerse pasar por nadie.
  * - [CardCheck.KeysChanged]: aviso, y solo «Guardar como contacto nuevo»: nunca sustituye al antiguo.
  *
  * Los nombres que salen de aquí son los **guardados** por el usuario (`VaultEntry.title`); el que trae la tarjeta no se usa.
@@ -131,9 +134,9 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
         }
     is CardCheck.SharedKem -> CardNotice(
         NoticeLevel.DANGER,
-        "Tarjeta sospechosa",
-        "Esta tarjeta usa la clave de cifrado de ${ownerName(check.entry)} con otra firma. " +
-            "Puede ser un intento de suplantación: no se guarda.",
+        "Clave de cifrado repetida",
+        "Esta tarjeta usa la misma clave de cifrado que ${ownerName(check.entry)}, con otra firma. Una de las dos es falsa: " +
+            "compara la huella con las dos personas, en persona o por llamada. No se guarda.",
         null,
     )
     is CardCheck.KeysChanged -> CardNotice(
@@ -149,6 +152,24 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
             "Se guardará como sin verificar hasta que compares su huella en persona o por llamada. "
         }) + SIMILAR_NAME_WARNING,
     )
+}
+
+/**
+ * La huella de la entrada guardada con la que choca [check], para enseñarla junto a la de la tarjeta que llega: la del
+ * contacto con las claves cambiadas ([CardCheck.KeysChanged]), o la del contacto o de mi identidad que usa la misma clave
+ * de cifrado ([CardCheck.SharedKem], cuyo aviso pide comparar las dos). `null` con los demás resultados, o si la entrada
+ * no se lee. Las huellas son públicas.
+ */
+fun savedFingerprint(check: CardCheck): String? = try {
+    when (check) {
+        is CardCheck.KeysChanged -> cardFingerprint(check.entry.contactCard())
+        is CardCheck.SharedKem ->
+            if (check.entry.type == EntryType.IDENTITY) check.entry.openIdentity().use { fingerprint(it.edPublic, it.kemPublic) }
+            else cardFingerprint(check.entry.contactCard())
+        is CardCheck.New, is CardCheck.Same -> null
+    }
+} catch (e: CryptoFailure) {
+    null
 }
 
 /** El nombre con el que se habla de la entrada que comparte la clave: el guardado del contacto, o «tu identidad». */

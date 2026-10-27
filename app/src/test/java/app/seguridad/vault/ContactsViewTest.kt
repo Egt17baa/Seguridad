@@ -83,16 +83,46 @@ class ContactsViewTest {
         assertEquals(NoticeLevel.DANGER, notice.level)
         assertNull("No se puede guardar", notice.saveLabel)
         assertEquals(
-            "Esta tarjeta usa la clave de cifrado de Ana García con otra firma. Puede ser un intento de suplantación: no se guarda.",
+            "Esta tarjeta usa la misma clave de cifrado que Ana García, con otra firma. Una de las dos es falsa: compara la " +
+                "huella con las dos personas, en persona o por llamada. No se guarda.",
             notice.body,
         )
+        // Neutro: no acusa a la tarjeta nueva (la copia pudo llegar antes y la que se rechaza ser la legítima).
+        assertEquals("Clave de cifrado repetida", notice.title)
+        for (text in listOf(notice.title, notice.body, notice.footer)) {
+            for (accusation in listOf("sospechosa", "suplantación", "intento", "Esta tarjeta es falsa")) {
+                assertFalse("«$accusation» en «$text»", text.contains(accusation))
+            }
+        }
         // Con mi identidad no hay nombre guardado: «tu identidad».
         val mine = incomingCardNotice(CardCheck.SharedKem(person().entry, impostor), viaQr = true)
         assertEquals(
-            "Esta tarjeta usa la clave de cifrado de tu identidad con otra firma. Puede ser un intento de suplantación: no se guarda.",
+            "Esta tarjeta usa la misma clave de cifrado que tu identidad, con otra firma. Una de las dos es falsa: compara la " +
+                "huella con las dos personas, en persona o por llamada. No se guarda.",
             mine.body,
         )
         assertNull(mine.saveLabel)
+        assertEquals(notice.title, mine.title)
+    }
+
+    /** El aviso de `SharedKem` pide comparar la huella con las dos personas: las dos huellas se pueden enseñar. */
+    @Test fun conLaMismaClaveDeCifradoSeEnseniaLaHuellaDeLoQueYaTienes() {
+        val ana = person()
+        val saved = contactOf(ana, "Ana", title = "Ana García")
+        val impostor = forged(person(), ana.open { it.kemPublic }, "Ana")
+        assertEquals(ana.open { fingerprint(it.edPublic, it.kemPublic) }, savedFingerprint(CardCheck.SharedKem(saved, impostor)))
+        val me = person()
+        val onMe = forged(person(), me.open { it.kemPublic }, "Yo")
+        assertEquals(me.open { fingerprint(it.edPublic, it.kemPublic) }, savedFingerprint(CardCheck.SharedKem(me.entry, onMe)))
+        // Las dos huellas son distintas: la de la tarjeta nueva no es la del contacto guardado.
+        assertNotEquals(savedFingerprint(CardCheck.SharedKem(saved, impostor)), fingerprint(impostor.edPublic, impostor.kemPublic))
+        // Con las claves cambiadas, la del contacto guardado; con una tarjeta nueva o la misma, ninguna.
+        val other = cardOf(person(), "Ana")
+        assertEquals(ana.open { fingerprint(it.edPublic, it.kemPublic) }, savedFingerprint(CardCheck.KeysChanged(saved, other)))
+        assertNull(savedFingerprint(CardCheck.New(other)))
+        assertNull(savedFingerprint(CardCheck.Same(saved)))
+        // Una entrada que no se lee no rompe nada.
+        assertNull(savedFingerprint(CardCheck.SharedKem(saved.copy(card = "%%%"), impostor)))
     }
 
     @Test fun lasClavesCambiadasSoloSePuedenGuardarComoContactoNuevo() {

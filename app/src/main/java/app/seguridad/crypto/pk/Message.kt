@@ -17,11 +17,16 @@ import java.security.SecureRandom
  *   texto_interior  = marcas (1: bit 0 = firmado; el resto, a 0)
  *                   | [clave Ed25519 del remitente (32) | firma (64)]   solo si está firmado
  *                   | mensaje en UTF-8
- *   firma           = Ed25519("seguridad-msg-sig-v1" ‖ cabecera ‖ clave X-Wing del destinatario ‖ mensaje)
+ *   firma           = Ed25519("seguridad-msg-sig-v1" ‖ cabecera ‖ clave Ed25519 del destinatario (32)
+ *                             ‖ clave X-Wing del destinatario (1216) ‖ mensaje)
  *
- * La firma cubre la cabecera (con su `enc`) y la clave X-Wing del destinatario: quien abre un mensaje firmado para él y
- * lo vuelve a cifrar para otra persona con el mismo `texto_interior` no puede hacerlo pasar por suyo ni por «de A para
- * C», porque la firma ya no cuadra con la cabecera nueva ni con la clave de C.
+ * La firma cubre la cabecera (con su `enc`) y la identidad entera del destinatario (sus dos claves públicas):
+ * - quien abre un mensaje firmado para él y lo vuelve a cifrar para otra persona con el mismo `texto_interior` no puede
+ *   hacerlo pasar por «de A para C», porque la firma ya no cuadra con la cabecera nueva ni con las claves de C;
+ * - una tarjeta que lleva la X-Wing de otra persona con su propia Ed25519 (unknown key-share: Davis, «Defective Sign &
+ *   Encrypt», USENIX 2001) no sirve para que la dueña de esa X-Wing vea «de A» lo que A escribió al de la tarjeta: la
+ *   firma cubre la Ed25519 del de la tarjeta, no la suya. La firma de una tarjeta solo dice que su dueño eligió esa
+ *   X-Wing, no que tenga su clave privada.
  *
  * El mensaje no lleva el identificador del destinatario: si HPKE no lo abre se dice [NOT_FOR_ME], sin distinguir
  * «es de otra persona» de «está manipulado».
@@ -129,7 +134,8 @@ internal fun encryptMessage(text: String, recipient: Card, sender: Identity?, ik
         inner = if (sender == null) {
             byteArrayOf(0) + message
         } else {
-            signedData = header + recipient.kemPublic + message
+            // Cabecera, y la identidad entera del destinatario (Ed25519 ‖ X-Wing), y el mensaje: en este orden.
+            signedData = header + recipient.edPublic + recipient.kemPublic + message
             val signature = sender.sign(MESSAGE_SIGNATURE_LABEL, signedData)
             byteArrayOf(MARK_SIGNED.toByte()) + sender.edPublic + signature + message
         }
@@ -220,7 +226,7 @@ fun decryptMessage(token: String, me: Identity): OpenedMessage {
         if (signed) {
             val ed = inner.copyOfRange(1, 1 + ED_PUBLIC_BYTES)
             val signature = inner.copyOfRange(1 + ED_PUBLIC_BYTES, messageAt)
-            signedData = header + me.kemPublic + text
+            signedData = header + me.edPublic + me.kemPublic + text
             if (!verify(ed, MESSAGE_SIGNATURE_LABEL, signedData, signature)) throw CryptoFailure(BAD_MESSAGE_SIGNATURE)
             senderEd = ed
         }

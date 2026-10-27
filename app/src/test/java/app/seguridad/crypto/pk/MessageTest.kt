@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -43,9 +44,15 @@ class MessageTest {
     private fun inner(marks: Int, signed: ByteArray?, message: ByteArray) =
         byteArrayOf(marks.toByte()) + (signed ?: ByteArray(0)) + message
 
-    /** `sign("seguridad-msg-sig-v1", cabecera ‖ X-Wing del destinatario ‖ mensaje)` escrito a mano. */
-    private fun signature(signer: Identity, header: ByteArray, recipient: Card, message: ByteArray) =
-        signer.sign("seguridad-msg-sig-v1", header + recipient.kemPublic + message)
+    /**
+     * `sign("seguridad-msg-sig-v1", cabecera ‖ Ed25519 del destinatario ‖ X-Wing del destinatario ‖ mensaje)` escrito a
+     * mano, con las claves tal cual salen de la tarjeta (32 y 1216 bytes).
+     */
+    private fun signature(signer: Identity, header: ByteArray, recipient: Card, message: ByteArray): ByteArray {
+        assertEquals(32, recipient.edPublic.size)
+        assertEquals(1216, recipient.kemPublic.size)
+        return signer.sign("seguridad-msg-sig-v1", header + recipient.edPublic + recipient.kemPublic + message)
+    }
 
     /** Sella [inner] para [recipient] con HPKE a mano: `cabecera = "SG" 02 02 01 ‖ enc`, `aad = cabecera`. */
     private fun sealed(recipient: Card, build: (header: ByteArray) -> ByteArray): String {
@@ -108,7 +115,9 @@ class MessageTest {
         assertArrayEquals(a.edPublic, inner.copyOfRange(1, 33))
         assertArrayEquals(msg, inner.copyOfRange(97, inner.size))
         val header = signed.copyOf(1125)
-        assertTrue(verify(a.edPublic, "seguridad-msg-sig-v1", header + b.kemPublic + msg, inner.copyOfRange(33, 97)))
+        // La firma cubre cabecera ‖ Ed25519 de la destinataria ‖ X-Wing de la destinataria ‖ mensaje, y nada más.
+        assertTrue(verify(a.edPublic, "seguridad-msg-sig-v1", header + b.edPublic + b.kemPublic + msg, inner.copyOfRange(33, 97)))
+        assertFalse(verify(a.edPublic, "seguridad-msg-sig-v1", header + b.kemPublic + msg, inner.copyOfRange(33, 97)))
         assertEquals(0, rawInner(encode(unsigned), b)[0].toInt())
     }
 
@@ -188,7 +197,7 @@ class MessageTest {
 
     /**
      * A firma para B. B abre el mensaje y lo vuelve a cifrar para C con el mismo `texto_interior` (con la firma de A
-     * dentro). C lo abre bien con HPKE, pero la firma de A cubre la cabecera y la clave X-Wing de B: no cuadra, y se
+     * dentro). C lo abre bien con HPKE, pero la firma de A cubre la cabecera y las dos claves de B: no cuadra, y se
      * rechaza entero, sin enseñar el texto.
      */
     @Test fun reenvioSubrepticioSeRechaza() {
@@ -203,6 +212,69 @@ class MessageTest {
         assertArrayEquals(stolen, rawInner(forwarded, c))
         val failure = rejects { decryptMessage(forwarded, c) }
         assertEquals(BAD_MESSAGE_SIGNATURE, failure.message)
+    }
+
+    // ---- Unknown key-share (Davis, «Defective Sign & Encrypt», USENIX 2001) ----
+
+    /** «Mallory» de los tests del ataque: otra semilla fija. */
+    private fun malloryIdentity() = Identity(ByteArray(32) { (0x30 + it).toByte() })
+
+    /**
+     * La tarjeta de Mallory armada a mano: **su** Ed25519 con la X-Wing de [victim], firmada por Mallory. Es una tarjeta
+     * válida (`parseCard` la acepta): la firma de una tarjeta solo dice que su dueño eligió esa X-Wing, no que tenga la
+     * clave privada.
+     */
+    private fun malloryCardWithKemOf(mallory: Identity, victim: Identity, name: String = "Mallory"): Card {
+        val nameBytes = name.toByteArray(Charsets.UTF_8)
+        val body = byteArrayOf(0x53, 0x47, 0x02, 0x01, 0x01) + mallory.edPublic + victim.kemPublic +
+            byteArrayOf(nameBytes.size.toByte()) + nameBytes
+        return parseCard(body + mallory.sign("seguridad-card-v1", body))
+    }
+
+    /**
+     * El ataque: Mallory publica una tarjeta con su Ed25519 y la X-Wing de Ana; Bob la guarda como «Mallory» y le escribe
+     * firmado; Mallory se lo reenvía tal cual a Ana. HPKE lo abre (la X-Wing es la de Ana), pero la firma de Bob cubre la
+     * identidad entera del destinatario (Ed25519 ‖ X-Wing), y la Ed25519 era la de Mallory: Ana no puede ver «De Bob».
+     */
+    @Test fun unaTarjetaConLaXWingDeOtraPersonaNoHacePasarUnMensajeFirmadoComoDirigidoAElla() {
+        val ana = anaIdentity()
+        val bob = fixedIdentity()
+        val mallory = malloryIdentity()
+        val card = malloryCardWithKemOf(mallory, ana)
+        assertArrayEquals(ana.kemPublic, card.kemPublic)
+        assertArrayEquals(mallory.edPublic, card.edPublic)
+
+        val forwarded = encryptMessage("Nos vemos a las diez", card, bob)
+        // HPKE sí lo abre para Ana: lo que falla es la firma, no el descifrado.
+        assertEquals(1, rawInner(forwarded, ana)[0].toInt())
+        val failure = rejects { decryptMessage(forwarded, ana) }
+        assertEquals(BAD_MESSAGE_SIGNATURE, failure.message)
+
+        // Control: el mismo mensaje sin firmar sí lo abre Ana, sin remitente («Sin firmar»).
+        val unsigned = decryptMessage(encryptMessage("Nos vemos a las diez", card, null), ana)
+        assertEquals("Nos vemos a las diez", unsigned.text)
+        assertNull(unsigned.senderEd)
+    }
+
+    /**
+     * La firma de antes de la revisión final (cabecera ‖ X-Wing ‖ mensaje, sin la Ed25519 del destinatario) ya no vale:
+     * nadie la produce, y se rechaza entera. Y la buena, armada a mano, se abre.
+     */
+    @Test fun unaFirmaQueSoloCubreLaXWingDelDestinatarioSeRechaza() {
+        val a = fixedIdentity()
+        val b = anaIdentity()
+        val msg = "Hola".toByteArray()
+        val onlyKem = sealed(cardOf(b)) { header ->
+            inner(1, a.edPublic + a.sign("seguridad-msg-sig-v1", header + b.kemPublic + msg), msg)
+        }
+        assertEquals(BAD_MESSAGE_SIGNATURE, rejects { decryptMessage(onlyKem, b) }.message)
+        // Con la Ed25519 de otra persona delante de la X-Wing de la destinataria, tampoco.
+        val otherEd = sealed(cardOf(b)) { header ->
+            inner(1, a.edPublic + a.sign("seguridad-msg-sig-v1", header + malloryIdentity().edPublic + b.kemPublic + msg), msg)
+        }
+        assertEquals(BAD_MESSAGE_SIGNATURE, rejects { decryptMessage(otherEd, b) }.message)
+        val good = sealed(cardOf(b)) { header -> inner(1, a.edPublic + signature(a, header, cardOf(b), msg), msg) }
+        assertArrayEquals(a.edPublic, decryptMessage(good, b).senderEd)
     }
 
     @Test fun reenvioAlMismoDestinatarioConOtraCabeceraTambienSeRechaza() {
@@ -269,7 +341,7 @@ class MessageTest {
 
         // Firma de otro formato: misma clave, otra etiqueta.
         val otherLabel = sealed(cardOf(b)) { header ->
-            inner(1, a.edPublic + a.sign("seguridad-card-v1", header + b.kemPublic + msg), msg)
+            inner(1, a.edPublic + a.sign("seguridad-card-v1", header + b.edPublic + b.kemPublic + msg), msg)
         }
         assertEquals(BAD_MESSAGE_SIGNATURE, rejects { decryptMessage(otherLabel, b) }.message)
 
@@ -494,7 +566,9 @@ class MessageTest {
 
     /**
      * Un mensaje de la identidad fija (semilla 00 01 … 1F) a «Ana» (semilla A0 A1 … BF) con `ikmE` = 40 41 … 7F, guardado
-     * en `seguridad-pk.json` como `message_signed` y `message_unsigned`. Se generó una vez. Lo permanente es que los
+     * en `seguridad-pk.json` como `message_signed` y `message_unsigned`. Se generó una vez; `message_signed` se regeneró
+     * el 27-10-2026, antes de publicar la 1.2.0, cuando la firma pasó a cubrir la Ed25519 del destinatario (revisión de
+     * seguridad final), con las mismas entradas, y `message_unsigned` no cambió. Lo permanente es que los
      * mensajes guardados se abran (las primeras comprobaciones): si fallan, el formato ha cambiado y no se puede
      * actualizar el vector, hay que arreglar el código.
      */
