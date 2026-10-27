@@ -15,6 +15,8 @@ import app.seguridad.ui.AppNavHost
 import app.seguridad.ui.theme.SeguridadTheme
 import app.seguridad.ui.theme.isDark
 import app.seguridad.vault.VaultLock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /** A FragmentActivity because the biometric prompt needs one. The app has no other entry point and takes no extras. */
 class MainActivity : FragmentActivity() {
@@ -43,6 +45,9 @@ class MainActivity : FragmentActivity() {
         // not have run while the app was in the background), it locks before anything is shown.
         container.vault.lockIfIdle()
         VaultLock.keepOpenOnce = false
+        // Back from sharing an image: the copy goes once 10 minutes have passed. Off the main thread, so a share being
+        // prepared at the same time (a write of up to 50 MB, under the same lock) never holds up the activity.
+        container.appScope.launch(Dispatchers.IO) { container.shareTemp.onReturn() }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
