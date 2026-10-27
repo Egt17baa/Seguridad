@@ -55,6 +55,11 @@ class VaultStore(
      * deletes the previous vault's copies). If it throws, nothing is created.
      */
     private val beforeCreate: suspend () -> Unit = {},
+    /**
+     * Runs before an import replaces the vault, once the copy is checked (the app forgets which automatic copies it
+     * made, so they are never rotated away: they are the replaced vault's). If it throws, nothing is replaced.
+     */
+    private val beforeReplace: suspend () -> Unit = {},
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -545,8 +550,13 @@ class VaultStore(
         importText(text, master, epoch)
     }
 
-    /** Only an open vault, or none (the "Crea tu bóveda" screen), is ever replaced: never one that is locked. */
-    private fun checkCanReplace() = check(vault == null || _state.value is VaultState.Unlocked) { REPLACE_NEEDS_OPEN }
+    /**
+     * Only an open vault, or none (the "Crea tu bóveda" screen), is ever replaced: never one that is locked. A
+     * [CryptoFailure], as the import dialog shows its message.
+     */
+    private fun checkCanReplace() {
+        if (vault != null && _state.value !is VaultState.Unlocked) throw CryptoFailure(REPLACE_NEEDS_OPEN)
+    }
 
     private suspend fun importText(text: String, master: CharArray, since: Int) {
         val incoming = withContext(compute) { VaultCrypto.decodeFile(text) }
@@ -604,6 +614,7 @@ class VaultStore(
             } else {
                 withContext(io) { refs.forEach { checkInBackup(it, backup.first) } }
             }
+            beforeReplace() // Last: only when all of the copy is fine.
             checked to refs
         } catch (e: Exception) {
             key.fill(0)
@@ -654,7 +665,8 @@ class VaultStore(
     private fun checkInBackup(ref: AttachmentRef, contents: BackupContents) {
         val file = contents.attachments[ref.id]
         val limit = MAX_ATTACHMENT_BYTES.toLong() + NONCE_BYTES + TAG_BYTES
-        if (!isAttachmentId(ref.id) || file == null || !fileMatchesSha256(file, ref.sha256, limit)) {
+        // The file is nonce + content + tag: its length proves the size the entry declares (and [checkRestorable] counts).
+        if (!isAttachmentId(ref.id) || file == null || file.length() != ref.size + NONCE_BYTES + TAG_BYTES || !fileMatchesSha256(file, ref.sha256, limit)) {
             throw CryptoFailure("La copia está incompleta o dañada: falta o no coincide el adjunto «${ref.name}»")
         }
     }

@@ -130,6 +130,14 @@ fun decryptStream(input: InputStream, output: OutputStream, secret: Secret): Str
     }
 }
 
-/** Name to save a decrypted file under: the stored one, never a path. */
+/** Name to save a decrypted file under: the stored one, never a path, nor turned around («factura\u202Efdp.exe»). */
 fun safeFileName(name: String): String =
-    name.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\x00-\\x1F]"), "").trim().ifEmpty { "archivo" }.take(120)
+    withoutBidiControls(name.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\x00-\\x1F]"), "")).trim().ifEmpty { "archivo" }.take(120)
+
+/**
+ * [text] without the characters that change the direction text is shown in: the bidi embeddings and overrides
+ * (U+202A–U+202E), isolates (U+2066–U+2069) and marks (U+200E, U+200F, U+061C). With them «factura\u202Efdp.exe» shows
+ * as «facturaexe.pdf», and a name from someone else could pass for another.
+ */
+fun withoutBidiControls(text: String): String =
+    text.filterNot { it in '\u202A'..'\u202E' || it in '\u2066'..'\u2069' || it == '\u200E' || it == '\u200F' || it == '\u061C' }

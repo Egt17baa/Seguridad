@@ -138,7 +138,7 @@ class VaultStoreTest {
             try {
                 import()
                 fail()
-            } catch (e: IllegalStateException) {
+            } catch (e: CryptoFailure) {
                 assertEquals("Abre la bóveda antes de importar una copia", e.message)
             }
         }

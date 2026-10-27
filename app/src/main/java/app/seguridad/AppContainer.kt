@@ -3,11 +3,13 @@ package app.seguridad
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.net.secureClient
 import app.seguridad.settings.SettingsStore
+import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.withAutoBackupResult
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupTarget
 import app.seguridad.vault.VaultStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +49,8 @@ class AppContainer(
         // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
         // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
         beforeCreate = { settings.turnOffAutoBackupForNewVault()?.let(releaseFolder) },
+        // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted.
+        beforeReplace = { settings.forgetAutoBackupCopies() },
     )
 
     val pwned: PwnedPasswords by lazy { PwnedPasswords(client) }
@@ -60,7 +64,7 @@ class AppContainer(
         now = System::currentTimeMillis,
         keep = { settings.settings.value.autoBackupKeep },
         lastCopyAt = { settings.settings.value.lastAutoBackupAt },
-        copies = { settings.settings.value.autoBackupCopies },
+        copies = { settings.settings.value.currentAutoBackupCopies },
         onResult = ::recordAutoBackup,
     )
 
@@ -71,6 +75,8 @@ class AppContainer(
     private suspend fun recordAutoBackup(result: AutoBackupResult) {
         try {
             settings.update { it.withAutoBackupResult(result) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // A full disk: Ajustes just shows the previous state, and the copy just made is not rotated; never closes the app.
         }
