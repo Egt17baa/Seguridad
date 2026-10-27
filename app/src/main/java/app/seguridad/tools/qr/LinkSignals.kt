@@ -97,7 +97,7 @@ internal fun parseLink(uri: String): ParsedLink {
     val oddPort = digits != null && port != DEFAULT_PORTS[scheme]
 
     val decoded = percentDecode(rawHost)
-    val hostHidden = hasHiddenChars(decoded)
+    val hostHidden = hasHiddenChars(decoded, allowEmojiVariation = false)
     val host: String?
     val isIp: Boolean
     if (rawHost.startsWith("[")) {
@@ -108,7 +108,7 @@ internal fun parseLink(uri: String): ParsedLink {
         isIp = isIpHost(mapped)
         host = (if (isIp) canonicalIpv4(mapped) ?: mapped else mapped).ifEmpty { null }
     }
-    val unicodeHost = host?.let { if (isIp) it else toUnicodeOrNull(it) }
+    val unicodeHost = host?.let { if (isIp) it else toUnicodeHost(it) }
     return ParsedLink(scheme, hierarchical, host, unicodeHost, port, oddPort, at >= 0, isIp, hostHidden)
 }
 
@@ -129,8 +129,22 @@ internal fun schemeOf(text: String): String? {
 private fun mapHost(decoded: String): String {
     val dotted = decoded.map { if (it == '。' || it == '．' || it == '｡') '.' else it }.joinToString("").removeSuffix(".")
     return dotted.split('.').joinToString(".") { label ->
-        if (label.all { it.code < 128 }) label.lowercase(Locale.ROOT) else (toAsciiOrNull(label) ?: normalizeLabel(label)).lowercase(Locale.ROOT)
+        if (label.all { it.code < 128 }) label.lowercase(Locale.ROOT) else mapLabel(label)
     }
+}
+
+/**
+ * A non-ASCII label as a browser maps it. Java's [IDN] is IDNA2003, which turns «ß» into «ss» and «ς» into «σ»; a
+ * browser (UTS #46, non-transitional) keeps them and connects to an `xn--` name. So a label that still has one of those
+ * after NFKC and lower-casing is not given to [IDN]: it stays Unicode (and so counts as punycode, and shows the «ß»).
+ * The NFKC step is done here too, because with ALLOW_UNASSIGNED [IDN] skips it for characters newer than Unicode 3.2
+ * (a squared «🄱🄸🅃» is «bit»).
+ */
+private fun mapLabel(label: String): String {
+    val folded = Normalizer.normalize(label, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+    if ('\u00DF' in folded || '\u03C2' in folded) return normalizeLabel(label)
+    if (folded.all { it.code < 128 }) return folded
+    return (toAsciiOrNull(folded) ?: normalizeLabel(label)).lowercase(Locale.ROOT)
 }
 
 private fun toAsciiOrNull(label: String): String? = try {
@@ -139,10 +153,13 @@ private fun toAsciiOrNull(label: String): String? = try {
     null
 }
 
-private fun toUnicodeOrNull(host: String): String? = try {
-    IDN.toUnicode(host, IDN.ALLOW_UNASSIGNED)
-} catch (e: Exception) {
-    null
+/** The Unicode form of [host], label by label: only an `xn--` label is decoded, so a «ß» kept as it is stays «ß». */
+private fun toUnicodeHost(host: String): String = host.split('.').joinToString(".") { label ->
+    if (!label.startsWith("xn--")) label else try {
+        IDN.toUnicode(label, IDN.ALLOW_UNASSIGNED)
+    } catch (e: Exception) {
+        label
+    }
 }
 
 /** Fallback for a label [IDN.toASCII] rejects (too long, say): NFKC, lower-case, and without the default-ignorable characters. */

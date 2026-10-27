@@ -63,7 +63,7 @@ fun classifyQr(text: String): QrKind {
 internal fun classifyQrUnguarded(text: String): QrKind {
     val t = text.trim()
     return otpAuth(t) ?: seguridadAtStart(t) ?: wifi(t) ?: sepa(t) ?: vcard(t) ?: mecard(t) ?: matmsg(t) ?: sms(t) ?: phone(t) ?:
-        email(t) ?: geo(t) ?: crypto(t) ?: link(t) ?: seguridadInside(t) ?: QrKind.PlainText(text)
+        email(t) ?: geo(t) ?: crypto(t, text) ?: link(t) ?: seguridadInside(t) ?: QrKind.PlainText(text)
 }
 
 // ---- Seguridad's own texts ----
@@ -120,12 +120,19 @@ private fun sepa(t: String): QrKind? {
 
 private val CRYPTO_SCHEMES = setOf("bitcoin", "ethereum", "lightning")
 
-private fun crypto(t: String): QrKind? {
+/**
+ * A payment request. [text] is the QR as it came, for the cases where it is better not to frame it as a payment at all.
+ * If `address`, `value` or `amount` appears twice, a wallet may use either one, so the one shown could be the wrong
+ * one: plain text.
+ */
+private fun crypto(t: String, text: String): QrKind? {
     val scheme = schemeOf(t)?.takeIf { it in CRYPTO_SCHEMES } ?: return null
     val rest = t.substring(scheme.length + 1).removePrefix("//")
     val path = percentDecode(rest.substringBefore('?')).trim()
-    val query = queryParams(rest.substringAfter('?', ""))
-    if (scheme == "ethereum") return ethereum(path, query)
+    val pairs = queryPairs(rest.substringAfter('?', ""))
+    if (listOf("address", "value", "amount").any { key -> pairs.count { it.first == key } > 1 }) return QrKind.PlainText(text)
+    val query = pairs.reversed().toMap()
+    if (scheme == "ethereum") return ethereum(path, query) ?: QrKind.PlainText(text)
     if (path.isEmpty()) return null
     return QrKind.Crypto(scheme, path, query["amount"]?.trim()?.ifEmpty { null })
 }
@@ -134,13 +141,16 @@ private fun crypto(t: String): QrKind? {
  * An EIP-681 request: «ethereum:[pay-]target[@chain][/function]?query». A token transfer
  * («0xTOKEN@1/transfer?address=0xRECIPIENT&uint256=…») is paid to the `address` in the query, not to the contract in
  * front, so that is the one shown, and no amount: `uint256` is in the token's smallest unit, whose decimals are not
- * known here. A plain payment's `value` is in wei, and says so.
+ * known here. Any other function call (`approve`, a `transfer` with no recipient…) is not a payment to the contract and
+ * not one that can be summed up here: null, plain text. A plain payment's `value` is in wei, and says so.
  */
 private fun ethereum(path: String, query: Map<String, String>): QrKind? {
     val target = path.removePrefix("pay-")
     val function = target.substringAfter('/', "").trim()
-    val recipient = query["address"]?.trim()?.ifEmpty { null }
-    if (function.equals("transfer", ignoreCase = true) && recipient != null) return QrKind.Crypto("ethereum", recipient, null)
+    if (function.isNotEmpty()) {
+        val recipient = query["address"]?.trim()?.ifEmpty { null }
+        return if (function.equals("transfer", ignoreCase = true) && recipient != null) QrKind.Crypto("ethereum", recipient, null) else null
+    }
     val address = target.substringBefore('@').substringBefore('/').trim().ifEmpty { return null }
     val wei = query["value"]?.trim()?.ifEmpty { null }
     return QrKind.Crypto("ethereum", address, wei?.let { "$it wei" })
@@ -308,16 +318,14 @@ private fun unescape(s: String, vcard: Boolean): String {
     return sb.toString()
 }
 
-/** «a=1&b=2» as a map with the keys in lower-case and the values percent-decoded (the first of a repeated key wins). */
-private fun queryParams(query: String): Map<String, String> {
-    val out = LinkedHashMap<String, String>()
-    for (pair in query.split('&')) {
-        if (pair.isEmpty()) continue
-        val key = percentDecode(pair.substringBefore('=')).lowercase(Locale.ROOT)
-        if (key !in out) out[key] = percentDecode(pair.substringAfter('=', ""))
+/** «a=1&b=2» as the list of pairs, in order, with the keys in lower-case and the values percent-decoded. */
+private fun queryPairs(query: String): List<Pair<String, String>> =
+    query.split('&').filter { it.isNotEmpty() }.map {
+        percentDecode(it.substringBefore('=')).lowercase(Locale.ROOT) to percentDecode(it.substringAfter('=', ""))
     }
-    return out
-}
+
+/** [queryPairs] as a map (the first of a repeated key wins). */
+private fun queryParams(query: String): Map<String, String> = queryPairs(query).reversed().toMap()
 
 /** [s] with the valid «%XX» sequences decoded as UTF-8; a malformed one stays as written. Never throws. */
 internal fun percentDecode(s: String): String {
