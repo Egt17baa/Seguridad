@@ -14,6 +14,9 @@ private fun shareAuthority(context: Context) = "${context.packageName}.compartir
  * only the chosen app gets read access, to this one URI, through FLAG_GRANT_READ_URI_PERMISSION (the ClipData carries
  * the grant through the chooser). Like shareText, never sets VaultLock.keepOpenOnce: leaving for the other app locks
  * the vault as usual. Exceptions (no app can receive it, a file outside the provider's folder) go to the caller.
+ *
+ * [context] must be an Activity (in Compose, LocalContext.current): from any other context startActivity needs
+ * FLAG_ACTIVITY_NEW_TASK and throws without it.
  */
 fun shareImage(context: Context, file: File, mime: String) {
     val uri = FileProvider.getUriForFile(context, shareAuthority(context), file)
@@ -22,5 +25,5 @@ fun shareImage(context: Context, file: File, mime: String) {
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     send.clipData = ClipData.newRawUri(null, uri)
-    context.startActivity(Intent.createChooser(send, null))
+    context.startActivity(Intent.createChooser(send, "Compartir"))
 }

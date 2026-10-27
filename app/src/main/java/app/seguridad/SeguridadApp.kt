@@ -35,6 +35,8 @@ class SeguridadApp : Application() {
             container.vault.state.collect { if (it !is VaultState.Unlocked) wipePkTemp(cacheDir) }
         }
         // The copy handed to another app by «Compartir»: its share time lived only in memory, so a new process deletes it.
+        // Off the main thread; it cannot race a prepare in practice (the user must reach a tool screen and pick a photo
+        // first), and if it ever did, ShareTemp is synchronized: the wipe runs before or after, never in the middle.
         container.appScope.launch(Dispatchers.IO) { container.shareTemp.wipeAll() }
         // A few hundred bytes, read before the first frame: the theme, the start notice and the lock time must be the
         // saved ones from the start (a damaged file just gives the defaults).
