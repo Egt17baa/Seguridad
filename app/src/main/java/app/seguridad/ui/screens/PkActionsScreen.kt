@@ -49,6 +49,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.pk.cardText
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
+import app.seguridad.tools.qr.QrHandoff
+import app.seguridad.tools.qr.QrTarget
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PositiveColor
@@ -519,7 +521,8 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val tempRoot = remember { File(context.cacheDir, PK_OPEN_TEMP_DIR) }
-    var pasted by remember { mutableStateOf("") }
+    // From the QR inspector, read once the vault is open: as pasted text, which «Abrir» then opens.
+    var pasted by remember { mutableStateOf(QrHandoff.take(QrTarget.RECEIVED)?.takeIf { it.length <= MAX_TEXT_FILE_BYTES }.orEmpty()) }
     var textResult by remember { mutableStateOf<ReceivedOutcome?>(null) }
 
     // Files: an encrypted one, or a signature plus the file it signs (in either order). Only non-secret data is saved.

@@ -3,6 +3,7 @@ package app.seguridad
 import android.app.Application
 import androidx.core.net.toUri
 import app.seguridad.android.SafBackupTarget
+import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.ui.screens.DECRYPT_TMP_PREFIX
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.wipePkTemp
@@ -30,9 +31,15 @@ class SeguridadApp : Application() {
         // (the screen's own clean-up only runs while it is in view, and a save picker may be on top). A recursive delete,
         // so off the main thread. Nothing can be decrypted before the first one ends in practice (the vault opens first);
         // if it ever did, the copy would vanish and saving it fails closed («vuelve a descifrar»).
-        // The first state collected is Loading, so it is also wiped at start.
+        // The first state collected is Loading, so it is also wiped at start. A QR text the inspector handed to a vault
+        // screen (a 2FA key among them) goes at the same moments.
         container.appScope.launch(Dispatchers.IO) {
-            container.vault.state.collect { if (it !is VaultState.Unlocked) wipePkTemp(cacheDir) }
+            container.vault.state.collect {
+                if (it !is VaultState.Unlocked) {
+                    QrHandoff.clear()
+                    wipePkTemp(cacheDir)
+                }
+            }
         }
         // The copy handed to another app by «Compartir»: its share time lived only in memory, so a new process deletes it.
         // Off the main thread; it cannot race a prepare in practice (the user must reach a tool screen and pick a photo

@@ -42,6 +42,8 @@ import app.seguridad.ui.screens.SignScreen
 import app.seguridad.ui.screens.FileCryptoScreen
 import app.seguridad.ui.screens.OtpQrScreen
 import app.seguridad.ui.screens.PhotoCleanScreen
+import app.seguridad.ui.screens.QrInspectScreen
+import app.seguridad.ui.screens.QrTotpImportScreen
 import app.seguridad.ui.screens.RedactScreen
 import app.seguridad.ui.screens.FileHashScreen
 import app.seguridad.ui.screens.GeneratorScreen
@@ -180,6 +182,17 @@ fun AppNavHost(container: AppContainer) {
             composable("tools/hash") { FileHashScreen(onBack = back) }
             composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
             composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
+            // The QR's text never goes in a route: it is handed over through QrHandoff.
+            composable("tools/qr") {
+                QrInspectScreen(
+                    vault,
+                    onAddContact = { nav.navigate("contacts/add") },
+                    onOpenReceived = { nav.navigate("contacts/open") },
+                    onAddTotp = { nav.navigate("tools/qr/totp") },
+                    onBack = back,
+                )
+            }
+            composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
             composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
             composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
             composable("settings/licenses") { LicensesScreen(onBack = back) }

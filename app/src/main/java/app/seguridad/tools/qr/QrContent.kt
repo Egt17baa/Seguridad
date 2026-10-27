@@ -142,14 +142,17 @@ private fun crypto(t: String, text: String): QrKind? {
  * («0xTOKEN@1/transfer?address=0xRECIPIENT&uint256=…») is paid to the `address` in the query, not to the contract in
  * front, so that is the one shown, and no amount: `uint256` is in the token's smallest unit, whose decimals are not
  * known here. Any other function call (`approve`, a `transfer` with no recipient…) is not a payment to the contract and
- * not one that can be summed up here: null, plain text. A plain payment's `value` is in wei, and says so.
+ * not one that can be summed up here: null, plain text. Nor is a `transfer` that also carries `value`: that sends ether
+ * to the contract on top of the tokens, and showing only the recipient would hide it. A plain payment's `value` is in
+ * wei, and says so.
  */
 private fun ethereum(path: String, query: Map<String, String>): QrKind? {
     val target = path.removePrefix("pay-")
     val function = target.substringAfter('/', "").trim()
     if (function.isNotEmpty()) {
         val recipient = query["address"]?.trim()?.ifEmpty { null }
-        return if (function.equals("transfer", ignoreCase = true) && recipient != null) QrKind.Crypto("ethereum", recipient, null) else null
+        if (!function.equals("transfer", ignoreCase = true) || recipient == null || "value" in query) return null
+        return QrKind.Crypto("ethereum", recipient, null)
     }
     val address = target.substringBefore('@').substringBefore('/').trim().ifEmpty { return null }
     val wei = query["value"]?.trim()?.ifEmpty { null }

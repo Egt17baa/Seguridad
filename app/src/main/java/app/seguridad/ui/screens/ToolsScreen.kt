@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import app.seguridad.settings.Settings
 import app.seguridad.tools.PHOTO_TOOL_SUBTITLE
 import app.seguridad.tools.PHOTO_TOOL_TITLE
+import app.seguridad.tools.QR_TOOL_SUBTITLE
+import app.seguridad.tools.QR_TOOL_TITLE
 import app.seguridad.tools.REDACT_TOOL_SUBTITLE
 import app.seguridad.tools.REDACT_TOOL_TITLE
 import app.seguridad.ui.theme.SectionCard
@@ -37,6 +39,7 @@ val TOOLS = listOf(
     Tool("tools/hash", "#", "Huella de archivo", "SHA-256 para comprobar una descarga"),
     Tool("tools/photo", "🧽", PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE),
     Tool("tools/redact", "⬛", REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE),
+    Tool("tools/qr", "🔍", QR_TOOL_TITLE, QR_TOOL_SUBTITLE),
 )
 
 /** The Herramientas tab: every tool that is not the vault, two per row. */

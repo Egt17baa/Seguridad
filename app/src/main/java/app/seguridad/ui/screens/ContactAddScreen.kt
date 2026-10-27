@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -32,6 +33,8 @@ import app.seguridad.android.scanQrOptions
 import app.seguridad.crypto.pk.Card
 import app.seguridad.crypto.pk.MAX_CARD_BYTES
 import app.seguridad.crypto.pk.cardAndBytesFromAnyText
+import app.seguridad.tools.qr.QrHandoff
+import app.seguridad.tools.qr.QrTarget
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
@@ -94,6 +97,10 @@ fun ContactAddScreen(store: VaultStore, onBack: () -> Unit) {
             error = null
         }
     }
+
+    // From the QR inspector: read as pasted, never as scanned. Reaching it through the inspector is not scanning in front
+    // of the person, so the contact is saved unverified. Taking it also drops any text left for another screen.
+    LaunchedEffect(Unit) { QrHandoff.take(QrTarget.CARD)?.let { accept(it, qr = false) } }
 
     // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
