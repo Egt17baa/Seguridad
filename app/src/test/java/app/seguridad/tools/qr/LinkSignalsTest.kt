@@ -1,0 +1,233 @@
+package app.seguridad.tools.qr
+
+import java.net.IDN
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class LinkSignalsTest {
+    private fun link(text: String) = classifyQr(text) as QrKind.Link
+
+    @Test
+    fun cyrillicAInsideALatinLabelIsMixedScripts() {
+        // «bаnco»: the second letter is U+0430 CYRILLIC SMALL LETTER A.
+        assertEquals(listOf(Signal.MIXED_SCRIPTS), linkSignals("https://b\u0430nco.es"))
+        assertEquals(listOf(Signal.MIXED_SCRIPTS), link("https://b\u0430nco.es").signals)
+    }
+
+    @Test
+    fun greekMixedWithLatinIsMixedScripts() {
+        // omicron (U+03BF) for «o»
+        assertEquals(listOf(Signal.MIXED_SCRIPTS), linkSignals("https://g\u03BFogle.com"))
+    }
+
+    @Test
+    fun aWholeLabelInOneForeignScriptIsNotMixed() {
+        // «банк.es»: each label in a single script is a legitimate IDN; the check is per label.
+        assertEquals(emptyList<Signal>(), linkSignals("https://\u0431\u0430\u043D\u043A.es"))
+    }
+
+    @Test
+    fun digitsAndHyphensDoNotCountAsAScript() {
+        assertEquals(emptyList<Signal>(), linkSignals("https://banco-24.es"))
+        assertEquals(emptyList<Signal>(), linkSignals("https://\u0431\u0430\u043D\u043A-24.es"))
+    }
+
+    @Test
+    fun mixedScriptsAreFoundInsideAPunycodeLabelToo() {
+        val ascii = IDN.toASCII("b\u0430nco.es")
+        assertTrue(ascii.startsWith("xn--"))
+        val signals = linkSignals("https://$ascii")
+        assertTrue(Signal.PUNYCODE in signals)
+        assertTrue(Signal.MIXED_SCRIPTS in signals)
+    }
+
+    @Test
+    fun punycodeLabelAndItsUnicodeForm() {
+        val l = link("https://xn--bnco-ofa.es")
+        assertTrue(Signal.PUNYCODE in l.signals)
+        assertEquals("xn--bnco-ofa.es", l.host)
+        assertEquals(IDN.toUnicode("xn--bnco-ofa.es", IDN.ALLOW_UNASSIGNED), l.unicodeHost)
+        assertTrue(l.unicodeHost != l.host)
+        assertTrue(Signal.PUNYCODE in linkSignals("https://XN--bnco-ofa.es"))
+    }
+
+    @Test
+    fun plainHostHasTheSameUnicodeHost() {
+        val l = link("https://banco.es/ruta")
+        assertEquals("banco.es", l.host)
+        assertEquals("banco.es", l.unicodeHost)
+    }
+
+    @Test
+    fun ipHosts() {
+        assertTrue(Signal.IP_HOST in linkSignals("https://192.168.1.1/login"))
+        assertTrue(Signal.IP_HOST in linkSignals("https://[2001:db8::1]/"))
+        assertTrue(Signal.IP_HOST in linkSignals("https://[::1]:8443/"))
+        assertTrue(Signal.IP_HOST in linkSignals("http://3232235777"))
+        // The browser also reads these as addresses.
+        assertTrue(Signal.IP_HOST in linkSignals("https://127.1/"))
+        assertTrue(Signal.IP_HOST in linkSignals("https://0x7f.0.0.1/"))
+        // A name that merely contains digits is not.
+        assertFalse(Signal.IP_HOST in linkSignals("https://banco24.es"))
+        assertFalse(Signal.IP_HOST in linkSignals("https://1banco.es"))
+    }
+
+    @Test
+    fun ipHostFields() {
+        val l = link("https://[2001:DB8::1]:8443/x")
+        assertEquals("[2001:db8::1]", l.host)
+        assertEquals(8443, l.port)
+        assertEquals(setOf(Signal.IP_HOST, Signal.ODD_PORT), l.signals.toSet())
+    }
+
+    @Test
+    fun plainHttp() {
+        assertEquals(listOf(Signal.PLAIN_HTTP), linkSignals("http://banco.es"))
+        assertEquals(listOf(Signal.PLAIN_HTTP), linkSignals("HTTP://banco.es"))
+        assertFalse(Signal.PLAIN_HTTP in linkSignals("https://banco.es"))
+    }
+
+    @Test
+    fun userInfoHidesTheRealHost() {
+        val l = link("https://banco.es@evil.com")
+        assertEquals("evil.com", l.host)
+        assertEquals(listOf(Signal.USERINFO), l.signals)
+        // The last «@» ends the userinfo.
+        assertEquals("evil.com", link("https://a@b@evil.com/x").host)
+        // «banco.es:443» before the «@» is a user and password, not a port.
+        val p = link("https://banco.es:443@evil.com/")
+        assertEquals("evil.com", p.host)
+        assertNull(p.port)
+        assertEquals(listOf(Signal.USERINFO), p.signals)
+    }
+
+    @Test
+    fun backslashEndsTheAuthorityLikeABrowserReadsIt() {
+        // Browsers treat «\» as «/» in http(s): the host here is banco.es, and «@evil.com» is part of the path.
+        val l = link("https://banco.es\\@evil.com")
+        assertEquals("banco.es", l.host)
+        assertFalse(Signal.USERINFO in l.signals)
+        // Missing or extra slashes still reach the same host in a browser.
+        assertEquals("evil.com", link("http:evil.com").host)
+        assertEquals("evil.com", link("https:\\\\evil.com").host)
+        assertEquals("evil.com", link("https:///evil.com").host)
+    }
+
+    @Test
+    fun tabsAndNewlinesInsideAreRemovedLikeABrowserDoes() {
+        val l = link("https://banco.es\n.evil.com/")
+        assertEquals("banco.es.evil.com", l.host)
+        assertTrue(Signal.HIDDEN_CHARS in l.signals)
+    }
+
+    @Test
+    fun oddPort() {
+        assertEquals(listOf(Signal.ODD_PORT), linkSignals("https://banco.es:8443"))
+        assertEquals(8443, link("https://banco.es:8443").port)
+        assertEquals(emptyList<Signal>(), linkSignals("https://banco.es:443"))
+        assertEquals(emptyList<Signal>(), linkSignals("https://banco.es:0443/"))
+        assertEquals(emptyList<Signal>(), linkSignals("http://banco.es:80").filter { it != Signal.PLAIN_HTTP })
+        assertTrue(Signal.ODD_PORT in linkSignals("http://banco.es:443"))
+        assertTrue(Signal.ODD_PORT in linkSignals("https://banco.es:99999999999999"))
+        assertEquals(emptyList<Signal>(), linkSignals("https://banco.es:/ruta"))
+    }
+
+    @Test
+    fun shorteners() {
+        assertTrue(Signal.SHORTENER in linkSignals("https://bit.ly/abc"))
+        assertTrue(Signal.SHORTENER in linkSignals("https://www.bit.ly/abc"))
+        assertTrue(Signal.SHORTENER in linkSignals("https://BIT.LY./abc"))
+        assertFalse(Signal.SHORTENER in linkSignals("https://evilbit.ly/abc"))
+        assertFalse(Signal.SHORTENER in linkSignals("https://bit.ly.evil.com/abc"))
+        for (s in SHORTENERS) assertTrue(s, Signal.SHORTENER in linkSignals("https://$s/x"))
+        assertEquals(
+            setOf("bit.ly", "t.co", "tinyurl.com", "goo.gl", "ow.ly", "is.gd", "buff.ly", "cutt.ly", "rebrand.ly", "shorturl.at", "t.ly"),
+            SHORTENERS,
+        )
+    }
+
+    @Test
+    fun manyLevels() {
+        assertEquals(listOf(Signal.MANY_LEVELS), linkSignals("https://a.b.c.d.e.banco.es"))
+        // Four subdomains are still fine.
+        assertEquals(emptyList<Signal>(), linkSignals("https://a.b.c.d.banco.es"))
+        assertEquals(emptyList<Signal>(), linkSignals("https://www.banco.es"))
+    }
+
+    @Test
+    fun dangerousSchemes() {
+        assertEquals(listOf(Signal.DANGEROUS_SCHEME), linkSignals("javascript:alert(1)"))
+        assertEquals(listOf(Signal.DANGEROUS_SCHEME), linkSignals("data:text/html;base64,PGI+"))
+        assertEquals(listOf(Signal.DANGEROUS_SCHEME), linkSignals("file:///etc/passwd"))
+        assertEquals(listOf(Signal.DANGEROUS_SCHEME), linkSignals("intent://scan/#Intent;scheme=zxing;end"))
+        assertEquals(listOf(Signal.DANGEROUS_SCHEME), linkSignals("JAVASCRIPT:alert(1)"))
+        assertEquals("javascript", link("JavaScript:alert(1)").scheme)
+        assertNull(link("javascript:alert(1)").host)
+        assertNull(link("file:///etc/passwd").host)
+    }
+
+    @Test
+    fun aNormalLinkHasNoSignals() {
+        assertEquals(emptyList<Signal>(), linkSignals("https://banco.es/ruta"))
+        val l = link("https://banco.es/ruta?x=1#y")
+        assertEquals("https", l.scheme)
+        assertEquals("banco.es", l.host)
+        assertNull(l.port)
+        assertEquals(emptyList<Signal>(), l.signals)
+    }
+
+    @Test
+    fun hiddenCharsInThePath() {
+        assertEquals(listOf(Signal.HIDDEN_CHARS), linkSignals("https://banco.es/ru\u202Eta"))
+        assertEquals(listOf(Signal.HIDDEN_CHARS), linkSignals("https://banco.es/ru\u200Bta"))
+        assertEquals(listOf(Signal.HIDDEN_CHARS), linkSignals("https://banco.es/ru\u0007ta"))
+        assertEquals(listOf(Signal.HIDDEN_CHARS), linkSignals("https://banco.es/ru\uDB40\uDC01ta")) // U+E0001 tag
+    }
+
+    @Test
+    fun hostIsLowercaseWithoutTrailingDot() {
+        val l = link("https://WWW.Banco.ES./x")
+        assertEquals("www.banco.es", l.host)
+        // Ideographic full stop and fullwidth dots separate labels in a browser too.
+        assertEquals("a.banco.es", link("https://a\u3002banco\uFF0Ees/").host)
+    }
+
+    @Test
+    fun percentEncodedHostIsDecodedLikeABrowserDoes() {
+        assertEquals("banco.es", link("https://%62anco.es/").host)
+    }
+
+    @Test
+    fun queryAndFragmentEndTheAuthority() {
+        assertEquals("banco.es", link("https://banco.es?x=@evil.com").host)
+        assertEquals("banco.es", link("https://banco.es#@evil.com").host)
+        assertEquals(emptyList<Signal>(), linkSignals("https://banco.es?x=@evil.com"))
+    }
+
+    @Test
+    fun signalsComeInEnumOrderWithoutRepeats() {
+        val s = linkSignals("http://a@xn--bnco-ofa.es:81/\u202E")
+        assertEquals(s.sortedBy { it.ordinal }, s)
+        assertEquals(s.distinct(), s)
+        assertEquals(
+            setOf(Signal.PLAIN_HTTP, Signal.USERINFO, Signal.ODD_PORT, Signal.PUNYCODE, Signal.HIDDEN_CHARS),
+            s.toSet(),
+        )
+    }
+
+    @Test
+    fun linkSignalsNeverThrowsOnOddInput() {
+        for (t in listOf("", ":", "//", "http://", "http://[", "http://]:", "https://@", "https://:80", "x", "\u0000", "http://%zz", "http://%", "http://xn--", "http://xn--a-", "http://...", "http://.", "http://a..b")) {
+            linkSignals(t)
+        }
+    }
+
+    @Test
+    fun punycodeThatDoesNotDecodeStillGivesAHost() {
+        val l = link("https://xn--zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz--.es")
+        assertTrue(Signal.PUNYCODE in l.signals)
+    }
+}
