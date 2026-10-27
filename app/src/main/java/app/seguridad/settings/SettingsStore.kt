@@ -43,7 +43,7 @@ class SettingsStore(
     suspend fun turnOffAutoBackupForNewVault(): String? = mutex.withLock {
         val s = _settings.value
         val folder = s.autoBackupUri ?: return@withLock null
-        write(s.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = true))
+        write(s.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = true, autoBackupCopies = emptyList()))
         folder
     }
 

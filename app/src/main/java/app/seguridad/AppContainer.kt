@@ -11,7 +11,6 @@ import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.File
 
@@ -61,17 +60,19 @@ class AppContainer(
         now = System::currentTimeMillis,
         keep = { settings.settings.value.autoBackupKeep },
         lastCopyAt = { settings.settings.value.lastAutoBackupAt },
+        copies = { settings.settings.value.autoBackupCopies },
         onResult = ::recordAutoBackup,
     )
 
-    /** Keeps how the last automatic copy went, for Ajustes, if it went to the folder still chosen. */
-    private fun recordAutoBackup(result: AutoBackupResult) {
-        appScope.launch {
-            try {
-                settings.update { it.withAutoBackupResult(result) }
-            } catch (e: Exception) {
-                // A full disk: Ajustes just shows the previous state; never closes the app.
-            }
+    /**
+     * Keeps how the last automatic copy went, for Ajustes, and the copies it made (for the next rotation), if it went
+     * to the folder still chosen. Waited for by [AutoBackup] before its next copy, so that one sees this list.
+     */
+    private suspend fun recordAutoBackup(result: AutoBackupResult) {
+        try {
+            settings.update { it.withAutoBackupResult(result) }
+        } catch (e: Exception) {
+            // A full disk: Ajustes just shows the previous state, and the copy just made is not rotated; never closes the app.
         }
     }
 }
