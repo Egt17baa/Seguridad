@@ -332,4 +332,34 @@ class LinkSignalsTest {
         assertEquals("evil.com", link("ftps://evil.com").host)
         assertEquals("evil.com", link("ftp:evil.com").host)
     }
+
+    // ---- Where Java's IDNA2003 differs from a browser ----
+
+    @Test
+    fun sharpSAndFinalSigmaAreKeptLikeABrowserDoes() {
+        // IDN.toASCII("fa\u00DF") is «fass»; a browser opens xn--fa-hia.
+        val l = link("https://fa\u00DF.de")
+        assertTrue(l.host != "fass.de")
+        assertEquals("fa\u00DF.de", l.host)
+        assertEquals("fa\u00DF.de", l.unicodeHost)
+        assertEquals(listOf(Signal.PUNYCODE), l.signals)
+        assertEquals(listOf(Signal.PUNYCODE), linkSignals("https://stra\u00DFe-bank.de"))
+        assertTrue(link("https://stra\u00DFe-bank.de").host != "strasse-bank.de")
+        // Capital sharp s folds to the lower-case one.
+        assertEquals("fa\u00DF.de", link("https://fa\u1E9E.de").host)
+        // Final sigma is not turned into a plain sigma.
+        val g = link("https://\u03C2\u03B1.gr")
+        assertEquals("\u03C2\u03B1.gr", g.host)
+        assertEquals(listOf(Signal.PUNYCODE), g.signals)
+        // A normal «ss» is nothing.
+        assertEquals(emptyList<Signal>(), linkSignals("https://fass.de"))
+    }
+
+    @Test
+    fun charactersNewerThanUnicode32AreFoldedBeforeEncoding() {
+        // Squared letters 🄱🄸🅃 are «bit» after NFKC.
+        val l = link("https://\uD83C\uDD31\uD83C\uDD38\uD83C\uDD43.ly/x")
+        assertEquals("bit.ly", l.host)
+        assertEquals(listOf(Signal.SHORTENER), l.signals)
+    }
 }

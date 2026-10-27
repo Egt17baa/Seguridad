@@ -321,10 +321,17 @@ class QrContentTest {
             QrKind.Crypto("ethereum", recipient, null),
             classifyQr("ethereum:pay-$token@1/TRANSFER?address=$recipient&uint256=1"),
         )
-        // Without a recipient in the query the contract is all there is; a chain id is not part of the address.
-        assertEquals(QrKind.Crypto("ethereum", token, null), classifyQr("ethereum:$token@1/transfer?uint256=1"))
+        // A chain id is not part of the address.
+        assertEquals(QrKind.Crypto("ethereum", token, null), classifyQr("ethereum:$token@1"))
         assertEquals(QrKind.Crypto("ethereum", token, "5 wei"), classifyQr("ethereum:$token@1?value=5"))
-        assertEquals(QrKind.Crypto("ethereum", token, null), classifyQr("ethereum:$token@1/approve?address=$recipient&uint256=1"))
+        // Any other function call is never shown as a payment to the contract: plain text, as it came.
+        for (t in listOf(
+            "ethereum:$token@1/approve?address=$recipient&uint256=1",
+            "ethereum:$token@1/transfer?uint256=1",
+            "ethereum:$token@1/transferFrom?address=$recipient",
+        )) {
+            assertEquals(t, QrKind.PlainText(t), classifyQr(t))
+        }
         assertEquals(QrKind.PlainText("ethereum:"), classifyQr("ethereum:"))
     }
 
@@ -370,5 +377,49 @@ class QrContentTest {
             val s = String(Character.toChars(cp))
             assertEquals(cp.toString(), s, visibleText(s))
         }
+    }
+
+    @Test
+    fun repeatedPaymentKeysAreNotShownAsAPayment() {
+        val recipient = "0x32Be343B94f860124dC4fEe278FDCBD38C102D88"
+        val token = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+        for (t in listOf(
+            "ethereum:$token@1/transfer?address=$recipient&address=0xBBBB&uint256=1",
+            "ethereum:$recipient?value=1&value=2",
+            "bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=1&amount=2",
+            "bitcoin://bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=1&AMOUNT=2",
+        )) {
+            assertEquals(t, QrKind.PlainText(t), classifyQr(t))
+        }
+        // The text is kept as it came, trailing line break included.
+        assertEquals(QrKind.PlainText("bitcoin:x?amount=1&amount=2\n"), classifyQr("bitcoin:x?amount=1&amount=2\n"))
+        // Repeating another key is harmless.
+        assertTrue(classifyQr("bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?label=a&label=b&amount=1") is QrKind.Crypto)
+    }
+
+    @Test
+    fun emojiVariationSelectorIsNotMarkedAfterAnEmojiOrSymbol() {
+        assertEquals("\u2764\uFE0F", visibleText("\u2764\uFE0F")) // ❤️
+        assertEquals("\u2764\uFE0E", visibleText("\u2764\uFE0E"))
+        assertEquals("\uD83D\uDE00\uFE0F", visibleText("\uD83D\uDE00\uFE0F")) // 😀 + VS16
+        assertEquals("Casa \u2764\uFE0F", visibleText("Casa \u2764\uFE0F"))
+        assertFalse(hasHiddenChars("\u2764\uFE0F"))
+        // After anything else, or alone, it is marked.
+        assertEquals("a\u27E8U+FE0F\u27E9", visibleText("a\uFE0F"))
+        assertEquals("\u27E8U+FE0F\u27E9", visibleText("\uFE0F"))
+        // A second one in a row follows the selector, not the symbol.
+        assertEquals("\u2764\uFE0F\u27E8U+FE0F\u27E9", visibleText("\u2764\uFE0F\uFE0F"))
+        assertTrue(hasHiddenChars("a\uFE0F"))
+        // The other selectors are always marked.
+        assertEquals("\u2764\u27E8U+FE00\u27E9", visibleText("\u2764\uFE00"))
+    }
+
+    @Test
+    fun variationSelectorInAHostStillRaisesHiddenChars() {
+        assertTrue(Signal.HIDDEN_CHARS in linkSignals("https://bit\uFE0F.ly/x"))
+        // Even after a symbol: in a host a browser drops it.
+        assertTrue(Signal.HIDDEN_CHARS in linkSignals("https://\u2764\uFE0F.ws/"))
+        // In a path, after an emoji, it is the ordinary presentation.
+        assertFalse(Signal.HIDDEN_CHARS in linkSignals("https://banco.es/\u2764\uFE0F"))
     }
 }
