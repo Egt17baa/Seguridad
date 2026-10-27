@@ -136,7 +136,7 @@ fun ContactAddScreen(store: VaultStore, onBack: () -> Unit) {
 
 /** Reads [text] and compares it with my identity and the contacts, off the main thread, and shows what comes out. */
 @Composable
-private fun IncomingCardSection(
+internal fun IncomingCardSection(
     store: VaultStore,
     entries: List<VaultEntry>,
     text: String,

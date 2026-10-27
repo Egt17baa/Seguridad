@@ -33,10 +33,12 @@ import androidx.navigation.navArgument
 import app.seguridad.AppContainer
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
-import app.seguridad.ui.screens.ComingSoonScreen
 import app.seguridad.ui.screens.ContactAddScreen
 import app.seguridad.ui.screens.ContactDetailScreen
 import app.seguridad.ui.screens.ContactsScreen
+import app.seguridad.ui.screens.EncryptForScreen
+import app.seguridad.ui.screens.OpenReceivedScreen
+import app.seguridad.ui.screens.SignScreen
 import app.seguridad.ui.screens.FileCryptoScreen
 import app.seguridad.ui.screens.OtpQrScreen
 import app.seguridad.ui.screens.FileHashScreen
@@ -162,16 +164,15 @@ fun AppNavHost(container: AppContainer) {
             }
             composable("contacts/me") { IdentityScreen(vault, onBack = back) }
             composable("contacts/add") { ContactAddScreen(vault, onBack = back) }
-            // Task 10 replaces these three with the real screens.
-            composable("contacts/encrypt") { ComingSoonScreen(vault, "Cifrar para…", onBack = back) }
-            composable("contacts/sign") { ComingSoonScreen(vault, "Firmar", onBack = back) }
-            composable("contacts/open") { ComingSoonScreen(vault, "Abrir lo recibido", onBack = back) }
+            composable("contacts/encrypt") { EncryptForScreen(vault, onBack = back) }
+            composable("contacts/sign") { SignScreen(vault, onBack = back) }
+            composable("contacts/open") { OpenReceivedScreen(vault, onBack = back) }
             composable("contacts/{id}") { entry ->
                 ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
             }
             composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
             composable("tools/text") { TextCryptoScreen(settings.kdf.params, onBack = back) }
-            composable("tools/file") { FileCryptoScreen(settings.kdf.params, onBack = back) }
+            composable("tools/file") { FileCryptoScreen(settings.kdf.params, onBack = back, onOpenReceived = { nav.navigate("contacts/open") }) }
             composable("tools/generator") { GeneratorScreen(onBack = back) }
             composable("tools/breach") { BreachScreen(container.pwned, onBack = back) }
             composable("tools/hash") { FileHashScreen(onBack = back) }

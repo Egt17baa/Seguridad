@@ -270,9 +270,3 @@ internal fun VerificationMark(entry: VaultEntry) {
         Text(verificationMark(entry), style = MaterialTheme.typography.bodySmall, color = CautionColor)
     }
 }
-
-/** Stand-in for the screens of «Cifrar para…», «Firmar» and «Abrir lo recibido» until they exist. */
-@Composable
-fun ComingSoonScreen(store: VaultStore, title: String, onBack: () -> Unit) {
-    ContactsFrame(store, title, onBack) { _, _ -> Text("Próximamente", modifier = Modifier.padding(16.dp)) }
-}
