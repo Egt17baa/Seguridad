@@ -258,6 +258,88 @@ const val QR_TOO_BIG = "El código QR tiene demasiado texto para inspeccionarlo.
 const val QR_SGK1 =
     "Se añadirá como contacto sin verificar. Para verificarlo, compara la huella con la persona, en persona o por llamada."
 
+/** Not in the annex: the tile in Herramientas (the plan's words). */
+const val QR_TOOL_TITLE = "Inspector de QR"
+const val QR_TOOL_SUBTITLE = "Mira qué hay en un QR sin abrirlo"
+
+/**
+ * Not in the annex: the hidden-characters line when the marks are not in the text as shown (percent-encoded in the
+ * name, a selector after an emoji of the name, a line break), so «marcados como ⟨U+202E⟩» would not be true. Built on
+ * the annex line; goes to the Abogado Digital with the other new texts.
+ */
+const val QR_HIDDEN_ELSEWHERE =
+    "Hay caracteres invisibles o que cambian el orden del texto escondidos en el enlace (codificados con «%», junto a " +
+        "un emoji del nombre o como saltos de línea). Pueden hacer que el texto parezca otro."
+
+/** Not in the annex: buttons, progress, the hidden full text and plain failure messages, without internal details. */
+const val QR_SCAN = "📷 Escanear QR"
+const val QR_PICK_IMAGE = "Elegir imagen"
+const val QR_READING_IMAGE = "Buscando el código en la imagen…"
+const val QR_FULL_TEXT = "Texto completo"
+const val QR_TEXT_HIDDEN_PASSWORD = "Lleva la contraseña de la red: toca «Mostrar» para verlo."
+const val QR_TEXT_HIDDEN_OTP = "Lleva la clave secreta del código 2FA: toca «Mostrar» para verlo."
+const val QR_SHOW = "Mostrar"
+const val QR_HIDE = "Ocultar"
+const val QR_COPY = "Copiar"
+const val QR_COPY_PASSWORD = "Copiar contraseña"
+const val QR_ADD_CONTACT = "Añadir contacto"
+const val QR_OPEN_RECEIVED = "Abrir lo recibido"
+const val QR_ADD_TOTP = "Añadir a la bóveda"
+const val QR_NOT_FOUND =
+    "No hemos encontrado ningún código QR en la imagen. Prueba con otra en la que el código se vea entero y nítido."
+const val QR_IMAGE_TOO_BIG = "La imagen ocupa más de 50 MB."
+const val QR_IMAGE_TOO_LARGE =
+    "La imagen es demasiado grande para buscar el código: pasa de 260 megapíxeles o de 32.768 píxeles de lado."
+const val QR_IMAGE_DAMAGED =
+    "No se ha podido abrir esta imagen: el archivo está dañado o tiene un formato que no conocemos."
+const val QR_NO_CAMERA_PERMISSION = "Sin permiso de cámara: elige una imagen con el código QR."
+const val QR_CAMERA_FAILED = "No se ha podido abrir la cámara: elige una imagen con el código QR."
+
+/** Not in the annex: what each kind of QR is called, and the names of the fields shown for it. */
+const val QR_KIND_LINK = "Enlace"
+const val QR_KIND_WIFI = "Red Wi-Fi"
+const val QR_KIND_SEPA = "Pago SEPA"
+const val QR_KIND_CRYPTO = "Pago en criptomonedas"
+const val QR_KIND_CONTACT = "Contacto"
+const val QR_KIND_SMS = "SMS"
+const val QR_KIND_PHONE = "Llamada"
+const val QR_KIND_EMAIL = "Correo"
+const val QR_KIND_GEO = "Ubicación"
+const val QR_KIND_CARD = "Tarjeta de contacto de Seguridad"
+const val QR_KIND_RECEIVED = "Mensaje cifrado o texto firmado de Seguridad"
+const val QR_KIND_OTP = "Código 2FA"
+const val QR_KIND_TEXT = "Texto"
+
+const val QR_FIELD_WEB = "Web"
+const val QR_FIELD_CONNECTS_TO = "Se conecta a"
+const val QR_FIELD_PORT = "Puerto"
+const val QR_FIELD_SCHEME = "Tipo de enlace"
+const val QR_SCHEME_NONE = "Sin indicar: el móvil lo abre como web"
+const val QR_FIELD_NETWORK = "Red"
+const val QR_FIELD_CIPHER = "Cifrado"
+const val QR_CIPHER_NONE = "Ninguno: red abierta"
+const val QR_CIPHER_UNKNOWN = "Sin indicar"
+const val QR_FIELD_HIDDEN_NETWORK = "Red oculta"
+const val QR_YES = "Sí"
+const val QR_FIELD_BENEFICIARY = "Beneficiario"
+const val QR_FIELD_IBAN = "IBAN"
+const val QR_FIELD_AMOUNT = "Importe"
+const val QR_FIELD_REFERENCE = "Concepto"
+const val QR_FIELD_COIN = "Moneda"
+const val QR_FIELD_ADDRESS = "Dirección"
+const val QR_FIELD_NAME = "Nombre"
+const val QR_FIELD_PHONE = "Teléfono"
+const val QR_FIELD_EMAIL = "Correo"
+const val QR_FIELD_TO = "Para"
+const val QR_FIELD_SUBJECT = "Asunto"
+const val QR_FIELD_MESSAGE = "Mensaje"
+const val QR_FIELD_NUMBER = "Número"
+const val QR_FIELD_LATITUDE = "Latitud"
+const val QR_FIELD_LONGITUDE = "Longitud"
+const val QR_FIELD_SERVICE = "Servicio"
+const val QR_FIELD_ACCOUNT = "Cuenta"
+const val QR_FIELD_PASSWORD = "Contraseña"
+
 // ---- PIN y códigos ----
 
 /** [count] and [bits] replace «N» and «X». */
@@ -317,6 +399,17 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     QR_EXPLANATION, QR_NO_ALERTS, qrAlertsTitle("N"), QR_MIXED_SCRIPTS, qrPunycode("…"), QR_IP_HOST, QR_HTTP,
     qrUserInfo("[host]"), qrPort("[:puerto]"), QR_SHORTENER, QR_SUBDOMAINS, qrScheme("[esquema]"), qrBidi("⟨U+202E⟩"),
     QR_WIFI_OPEN, QR_WIFI_WEP, QR_SEPA, QR_CRYPTO, QR_SMS, QR_SGK1, QR_TOO_BIG,
+    QR_TOOL_TITLE, QR_TOOL_SUBTITLE, QR_HIDDEN_ELSEWHERE, QR_SCAN, QR_PICK_IMAGE, QR_READING_IMAGE, QR_FULL_TEXT,
+    QR_TEXT_HIDDEN_PASSWORD, QR_TEXT_HIDDEN_OTP, QR_SHOW, QR_HIDE, QR_COPY, QR_COPY_PASSWORD, QR_ADD_CONTACT,
+    QR_OPEN_RECEIVED, QR_ADD_TOTP, QR_NOT_FOUND, QR_IMAGE_TOO_BIG, QR_IMAGE_TOO_LARGE, QR_IMAGE_DAMAGED,
+    QR_NO_CAMERA_PERMISSION, QR_CAMERA_FAILED,
+    QR_KIND_LINK, QR_KIND_WIFI, QR_KIND_SEPA, QR_KIND_CRYPTO, QR_KIND_CONTACT, QR_KIND_SMS, QR_KIND_PHONE, QR_KIND_EMAIL,
+    QR_KIND_GEO, QR_KIND_CARD, QR_KIND_RECEIVED, QR_KIND_OTP, QR_KIND_TEXT,
+    QR_FIELD_WEB, QR_FIELD_CONNECTS_TO, QR_FIELD_PORT, QR_FIELD_SCHEME, QR_SCHEME_NONE, QR_FIELD_NETWORK, QR_FIELD_CIPHER,
+    QR_CIPHER_NONE, QR_CIPHER_UNKNOWN, QR_FIELD_HIDDEN_NETWORK, QR_YES, QR_FIELD_BENEFICIARY, QR_FIELD_IBAN,
+    QR_FIELD_AMOUNT, QR_FIELD_REFERENCE, QR_FIELD_COIN, QR_FIELD_ADDRESS, QR_FIELD_NAME, QR_FIELD_PHONE, QR_FIELD_EMAIL,
+    QR_FIELD_TO, QR_FIELD_SUBJECT, QR_FIELD_MESSAGE, QR_FIELD_NUMBER, QR_FIELD_LATITUDE, QR_FIELD_LONGITUDE,
+    QR_FIELD_SERVICE, QR_FIELD_ACCOUNT, QR_FIELD_PASSWORD,
     pinText("N", "X"), RECOVERY_CODES_TEXT,
     ANSWERS_TITLE, ANSWERS_EXPLANATION, ANSWERS_LIMIT, ANSWERS_WARNINGS, ANSWERS_NO_ACCENTS, ANSWERS_NO_ACCENTS_NOTE,
     KEY_LOCATION_TITLE, KEY_LOCATION_STRONGBOX, KEY_LOCATION_TEE, KEY_LOCATION_SOFTWARE, STRONGBOX_AVAILABLE_NOTICE,

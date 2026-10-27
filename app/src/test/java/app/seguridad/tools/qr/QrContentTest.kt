@@ -336,6 +336,21 @@ class QrContentTest {
     }
 
     @Test
+    fun ethereumTransferThatAlsoSendsEtherIsPlainText() {
+        val token = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+        val recipient = "0x32Be343B94f860124dC4fEe278FDCBD38C102D88"
+        // `value=` on a call sends ether to the contract on top of the token transfer: showing only the recipient would
+        // hide that payment, so it is not summed up at all.
+        for (t in listOf(
+            "ethereum:$token@1/transfer?address=$recipient&uint256=1&value=5",
+            "ethereum:$token@1/transfer?value=1e18&address=$recipient",
+            "ethereum:pay-$token/transfer?address=$recipient&VALUE=0",
+        )) {
+            assertEquals(t, QrKind.PlainText(t), classifyQr(t))
+        }
+    }
+
+    @Test
     fun aLinkKeepsBeingALinkEvenWithASignedTextMarkerInIt() {
         // A first line that is a web address wins over an «SGS1:» or «SGM1:» further down: it is shown as a link, with
         // its signals (the line break inside raises HIDDEN_CHARS).
@@ -412,6 +427,21 @@ class QrContentTest {
         assertTrue(hasHiddenChars("a\uFE0F"))
         // The other selectors are always marked.
         assertEquals("\u2764\u27E8U+FE00\u27E9", visibleText("\u2764\uFE00"))
+    }
+
+    @Test
+    fun emojiVariationOnlyFollowsTheEmojiPlane() {
+        // Above the emoji and symbol plane (U+1F000..U+1FFFF) nothing is an emoji: a CJK ideograph of plane 2, a tag
+        // character and a supplementary selector do not make the U+FE0F after them its normal presentation.
+        assertEquals("\uD840\uDC00\u27E8U+FE0F\u27E9", visibleText("\uD840\uDC00\uFE0F")) // U+20000
+        assertEquals("\u27E8U+E0041\u27E9\u27E8U+FE0F\u27E9", visibleText("\uDB40\uDC41\uFE0F"))
+        assertEquals("\u27E8U+E0100\u27E9\u27E8U+FE0F\u27E9", visibleText("\uDB40\uDD00\uFE0F"))
+        assertEquals("\uDB80\uDC00\u27E8U+FE0F\u27E9", visibleText("\uDB80\uDC00\uFE0F")) // U+F0000, private use
+        assertTrue(hasHiddenChars("\uD840\uDC00\uFE0F"))
+        // Inside the plane, and the BMP symbols, it still is.
+        assertEquals("\uD83C\uDC04\uFE0F", visibleText("\uD83C\uDC04\uFE0F")) // U+1F004 🀄
+        assertEquals("\uD83E\uDDFF\uFE0F", visibleText("\uD83E\uDDFF\uFE0F")) // U+1F9FF
+        assertEquals("\u2603\uFE0F", visibleText("\u2603\uFE0F")) // ☃
     }
 
     @Test

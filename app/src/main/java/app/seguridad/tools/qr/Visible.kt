@@ -22,8 +22,7 @@ fun visibleText(text: String): String {
     var previous = -1
     while (i < text.length) {
         val cp = text.codePointAt(i)
-        if (isHiddenCodePoint(cp, previous, true)) sb.append("\u27E8U+").append(String.format(java.util.Locale.ROOT, "%04X", cp)).append('\u27E9')
-        else sb.appendCodePoint(cp)
+        if (isHiddenCodePoint(cp, previous, true)) sb.append(mark(cp)) else sb.appendCodePoint(cp)
         previous = cp
         i += Character.charCount(cp)
     }
@@ -46,8 +45,31 @@ fun hasHiddenChars(text: String, allowEmojiVariation: Boolean = true): Boolean {
     return false
 }
 
+/**
+ * The marks [visibleText] puts in [text], each once, in the order they first appear: what the screen names in
+ * «marcados como ⟨U+202E⟩». Empty exactly when [hasHiddenChars] (with the emoji exception) is false.
+ */
+fun hiddenMarks(text: String): List<String> {
+    val marks = LinkedHashSet<String>()
+    var i = 0
+    var previous = -1
+    while (i < text.length) {
+        val cp = text.codePointAt(i)
+        if (isHiddenCodePoint(cp, previous, true)) marks += mark(cp)
+        previous = cp
+        i += Character.charCount(cp)
+    }
+    return marks.toList()
+}
+
+private fun mark(cp: Int) = "\u27E8U+" + String.format(java.util.Locale.ROOT, "%04X", cp) + "\u27E9"
+
+/**
+ * An emoji or symbol that U+FE0E and U+FE0F may follow: the emoji and symbol plane (U+1F000 to U+1FFFF) or a symbol of
+ * the BMP. Nothing above that plane: the tag characters, the supplementary selectors and plane 2 ideographs are not.
+ */
 private fun isEmojiOrSymbol(cp: Int): Boolean =
-    cp >= 0x1F000 || Character.getType(cp) == Character.OTHER_SYMBOL.toInt()
+    cp in 0x1F000..0x1FFFF || (cp <= 0xFFFF && Character.getType(cp) == Character.OTHER_SYMBOL.toInt())
 
 private fun isHiddenCodePoint(cp: Int, previous: Int, allowEmojiVariation: Boolean): Boolean = when {
     cp == '\n'.code -> false

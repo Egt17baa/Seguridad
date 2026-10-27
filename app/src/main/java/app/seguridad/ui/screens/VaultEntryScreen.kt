@@ -197,8 +197,12 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
     }
 }
 
+/**
+ * A new entry ([id] null) or an existing one. [otpAuthText] is a 2FA text the QR inspector read (`otpauth://` or a
+ * Google Authenticator export): applied once, exactly as a scan here would be.
+ */
 @Composable
-fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType, onDone: () -> Unit) {
+fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType, onDone: () -> Unit, otpAuthText: String? = null) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     val unlocked = state as? VaultState.Unlocked ?: return LockedNotice(onDone)
@@ -252,6 +256,8 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
             error = null
         }
     }
+
+    LaunchedEffect(Unit) { otpAuthText?.let(::applyOtpAuth) }
 
     // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
