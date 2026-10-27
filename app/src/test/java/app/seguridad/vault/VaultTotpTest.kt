@@ -5,6 +5,8 @@ import app.seguridad.crypto.KdfParams
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.base32Decode
 import app.seguridad.crypto.hotp
+import app.seguridad.crypto.OTPAUTH_MAX_CHARS
+import app.seguridad.crypto.OTPAUTH_MAX_NAME_CHARS
 import app.seguridad.crypto.parseOtpAuth
 import app.seguridad.crypto.totpCode
 import app.seguridad.crypto.totpKey
@@ -146,5 +148,17 @@ class VaultTotpTest {
         assertNull(parseOtpAuth("otpauth://totp/x?secret=A"))
         assertNull(totpCode(TotpSecret("A"), 0))
         assertEquals(10, totpKey("JBSWY3DPEHPK3PXP")!!.size)
+    }
+
+    @Test fun `a scanned link cannot turn its names around or make them huge`() {
+        // U+202E (right-to-left override) and U+2066 (isolate) would show «Banco» as something else; a newline breaks lines.
+        val t = parseOtpAuth("otpauth://totp/%E2%80%AEocnaB:al%0Aice?secret=JBSWY3DPEHPK3PXP&issuer=%E2%81%A6Banco%E2%80%8F")!!
+        assertEquals("Banco", t.issuer)
+        assertEquals("alice", t.account)
+        val long = "a".repeat(1000)
+        val big = parseOtpAuth("otpauth://totp/x:$long?secret=JBSWY3DPEHPK3PXP&issuer=$long")!!
+        assertEquals(OTPAUTH_MAX_NAME_CHARS, big.issuer.length)
+        assertEquals(OTPAUTH_MAX_NAME_CHARS, big.account.length)
+        assertNull(parseOtpAuth("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&issuer=" + "b".repeat(OTPAUTH_MAX_CHARS)))
     }
 }

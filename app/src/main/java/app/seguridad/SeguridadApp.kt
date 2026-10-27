@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.core.net.toUri
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.ui.screens.DECRYPT_TMP_PREFIX
+import app.seguridad.vault.VaultState
 import app.seguridad.vault.wipePkTemp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -23,10 +24,15 @@ class SeguridadApp : Application() {
         super.onCreate()
         // A decrypted file left behind if the app died before it was saved.
         cacheDir.listFiles { f -> f.name.startsWith(DECRYPT_TMP_PREFIX) && f.name.endsWith(".tmp") }?.forEach { it.delete() }
-        // Same for what «Abrir lo recibido» decrypted (one subfolder per operation): never survives a process death. A
-        // recursive delete, so off the main thread. Nothing can be decrypted before it ends in practice (the vault opens
-        // first); if it ever did, the copy would vanish and saving it fails closed («vuelve a descifrar»).
-        container.appScope.launch(Dispatchers.IO) { wipePkTemp(cacheDir) }
+        // Same for what «Abrir lo recibido» decrypted (one subfolder per operation): never survives a process death, nor
+        // the vault being open. Wiped at start and each time the vault is not open, even with the app in the background
+        // (the screen's own clean-up only runs while it is in view, and a save picker may be on top). A recursive delete,
+        // so off the main thread. Nothing can be decrypted before the first one ends in practice (the vault opens first);
+        // if it ever did, the copy would vanish and saving it fails closed («vuelve a descifrar»).
+        container.appScope.launch(Dispatchers.IO) {
+            wipePkTemp(cacheDir)
+            container.vault.state.collect { if (it !is VaultState.Unlocked) wipePkTemp(cacheDir) }
+        }
         // A few hundred bytes, read before the first frame: the theme, the start notice and the lock time must be the
         // saved ones from the start (a damaged file just gives the defaults).
         runBlocking(Dispatchers.IO) { container.settings.load() }
