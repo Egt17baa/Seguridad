@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The only folder the «compartir» FileProvider serves: cacheDir/compartir/, holding at most one shared copy. -->
+<paths>
+    <cache-path name="compartir" path="compartir/" />
+</paths>

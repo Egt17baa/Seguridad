@@ -14,6 +14,7 @@ class SeguridadApp : Application() {
     val container: AppContainer by lazy {
         AppContainer(
             filesDir,
+            cacheDir,
             appVersion = BuildConfig.VERSION_NAME,
             backupFolder = { uri -> SafBackupTarget(contentResolver, uri.toUri()) },
             releaseFolder = { uri -> SafBackupTarget.releaseFolder(contentResolver, uri) },
@@ -33,6 +34,8 @@ class SeguridadApp : Application() {
         container.appScope.launch(Dispatchers.IO) {
             container.vault.state.collect { if (it !is VaultState.Unlocked) wipePkTemp(cacheDir) }
         }
+        // The copy handed to another app by «Compartir»: its share time lived only in memory, so a new process deletes it.
+        container.appScope.launch(Dispatchers.IO) { container.shareTemp.wipeAll() }
         // A few hundred bytes, read before the first frame: the theme, the start notice and the lock time must be the
         // saved ones from the start (a damaged file just gives the defaults).
         runBlocking(Dispatchers.IO) { container.settings.load() }

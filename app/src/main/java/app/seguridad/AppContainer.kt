@@ -5,6 +5,7 @@ import app.seguridad.net.secureClient
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.withAutoBackupResult
+import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupTarget
@@ -26,6 +27,8 @@ const val SETTINGS_FILE = "settings.json"
  */
 class AppContainer(
     filesDir: File,
+    /** The app's private cache; holds the copy handed to another app by «Compartir» (see [shareTemp]). */
+    cacheDir: File,
     /** The installed version (BuildConfig.VERSION_NAME), for the User-Agent of the HIBP queries. */
     appVersion: String,
     backupFolder: (String) -> BackupTarget? = { null },
@@ -52,6 +55,9 @@ class AppContainer(
         // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted.
         beforeReplace = { settings.forgetAutoBackupCopies() },
     )
+
+    /** The one shared image copy (cacheDir/compartir/): wiped at start and on return after 10 minutes, never on lock. */
+    val shareTemp = ShareTemp(cacheDir, System::currentTimeMillis)
 
     val pwned: PwnedPasswords by lazy { PwnedPasswords(client) }
 

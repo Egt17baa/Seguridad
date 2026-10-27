@@ -14,6 +14,8 @@ import java.io.File
 class AppContainerTest {
     @get:Rule val tmp = TemporaryFolder()
 
+    private val cache by lazy { tmp.newFolder("cache") }
+
     private val folder = "content://com.android.externalstorage.documents/tree/primary%3ACopias"
 
     /**
@@ -24,7 +26,7 @@ class AppContainerTest {
         File(tmp.root, "vault").mkdirs()
         File(File(tmp.root, "vault"), "vault.bin").writeText("dañado")
         val released = mutableListOf<String>()
-        val c = AppContainer(tmp.root, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)
+        val c = AppContainer(tmp.root, cache, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)
         c.settings.load()
         c.settings.update { it.copy(autoBackupUri = folder, lastAutoBackupAt = 5L) }
         c.vault.load()
@@ -39,7 +41,7 @@ class AppContainerTest {
 
     @Test fun newVaultWithAutoBackupOffReleasesNothing() = runTest {
         val released = mutableListOf<String>()
-        val c = AppContainer(tmp.root, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)
+        val c = AppContainer(tmp.root, cache, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)
         c.settings.load()
         c.vault.load()
         c.vault.create("maestra-larga".toCharArray())
@@ -48,12 +50,12 @@ class AppContainerTest {
     }
 
     @Test fun importingAVaultForgetsTheAutomaticCopiesMadeOfTheOldOne() = runTest {
-        val c = AppContainer(tmp.root, appVersion = "test", appScope = backgroundScope)
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
         c.settings.load()
         c.vault.load()
         c.vault.create("maestra-larga".toCharArray())
         c.settings.update { it.copy(autoBackupUri = folder, autoBackupCopies = listOf("doc-1"), autoBackupCopiesFolder = folder) }
-        val other = AppContainer(File(tmp.root, "otro").apply { mkdirs() }, appVersion = "test", appScope = backgroundScope)
+        val other = AppContainer(File(tmp.root, "otro").apply { mkdirs() }, cache, appVersion = "test", appScope = backgroundScope)
         other.settings.load()
         other.vault.load()
         other.vault.create("otra-maestra-larga".toCharArray())
