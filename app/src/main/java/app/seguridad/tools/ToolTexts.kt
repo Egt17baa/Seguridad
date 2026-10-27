@@ -79,8 +79,16 @@ val PHOTO_REMOVED_NAMES: Map<Found, String> = linkedMapOf(
     Found.OTHER to "otros datos ocultos del archivo",
 )
 
-/** HEIC/HEIF/AVIF: the JPEG is encoded from the pixels, so nothing of the original file goes with it. */
-const val PHOTO_DONE_ALL = "todos los que guardaba el archivo original"
+/**
+ * Not in the annex. HEIC/HEIF/AVIF: the JPEG is encoded from the pixels, so the original file's metadata does not go
+ * with it; the encoder may still embed a colour profile, which the screen then names with [PHOTO_ICC_KEPT].
+ */
+const val PHOTO_DONE_CONVERTED =
+    "Copia lista, sin los datos ocultos del archivo original. El original no se ha tocado y sigue teniéndolos: " +
+        "comparte la copia, no el original."
+
+/** Not in the annex: once saved or shared when there was nothing to remove (the card already says so). */
+const val PHOTO_DONE_SHORT = "Copia lista."
 
 /** Anexo: «Si no hay nada que quitar». */
 const val PHOTO_NOTHING_FOUND =
@@ -131,13 +139,14 @@ fun photoFoundLines(report: PhotoReport): List<String> = PHOTO_FOUND_TEXTS.mapNo
 fun photoHasSomethingToRemove(report: PhotoReport) = (report.found - Found.ICC_KEPT).isNotEmpty()
 
 /**
- * The message once the copy is saved or shared: «Copia lista…» with what was removed, or [PHOTO_NOTHING_FOUND] when
- * there was nothing. A null [report] is a HEIC/HEIF/AVIF converted to JPEG, which keeps nothing of the original.
+ * The message once the copy is saved or shared: «Copia lista…» with what was removed, or [PHOTO_DONE_SHORT] when there
+ * was nothing. When [converted] (HEIC/HEIF/AVIF to JPEG), [report] is the converted JPEG's own: the original's
+ * metadata is gone, and a colour profile the encoder embedded is named.
  */
-fun photoDoneMessage(report: PhotoReport?): String {
-    if (report == null) return photoDoneText(PHOTO_DONE_ALL)
+fun photoDoneMessage(report: PhotoReport, converted: Boolean = false): String {
+    if (converted) return if (Found.ICC_KEPT in report.found) "$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT." else PHOTO_DONE_CONVERTED
     val removed = PHOTO_REMOVED_NAMES.filterKeys { it in report.found }.values
-    return if (removed.isEmpty()) PHOTO_NOTHING_FOUND else photoDoneText(removed.joinToString("; "))
+    return if (removed.isEmpty()) PHOTO_DONE_SHORT else photoDoneText(removed.joinToString("; "))
 }
 
 // ---- Tachar en imagen ----
@@ -262,8 +271,8 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE, PHOTO_EXPLANATION, PHOTO_PICK, PHOTO_PICK_OTHER, PHOTO_FOUND_TITLE,
     PHOTO_ANALYSING, photoGpsLine(40.42, -3.70),
 ) + PHOTO_FOUND_TEXTS.values + PHOTO_REMOVED_NAMES.values + listOf(
-    PHOTO_DONE_ALL, PHOTO_NOTHING_FOUND, PHOTO_HEIF_NOTICE, PHOTO_FILE_NAME_NOTE, PHOTO_SAVE_COPY, SHARE,
-    PHOTO_TOO_BIG, PHOTO_SAVE_FAILED, PHOTO_SHARE_FAILED, PHOTO_LOST, photoDoneText("[lista]"), photoDoneText(PHOTO_DONE_ALL),
+    PHOTO_DONE_CONVERTED, PHOTO_DONE_SHORT, "$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT.", PHOTO_NOTHING_FOUND, PHOTO_HEIF_NOTICE, PHOTO_FILE_NAME_NOTE, PHOTO_SAVE_COPY, SHARE,
+    PHOTO_TOO_BIG, PHOTO_SAVE_FAILED, PHOTO_SHARE_FAILED, PHOTO_LOST, photoDoneText("[lista]"),
     PHOTO_DAMAGED, PHOTO_UNSUPPORTED,
     REDACT_TOOL_TITLE, REDACT_EXPLANATION, REDACT_LIMITS, REDACT_DOWNSCALED,
     QR_EXPLANATION, QR_NO_ALERTS, qrAlertsTitle("N"), QR_MIXED_SCRIPTS, qrPunycode("…"), QR_IP_HOST, QR_HTTP,

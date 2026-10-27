@@ -63,15 +63,20 @@ import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.SectionCard
+import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * The cleaned copy, kept only in memory (never in saved state: the screen rebuilt means «vuelve a elegir la foto»).
- * [report] is null for HEIC/HEIF/AVIF, which is re-encoded from the pixels and keeps nothing of the original file.
+ * When [converted] (HEIC/HEIF/AVIF re-encoded as JPEG), [report] is the converted JPEG's own, so a colour profile the
+ * encoder embedded is shown; otherwise it is the original's.
  */
-private class CleanCopy(val report: PhotoReport?, val bytes: ByteArray, val ext: String, val mime: String)
+private class CleanCopy(val report: PhotoReport, val converted: Boolean, val bytes: ByteArray, val ext: String, val mime: String)
 
 private class PhotoTooBig : Exception()
 
@@ -92,13 +97,27 @@ private fun readPhoto(context: Context, uri: Uri): ByteArray {
     return bytes
 }
 
-/** CPU work, on Dispatchers.Default: only HEIF goes to the JPEG conversion; an unknown format is refused. */
-private fun cleanCopy(bytes: ByteArray): CleanCopy = when (detectFormat(bytes)) {
-    PhotoFormat.HEIF -> CleanCopy(null, heifToJpeg(bytes), "jpg", "image/jpeg")
-    PhotoFormat.JPEG -> CleanCopy(PhotoCleaner.inspect(bytes), PhotoCleaner.clean(bytes), "jpg", "image/jpeg")
-    PhotoFormat.PNG -> CleanCopy(PhotoCleaner.inspect(bytes), PhotoCleaner.clean(bytes), "png", "image/png")
-    PhotoFormat.WEBP -> CleanCopy(PhotoCleaner.inspect(bytes), PhotoCleaner.clean(bytes), "webp", "image/webp")
-    null -> throw PhotoFailure(PHOTO_UNSUPPORTED)
+/**
+ * CPU work, on Dispatchers.Default: only HEIF goes to the JPEG conversion; an unknown format is refused. Stops between
+ * steps once the screen is gone.
+ */
+private suspend fun cleanCopy(bytes: ByteArray): CleanCopy = withContext(Dispatchers.Default) {
+    fun same(ext: String, mime: String): CleanCopy {
+        val report = PhotoCleaner.inspect(bytes)
+        ensureActive()
+        return CleanCopy(report, false, PhotoCleaner.clean(bytes), ext, mime)
+    }
+    when (detectFormat(bytes)) {
+        PhotoFormat.HEIF -> {
+            val jpeg = heifToJpeg(bytes)
+            ensureActive()
+            CleanCopy(PhotoCleaner.inspect(jpeg), true, jpeg, "jpg", "image/jpeg")
+        }
+        PhotoFormat.JPEG -> same("jpg", "image/jpeg")
+        PhotoFormat.PNG -> same("png", "image/png")
+        PhotoFormat.WEBP -> same("webp", "image/webp")
+        null -> throw PhotoFailure(PHOTO_UNSUPPORTED)
+    }
 }
 
 /**
@@ -125,10 +144,18 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
         }
         busy = true
         scope.launch {
+            var written = false
             try {
-                withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(c.bytes) } }
-                done = photoDoneMessage(c.report)
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(c.bytes) }
+                    written = true
+                }
+                done = photoDoneMessage(c.report, c.converted)
                 error = null
+            } catch (e: CancellationException) {
+                // Screen gone: a fully written copy stays; an empty document does not.
+                if (!written) discardDocument(context, dest)
+                throw e
             } catch (e: Exception) {
                 discardDocument(context, dest) // Never a half-written copy.
                 done = null
@@ -151,7 +178,10 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
         scope.launch {
             try {
                 val bytes = withContext(Dispatchers.IO) { readPhoto(context, uri) }
-                copy = withContext(Dispatchers.Default) { cleanCopy(bytes) }
+                ensureActive()
+                copy = cleanCopy(bytes)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: PhotoTooBig) {
                 error = PHOTO_TOO_BIG
             } catch (e: PhotoFailure) {
@@ -202,14 +232,24 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                         onClick = {
                             busy = true
                             scope.launch {
+                                var prepared: File? = null
+                                // Nothing was handed over: only the file this attempt wrote goes (prepare already
+                                // removed any earlier one), and it need not wait the 10 minutes.
+                                suspend fun discardPrepared() {
+                                    prepared?.let { withContext(NonCancellable + Dispatchers.IO) { shareTemp.discard(it) } }
+                                }
                                 try {
-                                    val file = withContext(Dispatchers.IO) { shareTemp.prepare("foto-limpia.${c.ext}", c.bytes) }
+                                    val file = withContext(Dispatchers.IO) {
+                                        shareTemp.prepare("foto-limpia.${c.ext}", c.bytes).also { prepared = it }
+                                    }
                                     shareImage(context, file, c.mime)
-                                    done = photoDoneMessage(c.report)
+                                    done = photoDoneMessage(c.report, c.converted)
                                     error = null
+                                } catch (e: CancellationException) {
+                                    discardPrepared()
+                                    throw e
                                 } catch (e: Exception) {
-                                    // Nothing was handed over: the copy need not wait the 10 minutes.
-                                    withContext(Dispatchers.IO) { shareTemp.wipeAll() }
+                                    discardPrepared()
                                     done = null
                                     error = PHOTO_SHARE_FAILED
                                 } finally {
@@ -227,22 +267,23 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     }
 }
 
-/** «Lo que trae la foto», or the HEIC notice (a converted photo has no list: nothing of the original goes with it). */
+/**
+ * «Lo que trae la foto». A converted HEIC shows the notice and then what its JPEG keeps (only a colour profile can be
+ * there), never «No hemos encontrado…»: the original's metadata was not read.
+ */
 @Composable
 private fun CopyCard(c: CleanCopy) {
     SectionCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val report = c.report
-            if (report == null) {
-                Text(PHOTO_HEIF_NOTICE)
-                return@Column
-            }
-            val lines = photoFoundLines(report)
+            if (c.converted) Text(PHOTO_HEIF_NOTICE)
+            val lines = photoFoundLines(c.report)
             if (lines.isNotEmpty()) {
-                Text(PHOTO_FOUND_TITLE, style = MaterialTheme.typography.titleSmall)
+                if (!c.converted) Text(PHOTO_FOUND_TITLE, style = MaterialTheme.typography.titleSmall)
                 lines.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
             }
-            if (!photoHasSomethingToRemove(report)) Text(PHOTO_NOTHING_FOUND, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!c.converted && !photoHasSomethingToRemove(c.report)) {
+                Text(PHOTO_NOTHING_FOUND, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
