@@ -177,7 +177,11 @@ internal object TestImages {
     }
 
     /** EXIF with GPS, Make/Model, DateTime, DateTimeOriginal and a thumbnail IFD1. */
-    fun fullExif(orientation: Int? = null, order: ByteOrder = ByteOrder.BIG_ENDIAN): ByteArray {
+    fun fullExif(orientation: Int? = null, order: ByteOrder = ByteOrder.BIG_ENDIAN): ByteArray =
+        exifSegment(fullTiff(orientation, order))
+
+    /** The TIFF block of [fullExif], as PNG (eXIf) and WebP (EXIF) carry it, without the JPEG "Exif" header. */
+    fun fullTiff(orientation: Int? = null, order: ByteOrder = ByteOrder.BIG_ENDIAN): ByteArray {
         val t = Tiff(order)
         val ifd0 = listOfNotNull(
             t.ascii(0x010F, "Fabricante Inventado"),
@@ -194,7 +198,7 @@ internal object TestImages {
             t.rationals(0x0004, 3L to 1L, 42L to 1L, 0L to 1L),
         )
         val ifd1 = listOf(t.short(0x0103, 6), t.long(0x0202, 0))
-        return exifSegment(t.build(ifd0, exif, gps, ifd1))
+        return t.build(ifd0, exif, gps, ifd1)
     }
 
     /** EXIF with only an Orientation tag in IFD0. */
@@ -208,5 +212,107 @@ internal object TestImages {
         SOI, jfif(), fullExif(), xmp(xmpPacket("xmp:CreatorTool='Editor Inventado'")), icc(), mpf(),
         iptcByline("Autora Inventada"), adobe(), com("comentario inventado"),
         baseline.body(), EOI, ascii("datos tras el final"),
+    )
+
+    // --- PNG -------------------------------------------------------------------------------
+
+    val PNG_SIGNATURE = bytes(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+    private fun be32(v: Long) = bytes((v shr 24).toInt() and 0xFF, (v shr 16).toInt() and 0xFF, (v shr 8).toInt() and 0xFF, v.toInt() and 0xFF)
+    private fun le32(v: Long) = bytes(v.toInt() and 0xFF, (v shr 8).toInt() and 0xFF, (v shr 16).toInt() and 0xFF, (v shr 24).toInt() and 0xFF)
+
+    /** One PNG chunk: length, type, data, CRC32 of type and data. */
+    fun pngChunk(type: String, data: ByteArray = ByteArray(0)): ByteArray {
+        val td = concat(ascii(type), data)
+        val crc = java.util.zip.CRC32().apply { update(td) }.value
+        return concat(be32(data.size.toLong()), td, be32(crc))
+    }
+
+    fun zlib(raw: ByteArray): ByteArray {
+        val d = java.util.zip.Deflater()
+        d.setInput(raw); d.finish()
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(256)
+        while (!d.finished()) out.write(buf, 0, d.deflate(buf))
+        d.end()
+        return out.toByteArray()
+    }
+
+    /** 1x1, 8 bits, indexed colour. */
+    fun ihdr(): ByteArray = pngChunk("IHDR", concat(be32(1), be32(1), bytes(8, 3, 0, 0, 0)))
+    fun plte(): ByteArray = pngChunk("PLTE", bytes(10, 20, 30))
+    fun trns(): ByteArray = pngChunk("tRNS", bytes(200))
+    fun gama(): ByteArray = pngChunk("gAMA", be32(45455))
+    fun iccp(): ByteArray = pngChunk("iCCP", concat(ascii("perfil inventado"), bytes(0, 0), zlib(ascii("perfil de color inventado"))))
+    fun iend(): ByteArray = pngChunk("IEND")
+
+    /** The real zlib stream of the 1x1 image (filter 0, index 0), cut in two IDAT chunks. */
+    fun idats(): List<ByteArray> {
+        val z = zlib(bytes(0, 0))
+        val h = z.size / 2
+        return listOf(pngChunk("IDAT", z.copyOfRange(0, h)), pngChunk("IDAT", z.copyOfRange(h, z.size)))
+    }
+
+    fun text(keyword: String, value: String): ByteArray = pngChunk("tEXt", concat(ascii(keyword), bytes(0), ascii(value)))
+    fun ztxt(keyword: String, value: String): ByteArray = pngChunk("zTXt", concat(ascii(keyword), bytes(0, 0), zlib(ascii(value))))
+    fun itxt(keyword: String, value: String, compressed: Boolean = false): ByteArray = pngChunk(
+        "iTXt",
+        concat(ascii(keyword), bytes(0, if (compressed) 1 else 0, 0), bytes(0), bytes(0), if (compressed) zlib(ascii(value)) else ascii(value)),
+    )
+
+    fun plainPng(): ByteArray = concat(PNG_SIGNATURE, ihdr(), *idats().toTypedArray(), iend())
+
+    /** Everything the brief lists, in a plausible order, and bytes after IEND. */
+    fun everythingPng(): ByteArray = concat(
+        PNG_SIGNATURE, ihdr(), gama(), iccp(),
+        text("Author", "Autora Inventada"),
+        ztxt("Comment", "comentario inventado"),
+        itxt("XML:com.adobe.xmp", xmpPacket("xmlns:dc='http://purl.org/dc/elements/1.1/' dc:rights='Derechos Inventados'")),
+        pngChunk("eXIf", fullTiff()),
+        pngChunk("tIME", bytes(0x07, 0xD1, 2, 3, 4, 5, 6)),
+        pngChunk("pHYs", bytes(0, 0, 0x0B, 0x13, 0, 0, 0x0B, 0x13, 1)),
+        pngChunk("caBX", concat(be32(16), ascii("jumb"), ByteArray(8))),
+        pngChunk("prVt", ascii("bloque privado inventado")),
+        plte(), trns(), *idats().toTypedArray(), iend(),
+        ascii("datos tras IEND"),
+    )
+
+    // --- WebP ------------------------------------------------------------------------------
+
+    /** A RIFF chunk: fourcc, little-endian size, data, one zero byte if the size is odd. */
+    fun riffChunk(id: String, data: ByteArray): ByteArray =
+        concat(ascii(id), le32(data.size.toLong()), data, if (data.size % 2 == 1) bytes(0) else ByteArray(0))
+
+    /** RIFF header with the exact size over the chunks. */
+    fun riff(vararg chunks: ByteArray): ByteArray {
+        val body = concat(ascii("WEBP"), *chunks)
+        return concat(ascii("RIFF"), le32(body.size.toLong()), body)
+    }
+
+    /** A real tiny VP8L stream (1x1), 13 bytes: an odd length, so it is padded. */
+    val VP8L_DATA = bytes(0x2F, 0, 0, 0, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88, 0xFE, 0x07)
+    /** VP8 frame data in shape only (key-frame tag and start code, 1x1); the cleaner never decodes it. */
+    val VP8_DATA = bytes(0x10, 0x02, 0x00, 0x9D, 0x01, 0x2A, 0x01, 0x00, 0x01, 0x00, 0x00, 0x47, 0x08, 0x85)
+
+    fun vp8x(flags: Int, width: Int = 1, height: Int = 1): ByteArray = riffChunk(
+        "VP8X",
+        concat(bytes(flags, 0, 0, 0), bytes((width - 1) and 0xFF, ((width - 1) shr 8) and 0xFF, 0), bytes((height - 1) and 0xFF, ((height - 1) shr 8) and 0xFF, 0)),
+    )
+
+    fun anmf(vararg frame: ByteArray): ByteArray =
+        riffChunk("ANMF", concat(ByteArray(12), bytes(100, 0, 0, 0), *frame))
+
+    val ICC_FLAG = 0x20
+    val ALPHA_FLAG = 0x10
+    val EXIF_FLAG = 0x08
+    val XMP_FLAG = 0x04
+    val ANIM_FLAG = 0x02
+
+    fun everythingWebp(): ByteArray = riff(
+        vp8x(ICC_FLAG or EXIF_FLAG or XMP_FLAG),
+        riffChunk("ICCP", ascii("perfil de color inventado")),
+        riffChunk("VP8 ", VP8_DATA),
+        riffChunk("EXIF", fullTiff()),
+        riffChunk("XMP ", ascii(xmpPacket("xmlns:dc='http://purl.org/dc/elements/1.1/' dc:creator='Autora Inventada'"))),
     )
 }

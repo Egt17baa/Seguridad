@@ -146,7 +146,7 @@ object Jpeg {
             }
             0xE1 -> when {
                 has(EXIF) -> {} // read by the caller
-                has(XMP) || has(XMP_EXT) -> { found += Found.XMP_COMMENTS; found += xmpFlags(b, payload, end) }
+                has(XMP) || has(XMP_EXT) -> { found += Found.XMP_COMMENTS; found += Xmp.flags(b, payload, end) }
                 else -> found += Found.OTHER
             }
             0xE2 -> when {
@@ -173,25 +173,6 @@ object Jpeg {
             else -> found += Found.OTHER
         }
         return null
-    }
-
-    private fun xmpFlags(b: ByteArray, from: Int, to: Int): Set<Found> {
-        val text = String(b, from, to - from, Charsets.ISO_8859_1)
-        val f = HashSet<Found>()
-        if (XMP_AUTHOR.any { it in text } || dublinCoreAuthor(text)) f += Found.AUTHOR_RIGHTS
-        if (XMP_GPS.any { it in text }) f += Found.GPS
-        if (XMP_DEVICE.any { it in text }) f += Found.DEVICE
-        if (XMP_MOTION.any { it in text }) f += Found.MOTION_VIDEO
-        return f
-    }
-
-    /** creator or rights under whatever prefix the XMP binds to the Dublin Core namespace. */
-    private fun dublinCoreAuthor(text: String): Boolean {
-        if (DC_NS !in text) return false
-        return DC_PREFIX.findAll(text).any { m ->
-            val prefix = m.groupValues[1]
-            "$prefix:creator" in text || "$prefix:rights" in text
-        }
     }
 
     /**
@@ -268,31 +249,6 @@ object Jpeg {
     private const val ADOBE_PAYLOAD = 12
     private val IPTC_BYLINE = byteArrayOf(0x1C, 0x02, 0x50) // 2:80 By-line
     private val IPTC_COPYRIGHT = byteArrayOf(0x1C, 0x02, 0x74) // 2:116 Copyright Notice
-    private val XMP_AUTHOR = listOf("dc:creator", "dc:rights", "xmpRights:")
-    private val XMP_GPS = listOf("GPSLatitude", "GPSLongitude")
-    private val XMP_DEVICE = listOf("tiff:Make", "tiff:Model", "SerialNumber")
-    private val XMP_MOTION = listOf("MotionPhoto", "MicroVideo")
-    private const val DC_NS = "http://purl.org/dc/elements/1.1/"
-    private val DC_PREFIX = Regex("""xmlns:([A-Za-z_][A-Za-z0-9_.-]{0,63})\s{0,16}=\s{0,16}["']http://purl\.org/dc/elements/1\.1/["']""")
-}
-
-/** Bounds-checked byte comparisons shared by the container readers. */
-internal object Bytes {
-    fun startsWith(b: ByteArray, from: Int, end: Int, prefix: ByteArray): Boolean {
-        if (from < 0 || end > b.size || end - from < prefix.size) return false
-        for (i in prefix.indices) if (b[from + i] != prefix[i]) return false
-        return true
-    }
-
-    fun contains(b: ByteArray, from: Int, end: Int, needle: ByteArray): Boolean {
-        val last = minOf(end, b.size) - needle.size
-        var i = maxOf(from, 0)
-        while (i <= last) {
-            if (startsWith(b, i, i + needle.size, needle)) return true
-            i++
-        }
-        return false
-    }
 }
 
 internal class ExifInfo(val found: Set<Found>, val gps: Pair<Double, Double>?, val orientation: Int)
