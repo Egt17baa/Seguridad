@@ -1,0 +1,777 @@
+package app.seguridad.ui.screens
+
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import app.seguridad.android.copySensitive
+import app.seguridad.core.readAtMost
+import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
+import app.seguridad.ui.theme.CautionColor
+import app.seguridad.ui.theme.NegativeColor
+import app.seguridad.ui.theme.PositiveColor
+import app.seguridad.ui.theme.SectionCard
+import app.seguridad.vault.ENCRYPT_HELP
+import app.seguridad.vault.NO_IDENTITY_TO_SIGN
+import app.seguridad.vault.PickStep
+import app.seguridad.vault.PickedKind
+import app.seguridad.vault.ReceivedFile
+import app.seguridad.vault.ReceivedOutcome
+import app.seguridad.vault.SHARE_HINT
+import app.seguridad.vault.SIGN_HELP
+import app.seguridad.vault.SenderLine
+import app.seguridad.vault.TrustLevel
+import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.VaultLock
+import app.seguridad.vault.VaultStore
+import app.seguridad.vault.actionErrorMessage
+import app.seguridad.vault.clearTempDir
+import app.seguridad.vault.contactsList
+import app.seguridad.vault.decryptReceivedFileToTemp
+import app.seguridad.vault.encryptFileForContact
+import app.seguridad.vault.encryptTextForContact
+import app.seguridad.vault.encryptWarning
+import app.seguridad.vault.encryptedFileName
+import app.seguridad.vault.identity
+import app.seguridad.vault.nextPickStep
+import app.seguridad.vault.openErrorMessage
+import app.seguridad.vault.openReceivedText
+import app.seguridad.vault.pickedKind
+import app.seguridad.vault.saveReceivedFile
+import app.seguridad.vault.senderLine
+import app.seguridad.vault.signFileAs
+import app.seguridad.vault.signTextAs
+import app.seguridad.vault.signatureFileName
+import app.seguridad.vault.verificationMark
+import app.seguridad.vault.verifyFileAgainst
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/*
+ * «Cifrar para…», «Firmar» y «Abrir lo recibido» (diseño: «Pantallas»). Aquí solo hay pantalla: toda la lógica con peso
+ * (textos del remitente, saneado de nombres, errores, descifrado a una carpeta temporal) está en `vault/PkActions.kt`,
+ * que sí se prueba en `jvm-check`.
+ *
+ * Reglas que cumplen las tres:
+ *  - Cada pantalla pasa por `ContactsFrame` (y por tanto por `VaultGate`): si la bóveda se bloquea, el contenido sale de la
+ *    composición, se cancelan las corrutinas de `rememberCoroutineScope` y se borra la carpeta temporal.
+ *  - Todo el trabajo va en `Dispatchers.Default`, se puede cancelar, y la identidad se abre y se cierra dentro de la
+ *    función pura que lo hace (nunca en un `remember` ni en un ViewModel).
+ *  - Girar el móvil recrea la actividad: lo que se escribe (texto en claro, texto descifrado) vive solo en `remember` y se
+ *    pierde; solo se guardan en el estado de la pantalla datos que no son secretos (modo, contacto, URI de un archivo).
+ *  - El texto descifrado se copia solo con `copySensitive`; lo cifrado o firmado (público) se copia o se comparte con
+ *    `ACTION_SEND`, que **nunca** pone `VaultLock.keepOpenOnce`: no hay callback que lo devuelva a `false`.
+ *  - `keepOpenOnce` solo se pone junto a un selector (OpenDocument, CreateDocument), que lo quita en su callback.
+ */
+
+/** Carpeta, dentro de la caché privada, donde espera un archivo descifrado hasta guardarlo; se vacía al empezar y al terminar. */
+private const val OPEN_TEMP_DIR = "pk-open"
+
+private const val SIGNATURE_READ_LIMIT = 1024
+private const val HEAD_BYTES = 8
+
+/** Un comprobador de cancelación para el código que no es `suspend`: lanza [CancellationException] si el trabajo ya no está activo. */
+private suspend fun cancellationCheck(): () -> Unit {
+    val job = currentCoroutineContext()[Job]
+    return { job?.ensureActive() }
+}
+
+/** Abre el menú de compartir con [text] (público: un `SGM1:`, un `SGS1:`). Nunca toca `VaultLock.keepOpenOnce`. */
+private fun share(context: Context, text: String, title: String): Boolean = try {
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+    context.startActivity(Intent.createChooser(send, title))
+    true
+} catch (e: Exception) {
+    false
+}
+
+/** Pone [VaultLock.keepOpenOnce] y cuenta el tiempo fuera desde aquí; lo quita si el selector no se abre. Devuelve el error, o `null`. */
+private fun launchPicker(store: VaultStore, launch: () -> String?): String? {
+    VaultLock.keepOpenOnce = true
+    store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
+    val failure = launch()
+    if (failure != null) VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
+    return failure
+}
+
+/** Launches [block] with [setBusy] true while it runs (also if it is cancelled or fails). */
+private fun CoroutineScope.launchBusy(setBusy: (Boolean) -> Unit, block: suspend () -> Unit): Job = launch {
+    setBusy(true)
+    try {
+        block()
+    } finally {
+        setBusy(false)
+    }
+}
+
+@Composable
+private fun Busy(text: String, onCancel: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        TextButton(onClick = onCancel) { Text("Cancelar") }
+    }
+}
+
+@Composable
+private fun ResultMessage(message: Pair<Boolean, String>?) {
+    message?.let { (ok, text) -> Text(text, color = if (ok) PositiveColor else NegativeColor) }
+}
+
+@Composable
+private fun SenderText(line: SenderLine) {
+    val color = when (line.level) {
+        TrustLevel.GOOD -> PositiveColor
+        TrustLevel.CAUTION -> CautionColor
+        TrustLevel.WARNING -> NegativeColor
+    }
+    // Plain Text: a name is never read as a link or markdown.
+    Text(line.text, color = color, style = MaterialTheme.typography.titleMedium)
+}
+
+@Composable
+private fun TextOrFile(isFile: Boolean, onChange: (Boolean) -> Unit) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        SegmentedButton(selected = !isFile, onClick = { onChange(false) }, shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text("Texto") }
+        SegmentedButton(selected = isFile, onClick = { onChange(true) }, shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text("Archivo") }
+    }
+}
+
+/** The text just produced (public: encrypted or signed), with copy and share. */
+@Composable
+private fun PublicOutput(context: Context, output: String, shareTitle: String, onError: (String) -> Unit) {
+    SectionCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(output, maxLines = 6, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = { copySensitive(context, output) }) { Text("Copiar") }
+                OutlinedButton(onClick = { if (!share(context, output, shareTitle)) onError("No se pudo abrir el menú de compartir") }) { Text("Compartir") }
+            }
+            Text(SHARE_HINT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Al compartir, la bóveda se bloquea cuando sales de la app.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SourceButton(source: Uri?, name: String, onPick: () -> Unit) {
+    OutlinedButton(onClick = onPick, modifier = Modifier.fillMaxWidth()) { Text(if (source == null) "Elegir archivo" else name) }
+}
+
+// ---- Cifrar para… ----
+
+/** «Cifrar para…» (`contacts/encrypt`): un texto o un archivo, el contacto y «Firmar con mi identidad». */
+@Composable
+fun EncryptForScreen(store: VaultStore, onBack: () -> Unit) {
+    ContactsFrame(store, "Cifrar para…", onBack) { entries, _ -> EncryptForContent(store, entries) }
+}
+
+@Composable
+private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val contacts = remember(entries) { contactsList(entries, "") }
+    val hasIdentity = remember(entries) { entries.identity() != null }
+    var isFile by rememberSaveable { mutableStateOf(false) }
+    var contactId by rememberSaveable { mutableStateOf<String?>(null) }
+    var sign by rememberSaveable { mutableStateOf(true) }
+    var source by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var sourceName by rememberSaveable { mutableStateOf("") }
+    // The plain text is a secret: never in saved state (it is lost when the phone rotates, which is acceptable).
+    var text by remember { mutableStateOf("") }
+    var output by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var job by remember { mutableStateOf<Job?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val contact = contacts.firstOrNull { it.id == contactId }
+    val signNow = sign && hasIdentity
+    val warning = contact?.let(::encryptWarning)
+
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+        VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
+        if (dest == null) return@rememberLauncherForActivityResult
+        val src = source
+        val to = contact
+        if (src == null || to == null) {
+            discardDocument(context, dest)
+            message = false to "No se ha guardado: vuelve a elegir el archivo y el contacto."
+            return@rememberLauncherForActivityResult
+        }
+        val sender = signNow
+        val name = sourceName
+        message = null
+        job = scope.launchBusy({ busy = it }) {
+            try {
+                withContext(Dispatchers.Default) {
+                    val check = cancellationCheck()
+                    context.contentResolver.openInputStream(src)!!.use { input ->
+                        context.contentResolver.openOutputStream(dest, "wt")!!.use { out ->
+                            encryptFileForContact(input.buffered(), out.buffered(), name, to, sender, entries, check)
+                        }
+                    }
+                }
+                message = true to "Archivo cifrado y guardado."
+            } catch (e: CancellationException) {
+                discardDocument(context, dest) // Never leave a truncated file behind.
+                throw e
+            } catch (e: Exception) {
+                discardDocument(context, dest)
+                message = false to actionErrorMessage(e, "No se ha podido cifrar el archivo.")
+            }
+        }
+    }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        VaultLock.keepOpenOnce = false
+        if (uri != null) {
+            source = uri
+            sourceName = displayName(context, uri)
+            message = null
+        }
+    }
+
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(ENCRYPT_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextOrFile(isFile) { isFile = it; output = null; message = null }
+        if (isFile) {
+            SourceButton(source, sourceName) {
+                launchPicker(store) { pick.launchOrError(arrayOf("*/*")) }?.let { message = false to it }
+            }
+        } else {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it; output = null; message = null },
+                label = { Text("Texto a cifrar") },
+                minLines = 4,
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        Text("Para", style = MaterialTheme.typography.titleSmall)
+        if (contacts.isEmpty()) {
+            Text("Todavía no tienes contactos: añade uno en Contactos.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        contacts.forEach { c ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { contactId = c.id; output = null }.padding(vertical = 2.dp),
+            ) {
+                RadioButton(selected = c.id == contactId, onClick = { contactId = c.id; output = null })
+                Column {
+                    Text(c.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        verificationMark(c),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (c.verified) PositiveColor else CautionColor,
+                    )
+                }
+            }
+        }
+        warning?.let { Text(it, color = CautionColor) }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Firmar con mi identidad")
+                Text(
+                    if (hasIdentity) "Así sabrá que es tuyo y que no ha cambiado." else NO_IDENTITY_TO_SIGN,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = signNow, enabled = hasIdentity, onCheckedChange = { sign = it; output = null })
+        }
+
+        if (isFile) {
+            Button(
+                enabled = !busy && source != null && contact != null,
+                onClick = {
+                    VaultLock.keepOpenOnce = true
+                    store.touch()
+                    save.launchOrError(encryptedFileName(sourceName))?.let { failure ->
+                        VaultLock.keepOpenOnce = false
+                        message = false to failure
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Cifrar y guardar") }
+        } else {
+            Button(
+                enabled = !busy && text.isNotEmpty() && contact != null,
+                onClick = {
+                    val to = contact ?: return@Button
+                    val plain = text
+                    val sender = signNow
+                    message = null
+                    output = null
+                    job = scope.launchBusy({ busy = it }) {
+                        try {
+                            output = withContext(Dispatchers.Default) { encryptTextForContact(plain, to, sender, entries) }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = false to actionErrorMessage(e, "No se ha podido cifrar el mensaje.")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Cifrar") }
+        }
+        if (busy) Busy("Cifrando…") { job?.cancel(); message = false to "Cancelado." }
+        ResultMessage(message)
+        output?.let { PublicOutput(context, it, "Compartir mensaje cifrado") { err -> message = false to err } }
+    }
+}
+
+// ---- Firmar ----
+
+/** «Firmar» (`contacts/sign`): un texto o un archivo. */
+@Composable
+fun SignScreen(store: VaultStore, onBack: () -> Unit) {
+    ContactsFrame(store, "Firmar", onBack) { entries, _ -> SignContent(store, entries) }
+}
+
+@Composable
+private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val hasIdentity = remember(entries) { entries.identity() != null }
+    var isFile by rememberSaveable { mutableStateOf(false) }
+    var source by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var sourceName by rememberSaveable { mutableStateOf("") }
+    var text by remember { mutableStateOf("") }
+    var output by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var job by remember { mutableStateOf<Job?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+        VaultLock.keepOpenOnce = false
+        if (dest == null) return@rememberLauncherForActivityResult
+        val src = source
+        if (src == null) {
+            discardDocument(context, dest)
+            message = false to "No se ha guardado: vuelve a elegir el archivo."
+            return@rememberLauncherForActivityResult
+        }
+        message = null
+        job = scope.launchBusy({ busy = it }) {
+            try {
+                withContext(Dispatchers.Default) {
+                    val check = cancellationCheck()
+                    val signature = context.contentResolver.openInputStream(src)!!.use { signFileAs(it.buffered(), entries, check) }
+                    context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(signature) }
+                }
+                message = true to "Firma guardada. Envía el archivo y su .sgsig juntos."
+            } catch (e: CancellationException) {
+                discardDocument(context, dest)
+                throw e
+            } catch (e: Exception) {
+                discardDocument(context, dest)
+                message = false to actionErrorMessage(e, "No se ha podido firmar el archivo.")
+            }
+        }
+    }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        VaultLock.keepOpenOnce = false
+        if (uri != null) {
+            source = uri
+            sourceName = displayName(context, uri)
+            message = null
+        }
+    }
+
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(SIGN_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!hasIdentity) Text(NO_IDENTITY_TO_SIGN, color = CautionColor)
+        TextOrFile(isFile) { isFile = it; output = null; message = null }
+        if (isFile) {
+            SourceButton(source, sourceName) {
+                launchPicker(store) { pick.launchOrError(arrayOf("*/*")) }?.let { message = false to it }
+            }
+            Text(
+                "La firma va en un archivo aparte (.sgsig). No cubre el nombre del archivo.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                enabled = !busy && hasIdentity && source != null,
+                onClick = {
+                    VaultLock.keepOpenOnce = true
+                    store.touch()
+                    save.launchOrError(signatureFileName(sourceName))?.let { failure ->
+                        VaultLock.keepOpenOnce = false
+                        message = false to failure
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Firmar y guardar") }
+        } else {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it; output = null; message = null },
+                label = { Text("Texto a firmar") },
+                minLines = 4,
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                enabled = !busy && hasIdentity && text.isNotBlank(),
+                onClick = {
+                    val plain = text
+                    message = null
+                    output = null
+                    job = scope.launchBusy({ busy = it }) {
+                        try {
+                            output = withContext(Dispatchers.Default) { signTextAs(plain, entries) }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = false to actionErrorMessage(e, "No se ha podido firmar el texto.")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Firmar") }
+        }
+        if (busy) Busy("Firmando…") { job?.cancel(); message = false to "Cancelado." }
+        ResultMessage(message)
+        output?.let { PublicOutput(context, it, "Compartir texto firmado") { err -> message = false to err } }
+    }
+}
+
+// ---- Abrir lo recibido ----
+
+/** «Abrir lo recibido» (`contacts/open`): pegar un texto, o elegir un `.sgenc`, o un `.sgsig` con su archivo. */
+@Composable
+fun OpenReceivedScreen(store: VaultStore, onBack: () -> Unit) {
+    ContactsFrame(store, "Abrir lo recibido", onBack) { entries, snackbar ->
+        OpenReceivedContent(store, entries, snackbar)
+    }
+}
+
+@Composable
+private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, snackbar: androidx.compose.material3.SnackbarHostState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val tempDir = remember { File(context.cacheDir, OPEN_TEMP_DIR) }
+    var pasted by remember { mutableStateOf("") }
+    var textResult by remember { mutableStateOf<ReceivedOutcome?>(null) }
+
+    // Files: an encrypted one, or a signature plus the file it signs (in either order). Only non-secret data is saved.
+    var encUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var encName by rememberSaveable { mutableStateOf("") }
+    var sigBytes by rememberSaveable { mutableStateOf<ByteArray?>(null) }
+    var signedUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var signedName by rememberSaveable { mutableStateOf("") }
+    var pending by remember { mutableStateOf<ReceivedFile?>(null) }
+    var fileLine by remember { mutableStateOf<SenderLine?>(null) }
+    var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var prompt by rememberSaveable { mutableStateOf<String?>(null) }
+    var job by remember { mutableStateOf<Job?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    // The decrypted file waits in the private cache only until saved: wiped at start, when the screen goes away (also when the vault locks).
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { clearTempDir(tempDir) } }
+    DisposableEffect(Unit) {
+        onDispose {
+            pending = null
+            clearTempDir(tempDir)
+        }
+    }
+
+    fun resetFiles() {
+        encUri = null
+        encName = ""
+        sigBytes = null
+        signedUri = null
+        signedName = ""
+        prompt = null
+    }
+
+    val saveDecrypted = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+        VaultLock.keepOpenOnce = false
+        val received = pending
+        if (received == null || !received.file.exists()) {
+            // The screen was rebuilt meanwhile (the decrypted copy is never kept in saved state): nothing to write.
+            pending = null
+            if (dest != null) {
+                discardDocument(context, dest)
+                message = false to "No se ha guardado: vuelve a descifrar el archivo."
+            }
+            return@rememberLauncherForActivityResult
+        }
+        if (dest == null) {
+            pending = null
+            clearTempDir(tempDir)
+            message = false to "No se ha guardado nada."
+            return@rememberLauncherForActivityResult
+        }
+        job = scope.launchBusy({ busy = it }) {
+            try {
+                withContext(Dispatchers.Default) {
+                    val check = cancellationCheck()
+                    context.contentResolver.openOutputStream(dest, "wt")!!.use { out -> saveReceivedFile(received, out, check) }
+                }
+                // Only now, with everything done, the sender is shown (the signature is at the end of the file).
+                fileLine = senderLine(received.sender)
+                message = true to "Archivo descifrado y guardado."
+            } catch (e: CancellationException) {
+                discardDocument(context, dest)
+                throw e
+            } catch (e: Exception) {
+                discardDocument(context, dest)
+                message = false to actionErrorMessage(e, "No se ha podido guardar el archivo.")
+            } finally {
+                pending = null
+                clearTempDir(tempDir)
+            }
+        }
+    }
+    val pickReceived = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        VaultLock.keepOpenOnce = false
+        if (uri == null) return@rememberLauncherForActivityResult
+        message = null
+        fileLine = null
+        job = scope.launchBusy({ busy = it }) {
+            try {
+                // Only the first bytes decide what the file is; a signature is 101 bytes, so a few KiB cover it.
+                val (kind, head) = withContext(Dispatchers.Default) {
+                    val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(SIGNATURE_READ_LIMIT) }
+                    pickedKind(bytes.copyOf(minOf(bytes.size, HEAD_BYTES))) to bytes
+                }
+                val name = displayName(context, uri)
+                when (kind) {
+                    PickedKind.ENCRYPTED -> {
+                        resetFiles()
+                        encUri = uri
+                        encName = name
+                    }
+                    PickedKind.SIGNATURE -> {
+                        encUri = null
+                        sigBytes = head
+                    }
+                    PickedKind.OTHER -> {
+                        encUri = null
+                        signedUri = uri
+                        signedName = name
+                    }
+                }
+                prompt = when (nextPickStep(kind, haveSignature = sigBytes != null, haveFile = signedUri != null)) {
+                    PickStep.READY_TO_DECRYPT -> null
+                    PickStep.READY_TO_VERIFY -> null
+                    PickStep.NEED_SIGNED_FILE -> "Ahora elige el archivo que firma."
+                    PickStep.NEED_SIGNATURE -> "Ahora elige su firma (.sgsig)."
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = false to openErrorMessage(e)
+            }
+        }
+    }
+
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            "Pega lo que te hayan enviado (una tarjeta, un mensaje cifrado o un texto firmado), o elige un archivo cifrado (.sgenc) " +
+                "o una firma (.sgsig) con su archivo.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        // ---- Pasted text ----
+        OutlinedTextField(
+            value = pasted,
+            onValueChange = {
+                if (it.length <= MAX_TEXT_FILE_BYTES) {
+                    pasted = it
+                    textResult = null
+                } else {
+                    message = false to "El texto es demasiado grande"
+                }
+            },
+            label = { Text("Texto recibido") },
+            minLines = 4,
+            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip?.getItemAt(0)?.text?.toString()
+                if (clip.isNullOrBlank()) message = false to "El portapapeles está vacío"
+                else if (clip.length > MAX_TEXT_FILE_BYTES) message = false to "El texto es demasiado grande"
+                else {
+                    pasted = clip
+                    textResult = null
+                    message = null
+                }
+            }) { Text("Pegar") }
+            Button(
+                enabled = !busy && pasted.isNotBlank(),
+                onClick = {
+                    val text = pasted
+                    message = null
+                    textResult = null
+                    job = scope.launchBusy({ busy = it }) {
+                        try {
+                            textResult = withContext(Dispatchers.Default) { openReceivedText(text, entries) }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            textResult = ReceivedOutcome.Failed(openErrorMessage(e))
+                        }
+                    }
+                },
+            ) { Text("Abrir") }
+        }
+        when (val r = textResult) {
+            null -> Unit
+            is ReceivedOutcome.Failed -> Text(r.message, color = NegativeColor)
+            is ReceivedOutcome.CardFound -> IncomingCardSection(
+                store, entries, pasted, viaQr = false, snackbar,
+                onSaved = { textResult = null; pasted = "" },
+            )
+            is ReceivedOutcome.Opened -> SectionCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SenderText(r.line)
+                    // Plain text, not selectable: the only way out is «Copiar», which marks it as sensitive.
+                    Text(r.text)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = { copySensitive(context, r.text) }) { Text("Copiar") }
+                        TextButton(onClick = { textResult = null; pasted = "" }) { Text("Borrar") }
+                    }
+                }
+            }
+        }
+
+        // ---- Files ----
+        Text("Archivos", style = MaterialTheme.typography.titleSmall)
+        OutlinedButton(
+            enabled = !busy,
+            onClick = { launchPicker(store) { pickReceived.launchOrError(arrayOf("*/*")) }?.let { message = false to it } },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Elegir archivo (.sgenc, .sgsig o el archivo firmado)") }
+        if (encUri != null) Text("Cifrado: $encName")
+        if (sigBytes != null) Text("Firma (.sgsig) elegida")
+        if (signedUri != null) Text("Archivo firmado: $signedName")
+        prompt?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+
+        if (encUri != null) {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    val src = encUri ?: return@Button
+                    message = null
+                    fileLine = null
+                    job = scope.launchBusy({ busy = it }) {
+                        try {
+                            val received = withContext(Dispatchers.Default) {
+                                val check = cancellationCheck()
+                                context.contentResolver.openInputStream(src)!!.use { decryptReceivedFileToTemp(tempDir, it.buffered(), entries, check) }
+                            }
+                            // It is whole and checked: now the user picks where it goes (the sender is shown after saving).
+                            pending = received
+                            VaultLock.keepOpenOnce = true
+                            store.touch()
+                            saveDecrypted.launchOrError(received.name)?.let { failure ->
+                                VaultLock.keepOpenOnce = false
+                                pending = null
+                                clearTempDir(tempDir)
+                                message = false to failure
+                            }
+                        } catch (e: CancellationException) {
+                            pending = null
+                            clearTempDir(tempDir)
+                            throw e
+                        } catch (e: Exception) {
+                            pending = null
+                            clearTempDir(tempDir)
+                            message = false to openErrorMessage(e)
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Descifrar y guardar") }
+        }
+        val sig = sigBytes
+        val signed = signedUri
+        if (sig != null && signed != null && encUri == null) {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    message = null
+                    fileLine = null
+                    job = scope.launchBusy({ busy = it }) {
+                        try {
+                            val sender = withContext(Dispatchers.Default) {
+                                val check = cancellationCheck()
+                                context.contentResolver.openInputStream(signed)!!.use { verifyFileAgainst(it.buffered(), sig, entries, check) }
+                            }
+                            fileLine = senderLine(sender)
+                            message = true to "La firma es válida: el archivo no ha cambiado."
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = false to openErrorMessage(e)
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Comprobar firma") }
+        }
+        if (encUri != null || sigBytes != null || signedUri != null) {
+            TextButton(enabled = !busy, onClick = { resetFiles(); message = null; fileLine = null }) { Text("Quitar los archivos elegidos") }
+        }
+        if (busy) Busy("Trabajando…") { job?.cancel(); message = false to "Cancelado." }
+        ResultMessage(message)
+        fileLine?.let { SenderText(it) }
+    }
+}

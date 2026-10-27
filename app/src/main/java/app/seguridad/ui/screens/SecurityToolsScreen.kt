@@ -75,6 +75,8 @@ import app.seguridad.crypto.sameHash
 import app.seguridad.crypto.sha256Hex
 import app.seguridad.crypto.strength
 import app.seguridad.net.PwnedPasswords
+import app.seguridad.vault.PickedKind
+import app.seguridad.vault.pickedKind
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
@@ -480,7 +482,7 @@ private const val LEGACY_TEXT_PREFIX = "CP1:"
 
 /** Saves `<name>.sgenc`, encrypted with [kdf]; decrypts both its own files and the legacy ones. */
 @Composable
-fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
+fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var encrypt by remember { mutableStateOf(true) }
@@ -494,6 +496,8 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     // Decrypted data waits here (app-private cache) until the user picks where to save it; deleted right after.
     var pendingPath by rememberSaveable { mutableStateOf<String?>(null) }
+    // The chosen file is a `.sgenc` for a contact or a `.sgsig`: it opens in Contactos → Abrir lo recibido, not here.
+    var forContacts by remember { mutableStateOf(false) }
 
     val saveEncrypted = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         if (dest == null) return@rememberLauncherForActivityResult
@@ -560,6 +564,18 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
             source = uri
             sourceName = displayName(context, uri)
             message = null
+            forContacts = false
+            if (!encrypt) {
+                scope.launch {
+                    forContacts = try {
+                        withContext(Dispatchers.IO) {
+                            context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(8) }
+                        }.let { pickedKind(it) != PickedKind.OTHER }
+                    } catch (e: Exception) {
+                        false // Unreadable: decrypting says so with its own message.
+                    }
+                }
+            }
         }
     }
 
@@ -567,10 +583,20 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
         ModePicker(encrypt) {
             encrypt = it
             source = null
+            forContacts = false
             message = null
         }
         OutlinedButton(onClick = { pick.launchOrError(arrayOf("*/*"))?.let { message = false to it } }, modifier = Modifier.fillMaxWidth()) {
             Text(if (source == null) (if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION o $LEGACY_ENCRYPTED_EXTENSION") else sourceName)
+        }
+        if (forContacts) {
+            Text("Esto es para Contactos → Abrir lo recibido", color = CautionColor, style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Es un archivo cifrado para un contacto o una firma (.sgsig): no se abre con una contraseña.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onOpenReceived, modifier = Modifier.fillMaxWidth()) { Text("Abrir lo recibido") }
         }
         SecretInput(useKey, { useKey = it; message = null }, password, { password = it; message = null }, keyHex, { keyHex = it; message = null }, allowGenerate = encrypt)
         if (encrypt) {
@@ -578,7 +604,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
             AlgorithmPicker(alg) { alg = it }
         }
         Button(
-            enabled = !busy && source != null && hasSecret(useKey, password, keyHex),
+            enabled = !busy && source != null && !(forContacts && !encrypt) && hasSecret(useKey, password, keyHex),
             onClick = {
                 if (encrypt) {
                     saveEncrypted.launchOrError(sourceName + ENCRYPTED_EXTENSION)?.let { message = false to it }
