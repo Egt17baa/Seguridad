@@ -737,6 +737,23 @@ class PkActionsTest {
         assertTrue(classifyPicked(binaryCard, false) is PickedFile.Other)
     }
 
+    @Test fun unArchivoQueEmpiezaPorSG02ConUnMensajeDetrasNuncaSeClasificaComoTexto() {
+        // Una cabecera binaria SG 0x02 de cualquier tipo manda sobre el texto que lleve detrás: un `SGM1:` pegado dentro de un
+        // .sgsig o de una tarjeta binaria no puede convertirlo en «un mensaje pegado».
+        val message = utf8(encryptMessage("hola", myCard(), ana()))
+        for (kind in 1..9) {
+            val bytes = byteArrayOf('S'.code.toByte(), 'G'.code.toByte(), 2, kind.toByte(), 1) + message
+            for (haveSignature in listOf(false, true)) {
+                val picked = classifyPicked(bytes, haveSignature)
+                assertFalse("tipo $kind, firma $haveSignature", picked is PickedFile.Text)
+            }
+        }
+        // En concreto, el tipo 5 (firma de archivo) es una firma y el 1 (tarjeta) es otro binario.
+        val sgsig = byteArrayOf('S'.code.toByte(), 'G'.code.toByte(), 2, 5, 1) + message
+        assertTrue(classifyPicked(sgsig, false) is PickedFile.Signature)
+        assertTrue(classifyPicked(byteArrayOf('S'.code.toByte(), 'G'.code.toByte(), 2, 1, 1) + message, false) is PickedFile.Other)
+    }
+
     private fun symmetricFile(extra: (ByteArray) -> ByteArray = { it }): ByteArray {
         val out = ByteArrayOutputStream()
         encryptStream(ByteArrayInputStream(data(100)), out, "nota.txt", "una contraseña larga".toCharArray(), Aead.AES_256_GCM, KdfParams(1024, 1, 1))

@@ -1,10 +1,10 @@
 # Ficha de Google Play (borrador)
 
-Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar»), sin la palabra «wallet», y con los avisos de «sin recuperación» y «sin auditoría independiente». El nombre «Seguridad» es provisional (ver `docs/PUBLICAR.md`, apartado 3.1).
+Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal»), sin la palabra «wallet», y con los avisos de «sin recuperación» y «sin auditoría independiente». El nombre «Seguridad» es provisional (ver `docs/PUBLICAR.md`, apartado 3.1).
 
 ## Descripción breve (máximo 80 caracteres)
 
-Bóveda cifrada, códigos 2FA y cifrado de texto y archivos. Sin cuentas ni nube.
+Bóveda cifrada, 2FA, contactos y cifrado de archivos. Sin cuentas ni nube.
 
 ## Descripción completa
 
@@ -24,6 +24,12 @@ Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una b
 **Cifrado**
 • Cifra y descifra textos y archivos con AES-256-GCM o ChaCha20-Poly1305 (y otros algoritmos estándar), con contraseña o con una clave aleatoria.
 
+**Contactos**
+• Tu identidad y tus contactos viven en la bóveda cifrada de tu móvil. Añade a un contacto escaneando su QR o pegando su tarjeta y comparando la huella.
+• Cifra un texto o un archivo para un contacto y envíalo por el canal que quieras (WhatsApp, Telegram, correo). Solo tu contacto, con Seguridad, podrá abrirlo.
+• Firma un texto o un archivo: demuestra a tus contactos que es tuyo y que no ha cambiado.
+• Diseñado para resistir también a ordenadores cuánticos futuros (cifrado híbrido X-Wing, en proceso de estandarización).
+
 **Herramientas**
 • Generador de contraseñas y frases, huella SHA-256 de archivos y comprobación de contraseñas filtradas.
 
@@ -32,6 +38,7 @@ Todo se queda en tu móvil. La única conexión a Internet es opcional: cuando p
 
 **Antes de usarla, ten en cuenta**
 • Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
+• Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Seguridad.
 • Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes, usa un dispositivo hardware dedicado.
 
 Gratuita, sin anuncios ni compras. Código fuente: https://github.com/Egt17baa/Seguridad
