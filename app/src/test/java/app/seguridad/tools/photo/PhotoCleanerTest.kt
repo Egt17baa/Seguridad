@@ -104,6 +104,71 @@ class PhotoCleanerTest {
         assertTrue(Jpeg.isCleanOutput(concat(SOI, TestImages.orientationApp1(6), TestImages.icc(), TestImages.adobe(), baseline.body(), EOI)))
     }
 
+    /** PNG and WebP: the same fail-closed check, one dirty shape at a time. */
+    @Test fun checkAfterCleaningFailsClosedForPngAndWebp() {
+        val png = TestImages.plainPng()
+        PhotoCleaner.verify(PhotoFormat.PNG, png)
+        PhotoCleaner.verify(PhotoFormat.PNG, concat(TestImages.PNG_SIGNATURE, TestImages.ihdr(), TestImages.gama(), TestImages.iccp(), TestImages.plte(), TestImages.trns(), *TestImages.idats().toTypedArray(), TestImages.iend()))
+        val idat = TestImages.idats().toTypedArray()
+        fun p(vararg c: ByteArray) = concat(TestImages.PNG_SIGNATURE, *c)
+        val dirtyPng = listOf(
+            p(TestImages.ihdr(), TestImages.text("Author", "Autora Inventada"), *idat, TestImages.iend()), // tEXt left in
+            p(TestImages.ihdr(), *idat, TestImages.iend(), ByteArray(1)), // a byte after IEND
+            concat(png, png), // a second image after IEND
+            p(TestImages.ihdr(), TestImages.pngChunk("eXIf", TestImages.fullTiff()), *idat, TestImages.iend()),
+            p(TestImages.ihdr(), TestImages.pngChunk("tIME", ByteArray(7)), *idat, TestImages.iend()),
+            p(TestImages.ihdr(), TestImages.pngChunk("prVt", ascii("x")), *idat, TestImages.iend()),
+            p(TestImages.ihdr(), *idat), // no IEND
+            p(*idat, TestImages.iend()), // no IHDR
+            p(TestImages.ihdr(), TestImages.plte(), TestImages.plte(), *idat, TestImages.iend()),
+            p(TestImages.ihdr(), *idat, TestImages.plte(), TestImages.iend()),
+            png.copyOf().also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() }, // bad CRC
+            ascii("GIF89a"),
+        )
+        for ((i, d) in dirtyPng.withIndex()) {
+            fails(PHOTO_DAMAGED) { PhotoCleaner.verify(PhotoFormat.PNG, d) }
+            assertFalse("png $i", Png.isCleanOutput(d))
+        }
+
+        val vp8 = TestImages.riffChunk("VP8 ", TestImages.VP8_DATA)
+        val icc = TestImages.riffChunk("ICCP", ascii("perfil"))
+        PhotoCleaner.verify(PhotoFormat.WEBP, TestImages.riff(vp8))
+        PhotoCleaner.verify(PhotoFormat.WEBP, TestImages.riff(TestImages.vp8x(TestImages.ICC_FLAG), icc, vp8))
+        val dirtyWebp = listOf(
+            TestImages.riff(TestImages.vp8x(TestImages.EXIF_FLAG), vp8), // the EXIF bit set
+            TestImages.riff(TestImages.vp8x(TestImages.XMP_FLAG), vp8),
+            TestImages.riff(TestImages.vp8x(0x01), vp8), // a reserved bit
+            TestImages.riff(TestImages.vp8x(0), vp8, TestImages.riffChunk("EXIF", TestImages.fullTiff())), // a leftover EXIF chunk
+            TestImages.riff(TestImages.vp8x(0), vp8, TestImages.riffChunk("XMP ", ascii("x"))),
+            TestImages.riff(TestImages.vp8x(0), vp8, TestImages.riffChunk("ZZZZ", ascii("x"))),
+            TestImages.riff(vp8, TestImages.riffChunk("EXIF", ByteArray(4))), // a simple file with more
+            concat(TestImages.riff(vp8), ByteArray(2)), // bytes after the RIFF
+            TestImages.riff(vp8).also { it[4] = (it[4] + 2).toByte() }, // RIFF size lies
+            TestImages.riff(TestImages.riffChunk("VP8L", TestImages.VP8L_DATA)).also { it[it.size - 1] = 0x41 }, // hidden byte in the padding
+            TestImages.riff(TestImages.vp8x(TestImages.ANIM_FLAG), TestImages.riffChunk("ANIM", ByteArray(6)), TestImages.anmf(vp8, TestImages.riffChunk("ZZZZ", ascii("x")))), // junk inside a frame
+            TestImages.riff(vp8, vp8),
+            TestImages.riff(TestImages.vp8x(0)), // no image
+            ascii("GIF89a"),
+        )
+        for ((i, d) in dirtyWebp.withIndex()) {
+            fails(PHOTO_DAMAGED) { PhotoCleaner.verify(PhotoFormat.WEBP, d) }
+            assertFalse("webp $i", Webp.isCleanOutput(d))
+        }
+    }
+
+    @Test fun cleansPngAndWebp() {
+        val png = PhotoCleaner.clean(TestImages.everythingPng())
+        assertArrayEquals(Png.clean(TestImages.everythingPng()), png)
+        assertEquals(setOf(Found.ICC_KEPT), PhotoCleaner.inspect(png).found)
+        assertEquals(PhotoFormat.PNG, PhotoCleaner.inspect(TestImages.everythingPng()).format)
+        val webp = PhotoCleaner.clean(TestImages.everythingWebp())
+        assertArrayEquals(Webp.clean(TestImages.everythingWebp()), webp)
+        assertEquals(setOf(Found.ICC_KEPT), PhotoCleaner.inspect(webp).found)
+        assertEquals(PhotoFormat.WEBP, PhotoCleaner.inspect(TestImages.everythingWebp()).format)
+        fails(PHOTO_DAMAGED) { PhotoCleaner.clean(concat(TestImages.PNG_SIGNATURE, ByteArray(30))) }
+        fails(PHOTO_DAMAGED) { PhotoCleaner.inspect(concat(ascii("RIFF"), bytes(4, 0, 0, 0), ascii("WEBP"))) }
+    }
+
     @Test fun messagesAreTheAnnexTexts() {
         assertEquals("No se ha podido limpiar esta foto: el archivo está dañado o tiene un formato que no conocemos. No se ha guardado nada.", PHOTO_DAMAGED)
         assertEquals("Este formato no se admite. Usa una foto JPEG, PNG, WebP o HEIC.", PHOTO_UNSUPPORTED)
