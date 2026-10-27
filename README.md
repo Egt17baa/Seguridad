@@ -47,7 +47,7 @@ Copias de la bóveda:
 
 **Formatos nuevos de la 1.2.0** (se leerán siempre; hay vectores guardados en `app/src/test/resources/vectors/`): cabecera `SG` + `0x02`, con tarjeta `SGK1:`, mensaje `SGM1:`, firma de texto `SGS1:`, archivo cifrado para un contacto (`.sgenc`, tipo 3) y firma de archivo (`.sgsig`). Usan solo primitivas estándar de Bouncy Castle: Ed25519 (RFC 8032), HPKE (RFC 9180) con X-Wing (borrador `draft-ietf-hpke-pq`), HKDF-SHA256 y ChaCha20-Poly1305.
 
-**Aviso: después de abrir la bóveda con la 1.2 no se puede volver a la 1.1.** La bóveda pasa a la versión 3 y la copia `.sgbak` a la versión 2. La 1.1 no abre la bóveda nueva (no pierde datos, pero no la abre) y dice que la copia es de una versión más nueva. La 1.2 sigue leyendo las bóvedas y copias de la 1.1 y las reescribe en el formato nuevo. Hacer una copia `.sgbak` antes de actualizar sigue siendo buena idea.
+**Aviso: después de abrir la bóveda con la 1.2 no se puede volver a la 1.1.** La bóveda pasa a la versión 3 y la copia `.sgbak` a la versión 2. La 1.1 no puede usar la bóveda nueva: con la contraseña maestra no la abre, y con la huella puede enseñar las entradas pero no guardar cambios. No se pierden datos. Con la copia nueva dice que es de una versión más nueva. La 1.2 sigue leyendo las bóvedas y copias de la 1.1 y las reescribe en el formato nuevo. Hacer una copia `.sgbak` antes de actualizar sigue siendo buena idea.
 
 Lo que se cifre de nuevo sale en el formato de Seguridad. Estos formatos se leerán siempre: hay tests con datos reales generados por CriptoPanel 1.10.0.
 

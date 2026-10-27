@@ -44,7 +44,7 @@ Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo 
 4. En la nueva, vuelve a configurar lo que no viaja en la copia: los ajustes (bloqueo, portapapeles, coste de Argon2id), la huella y la carpeta de la copia automática.
 5. Desinstala la antigua.
 
-**La 1.2.0 se instala encima de la 1.1.1** (mismo identificador y misma firma) y conserva la bóveda, pero después de abrirla con la 1.2 no se puede volver a la 1.1: la bóveda pasa a la versión 3 y la 1.1 no la abre (no pierde datos, pero no la abre). Conviene exportar una copia `.sgbak` antes de actualizar.
+**La 1.2.0 se instala encima de la 1.1.1** (mismo identificador y misma firma) y conserva la bóveda, pero después de abrirla con la 1.2 no se puede volver a la 1.1: la bóveda pasa a la versión 3 y la 1.1 no puede usarla (con la maestra no la abre y con la huella no puede guardar cambios; no se pierden datos). Conviene exportar una copia `.sgbak` antes de actualizar.
 
 Las ramas `claude/**` y los pull requests no publican nada: su APK queda como artefacto `Seguridad-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
 
