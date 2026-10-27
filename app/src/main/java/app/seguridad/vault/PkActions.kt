@@ -1,6 +1,8 @@
 package app.seguridad.vault
 
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.Dialect
+import app.seguridad.crypto.Header
 import app.seguridad.crypto.ENCRYPTED_EXTENSION
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.pk.Card
@@ -9,7 +11,9 @@ import app.seguridad.crypto.pk.Received
 import app.seguridad.crypto.pk.SIGNATURE_EXTENSION
 import app.seguridad.crypto.pk.decryptFileFor
 import app.seguridad.crypto.pk.decryptMessage
-import app.seguridad.crypto.pk.detectReceived
+import app.seguridad.crypto.pk.PK_VERSION
+import app.seguridad.crypto.pk.decodeStrictUtf8
+import app.seguridad.crypto.pk.detectReceivedWithBytes
 import app.seguridad.crypto.pk.encryptFileFor
 import app.seguridad.crypto.pk.encryptMessage
 import app.seguridad.crypto.pk.hasForbiddenNameCharacter
@@ -23,6 +27,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.charset.CharacterCodingException
+import java.util.UUID
 import java.util.concurrent.CancellationException
 
 /*
@@ -46,8 +52,11 @@ const val SIGN_HELP = "Demuestra a tus contactos que es tuyo y que no ha cambiad
 
 /** Lo que dice «Cifrar para…» (revisión jurídica: sin promesas absolutas). */
 const val ENCRYPT_HELP =
-    "Solo el contacto elegido podrá leerlo. Está diseñado para resistir también a ordenadores cuánticos futuros " +
-        "(cifrado híbrido X-Wing, en proceso de estandarización). Quien vea el mensaje sabrá que existe y cuándo se envía."
+    "Solo quien tenga la identidad del contacto elegido podrá leerlo. Si alguien robara esa identidad podría leer también " +
+        "lo que ya recibió, y quien vea el mensaje sabe que existe, su tamaño y cuándo se envió."
+
+/** Un `.sgenc` (o `.cpenc`) cifrado con contraseña elegido en «Abrir lo recibido»: se abre en Herramientas. */
+const val SYMMETRIC_FILE_NOTICE = "Este archivo está cifrado con contraseña: ábrelo en Herramientas → Cifrar archivos"
 
 /** Debajo del texto cifrado o firmado que se comparte: es público. */
 const val SHARE_HINT = "El texto cifrado o firmado no es secreto: se puede compartir por cualquier chat."
@@ -70,6 +79,9 @@ private const val GENERIC_OPEN_ERROR = "No se ha podido abrir. Comprueba que est
 
 /** Nombre con el que se propone guardar un archivo recibido cuyo nombre, saneado, queda vacío. */
 const val DEFAULT_RECEIVED_NAME = "archivo-recibido"
+
+/** Carpeta, dentro de la caché privada, donde esperan los archivos descifrados (una subcarpeta por operación). */
+const val PK_OPEN_TEMP_DIR = "pk-open"
 
 private const val MAX_RECEIVED_NAME_CHARS = 120
 private const val COPY_BUFFER_BYTES = 64 * 1024
@@ -154,8 +166,17 @@ fun signatureFileName(original: String): String = safeFileName(original) + SIGNA
 
 /** Qué hacer con un texto pegado, según `detectReceived`. */
 sealed interface ReceivedPlan {
-    /** Una tarjeta válida: lleva al flujo de añadir contacto. */
-    data class CardFound(val card: Card) : ReceivedPlan
+    /**
+     * Una tarjeta válida: lleva al flujo de añadir contacto. [bytes] son sus bytes canónicos: el flujo recibe `cardText(bytes)`,
+     * que siempre se vuelve a leer, aunque la tarjeta viniera con texto delante o detrás.
+     */
+    class CardFound(val card: Card, val bytes: ByteArray) : ReceivedPlan {
+        override fun equals(other: Any?): Boolean = other is CardFound && card == other.card && bytes.contentEquals(other.bytes)
+
+        override fun hashCode(): Int = card.hashCode() * 31 + bytes.contentHashCode()
+
+        override fun toString(): String = "CardFound"
+    }
 
     /** Un mensaje cifrado ([token] empieza en `SGM1:`). */
     data class Message(val token: String) : ReceivedPlan
@@ -171,8 +192,9 @@ sealed interface ReceivedPlan {
 fun planReceived(text: String): ReceivedPlan {
     if (text.isBlank()) return ReceivedPlan.Unrecognized(PASTE_SOMETHING)
     if (text.length > MAX_TEXT_FILE_BYTES) return ReceivedPlan.Unrecognized(TOO_BIG_RECEIVED)
-    return when (val received = detectReceived(text)) {
-        is Received.CardText -> ReceivedPlan.CardFound(received.card)
+    val (received, cardBytes) = detectReceivedWithBytes(text)
+    return when (received) {
+        is Received.CardText -> ReceivedPlan.CardFound(received.card, cardBytes ?: return ReceivedPlan.Unrecognized(UNKNOWN_RECEIVED))
         is Received.Message -> ReceivedPlan.Message(received.token)
         is Received.Signed -> ReceivedPlan.Signed(received.block)
         Received.Unknown -> ReceivedPlan.Unrecognized(UNKNOWN_RECEIVED)
@@ -181,8 +203,14 @@ fun planReceived(text: String): ReceivedPlan {
 
 /** Lo que sale de abrir un texto recibido. */
 sealed interface ReceivedOutcome {
-    /** Era una tarjeta: se enseña el flujo de añadir contacto. */
-    data class CardFound(val card: Card) : ReceivedOutcome
+    /** Era una tarjeta: se enseña el flujo de añadir contacto con `cardText(bytes)`. */
+    class CardFound(val card: Card, val bytes: ByteArray) : ReceivedOutcome {
+        override fun equals(other: Any?): Boolean = other is CardFound && card == other.card && bytes.contentEquals(other.bytes)
+
+        override fun hashCode(): Int = card.hashCode() * 31 + bytes.contentHashCode()
+
+        override fun toString(): String = "CardFound"
+    }
 
     /** Se abrió (o se comprobó): [text] y de quién es. El texto no sale en `toString`. */
     data class Opened(val text: String, val sender: Sender, val line: SenderLine) : ReceivedOutcome {
@@ -201,7 +229,7 @@ sealed interface ReceivedOutcome {
 fun openReceivedText(text: String, entries: List<VaultEntry>): ReceivedOutcome {
     try {
         return when (val plan = planReceived(text)) {
-            is ReceivedPlan.CardFound -> ReceivedOutcome.CardFound(plan.card)
+            is ReceivedPlan.CardFound -> ReceivedOutcome.CardFound(plan.card, plan.bytes)
             is ReceivedPlan.Unrecognized -> ReceivedOutcome.Failed(plan.message)
             is ReceivedPlan.Message -> {
                 val identity = entries.identity() ?: return ReceivedOutcome.Failed(NO_IDENTITY_TO_OPEN)
@@ -286,6 +314,61 @@ fun pickedKind(head: ByteArray): PickedKind = when (pkKindOfFile(head)) {
     else -> PickedKind.OTHER
 }
 
+/** Lo que es un archivo elegido en «Abrir lo recibido», mirando su contenido. */
+sealed interface PickedFile {
+    /** Un `.sgenc` de tipo 3 (cifrado para un contacto). */
+    data object Encrypted : PickedFile
+
+    /** Un `.sgsig`: [bytes] son los primeros 1.024 bytes (una firma válida mide 101; `verifyFileSignature` rechaza otro tamaño). */
+    class Signature(val bytes: ByteArray) : PickedFile
+
+    /** Un `.sgenc` o `.cpenc` cifrado con contraseña (el de Herramientas → Cifrar archivos). */
+    data object Symmetric : PickedFile
+
+    /** Un archivo de texto con algo que se reconoce (`SGM1:`, `SGS1:`, `SGK1:`): se lee como si se hubiera pegado. */
+    class Text(val text: String, val plan: ReceivedPlan) : PickedFile {
+        override fun toString(): String = "Text"
+    }
+
+    /** Cualquier otra cosa: el archivo que firma un `.sgsig`. */
+    data object Other : PickedFile
+}
+
+private const val SIGNATURE_KEEP_BYTES = 1024
+private const val HEAD_BYTES = 8
+
+/**
+ * Qué es un archivo elegido, por sus primeros bytes [bytes] (como mucho [MAX_TEXT_FILE_BYTES] + 1; basta con eso). En este orden:
+ *  1. cifrado con contraseña (`SG`/`CP`, versión 1, archivo): [PickedFile.Symmetric], con o sin `.sgsig` ya elegido;
+ *  2. de clave pública: un `.sgenc` de tipo 3 ([PickedFile.Encrypted]) o un `.sgsig` ([PickedFile.Signature]); otro binario
+ *     que empiece por `SG` 2 (una tarjeta en bytes) es [PickedFile.Other] y nunca se lee como texto;
+ *  3. un texto (UTF-8 estricto, de hasta [MAX_TEXT_FILE_BYTES]) en el que `detectReceived` reconoce algo se lee igual que si
+ *     se pegara ([PickedFile.Text]): las reglas de lectura valen igual para un `.txt` importado. No si ya hay un `.sgsig`
+ *     elegido (entonces es el archivo firmado);
+ *  4. todo lo demás: [PickedFile.Other].
+ */
+fun classifyPicked(bytes: ByteArray, haveSignature: Boolean): PickedFile {
+    if (isSymmetricHeader(bytes)) return PickedFile.Symmetric
+    when (pickedKind(bytes.copyOf(minOf(bytes.size, HEAD_BYTES)))) {
+        PickedKind.ENCRYPTED -> return PickedFile.Encrypted
+        PickedKind.SIGNATURE -> return PickedFile.Signature(bytes.copyOf(minOf(bytes.size, SIGNATURE_KEEP_BYTES)))
+        PickedKind.OTHER -> Unit
+    }
+    if (bytes.size >= 3 && bytes[0] == 'S'.code.toByte() && bytes[1] == 'G'.code.toByte() && bytes[2] == PK_VERSION) return PickedFile.Other
+    if (haveSignature || bytes.isEmpty() || bytes.size > MAX_TEXT_FILE_BYTES) return PickedFile.Other
+    val text = try {
+        decodeStrictUtf8(bytes)
+    } catch (e: CharacterCodingException) {
+        return PickedFile.Other
+    }
+    val plan = planReceived(text)
+    return if (plan is ReceivedPlan.Unrecognized) PickedFile.Other else PickedFile.Text(text, plan)
+}
+
+/** Si [bytes] empieza como un archivo cifrado con contraseña: `SG` o `CP`, versión 1 y tipo archivo. */
+private fun isSymmetricHeader(bytes: ByteArray): Boolean =
+    bytes.size >= 4 && Dialect.ofMagic(bytes.copyOf(2)) != null && bytes[2] == Header.VERSION && bytes[3] == Header.KIND_FILE
+
 /** Qué falta tras elegir un archivo. */
 enum class PickStep { READY_TO_DECRYPT, NEED_SIGNED_FILE, NEED_SIGNATURE, READY_TO_VERIFY }
 
@@ -299,31 +382,40 @@ fun nextPickStep(kind: PickedKind, haveSignature: Boolean, haveFile: Boolean): P
 // ---- Descifrar un archivo a una carpeta temporal ----
 
 /**
- * Un archivo descifrado y comprobado, esperando en la carpeta temporal a que el usuario elija dónde guardarlo. [name] ya
- * está saneado; [sender] solo existe porque el registro final y la firma se comprobaron. Sin datos en `toString`.
+ * Un archivo descifrado y comprobado, esperando en la carpeta temporal de su operación ([dir]) a que el usuario elija dónde
+ * guardarlo. [name] ya está saneado; [sender] solo existe porque el registro final y la firma se comprobaron. Sin datos en
+ * `toString`. [discard] borra la carpeta de esta operación y nada más.
  */
-class ReceivedFile internal constructor(val file: File, val name: String, val sender: Sender) {
+class ReceivedFile internal constructor(val file: File, val name: String, val sender: Sender, internal val dir: File) {
+    /** Borra la subcarpeta de esta operación (y el archivo descifrado que lleva dentro). */
+    fun discard() {
+        dir.deleteRecursively()
+    }
+
     override fun toString(): String = "ReceivedFile(sender=${sender::class.simpleName})"
 }
 
 /**
- * Descifra [input] (un `.sgenc` de tipo 3) para mi identidad en un archivo nuevo de [dir], que se vacía antes. Solo si
- * termina bien (registro final y firma comprobados) lo devuelve, con el nombre saneado y el remitente. Con un
- * [CryptoFailure], una cancelación ([checkCancelled] lanza [CancellationException]) o cualquier otra excepción, [dir]
- * queda vacío y la excepción sigue su camino: nunca hay remitente de un archivo a medias.
+ * Descifra [input] (un `.sgenc` de tipo 3) para mi identidad en un archivo nuevo dentro de una subcarpeta propia de la
+ * operación (un UUID al azar) de [root]. Solo si termina bien (registro final y firma comprobados) lo devuelve, con el
+ * nombre saneado ([sanitizeReceivedName]) y el remitente. Con un [CryptoFailure], una cancelación ([checkCancelled] lanza
+ * [CancellationException]) o cualquier otra excepción se borra **solo la subcarpeta de esta operación** y la excepción
+ * sigue su camino: nunca hay remitente de un archivo a medias. [root] se vacía entero solo al arrancar la app
+ * ([wipePkTemp]) y al bloquearse la bóveda.
  */
-fun decryptReceivedFileToTemp(dir: File, input: InputStream, entries: List<VaultEntry>, checkCancelled: () -> Unit = {}): ReceivedFile {
+fun decryptReceivedFileToTemp(root: File, input: InputStream, entries: List<VaultEntry>, checkCancelled: () -> Unit = {}): ReceivedFile {
     val identity = entries.identity() ?: throw CryptoFailure(NO_IDENTITY_TO_OPEN)
-    clearTempDir(dir)
-    val tmp = File.createTempFile(TEMP_PREFIX, null, dir)
+    val opDir = File(root, UUID.randomUUID().toString())
     try {
+        if (!opDir.mkdirs()) throw java.io.IOException("No se pudo crear la carpeta temporal")
+        val tmp = File.createTempFile(TEMP_PREFIX, null, opDir)
         val opened = identity.openIdentity().use { me ->
-            CheckedOutputStream(FileOutputStream(tmp).buffered(), checkCancelled).use { out -> decryptFileFor(input, out, me) }
+            CheckedOutputStream(FileOutputStream(tmp).buffered(), checkCancelled).use { out -> decryptFileFor(input, out, me, rawName = true) }
         }
         checkCancelled()
-        return ReceivedFile(tmp, sanitizeReceivedName(opened.name), senderOf(opened.senderEd, entries))
+        return ReceivedFile(tmp, sanitizeReceivedName(opened.name), senderOf(opened.senderEd, entries), opDir)
     } catch (t: Throwable) {
-        clearTempDir(dir)
+        opDir.deleteRecursively()
         throw t
     }
 }
@@ -346,7 +438,12 @@ fun saveReceivedFile(received: ReceivedFile, out: OutputStream, checkCancelled: 
     }
 }
 
-/** Deja [dir] existente y vacía (borra todo lo que hubiera dentro). */
+/** Borra la carpeta de temporales de «Abrir lo recibido» de la caché [cacheDir], con todo lo que tenga: al arrancar la app. */
+fun wipePkTemp(cacheDir: File) {
+    File(cacheDir, PK_OPEN_TEMP_DIR).deleteRecursively()
+}
+
+/** Deja [dir] existente y vacía (borra todo lo que hubiera dentro): al bloquearse la bóveda. */
 fun clearTempDir(dir: File) {
     dir.mkdirs()
     dir.listFiles()?.forEach { it.deleteRecursively() }

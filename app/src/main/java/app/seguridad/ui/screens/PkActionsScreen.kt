@@ -44,7 +44,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.copySensitive
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.core.readAtMost
+import app.seguridad.crypto.pk.cardText
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
@@ -52,16 +54,20 @@ import app.seguridad.ui.theme.PositiveColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.ENCRYPT_HELP
 import app.seguridad.vault.NO_IDENTITY_TO_SIGN
+import app.seguridad.vault.PK_OPEN_TEMP_DIR
 import app.seguridad.vault.PickStep
+import app.seguridad.vault.PickedFile
 import app.seguridad.vault.PickedKind
 import app.seguridad.vault.ReceivedFile
 import app.seguridad.vault.ReceivedOutcome
 import app.seguridad.vault.SHARE_HINT
 import app.seguridad.vault.SIGN_HELP
+import app.seguridad.vault.SYMMETRIC_FILE_NOTICE
 import app.seguridad.vault.SenderLine
 import app.seguridad.vault.TrustLevel
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
+import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.actionErrorMessage
 import app.seguridad.vault.clearTempDir
@@ -75,7 +81,8 @@ import app.seguridad.vault.identity
 import app.seguridad.vault.nextPickStep
 import app.seguridad.vault.openErrorMessage
 import app.seguridad.vault.openReceivedText
-import app.seguridad.vault.pickedKind
+import app.seguridad.vault.classifyPicked
+import app.seguridad.vault.sanitizeReceivedName
 import app.seguridad.vault.saveReceivedFile
 import app.seguridad.vault.senderLine
 import app.seguridad.vault.signFileAs
@@ -110,11 +117,6 @@ import java.io.File
  *  - `keepOpenOnce` solo se pone junto a un selector (OpenDocument, CreateDocument), que lo quita en su callback.
  */
 
-/** Carpeta, dentro de la caché privada, donde espera un archivo descifrado hasta guardarlo; se vacía al empezar y al terminar. */
-private const val OPEN_TEMP_DIR = "pk-open"
-
-private const val SIGNATURE_READ_LIMIT = 1024
-private const val HEAD_BYTES = 8
 
 /** Un comprobador de cancelación para el código que no es `suspend`: lanza [CancellationException] si el trabajo ya no está activo. */
 private suspend fun cancellationCheck(): () -> Unit {
@@ -205,7 +207,7 @@ private fun PublicOutput(context: Context, output: String, shareTitle: String, o
 
 @Composable
 private fun SourceButton(source: Uri?, name: String, onPick: () -> Unit) {
-    OutlinedButton(onClick = onPick, modifier = Modifier.fillMaxWidth()) { Text(if (source == null) "Elegir archivo" else name) }
+    OutlinedButton(onClick = onPick, modifier = Modifier.fillMaxWidth()) { Text(if (source == null) "Elegir archivo" else sanitizeReceivedName(name)) }
 }
 
 // ---- Cifrar para… ----
@@ -493,17 +495,25 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
 
 /** «Abrir lo recibido» (`contacts/open`): pegar un texto, o elegir un `.sgenc`, o un `.sgsig` con su archivo. */
 @Composable
-fun OpenReceivedScreen(store: VaultStore, onBack: () -> Unit) {
+fun OpenReceivedScreen(store: VaultStore, onBack: () -> Unit, onOpenSymmetric: () -> Unit) {
+    val context = LocalContext.current
+    val state by store.state.collectAsStateWithLifecycle()
+    val locked = state !is VaultState.Unlocked
+    // With the vault locked nothing decrypted may stay in the private cache: the whole folder goes (each operation also
+    // deletes its own subfolder when it ends, fails or is cancelled; the app wipes it at start too).
+    LaunchedEffect(locked) {
+        if (locked) withContext(Dispatchers.IO) { clearTempDir(File(context.cacheDir, PK_OPEN_TEMP_DIR)) }
+    }
     ContactsFrame(store, "Abrir lo recibido", onBack) { entries, snackbar ->
-        OpenReceivedContent(store, entries, snackbar)
+        OpenReceivedContent(store, entries, snackbar, onOpenSymmetric)
     }
 }
 
 @Composable
-private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, snackbar: androidx.compose.material3.SnackbarHostState) {
+private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, snackbar: androidx.compose.material3.SnackbarHostState, onOpenSymmetric: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val tempDir = remember { File(context.cacheDir, OPEN_TEMP_DIR) }
+    val tempRoot = remember { File(context.cacheDir, PK_OPEN_TEMP_DIR) }
     var pasted by remember { mutableStateOf("") }
     var textResult by remember { mutableStateOf<ReceivedOutcome?>(null) }
 
@@ -519,13 +529,14 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
     var prompt by rememberSaveable { mutableStateOf<String?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var symmetric by remember { mutableStateOf(false) }
 
-    // The decrypted file waits in the private cache only until saved: wiped at start, when the screen goes away (also when the vault locks).
-    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { clearTempDir(tempDir) } }
+    // The decrypted file waits in its own subfolder of the private cache only until saved: it goes when the screen goes
+    // away (also when the vault locks), and the whole folder is wiped at app start and when the vault locks.
     DisposableEffect(Unit) {
         onDispose {
+            pending?.discard()
             pending = null
-            clearTempDir(tempDir)
         }
     }
 
@@ -536,6 +547,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         signedUri = null
         signedName = ""
         prompt = null
+        symmetric = false
     }
 
     val saveDecrypted = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
@@ -551,8 +563,8 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
             return@rememberLauncherForActivityResult
         }
         if (dest == null) {
+            received.discard()
             pending = null
-            clearTempDir(tempDir)
             message = false to "No se ha guardado nada."
             return@rememberLauncherForActivityResult
         }
@@ -572,8 +584,8 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 discardDocument(context, dest)
                 message = false to actionErrorMessage(e, "No se ha podido guardar el archivo.")
             } finally {
+                received.discard()
                 pending = null
-                clearTempDir(tempDir)
             }
         }
     }
@@ -584,33 +596,51 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         fileLine = null
         job = scope.launchBusy({ busy = it }) {
             try {
-                // Only the first bytes decide what the file is; a signature is 101 bytes, so a few KiB cover it.
-                val (kind, head) = withContext(Dispatchers.Default) {
-                    val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(SIGNATURE_READ_LIMIT) }
-                    pickedKind(bytes.copyOf(minOf(bytes.size, HEAD_BYTES))) to bytes
+                // At most MAX_TEXT_FILE_BYTES + 1 bytes are read: a text file is read like a pasted text, anything else
+                // is told apart by its first bytes (a signature is 101 bytes).
+                val picked = withContext(Dispatchers.Default) {
+                    val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(MAX_TEXT_FILE_BYTES + 1) }
+                    classifyPicked(bytes, haveSignature = sigBytes != null)
                 }
                 val name = displayName(context, uri)
-                when (kind) {
-                    PickedKind.ENCRYPTED -> {
+                symmetric = false
+                var kind = PickedKind.OTHER
+                when (picked) {
+                    PickedFile.Encrypted -> {
+                        kind = PickedKind.ENCRYPTED
                         resetFiles()
                         encUri = uri
                         encName = name
                     }
-                    PickedKind.SIGNATURE -> {
+                    is PickedFile.Signature -> {
+                        kind = PickedKind.SIGNATURE
                         encUri = null
-                        sigBytes = head
+                        sigBytes = picked.bytes
                     }
-                    PickedKind.OTHER -> {
+                    PickedFile.Symmetric -> {
+                        resetFiles()
+                        symmetric = true
+                    }
+                    is PickedFile.Text -> {
+                        resetFiles()
+                        pasted = picked.text
+                        textResult = withContext(Dispatchers.Default) { openReceivedText(picked.text, entries) }
+                    }
+                    PickedFile.Other -> {
                         encUri = null
                         signedUri = uri
                         signedName = name
                     }
                 }
-                prompt = when (nextPickStep(kind, haveSignature = sigBytes != null, haveFile = signedUri != null)) {
-                    PickStep.READY_TO_DECRYPT -> null
-                    PickStep.READY_TO_VERIFY -> null
-                    PickStep.NEED_SIGNED_FILE -> "Ahora elige el archivo que firma."
-                    PickStep.NEED_SIGNATURE -> "Ahora elige su firma (.sgsig)."
+                prompt = if (picked is PickedFile.Symmetric || picked is PickedFile.Text) {
+                    null
+                } else {
+                    when (nextPickStep(kind, haveSignature = sigBytes != null, haveFile = signedUri != null)) {
+                        PickStep.READY_TO_DECRYPT -> null
+                        PickStep.READY_TO_VERIFY -> null
+                        PickStep.NEED_SIGNED_FILE -> "Ahora elige el archivo que firma."
+                        PickStep.NEED_SIGNATURE -> "Ahora elige su firma (.sgsig)."
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -676,7 +706,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
             null -> Unit
             is ReceivedOutcome.Failed -> Text(r.message, color = NegativeColor)
             is ReceivedOutcome.CardFound -> IncomingCardSection(
-                store, entries, pasted, viaQr = false, snackbar,
+                store, entries, cardText(r.bytes), viaQr = false, snackbar,
                 onSaved = { textResult = null; pasted = "" },
             )
             is ReceivedOutcome.Opened -> SectionCard(Modifier.fillMaxWidth()) {
@@ -699,9 +729,14 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
             onClick = { launchPicker(store) { pickReceived.launchOrError(arrayOf("*/*")) }?.let { message = false to it } },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Elegir archivo (.sgenc, .sgsig o el archivo firmado)") }
-        if (encUri != null) Text("Cifrado: $encName")
+        if (symmetric) {
+            Text(SYMMETRIC_FILE_NOTICE, color = CautionColor, style = MaterialTheme.typography.titleSmall)
+            Button(onClick = onOpenSymmetric, modifier = Modifier.fillMaxWidth()) { Text("Ir a Cifrar archivos") }
+        }
+        // The provider's name was chosen by whoever sent the file: shown through the same sanitiser (the Uri is untouched).
+        if (encUri != null) Text("Cifrado: ${sanitizeReceivedName(encName)}")
         if (sigBytes != null) Text("Firma (.sgsig) elegida")
-        if (signedUri != null) Text("Archivo firmado: $signedName")
+        if (signedUri != null) Text("Archivo firmado: ${sanitizeReceivedName(signedName)}")
         prompt?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
         if (encUri != null) {
@@ -713,27 +748,28 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                     fileLine = null
                     job = scope.launchBusy({ busy = it }) {
                         try {
+                            // `pending` is set inside, so a cancellation right after it still finds the subfolder to delete.
                             val received = withContext(Dispatchers.Default) {
                                 val check = cancellationCheck()
-                                context.contentResolver.openInputStream(src)!!.use { decryptReceivedFileToTemp(tempDir, it.buffered(), entries, check) }
+                                context.contentResolver.openInputStream(src)!!.use { decryptReceivedFileToTemp(tempRoot, it.buffered(), entries, check) }
+                                    .also { pending = it }
                             }
                             // It is whole and checked: now the user picks where it goes (the sender is shown after saving).
-                            pending = received
                             VaultLock.keepOpenOnce = true
                             store.touch()
                             saveDecrypted.launchOrError(received.name)?.let { failure ->
                                 VaultLock.keepOpenOnce = false
+                                received.discard()
                                 pending = null
-                                clearTempDir(tempDir)
                                 message = false to failure
                             }
                         } catch (e: CancellationException) {
+                            pending?.discard()
                             pending = null
-                            clearTempDir(tempDir)
                             throw e
                         } catch (e: Exception) {
+                            pending?.discard()
                             pending = null
-                            clearTempDir(tempDir)
                             message = false to openErrorMessage(e)
                         }
                     }

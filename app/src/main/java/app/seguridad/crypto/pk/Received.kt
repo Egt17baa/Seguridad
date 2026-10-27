@@ -46,17 +46,24 @@ private const val MAX_CARD_TEXT_CHARS = MAX_CARD_BYTES
  * Nunca lanza. Con más de [MAX_TEXT_FILE_BYTES] caracteres da [Received.Unknown] sin mirarlo. El mensaje y el texto
  * firmado no se comprueban aquí: eso lo hacen [decryptMessage] y [verifySignedText], con su error en español.
  */
-fun detectReceived(text: String): Received {
-    if (text.length > MAX_TEXT_FILE_BYTES) return Received.Unknown
-    cardOrNull(text)?.let { return Received.CardText(it) }
+fun detectReceived(text: String): Received = detectReceivedWithBytes(text).first
+
+/**
+ * [detectReceived] y, si es una tarjeta ([Received.CardText]), sus bytes canónicos (los que `parseCard` acepta y guarda un
+ * contacto): así quien llama puede pasar `cardText(bytes)` al flujo de añadir contacto aunque la tarjeta viniera con texto
+ * delante o detrás, o partida por el chat. Las mismas reglas de lectura: solo cambia lo que se devuelve.
+ */
+internal fun detectReceivedWithBytes(text: String): Pair<Received, ByteArray?> {
+    if (text.length > MAX_TEXT_FILE_BYTES) return Received.Unknown to null
+    cardOrNull(text)?.let { return Received.CardText(it.first) to it.second }
     val signed = text.lastIndexOf(SIGNATURE_PREFIX)
     val message = text.lastIndexOf(MESSAGE_PREFIX)
     val card = text.lastIndexOf(CARD_TEXT_PREFIX)
     return when {
-        signed >= 0 && signed > message && signed > card -> Received.Signed(text)
-        message >= 0 && message > card -> Received.Message(text.substring(message))
-        card >= 0 -> cardAt(text, card)?.let { Received.CardText(it) } ?: Received.Unknown
-        else -> Received.Unknown
+        signed >= 0 && signed > message && signed > card -> Received.Signed(text) to null
+        message >= 0 && message > card -> Received.Message(text.substring(message)) to null
+        card >= 0 -> cardAt(text, card)?.let { Received.CardText(it.first) to it.second } ?: (Received.Unknown to null)
+        else -> Received.Unknown to null
     }
 }
 
@@ -69,7 +76,7 @@ fun detectReceived(text: String): Received {
  * que pueden ser una tarjeta: Base64url canónico y un tamaño que cuadra con su longitud de nombre. Así una frase larga
  * sin acentos ni puntuación detrás no la deja sin leer.
  */
-private fun cardAt(text: String, at: Int): Card? {
+private fun cardAt(text: String, at: Int): Pair<Card, ByteArray>? {
     cardOrNull(text.substring(at))?.let { return it }
     val runs = base64UrlRuns(text, at + CARD_TEXT_PREFIX.length, MAX_CARD_TEXT_CHARS)
     var attempts = 0
@@ -81,7 +88,7 @@ private fun cardAt(text: String, at: Int): Card? {
         }
         if (!hasCardLength(raw)) continue
         try {
-            return parseCard(raw)
+            return parseCard(raw) to raw
         } catch (e: Exception) {
             // Una unión que no es la tarjeta (firma, nombre o clave que no valen): se prueba la siguiente.
         }
@@ -91,8 +98,8 @@ private fun cardAt(text: String, at: Int): Card? {
 }
 
 /** [cardFromAnyText] con `null` en vez de [app.seguridad.crypto.CryptoFailure] (y con cualquier otra excepción, para no lanzar nunca). */
-private fun cardOrNull(text: String): Card? = try {
-    cardFromAnyText(text)
+private fun cardOrNull(text: String): Pair<Card, ByteArray>? = try {
+    cardAndBytesFromAnyText(text)
 } catch (e: Exception) {
     null
 }

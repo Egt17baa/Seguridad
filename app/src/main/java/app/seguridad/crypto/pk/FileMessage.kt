@@ -194,7 +194,14 @@ internal fun encryptFileFor(
  *   truncado, con algo de más o con un registro cambiado de sitio;
  * - con la marca de «firmado» y una firma que no es válida: se rechaza entero, nunca se enseña como «sin firmar».
  */
-fun decryptFileFor(input: InputStream, output: OutputStream, me: Identity): OpenedFile {
+fun decryptFileFor(input: InputStream, output: OutputStream, me: Identity): OpenedFile = decryptFileFor(input, output, me, rawName = false)
+
+/**
+ * [decryptFileFor] que, con [rawName], devuelve el nombre de dentro tal cual (UTF-8 estricto, sin pasar por [safeFileName]),
+ * para que «Abrir lo recibido» lo sanee con su propia regla (un nombre vacío da «archivo-recibido» y no «archivo»). El
+ * formato y todo lo demás son idénticos.
+ */
+internal fun decryptFileFor(input: InputStream, output: OutputStream, me: Identity, rawName: Boolean): OpenedFile {
     val header = ByteArray(FILE_HEADER_BYTES)
     val read = input.readFully(header)
     parsePkHeader(header, PkKind.FILE_MESSAGE) // con menos de 5 bytes, los ceros del final no son la marca `SG`
@@ -222,7 +229,7 @@ fun decryptFileFor(input: InputStream, output: OutputStream, me: Identity): Open
         val nameAt = if (signed) 1 + ED_PUBLIC_BYTES else 1
         if (plain0.size < nameAt) throw CryptoFailure(DAMAGED_FILE)
         val name = try {
-            safeFileName(decodeStrictUtf8(plain0.copyOfRange(nameAt, plain0.size)))
+            decodeStrictUtf8(plain0.copyOfRange(nameAt, plain0.size)).let { if (rawName) it else safeFileName(it) }
         } catch (e: CharacterCodingException) {
             throw CryptoFailure(DAMAGED_FILE)
         }
