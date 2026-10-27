@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.core.net.toUri
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.ui.screens.DECRYPT_TMP_PREFIX
+import app.seguridad.vault.wipePkTemp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
@@ -21,6 +22,8 @@ class SeguridadApp : Application() {
         super.onCreate()
         // A decrypted file left behind if the app died before it was saved.
         cacheDir.listFiles { f -> f.name.startsWith(DECRYPT_TMP_PREFIX) && f.name.endsWith(".tmp") }?.forEach { it.delete() }
+        // Same for what «Abrir lo recibido» decrypted (one subfolder per operation): never survives a process death.
+        wipePkTemp(cacheDir)
         // A few hundred bytes, read before the first frame: the theme, the start notice and the lock time must be the
         // saved ones from the start (a damaged file just gives the defaults).
         runBlocking(Dispatchers.IO) { container.settings.load() }

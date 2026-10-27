@@ -166,7 +166,7 @@ fun AppNavHost(container: AppContainer) {
             composable("contacts/add") { ContactAddScreen(vault, onBack = back) }
             composable("contacts/encrypt") { EncryptForScreen(vault, onBack = back) }
             composable("contacts/sign") { SignScreen(vault, onBack = back) }
-            composable("contacts/open") { OpenReceivedScreen(vault, onBack = back) }
+            composable("contacts/open") { OpenReceivedScreen(vault, onBack = back, onOpenSymmetric = { nav.navigate("tools/file") }) }
             composable("contacts/{id}") { entry ->
                 ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
             }

@@ -76,6 +76,8 @@ import app.seguridad.crypto.sha256Hex
 import app.seguridad.crypto.strength
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.vault.PickedKind
+import app.seguridad.vault.sanitizeReceivedName
+import kotlinx.coroutines.CancellationException
 import app.seguridad.vault.pickedKind
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.CautionColor
@@ -564,17 +566,22 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             source = uri
             sourceName = displayName(context, uri)
             message = null
-            forContacts = false
-            if (!encrypt) {
-                scope.launch {
-                    forContacts = try {
-                        withContext(Dispatchers.IO) {
-                            context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(8) }
-                        }.let { pickedKind(it) != PickedKind.OTHER }
-                    } catch (e: Exception) {
-                        false // Unreadable: decrypting says so with its own message.
-                    }
-                }
+        }
+    }
+    // Keyed on the chosen file and the mode: a slow check for an earlier file is cancelled when another is picked or the mode
+    // changes, so a stale result can never overwrite a newer one.
+    LaunchedEffect(source, encrypt) {
+        forContacts = false
+        val uri = source
+        if (uri != null && !encrypt) {
+            forContacts = try {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(8) }
+                }.let { pickedKind(it) != PickedKind.OTHER }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false // Unreadable: decrypting says so with its own message.
             }
         }
     }
@@ -587,7 +594,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             message = null
         }
         OutlinedButton(onClick = { pick.launchOrError(arrayOf("*/*"))?.let { message = false to it } }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (source == null) (if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION o $LEGACY_ENCRYPTED_EXTENSION") else sourceName)
+            Text(if (source == null) (if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION o $LEGACY_ENCRYPTED_EXTENSION") else sanitizeReceivedName(sourceName))
         }
         if (forContacts) {
             Text("Esto es para Contactos → Abrir lo recibido", color = CautionColor, style = MaterialTheme.typography.titleSmall)

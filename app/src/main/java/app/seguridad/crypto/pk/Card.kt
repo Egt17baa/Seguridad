@@ -157,6 +157,9 @@ fun cardFromAnyText(text: String): Card = readCardText(text).first
  */
 fun cardBytesFromAnyText(text: String): ByteArray = readCardText(text).second
 
+/** [cardFromAnyText] y [cardBytesFromAnyText] de una sola lectura: la tarjeta y sus bytes canónicos. */
+internal fun cardAndBytesFromAnyText(text: String): Pair<Card, ByteArray> = readCardText(text)
+
 private fun readCardText(text: String): Pair<Card, ByteArray> {
     if (text.length > MAX_CARD_BYTES) throw CryptoFailure(TOO_BIG)
     val trimmed = text.trim()

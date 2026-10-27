@@ -1,10 +1,18 @@
 package app.seguridad.vault
 
+import app.seguridad.crypto.Aead
+import app.seguridad.crypto.CHUNK_BYTES
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.KdfParams
+import app.seguridad.crypto.STREAM_PREFIX_BYTES
+import app.seguridad.crypto.aead
+import app.seguridad.crypto.encryptStream
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.pk.Identity
 import app.seguridad.crypto.pk.NOT_FOR_ME
 import app.seguridad.crypto.pk.cardBytes
+import app.seguridad.crypto.pk.cardBytesFromAnyText
+import app.seguridad.crypto.pk.hpkeSuite
 import app.seguridad.crypto.pk.cardText
 import app.seguridad.crypto.pk.decryptFileFor
 import app.seguridad.crypto.pk.decryptMessage
@@ -26,6 +34,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.util.concurrent.CancellationException
 
@@ -170,7 +179,8 @@ class PkActionsTest {
         val emoji = "\uD83D\uDE00" // 2 unidades
         val cut = sanitizeReceivedName("a".repeat(119) + emoji + "zzz")
         assertTrue(cut.length <= 120)
-        assertTrue(cut.none { it.isSurrogate() } || cut.codePointCount(0, cut.length) == cut.length - cut.count { it.isHighSurrogate() })
+        // Sin ningún sustituto suelto: pasar por UTF-8 y volver da el mismo texto (un suelto se convertiría en «?»).
+        assertEquals(cut, String(cut.toByteArray(Charsets.UTF_8), Charsets.UTF_8))
         assertFalse(cut.last().isHighSurrogate())
     }
 
@@ -193,7 +203,7 @@ class PkActionsTest {
     @Test fun elPlanSigueLoQueDiceDetectReceived() {
         val ana = ana()
         val card = parseCard(ana.cardBytes("Ana"))
-        assertEquals(ReceivedPlan.CardFound(card), planReceived(cardText(ana.cardBytes("Ana"))))
+        assertEquals(ReceivedPlan.CardFound(card, ana.cardBytes("Ana")), planReceived(cardText(ana.cardBytes("Ana"))))
         val message = encryptMessage("hola", myCard(), ana)
         assertTrue(planReceived(message) is ReceivedPlan.Message)
         val signed = me().use { signText("hola", it) }
@@ -281,9 +291,29 @@ class PkActionsTest {
     }
 
     @Test fun unaTarjetaPegadaSeEntregaParaAnadirla() {
-        val card = parseCard(stranger().cardBytes("Eva"))
-        val outcome = openReceivedText(cardText(stranger().cardBytes("Eva")), entries)
-        assertEquals(ReceivedOutcome.CardFound(card), outcome)
+        val bytes = stranger().cardBytes("Eva")
+        val outcome = openReceivedText(cardText(bytes), entries)
+        assertEquals(ReceivedOutcome.CardFound(parseCard(bytes), bytes), outcome)
+    }
+
+    /** I2: la tarjeta que `detectReceived` encuentra dentro de un texto más largo llega al flujo de añadir contacto. */
+    @Test fun unaTarjetaConTextoAlrededorLlegaLegibleAlFlujoDeAnadir() {
+        val bytes = stranger().cardBytes("Eva")
+        val text = cardText(bytes)
+        val wrapped = text.chunked(60).joinToString("\n")
+        for (pasted in listOf("Hola, mi tarjeta: $text Gracias", "Hola, mi tarjeta:\n$wrapped\nGracias", "x".repeat(5000) + "\n$text", "$text\nUn saludo")) {
+            val outcome = openReceivedText(pasted, entries)
+            assertTrue(pasted.take(40), outcome is ReceivedOutcome.CardFound)
+            outcome as ReceivedOutcome.CardFound
+            assertArrayEquals(bytes, outcome.bytes)
+            // Lo que se le pasa al flujo de añadir (el texto canónico) siempre se vuelve a leer, aunque el pegado no empiece por SGK1:.
+            assertArrayEquals(bytes, cardBytesFromAnyText(cardText(outcome.bytes)))
+            assertEquals(parseCard(bytes), outcome.card)
+        }
+        // La tarjeta del QR (Base45) también.
+        val qr = openReceivedText(app.seguridad.crypto.pk.cardQr(bytes), entries)
+        assertTrue(qr is ReceivedOutcome.CardFound)
+        assertArrayEquals(bytes, (qr as ReceivedOutcome.CardFound).bytes)
     }
 
     @Test fun nadaReconocibleDaUnFallo() {
@@ -387,7 +417,7 @@ class PkActionsTest {
     }
 
     @Test fun losTextosFijosNoPrometenLoQueNoSePuedePrometer() {
-        val texts = listOf(SIGN_HELP, ENCRYPT_HELP, NO_IDENTITY_TO_OPEN, NO_IDENTITY_TO_SIGN, UNKNOWN_RECEIVED, SHARE_HINT)
+        val texts = listOf(SIGN_HELP, ENCRYPT_HELP, NO_IDENTITY_TO_OPEN, NO_IDENTITY_TO_SIGN, UNKNOWN_RECEIVED, SHARE_HINT, SYMMETRIC_FILE_NOTICE)
         for (t in texts) {
             val lower = t.lowercase()
             for (banned in listOf("validez legal", "firma electrónica", "imposible", "a prueba", "como signal", "indescifrable")) {
@@ -395,7 +425,16 @@ class PkActionsTest {
             }
         }
         assertEquals("Demuestra a tus contactos que es tuyo y que no ha cambiado.", SIGN_HELP)
-        assertTrue(ENCRYPT_HELP.contains("diseñado para resistir también a ordenadores cuánticos futuros (cifrado híbrido X-Wing, en proceso de estandarización)"))
+        // M5: dice también lo que no protege, sin promesas absolutas.
+        assertEquals(
+            "Solo quien tenga la identidad del contacto elegido podrá leerlo. Si alguien robara esa identidad podría leer también " +
+                "lo que ya recibió, y quien vea el mensaje sabe que existe, su tamaño y cuándo se envió.",
+            ENCRYPT_HELP,
+        )
+        assertEquals(
+            "Este archivo está cifrado con contraseña: ábrelo en Herramientas → Cifrar archivos",
+            SYMMETRIC_FILE_NOTICE,
+        )
     }
 
     // ---- Qué archivo se ha elegido ----
@@ -426,7 +465,9 @@ class PkActionsTest {
         val dir = tempDir()
         val plain = data(200_000)
         val received = decryptToTemp(fileFromAna(plain, "informe.pdf"), dir)
-        assertEquals(1, dir.listFiles()!!.size)
+        // Una subcarpeta propia de la operación, con el archivo dentro.
+        assertEquals(listOf(received.file.parentFile), dir.listFiles()!!.toList())
+        assertEquals(listOf(received.file), received.file.parentFile!!.listFiles()!!.toList())
         assertArrayEquals(plain, received.file.readBytes())
         assertEquals("informe.pdf", received.name)
         assertEquals(Sender.Contact(anaContact), received.sender)
@@ -486,11 +527,12 @@ class PkActionsTest {
         assertEquals(0, dir.listFiles()!!.size)
     }
 
-    @Test fun sinIdentidadNoSeEmpiezaNiSeCreaElTemporal() {
+    @Test fun sinIdentidadNoCreaNingunaCarpetaYNoTocaLosRestos() {
         val dir = tempDir()
+        File(dir, "resto").writeBytes(byteArrayOf(1))
         val e = assertThrows(CryptoFailure::class.java) { decryptToTemp(fileFromAna(data(10)), dir, listOf(anaContact)) }
         assertEquals(NO_IDENTITY_TO_OPEN, e.message)
-        assertEquals(0, dir.listFiles()!!.size)
+        assertEquals(listOf("resto"), dir.listFiles()!!.map { it.name })
     }
 
     @Test fun cancelarAMitadBorraElTemporalYPropagaLaCancelacion() {
@@ -522,14 +564,37 @@ class PkActionsTest {
         assertEquals(0, dir.listFiles()!!.size)
     }
 
-    @Test fun alEmpezarSeVaciaLoQueHubieraQuedado() {
+    /** M2: cada operación tiene su subcarpeta y borra solo la suya; lo demás se vacía al arrancar la app y al bloquear. */
+    @Test fun cadaOperacionTieneSuSubcarpetaYBorraSoloLaSuya() {
         val dir = tempDir()
-        File(dir, "restos").writeBytes(byteArrayOf(1, 2, 3))
-        File(dir, "otro").writeBytes(byteArrayOf(4))
-        val received = decryptToTemp(fileFromAna(data(10)), dir)
-        assertEquals(listOf(received.file.name), dir.listFiles()!!.map { it.name })
-        clearTempDir(dir)
-        assertEquals(0, dir.listFiles()!!.size)
+        File(dir, "resto").writeBytes(byteArrayOf(1, 2, 3))
+        val first = decryptToTemp(fileFromAna(data(10)), dir)
+        val second = decryptToTemp(fileFromAna(data(20)), dir)
+        assertNotEquals(first.file.parentFile, second.file.parentFile)
+        // Un fallo de una tercera operación no toca ni los restos ni las otras dos.
+        val tampered = fileFromAna(data(10)).let { it.copyOf().also { b -> b[b.size - 1] = (b[b.size - 1].toInt() xor 1).toByte() } }
+        assertThrows(CryptoFailure::class.java) { decryptToTemp(tampered, dir) }
+        assertTrue(first.file.exists() && second.file.exists())
+        assertTrue(File(dir, "resto").exists())
+        first.discard()
+        assertFalse(first.file.exists() || first.file.parentFile!!.exists())
+        assertTrue(second.file.exists())
+        second.discard()
+        assertEquals(listOf("resto"), dir.listFiles()!!.map { it.name })
+    }
+
+    @Test fun alArrancarSeVaciaLaCarpetaDeTemporalesDeLaCache() {
+        val cache = tempDir()
+        val open = File(cache, PK_OPEN_TEMP_DIR)
+        val op = File(open, "123e4567-e89b-12d3-a456-426614174000").also { it.mkdirs() }
+        File(op, "recibido123.tmp").writeBytes(byteArrayOf(9, 9, 9))
+        File(open, "suelto").writeBytes(byteArrayOf(1))
+        val other = File(cache, "otra-cosa").also { it.writeBytes(byteArrayOf(5)) }
+        wipePkTemp(cache)
+        assertFalse(open.exists())
+        assertTrue(other.exists())
+        wipePkTemp(cache) // sin carpeta tampoco falla
+        assertEquals("pk-open", PK_OPEN_TEMP_DIR)
     }
 
     @Test fun clearTempDirSinCarpetaNoFalla() {
@@ -556,5 +621,137 @@ class PkActionsTest {
         assertFalse(received.toString().contains("secreto-nombre"))
         assertNotEquals("", received.toString())
         clearTempDir(dir)
+    }
+
+    // ---- M3: el nombre de dentro ----
+
+    @Test fun unNombreInternoVacioOInvalidoSeProponeComoArchivoRecibido() {
+        for (name in listOf("", "   ", ".", "..", "\u202E", "../..", "\u0000")) {
+            // Hecho a mano: nuestro cifrador ya no escribe un nombre vacío, pero otro programa podría.
+            val dir = tempDir()
+            val received = decryptToTemp(fileWithBadSignature(data(10), ByteArray(0), signed = false, name = name), dir)
+            assertEquals("name=<$name>", "archivo-recibido", received.name)
+            received.discard()
+        }
+        // Un archivo que de verdad se llama «archivo» conserva su nombre.
+        val dir = tempDir()
+        assertEquals("archivo", decryptToTemp(fileFromAna(data(10), "archivo"), dir).name)
+    }
+
+    // ---- M7 (a): todos los registros AEAD válidos y la firma Ed25519ph inválida ----
+
+    /** Un archivo firmado a mano para mí, bien sellado en todos sus registros pero con [finalPlain] como «firma». */
+    private fun fileWithBadSignature(plain: ByteArray, finalPlain: ByteArray, signed: Boolean = true, name: String = "doc.pdf"): ByteArray {
+        val prefix = ByteArray(STREAM_PREFIX_BYTES) { (0x20 + it).toByte() }
+        val ikm = ByteArray(64) { (0x40 + it).toByte() }
+        val h = hpkeSuite()
+        val ctx = h.setupBaseS(h.deserializePublicKey(myCard().kemPublic), "seguridad-file-v1".toByteArray(Charsets.US_ASCII), ikm)
+        val header = byteArrayOf(0x53, 0x47, 0x02, 0x03, 0x01) + ctx.encapsulation + prefix
+        val key = ctx.export("seguridad-file-key-v1".toByteArray(Charsets.US_ASCII), 32)
+        fun seal(counter: Int, last: Boolean, p: ByteArray) =
+            aead(Aead.CHACHA20_POLY1305, true, key, ByteBuffer.allocate(12).put(prefix).putInt(counter).put(if (last) 1 else 0).array(), header, p)
+        val out = ByteArrayOutputStream()
+        out.write(header)
+        val record0 = if (signed) byteArrayOf(1) + ana().use { it.edPublic } + name.toByteArray() else byteArrayOf(0) + name.toByteArray()
+        val sealed0 = seal(0, false, record0)
+        out.write(ByteBuffer.allocate(2).putShort(sealed0.size.toShort()).array())
+        out.write(sealed0)
+        var counter = 1
+        var at = 0
+        while (at < plain.size) {
+            val piece = plain.copyOfRange(at, minOf(plain.size, at + CHUNK_BYTES))
+            out.write(seal(counter++, false, piece))
+            at += piece.size
+        }
+        out.write(seal(counter, true, finalPlain))
+        return out.toByteArray()
+    }
+
+    @Test fun conTodosLosRegistrosValidosYLaFirmaInvalidaNoQuedaNadaNiHayRemitente() {
+        val dir = tempDir()
+        val plain = data(200_000)
+        // Control: con la firma de verdad el montaje a mano se abre (si no, el test no probaría lo que dice).
+        val good = ByteArrayOutputStream()
+        ana().use { encryptFileFor(ByteArrayInputStream(plain), good, "doc.pdf", myCard(), it) }
+        assertEquals(good.size(), fileWithBadSignature(plain, ByteArray(64)).size)
+        // Toda la parte de datos está bien sellada: solo la firma (64 bytes) es mala.
+        val e = assertThrows(CryptoFailure::class.java) { decryptToTemp(fileWithBadSignature(plain, ByteArray(64)), dir) }
+        assertEquals("La firma del archivo no es válida", e.message)
+        assertEquals(0, dir.listFiles()!!.size)
+        // Una firma de otro archivo (válida en forma) tampoco.
+        val other = ana().use { signFile(ByteArrayInputStream(data(5)), it) }.copyOfRange(37, 101)
+        assertThrows(CryptoFailure::class.java) { decryptToTemp(fileWithBadSignature(plain, other), dir) }
+        assertEquals(0, dir.listFiles()!!.size)
+    }
+
+    // ---- M6: elegir un archivo que es texto, y el cifrado con contraseña ----
+
+    private fun utf8(s: String) = s.toByteArray(Charsets.UTF_8)
+
+    @Test fun unArchivoDeTextoConUnMensajeSeLeeComoTexto() {
+        val token = encryptMessage("hola", myCard(), ana())
+        val picked = classifyPicked(utf8("Mira esto:\n$token\nGracias"), haveSignature = false)
+        assertTrue(picked is PickedFile.Text)
+        picked as PickedFile.Text
+        assertTrue(picked.text.contains(token))
+        assertTrue(picked.plan is ReceivedPlan.Message)
+        val signed = classifyPicked(utf8(me().use { signText("hecho", it) }), false)
+        assertTrue((signed as PickedFile.Text).plan is ReceivedPlan.Signed)
+        val card = classifyPicked(utf8(cardText(ana().cardBytes("Ana"))), false)
+        assertTrue((card as PickedFile.Text).plan is ReceivedPlan.CardFound)
+    }
+
+    @Test fun unArchivoDeTextoSinNadaReconocibleSigueElCaminoDeArchivoFirmado() {
+        assertTrue(classifyPicked(utf8("Esto es un texto cualquiera"), false) is PickedFile.Other)
+        assertTrue(classifyPicked(data(1000), false) is PickedFile.Other) // no es UTF-8
+        assertTrue(classifyPicked(ByteArray(0), false) is PickedFile.Other)
+    }
+
+    @Test fun conUnaFirmaYaElegidaElArchivoDeTextoEsElArchivoFirmado() {
+        val token = encryptMessage("hola", myCard(), ana())
+        assertTrue(classifyPicked(utf8(token), haveSignature = true) is PickedFile.Other)
+    }
+
+    @Test fun unTextoDeMasDeLoPermitidoNoSeLee() {
+        val token = encryptMessage("hola", myCard(), ana())
+        val big = utf8(token + " ".repeat(MAX_TEXT_FILE_BYTES + 1 - token.length))
+        assertEquals(MAX_TEXT_FILE_BYTES + 1, big.size)
+        assertTrue(classifyPicked(big, false) is PickedFile.Other)
+        val exact = utf8(token + " ".repeat(MAX_TEXT_FILE_BYTES - token.length))
+        assertTrue(classifyPicked(exact, false) is PickedFile.Text)
+    }
+
+    @Test fun unUtf8MalFormadoNoSeLeeComoTexto() {
+        val token = utf8(encryptMessage("hola", myCard(), ana()))
+        assertTrue(classifyPicked(token + byteArrayOf(0xC3.toByte()), false) is PickedFile.Other) // byte suelto
+    }
+
+    @Test fun losArchivosBinariosDeContactosSeReconocenAntesQueElTexto() {
+        assertTrue(classifyPicked(fileFromAna(data(10)).copyOf(64), false) is PickedFile.Encrypted)
+        val sig = signFileAs(ByteArrayInputStream(data(10)), entries)
+        val picked = classifyPicked(sig, false)
+        assertTrue(picked is PickedFile.Signature)
+        assertArrayEquals(sig, (picked as PickedFile.Signature).bytes)
+        // Una cabecera «SG» 2 de otro tipo (una tarjeta binaria) no es ni un .sgenc ni un .sgsig ni texto.
+        val binaryCard = ana().cardBytes("Ana")
+        assertTrue(classifyPicked(binaryCard, false) is PickedFile.Other)
+    }
+
+    private fun symmetricFile(extra: (ByteArray) -> ByteArray = { it }): ByteArray {
+        val out = ByteArrayOutputStream()
+        encryptStream(ByteArrayInputStream(data(100)), out, "nota.txt", "una contraseña larga".toCharArray(), Aead.AES_256_GCM, KdfParams(1024, 1, 1))
+        return extra(out.toByteArray())
+    }
+
+    @Test fun unSgencConContrasenaTieneSuPropioAvisoYNuncaSeTomaPorFirmaInvalida() {
+        assertTrue(classifyPicked(symmetricFile(), false) is PickedFile.Symmetric)
+        assertTrue(classifyPicked(symmetricFile(), haveSignature = true) is PickedFile.Symmetric)
+        // El dialecto antiguo (CP1, .cpenc) también.
+        val legacy = symmetricFile { b -> b.copyOf().also { it[0] = 'C'.code.toByte(); it[1] = 'P'.code.toByte() } }
+        assertTrue(classifyPicked(legacy, false) is PickedFile.Symmetric)
+        // Y no se confunde con lo de clave pública.
+        assertEquals(PickedKind.OTHER, pickedKind(symmetricFile().copyOf(8)))
+        assertTrue(SYMMETRIC_FILE_NOTICE.contains("cifrado con contraseña"))
+        assertFalse(SYMMETRIC_FILE_NOTICE.lowercase().contains("firma"))
     }
 }
