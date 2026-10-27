@@ -44,6 +44,8 @@ Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo 
 4. En la nueva, vuelve a configurar lo que no viaja en la copia: los ajustes (bloqueo, portapapeles, coste de Argon2id), la huella y la carpeta de la copia automática.
 5. Desinstala la antigua.
 
+**La 1.2.0 se instala encima de la 1.1.1** (mismo identificador y misma firma) y conserva la bóveda, pero después de abrirla con la 1.2 no se puede volver a la 1.1: la bóveda pasa a la versión 3 y la 1.1 no la abre (no pierde datos, pero no la abre). Conviene exportar una copia `.sgbak` antes de actualizar.
+
 Las ramas `claude/**` y los pull requests no publican nada: su APK queda como artefacto `Seguridad-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
 
 Un APK firmado con la clave de subida y otro firmado con la de prueba no se actualizan entre sí: Android pide desinstalar, y al desinstalar se borra la bóveda. Exporta antes una copia.
@@ -82,12 +84,13 @@ Las instalaciones desde Play y las del APK de *Releases* tienen firmas distintas
 ### 3.5 Formularios de la ficha
 
 - **Política de privacidad:** <https://egt17baa.github.io/Seguridad/privacidad.html> (se publica desde `docs/privacidad.html` con GitHub Pages: *Settings → Pages → Deploy from a branch → `main` / `docs`*). Es la misma que enlaza la app en *Ajustes → Acerca de*. Cuando la cambies, actualiza su fecha.
-- **Seguridad de los datos:** la app no tiene cuentas, analítica ni anuncios, y todo se guarda cifrado en el móvil. La única transmisión es la consulta a Have I Been Pwned (5 caracteres del hash SHA-1 de cada contraseña comprobada, más la IP que ve cualquier servidor), solo cuando el usuario la pide. Declárala como **tratamiento efímero, iniciado por el usuario y cifrado en tránsito**: Google cuenta como recogida cualquier transmisión fuera del móvil, y esta es la respuesta más coherente con su definición.
-- **Cifrado / exportación:** sí usa cifrado, solo con algoritmos estándar y publicados (AES, ChaCha20, Twofish, Serpent, Camellia, Argon2id) para proteger datos del propio usuario. El fundamento es que el código es abierto y está públicamente disponible: así queda fuera del control de exportaciones en la UE (Nota General de Software del Reglamento (UE) 2021/821) y de las EAR de EE. UU. Opcional y sin coste: enviar a la BIS y a la NSA el correo de notificación con la URL del repositorio.
+- **Seguridad de los datos:** la app no tiene cuentas, analítica ni anuncios, y todo se guarda cifrado en el móvil (la identidad y los contactos de la 1.2.0 también: solo en la bóveda y en las copias del usuario, sin enviarse a ningún sitio, así que esta sección no cambia). La única transmisión es la consulta a Have I Been Pwned (5 caracteres del hash SHA-1 de cada contraseña comprobada, más la IP que ve cualquier servidor), solo cuando el usuario la pide. Declárala como **tratamiento efímero, iniciado por el usuario y cifrado en tránsito**: Google cuenta como recogida cualquier transmisión fuera del móvil, y esta es la respuesta más coherente con su definición.
+- **Cifrado / exportación:** sí usa cifrado, solo con algoritmos estándar y publicados (AES, ChaCha20-Poly1305, Twofish, Serpent, Camellia, Argon2id y, desde la 1.2.0, Ed25519, HPKE, HKDF y el KEM híbrido X-Wing, un borrador del IETF ya publicado) para proteger datos del propio usuario. En el formulario de exportación de Play, responde «cifrado estándar, código públicamente disponible», e incluye X-Wing entre los algoritmos estándar. El fundamento es que el código es abierto y está públicamente disponible: así queda fuera del control de exportaciones en la UE (Nota General de Software del Reglamento (UE) 2021/821) y de las EAR de EE. UU. (§734.3(b)(3) y §742.15(b)). **No se envía ningún correo a la BIS ni a la NSA:** solo se exige para la criptografía «no estándar», y esta app usa únicamente primitivas estándar publicadas (decisión del propietario, con el visto bueno de la revisión jurídica del 26-10-2026). Si algún día el código dejara de ser público o se añadiera un algoritmo propio, hay que volver a analizarlo.
+- **Países y regiones:** **quita Francia** (*Prueba y publicación → Países y regiones*). La importación de un medio de cifrado en Francia exige una declaración previa a la ANSSI (art. 30 de la Ley 2004-575) y el propietario ha decidido no publicar allí ni presentarla. Si algún día se quiere Francia, antes hay que presentar esa declaración (gratuita; se resuelve en un mes). Quien descargue el APK de GitHub desde Francia para su propio uso está en el supuesto exento de la categoría 12.a del anexo 1 del decreto 2007-663.
 - **Funciones financieras:** ninguna. No es un exchange ni una wallet: guarda frases semilla, pero no firma ni envía transacciones. No uses la palabra «wallet» en la ficha.
 - **Público objetivo:** mayores de 13 años, sin dirigirse a menores (fuera de la política de Familias). Completa el cuestionario de clasificación de contenido.
-- **Descripción:** exacta y sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar»), con los avisos de «sin recuperación» y «sin auditoría independiente», y mencionando la conexión opcional con HIBP. Borrador en [`docs/ficha-google-play.md`](ficha-google-play.md).
-- **Permisos:** Internet (comprobación de filtraciones) y cámara (solo al escanear un QR de 2FA o de Google Authenticator). La huella usa la API biométrica del sistema; la app nunca la ve.
+- **Descripción:** exacta y sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar»), ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal»), con los avisos de «sin recuperación» y «sin auditoría independiente», y mencionando la conexión opcional con HIBP. Borrador en [`docs/ficha-google-play.md`](ficha-google-play.md).
+- **Permisos:** Internet (comprobación de filtraciones) y cámara (solo al escanear un QR de 2FA, de Google Authenticator o de la tarjeta de un contacto). La huella usa la API biométrica del sistema; la app nunca la ve.
 - **Anuncios:** no tiene. Tampoco compras ni donaciones: la app es gratuita y no se monetizará (ver el README).
 
 ## 4. Si se pierde la clave de subida
@@ -114,4 +117,8 @@ Guarda el `.jks` y sus contraseñas en un gestor de contraseñas y en una copia 
 ./gradlew -p jvm-check test --no-daemon --max-workers=1
 ```
 
-Y la lista de comprobaciones manuales del [README](../README.md#comprobaciones-manuales-en-el-móvil).
+Y la lista de comprobaciones manuales del [README](../README.md#comprobaciones-manuales-en-el-móvil), que incluye probar el **APK release** (con R8) en un móvil: crear la identidad, cifrar y abrir un mensaje y un archivo, y firmar y verificar.
+
+## 6. Si no se publica en Google Play
+
+Si la app solo se reparte a amigos y familia, no hace falta Play Console, ni las secciones 3.1 a 3.5, ni quitar Francia de ninguna lista: basta con el APK firmado con la clave de subida que adjunta la CI a la release de GitHub (apartado 2). Siguen valiendo la huella del apartado 1 y las comprobaciones del apartado 5. Quien instala desde GitHub y quien instalaría desde Play tienen firmas distintas, así que no se actualizan entre sí.
