@@ -72,7 +72,22 @@ class VaultStore(
     }
 
     private val mutex = Mutex()
+    private val _needsMaster = MutableStateFlow(false)
+
+    /**
+     * Whether the vault is not yet version 3 (it was written by 1.1 and opened here with the fingerprint, or is not
+     * opened yet): identity and contacts cannot be saved until [confirmMaster] (or [unlock]) wraps the key again under
+     * the master password. False with no vault. Follows the file the store holds, so it changes after [load], [unlock],
+     * [unlockWithKey], [confirmMaster], an import, [changeMaster] and [destroy]; [lock] leaves it as it is (the file
+     * on disk does not change by locking).
+     */
+    val needsMasterForContacts: StateFlow<Boolean> = _needsMaster.asStateFlow()
+
     private var vault: VaultFile? = null
+        set(value) {
+            field = value
+            _needsMaster.value = needsMaster(value)
+        }
     private var dek: ByteArray? = null
     private var lastUse = 0L
 
@@ -250,6 +265,34 @@ class VaultStore(
         collectGarbage()
     }
 
+    /**
+     * For an open vault that is not version 3 yet (see [needsMasterForContacts]): checks [master] and, if right, turns
+     * it into version 3 (same data key, so the fingerprint keeps working). A version-3 vault is only checked and
+     * stays as it is. A wrong password throws what [unlock] throws ([CryptoFailure]) and touches neither the file nor
+     * the open vault. Returns false, having checked nothing, when there is no vault or it is locked ([unlock] is the
+     * way in; the caller must not go on to save), and true when the password is right (checked or migrated). Like
+     * [unlock], it leaves [master] to the caller to wipe, and a full disk does not matter here (see [commit]): the
+     * next save writes the upgrade.
+     */
+    suspend fun confirmMaster(master: CharArray): Boolean = mutex.withLock {
+        val v = vault ?: return@withLock false
+        if (dek == null || _state.value !is VaultState.Unlocked) return@withLock false
+        val since = epoch
+        val key = withContext(compute) { VaultCrypto.unlock(v, master) }
+        if (v.format == VaultFile.FORMAT && v.version == VaultFile.VERSION) {
+            key.fill(0) // Only the check.
+            return@withLock true
+        }
+        val upgraded = try {
+            withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
+        } catch (e: Exception) {
+            key.fill(0)
+            throw e
+        }
+        commit(upgraded, key, since, mustSave = false)
+        true
+    }
+
     /** A copy of the open data key, to wrap it with the biometric key; null while locked. */
     fun dataKeyCopy(): ByteArray? = dek?.copyOf()
 
@@ -304,9 +347,19 @@ class VaultStore(
         true
     }
 
+    /**
+     * Adds or replaces [entry]. Throws [IllegalStateException] (nothing is saved) for an [EntryType.IDENTITY] when the
+     * vault has another one, and for an identity or contact while the vault is still version 2 (see
+     * [needsMasterForContacts]). Identities and contacts never keep attachments or password history.
+     */
     suspend fun upsert(entry: VaultEntry) = modify { list ->
+        checkCanHold(list, listOf(entry))
         val saved = list.firstOrNull { it.id == entry.id }
-        if (saved == null) {
+        if (entry.type.isPersonal) {
+            // No passwords, history or attachments of their own: whatever the caller sends is dropped.
+            val plain = entry.copy(passwordHistory = emptyList(), attachments = emptyList())
+            if (saved == null) list + plain else list.map { if (it.id == entry.id) plain else it }
+        } else if (saved == null) {
             list + entry.copy(passwordHistory = emptyList(), attachments = emptyList())
         } else {
             // The history is the store's to keep: whatever the caller sends is replaced by the stored one plus this change.
@@ -327,8 +380,29 @@ class VaultStore(
      */
     suspend fun addAll(entries: List<VaultEntry>) = modify { list ->
         val ids = list.mapTo(HashSet()) { it.id }
-        list + entries.filter { ids.add(it.id) }.map { it.copy(passwordHistory = emptyList(), attachments = emptyList()) }
+        val added = entries.filter { ids.add(it.id) }
+        checkCanHold(list, added)
+        list + added.map { it.copy(passwordHistory = emptyList(), attachments = emptyList()) }
     }
+
+    /**
+     * Called with the mutex held, before anything is written, for the entries [incoming] about to join [current]:
+     * no identity or contact in a vault that is not version 3 yet, and no second [EntryType.IDENTITY] (the same
+     * entry edited, with its own id, is fine). [VaultCrypto.write] checks the version once more.
+     */
+    private fun checkCanHold(current: List<VaultEntry>, incoming: List<VaultEntry>) {
+        check(!(needsMaster(vault) && incoming.any { it.type.isPersonal })) { NEEDS_MASTER_FOR_CONTACTS }
+        val identities = incoming.filter { it.type == EntryType.IDENTITY }
+        val taken = current.filter { it.type == EntryType.IDENTITY }.mapTo(HashSet()) { it.id }
+        check(identities.map { it.id }.distinct().size <= 1 && identities.all { id -> taken.all { it == id.id } }) { ONLY_ONE_IDENTITY }
+    }
+
+    /**
+     * Whether [file] is not yet a [VaultFile.FORMAT] version-3 file, so identity and contacts need the master password
+     * first; false with no vault. The one rule behind [needsMasterForContacts] and [checkCanHold].
+     */
+    private fun needsMaster(file: VaultFile?): Boolean =
+        file != null && (file.format != VaultFile.FORMAT || file.version != VaultFile.VERSION)
 
     /** Deletes the entry; its attachment files go with the collection after the save. */
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }
@@ -337,7 +411,8 @@ class VaultStore(
      * Encrypts [input] as a new attachment of entry [entryId] and saves the vault. Throws [AttachmentLimit] over
      * [MAX_ATTACHMENT_BYTES], or when the vault's attachments would pass [MAX_ATTACHMENTS_TOTAL_BYTES] (checked
      * before encrypting or writing anything, with the mutex held, so no other attachment can be added meanwhile).
-     * False if the vault was locked or the entry no longer exists, so nothing was saved.
+     * False if the vault was locked, the entry no longer exists or it is an identity or a contact (they keep no
+     * attachments), so nothing was saved.
      * [input] (maybe a slow or stuck document provider) is read before taking the mutex, so it can never block
      * unlocking or saving. Only encrypting, writing the file and saving the vault run with the mutex held, so no
      * collection can run between writing the file and saving its reference; if the save fails, the next collection
@@ -347,7 +422,7 @@ class VaultStore(
         val plain = withContext(io) { attachments.read(input) }
         try {
             return modify { list ->
-                val entry = list.firstOrNull { it.id == entryId } ?: return@modify null
+                val entry = list.firstOrNull { it.id == entryId && !it.type.isPersonal } ?: return@modify null
                 if (attachments.totalBytes(list.flatMap { it.attachments }) + plain.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
                     throw AttachmentLimit(ATTACHMENTS_TOTAL_TOO_BIG)
                 }
@@ -440,7 +515,8 @@ class VaultStore(
 
     /**
      * Replaces this vault with an exported one after checking its master password. Throws [CryptoFailure]. An export
-     * whose entries have attachments is refused (its files are only in the .sgbak copy) and nothing changes.
+     * whose entries have attachments is refused (its files are only in the .sgbak copy), and so is one with more than
+     * one identity; nothing changes.
      */
     suspend fun importReplace(text: String, master: CharArray) {
         val incoming = withContext(compute) { VaultCrypto.decodeFile(text) }
@@ -484,7 +560,10 @@ class VaultStore(
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
             val checked = withContext(compute) { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
-            val refs = withContext(compute) { VaultCrypto.read(checked, key) }.flatMap { it.attachments }
+            val incomingEntries = withContext(compute) { VaultCrypto.read(checked, key) }
+            // Only one identity per vault (see [upsert]): a copy with more is refused before anything changes.
+            if (incomingEntries.count { it.type == EntryType.IDENTITY } > 1) throw CryptoFailure(SEVERAL_IDENTITIES)
+            val refs = incomingEntries.flatMap { it.attachments }
             if (backup == null) {
                 if (refs.isNotEmpty()) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
             } else {
@@ -600,6 +679,9 @@ class VaultStore(
 /** Largest JSON export read (a real one is a few hundred KB): a huge file must not exhaust memory. */
 const val VAULT_IMPORT_MAX_BYTES = 20 * 1024 * 1024
 
+private const val NEEDS_MASTER_FOR_CONTACTS = "Hace falta la contraseña maestra para guardar la identidad o los contactos"
+private const val SEVERAL_IDENTITIES = "La copia tiene más de una identidad: no se puede importar"
+private const val ONLY_ONE_IDENTITY = "Solo puede haber una identidad"
 private const val IMPORT_TOO_BIG = "El archivo pasa de 20 MB: no es una copia de la bóveda"
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"
 private const val IMPORT_DIR_PREFIX = "import-"

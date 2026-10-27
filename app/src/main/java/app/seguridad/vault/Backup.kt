@@ -16,8 +16,9 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 /*
- * Format `seguridad-backup` v1 (.sgbak), never to change: a ZIP (java.util.zip) with, in this order,
- *  - `seguridad-backup`: the text "1\n";
+ * Format `seguridad-backup` v2 (.sgbak), never to change: a ZIP (java.util.zip) with, in this order,
+ *  - `seguridad-backup`: the text "2\n" (version 1, written by 1.1, has "1\n" and is read the same way: only this marker
+ *    differs; a number above 2 is a copy from a newer version, [BACKUP_NEWER], and 1.1 says the same about a 2);
  *  - `vault.json`: the vault file exactly as on disk (`VaultFile`, still encrypted);
  *  - `att/<id>.bin`: each attachment file exactly as stored (still encrypted), ids in ascending order.
  * Reading ignores any other name; the valid ones are checked with exact patterns (no zip-slip). Limits on the bytes
@@ -26,7 +27,13 @@ import java.util.zip.ZipOutputStream
 
 internal const val BACKUP_MARKER = "seguridad-backup"
 internal const val BACKUP_VAULT = "vault.json"
-private val BACKUP_VERSION = "1\n".toByteArray(Charsets.US_ASCII)
+private val BACKUP_VERSION = "2\n".toByteArray(Charsets.US_ASCII)
+
+/** What version 1 (1.1.x) wrote as its marker: still read, never written. */
+private val BACKUP_VERSION_1 = "1\n".toByteArray(Charsets.US_ASCII)
+
+/** The newest copy version this app reads. */
+private const val BACKUP_NEWEST = 2
 
 const val BACKUP_MAX_TOTAL_BYTES = 100L * 1024 * 1024
 const val BACKUP_MAX_ENTRY_BYTES = 6L * 1024 * 1024
@@ -144,7 +151,7 @@ internal fun fileMatchesSha256(file: File, hex: String, maxBytes: Long): Boolean
 /** What a copy holds: the vault file as text and each attachment id with its file in the temporary folder. */
 class BackupContents(val vaultJson: String, val attachments: Map<String, File>)
 
-/** Reads a `seguridad-backup` v1 copy. */
+/** Reads a `seguridad-backup` copy, version 1 or 2. */
 class BackupReader {
     /**
      * Reads the copy from [input] (left open), writing each attachment to `<id>.bin` in [tempDir] as it comes, never
@@ -198,9 +205,9 @@ class BackupReader {
                 // The marker comes first, with exactly this version.
                 if (name != BACKUP_MARKER) throw CryptoFailure(BACKUP_DAMAGED)
                 val version = bytes()
-                if (!version.contentEquals(BACKUP_VERSION)) {
+                if (!version.contentEquals(BACKUP_VERSION) && !version.contentEquals(BACKUP_VERSION_1)) {
                     val number = version.decodeToString().trim().toIntOrNull()
-                    throw CryptoFailure(if (number != null && number > 1) BACKUP_NEWER else BACKUP_DAMAGED)
+                    throw CryptoFailure(if (number != null && number > BACKUP_NEWEST) BACKUP_NEWER else BACKUP_DAMAGED)
                 }
                 continue
             }

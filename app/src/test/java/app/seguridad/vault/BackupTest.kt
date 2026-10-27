@@ -334,7 +334,7 @@ class BackupTest {
     @Test fun notABackupOrNewerVersionRejected() = runTest {
         val good = entriesOf(phoneA().backup())
         val temp = File(phone("work"), "temp")
-        readFails(zipOf(listOf("seguridad-backup" to "2\n".toByteArray()) + good.drop(1)), temp)
+        readFails(zipOf(listOf("seguridad-backup" to "3\n".toByteArray()) + good.drop(1)), temp)
         readFails(zipOf(listOf("seguridad-backup" to "1".toByteArray()) + good.drop(1)), temp)
         readFails(zipOf(good.drop(1)), temp) // No marker.
         readFails(zipOf(listOf(good[1], good[0]) + good.drop(2)), temp) // Marker not first.
@@ -413,7 +413,7 @@ class BackupTest {
         val entries = entriesOf(zip)
         val ids = a.entries().flatMap { it.attachments }.map { it.id }.sorted()
         assertEquals(listOf("seguridad-backup", "vault.json") + ids.map { "att/$it.bin" }, entries.map { it.first })
-        assertArrayEquals("1\n".toByteArray(Charsets.US_ASCII), entries[0].second)
+        assertArrayEquals("2\n".toByteArray(Charsets.US_ASCII), entries[0].second)
         // The vault file exactly as on disk, and the attachment files exactly as stored (still encrypted).
         assertEquals(File(phone("a"), "vault.bin").readText(), entries[1].second.decodeToString())
         for ((name, data) in entries.drop(2)) assertArrayEquals(File(phone("a"), name).readBytes(), data)

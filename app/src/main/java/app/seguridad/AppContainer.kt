@@ -29,8 +29,11 @@ class AppContainer(
     appVersion: String,
     backupFolder: (String) -> BackupTarget? = { null },
     releaseFolder: (String) -> Unit = {},
-    /** Lives as long as the process: the automatic copies and the record of how they went. */
-    private val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /**
+     * Lives as long as the process: the automatic copies, the record of how they went, and the clean-ups that must finish
+     * even if the screen that started them goes away (the temporary files of «Abrir lo recibido»).
+     */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE))
 

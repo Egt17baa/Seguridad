@@ -84,7 +84,7 @@ class AttachmentsTest {
         fileOf(ref).writeBytes(original.copyOf(original.size - 1)) // Truncated.
         assertDamaged { a.open(ref) }
         fileOf(ref).writeBytes(original)
-        assertDamaged { a.open(ref.copy(sha256 = "00" + ref.sha256.drop(2))) }
+        assertDamaged { a.open(ref.copy(sha256 = (if (ref.sha256[0] == '0') "1" else "0") + ref.sha256.drop(1))) }
         assertDamaged { a.open(ref.copy(sha256 = "no-hex")) }
         assertDamaged { a.open(ref.copy(key = Base64.getEncoder().encodeToString(ByteArray(32)))) }
         assertDamaged { a.open(ref.copy(key = "%%%")) }

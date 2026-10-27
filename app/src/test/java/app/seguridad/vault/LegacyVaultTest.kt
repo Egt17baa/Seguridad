@@ -44,7 +44,7 @@ class LegacyVaultTest {
         assertEquals("JBSWY3DPEHPK3PXP", entries.single { it.type == EntryType.TOTP }.totp!!.secret)
         val onDisk = VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText())
         assertEquals("seguridad-vault", onDisk.format)
-        assertEquals(2, onDisk.version)
+        assertEquals(VaultFile.VERSION, onDisk.version)
         assertEquals(clock, onDisk.masterCheckedAt)
         s.lock()
         s.unlock(master.toCharArray())
