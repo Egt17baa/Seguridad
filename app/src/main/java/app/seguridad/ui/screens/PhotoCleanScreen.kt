@@ -78,14 +78,14 @@ import kotlinx.coroutines.withContext
  */
 private class CleanCopy(val report: PhotoReport, val converted: Boolean, val bytes: ByteArray, val ext: String, val mime: String)
 
-private class PhotoTooBig : Exception()
+internal class PhotoTooBig : Exception()
 
 /**
  * Reads the picked file, refusing anything over [MAX_IMAGE_BYTES] before it is loaded: first by the size the provider
  * reports (when it does), then by reading at most one byte more than the limit (the reported size may be missing or
- * wrong). Never writes to [uri]: the original is only opened for reading.
+ * wrong). Never writes to [uri]: the original is only opened for reading. Shared with «Tachar en imagen».
  */
-private fun readPhoto(context: Context, uri: Uri): ByteArray {
+internal fun readPhoto(context: Context, uri: Uri): ByteArray {
     val size = runCatching {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
             if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null

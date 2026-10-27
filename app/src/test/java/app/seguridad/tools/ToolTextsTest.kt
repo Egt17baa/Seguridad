@@ -135,6 +135,16 @@ class ToolTextsTest {
     }
 
     @Test
+    fun downscaleTextIsTheAnnexOneAt24Megapixels() {
+        // ImageDecoder reduces to about 24 MP (the annex text); Android 8 halves the sides, so it says the real size.
+        assertEquals(REDACT_DOWNSCALED, redactDownscaledText(24))
+        assertEquals(
+            "La imagen es muy grande y se ha reducido a unos 6 megapíxeles para poder editarla. La copia tendrá ese tamaño.",
+            redactDownscaledText(6),
+        )
+    }
+
+    @Test
     fun everyTextConstantIsChecked() {
         // A new text in ToolTexts.kt cannot escape noForbiddenWords: every String constant there is in the list
         // (private fragments, such as the GPS line's prefix, inside one of its texts).

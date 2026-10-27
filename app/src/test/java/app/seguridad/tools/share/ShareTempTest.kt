@@ -51,6 +51,25 @@ class ShareTempTest {
         temp.discard(file) // Already gone: never fails.
     }
 
+    @Test fun discardOfAnEarlierCopyLeavesTheNewerOne() {
+        // Same fixed name twice (two shares of «Tachar»): a late discard of the first must not touch the second,
+        // which the receiving app may still be reading.
+        val first = temp.prepare("imagen-tachada.png", byteArrayOf(1))
+        clock += 60_000L
+        val second = temp.prepare("imagen-tachada.png", byteArrayOf(2))
+        assertEquals(first, second) // the same path
+        temp.discard(first)
+        assertEquals(listOf("imagen-tachada.png"), names())
+        assertArrayEquals(byteArrayOf(2), second.readBytes())
+        // Its time is kept too: back within 10 minutes of the second prepare, it stays.
+        clock += 9 * 60_000L
+        temp.onReturn()
+        assertEquals(listOf("imagen-tachada.png"), names())
+        // The current one can still be discarded, and only then is it gone.
+        temp.discard(second)
+        assertTrue(names().isEmpty())
+    }
+
     @Test fun returnBeforeTenMinutesKeepsIt() {
         temp.prepare("foto-limpia.png", byteArrayOf(1))
         clock += 9 * 60_000L + 59_000L

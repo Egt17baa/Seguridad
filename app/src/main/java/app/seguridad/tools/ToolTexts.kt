@@ -144,7 +144,9 @@ fun photoHasSomethingToRemove(report: PhotoReport) = (report.found - Found.ICC_K
  * metadata is gone, and a colour profile the encoder embedded is named.
  */
 fun photoDoneMessage(report: PhotoReport, converted: Boolean = false): String {
-    if (converted) return if (Found.ICC_KEPT in report.found) "$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT." else PHOTO_DONE_CONVERTED
+    if (converted) {
+        return if (Found.ICC_KEPT in report.found) "$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT." else PHOTO_DONE_CONVERTED
+    }
     val removed = PHOTO_REMOVED_NAMES.filterKeys { it in report.found }.values
     return if (removed.isEmpty()) PHOTO_DONE_SHORT else photoDoneText(removed.joinToString("; "))
 }
@@ -152,6 +154,7 @@ fun photoDoneMessage(report: PhotoReport, converted: Boolean = false): String {
 // ---- Tachar en imagen ----
 
 const val REDACT_TOOL_TITLE = "Tachar en imagen"
+const val REDACT_TOOL_SUBTITLE = "Tapa con bloques negros lo que no quieras enseñar"
 
 /** Anexo: «Explicación». */
 const val REDACT_EXPLANATION =
@@ -168,6 +171,27 @@ const val REDACT_LIMITS =
 /** Anexo: «Si se reduce». */
 const val REDACT_DOWNSCALED =
     "La imagen es muy grande y se ha reducido a unos 24 megapíxeles para poder editarla. La copia tendrá ese tamaño."
+
+/**
+ * «Si se reduce» with the size it really has: [REDACT_DOWNSCALED] at 24. Android 8 (no ImageDecoder) can only halve
+ * the sides, so there it may be fewer (6 at the least), and the annex number would not be true.
+ */
+fun redactDownscaledText(megapixels: Int) =
+    "La imagen es muy grande y se ha reducido a unos $megapixels megapíxeles para poder editarla. La copia tendrá ese " +
+        "tamaño."
+
+/** Not in the annex: buttons, progress and plain failure messages, without internal details. */
+const val REDACT_PICK = "Elegir imagen"
+const val REDACT_PICK_OTHER = "Elegir otra imagen"
+const val REDACT_OPENING = "Abriendo la imagen…"
+const val REDACT_RENDERING = "Preparando la copia…"
+const val REDACT_UNDO = "Deshacer"
+const val REDACT_REDO = "Rehacer"
+const val REDACT_TOO_BIG = "La imagen ocupa más de 50 MB."
+const val REDACT_DAMAGED =
+    "No se ha podido abrir esta imagen: el archivo está dañado o tiene un formato que no conocemos."
+const val REDACT_COPY_FAILED = "No se ha podido crear la copia tachada. No se ha guardado nada."
+const val REDACT_LOST = "No se ha guardado: vuelve a elegir la imagen y a tachar lo que quieras tapar."
 
 // ---- Inspector de QR ----
 
@@ -271,10 +295,13 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE, PHOTO_EXPLANATION, PHOTO_PICK, PHOTO_PICK_OTHER, PHOTO_FOUND_TITLE,
     PHOTO_ANALYSING, photoGpsLine(40.42, -3.70),
 ) + PHOTO_FOUND_TEXTS.values + PHOTO_REMOVED_NAMES.values + listOf(
-    PHOTO_DONE_CONVERTED, PHOTO_DONE_SHORT, "$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT.", PHOTO_NOTHING_FOUND, PHOTO_HEIF_NOTICE, PHOTO_FILE_NAME_NOTE, PHOTO_SAVE_COPY, SHARE,
+    PHOTO_DONE_CONVERTED, PHOTO_DONE_SHORT, "$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT.", PHOTO_NOTHING_FOUND,
+    PHOTO_HEIF_NOTICE, PHOTO_FILE_NAME_NOTE, PHOTO_SAVE_COPY, SHARE,
     PHOTO_TOO_BIG, PHOTO_SAVE_FAILED, PHOTO_SHARE_FAILED, PHOTO_LOST, photoDoneText("[lista]"),
     PHOTO_DAMAGED, PHOTO_UNSUPPORTED,
-    REDACT_TOOL_TITLE, REDACT_EXPLANATION, REDACT_LIMITS, REDACT_DOWNSCALED,
+    REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE, REDACT_EXPLANATION, REDACT_LIMITS, REDACT_DOWNSCALED, redactDownscaledText(6),
+    REDACT_PICK, REDACT_PICK_OTHER, REDACT_OPENING, REDACT_RENDERING, REDACT_UNDO, REDACT_REDO, REDACT_TOO_BIG,
+    REDACT_DAMAGED, REDACT_COPY_FAILED, REDACT_LOST,
     QR_EXPLANATION, QR_NO_ALERTS, qrAlertsTitle("N"), QR_MIXED_SCRIPTS, qrPunycode("…"), QR_IP_HOST, QR_HTTP,
     qrUserInfo("[host]"), qrPort("[:puerto]"), QR_SHORTENER, QR_SUBDOMAINS, qrScheme("[esquema]"), qrBidi("⟨U+202E⟩"),
     QR_WIFI_OPEN, QR_WIFI_WEP, QR_SEPA, QR_CRYPTO, QR_SMS, QR_SGK1,

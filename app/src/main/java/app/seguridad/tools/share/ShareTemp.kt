@@ -25,6 +25,9 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
     private val dir = File(cacheDir, SHARE_DIR)
     private var preparedAt: Long? = null
 
+    /** The File object the last [prepare] returned; [discard] acts only on that same object. */
+    private var preparedFile: File? = null
+
     /**
      * Writes [bytes] as `compartir/<name>`, the only file left there, and returns it. [name] must be one of the fixed
      * names (`foto-limpia.jpg|png|webp`, `imagen-tachada.jpg|png`); anything else throws IllegalArgumentException.
@@ -43,6 +46,7 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
             throw e
         }
         preparedAt = now()
+        preparedFile = file
         return file
     }
 
@@ -61,13 +65,16 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
     }
 
     /**
-     * Deletes [file] if it is in `compartir/` (the one a failed or cancelled share prepared); anything else is left
-     * alone. Never throws. An earlier copy is not touched here: [prepare] already removed it.
+     * Deletes [file] if it is the very object the last [prepare] returned (the copy of a failed or cancelled share);
+     * anything else is left alone. Compared by identity, not by path: the names are fixed, so a later prepare writes
+     * the same path, and a late discard of the earlier attempt must not delete the newer copy nor forget its time.
+     * Never throws. An earlier copy is not touched here: [prepare] already removed it.
      */
     @Synchronized
     fun discard(file: File) {
-        if (file.parentFile?.absoluteFile != dir.absoluteFile) return
+        if (file !== preparedFile) return
         file.delete()
+        preparedFile = null
         preparedAt = null
     }
 
@@ -86,6 +93,7 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
     /** Deletes every entry of `compartir/`; throws if any is left, so [prepare] never leaves two files. */
     private fun clear() {
         preparedAt = null
+        preparedFile = null
         val entries = dir.listFiles() ?: return
         for (entry in entries) entry.deleteRecursively()
         if (!dir.listFiles().isNullOrEmpty()) throw IOException("No se ha podido borrar la copia anterior")
