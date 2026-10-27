@@ -33,6 +33,19 @@ class PhotoCleanerTest {
         assertEquals(PhotoFormat.HEIF, detectFormat(ftyp("isom", "mp41", "mif1")))
     }
 
+    @Test fun avifIsToldApartFromHeic() {
+        // ImageDecoder reads AVIF only from Android 12: the screen needs to know which one it has.
+        assertTrue(isAvif(ftyp("avif", "mif1", "miaf")))
+        assertTrue(isAvif(ftyp("avis", "msf1")))
+        assertTrue(isAvif(ftyp("mif1", "avif")))
+        assertFalse(isAvif(ftyp("heic", "mif1")))
+        assertFalse(isAvif(ftyp("mif1", "heic", "avif"))) // A HEVC brand too: decodable as HEIC.
+        assertFalse(isAvif(ftyp("mif1")))
+        assertFalse(isAvif(bytes(0xFF, 0xD8, 0xFF, 0xE0)))
+        assertFalse(isAvif(ByteArray(0)))
+        assertFalse(isAvif(concat(bytes(0x7F, 0xFF, 0xFF, 0xFF), ascii("ftyp"), ascii("mif1"), bytes(0, 0, 0, 0), ascii("av"))))
+    }
+
     @Test fun anythingElseIsNull() {
         assertNull(detectFormat(ByteArray(0)))
         assertNull(detectFormat(bytes(0xFF, 0xD8)))

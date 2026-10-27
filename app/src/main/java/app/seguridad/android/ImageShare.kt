@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import app.seguridad.tools.SHARE
 import java.io.File
 
 /** Must match android:authorities of the FileProvider in AndroidManifest.xml. */
@@ -25,5 +26,5 @@ fun shareImage(context: Context, file: File, mime: String) {
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     send.clipData = ClipData.newRawUri(null, uri)
-    context.startActivity(Intent.createChooser(send, "Compartir"))
+    context.startActivity(Intent.createChooser(send, SHARE))
 }

@@ -60,6 +60,17 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
         wipeQuietly()
     }
 
+    /**
+     * Deletes [file] if it is in `compartir/` (the one a failed or cancelled share prepared); anything else is left
+     * alone. Never throws. An earlier copy is not touched here: [prepare] already removed it.
+     */
+    @Synchronized
+    fun discard(file: File) {
+        if (file.parentFile?.absoluteFile != dir.absoluteFile) return
+        file.delete()
+        preparedAt = null
+    }
+
     /** Empties `compartir/`. Never throws: it runs at start, where a full or read-only cache must not close the app. */
     @Synchronized
     fun wipeAll() = wipeQuietly()

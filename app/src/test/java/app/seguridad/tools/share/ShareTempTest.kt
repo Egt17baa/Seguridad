@@ -40,6 +40,17 @@ class ShareTempTest {
         assertEquals(listOf("foto-limpia.webp"), names())
     }
 
+    @Test fun discardRemovesOnlyThePreparedFile() {
+        val outside = tmp.newFile("foto-limpia.jpg")
+        val file = temp.prepare("foto-limpia.jpg", byteArrayOf(1))
+        temp.discard(outside) // Not in compartir/: left alone.
+        assertTrue(outside.exists())
+        assertEquals(listOf("foto-limpia.jpg"), names())
+        temp.discard(file)
+        assertEquals(emptyList<String>(), names())
+        temp.discard(file) // Already gone: never fails.
+    }
+
     @Test fun returnBeforeTenMinutesKeepsIt() {
         temp.prepare("foto-limpia.png", byteArrayOf(1))
         clock += 9 * 60_000L + 59_000L

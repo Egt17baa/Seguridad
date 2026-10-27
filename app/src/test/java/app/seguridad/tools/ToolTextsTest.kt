@@ -8,6 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.lang.reflect.Modifier
 
 class ToolTextsTest {
     private val annexPath = "docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md"
@@ -119,8 +120,37 @@ class ToolTextsTest {
                 "teniéndolos: comparte la copia, no el original.",
             photoDoneMessage(report),
         )
-        assertEquals(PHOTO_NOTHING_FOUND, photoDoneMessage(PhotoReport(PhotoFormat.PNG, setOf(Found.ICC_KEPT), null)))
-        // HEIC: nothing of the original goes into the JPEG.
-        assertEquals(photoDoneText(PHOTO_DONE_ALL), photoDoneMessage(null))
+        // Nothing removed: a short line, not the card's «No hemos encontrado…» again.
+        assertEquals(PHOTO_DONE_SHORT, photoDoneMessage(PhotoReport(PhotoFormat.PNG, setOf(Found.ICC_KEPT), null)))
+        assertEquals("Copia lista.", PHOTO_DONE_SHORT)
+    }
+
+    @Test
+    fun convertedPhotoNeverClaimsEverythingWentAndNamesTheKeptProfile() {
+        val plain = photoDoneMessage(PhotoReport(PhotoFormat.JPEG, emptySet(), null), converted = true)
+        assertEquals(PHOTO_DONE_CONVERTED, plain)
+        val withIcc = photoDoneMessage(PhotoReport(PhotoFormat.JPEG, setOf(Found.ICC_KEPT), null), converted = true)
+        assertEquals("$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT.", withIcc)
+        for (t in listOf(plain, withIcc)) assertFalse(t, "todos" in t)
+    }
+
+    @Test
+    fun everyTextConstantIsChecked() {
+        // A new text in ToolTexts.kt cannot escape noForbiddenWords: every String constant there is in the list
+        // (private fragments, such as the GPS line's prefix, inside one of its texts).
+        val fields = Class.forName("app.seguridad.tools.ToolTextsKt").declaredFields
+            .filter { Modifier.isStatic(it.modifiers) && it.type == String::class.java }
+            .onEach { it.isAccessible = true }
+        assertTrue("Too few constants found: ${fields.size}", fields.size >= 60)
+        for (f in fields) {
+            val v = f.get(null) as String
+            if (Modifier.isPrivate(f.modifiers)) {
+                assertTrue("${f.name} in no text", ALL_TOOL_TEXTS.any { v in it })
+            } else {
+                assertTrue("${f.name} missing from ALL_TOOL_TEXTS", v in ALL_TOOL_TEXTS)
+            }
+        }
+        assertTrue(ALL_TOOL_TEXTS.containsAll(PHOTO_FOUND_TEXTS.values))
+        assertTrue(ALL_TOOL_TEXTS.containsAll(PHOTO_REMOVED_NAMES.values))
     }
 }
