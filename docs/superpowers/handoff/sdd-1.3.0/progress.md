@@ -116,3 +116,4 @@ Task 9: review 1 = Needs fixes. Important: (1) unlock doFinal failure on StrongB
 Task 9: ruling: mark strongbox_failed only on evidence (createKey/init failure immediately; prompt/doFinal failure only after TEE retry succeeds); unlock doFinal failure on StrongBox key = mark+disable+FINGERPRINT_NOT_RESPONDING. Keep «No se pudo comprobar» pending Abogado review in Task 16.
 Task 9: fix round 1/5 commit 0bff666 (838); 2 Important + 5 minors addressed
 Task 9: re-review 1 = Approved (no Critical/Important). New minors: unlock sensor errors 1/2/8 too wide; destroy-during-keygen race frees guard early; onKey outside try; hint composed≠seen (accepted). Fix round 2 for minors 1-3 + 1.1.0 tag comment (owner rule).
+Task 9: fix round 2/5 commit e84797c (839); 4 minors addressed. Scoped re-review 2 dispatched to a4b565b.

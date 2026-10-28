@@ -240,3 +240,54 @@ The relevant checklist items are key management (where the key lives, what inval
 - **Threads:** the Keystore key generation runs off the main thread (`:237`), and the activity guard is checked again on Main (`:249`).
 - **Hygiene:** no logs, no new permission, no new dependency (kotlinx-coroutines-android and lifecycle were already used), and no change to any format.
 - **Findings:** no Crítica, Alta or Media; the remaining concerns above are Informativa.
+
+---
+
+# Fix round 2 (commit `e84797c`, pushed to `ccr-a1a6eabb-765f9g`)
+
+**Status: DONE.**
+
+## Changes
+
+1. **Unlock only blames StrongBox where the key is used.**
+   - New pure function `unlockBlamesStrongBox(UnlockFailure)` (`KeyPlacement.kt:106`): `INIT`, `NO_CRYPTO_OBJECT` and `DO_FINAL` count; `PROMPT_ERROR` never does.
+   - In `BiometricVault.kt`, `failedAt()` (`:365`) is used at init (`:383`), for a null CryptoObject (`:386`), at `doFinal` (`:391`) and for every prompt error (`:400`).
+   - Sensor faults 1, 2 and 8 now give their message, mark nothing, and leave the fingerprint on, as in 1.2.2.
+   - `prompt()` now hands a nullable cipher to `onOk`, so a null CryptoObject is no longer disguised as HARDWARE.
+   - `promptErrorKind` is unchanged. Enable uses only CANCEL versus the rest, so every non-cancel error still gets the TEE retry, and marking still depends on `shouldMarkStrongBoxFailed`. The KDoc of `HARDWARE` now says it is not evidence against StrongBox.
+2. **Race with background key generation.**
+   - `EnableFlow.keygenRunning` is set around the `withContext(Dispatchers.Default)` block (`:244`).
+   - `end()` still zeroes both copies of the data key at once (`:336`). It calls `release()` (delete the unused key, then free `enabling`; `:344`) only if no key generation is running (`:337`).
+   - Otherwise the `finally` after `withContext` calls `release()` (`:257`). It runs on Main once the block has returned, even when cancelled, because `withContext` waits for its block.
+   - This cannot delete a newer flow's key: the guard stays held until that `finally`, so no flow B can start before A's key is deleted.
+3. **`onKey` is back inside a try** (`:394`): an exception from it gives «No se pudo desbloquear con la huella» again.
+4. **Tag comment:** the comment above `BIOMETRIC_FRAGMENT_TAG` (`:62-63`) says it is an internal of biometric 1.1.0, to recheck on every bump.
+
+## Tests and verification
+
+- **TDD:** `unlockBlamesStrongBoxOnlyWhereTheKeyIsUsed` was RED first (`Unresolved reference 'unlockBlamesStrongBox'`, `'UnlockFailure'`) and GREEN after the change. KeyPlacementTest has 8 tests, all passing.
+- `gradle -p jvm-check test --no-daemon --max-workers=1 --offline`: BUILD SUCCESSFUL, 839 passed and 0 failed.
+- `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon --max-workers=1 --offline`: BUILD SUCCESSFUL in 2m 42s. There were 839 unit tests in 52 suites, with 0 failures and 0 errors. Lint shows only the warnings that already existed, none in the changed files.
+
+## Phone test added
+
+11. **Rotate during key creation:** tap «Activar huella» and, while the key is being created (before the prompt appears), rotate the phone or switch the system theme between light and dark. Either one recreates the activity.
+    - Expected right after: no crash, the fingerprint stays off, and there may be no message, because the old screen has gone.
+    - Tap «Activar huella» again. A tap in the first fraction of a second may be ignored while the old key generation finishes; tap again.
+    - Then: a single prompt, «Huella activada», and the vault unlocks with the fingerprint after locking it. That shows the new key was not replaced by the old flow's late key.
+    - Ajustes says «Chip seguro (StrongBox)».
+
+## Remaining concern (Informativa)
+
+- If a vendor's StrongBox key generation never returned, the guard would stay held until the process restarts. Before 1.3.0 the same hang would have frozen the screen (it ran on main), so this is no worse.
+
+## Revisión experto-seguridad-cripto (fix round 2)
+
+- **No downgrade from sensor faults:** only init, `doFinal` and a missing CryptoObject on a StrongBox key record `strongbox_failed` and disable the fingerprint (`KeyPlacement.kt:106`, `BiometricVault.kt:365-374`, `:383`, `:386`, `:391`). Prompt errors keep the 1.2.2 behaviour (`:400`).
+- **Key integrity across flows:** a late key from a destroyed flow is deleted before the next enable can start (`:244`, `:257`, `:337`, `:344-347`), so a stored wrap always matches the current Keystore key.
+- **Secret wiping is not delayed:** both copies of the data key are zeroed in `end()` straight away (`:336`), and a late callback stores nothing.
+- **Other checks:**
+  - an `onKey` exception gives the normal error, and the key bytes have already been handed over (`:393-397`);
+  - the key spec is unchanged, with no `setUnlockedDeviceRequired`;
+  - no logs, permissions, dependencies or format changes.
+- **Findings:** no Crítica, Alta or Media.
