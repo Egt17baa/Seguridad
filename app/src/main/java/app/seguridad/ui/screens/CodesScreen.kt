@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.copySensitive
 import app.seguridad.tools.ANSWERS_ADD_QUESTION
+import app.seguridad.tools.ANSWERS_BLANK_QUESTION
+import app.seguridad.tools.ANSWERS_REMOVE_QUESTION
 import app.seguridad.tools.ANSWERS_EXPLANATION
 import app.seguridad.tools.ANSWERS_LIMIT
 import app.seguridad.tools.ANSWERS_NO_ACCENTS
@@ -89,14 +91,23 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-/** How many PINs are left per length: a constant of the rules (not a secret), so it is computed once per run of the app. */
-private val pinCounts = ConcurrentHashMap<Int, Long>()
+/**
+ * How many PINs are left per length: a constant of the rules (not a secret). One shared computation per length for the
+ * whole run of the app: a second request (another visit, a quick change of length) waits for the first and reuses it.
+ */
+private val pinCountScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+private val pinCounts = ConcurrentHashMap<Int, Deferred<Long>>()
+
+private fun pinCount(digits: Int): Deferred<Long> = pinCounts.computeIfAbsent(digits) { pinCountScope.async { strongPinCount(digits) } }
 
 private enum class SaveKind { RECOVERY, ANSWERS }
 
@@ -128,11 +139,9 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
 
     var digits by remember { mutableIntStateOf(6) }
     var pin by remember { mutableStateOf(generatePin(6)) }
-    var count by remember { mutableStateOf(pinCounts[6]) }
+    var count by remember { mutableStateOf<Long?>(null) }
     // Off the main thread, once per length: 10^8 values at 8 digits take a few seconds.
-    LaunchedEffect(digits) {
-        count = pinCounts[digits] ?: withContext(Dispatchers.Default) { strongPinCount(digits).also { pinCounts[digits] = it } }
-    }
+    LaunchedEffect(digits) { count = pinCount(digits).await() }
 
     var codes by remember { mutableStateOf(recoveryCodes()) }
     var recoverySite by remember { mutableStateOf("") }
@@ -142,7 +151,9 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
     val rows = remember { mutableStateListOf(AnswerRow("", inventedAnswer(words, plain = true))) }
 
     var pending by remember { mutableStateOf<SaveKind?>(null) }
+    var saving by remember { mutableStateOf(false) }
 
+    /** Writes the note. On success the saved values leave the screen (drawn again or blank), so they do not stay in view. */
     suspend fun save(kind: SaveKind) {
         val now = System.currentTimeMillis()
         val id = UUID.randomUUID().toString()
@@ -150,7 +161,7 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
             SaveKind.RECOVERY -> recoveryCodesNote(recoverySite.trim(), codes, now, id)
             SaveKind.ANSWERS -> inventedAnswersNote(
                 answersSite.trim(),
-                rows.filter { it.question.isNotBlank() }.map { InventedQuestion(it.question.trim(), it.answer) },
+                rows.map { InventedQuestion(it.question.trim(), it.answer) },
                 now,
                 id,
             )
@@ -162,12 +173,41 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
         } catch (e: Exception) {
             false // Nothing is logged: the note holds the secrets.
         }
-        snackbar.showSnackbar(if (saved) CODES_SAVED else CODES_SAVE_FAILED)
+        if (saved) {
+            when (kind) {
+                SaveKind.RECOVERY -> {
+                    codes = recoveryCodes()
+                    recoverySite = ""
+                }
+                SaveKind.ANSWERS -> {
+                    answersSite = ""
+                    rows.clear()
+                    rows.add(AnswerRow("", inventedAnswer(words, plain)))
+                }
+            }
+        }
+        // Its own coroutine: showSnackbar waits until the message goes, and nothing here waits for that.
+        scope.launch { snackbar.showSnackbar(if (saved) CODES_SAVED else CODES_SAVE_FAILED) }
     }
 
     fun requestSave(kind: SaveKind) {
-        if (vaultState is VaultState.Unlocked) scope.launch { save(kind) } else pending = kind
+        if (saving || pending != null) return // One save at a time: a second tap would add a second note.
+        if (vaultState is VaultState.Unlocked) {
+            saving = true
+            scope.launch {
+                try {
+                    save(kind)
+                } finally {
+                    saving = false
+                }
+            }
+        } else {
+            pending = kind
+        }
     }
+
+    val busy = saving || pending != null
+    val blankQuestion = rows.any { it.question.isBlank() }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -189,8 +229,13 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                 VaultGate(store, onImport = actions.import, modifier = Modifier.weight(1f)) {
                     // Open now: write the note, then back to the screen with what was drawn still on it.
                     LaunchedEffect(Unit) {
-                        save(kind)
-                        pending = null
+                        saving = true
+                        try {
+                            save(kind)
+                            pending = null
+                        } finally {
+                            saving = false
+                        }
                     }
                     CircularProgressIndicator()
                 }
@@ -223,7 +268,7 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                                 selected = digits == n,
                                 onClick = {
                                     digits = n
-                                    count = pinCounts[n]
+                                    count = null
                                     pin = generatePin(n)
                                 },
                                 shape = SegmentedButtonDefaults.itemShape(i, 5),
@@ -247,7 +292,7 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                     }
                     SiteField(recoverySite) { recoverySite = it }
                     Button(
-                        enabled = recoverySite.isNotBlank(),
+                        enabled = !busy && recoverySite.isNotBlank(),
                         onClick = { requestSave(SaveKind.RECOVERY) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(CODES_SAVE_AS_NOTE) }
@@ -283,12 +328,14 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                                     value = row.question,
                                     onValueChange = { row.question = it },
                                     label = { Text(CODES_QUESTION_LABEL) },
+                                    singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 Text(row.answer, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     FilledTonalButton(onClick = { rows[i].answer = inventedAnswer(words, plain) }) { Text(ANSWERS_OTHER) }
                                     OutlinedButton(onClick = { copySensitive(context, row.answer) }) { Text(CODES_COPY) }
+                                    if (rows.size > 1) TextButton(onClick = { rows.removeAt(i) }) { Text(ANSWERS_REMOVE_QUESTION) }
                                 }
                             }
                         }
@@ -297,8 +344,11 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                         onClick = { rows.add(AnswerRow("", inventedAnswer(words, plain))) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(ANSWERS_ADD_QUESTION) }
+                    if (blankQuestion) {
+                        Text(ANSWERS_BLANK_QUESTION, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Button(
-                        enabled = answersSite.isNotBlank() && rows.any { it.question.isNotBlank() },
+                        enabled = !busy && answersSite.isNotBlank() && !blankQuestion,
                         onClick = { requestSave(SaveKind.ANSWERS) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(ANSWERS_SAVE) }

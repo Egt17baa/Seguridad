@@ -106,4 +106,20 @@ class InventedAnswersTest {
         assertEquals(1_700_000_000_000, note.updatedAt)
         assertEquals("", note.password)
     }
+
+    @Test
+    fun lineBreaksInAQuestionOrSiteBecomeSpacesButAnArrowStays() {
+        val note = inventedAnswersNote(
+            site = "example\n.org",
+            questions = listOf(
+                InventedQuestion("¿Tu primera\nmascota?", "nube tigre velero ancla"),
+                InventedQuestion("a\r\nb\rc\u2028d → e", "abeja farol lluvia mesa"),
+            ),
+            now = 1,
+            id = "x",
+        )
+        assertEquals("Respuestas de seguridad · example .org", note.title)
+        assertEquals("¿Tu primera mascota? → nube tigre velero ancla\na b c d → e → abeja farol lluvia mesa", note.notes)
+        assertEquals(2, note.notes.lines().size)
+    }
 }

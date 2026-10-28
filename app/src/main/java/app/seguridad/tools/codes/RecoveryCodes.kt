@@ -28,4 +28,4 @@ fun recoveryCodes(random: SecureRandom = secureRandom): List<String> {
 
 /** The secure note «Códigos de recuperación · [site]» with one code per line. */
 fun recoveryCodesNote(site: String, codes: List<String>, now: Long, id: String): VaultEntry =
-    VaultEntry(id = id, type = EntryType.NOTE, title = recoveryNoteTitle(site), notes = codes.joinToString("\n"), createdAt = now, updatedAt = now)
+    VaultEntry(id = id, type = EntryType.NOTE, title = recoveryNoteTitle(oneLine(site)), notes = codes.joinToString("\n"), createdAt = now, updatedAt = now)

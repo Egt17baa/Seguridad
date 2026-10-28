@@ -77,4 +77,9 @@ class RecoveryCodesTest {
         assertEquals(1_700_000_000_000, note.updatedAt)
         assertEquals("", note.password)
     }
+
+    @Test
+    fun aLineBreakInTheSiteNeverSplitsTheTitle() {
+        assertEquals("Códigos de recuperación · a b", recoveryCodesNote("a\nb", listOf("ABCD-EFGH-JK"), 1, "x").title)
+    }
 }

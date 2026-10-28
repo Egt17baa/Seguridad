@@ -40,6 +40,28 @@ private fun keypadRuns(size: Int): BooleanArray {
 private val KEYPAD_RUNS_3 = keypadRuns(3)
 private val KEYPAD_RUNS_4 = keypadRuns(4)
 
+/**
+ * The columns swept left to right and back, as a finger does: any 4 to 8 digits in a row from one of these (14725836,
+ * 14725, 36925, 8147) are a keypad line cut to length.
+ */
+private val KEYPAD_SWEEPS: List<IntArray> = listOf("1472583690", "0963852741", "3692581470", "0741852963")
+    .map { sweep -> IntArray(sweep.length) { sweep[it] - '0' } }
+
+private fun isKeypadSweep(d: IntArray, n: Int): Boolean {
+    for (sweep in KEYPAD_SWEEPS) {
+        var start = 0
+        while (start + n <= sweep.size) {
+            if (sweep[start] == d[0]) {
+                var i = 1
+                while (i < n && sweep[start + i] == d[i]) i++
+                if (i == n) return true
+            }
+            start++
+        }
+    }
+    return false
+}
+
 private fun number(d: IntArray, from: Int, to: Int): Int {
     var v = 0
     for (i in from until to) v = v * 10 + d[i]
@@ -70,11 +92,11 @@ private fun weakDigits(d: IntArray, n: Int): Boolean {
         val a = d[0] * 10 + d[1]
         val b = d[2] * 10 + d[3]
         if (validDate(a, b) || validDate(b, a)) return true // DDMM, MMDD
-        return KEYPAD_RUNS_4[whole]
+        return KEYPAD_RUNS_4[whole] || isKeypadSweep(d, 4)
     }
     // From 5 digits, a year (1900 to 2099) at the start or at the end.
     if (isYear(number(d, 0, 4)) || isYear(number(d, n - 4, n))) return true
-    return when (n) {
+    return isKeypadSweep(d, n) || when (n) {
         6 -> {
             val a = d[0] * 10 + d[1]
             val b = d[2] * 10 + d[3]
@@ -85,7 +107,7 @@ private fun weakDigits(d: IntArray, n: Int): Boolean {
         7 -> (KEYPAD_RUNS_3[number(d, 0, 3)] && KEYPAD_RUNS_4[number(d, 3, 7)]) ||
             (KEYPAD_RUNS_4[number(d, 0, 4)] && KEYPAD_RUNS_3[number(d, 4, 7)])
         8 -> KEYPAD_RUNS_4[number(d, 0, 4)] && KEYPAD_RUNS_4[number(d, 4, 8)] // 8-digit dates carry a year: caught above
-        else -> false // 5 digits: no date, and no way to split it into runs of 3 and 4 keys
+        else -> false // 5 digits: no date, and no way to split it into runs of 3 and 4 keys (sweeps are checked above)
     }
 }
 
@@ -93,7 +115,8 @@ private fun weakDigits(d: IntArray, n: Int): Boolean {
  * True for a 4 to 8 digit PIN with one of the most used patterns: the 20 most used 4-digit PINs, a single digit or a
  * block repeated (1111, 1212, 123123), an ascending or descending run (1234, 9876, 8901), a year from 1900 to 2099 (the
  * whole PIN at 4 digits, at either end from 5), a date (DDMM and MMDD; DDMMYY, MMDDYY and YYMMDD; no leap-year check),
- * and keypad lines of 3 or more keys, alone or one after another (2580, 0852, 147258).
+ * keypad lines of 3 or more keys, alone or one after another (2580, 0852, 147258), and the column sweeps cut to length
+ * (14725836, 14725, 36925).
  */
 fun isWeakPin(pin: String): Boolean {
     require(pin.length in MIN_DIGITS..MAX_DIGITS && pin.all { it in '0'..'9' }) { "A PIN has 4 to 8 digits" }
