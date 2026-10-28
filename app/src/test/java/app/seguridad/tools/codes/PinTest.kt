@@ -74,6 +74,15 @@ class PinTest {
     }
 
     @Test
+    fun keypadColumnSweepsCutToLengthAreWeak() {
+        for (pin in listOf("14725836", "14725", "36925", "1472", "8147", "58369", "963852", "0741852", "09638527", "25836", "74185296")) {
+            assertTrue("«$pin» should be weak", isWeakPin(pin))
+        }
+        // Near misses: one digit off a sweep.
+        for (pin in listOf("14725837", "14735", "36915", "47253")) assertFalse("«$pin» should not be weak", isWeakPin(pin))
+    }
+
+    @Test
     fun generatedNeverWeak() {
         for (digits in 4..8) {
             repeat(10_000) {

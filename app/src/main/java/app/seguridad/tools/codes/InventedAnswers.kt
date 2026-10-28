@@ -25,6 +25,9 @@ fun inventedAnswer(words: List<String>, plain: Boolean = true, random: SecureRan
     }
 }
 
+/** Every line break (\R: LF, CR, CRLF, NEL, U+2028, U+2029) as a space, so a question cannot start a line of its own in the note. */
+internal fun oneLine(text: String): String = text.replace(Regex("\\R"), " ")
+
 data class InventedQuestion(val question: String, val answer: String)
 
 /** The secure note «Respuestas de seguridad · [site]» with one line `pregunta → respuesta` per question. */
@@ -32,8 +35,8 @@ fun inventedAnswersNote(site: String, questions: List<InventedQuestion>, now: Lo
     VaultEntry(
         id = id,
         type = EntryType.NOTE,
-        title = answersNoteTitle(site),
-        notes = questions.joinToString("\n") { "${it.question} → ${it.answer}" },
+        title = answersNoteTitle(oneLine(site)),
+        notes = questions.joinToString("\n") { "${oneLine(it.question)} → ${it.answer}" },
         createdAt = now,
         updatedAt = now,
     )
