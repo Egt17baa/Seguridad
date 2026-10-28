@@ -44,11 +44,13 @@ private val KEYPAD_RUNS_4 = keypadRuns(4)
  * The columns swept left to right and back, as a finger does: any 4 to 8 digits in a row from one of these (14725836,
  * 14725, 36925, 8147) are a keypad line cut to length.
  */
-private val KEYPAD_SWEEPS: List<IntArray> = listOf("1472583690", "0963852741", "3692581470", "0741852963")
-    .map { sweep -> IntArray(sweep.length) { sweep[it] - '0' } }
+private val KEYPAD_SWEEPS: Array<IntArray> =
+    arrayOf("1472583690", "0963852741", "3692581470", "0741852963").map { sweep -> IntArray(sweep.length) { sweep[it] - '0' } }.toTypedArray()
 
 private fun isKeypadSweep(d: IntArray, n: Int): Boolean {
-    for (sweep in KEYPAD_SWEEPS) {
+    // Indexed loops: no iterator is allocated per call (strongPinCount runs this 10^8 times).
+    for (k in KEYPAD_SWEEPS.indices) {
+        val sweep = KEYPAD_SWEEPS[k]
         var start = 0
         while (start + n <= sweep.size) {
             if (sweep[start] == d[0]) {
