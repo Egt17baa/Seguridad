@@ -8,5 +8,5 @@ It includes third-party components under their own licenses, listed in the app
 - the EFF Long Wordlist, by the Electronic Frontier Foundation, licensed under
   the Creative Commons Attribution 3.0 United States License (CC BY 3.0 US),
   https://creativecommons.org/licenses/by/3.0/us/ — used without changes;
-- the BIP-39 English wordlist (MIT);
+- the BIP-39 English and Spanish wordlists (MIT);
 - Bouncy Castle (MIT).

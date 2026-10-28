@@ -74,6 +74,13 @@ class ToolTextsTest {
     }
 
     @Test
+    fun pinCountIsWrittenWithSpanishSeparators() {
+        assertEquals(pinText("8.463", "13,0"), pinCountText(8_463, 13.0))
+        assertTrue("Quedan 98.765.432 PIN posibles (unos 26,6 bits)" in pinCountText(98_765_432, 26.6))
+        assertTrue("Quedan 999 PIN posibles (unos 10,0 bits)" in pinCountText(999, 9.9999))
+    }
+
+    @Test
     fun exceptionsAreTheAnnexOnes() {
         assertTrue("no garantiza que sea seguro" in QR_NO_ALERTS)
         assertTrue("no se puede recuperar" in REDACT_EXPLANATION)
