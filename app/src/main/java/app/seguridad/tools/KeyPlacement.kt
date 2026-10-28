@@ -68,7 +68,10 @@ enum class PromptErrorKind {
     /** The user said no (the negative button, or cancelled): not a failure. */
     CANCEL,
 
-    /** The sensor or the secure hardware behind it did not work. */
+    /**
+     * The sensor did not work (often for a moment). The prompt never uses the key, so this is no evidence against
+     * StrongBox: at unlock it is reported like any other error ([unlockBlamesStrongBox]).
+     */
     HARDWARE,
 
     /** The user or the moment: system cancel (Home, app switch), timeout, lockout, no fingerprints, etc. */
@@ -80,6 +83,27 @@ fun promptErrorKind(code: Int): PromptErrorKind = when (code) {
     PROMPT_ERROR_HW_UNAVAILABLE, PROMPT_ERROR_UNABLE_TO_PROCESS, PROMPT_ERROR_VENDOR -> PromptErrorKind.HARDWARE
     else -> PromptErrorKind.OTHER
 }
+
+/** Where unlocking with a StrongBox key failed. */
+enum class UnlockFailure {
+    /** Cipher.init threw (not KeyPermanentlyInvalidatedException). */
+    INIT,
+
+    /** The prompt ended with an error that is not a cancel. */
+    PROMPT_ERROR,
+
+    /** The prompt succeeded without the CryptoObject: the key's operation was lost. */
+    NO_CRYPTO_OBJECT,
+
+    /** doFinal threw: StrongBox rejected the auth token or the operation. */
+    DO_FINAL,
+}
+
+/**
+ * Whether an unlock failure of a StrongBox key counts as «StrongBox no responde» (recorded, fingerprint off). Only where
+ * the key itself is used; a prompt error, even a sensor fault, keeps the 1.2.2 behaviour: a message, nothing recorded.
+ */
+fun unlockBlamesStrongBox(failure: UnlockFailure): Boolean = failure != UnlockFailure.PROMPT_ERROR
 
 /**
  * R2: someone who enabled the fingerprint before 1.3.0 keeps the key in the TEE (no silent migration: it would ask for

@@ -83,6 +83,18 @@ class KeyPlacementTest {
     }
 
     @Test
+    fun unlockBlamesStrongBoxOnlyWhereTheKeyIsUsed() {
+        // The key is used at Cipher.init and doFinal; a missing CryptoObject means the key's operation was lost.
+        assertTrue(unlockBlamesStrongBox(UnlockFailure.INIT))
+        assertTrue(unlockBlamesStrongBox(UnlockFailure.NO_CRYPTO_OBJECT))
+        assertTrue(unlockBlamesStrongBox(UnlockFailure.DO_FINAL))
+        // Any prompt error, the sensor's HW_UNAVAILABLE, UNABLE_TO_PROCESS and VENDOR included: the 1.2.2 message, nothing
+        // recorded, the fingerprint stays on.
+        assertFalse(unlockBlamesStrongBox(UnlockFailure.PROMPT_ERROR))
+        assertEquals(PromptErrorKind.HARDWARE, promptErrorKind(PROMPT_ERROR_VENDOR))
+    }
+
+    @Test
     fun beforeApi31SecureHardwareIsStrongBoxOnlyIfCreatedThere() {
         // KeyInfo before Android 12 only says «inside secure hardware»: StrongBox comes from how the key was created.
         assertEquals(KeyLevel.STRONGBOX, legacyKeyLevel(insideSecureHardware = true, createdInStrongBox = true))
