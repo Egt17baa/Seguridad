@@ -354,6 +354,33 @@ fun pinText(count: String, bits: String) =
         "$count PIN posibles (unos $bits bits). Un PIN corto protege porque el móvil o la tarjeta se bloquean tras pocos " +
         "intentos: no lo uses como contraseña."
 
+/** The number with a point between thousands and the bits with one decimal and a comma (Spanish), then [pinText]. */
+fun pinCountText(count: Long, bits: Double): String =
+    pinText(count.toString().reversed().chunked(3).joinToString(".").reversed(), String.format(Locale.ROOT, "%.1f", bits).replace('.', ','))
+
+// Not in the annex: the names and labels of the screen «PIN y códigos» and the titles of the notes it saves.
+const val CODES_TOOL_TITLE = "PIN y códigos"
+const val CODES_TOOL_SUBTITLE = "PIN, códigos de recuperación y respuestas inventadas"
+const val CODES_PIN_TITLE = "PIN"
+const val CODES_PIN_LENGTH = "Longitud del PIN"
+const val CODES_PIN_COUNTING = "Calculando cuántos PIN quedan…"
+const val CODES_RECOVERY_TITLE = "Códigos de recuperación"
+const val CODES_COPY = "Copiar"
+const val CODES_COPY_ALL = "Copiar todos"
+const val CODES_ANOTHER_PIN = "Otro PIN"
+const val CODES_ANOTHER_CODES = "Otros códigos"
+const val CODES_SAVE_AS_NOTE = "Guardar en la bóveda como nota"
+const val CODES_SITE_LABEL = "Web o servicio"
+const val CODES_SITE_NEEDED = "Escribe la web o el servicio para dar nombre a la nota."
+const val CODES_QUESTION_LABEL = "Pregunta"
+const val CODES_UNLOCK_TO_SAVE = "Desbloquea la bóveda para guardarlo. Lo que ves aquí se conserva mientras tanto."
+const val CODES_CANCEL_SAVE = "No guardar"
+const val CODES_SAVED = "Guardado en la bóveda como nota."
+const val CODES_SAVE_FAILED = "No se pudo guardar en la bóveda."
+
+fun recoveryNoteTitle(site: String) = "Códigos de recuperación · $site"
+fun answersNoteTitle(site: String) = "Respuestas de seguridad · $site"
+
 const val RECOVERY_CODES_TEXT =
     "Diez códigos al azar para guardar fuera del alcance de otros, por ejemplo en la bóveda o impresos. Úsalos donde " +
         "puedas elegir tus propios códigos; si un servicio te da los suyos, guarda esos."
@@ -372,6 +399,9 @@ const val ANSWERS_WARNINGS =
     "Si te las pueden pedir por teléfono, ten la bóveda a mano. Si pierdes la bóveda y sus copias, pierdes estas respuestas."
 const val ANSWERS_NO_ACCENTS = "Sin tildes"
 const val ANSWERS_NO_ACCENTS_NOTE = "Muchos servicios no aceptan tildes ni «ñ». Guardamos la forma exacta que ves."
+const val ANSWERS_OTHER = "Otra respuesta"
+const val ANSWERS_ADD_QUESTION = "Añadir pregunta"
+const val ANSWERS_SAVE = "Guardar en la bóveda"
 
 // ---- StrongBox y pendientes ----
 
@@ -416,8 +446,13 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     QR_FIELD_AMOUNT, QR_FIELD_REFERENCE, QR_FIELD_COIN, QR_FIELD_ADDRESS, QR_FIELD_NAME, QR_FIELD_PHONE, QR_FIELD_EMAIL,
     QR_FIELD_TO, QR_FIELD_SUBJECT, QR_FIELD_MESSAGE, QR_FIELD_NUMBER, QR_FIELD_LATITUDE, QR_FIELD_LONGITUDE,
     QR_FIELD_SERVICE, QR_FIELD_ACCOUNT, QR_FIELD_PASSWORD,
-    pinText("N", "X"), RECOVERY_CODES_TEXT,
+    pinText("N", "X"), pinCountText(8_463, 13.0), RECOVERY_CODES_TEXT,
     ANSWERS_TITLE, ANSWERS_EXPLANATION, ANSWERS_LIMIT, ANSWERS_WARNINGS, ANSWERS_NO_ACCENTS, ANSWERS_NO_ACCENTS_NOTE,
+    ANSWERS_OTHER, ANSWERS_ADD_QUESTION, ANSWERS_SAVE,
+    CODES_TOOL_TITLE, CODES_TOOL_SUBTITLE, CODES_PIN_TITLE, CODES_PIN_LENGTH, CODES_PIN_COUNTING, CODES_RECOVERY_TITLE,
+    CODES_COPY, CODES_COPY_ALL, CODES_ANOTHER_PIN, CODES_ANOTHER_CODES, CODES_SAVE_AS_NOTE, CODES_SITE_LABEL,
+    CODES_SITE_NEEDED, CODES_QUESTION_LABEL, CODES_UNLOCK_TO_SAVE, CODES_CANCEL_SAVE, CODES_SAVED, CODES_SAVE_FAILED,
+    recoveryNoteTitle("[web]"), answersNoteTitle("[web]"),
     KEY_LOCATION_TITLE, KEY_LOCATION_STRONGBOX, KEY_LOCATION_TEE, KEY_LOCATION_SOFTWARE, STRONGBOX_AVAILABLE_NOTICE,
     PASSWORD_CHANGE_COPIES, RESET_WIPES_DAMAGED,
 )

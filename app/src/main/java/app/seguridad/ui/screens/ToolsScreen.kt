@@ -21,6 +21,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.seguridad.settings.Settings
+import app.seguridad.tools.CODES_TOOL_SUBTITLE
+import app.seguridad.tools.CODES_TOOL_TITLE
 import app.seguridad.tools.PHOTO_TOOL_SUBTITLE
 import app.seguridad.tools.PHOTO_TOOL_TITLE
 import app.seguridad.tools.QR_TOOL_SUBTITLE
@@ -40,6 +42,7 @@ val TOOLS = listOf(
     Tool("tools/photo", "🧽", PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE),
     Tool("tools/redact", "⬛", REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE),
     Tool("tools/qr", "🔍", QR_TOOL_TITLE, QR_TOOL_SUBTITLE),
+    Tool("tools/codes", "🔢", CODES_TOOL_TITLE, CODES_TOOL_SUBTITLE),
 )
 
 /** The Herramientas tab: every tool that is not the vault, two per row. */

@@ -33,6 +33,7 @@ import androidx.navigation.navArgument
 import app.seguridad.AppContainer
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
+import app.seguridad.ui.screens.CodesScreen
 import app.seguridad.ui.screens.ContactAddScreen
 import app.seguridad.ui.screens.ContactDetailScreen
 import app.seguridad.ui.screens.ContactsScreen
@@ -192,6 +193,7 @@ fun AppNavHost(container: AppContainer) {
                     onBack = back,
                 )
             }
+            composable("tools/codes") { CodesScreen(vault, onBack = back) }
             composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
             composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
             composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
