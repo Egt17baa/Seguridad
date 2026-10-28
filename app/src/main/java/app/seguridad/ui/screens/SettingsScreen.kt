@@ -243,35 +243,35 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
     }
 }
 
-/** What Ajustes shows about the fingerprint key: where it is and, once, the R2 hint. */
-private data class FingerprintKey(val level: KeyLevel, val strongBoxHint: Boolean)
-
 /**
  * «Dónde está la clave de la huella», only while the fingerprint is on. Read from the Keystore off the main thread, on
  * each visit and whenever the vault changes state (a new master password or an import turns the fingerprint off).
- * R2: the hint is saved as shown as soon as it is decided, so it appears once.
  */
 @Composable
 private fun FingerprintKeySection(vaultState: VaultState) {
     val context = LocalContext.current
-    val key by produceState<FingerprintKey?>(null, vaultState) {
+    val level by produceState<KeyLevel?>(null, vaultState) {
+        value = withContext(Dispatchers.IO) { if (BiometricVault.enabled(context)) BiometricVault.keyLevel(context) else null }
+    }
+    // R2: decided once per visit to Ajustes (a lock or unlock does not take it away), from the key as it was then.
+    val offerHint by produceState(false) {
         value = withContext(Dispatchers.IO) {
-            if (!BiometricVault.enabled(context)) return@withContext null
-            val level = BiometricVault.keyLevel(context)
-            val hint = shouldOfferStrongBoxHint(
+            BiometricVault.enabled(context) && shouldOfferStrongBoxHint(
                 hasStrongBox = BiometricVault.hasStrongBox(context),
-                current = level,
+                current = BiometricVault.keyLevel(context),
                 strongBoxFailedBefore = BiometricVault.strongBoxFailed(context),
                 hintShown = BiometricVault.strongBoxHintShown(context),
             )
-            if (hint) BiometricVault.markStrongBoxHintShown(context)
-            FingerprintKey(level, hint)
         }
     }
-    val k = key ?: return
+    val current = level ?: return
     Section(KEY_LOCATION_TITLE) {
-        Text(keyLevelLabel(k.level), style = MaterialTheme.typography.bodyMedium)
-        if (k.strongBoxHint) Hint(STRONGBOX_AVAILABLE_NOTICE)
+        Text(keyLevelLabel(current), style = MaterialTheme.typography.bodyMedium)
+        if (offerHint) {
+            Hint(STRONGBOX_AVAILABLE_NOTICE)
+            // Saved only once it has been put on screen, so it is not lost to a visit that never showed it.
+            LaunchedEffect(Unit) { withContext(Dispatchers.IO) { BiometricVault.markStrongBoxHintShown(context) } }
+        }
     }
 }
 

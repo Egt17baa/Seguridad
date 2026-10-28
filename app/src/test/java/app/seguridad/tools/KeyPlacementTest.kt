@@ -47,6 +47,42 @@ class KeyPlacementTest {
     }
 
     @Test
+    fun strongBoxIsMarkedFailedOnlyOnEvidence() {
+        for (kind in StrongBoxFailure.entries) for (retry in RetryOutcome.entries) {
+            val expected = when (kind) {
+                // The Keystore refused the StrongBox key or its cipher: evidence at once, whatever follows.
+                StrongBoxFailure.KEY_SETUP -> true
+                // A prompt error, no CryptoObject or a doFinal failure: StrongBox is to blame only if the TEE then works.
+                StrongBoxFailure.AUTH_OR_FINAL -> retry == RetryOutcome.STORED
+            }
+            assertEquals("$kind $retry", expected, shouldMarkStrongBoxFailed(kind, retry))
+        }
+        // Home or an app switch during the first prompt, then the TEE retry stopped by the guard: nothing is recorded.
+        assertFalse(shouldMarkStrongBoxFailed(StrongBoxFailure.AUTH_OR_FINAL, RetryOutcome.PENDING))
+        assertFalse(shouldMarkStrongBoxFailed(StrongBoxFailure.AUTH_OR_FINAL, RetryOutcome.FAILED))
+    }
+
+    @Test
+    fun promptErrorsAreClassifiedByBiometricPromptCode() {
+        // Values of androidx.biometric.BiometricPrompt.ERROR_* (1.1.0, the platform's BiometricConstants).
+        val cancel = setOf(10, 13) // USER_CANCELED, NEGATIVE_BUTTON
+        val hardware = setOf(1, 2, 8) // HW_UNAVAILABLE, UNABLE_TO_PROCESS, VENDOR
+        // TIMEOUT, NO_SPACE, CANCELED, LOCKOUT, LOCKOUT_PERMANENT, NO_BIOMETRICS, HW_NOT_PRESENT, NO_DEVICE_CREDENTIAL,
+        // SECURITY_UPDATE_REQUIRED, and anything unknown: the user or the environment, not the key's hardware.
+        for (code in -1..20) {
+            val expected = when (code) {
+                in cancel -> PromptErrorKind.CANCEL
+                in hardware -> PromptErrorKind.HARDWARE
+                else -> PromptErrorKind.OTHER
+            }
+            assertEquals("code $code", expected, promptErrorKind(code))
+        }
+        assertEquals(PromptErrorKind.OTHER, promptErrorKind(PROMPT_ERROR_CANCELED))
+        assertEquals(PromptErrorKind.OTHER, promptErrorKind(PROMPT_ERROR_LOCKOUT))
+        assertEquals(PromptErrorKind.CANCEL, promptErrorKind(PROMPT_ERROR_NEGATIVE_BUTTON))
+    }
+
+    @Test
     fun beforeApi31SecureHardwareIsStrongBoxOnlyIfCreatedThere() {
         // KeyInfo before Android 12 only says «inside secure hardware»: StrongBox comes from how the key was created.
         assertEquals(KeyLevel.STRONGBOX, legacyKeyLevel(insideSecureHardware = true, createdInStrongBox = true))
