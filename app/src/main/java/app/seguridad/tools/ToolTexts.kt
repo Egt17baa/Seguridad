@@ -412,6 +412,12 @@ const val KEY_LOCATION_STRONGBOX = "Chip seguro (StrongBox)"
 const val KEY_LOCATION_TEE = "Zona segura del procesador"
 const val KEY_LOCATION_SOFTWARE = "Software: el móvil no protege esta clave con hardware"
 
+/** Not in the annex: the Keystore did not say where the key is (no key, or KeyInfo unreadable). */
+const val KEY_LOCATION_UNKNOWN = "No se pudo comprobar"
+
+/** Design, section 5: a StrongBox key that fails to start (without being invalidated) when unlocking. */
+const val FINGERPRINT_NOT_RESPONDING = "La huella no responde: entra con la contraseña maestra y vuelve a activarla"
+
 /** R2, shown once. */
 const val STRONGBOX_AVAILABLE_NOTICE = "Este móvil tiene chip seguro. Para usarlo, desactiva la huella y vuelve a activarla."
 
@@ -455,6 +461,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     CODES_COPY, CODES_COPY_ALL, CODES_ANOTHER_PIN, CODES_ANOTHER_CODES, CODES_SAVE_AS_NOTE, CODES_SITE_LABEL,
     CODES_SITE_NEEDED, CODES_QUESTION_LABEL, CODES_UNLOCK_TO_SAVE, CODES_CANCEL_SAVE, CODES_SAVED, CODES_SAVE_FAILED,
     recoveryNoteTitle("[web]"), answersNoteTitle("[web]"),
-    KEY_LOCATION_TITLE, KEY_LOCATION_STRONGBOX, KEY_LOCATION_TEE, KEY_LOCATION_SOFTWARE, STRONGBOX_AVAILABLE_NOTICE,
+    KEY_LOCATION_TITLE, KEY_LOCATION_STRONGBOX, KEY_LOCATION_TEE, KEY_LOCATION_SOFTWARE, KEY_LOCATION_UNKNOWN,
+    FINGERPRINT_NOT_RESPONDING, STRONGBOX_AVAILABLE_NOTICE,
     PASSWORD_CHANGE_COPIES, RESET_WIPES_DAMAGED,
 )

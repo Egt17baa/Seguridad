@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.BuildConfig
+import app.seguridad.android.BiometricVault
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES
 import app.seguridad.settings.AUTO_BACKUP_OFF_NEW_VAULT
@@ -50,6 +52,11 @@ import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.ThemeMode
 import app.seguridad.settings.availableOn
+import app.seguridad.tools.KEY_LOCATION_TITLE
+import app.seguridad.tools.KeyLevel
+import app.seguridad.tools.STRONGBOX_AVAILABLE_NOTICE
+import app.seguridad.tools.keyLevelLabel
+import app.seguridad.tools.shouldOfferStrongBoxHint
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
@@ -236,6 +243,38 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
     }
 }
 
+/** What Ajustes shows about the fingerprint key: where it is and, once, the R2 hint. */
+private data class FingerprintKey(val level: KeyLevel, val strongBoxHint: Boolean)
+
+/**
+ * «Dónde está la clave de la huella», only while the fingerprint is on. Read from the Keystore off the main thread, on
+ * each visit and whenever the vault changes state (a new master password or an import turns the fingerprint off).
+ * R2: the hint is saved as shown as soon as it is decided, so it appears once.
+ */
+@Composable
+private fun FingerprintKeySection(vaultState: VaultState) {
+    val context = LocalContext.current
+    val key by produceState<FingerprintKey?>(null, vaultState) {
+        value = withContext(Dispatchers.IO) {
+            if (!BiometricVault.enabled(context)) return@withContext null
+            val level = BiometricVault.keyLevel(context)
+            val hint = shouldOfferStrongBoxHint(
+                hasStrongBox = BiometricVault.hasStrongBox(context),
+                current = level,
+                strongBoxFailedBefore = BiometricVault.strongBoxFailed(context),
+                hintShown = BiometricVault.strongBoxHintShown(context),
+            )
+            if (hint) BiometricVault.markStrongBoxHintShown(context)
+            FingerprintKey(level, hint)
+        }
+    }
+    val k = key ?: return
+    Section(KEY_LOCATION_TITLE) {
+        Text(keyLevelLabel(k.level), style = MaterialTheme.typography.bodyMedium)
+        if (k.strongBoxHint) Hint(STRONGBOX_AVAILABLE_NOTICE)
+    }
+}
+
 /** The Ajustes tab: lock, clipboard, Argon2id cost and theme; the vault's copies and master password; Acerca de. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -306,6 +345,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                 Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia, la exportación .json de la 1.0 y la criptopanel-vault, que se vuelve a cifrar con el formato nuevo.")
             }
             AutoBackupSection(store, vault, autoBackup, snackbar)
+            FingerprintKeySection(vaultState)
             Section("Información") {
                 TextButton(onClick = onAbout) { Text("Acerca de, licencias y avisos") }
             }
