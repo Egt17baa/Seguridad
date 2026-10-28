@@ -511,6 +511,9 @@ fun OpenReceivedScreen(store: VaultStore, onBack: () -> Unit, onOpenSymmetric: (
     LaunchedEffect(locked) {
         if (locked) withContext(Dispatchers.IO) { clearTempDir(File(context.cacheDir, PK_OPEN_TEMP_DIR)) }
     }
+    // A text from the QR inspector that waited at the locked gate and was never taken goes with the screen, like the
+    // 2FA one (QrTotpImportScreen). Once taken, there is nothing left to clear.
+    DisposableEffect(Unit) { onDispose { QrHandoff.clear() } }
     ContactsFrame(store, "Abrir lo recibido", onBack) { entries, snackbar ->
         OpenReceivedContent(store, entries, snackbar, onOpenSymmetric)
     }

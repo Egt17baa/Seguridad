@@ -3,6 +3,7 @@ package app.seguridad.tools.qr
 import app.seguridad.crypto.parseOtpAuth
 import app.seguridad.tools.QR_CIPHER_NONE
 import app.seguridad.tools.QR_CIPHER_UNKNOWN
+import app.seguridad.tools.QR_COPIED_WITH_HIDDEN
 import app.seguridad.tools.QR_CRYPTO
 import app.seguridad.tools.QR_FIELD_ACCOUNT
 import app.seguridad.tools.QR_FIELD_ADDRESS
@@ -10,7 +11,6 @@ import app.seguridad.tools.QR_FIELD_AMOUNT
 import app.seguridad.tools.QR_FIELD_BENEFICIARY
 import app.seguridad.tools.QR_FIELD_CIPHER
 import app.seguridad.tools.QR_FIELD_COIN
-import app.seguridad.tools.QR_FIELD_CONNECTS_TO
 import app.seguridad.tools.QR_FIELD_EMAIL
 import app.seguridad.tools.QR_FIELD_HIDDEN_NETWORK
 import app.seguridad.tools.QR_FIELD_IBAN
@@ -27,7 +27,6 @@ import app.seguridad.tools.QR_FIELD_SCHEME
 import app.seguridad.tools.QR_FIELD_SERVICE
 import app.seguridad.tools.QR_FIELD_SUBJECT
 import app.seguridad.tools.QR_FIELD_TO
-import app.seguridad.tools.QR_FIELD_WEB
 import app.seguridad.tools.QR_HIDDEN_ELSEWHERE
 import app.seguridad.tools.QR_HTTP
 import app.seguridad.tools.QR_IP_HOST
@@ -75,8 +74,13 @@ data class QrField(val label: String, val value: String)
  * - [alerts] are «Señales de alerta (N)», one line each; when empty the screen shows «Sin avisos», neutral.
  * - [notes] are said for that kind of QR whatever it holds (a payment, a contact card).
  * - [secret] is the Wi-Fi password, hidden until tapped. [textHidden]: the full text carries a secret (that password,
- *   a 2FA key), so it is hidden until tapped too.
- * - [hostLabels] is a link's name split into its labels, in the Unicode form it is read in.
+ *   a 2FA key), so it is hidden until tapped too, and [carriesSecret] says the screen drops it when the app stops or
+ *   the vault locks.
+ * - [hostLabels] is the highlighted name of a link: the one the browser connects to, in ASCII (punycode, so no
+ *   look-alike letters), split into its labels; an IP whole. [hostReading] is its Unicode reading, shown below it and
+ *   smaller, only when it is not the same.
+ * - [copyNotice] / [secretCopyNotice]: what «Copiar» / «Copiar contraseña» say when the copy carries hidden characters
+ *   (copied as they are, never stripped); null otherwise.
  */
 data class QrView(
     val text: String,
@@ -89,7 +93,12 @@ data class QrView(
     val secret: String? = null,
     val textHidden: Boolean = false,
     val hostLabels: List<String> = emptyList(),
-)
+    val hostReading: String? = null,
+    val copyNotice: String? = null,
+    val secretCopyNotice: String? = null,
+) {
+    val carriesSecret: Boolean get() = textHidden
+}
 
 /**
  * The view of [text]. Throws [IllegalArgumentException] with the size message, as [classifyQr] does, over
@@ -101,7 +110,7 @@ fun qrView(text: String): QrView {
     // Outside a link (whose own signal says it), hidden characters anywhere in the text are one more alert.
     val hidden = hiddenMarks(text).takeIf { it.isNotEmpty() }?.let { listOf(qrBidi(it.joinToString(", "))) }.orEmpty()
     fun f(label: String, value: String?) = value?.takeIf { it.isNotBlank() }?.let { QrField(label, visibleText(it)) }
-    return when (kind) {
+    val view = when (kind) {
         is QrKind.Link -> linkView(base, kind)
         is QrKind.Wifi -> {
             val open = kind.security == "nopass" && kind.password == null
@@ -181,6 +190,12 @@ fun qrView(text: String): QrView {
         }
         is QrKind.PlainText -> base.copy(alerts = hidden)
     }
+    // A hidden character the browser would decode (percent-encoded in the host) is in the copy too, as written.
+    val copyHidden = hasHiddenChars(text) || (kind is QrKind.Link && Signal.HIDDEN_CHARS in kind.signals)
+    return view.copy(
+        copyNotice = QR_COPIED_WITH_HIDDEN.takeIf { copyHidden },
+        secretCopyNotice = view.secret?.takeIf { hasHiddenChars(it) }?.let { QR_COPIED_WITH_HIDDEN },
+    )
 }
 
 private fun linkView(base: QrView, link: QrKind.Link): QrView {
@@ -206,13 +221,17 @@ private fun linkView(base: QrView, link: QrKind.Link): QrView {
     }
     val alerts = if (Signal.HIDDEN_CHARS !in link.signals && marks.isNotEmpty()) signalled + qrBidi(marks.joinToString(", ")) else signalled
     val fields = listOfNotNull(
-        unicode?.let { QrField(QR_FIELD_WEB, visibleText(it)) },
-        host?.takeIf { it != unicode }?.let { QrField(QR_FIELD_CONNECTS_TO, visibleText(it)) },
         link.port?.let { QrField(QR_FIELD_PORT, it.toString()) },
         QrField(QR_FIELD_SCHEME, if (link.scheme.isEmpty()) QR_SCHEME_NONE else visibleText(link.scheme)),
     )
-    val labels = if (unicode != null && Signal.IP_HOST !in link.signals) unicode.split('.').map(::visibleText) else emptyList()
-    return base.copy(title = QR_KIND_LINK, fields = fields, alerts = alerts, hostLabels = labels)
+    // What stands out is what the browser connects to: for a look-alike name, its `xn--` form, not the imitation.
+    val labels = when {
+        host.isNullOrEmpty() -> emptyList()
+        Signal.IP_HOST in link.signals -> listOf(visibleText(host))
+        else -> host.split('.').map(::visibleText)
+    }
+    val reading = unicode?.takeIf { host != null && it != host }?.let(::visibleText)
+    return base.copy(title = QR_KIND_LINK, fields = fields, alerts = alerts, hostLabels = labels, hostReading = reading)
 }
 
 /**
