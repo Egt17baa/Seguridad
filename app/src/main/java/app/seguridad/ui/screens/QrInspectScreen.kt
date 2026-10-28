@@ -41,6 +41,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.QrImageUnreadable
 import app.seguridad.android.copySensitive
@@ -54,6 +57,7 @@ import app.seguridad.tools.QR_COPY
 import app.seguridad.tools.QR_COPY_PASSWORD
 import app.seguridad.tools.QR_EXPLANATION
 import app.seguridad.tools.QR_FIELD_PASSWORD
+import app.seguridad.tools.QR_FIELD_WEB
 import app.seguridad.tools.QR_FULL_TEXT
 import app.seguridad.tools.QR_HIDE
 import app.seguridad.tools.QR_IMAGE_DAMAGED
@@ -78,7 +82,7 @@ import app.seguridad.tools.qr.QrView
 import app.seguridad.tools.qr.qrView
 import app.seguridad.tools.qr.visibleText
 import app.seguridad.tools.qrAlertsTitle
-import app.seguridad.ui.theme.BackScaffold
+import app.seguridad.tools.qrHostReading
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
@@ -92,6 +96,9 @@ import com.journeyapps.barcodescanner.ScanContract
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -104,6 +111,7 @@ import kotlinx.coroutines.withContext
  * What is read lives only in `remember`, never in saved state (a Wi-Fi password or a 2FA key may be in it): turning the
  * phone or coming back from another screen empties it. Nothing is saved and nothing is logged.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived: () -> Unit, onAddTotp: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -111,14 +119,27 @@ fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived:
     var view by remember { mutableStateOf<QrView?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     // Back here, a text handed to a screen that never took it (its vault gate was left locked) does not stay around.
     LaunchedEffect(Unit) { QrHandoff.clear() }
 
+    // A result with a secret in it (a Wi-Fi password, a 2FA key) does not wait on screen for whoever picks the phone up
+    // next: it goes when the app stops (Home, screen off, another app; the scanner and the picker too, which is harmless:
+    // the result they bring is shown after) and when the vault locks, as the vault's own screens do.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (view?.carriesSecret == true) view = null }
+    LaunchedEffect(store) {
+        store.state.map { it is VaultState.Unlocked }.distinctUntilChanged().drop(1).collect { open ->
+            if (!open && view?.carriesSecret == true) view = null
+        }
+    }
+
     fun show(raw: String) {
         error = null
         view = try {
-            qrView(raw)
+            // A picked image decoded while the app was away: a secret is not left there for when it comes back.
+            qrView(raw).takeUnless { it.carriesSecret && !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
         } catch (e: IllegalArgumentException) {
             error = QR_TOO_BIG
             null
@@ -174,7 +195,16 @@ fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived:
         }
     }
 
-    BackScaffold(QR_TOOL_TITLE, onBack) { padding ->
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = {
+            TopAppBar(
+                title = { Text(QR_TOOL_TITLE) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás") } },
+            )
+        },
+    ) { padding ->
         NoCopy {
             Column(
                 Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
@@ -208,7 +238,7 @@ fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived:
                 }
                 error?.let { Text(it, color = NegativeColor) }
                 view?.let { v ->
-                    QrResult(v, onAction = {
+                    QrResult(v, onCopied = { notice -> scope.launch { snackbar.showSnackbar(notice) } }, onAction = {
                         when (v.action) {
                             QrAction.ADD_CONTACT -> { QrHandoff.put(QrTarget.CARD, v.text); onAddContact() }
                             QrAction.OPEN_RECEIVED -> { QrHandoff.put(QrTarget.RECEIVED, v.text); onOpenReceived() }
@@ -224,7 +254,7 @@ fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived:
 
 /** One QR's summary, signals, full text and actions. All of it plain [Text]: nothing is a link, nothing is selectable. */
 @Composable
-private fun QrResult(v: QrView, onAction: () -> Unit) {
+private fun QrResult(v: QrView, onCopied: (String) -> Unit, onAction: () -> Unit) {
     val context = LocalContext.current
     // A new QR starts hidden again.
     var revealed by remember(v) { mutableStateOf(false) }
@@ -232,15 +262,22 @@ private fun QrResult(v: QrView, onAction: () -> Unit) {
     SectionCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(v.title, style = MaterialTheme.typography.titleMedium)
-            // The name, split into its labels: what it ends in is what counts.
+            // The name the browser connects to (ASCII), split into its labels: what it ends in is what counts. Its Unicode
+            // reading, the one a look-alike name imitates with, goes below and smaller, never as the highlighted one.
             if (v.hostLabels.isNotEmpty()) {
-                Text(
-                    v.hostLabels.joinToString("  ·  "),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(QR_FIELD_WEB, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        v.hostLabels.joinToString("  ·  "),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    v.hostReading?.let {
+                        Text(qrHostReading(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
             v.fields.forEach { f ->
                 Column {
@@ -255,7 +292,10 @@ private fun QrResult(v: QrView, onAction: () -> Unit) {
                     Text(if (revealed) visibleText(secret) else "••••••••", fontFamily = FontFamily.Monospace)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { revealed = !revealed }) { Text(if (revealed) QR_HIDE else QR_SHOW) }
-                        FilledTonalButton(onClick = { copySensitive(context, secret) }) { Text(QR_COPY_PASSWORD) }
+                        FilledTonalButton(onClick = {
+                            copySensitive(context, secret)
+                            v.secretCopyNotice?.let(onCopied)
+                        }) { Text(QR_COPY_PASSWORD) }
                     }
                 }
             }
@@ -282,7 +322,11 @@ private fun QrResult(v: QrView, onAction: () -> Unit) {
                 Text(v.shownText, fontFamily = FontFamily.Monospace)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { copySensitive(context, v.text) }) { Text(QR_COPY) }
+                // Copied as it is, hidden characters included (never stripped): when there are any, the snackbar says so.
+                FilledTonalButton(onClick = {
+                    copySensitive(context, v.text)
+                    v.copyNotice?.let(onCopied)
+                }) { Text(QR_COPY) }
                 if (v.textHidden) OutlinedButton(onClick = { revealed = !revealed }) { Text(if (revealed) QR_HIDE else QR_SHOW) }
             }
         }

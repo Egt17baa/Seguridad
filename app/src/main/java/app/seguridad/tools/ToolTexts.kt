@@ -295,6 +295,9 @@ const val QR_IMAGE_DAMAGED =
 const val QR_NO_CAMERA_PERMISSION = "Sin permiso de cámara: elige una imagen con el código QR."
 const val QR_CAMERA_FAILED = "No se ha podido abrir la cámara: elige una imagen con el código QR."
 
+/** Not in the annex: after «Copiar» when what is copied carries the hidden characters the alerts name (never stripped). */
+const val QR_COPIED_WITH_HIDDEN = "Copiado tal cual, con los caracteres ocultos que señalan los avisos."
+
 /** Not in the annex: what each kind of QR is called, and the names of the fields shown for it. */
 const val QR_KIND_LINK = "Enlace"
 const val QR_KIND_WIFI = "Red Wi-Fi"
@@ -310,11 +313,14 @@ const val QR_KIND_RECEIVED = "Mensaje cifrado o texto firmado de Seguridad"
 const val QR_KIND_OTP = "Código 2FA"
 const val QR_KIND_TEXT = "Texto"
 
+/** Over the highlighted name: the ASCII one the browser connects to. */
 const val QR_FIELD_WEB = "Web"
-const val QR_FIELD_CONNECTS_TO = "Se conecta a"
+
+/** Under the highlighted name, smaller, when its Unicode reading is not the same (punycode). */
+fun qrHostReading(unicode: String) = "Se lee así: «$unicode»"
 const val QR_FIELD_PORT = "Puerto"
 const val QR_FIELD_SCHEME = "Tipo de enlace"
-const val QR_SCHEME_NONE = "Sin indicar: el móvil lo abre como web"
+const val QR_SCHEME_NONE = "Sin indicar"
 const val QR_FIELD_NETWORK = "Red"
 const val QR_FIELD_CIPHER = "Cifrado"
 const val QR_CIPHER_NONE = "Ninguno: red abierta"
@@ -405,7 +411,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     QR_NO_CAMERA_PERMISSION, QR_CAMERA_FAILED,
     QR_KIND_LINK, QR_KIND_WIFI, QR_KIND_SEPA, QR_KIND_CRYPTO, QR_KIND_CONTACT, QR_KIND_SMS, QR_KIND_PHONE, QR_KIND_EMAIL,
     QR_KIND_GEO, QR_KIND_CARD, QR_KIND_RECEIVED, QR_KIND_OTP, QR_KIND_TEXT,
-    QR_FIELD_WEB, QR_FIELD_CONNECTS_TO, QR_FIELD_PORT, QR_FIELD_SCHEME, QR_SCHEME_NONE, QR_FIELD_NETWORK, QR_FIELD_CIPHER,
+    QR_FIELD_WEB, qrHostReading("…"), QR_COPIED_WITH_HIDDEN, QR_FIELD_PORT, QR_FIELD_SCHEME, QR_SCHEME_NONE, QR_FIELD_NETWORK, QR_FIELD_CIPHER,
     QR_CIPHER_NONE, QR_CIPHER_UNKNOWN, QR_FIELD_HIDDEN_NETWORK, QR_YES, QR_FIELD_BENEFICIARY, QR_FIELD_IBAN,
     QR_FIELD_AMOUNT, QR_FIELD_REFERENCE, QR_FIELD_COIN, QR_FIELD_ADDRESS, QR_FIELD_NAME, QR_FIELD_PHONE, QR_FIELD_EMAIL,
     QR_FIELD_TO, QR_FIELD_SUBJECT, QR_FIELD_MESSAGE, QR_FIELD_NUMBER, QR_FIELD_LATITUDE, QR_FIELD_LONGITUDE,

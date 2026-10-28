@@ -1,6 +1,7 @@
 package app.seguridad.tools.qr
 
 import app.seguridad.tools.ALL_TOOL_TEXTS
+import app.seguridad.tools.QR_COPIED_WITH_HIDDEN
 import app.seguridad.tools.QR_CRYPTO
 import app.seguridad.tools.QR_HIDDEN_ELSEWHERE
 import app.seguridad.tools.QR_HTTP
@@ -55,8 +56,10 @@ class QrViewTest {
         assertTrue(v.alerts.isEmpty())
         assertTrue(v.notes.isEmpty())
         assertEquals(listOf("www", "banco", "es"), v.hostLabels)
-        assertEquals("www.banco.es", v.field("Web"))
-        assertNull(v.field("Se conecta a"))
+        // A plain name reads the same: no second line under it, and no host field repeating it.
+        assertNull(v.hostReading)
+        assertNull(v.field("Web"))
+        assertEquals(listOf("Tipo de enlace"), v.fields.map { it.label })
         assertEquals("https://www.banco.es/acceso", v.shownText)
         assertFalse(v.textHidden)
         assertNull(v.secret)
@@ -79,10 +82,16 @@ class QrViewTest {
         val ascii = IDN.toASCII(unicode)
         val v = qrView("https://$unicode/")
         assertEquals(listOf(QR_MIXED_SCRIPTS, qrPunycode(unicode)), v.alerts)
-        assertEquals(unicode, v.field("Web"))
-        assertEquals(ascii, v.field("Se conecta a"))
+        // What stands out is the name the browser connects to (ASCII, no look-alike letters); the Unicode reading, the
+        // one that imitates «banco.es», only goes below it.
+        assertEquals(ascii.split('.'), v.hostLabels)
+        assertTrue(v.hostLabels.first().startsWith("xn--"))
+        assertEquals(unicode, v.hostReading)
         // Written as `xn--` in the QR: the same.
-        assertEquals(listOf(QR_MIXED_SCRIPTS, qrPunycode(unicode)), qrView("https://$ascii/").alerts)
+        val written = qrView("https://$ascii/")
+        assertEquals(listOf(QR_MIXED_SCRIPTS, qrPunycode(unicode)), written.alerts)
+        assertEquals(ascii.split('.'), written.hostLabels)
+        assertEquals(unicode, written.hostReading)
     }
 
     @Test
@@ -105,6 +114,40 @@ class QrViewTest {
     }
 
     @Test
+    fun theHighlightedHostIsTheOneConnectedTo() {
+        // After a «@», the real host; an IP, whole (its numbers are not labels).
+        assertEquals(listOf("evil", "com"), qrView("https://banco.es@evil.com/").hostLabels)
+        assertEquals(listOf("192.168.1.1"), qrView("https://192.168.1.1/").hostLabels)
+        assertNull(qrView("https://192.168.1.1/").hostReading)
+        assertTrue(qrView("javascript:alert(1)").hostLabels.isEmpty())
+    }
+
+    @Test
+    fun copyingSaysWhenHiddenCharactersGoWithIt() {
+        assertNull(qrView("https://banco.es/").copyNotice)
+        assertEquals(QR_COPIED_WITH_HIDDEN, qrView("https://banco.es/\u202Etxt").copyNotice)
+        assertEquals(QR_COPIED_WITH_HIDDEN, qrView("https://ban%E2%80%8Bco.es/").copyNotice)
+        assertEquals(QR_COPIED_WITH_HIDDEN, qrView("Hola\u200Bmundo").copyNotice)
+        // Wi-Fi: the password copy only says it when the password itself carries them.
+        val name = qrView("WIFI:T:WPA;S:Casa\u202E;P:clave;;")
+        assertEquals(QR_COPIED_WITH_HIDDEN, name.copyNotice)
+        assertNull(name.secretCopyNotice)
+        assertEquals(QR_COPIED_WITH_HIDDEN, qrView("WIFI:T:WPA;S:Casa;P:cla\u200Bve;;").secretCopyNotice)
+        // The emoji presentation is not hidden.
+        assertNull(qrView("WIFI:T:WPA;S:Casa \u2764\uFE0F;P:clave;;").copyNotice)
+    }
+
+    @Test
+    fun onlyTheKindsWithASecretAreClearedOnLeaving() {
+        assertTrue(qrView("WIFI:T:WPA;S:Casa;P:clave;;").carriesSecret)
+        assertTrue(qrView("otpauth://totp/a?secret=JBSWY3DPEHPK3PXP").carriesSecret)
+        assertTrue(qrView("otpauth-migration://offline?data=AAAA").carriesSecret)
+        assertFalse(qrView("WIFI:T:nopass;S:Bar;;").carriesSecret)
+        assertFalse(qrView("https://banco.es/").carriesSecret)
+        assertFalse(qrView("SGK1:ABC").carriesSecret)
+    }
+
+    @Test
     fun aDangerousSchemeIsNamedWithItsMarks() {
         assertEquals(listOf(qrScheme("data:")), qrView("data:text/html,<b>x</b>").alerts)
     }
@@ -112,7 +155,8 @@ class QrViewTest {
     @Test
     fun aSchemelessLinkSaysSo() {
         val v = qrView("www.banco.es")
-        assertEquals("www.banco.es", v.field("Web"))
+        assertEquals(listOf("www", "banco", "es"), v.hostLabels)
+        assertEquals("Sin indicar", v.field("Tipo de enlace"))
         assertTrue(v.alerts.isEmpty())
     }
 
