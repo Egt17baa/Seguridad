@@ -117,3 +117,7 @@ Task 9: ruling: mark strongbox_failed only on evidence (createKey/init failure i
 Task 9: fix round 1/5 commit 0bff666 (838); 2 Important + 5 minors addressed
 Task 9: re-review 1 = Approved (no Critical/Important). New minors: unlock sensor errors 1/2/8 too wide; destroy-during-keygen race frees guard early; onKey outside try; hint composed≠seen (accepted). Fix round 2 for minors 1-3 + 1.1.0 tag comment (owner rule).
 Task 9: fix round 2/5 commit e84797c (839); 4 minors addressed. Scoped re-review 2 dispatched to a4b565b.
+Task 9: re-review 2 = Approved (no findings). Informativa accepted: vendor keygen that never returns blocks enable until restart.
+Task 9: minor (deferred): if onKey throws at unlock, the unwrapped key is not zeroed (same as 1.2.2; caller cannot throw).
+Task 9: complete (commits ec9b6a9..e84797c, review clean)
+Next: Task 10 (not dispatched; handoff to another account).
