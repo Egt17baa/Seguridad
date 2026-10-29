@@ -47,6 +47,18 @@ class SettingsStore(
         folder
     }
 
+    /**
+     * «Desactivar»: the automatic copies go off ([withAutoBackupTurnedOff]). True when this very write dropped a
+     * replacement of the old copies that was still waiting: decided under the same lock as the write (T11-c), so a
+     * replacement that finishes just before it is never reported as dropped.
+     */
+    suspend fun turnOffAutoBackup(): Boolean = mutex.withLock {
+        val before = _settings.value
+        val after = before.withAutoBackupTurnedOff()
+        if (after != before) write(after)
+        before.autoBackupReplacePending && !after.autoBackupReplacePending
+    }
+
     /** An imported vault replaces this one: its automatic copies are no longer listed as ours, so none is ever rotated away. */
     suspend fun forgetAutoBackupCopies() = update { it.forgettingAutoBackupCopies() }
 

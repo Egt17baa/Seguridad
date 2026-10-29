@@ -13,6 +13,7 @@ import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupTarget
+import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -97,6 +98,12 @@ class AppContainer(
         replacePending = { settings.settings.value.autoBackupReplacePending },
         onResult = ::recordAutoBackup,
     )
+
+    /**
+     * The dialog after a change of master password (A6) and what its replacement of the old copies answered: here, not in
+     * a screen, so a rotation during the key derivation or the replacement does not lose it (M-3).
+     */
+    val masterChanged = MasterChanged(appScope, replace = autoBackup::replaceOldCopies, now = System::currentTimeMillis)
 
     /**
      * Keeps how the last automatic copy went, for Ajustes, and the copies it made (for the next rotation), if it went
