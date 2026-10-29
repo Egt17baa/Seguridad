@@ -206,4 +206,18 @@ Task 12: fix round 1 commit b78ccfa (935). Pushed. Re-review (sonnet) dispatched
 Task 12: fix round 1/5 (5 addressed, 0 open; commits eb26c77..b78ccfa). Re-review af80052 approved; 3 minors (accept after lock silently does nothing and doesn't save acceptance; epoch bumps on already-locked lock — safe, accepted; acceptedNow set before write).
 Ruling: minor 1 → after a refused accept show nothing but keep it (dialog already dropped) — accepted as is, fails closed; minor 3 (set acceptedNow only after write) folded into Task 13 — cost: none.
 Task 12: complete (commits 9a0482e..b78ccfa, review clean)
-Task 13: dispatched (BASE b78ccfa, opus). Folded: discardDocument off Main/NonCancellable in PkActionsScreen.kt:256,275,278,413 and VaultBackup.kt:74; ClipboardNotice acceptedNow only after write.
+Task 13: dispatched (BASE 86bfd1b, implementer a36e080759e919b2b, opus). Folded: discardDocument off Main/NonCancellable in PkActionsScreen.kt:256,275,278,413 and VaultBackup.kt:74; ClipboardNotice acceptedNow only after write.
+Task 13: implementer DONE, commit 7268a24 (944). Notes: outer save name also archivo.<ext>.sgenc when unchecked name; sign-with-identity switch disabled while running; «Abrir lo recibido» race fixed too; accept() returns false on throwing write; same discardDocument pattern left in SecurityToolsScreen and VaultAttachments. Pushed. Review (opus) dispatched.
+Task 13: review aeb4c02 -> Approved, 8 minors (255-byte spec limit not applied; safeFileName ./../trailing dot/space, 0x7F-0x9F, U+2028/9; 1024-byte read only half tested; late hidden plaintext lingers; discardLater launch(NonCancellable) → appScope; no feedback when copy fails after notice; messages carry no inputs; discardDocument pattern in SecurityToolsScreen/VaultAttachments).
+Ruling: Minor 1 → apply spec's 255 UTF-8 bytes for write/save names (minus suffix), read stays 1024 — spec binds over the brief — cost: long names cut more. All 8 minors fixed in round 1 (owner rule). Minor 6 text «No se ha podido copiar.» → Abogado final list.
+Task 13: fix round 1 sent to a36e080.
+Task 13: implementer fix round 1 DONE, commit 1958578 (950 tests). Pushed. Scoped re-review dispatched (base 17c3af6).
+Task 13: fix round 1/5 (8 addressed, 0 open; commits 17c3af6..1958578). Re-review add57ec approved; 1 cosmetic minor (import order SecurityToolsScreen.kt:46,83-84) + 2 OOS (FileCrypto.kt:63 unreachable copyOf(1024) fallback could cut UTF-8 → throwing guard; safeFileName keeps U+200B/U+FEFF/U+00AD and other format chars).
+Ruling: all three fixed in fix round 2 by a36e080 (owner rule: minors fixed) — cost: none.
+Task 13: fix round 2 commit aebc400 (951). ZWJ kept by design (emoji sequences). Pushed. Re-review (sonnet) dispatched.
+Task 13: fix round 2/5 (3 addressed, 0 open; commits 1958578..aebc400). Re-review a665cea approved; minors: ZWJ between Latin letters invisible / all-ZWJ name survives; safeFileName KDoc omits Cf; test on U+180E depends on JDK Unicode version.
+Ruling: round 3 — keep ZWJ only between two non-ASCII code points (emoji sequences), name with nothing visible → «archivo», KDoc, drop U+180E from test — cost: none.
+Task 13: fix round 3 commit b6e0d4a (953). Pushed. Re-review (sonnet) dispatched.
+Task 13: fix round 3/5 (3 addressed, 0 open; commits aebc400..b6e0d4a). Re-review ae9a3de approved; OOS: ZWJ between non-ASCII letters («ñ‍ñ») kept — accepted, matches ruling, invisible and harmless; U+180E still asserted in CardTest.kt:238,266 and QrContentTest.kt:385 (JDK Unicode-version dependent).
+Ruling: U+180E in CardTest/QrContentTest folded into Task 14 — cost: none.
+Task 13: complete (commits 86bfd1b..b6e0d4a, review clean)

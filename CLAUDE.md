@@ -34,7 +34,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 |---|---|
 | Tareas 1 a 12 | Terminadas y revisadas |
 | Puesta al día CU-A (textos, Abogado Digital) y CU-B (Android, Ingeniero Móvil Senior) | Terminadas |
-| Tarea 13: clave pública (A15a, A15b, A16a y A16b) | Implementada (`7268a24`), en la ronda 1 de arreglos |
+| Tarea 13: clave pública (A15a, A15b, A16a y A16b) | Terminada y revisada (`7268a24..b6e0d4a`) |
 | Tarea 14: CI y publicación | Pendiente |
 | Tarea 15: documentos, versión 1.3.0 y anexo de textos | Pendiente |
 | Tarea 16: auditoría completa, revisión final del Abogado Digital, prueba en el móvil, fusión en `main` y APK | Pendiente |
