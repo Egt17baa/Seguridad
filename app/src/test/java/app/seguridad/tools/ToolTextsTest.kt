@@ -97,6 +97,21 @@ class ToolTextsTest {
     }
 
     @Test
+    fun clipboardHistoryNoticeIsTheReviewedTextWithTheRealSeconds() {
+        assertEquals(
+            "En este Android, el teclado puede guardar lo copiado en su historial. Seguridad lo borra del portapapeles " +
+                "a los 45 s (si Android cierra la app antes, al volver a abrirla), pero no del historial del teclado.",
+            clipboardHistoryNoticeText(45),
+        )
+        for (c in app.seguridad.settings.ClipboardClear.entries) {
+            assertTrue(clipboardHistoryNoticeText(c.seconds) in ALL_TOOL_TEXTS)
+            assertTrue("a los ${c.seconds} s (" in clipboardHistoryNoticeText(c.seconds))
+        }
+        assertEquals("Entendido, copiar", CLIPBOARD_HISTORY_ACCEPT)
+        assertEquals("Cancelar", CLIPBOARD_HISTORY_CANCEL)
+    }
+
+    @Test
     fun heifNoticeNamesTheRealLimit() {
         // The text says «unos 24 megapíxeles»: it must follow the limit heifToJpeg really applies.
         assertTrue("${MAX_REDACT_PIXELS / 1_000_000} megapíxeles" in PHOTO_HEIF_NOTICE)

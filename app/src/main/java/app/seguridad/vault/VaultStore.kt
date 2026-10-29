@@ -133,6 +133,9 @@ class VaultStore(
      */
     @Volatile private var epoch = 0
 
+    /** [epoch], read only: goes up with every [lock], so a holder can tell a lock happened since it last looked. */
+    val lockEpoch: Int get() = epoch
+
     /**
      * Held by [lock] and by the last step of [opened] (check [epoch], then keep the key and show the entries), which
      * may run on another thread (an import runs on Dispatchers.IO): a lock can never land between the two.
