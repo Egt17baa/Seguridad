@@ -234,6 +234,8 @@ class CardTest {
      */
     @Test fun caracteresInvisiblesEnElNombre() {
         val id = fixedIdentity()
+        // U+180E is listed by itself in isForbiddenNameCodePoint (Card.kt), not found through Character.getType, so this
+        // test does not depend on the JDK's Unicode version (U+180E was Zs before Unicode 6.3 and is Cf since).
         val forbidden = listOf(
             0x2028, 0x2029, 0x200B, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xFEFF, 0x180E,
         )
@@ -257,7 +259,8 @@ class CardTest {
 
     /**
      * La lista fija de puntos de código prohibidos en el nombre (diseño, «Tarjeta de contacto»), escrita aquí otra vez a
-     * mano y por separado del código. Es fija a propósito: no depende de la versión de Unicode ni de ICU del móvil.
+     * mano y por separado del código. Es fija a propósito: no depende de la versión de Unicode ni de ICU del móvil (ni de la
+     * del JDK de los tests: U+180E, por ejemplo, está escrito aquí y en el código, sin preguntar a Character.getType).
      */
     private val forbiddenRanges = listOf(
         0x0000..0x001F, 0x007F..0x009F, // Cc

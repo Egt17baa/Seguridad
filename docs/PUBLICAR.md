@@ -2,7 +2,7 @@
 
 ## 1. La clave de subida y su huella
 
-El APK de *Releases* y el AAB de Google Play se firman con la **clave de subida**, guardada en los secretos del repositorio `SEGURIDAD_KEYSTORE_BASE64`, `SEGURIDAD_KEYSTORE_PASSWORD`, `SEGURIDAD_KEY_ALIAS` y `SEGURIDAD_KEY_PASSWORD` (cómo crearlos en el [README](../README.md#firma)).
+El APK de *Releases* y el AAB de Google Play se firman con la **clave de subida**, guardada en los secretos del entorno `firma` (o, mientras no se muevan allí, del repositorio) `SEGURIDAD_KEYSTORE_BASE64`, `SEGURIDAD_KEYSTORE_PASSWORD`, `SEGURIDAD_KEY_ALIAS` y `SEGURIDAD_KEY_PASSWORD` (cómo crearlos en el [README](../README.md#firma)).
 
 Huella SHA-256 esperada del certificado de la clave de subida (es pública, no es un secreto):
 
@@ -10,7 +10,7 @@ Huella SHA-256 esperada del certificado de la clave de subida (es pública, no e
 74:63:98:EA:37:06:5C:F0:F3:B2:AC:A2:23:FB:8C:DB:79:16:7C:B4:C5:3B:8D:21:EF:E3:C0:71:17:93:DF:9E
 ```
 
-El trabajo **build** de la CI escribe la huella del APK en el resumen de cada ejecución (*Actions → la ejecución → Summary*). Tiene que ser esta. Si sale `C0:01:4D:F6:…:18:34`, el APK está firmado con la clave de prueba pública (`app/debug.keystore`), la CI lo avisa con un `warning` y ese APK no se debe distribuir: cualquiera puede firmar una «actualización» con esa clave.
+El trabajo **build-firma** de la CI (o **build**, en un PR o una rama) escribe la huella del APK en el resumen de cada ejecución (*Actions → la ejecución → Summary*). Tiene que ser esta. Si sale `C0:01:4D:F6:…:18:34`, el APK está firmado con la clave de prueba pública (`app/debug.keystore`), la CI lo avisa con un `warning` y ese APK no se debe distribuir: cualquiera puede firmar una «actualización» con esa clave.
 
 Para comprobar un APK descargado:
 
@@ -104,7 +104,7 @@ Con Play App Signing, perder la clave de subida (o sus contraseñas) **no** hace
    keytool -export -rfc -keystore seguridad-upload-2.jks -alias seguridad -file upload_certificate.pem
    ```
 2. En *Play Console → Integridad de la app → Firma de apps*, pide **restablecer la clave de subida** (*Request upload key reset*) y adjunta `upload_certificate.pem`. Solo lo puede hacer el propietario de la cuenta. Google tarda unos días en aplicarlo.
-3. Cambia los cuatro secretos `SEGURIDAD_*` del repositorio por los de la clave nueva y actualiza la huella esperada del apartado 1.
+3. Cambia los cuatro secretos `SEGURIDAD_*` del entorno `firma` (o del repositorio, si siguen allí) por los de la clave nueva y actualiza la huella esperada del apartado 1.
 
 Si la clave se ha **filtrado** (no solo perdido), haz lo mismo cuanto antes, y cambia también los secretos: la clave vieja deja de valer en Play cuando Google aplica el cambio. Ojo: el APK de *Releases* lo firma esa misma clave, así que los que lo instalaron desde *Releases* tendrán que desinstalar (exportando antes la bóveda) e instalar el nuevo.
 
