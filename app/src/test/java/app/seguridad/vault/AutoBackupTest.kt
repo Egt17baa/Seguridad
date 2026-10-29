@@ -701,6 +701,116 @@ class AutoBackupTest {
         assertEquals(1, target.writes)
     }
 
+    // ---- «Borrar las copias automáticas anteriores y hacer una nueva» (A6) ----
+
+    /** Three copies made by the app, and the ids it keeps for them. */
+    private suspend fun TestScope.threeCopies(s: VaultStore, target: MemoryTarget): Set<String> {
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("$i"))
+            settle()
+        }
+        val own = target.files.keys.filter { name.matches(it) }.toSet()
+        assertEquals(3, own.size)
+        assertEquals(3, copies.size)
+        return own
+    }
+
+    @Test fun replaceOldCopiesDeletesOnlyOwnIds() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target)
+        // Not ours, though named like a copy (one with the latest possible date, one older): never touched.
+        val foreign = listOf("seguridad-auto-99991231-235959.sgbak", "seguridad-auto-20200101-000000.sgbak", "notas.txt")
+        foreign.forEach { target.files[it] = byteArrayOf(1) }
+        clock += 60_000
+        val result = a.replaceOldCopies()
+        assertNull(result.error)
+        assertEquals(clock, result.writtenAt)
+        assertEquals(FOLDER, result.folder)
+        // The own copies are gone, the foreign ones stay, and there is one new copy.
+        val fresh = "seguridad-auto-20261026-100400.sgbak"
+        assertEquals(foreign.toSet() + fresh, target.files.keys.toSet())
+        assertTrue(own.none { it in target.files })
+        // The list kept in Ajustes holds only the new one.
+        assertEquals(1, copies.size)
+        assertEquals(result.copies, copies)
+        // And it is a copy that opens.
+        val other = store(File(tmp.root, "otro").apply { mkdirs() }).apply { load() }
+        other.importReplace(ByteArrayInputStream(target.files.getValue(fresh)), master.toCharArray())
+        assertEquals(3, (other.state.value as VaultState.Unlocked).entries.size)
+    }
+
+    @Test fun replaceOldCopiesLeavesOldOnesWhenTheNewOneFails() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target)
+        val listed = copies
+        target.failAfterBytes = 100 // Full disk halfway through the new copy.
+        clock += 60_000
+        val result = a.replaceOldCopies()
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, result.error)
+        assertNull(result.writtenAt)
+        // Never zero copies: the old ones are all there, the half-written one is not, and the list is as it was.
+        assertEquals(own, target.files.keys.toSet())
+        assertEquals(listed, copies)
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, errors.last())
+    }
+
+    @Test fun replaceOldCopiesThatCannotDeleteKeepsThemOnTheListAndSaysSo() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target)
+        target.failDelete = IOException("sin permiso")
+        clock += 60_000
+        val result = a.replaceOldCopies()
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, result.error)
+        assertEquals(clock, result.writtenAt) // The new copy is there all the same.
+        assertEquals(own + "seguridad-auto-20261026-100400.sgbak", target.files.keys.toSet())
+        assertEquals(4, copies.size) // The old ones are still ours: tried again next time.
+    }
+
+    @Test fun replaceOldCopiesWhileLockedWaitsForTheNextUnlock() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target)
+        // As after «Cambiar contraseña maestra»: the vault is locked.
+        s.lock()
+        runCurrent()
+        clock += 60_000
+        val result = a.replaceOldCopies()
+        assertEquals(AUTO_BACKUP_REPLACE_WAITS, result.error)
+        assertNull(result.writtenAt)
+        assertEquals(own, target.files.keys.toSet()) // Nothing deleted, nothing written yet.
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(setOf("seguridad-auto-20261026-100400.sgbak"), target.files.keys.toSet())
+        assertEquals(1, copies.size)
+        // It was asked for once: the next copy after a change is a normal one and the new copy stays.
+        clock += 60_000
+        s.upsert(note("x"))
+        settle()
+        assertEquals(2, target.files.size)
+    }
+
+    @Test fun replaceOldCopiesWithNoFolderOrNoVaultWritesNothing() = runTest {
+        val s = store().apply { load() } // No vault.
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        assertEquals(AUTO_BACKUP_FAILED, a.replaceOldCopies().error)
+        assertTrue(target.files.isEmpty())
+        val open = opened(store(File(tmp.root, "v2").apply { mkdirs() }))
+        val b = auto(open, target)
+        folder = null
+        assertEquals(AUTO_BACKUP_FAILED, b.replaceOldCopies().error)
+        assertTrue(target.files.isEmpty())
+        assertEquals(0, target.writes)
+    }
+
     @Test fun changesWhileOpenStillWaitForTheDebounce() = runTest {
         val s = opened()
         val target = MemoryTarget()

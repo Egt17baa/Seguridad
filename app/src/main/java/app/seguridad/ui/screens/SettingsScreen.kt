@@ -14,6 +14,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.BuildConfig
 import app.seguridad.android.BiometricVault
+import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES
 import app.seguridad.settings.AUTO_BACKUP_OFF_NEW_VAULT
@@ -54,16 +56,29 @@ import app.seguridad.settings.ThemeMode
 import app.seguridad.settings.availableOn
 import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.KeyLevel
+import app.seguridad.tools.PASSWORD_CHANGED_TITLE
+import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
+import app.seguridad.tools.PASSWORD_CHANGE_COPIES
+import app.seguridad.tools.PASSWORD_CHANGE_OLD_BACKUPS
+import app.seguridad.tools.PASSWORD_CHANGE_RENEW_HINT
+import app.seguridad.tools.PASSWORD_CHANGE_REPLACE_COPIES
+import app.seguridad.tools.PASSWORD_CHANGE_WORKING
+import app.seguridad.tools.RENEW_IDENTITY
 import app.seguridad.tools.STRONGBOX_AVAILABLE_NOTICE
 import app.seguridad.tools.keyLevelLabel
 import app.seguridad.tools.shouldOfferStrongBoxHint
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.vault.AUTO_BACKUP_FAILED
+import app.seguridad.vault.AUTO_BACKUP_REPLACED
+import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.vault.AutoBackup
+import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -241,6 +256,65 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
                 "otros archivos de la carpeta.",
         )
     }
+}
+
+/**
+ * What follows a change of master password (the vault is locked by then): the copies that already exist do not change,
+ * the automatic ones can be replaced ([replace], only when [autoBackupOn]), and the identity can be renewed ([onRenew]
+ * leads to «Mi identidad»). [replace] runs once: its button is off while it works and after it went well. The dialog
+ * cannot be dismissed while it works.
+ */
+@Composable
+fun MasterChangedDialog(autoBackupOn: Boolean, replace: suspend () -> AutoBackupResult, onRenew: () -> Unit, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var working by remember { mutableStateOf(false) }
+    var outcome by remember { mutableStateOf<AutoBackupResult?>(null) }
+    // Again only after a failure (one that waits for the vault to be opened is asked already).
+    val canReplace = !working && outcome.let { it == null || (it.error != null && it.error != AUTO_BACKUP_REPLACE_WAITS) }
+    AlertDialog(
+        onDismissRequest = { if (!working) onClose() },
+        title = { Text(PASSWORD_CHANGED_TITLE) },
+        text = {
+            FilterObscuredTouches()
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(PASSWORD_CHANGE_COPIES)
+                Text(PASSWORD_CHANGE_OLD_BACKUPS)
+                if (autoBackupOn) {
+                    OutlinedButton(
+                        enabled = canReplace,
+                        onClick = {
+                            if (working) return@OutlinedButton
+                            working = true
+                            scope.launch {
+                                val r = try {
+                                    replace()
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    AutoBackupResult("", null, AUTO_BACKUP_FAILED) // replace() reports its own failures; never closes the app.
+                                }
+                                working = false
+                                outcome = r
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(PASSWORD_CHANGE_REPLACE_COPIES) }
+                    val shown = outcome
+                    val error = shown?.error
+                    when {
+                        working -> Hint(PASSWORD_CHANGE_WORKING)
+                        shown == null -> Unit
+                        error == null -> Hint(AUTO_BACKUP_REPLACED)
+                        error == AUTO_BACKUP_REPLACE_WAITS -> Hint(AUTO_BACKUP_REPLACE_WAITS)
+                        else -> Text(error, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+                    }
+                }
+                Text(PASSWORD_CHANGE_RENEW_HINT)
+                OutlinedButton(enabled = !working, onClick = onRenew, modifier = Modifier.fillMaxWidth()) { Text(RENEW_IDENTITY) }
+            }
+        },
+        confirmButton = { TextButton(enabled = !working, onClick = onClose) { Text(PASSWORD_CHANGE_CLOSE) } },
+    )
 }
 
 /**

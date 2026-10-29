@@ -3,7 +3,9 @@ package app.seguridad.vault
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.pk.Card
 import app.seguridad.crypto.pk.Identity
+import app.seguridad.crypto.pk.NOT_FOR_ME
 import app.seguridad.crypto.pk.cardBytes
+import app.seguridad.crypto.pk.encryptMessage
 import app.seguridad.crypto.pk.parseCard
 import app.seguridad.health.vaultHealth
 import org.junit.Assert.assertArrayEquals
@@ -73,6 +75,61 @@ class ContactsTest {
         val other = newIdentityEntry(now)
         assertTrue(e.id != other.id)
         assertTrue(e.identitySeed != other.identitySeed)
+    }
+
+    // ---- Renovar la identidad (A6) ----
+
+    @Test fun renewedIdentityHasNewKeysSameId() {
+        val old = newIdentityEntry(now).copy(username = "Yo")
+        val later = now + 5_000
+        val renewed = renewedIdentityEntry(old, later)
+        assertEquals(old.id, renewed.id)
+        assertEquals(old.createdAt, renewed.createdAt)
+        assertEquals(later, renewed.updatedAt)
+        assertEquals(EntryType.IDENTITY, renewed.type)
+        assertEquals("Yo", renewed.username) // The name on the card is kept.
+        assertEquals(32, Base64.getDecoder().decode(renewed.identitySeed).size)
+        assertTrue(renewed.identitySeed != old.identitySeed)
+        val before = old.openIdentity().use { it.edPublic to it.kemPublic }
+        val after = renewed.openIdentity().use { it.edPublic to it.kemPublic }
+        assertFalse(before.first.contentEquals(after.first)) // Ed25519 changes...
+        assertFalse(before.second.contentEquals(after.second)) // ...and so does X-Wing.
+        // The old entry is not touched.
+        assertEquals(now, old.updatedAt)
+    }
+
+    @Test fun renewedIdentityTakesItsSeedFromTheRandomGivenAndDerivesTheSameWayAsACreatedOne() {
+        val old = newIdentityEntry(now)
+        val fixed = java.security.SecureRandom.getInstance("SHA1PRNG").apply { setSeed(7L) }
+        val a = renewedIdentityEntry(old, now + 1, fixed)
+        val again = java.security.SecureRandom.getInstance("SHA1PRNG").apply { setSeed(7L) }
+        val b = renewedIdentityEntry(old, now + 2, again)
+        assertEquals(a.identitySeed, b.identitySeed)
+        // The same seed as a new identity of that random gives the same keys: nothing but the standard derivation.
+        val created = newIdentityEntry(now, java.security.SecureRandom.getInstance("SHA1PRNG").apply { setSeed(7L) })
+        assertEquals(created.identitySeed, a.identitySeed)
+        assertArrayEquals(created.openIdentity().use { it.edPublic }, a.openIdentity().use { it.edPublic })
+    }
+
+    @Test fun renewingSomethingThatIsNotAnIdentityIsRefused() {
+        val contact = contactOf(person(), "Ana")
+        assertThrows(CryptoFailure::class.java) { renewedIdentityEntry(contact, now) }
+    }
+
+    @Test fun oldMessageCannotBeOpenedAfterRenew() {
+        val old = newIdentityEntry(now)
+        val sender = person()
+        val oldCard = old.openIdentity().use { parseCard(it.cardBytes("Yo")) }
+        val toOld = sender.open { encryptMessage("hola", oldCard, it) }
+        // Before renewing it opens.
+        assertTrue(openReceivedText(toOld, listOf(old)) is ReceivedOutcome.Opened)
+        val renewed = renewedIdentityEntry(old, now + 1)
+        val outcome = openReceivedText(toOld, listOf(renewed)) // Does not throw.
+        assertTrue(outcome is ReceivedOutcome.Failed)
+        assertEquals(ReceivedOutcome.Failed(NOT_FOR_ME), outcome)
+        // The old identity's card is not the new one's.
+        val newCard = renewed.openIdentity().use { parseCard(it.cardBytes("Yo")) }
+        assertFalse(newCard.edPublic.contentEquals(oldCard.edPublic))
     }
 
     @Test fun openIdentityDaLasMismasClavesYUnaIdentidadNuevaCadaVez() {

@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -85,6 +87,10 @@ const val AUTO_BACKUP_VAULT_PROBLEM = "No se pudo hacer la copia automática: un
 const val AUTO_BACKUP_FAILED = "No se pudo hacer la copia automática."
 const val AUTO_BACKUP_OLD_NOT_DELETED = "La copia automática se hizo, pero no se pudieron borrar las antiguas."
 
+// «Borrar las copias automáticas anteriores y hacer una nueva» (tras cambiar la contraseña maestra).
+const val AUTO_BACKUP_REPLACED = "Se hizo una copia nueva y se borraron las anteriores."
+const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda con la contraseña nueva, si no cierras la app antes."
+
 /**
  * How a copy went: [folder] is the one it was made for (as [AutoBackup]'s folder gave it), [writtenAt] when the copy
  * was taken (its name's time) if it was written, even when [error] says its old copies could not be deleted; [error]
@@ -108,6 +114,10 @@ data class AutoBackupResult(val folder: String, val writtenAt: Long?, val error:
  * SHA-256: a copy due while the vault is locked waits, and is made as soon as the vault is opened again. So that
  * this survives the app being closed meanwhile, opening the vault also makes a copy when the last change saved
  * ([VaultStore.lastChangeSavedAt]) is newer than the last copy ([lastCopyAt]), or there is none yet.
+ *
+ * [replaceOldCopies] makes a copy now and then deletes every copy on the [copies] list but the new one (after a change of
+ * master password, whose old copies still open with the old one): the new copy first, so that a failure never leaves
+ * the folder with none. Like the others it only deletes by id, from that list.
  *
  * Nothing here can close the app or touch the vault: every outcome goes to [onResult], failures as a fixed Spanish
  * message. With no folder ([folder] null, or [open] null) or no vault nothing happens.
@@ -135,6 +145,12 @@ class AutoBackup(
     /** A copy was due while the vault was locked: it is made when the vault is next open. */
     @Volatile private var pending = false
 
+    /** [replaceOldCopies] was asked for while the vault was locked: the copy made when it is next open replaces the old ones. */
+    @Volatile private var replacePending = false
+
+    /** One copy at a time: the collector's and [replaceOldCopies]'s never overlap. */
+    private val lock = Mutex()
+
     init {
         scope.launch {
             // drop(1): the revision the store starts with is not a change.
@@ -151,6 +167,34 @@ class AutoBackup(
         requests.tryEmit(Unit)
     }
 
+    /**
+     * Makes a copy now and, once it is written and checked, deletes this class's other copies (the ids on [copies], never
+     * a file by its name) and the leftover temporary ones. Returns the same [AutoBackupResult] it gave [onResult]:
+     * [AutoBackupResult.error] null when all went well. If the new copy fails nothing is deleted. With the vault locked
+     * (as it is right after a change of master password) nothing can be copied yet: it returns [AUTO_BACKUP_REPLACE_WAITS]
+     * (not given to [onResult]) and the next time the vault is opened the copy made replaces the old ones. With no folder
+     * or no vault it returns [AUTO_BACKUP_FAILED].
+     */
+    suspend fun replaceOldCopies(): AutoBackupResult = lock.withLock {
+        val uri = folder() ?: return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
+        when (store.state.value) {
+            is VaultState.Unlocked -> replacePending = false // Asked for now: a failure is reported, not retried behind the user's back.
+            is VaultState.Locked -> {
+                replacePending = true
+                defer()
+                return@withLock AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS)
+            }
+            else -> return@withLock AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
+        }
+        attempt(replaceAll = true) ?: if (store.state.value is VaultState.Locked) {
+            // It locked while the copy was being made (nothing was written): it waits for the next unlock like the other case.
+            replacePending = true
+            AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS)
+        } else {
+            AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
+        }
+    }
+
     /** A change saved after the last copy (or no copy yet): one was due when the app was closed. */
     private fun missed(): Boolean = try {
         val changed = store.lastChangeSavedAt()
@@ -161,30 +205,45 @@ class AutoBackup(
     }
 
     private suspend fun runOnce() {
+        lock.withLock { attempt(replaceAll = replacePending) }
+    }
+
+    /**
+     * One copy to the chosen folder, then its rotation ([replaceAll]: every other copy of its own goes, whatever [keep]
+     * says). The result it gave [onResult], or null if nothing was done (no folder, none usable, no vault, or the vault
+     * locked, which defers it). Call with [lock] held.
+     */
+    private suspend fun attempt(replaceAll: Boolean): AutoBackupResult? {
         pending = false
-        val uri = folder() ?: return
-        try {
-            val target = open(uri) ?: return
-            if (store.state.value !is VaultState.Unlocked) return defer()
+        val uri = folder() ?: return null
+        val result = try {
+            val target = open(uri) ?: return null
+            if (store.state.value !is VaultState.Unlocked) {
+                defer()
+                return null
+            }
             val at = now()
-            val written = copyTo(target, at) ?: return
+            val written = copyTo(target, at) ?: return null
+            if (replaceAll) replacePending = false // The copy is there: what was asked for is being done.
             // Read after the copy: an import that ran meanwhile (it waits for the vault, as the copy does) has already
             // forgotten the replaced vault's copies, so they are never put back on the list.
             val owned = copies()
             val (rotated, mine) = try {
-                rotate(target, owned, written)
+                rotate(target, owned, written, replaceAll)
             } catch (e: Exception) {
                 AUTO_BACKUP_OLD_NOT_DELETED to (owned + written.id) // The copy is there all the same.
             }
-            onResult(AutoBackupResult(uri, at, rotated, mine))
+            AutoBackupResult(uri, at, rotated, mine)
         } catch (e: CancellationException) {
             // Only this class's scope being cancelled ends the copies; one thrown by the folder is just a failure.
             currentCoroutineContext().ensureActive()
-            onResult(AutoBackupResult(uri, null, AUTO_BACKUP_FAILED))
+            AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
         } catch (e: Throwable) {
             // Never closes the app: even an Error here only means there is no copy this time.
-            onResult(AutoBackupResult(uri, null, messageFor(e)))
+            AutoBackupResult(uri, null, messageFor(e))
         }
+        onResult(result)
+        return result
     }
 
     /** No vault: nothing to copy. A locked one: the copy waits for it to be opened. */
@@ -253,18 +312,19 @@ class AutoBackup(
     }
 
     /**
-     * Deletes the oldest of this class's own copies beyond [keep], and leftover temporary ones. Returns the error (null
-     * if all went well) and the ids of its copies still in the folder, oldest first, [newest] last.
+     * Deletes the oldest of this class's own copies beyond [keep] ([replaceAll]: all of them but the new one), and
+     * leftover temporary ones. Returns the error (null if all went well) and the ids of its copies still in the folder,
+     * oldest first, [newest] last.
      *
      * Its own copies are only those in [owned], the documents it created, by id: never a file by its name alone, as
      * another app that can write to the folder could leave some with a later date in the name to have the real ones
      * deleted. They are ordered by when they were made, not by the date in their names, so a clock set back changes
      * nothing either. Copies made before 1.2.1 are not on the list: they stay until deleted by hand.
      */
-    private fun rotate(folder: BackupTarget, owned: List<String>, newest: BackupEntry): Pair<String?, List<String>> {
+    private fun rotate(folder: BackupTarget, owned: List<String>, newest: BackupEntry, replaceAll: Boolean): Pair<String?, List<String>> {
         val present = folder.list(AUTO_BACKUP_PREFIX)
         val ids = present.mapTo(HashSet()) { it.id }
-        val kept = keep().takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: AUTO_BACKUP_KEEP_DEFAULT
+        val kept = if (replaceAll) 1 else keep().takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: AUTO_BACKUP_KEEP_DEFAULT
         // The one just written always stays, plus the newest others; a copy already gone is forgotten.
         val others = owned.filter { it in ids && it != newest.id }.distinct()
         val old = others.dropLast(kept - 1)
