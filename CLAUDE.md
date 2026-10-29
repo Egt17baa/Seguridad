@@ -14,7 +14,7 @@ Todo trabajo en este repositorio combina, en cada fase, **los plugins Superpower
    - `auditoria-seguridad-movil` (OWASP MASVS) en las revisiones.
 4. **Abogado Digital** revisa todo texto nuevo o cambiado de la interfaz y de la documentación al terminar cada tarea, no solo al final:
    - `despacho-digital`, más `privacidad-proteccion-datos`, `regulacion-digital-ue` o `propiedad-intelectual-ia` según el caso (licencias y atribuciones en este último);
-   - sus cambios se aplican antes de dar la tarea por terminada.
+   - sus cambios se aplican antes de dar la tarea por terminada, siempre que `experto-seguridad-cripto` y el Ingeniero Móvil Senior no vean un problema técnico o de seguridad (por ejemplo, que rompa un formato, que el texto afirme algo falso sobre el código o que cambie el comportamiento). Si lo ven, se busca un texto que satisfaga a todos y la decisión queda apuntada.
 5. Todo implementador y todo revisor, incluidos los subagentes:
    - lee `SKILL.md` de `experto-seguridad-cripto` y las referencias que toquen su tarea, y las skills de Ingeniero Móvil Senior que correspondan;
    - cierra su informe con las secciones **«Revisión experto-seguridad-cripto»** y **«Revisión Ingeniero Móvil Senior»**, con la evidencia `archivo:línea`;
