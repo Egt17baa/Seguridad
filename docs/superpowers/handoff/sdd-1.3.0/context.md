@@ -8,7 +8,16 @@ Commits: git -c user.name=Claude -c user.email=noreply@anthropic.com commit ... 
 
 Builds are offline: export ANDROID_HOME=/opt/android-sdk; use --no-daemon --max-workers=1 --offline. Pure code (not under ui/ or android/, not MainActivity/SeguridadApp) is compiled by jvm-check: gradle -p jvm-check test --no-daemon --max-workers=1 --offline
 
-Your report must end with a section 'Revisión experto-seguridad-cripto' with archivo:línea evidence.
+## Skills that work together (owner's rule, 29-10-2026)
+Every subagent combines Superpowers (process), experto-seguridad-cripto, Ingeniero Móvil Senior and Abogado Digital, plus any other available skill that touches the task. Use the Skill tool by name, or read the SKILL.md directly:
+- experto-seguridad-cripto: .claude/skills/experto-seguridad-cripto/SKILL.md (always).
+- ingeniero-movil-senior:desarrollo-movil-senior: /root/.claude/plugins/synced/29dc361b-5f33-4571-90d2-1bd51065e7b5_a2e29aa8-2531-41f4-a811-ba00a122ee7d/ingeniero-movil-senior/skills/desarrollo-movil-senior/SKILL.md (always for Kotlin/Compose/Android code: lifecycle, coroutines, rotation, process death).
+- ingeniero-movil-senior:seguridad-criptografia-movil: /root/.claude/plugins/synced/29dc361b-5f33-4571-90d2-1bd51065e7b5_a2e29aa8-2531-41f4-a811-ba00a122ee7d/ingeniero-movil-senior/skills/seguridad-criptografia-movil/SKILL.md (when touching Keystore, StrongBox, biometrics, crypto, clipboard, keyboard, files).
+- ingeniero-movil-senior:auditoria-seguridad-movil: /root/.claude/plugins/synced/29dc361b-5f33-4571-90d2-1bd51065e7b5_a2e29aa8-2531-41f4-a811-ba00a122ee7d/ingeniero-movil-senior/skills/auditoria-seguridad-movil/SKILL.md (reviewers: OWASP MASVS).
+- abogado-digital:despacho-digital (+ privacidad-proteccion-datos, regulacion-digital-ue, propiedad-intelectual-ia as relevant): /root/.claude/plugins/synced/29dc361b-5f33-4571-90d2-1bd51065e7b5_a2e29aa8-2531-41f4-a811-ba00a122ee7d/abogado-digital/skills/ — every new or changed UI/doc text is reviewed by the Abogado Digital at the end of each task, and its changes are applied before the task is complete.
+Read only the sections relevant to your task.
+
+Your report must end with the sections 'Revisión experto-seguridad-cripto' and 'Revisión Ingeniero Móvil Senior' with archivo:línea evidence, and, if the task adds or changes texts, 'Textos para el Abogado Digital' (each text verbatim with its const name and archivo:línea).
 
 ## Restricciones globales
 
