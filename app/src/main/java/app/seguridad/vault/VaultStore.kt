@@ -30,8 +30,15 @@ sealed interface VaultState {
     data class Unlocked(val entries: List<VaultEntry>) : VaultState
 }
 
-/** Biometric unlock refused because the master password was not typed for [MASTER_RECHECK_MS]. */
-class MasterRequired : Exception("Escribe tu contraseña maestra (se pide cada 7 días)")
+/** Shown instead of the 7-day notice when the clock gate refused the fingerprint (A11). */
+const val CLOCK_CHANGED_TEXT = "La hora del móvil ha cambiado. Por seguridad, escribe la contraseña maestra."
+
+/**
+ * Biometric unlock refused: the master password was not typed for [MASTER_RECHECK_MS], or the clock went backwards
+ * ([reason]); the message names the one reason, never both.
+ */
+class MasterRequired(val reason: BiometricRefusal = BiometricRefusal.MASTER_DUE) :
+    Exception(if (reason == BiometricRefusal.CLOCK) CLOCK_CHANGED_TEXT else "Escribe tu contraseña maestra (se pide cada 7 días)")
 
 /**
  * The password vault on disk (files/vault/vault.bin, never in Android backups) and its unlocked state.
@@ -295,9 +302,10 @@ class VaultStore(
             key.fill(0)
             throw e
         }
-        if (!VaultCrypto.biometricAllowed(known, now(), clockHighWater())) {
+        val refusal = VaultCrypto.biometricRefusal(known, now(), clockHighWater())
+        if (refusal != null) {
             key.fill(0)
-            throw MasterRequired()
+            throw MasterRequired(refusal)
         }
         opened(known, key, since)
         collectGarbage()
@@ -628,7 +636,6 @@ class VaultStore(
                 withContext(io) { refs.forEach { checkInBackup(it, backup.first) } }
             }
             beforeReplace() // Last: only when all of the copy is fine.
-            onClockReset(now()) // The copy's master password was verified.
             checked to refs
         } catch (e: Exception) {
             key.fill(0)
@@ -639,6 +646,7 @@ class VaultStore(
             if (vault == null) withContext(io) { keepAside() }
             if (backup == null) {
                 commit(checked, key, since)
+                onClockReset(now()) // Only once the copy is saved: a failed save lowers nothing.
                 return@withContext
             }
             val moved = try {
@@ -655,6 +663,7 @@ class VaultStore(
                 key.fill(0)
                 throw e
             }
+            onClockReset(now()) // Saved: the copy's master password was verified and it is the vault now.
             opened(checked, key, since)
             collectGarbage() // The old vault's attachments the new one does not use.
         }

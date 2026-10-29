@@ -68,6 +68,7 @@ import app.seguridad.crypto.totpCode
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BiometricRefusal
+import app.seguridad.vault.CLOCK_CHANGED_TEXT
 import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
@@ -270,9 +271,6 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
 /** Dialog of «He olvidado la contraseña maestra» (A12): it also says that the damaged files kept aside go. */
 const val FORGOT_DIALOG_TEXT =
     "Se borrarán la bóveda y también los archivos dañados que la app guardó al intentar repararla. No se puede deshacer."
-
-/** Shown instead of the 7-day notice when the clock gate refused the fingerprint (A11). */
-const val CLOCK_CHANGED_TEXT = "La hora del móvil ha cambiado. Por seguridad, escribe la contraseña maestra."
 
 @Composable
 private fun UnlockVault(store: VaultStore) {
