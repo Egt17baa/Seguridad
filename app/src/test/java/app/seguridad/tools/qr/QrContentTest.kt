@@ -382,6 +382,9 @@ class QrContentTest {
 
     @Test
     fun visibleTextMarksTheOtherInvisibleCharacters() {
+        // Each of these is in an explicit list or range of isHiddenCodePoint (Visible.kt), not found through
+        // Character.getType, so the test does not depend on the JDK's Unicode version (U+180E, for one, was Zs before
+        // Unicode 6.3 and is Cf since).
         for (cp in listOf(0x00AD, 0x115F, 0x1160, 0x3164, 0xFFA0, 0x2061, 0x2062, 0x2063, 0x2064, 0x180E, 0x2028, 0x2029, 0xFE00, 0xFE0F, 0xE0100, 0xE01EF)) {
             val s = String(Character.toChars(cp))
             assertEquals("\u27E8U+%04X\u27E9".format(cp), visibleText("a${s}b").removePrefix("a").removeSuffix("b"))

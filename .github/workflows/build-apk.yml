@@ -15,12 +15,21 @@ permissions:
 
 # Actions are pinned to full commit SHAs (the tag in the comment): a moved or hijacked tag cannot run new code here.
 # Every dependency and plugin is checked against gradle/verification-metadata.xml (sha256) before it is used.
+#
+# Signing secrets (SEGURIDAD_*) are read only by jobs that declare the GitHub environment "firma" (build-firma and
+# play-bundle), which the owner limits to main and the v* tags. A job that uses an environment gets its secrets, and an
+# environment secret takes precedence over a repository secret of the same name, so the repository secrets keep working
+# until they are moved there. A workflow that names an environment that does not exist creates it, with no protection
+# rules and no secrets. Setup steps: README, "Entorno de firma".
 jobs:
-  # Build for sideloading: release (R8-optimised), signed with the private key from the repository secrets when
-  # they exist; the shared test key is public (it is in the repo), so anyone could sign an "update" with it.
+  # Untrusted builds (pull requests, branches other than main, manual runs not from main): the same steps as
+  # build-firma, with no environment. Their secret expressions below evaluate to '' here, so they never get the key
+  # and the release APK is signed with the public test key (-PfirmaDePrueba=true): not for distribution.
   build:
+    if: ${{ !((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) }}
     runs-on: ubuntu-latest
-    steps:
+    # The same list is reused by build-firma (YAML alias; GitHub Actions supports anchors and aliases, not merge keys).
+    steps: &build-steps
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
@@ -69,11 +78,22 @@ jobs:
             exit 1
           fi
 
+          # Without the upload key, app/build.gradle.kts refuses to package a release unless asked for the test key.
+          test_key=()
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            test_key=(-PfirmaDePrueba=true)
+          fi
+
           status=0
           # Same versionCode as the Play bundle of this run, so every published APK is newer than the one before.
-          ./gradlew :app:assembleRelease -PversionCode="$GITHUB_RUN_NUMBER" --no-daemon || status=$?
+          ./gradlew :app:assembleRelease -PversionCode="$GITHUB_RUN_NUMBER" "${test_key[@]}" --no-daemon || status=$?
           rm -f "$RUNNER_TEMP/upload.jks"
           exit "$status"
+
+      # A17: only MainActivity and the DUMP-protected ProfileInstallReceiver exported, the FileProvider present and not
+      # exported, and exactly the permissions of 1.2.2. --release also rejects a debuggable APK.
+      - name: Check the merged manifest
+        run: bash scripts/check-manifest.sh --release app/build/outputs/apk/release/app-release.apk
 
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk Seguridad.apk
@@ -107,6 +127,53 @@ jobs:
           name: Seguridad-apk
           path: Seguridad.apk
 
+  # Trusted builds (pushes to main or of a v* tag, manual runs from main): signed with the upload key from the
+  # environment "firma". Without the key the step fails instead of building a distributable APK with the test key.
+  build-firma:
+    if: (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')
+    environment: firma
+    runs-on: ubuntu-latest
+    steps: *build-steps
+
+  # A10d: how many <component> lines of the dependency checksums change against the base. A change there is reviewed
+  # as a security change (README, "Verificación de dependencias"). Reads only Git history; no secrets, no Gradle.
+  dependency-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Summarise verification-metadata.xml changes
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          # Base: the PR base, else the commit before the push, else (new branch or tag) the previous v* tag.
+          base="${PR_BASE:-$PUSH_BEFORE}"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base="$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)"
+          fi
+          {
+            echo "### verification-metadata.xml"
+            echo
+            if [ -z "$base" ]; then
+              echo "Sin base con la que comparar."
+              exit 0
+            fi
+            echo "Base: \`$(git rev-parse --short "$base")\`. Todo cambio aquí se revisa como cambio de seguridad."
+            echo
+            echo "| Archivo | Líneas añadidas | Líneas quitadas | Líneas \`<component\` añadidas | Líneas \`<component\` quitadas |"
+            echo "|---|---|---|---|---|"
+            for f in gradle/verification-metadata.xml jvm-check/gradle/verification-metadata.xml; do
+              read -r added removed _ < <(git diff --numstat "$base" HEAD -- "$f"; echo "0 0 -")
+              comp_added=$(git diff -U0 "$base" HEAD -- "$f" | grep -c '^+[[:space:]]*<component' || true)
+              comp_removed=$(git diff -U0 "$base" HEAD -- "$f" | grep -c '^-[[:space:]]*<component' || true)
+              echo "| \`$f\` | $added | $removed | $comp_added | $comp_removed |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Platform-independent sources and unit tests on a plain JVM (toolchain 21), with no Android SDK. No secrets.
   jvm-check:
     runs-on: ubuntu-latest
@@ -129,10 +196,10 @@ jobs:
       - name: JVM tests
         run: ./gradlew -p jvm-check test --no-daemon -Porg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64 -Porg.gradle.java.installations.auto-download=false
 
-  # Attaches the APK of a version tag to that tag's release (created if it does not exist yet). The build job only
-  # gets here with the production key: a tag push without it fails. Can write releases, but never sees the key.
+  # Attaches the APK of a version tag to that tag's release (created if it does not exist yet). The build-firma job
+  # only gets here with the production key: a tag push without it fails. Can write releases, but never sees the key.
   release-apk:
-    needs: [build, jvm-check]
+    needs: [build-firma, jvm-check]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -160,6 +227,7 @@ jobs:
   play-bundle:
     # Signing secrets are used only for pushed version tags or manual runs from main, never arbitrary branches.
     if: (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    environment: firma
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

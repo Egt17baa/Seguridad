@@ -60,7 +60,16 @@ export ANDROID_HOME=/ruta/al/android-sdk
 ./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:checkLicense --no-daemon --max-workers=1
 ```
 
-El APK queda en `app/build/outputs/apk/release/app-release.apk`. Sin clave de subida se firma con la clave de prueba pública (`app/debug.keystore`); ver [Firma](#firma).
+El APK queda en `app/build/outputs/apk/release/app-release.apk`, firmado con la clave de subida de `keystore.properties`. Sin ella, `assembleRelease` y `bundleRelease` fallan con «Sin clave de subida…», para que no se reparta por error un APK firmado con la clave de prueba pública (`app/debug.keystore`). Para un APK de prueba firmado con esa clave, añade `-PfirmaDePrueba=true`; ver [Firma](#firma).
+
+Para comprobar el manifiesto final (componentes exportados, `FileProvider` y permisos), con `aapt2` del SDK:
+
+```bash
+./gradlew :app:assembleDebug --no-daemon --max-workers=1
+bash scripts/check-manifest.sh app/build/outputs/apk/debug/app-debug.apk
+```
+
+`scripts/check-manifest.sh` falla si hay un componente exportado que no sea `MainActivity` o el `ProfileInstallReceiver` protegido por `android.permission.DUMP`, si el `FileProvider` falta o está exportado, o si los permisos no son exactamente los de la 1.2.2 (la lista está en el script). En un APK *debuggable* admite además el `PreviewActivity` de las vistas previas de Compose, que solo trae el APK debug. La CI lo ejecuta con `--release` sobre el APK de release, y así un APK *debuggable* falla.
 
 ### jvm-check
 
@@ -76,16 +85,20 @@ gradle -p jvm-check test --no-daemon --max-workers=1
 
 `.github/workflows/build-apk.yml` se ejecuta en cada push a `main` y a `claude/**`, en cada pull request, en las etiquetas `v*` y a mano:
 
-- **build:** tests, lint, comprobación de licencias y APK de release `Seguridad.apk`, firmado con los secretos `SEGURIDAD_*`. Escribe en el resumen del trabajo la huella SHA-256 del certificado y avisa si es la de la clave de prueba.
+- **build** (pull requests, ramas que no son `main` y ejecuciones a mano fuera de `main`): tests, lint, comprobación de licencias y APK de release `Seguridad.apk`, firmado con la clave de prueba pública (`-PfirmaDePrueba=true`). No usa ningún entorno ni recibe los secretos. Comprueba el manifiesto con `scripts/check-manifest.sh --release`, escribe en el resumen del trabajo la huella SHA-256 del certificado y avisa de que es la de la clave de prueba.
+- **build-firma** (push a `main`, etiquetas `v*` y ejecuciones a mano desde `main`): los mismos pasos, en el entorno `firma` y con la clave de subida. Sin los secretos falla en vez de dar un APK con la clave de prueba.
+- **dependency-metadata:** escribe en el resumen del trabajo cuántas líneas, y cuántas entradas `<component`, se añaden o quitan en `gradle/verification-metadata.xml` y `jvm-check/gradle/verification-metadata.xml` respecto a la base del PR, al commit anterior del push o, en una rama o etiqueta nueva, a la etiqueta `v*` anterior.
 - **jvm-check:** los tests en la JVM.
 - **release-apk** (etiquetas `v*`): adjunta a la release de esa etiqueta `Seguridad-vX.Y.Z.apk` y su `.sha256`, y crea la release si no existe. No ve los secretos. Es la única forma de publicar un APK: los push a `main` solo lo dejan como artefacto de la ejecución.
-- **play-bundle** (etiquetas `v*` y a mano): el AAB para Google Play. Sin los secretos falla, porque Play no acepta la clave de prueba.
+- **play-bundle** (etiquetas `v*` y a mano desde `main`): el AAB para Google Play, en el entorno `firma`. Sin los secretos falla, porque Play no acepta la clave de prueba.
 
-Todas las acciones están fijadas por SHA y los permisos son de solo lectura salvo en `release-apk`, que puede escribir releases pero no ve los secretos. Los secretos de firma se limitan a ejecuciones de confianza; las compilaciones desde ramas o PR no fiables no deben recibirlos.
+Todas las acciones están fijadas por SHA y los permisos son de solo lectura salvo en `release-apk`, que puede escribir releases pero no ve los secretos. Los secretos de firma solo llegan a los trabajos del entorno `firma` (**build-firma** y **play-bundle**), que se ejecutan solo desde `main` o desde una etiqueta `v*`; las compilaciones desde ramas o PR no los reciben.
 
 ### Verificación de dependencias
 
 `gradle/verification-metadata.xml` (y `jvm-check/gradle/verification-metadata.xml`) guardan el SHA-256 de cada dependencia y plugin. Gradle rechaza cualquier archivo que no coincida, venga del repositorio que venga. Al cambiar o añadir una dependencia hay que regenerarlos.
+
+**Todo cambio de estos dos archivos se revisa como un cambio de seguridad**, igual que el código que cifra: una suma nueva o cambiada decide qué código entra en el APK, y las firmas de los artefactos no se comprueban (`verify-signatures` es `false`). El trabajo **dependency-metadata** de la CI escribe en el resumen cuántas entradas `<component` cambian, y la plantilla de los pull requests lo pide revisar.
 
 Hazlo **como la CI**: con el JDK 17 y con una caché de Gradle vacía para cada proyecto. Con una caché ya llena, o con otro JDK, Gradle resuelve algunos POM y BOM por otro camino y no los apunta, y luego la CI falla con «Dependency verification failed … Checksums are missing».
 
@@ -93,7 +106,8 @@ Hazlo **como la CI**: con el JDK 17 y con una caché de Gradle vacía para cada 
 export JAVA_HOME=/ruta/al/jdk-17
 rm -rf build app/build jvm-check/build
 GRADLE_USER_HOME=$(mktemp -d) ./gradlew --write-verification-metadata sha256 help :app:assembleRelease :app:lintRelease \
-  :app:testDebugUnitTest :app:checkLicense :app:bundleRelease :app:assembleDebug :app:lintDebug --no-daemon --max-workers=1
+  :app:testDebugUnitTest :app:checkLicense :app:bundleRelease :app:assembleDebug :app:lintDebug -PfirmaDePrueba=true \
+  --no-daemon --max-workers=1
 GRADLE_USER_HOME=$(mktemp -d) ./gradlew -p jvm-check --write-verification-metadata sha256 help test --no-daemon --max-workers=1
 ```
 
@@ -117,9 +131,9 @@ Una biblioteca puede traer datos con otra licencia que la suya. Por eso `:app:ch
 
 ## Firma
 
-El APK de release y el AAB se firman con la clave de subida si existe, en `keystore.properties` (en local, nunca en Git) o en variables de entorno (en la CI). Si no, el APK se firma con la clave de prueba pública, que sirve para probar pero que cualquiera puede usar: no distribuyas un APK así.
+El APK de release y el AAB se firman con la clave de subida, en `keystore.properties` (en local, nunca en Git) o en variables de entorno (en la CI). Sin ella, `assembleRelease` y `bundleRelease` fallan, salvo con `-PfirmaDePrueba=true`: entonces se firman con la clave de prueba pública, que sirve para probar pero que cualquiera puede usar. No distribuyas un APK así.
 
-Secretos del repositorio (*Settings → Secrets and variables → Actions*):
+Secretos de firma (en el entorno `firma` o, mientras no los muevas allí, en *Settings → Secrets and variables → Actions*):
 
 | Secreto | Valor |
 |---|---|
@@ -129,6 +143,20 @@ Secretos del repositorio (*Settings → Secrets and variables → Actions*):
 | `SEGURIDAD_KEY_PASSWORD` | contraseña de la clave |
 
 La CI decodifica el almacén en un archivo temporal del runner, exporta `SEGURIDAD_KEYSTORE_FILE`, compila y lo borra. Huella esperada del certificado y pasos de Google Play: [docs/PUBLICAR.md](docs/PUBLICAR.md).
+
+### Entorno de firma
+
+Los trabajos que firman (**build-firma** y **play-bundle**) declaran el entorno `firma` de GitHub. Si el entorno no existe, GitHub lo crea en la primera ejecución sin reglas ni secretos, y los trabajos siguen leyendo los secretos del repositorio: no se rompe nada. Si el mismo secreto está en el entorno y en el repositorio, vale el del entorno. Para que solo `main` y las etiquetas de versión puedan usar la clave:
+
+1. En *Settings → Environments*, abre `firma` (o créalo con *New environment* y ese nombre exacto).
+2. En *Deployment branches and tags*, elige *Selected branches and tags* y añade dos reglas: una de tipo *Branch* con el patrón `main` y otra de tipo *Tag* con el patrón `v*`.
+3. Si quieres aprobar cada firma a mano, marca *Required reviewers* y añádete. Con *Prevent self-review* no podrías aprobar tus propias ejecuciones.
+4. En *Environment secrets*, añade los cuatro secretos de la tabla de arriba con los mismos nombres y valores. Necesitas el `.jks` y sus contraseñas.
+5. Lanza una ejecución desde `main` (*Actions → Build APK → Run workflow*) y comprueba en el resumen de **build-firma** que la huella es la de [docs/PUBLICAR.md](docs/PUBLICAR.md), no la de la clave de prueba.
+6. Después, borra los cuatro secretos de *Settings → Secrets and variables → Actions* del repositorio: si se quedan allí, cualquier trabajo que no use el entorno podría volver a leerlos.
+7. Protege también las etiquetas `v*` (*Settings → Rules → Rulesets*, una regla de etiquetas que limite crearlas, moverlas y borrarlas a ti), porque quien pueda crear una etiqueta `v*` obtiene un APK firmado.
+
+En un repositorio privado, los entornos solo se pueden configurar con GitHub Pro, Team o Enterprise; en uno público, con cualquier plan.
 
 ## Seguridad y alcance de la auditoría
 
