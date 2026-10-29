@@ -7,6 +7,7 @@ import app.seguridad.crypto.ENCRYPTED_EXTENSION
 import app.seguridad.crypto.MAX_SAVED_NAME_BYTES
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.takeUtf8Bytes
+import app.seguridad.crypto.trimWithJoiners
 import app.seguridad.crypto.pk.Card
 import app.seguridad.crypto.pk.PkKind
 import app.seguridad.crypto.pk.Received
@@ -146,19 +147,21 @@ fun actionErrorMessage(e: Throwable, fallback: String): String =
  * El nombre con el que proponer guardar un archivo descifrado. El que lleva dentro lo eligió otra persona, así que se
  * sanea: se queda con el último trozo no vacío tras separar por `/` y `\` (nunca una ruta); se quitan los controles
  * (Cc: C0, DEL y C1), los de dirección del texto y todo lo de la lista fija de nombres de tarjeta
- * (`hasForbiddenNameCharacter`); se recortan los espacios y los puntos de los extremos (así `.` y `..` quedan vacíos); no
+ * (`hasForbiddenNameCharacter`); el unidor de anchura cero (U+200D) solo se queda entre dos emoji (dos puntos de código
+ * que no son ASCII ni espacios), como en `safeFileName` (`withoutLooseJoiners`), también tras los cortes; se recortan los
+ * espacios y los puntos de los extremos (así `.` y `..` quedan vacíos); no
  * pasa de 120 caracteres ni de [MAX_SAVED_NAME_BYTES] bytes en UTF-8 (es el nombre que se propone para guardar) ni parte
  * un par sustituto; y si queda vacío es [DEFAULT_RECEIVED_NAME]. Es idempotente.
  */
 fun sanitizeReceivedName(name: String): String {
-    val segments = name.split('/', '\\').map { trimEnds(withoutForbidden(it)) }
+    val segments = name.split('/', '\\').map { trimWithJoiners(withoutForbidden(it), ::trimEnds) }
     var result = segments.lastOrNull { it.isNotEmpty() } ?: return DEFAULT_RECEIVED_NAME
     if (result.length > MAX_RECEIVED_NAME_CHARS) {
         result = result.take(MAX_RECEIVED_NAME_CHARS)
         if (result.last().isHighSurrogate()) result = result.dropLast(1)
-        result = trimEnds(result)
+        result = trimWithJoiners(result, ::trimEnds)
     }
-    if (result.toByteArray(Charsets.UTF_8).size > MAX_SAVED_NAME_BYTES) result = trimEnds(takeUtf8Bytes(result, MAX_SAVED_NAME_BYTES))
+    if (result.toByteArray(Charsets.UTF_8).size > MAX_SAVED_NAME_BYTES) result = trimWithJoiners(takeUtf8Bytes(result, MAX_SAVED_NAME_BYTES), ::trimEnds)
     return result.ifEmpty { DEFAULT_RECEIVED_NAME }
 }
 

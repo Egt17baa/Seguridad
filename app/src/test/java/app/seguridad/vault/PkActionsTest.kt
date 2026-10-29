@@ -184,7 +184,7 @@ class PkActionsTest {
     }
 
     @Test fun seMantienenLosCaracteresQueLaListaAdmiteExpresamente() {
-        assertEquals("a\u200Db.txt", sanitizeReceivedName("a\u200Db.txt")) // unir de ancho cero (emoji compuestos)
+        assertEquals("ab.txt", sanitizeReceivedName("a\u200Db.txt")) // el unidor solo se queda entre emoji (ver abajo)
         assertEquals("a\uFE0Fb", sanitizeReceivedName("a\uFE0Fb"))
     }
 
@@ -1048,5 +1048,22 @@ class PkActionsTest {
         assertEquals(true to "Archivo cifrado y guardado.", messageFor(PkInputs("ana", null, "content://x/1"), fileMsg))
         assertNull(messageFor(PkInputs("ana", null, "content://x/2"), fileMsg))
         assertFalse("hola" in msg.toString())
+    }
+
+    @Test fun elNombreRecibidoSoloGuardaElUnidorEntreEmoji() {
+        val zwj = "\u200D"
+        val family = "\uD83D\uDC68$zwj\uD83D\uDC69$zwj\uD83D\uDC67"
+        assertEquals("$family.png", sanitizeReceivedName("$family.png"))
+        assertEquals("factura.pdf", sanitizeReceivedName("fac${zwj}tura.pdf"))
+        assertEquals(DEFAULT_RECEIVED_NAME, sanitizeReceivedName(zwj))
+        assertEquals(DEFAULT_RECEIVED_NAME, sanitizeReceivedName("$zwj/$zwj . $zwj"))
+        assertEquals("ok", sanitizeReceivedName("ok/$zwj")) // the last segment with something visible
+        // A joiner the 120-character cut leaves at the end goes: 118 «a» + «é» + joiner = 120 units.
+        assertEquals("a".repeat(118) + "é", sanitizeReceivedName("a".repeat(118) + "é" + zwj + "é"))
+        // The same rule as safeFileName, and idempotent.
+        for (n in listOf("$family.png", "fac${zwj}tura.pdf", "a".repeat(118) + "é" + zwj + "é")) {
+            assertEquals(app.seguridad.crypto.safeFileName(n), sanitizeReceivedName(n))
+            assertEquals(sanitizeReceivedName(n), sanitizeReceivedName(sanitizeReceivedName(n)))
+        }
     }
 }
