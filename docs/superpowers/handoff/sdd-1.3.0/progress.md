@@ -121,3 +121,21 @@ Task 9: re-review 2 = Approved (no findings). Informativa accepted: vendor keyge
 Task 9: minor (deferred): if onKey throws at unlock, the unwrapped key is not zeroed (same as 1.2.2; caller cannot throw).
 Task 9: complete (commits ec9b6a9..e84797c, review clean)
 Next: Task 10 (not dispatched; handoff to another account).
+
+## Session 2 (29-10-2026, new account)
+Setup: Android SDK installed at /opt/android-sdk (platform 36, build-tools 36.0.0); gradle caches empty, first builds online. local.properties (ignored) points to the SDK.
+Ruling: T9 deferred minor (onKey throws at unlock → unwrapped key not zeroed) folded into Task 10 together with A16c — same key-wiping chain, owner wants all minors fixed — cost: one more small edit in BiometricVault.kt.
+Task 10: dispatched (BASE b7cdb40, implementer a6e3974432c962bd8, sonnet)
+Task 10: implementer DONE_WITH_CONCERNS, commit ca5bc0a (846 jvm, full app verification ok, online). Concerns: per-axis max KDF re-wrap; clock mark write throttled 30 s; BiometricVault zeroes key only on exception path (onKey hands key to coroutine); A16c test added (none existed). Pushed.
+Task 10: reviewer ab450a5ded603ffae (opus) dispatched
+Task 10: review ab450a5 -> Approved (no Critical/Important), 6 minors. Fix round 1 with all 6 sent to a6e3974 (owner rule).
+Ruling: after a successful master unlock/confirm/import the clock mark is reset to now() — A11's threat is finger without master; a forward-set clock must not lock out the fingerprint for years — cost: someone with the master can lower the mark (they already have everything).
+Ruling: clock-gate refusal gets its own message «La hora del móvil ha cambiado. Por seguridad, escribe la contraseña maestra.» — not in annex → Task 16 Abogado Digital list — cost: text tweak late.
+Ruling: legacy/v1/v2 conversion also uses per-axis max (never lowers cost), consistent with A8 — no format change — cost: none.
+Ruling: mark also raised on app start (after settings load) — cheap, narrows the uncovered window — cost: one settings write per start at most.
+Task 16 carry: Abogado Digital text CLOCK_CHANGED («La hora del móvil ha cambiado…»).
+Task 10: fix round 1 commit 013a834 (852 jvm, full verification ok). Pushed. Re-review a92e0f98b748b2817 (opus) dispatched; named risk: reset reachable only after master verified.
+Task 10: fix round 1/5 (6 addressed; 1 new Important I-1: import resets clock mark before durable save — finger-only attacker can pin mark via failed save; 1 new minor M-1: MasterRequired message says 7 days on clock refusal; commits ca5bc0a..013a834). Fix round 2 sent to a6e3974.
+Task 10: fix round 2 commit bb7f3d6 (854 jvm). Pushed. Scoped re-review 2 dispatched (sonnet).
+Task 10: fix round 2/5 (2 addressed, 0 open; commits 013a834..bb7f3d6)
+Task 10: complete (commits b7cdb40..bb7f3d6, review clean)
