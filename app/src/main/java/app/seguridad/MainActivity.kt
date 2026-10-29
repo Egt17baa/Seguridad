@@ -14,6 +14,7 @@ import app.seguridad.android.secureWindow
 import app.seguridad.ui.AppNavHost
 import app.seguridad.ui.theme.SeguridadTheme
 import app.seguridad.ui.theme.isDark
+import app.seguridad.vault.LockReason
 import app.seguridad.vault.VaultLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,6 +45,8 @@ class MainActivity : FragmentActivity() {
         // Back from a picker or the QR scanner: if the vault was kept open longer than allowed (the idle ticker may
         // not have run while the app was in the background), it locks before anything is shown.
         container.vault.lockIfIdle()
+        // After lockIfIdle: a lock for the time spent away is left to each screen's own rule for time away, as leaving is.
+        container.foreground = true
         VaultLock.keepOpenOnce = false
         // Back from sharing an image: the copy goes once 10 minutes have passed. Off the main thread, so a share being
         // prepared at the same time (a write of up to 50 MB, under the same lock) never holds up the activity.
@@ -59,6 +62,8 @@ class MainActivity : FragmentActivity() {
         super.onStop()
         // Leaving the app locks the vault, except while a picker or the QR scanner we opened is on top.
         // Rotating, folding or resizing recreates the activity without leaving the app: no lock then.
-        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.vault.lock()
+        // Before the lock: a screen that sees it (as «PIN y códigos») must know it came from leaving the app.
+        container.foreground = false
+        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.vault.lock(LockReason.LEFT_APP)
     }
 }

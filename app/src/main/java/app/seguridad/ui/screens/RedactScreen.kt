@@ -13,6 +13,11 @@ import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,7 +37,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -163,6 +168,9 @@ private class Picture(
     val history = RedactHistory()
 }
 
+/** A copy in the share folder, waiting for the screen to open the share sheet with it. */
+internal class PreparedShare(val file: File, val mime: String)
+
 /** The boxes changed while the copy was being made: it is thrown away. */
 private class BoxesChanged : Exception()
 
@@ -203,7 +211,7 @@ private suspend fun renderCopy(p: Picture, boxes: List<RedactBox>): ByteArray = 
  * when the entry is gone for good ([onCleared]). Opening runs in [viewModelScope], so a rotation does not cut a decode;
  * saving and sharing stay with the screen (they need its activity, and a cut one already discards what it wrote).
  */
-private class RedactViewModel(private val appContext: Context) : ViewModel() {
+private class RedactViewModel(private val appContext: Context, private val shareTemp: ShareTemp) : ViewModel() {
     var picture by mutableStateOf<Picture?>(null)
         private set
     var boxes by mutableStateOf(emptyList<RedactBox>())
@@ -215,7 +223,14 @@ private class RedactViewModel(private val appContext: Context) : ViewModel() {
     var busy by mutableStateOf<String?>(null)
     var error by mutableStateOf<String?>(null)
     var done by mutableStateOf<String?>(null)
+
+    /** A copy prepared for «Compartir», for the screen to hand to the system's share sheet (it needs the activity). */
+    var shareReady by mutableStateOf<PreparedShare?>(null)
+        private set
     private var job: Job? = null
+
+    /** The screen left for good meanwhile: what it held goes once the copy being made is done ([releaseIfLeft]). */
+    private var leftWhileBusy = false
 
     fun sync() {
         val p = picture
@@ -265,14 +280,154 @@ private class RedactViewModel(private val appContext: Context) : ViewModel() {
         }
     }
 
-    override fun onCleared() {
-        // The screen is gone for good (its composition already left): the full-size bitmap goes once no copy is being made
-        // from it, and the preview now (recycling twice does nothing).
+    // A copy is made from the boxes at the moment the button was pressed; if they differ when it is ready (input is
+    // already blocked while busy, so this is the second line), nothing is saved or shared.
+    private fun stillMatches(p: Picture, snapshot: List<RedactBox>) = picture === p && p.history.boxes == snapshot
+
+    /**
+     * Saves the copy to [dest] (from CreateDocument), in [viewModelScope] with the application's resolver: a rotation does
+     * not cut it. A document that was not fully written is deleted, whatever ended the work.
+     */
+    fun save(dest: Uri) {
+        val p = picture ?: run {
+            discardDocument(appContext, dest)
+            error = REDACT_LOST
+            return
+        }
+        val snapshot = p.history.boxes
+        busy = REDACT_RENDERING
+        viewModelScope.launch {
+            var written = false
+            try {
+                val bytes = renderCopy(p, snapshot)
+                if (!stillMatches(p, snapshot)) throw BoxesChanged()
+                withContext(Dispatchers.IO) {
+                    writeDocument(appContext, dest, bytes)
+                    written = true
+                }
+                done = PHOTO_DONE_SHORT
+                error = null
+            } catch (e: CancellationException) {
+                // The screen gone for good: a fully written copy stays; an empty document does not.
+                if (!written) withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
+                throw e
+            } catch (e: BoxesChanged) {
+                discardDocument(appContext, dest)
+                done = null
+                error = REDACT_CHANGED
+            } catch (e: PhotoFailure) {
+                discardDocument(appContext, dest) // Never a half-made copy.
+                done = null
+                error = REDACT_COPY_FAILED
+            } catch (e: Exception) {
+                discardDocument(appContext, dest)
+                done = null
+                error = PHOTO_SAVE_FAILED
+            } finally {
+                busy = null
+                releaseIfLeft()
+            }
+        }
+    }
+
+    /** Makes the copy for «Compartir»; [shareReady] then holds it until the screen has handed it over ([shared]). */
+    fun share() {
+        val p = picture ?: return
+        val snapshot = p.history.boxes
+        busy = REDACT_RENDERING
+        viewModelScope.launch {
+            var prepared: File? = null
+            var handedOver = false
+            try {
+                val bytes = renderCopy(p, snapshot)
+                if (!stillMatches(p, snapshot)) throw BoxesChanged()
+                prepared = withContext(Dispatchers.IO) { shareTemp.prepare(redactFileName(p.output), bytes) }
+                shareReady = PreparedShare(prepared!!, redactMime(p.output))
+                handedOver = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: BoxesChanged) {
+                done = null
+                error = REDACT_CHANGED
+            } catch (e: PhotoFailure) {
+                done = null
+                error = REDACT_COPY_FAILED
+            } catch (e: Exception) {
+                done = null
+                error = PHOTO_SHARE_FAILED
+            } finally {
+                // Nothing was handed over: only the file this attempt wrote goes (prepare already removed any earlier
+                // one), and it need not wait the 10 minutes.
+                if (!handedOver) {
+                    prepared?.let { withContext(NonCancellable + Dispatchers.IO) { shareTemp.discard(it) } }
+                    busy = null
+                    releaseIfLeft()
+                }
+            }
+        }
+    }
+
+    /** The screen opened the share sheet for [file] ([ok]), or could not. */
+    fun shared(ready: PreparedShare, ok: Boolean) {
+        if (shareReady !== ready) return
+        val file = ready.file
+        shareReady = null
+        if (ok) {
+            done = PHOTO_DONE_SHORT
+            error = null
+        } else {
+            viewModelScope.launch(NonCancellable + Dispatchers.IO) { shareTemp.discard(file) }
+            done = null
+            error = PHOTO_SHARE_FAILED
+        }
+        busy = null
+        releaseIfLeft()
+    }
+
+    /** The screen is composed (again): nothing it shows may be released now. */
+    fun shown() {
+        leftWhileBusy = false
+    }
+
+    /**
+     * The screen left the composition without a configuration change (another tab, back): the image goes now, not when
+     * the entry is destroyed, so a tab switch does not keep up to 50 MB and a 24 MP bitmap while the vault opens. Opening
+     * is cancelled; a copy being saved or shared first ends (then [releaseIfLeft]), unless the screen comes back first.
+     */
+    fun left() {
+        val share = shareReady
+        if (share != null) shared(share, ok = false) // Not handed over: never opened later, out of the blue.
+        if (busy != null && busy != REDACT_OPENING) {
+            leftWhileBusy = true
+            return
+        }
+        job?.cancel()
+        busy = null
+        dropPicture()
+    }
+
+    private fun releaseIfLeft() {
+        if (leftWhileBusy) {
+            leftWhileBusy = false
+            dropPicture()
+        }
+    }
+
+    /** No composition draws it any more: its bitmaps go (the full-size one once no copy is being made from it). */
+    private fun dropPicture() {
         picture?.let {
             it.holder.close()
             it.previewBitmap.recycle()
         }
         picture = null
+        sync()
+        error = null
+    }
+
+    override fun onCleared() {
+        // The screen is gone for good (its composition already left): the full-size bitmap goes once no copy is being made
+        // from it, and the preview now (recycling twice does nothing).
+        dropPicture()
     }
 }
 
@@ -285,59 +440,33 @@ private class RedactViewModel(private val appContext: Context) : ViewModel() {
 @Composable
 fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val appContext = context.applicationContext
-    val vm = viewModel { RedactViewModel(appContext) }
+    val vm = viewModel { RedactViewModel(appContext, shareTemp) }
     val picture = vm.picture
     val boxes = vm.boxes
     val busy = vm.busy
     var pickerError by remember { mutableStateOf<String?>(null) }
 
-    // A copy is made from the boxes at the moment the button was pressed; if they differ when it is ready (input is
-    // already blocked while busy, so this is the second line), nothing is saved or shared.
-    fun stillMatches(p: Picture, snapshot: List<RedactBox>) = vm.picture === p && p.history.boxes == snapshot
-
-    val onSaveTarget: (Uri?) -> Unit = saved@{ dest ->
-        if (dest == null) return@saved
-        val p = vm.picture ?: run {
-            discardDocument(context, dest)
-            vm.error = REDACT_LOST
-            return@saved
-        }
-        val snapshot = p.history.boxes
-        vm.busy = REDACT_RENDERING
-        scope.launch {
-            var written = false
-            try {
-                val bytes = renderCopy(p, snapshot)
-                if (!stillMatches(p, snapshot)) throw BoxesChanged()
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(bytes) }
-                    written = true
-                }
-                vm.done = PHOTO_DONE_SHORT
-                vm.error = null
-            } catch (e: CancellationException) {
-                // Screen gone: a fully written copy stays; an empty document does not.
-                if (!written) discardDocument(context, dest)
-                throw e
-            } catch (e: BoxesChanged) {
-                discardDocument(context, dest)
-                vm.done = null
-                vm.error = REDACT_CHANGED
-            } catch (e: PhotoFailure) {
-                discardDocument(context, dest) // Never a half-made copy.
-                vm.done = null
-                vm.error = REDACT_COPY_FAILED
+    val activity = context.fragmentActivity()
+    // Only a rotation (or another configuration change) keeps the image: any other way out lets it go now.
+    DisposableEffect(vm) {
+        vm.shown()
+        onDispose { if (activity?.isChangingConfigurations != true) vm.left() }
+    }
+    // The copy for «Compartir» is ready: the share sheet needs this activity, so the screen opens it.
+    vm.shareReady?.let { ready ->
+        LaunchedEffect(ready) {
+            val ok = try {
+                shareImage(context, ready.file, ready.mime)
+                true
             } catch (e: Exception) {
-                discardDocument(context, dest)
-                vm.done = null
-                vm.error = PHOTO_SAVE_FAILED
-            } finally {
-                vm.busy = null
+                false
             }
+            vm.shared(ready, ok)
         }
     }
+
+    val onSaveTarget: (Uri?) -> Unit = { dest -> if (dest != null) vm.save(dest) }
     val savePng = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png"), onSaveTarget)
     val saveJpg = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg"), onSaveTarget)
 
@@ -399,45 +528,7 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(PHOTO_SAVE_COPY) }
                     FilledTonalButton(
-                        onClick = {
-                            val snapshot = p.history.boxes
-                            vm.busy = REDACT_RENDERING
-                            scope.launch {
-                                var prepared: File? = null
-                                // Nothing was handed over: only the file this attempt wrote goes (prepare already
-                                // removed any earlier one), and it need not wait the 10 minutes.
-                                suspend fun discardPrepared() {
-                                    prepared?.let { withContext(NonCancellable + Dispatchers.IO) { shareTemp.discard(it) } }
-                                }
-                                try {
-                                    val bytes = renderCopy(p, snapshot)
-                                    if (!stillMatches(p, snapshot)) throw BoxesChanged()
-                                    val file = withContext(Dispatchers.IO) {
-                                        shareTemp.prepare(redactFileName(p.output), bytes).also { prepared = it }
-                                    }
-                                    shareImage(context, file, redactMime(p.output))
-                                    vm.done = PHOTO_DONE_SHORT
-                                    vm.error = null
-                                } catch (e: CancellationException) {
-                                    discardPrepared()
-                                    throw e
-                                } catch (e: BoxesChanged) {
-                                    discardPrepared()
-                                    vm.done = null
-                                    vm.error = REDACT_CHANGED
-                                } catch (e: PhotoFailure) {
-                                    discardPrepared()
-                                    vm.done = null
-                                    vm.error = REDACT_COPY_FAILED
-                                } catch (e: Exception) {
-                                    discardPrepared()
-                                    vm.done = null
-                                    vm.error = PHOTO_SHARE_FAILED
-                                } finally {
-                                    vm.busy = null
-                                }
-                            }
-                        },
+                        onClick = vm::share,
                         enabled = ready,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(SHARE) }
@@ -458,8 +549,10 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
  * rotation re-creates the composition with the same picture, which keeps its preview (the ViewModel recycles it when
  * the screen is gone for good).
  *
- * The image area is excluded from the system back gesture (M-2: a drag from the left edge to cover a name there must
- * draw a box, not leave the screen; API 29+, nothing below) and tells TalkBack what it is and how many blocks it has (M-11).
+ * The image area keeps clear of the system's horizontal gesture insets and is also excluded from the back gesture (M-2:
+ * a drag from the left edge to cover a name there must draw a box, not leave the screen; the exclusion is API 29+ and
+ * Android caps it at 200 dp of height per edge, hence the padding too), and tells TalkBack what it is and how many
+ * blocks it has (M-11).
  */
 @Composable
 private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, isShown: () -> Boolean, onBox: (RedactBox) -> Unit) {
@@ -475,7 +568,8 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
         val maxHeight = windowHeight * 0.6f
         val w = min(maxWidth, maxHeight * aspect).coerceAtLeast(1.dp)
         val h = (w / aspect).coerceAtLeast(1.dp)
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        // Kept clear of the system's horizontal gesture edges (the exclusion below is capped at 200 dp per edge).
+        Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.systemGestures.only(WindowInsetsSides.Horizontal)), contentAlignment = Alignment.Center) {
             Canvas(
                 Modifier
                     .size(w, h)

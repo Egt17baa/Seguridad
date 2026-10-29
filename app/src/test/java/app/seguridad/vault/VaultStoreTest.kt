@@ -94,6 +94,39 @@ class VaultStoreTest {
         assertEquals(VaultState.Locked, s.state.value)
     }
 
+    @Test fun `each lock says why it happened`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        s.lock() // «Bloquear»
+        assertEquals(LockReason.MANUAL, s.lastLockReason)
+        s.unlock("m".toCharArray())
+        clock += idle
+        assertTrue(s.lockIfIdle())
+        assertEquals(LockReason.IDLE, s.lastLockReason)
+        s.lock(LockReason.LEFT_APP) // Already locked: not a lock, the reason stays.
+        assertEquals(LockReason.IDLE, s.lastLockReason)
+        s.unlock("m".toCharArray())
+        s.lock(LockReason.LEFT_APP)
+        assertEquals(LockReason.LEFT_APP, s.lastLockReason)
+    }
+
+    @Test fun `a lock records whether the app was in use at that moment`() = runTest {
+        var foreground = true
+        val s = VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock },
+            kdf = { KdfParams(1024, 1, 1) }, inForeground = { foreground },
+        ).apply { load(); create("m".toCharArray()) }
+        s.lock()
+        assertTrue(s.lastLockInForeground)
+        s.unlock("m".toCharArray())
+        // MainActivity.onStart: the idle check runs before the flag is back to true; a later read must not change it.
+        foreground = false
+        clock += idle
+        assertTrue(s.lockIfIdle())
+        foreground = true
+        assertFalse(s.lastLockInForeground)
+        assertEquals(LockReason.IDLE, s.lastLockReason)
+    }
+
     @Test fun `export and import into another phone`() = runTest {
         val a = store("a.bin").apply { load(); create("m".toCharArray()); upsert(entry("1", "Wallet")) }
         val exported = a.exportText()!!

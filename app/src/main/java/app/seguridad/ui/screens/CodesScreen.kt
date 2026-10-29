@@ -47,6 +47,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -88,6 +91,7 @@ import app.seguridad.tools.RECOVERY_CODES_TEXT
 import app.seguridad.tools.codes.Cell
 import app.seguridad.tools.codes.CellFactory
 import app.seguridad.tools.codes.CodesSession
+import app.seguridad.tools.codes.LockSeen
 import app.seguridad.tools.codes.PendingSave
 import app.seguridad.tools.codes.SaveKind
 import app.seguridad.tools.codes.pinBits
@@ -138,8 +142,8 @@ private object ComposeCells : CellFactory {
  * here, off the main thread (M-10). A save runs in [viewModelScope], so a rotation does not cut it. When the vault locks
  * the session decides what goes ([CodesSession.vaultStateIs]); when the entry is gone for good, every secret goes.
  */
-private class CodesViewModel(private val store: VaultStore, assets: AssetManager) : ViewModel() {
-    val session = CodesSession(ComposeCells)
+private class CodesViewModel(private val store: VaultStore, assets: AssetManager, private val lockAfterMs: () -> Long) : ViewModel() {
+    val session = CodesSession(ComposeCells, createdAt = SystemClock.elapsedRealtime())
 
     /** What the last save said, for the snackbar; null once shown. */
     var saveMessage by mutableStateOf<String?>(null)
@@ -155,9 +159,15 @@ private class CodesViewModel(private val store: VaultStore, assets: AssetManager
             }
             words?.let(session::wordsLoaded)
         }
-        // Collected for the entry's whole life (also while another screen is on top): the session tells a lock seen
-        // while the screen is shown from the one that leaving the app makes.
-        viewModelScope.launch { store.state.collect { session.vaultStateIs(it is VaultState.Unlocked) } }
+        // Collected for the entry's whole life (also while another tab is shown): why the vault locked and whether the app
+        // was in use then are read from the store, as recorded at the lock itself.
+        viewModelScope.launch {
+            store.state.collect {
+                session.vaultStateIs(it is VaultState.Unlocked) {
+                    LockSeen(store.lastLockReason, store.lastLockInForeground, SystemClock.elapsedRealtime(), lockAfterMs())
+                }
+            }
+        }
     }
 
     fun requestSave(kind: SaveKind) {
@@ -199,7 +209,8 @@ private class CodesViewModel(private val store: VaultStore, assets: AssetManager
  * system text menu has no Copy ([NoCopy]); it leaves through «Copiar» ([copySensitive]) or into the vault as a note.
  * Saving goes through the existing [VaultGate] when the vault is locked, and the draw waits on this screen meanwhile.
  * I-1: back after more than the vault's lock time away ([lockAfterMs], at least a minute, measured on the monotonic
- * clock from ON_STOP), or once the vault locks while it is shown, the screen is empty again.
+ * clock from ON_STOP), or once the vault locks with the app in use (by hand; or idle, if this screen was not used for
+ * that time either), the PIN, the codes and the answers are drawn again.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -211,7 +222,7 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, onBack: () -> Unit) 
     LaunchedEffect(store) { store.load() }
 
     val appAssets = context.applicationContext.assets
-    val vm = viewModel { CodesViewModel(store, appAssets) }
+    val vm = viewModel { CodesViewModel(store, appAssets, lockAfterMs) }
     val session = vm.session
     val currentLockAfter by rememberUpdatedState(lockAfterMs)
 
@@ -240,6 +251,20 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, onBack: () -> Unit) 
     val blankQuestion = rows.any { it.question.isBlank() }
 
     Scaffold(
+        // Any tap or key here is use of this screen, for the idle lock (it never touches the vault: no store.touch()).
+        modifier = Modifier
+            .pointerInput(session) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        session.used(SystemClock.elapsedRealtime())
+                    }
+                }
+            }
+            .onPreviewKeyEvent {
+                session.used(SystemClock.elapsedRealtime())
+                false
+            },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -313,7 +338,10 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, onBack: () -> Unit) 
                             }
                         }
                     }
-                    SiteField(session.recoverySite) { session.recoverySite = it }
+                    SiteField(session.recoverySite) {
+                        session.used(SystemClock.elapsedRealtime())
+                        session.recoverySite = it
+                    }
                     Button(
                         enabled = !busy && session.recoverySite.isNotBlank(),
                         onClick = { vm.requestSave(SaveKind.RECOVERY) },
@@ -340,13 +368,19 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, onBack: () -> Unit) 
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    SiteField(session.answersSite) { session.answersSite = it }
+                    SiteField(session.answersSite) {
+                        session.used(SystemClock.elapsedRealtime())
+                        session.answersSite = it
+                    }
                     rows.forEachIndexed { i, row ->
                         SectionCard(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 OutlinedTextField(
                                     value = row.question,
-                                    onValueChange = { row.question = it },
+                                    onValueChange = {
+                                        session.used(SystemClock.elapsedRealtime()) // The soft keyboard sends no key events.
+                                        row.question = it
+                                    },
                                     label = { Text(CODES_QUESTION_LABEL) },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),

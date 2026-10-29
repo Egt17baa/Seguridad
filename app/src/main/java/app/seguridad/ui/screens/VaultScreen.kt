@@ -81,7 +81,7 @@ import app.seguridad.vault.seedWordCount
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private tailrec fun Context.fragmentActivity(): FragmentActivity? = when (this) {
+internal tailrec fun Context.fragmentActivity(): FragmentActivity? = when (this) {
     is FragmentActivity -> this
     is ContextWrapper -> baseContext.fragmentActivity()
     else -> null
