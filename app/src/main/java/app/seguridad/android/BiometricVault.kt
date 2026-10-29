@@ -423,6 +423,9 @@ object BiometricVault {
         } catch (e: Exception) {
             finish()
             onError("No se pudo usar la huella")
+        } catch (e: Throwable) {
+            finish() // As in the coroutine of unlockOnce: released, then the Error goes on.
+            throw e
         }
     }
 
@@ -470,6 +473,11 @@ object BiometricVault {
                 throw e
             } catch (e: Exception) {
                 onError("No se pudo usar la huella")
+            } catch (e: Throwable) {
+                // An Error (OutOfMemoryError in the Keystore, say): the guard is released first, so a later «Usar huella»
+                // is not refused for good, and the Error goes on as before.
+                onEnd()
+                throw e
             }
         }
     }

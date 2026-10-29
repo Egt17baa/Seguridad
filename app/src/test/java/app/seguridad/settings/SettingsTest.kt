@@ -54,6 +54,32 @@ class SettingsTest {
         assertTrue(again.settings.value.noticeAccepted)
     }
 
+    @Test fun clipboardHistoryNoticeIsNotAcceptedByDefault() {
+        assertFalse(Settings().clipboardHistoryNoticeAccepted)
+    }
+
+    /** A settings.json as 1.2.2 wrote it (only the values that are not the default), before the A14 notice existed. */
+    @Test fun a122FileWithoutTheNoticeFieldStillLoads() = runTest {
+        file().writeText(
+            """{"lockAfter":"MIN_1","clipboard":"S15","theme":"SYSTEM","noticeAccepted":true,""" +
+                """"autoBackupUri":"content://com.android.externalstorage.documents/tree/primary%3ACopias",""" +
+                """"lastAutoBackupAt":1761500000000,"autoBackupCopies":["doc:1","doc:2"],""" +
+                """"autoBackupCopiesFolder":"content://com.android.externalstorage.documents/tree/primary%3ACopias"}""",
+        )
+        val s = store().apply { load() }.settings.value
+        // Read, not fallen back to the defaults: the user's values are there.
+        assertEquals(LockAfter.MIN_1, s.lockAfter)
+        assertEquals(ClipboardClear.S15, s.clipboard)
+        assertTrue(s.noticeAccepted)
+        assertEquals(listOf("doc:1", "doc:2"), s.autoBackupCopies)
+        assertFalse(s.clipboardHistoryNoticeAccepted)
+    }
+
+    @Test fun clipboardHistoryNoticeAcceptancePersists() = runTest {
+        store().apply { load(); update { it.copy(clipboardHistoryNoticeAccepted = true) } }
+        assertTrue(store().apply { load() }.settings.value.clipboardHistoryNoticeAccepted)
+    }
+
     @Test fun corruptFileFallsBackToDefaults() = runTest {
         file().writeText("{no")
         val s = store().apply { load() }

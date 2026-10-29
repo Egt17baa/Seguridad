@@ -377,8 +377,8 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
     LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         item {
             OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Buscar") }, singleLine = true,
-                // No corrections or suggestions. The keyboard may still learn the words (Compose has no
-                // IME_FLAG_NO_PERSONALIZED_LEARNING): only titles and names go here, never a secret.
+                // No corrections or suggestions. autoCorrectEnabled = false does not stop the keyboard from learning: that
+                // is NoLearningInput (IME_FLAG_NO_PERSONALIZED_LEARNING, for every field of the app).
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                 modifier = Modifier.fillMaxWidth())
         }

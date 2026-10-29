@@ -1,5 +1,6 @@
 package app.seguridad.tools
 
+import app.seguridad.settings.ClipboardClear
 import app.seguridad.tools.photo.Found
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
@@ -475,6 +476,17 @@ const val FINGERPRINT_ENABLE_INTERRUPTED =
     "La activación de la huella se interrumpió porque cambió la pantalla (por ejemplo, al girar el móvil). Vuelve a " +
         "tocar «Activar huella»."
 
+/** A14: the notice before the first copy of a secret on Android 8 to 12; [seconds] is the time chosen in Ajustes. */
+fun clipboardHistoryNoticeText(seconds: Int): String =
+    "En este Android, el teclado puede guardar lo copiado en su historial. Seguridad lo borra del portapapeles a los " +
+        "$seconds s, pero no del historial del teclado."
+
+/** A14: copies (and records the notice as accepted). */
+const val CLIPBOARD_HISTORY_ACCEPT = "Entendido, copiar"
+
+/** A14: copies nothing. */
+const val CLIPBOARD_HISTORY_CANCEL = "Cancelar"
+
 /** Every text above, the parameterised ones with the annex's placeholders; ToolTextsTest checks them. */
 val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE, PHOTO_EXPLANATION, PHOTO_PICK, PHOTO_PICK_OTHER, PHOTO_FOUND_TITLE,
@@ -515,4 +527,5 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PASSWORD_CHANGED_TITLE, PASSWORD_CHANGE_OLD_BACKUPS, PASSWORD_CHANGE_REPLACE_COPIES, PASSWORD_CHANGE_RENEW_HINT,
     PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, AUTO_BACKUP_OUTCOME_TITLE, AUTO_BACKUP_REPLACE_DROPPED, PASSWORD_CHANGED_FINGERPRINT_FAILED, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
     AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS, CLOCK_CHANGED_TEXT,
-)
+    CLIPBOARD_HISTORY_ACCEPT, CLIPBOARD_HISTORY_CANCEL,
+) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) }

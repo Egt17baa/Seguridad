@@ -9,16 +9,20 @@ import app.seguridad.settings.resettingClock
 import app.seguridad.settings.seeingClock
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.withAutoBackupResult
+import app.seguridad.tools.ClipboardNoticeRequest
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupTarget
 import app.seguridad.vault.MasterChanged
+import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.File
@@ -112,6 +116,16 @@ class AppContainer(
      * a screen, so a rotation during the key derivation or the replacement does not lose it (M-3).
      */
     val masterChanged = MasterChanged(appScope, replace = autoBackup::replaceOldCopies, now = System::currentTimeMillis)
+
+    /**
+     * A copy waiting for the A14 notice (Android 8 to 12), shown by the dialog at the root of the app. Here for the same
+     * reason as [masterChanged]; the text is dropped when the vault locks (here) and when the app is left (MainActivity).
+     */
+    val clipboardNotice = ClipboardNoticeRequest().also { notice ->
+        appScope.launch {
+            vault.state.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) notice.drop() }
+        }
+    }
 
     /**
      * Keeps how the last automatic copy went, for Ajustes, and the copies it made (for the next rotation), if it went

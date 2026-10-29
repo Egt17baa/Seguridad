@@ -57,6 +57,11 @@ data class Settings(
     val autoBackupReplacePending: Boolean = false,
     /** The highest time of day the app ever saw (epoch ms), a mark that only rises: a clock set back behind it ends the fingerprint. */
     val clockHighWaterMs: Long = 0,
+    /**
+     * A14: the notice about the keyboard's clipboard history (Android 8 to 12, with no EXTRA_IS_SENSITIVE) was accepted;
+     * copying a secret no longer asks. With a default, so a settings.json from 1.2.2 or before still reads.
+     */
+    val clipboardHistoryNoticeAccepted: Boolean = false,
 )
 
 /** [Settings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */
