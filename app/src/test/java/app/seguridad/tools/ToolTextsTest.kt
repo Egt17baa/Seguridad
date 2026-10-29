@@ -3,6 +3,8 @@ package app.seguridad.tools
 import app.seguridad.tools.photo.Found
 import app.seguridad.tools.photo.PhotoFormat
 import app.seguridad.tools.photo.PhotoReport
+import app.seguridad.vault.AUTO_BACKUP_REPLACED
+import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -149,6 +151,21 @@ class ToolTextsTest {
             "La imagen es muy grande y se ha reducido a unos 6 megapíxeles para poder editarla. La copia tendrá ese tamaño.",
             redactDownscaledText(6),
         )
+    }
+
+    @Test
+    fun afterChangingTheMasterPasswordTheTextsAreTheOnesOfTheDesign() {
+        assertEquals("Cambiar la contraseña no cambia las copias que ya existen.", PASSWORD_CHANGE_COPIES)
+        assertEquals("Las copias .sgbak que hiciste antes se siguen abriendo con la contraseña anterior.", PASSWORD_CHANGE_OLD_BACKUPS)
+        assertEquals("Borrar las copias automáticas anteriores y hacer una nueva", PASSWORD_CHANGE_REPLACE_COPIES)
+        assertEquals("Si temes que alguien tenga la contraseña anterior y una copia, renueva tu identidad", PASSWORD_CHANGE_RENEW_HINT)
+        assertEquals("Renovar identidad", RENEW_IDENTITY)
+        assertEquals(
+            "Tus contactos tendrán que añadir tu tarjeta nueva, y no podrás abrir lo que te enviaron a la anterior.",
+            RENEW_IDENTITY_WARNING,
+        )
+        // The result texts of the replacement are in the list too, so noForbiddenWords covers them.
+        assertTrue(ALL_TOOL_TEXTS.containsAll(listOf(AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS)))
     }
 
     @Test

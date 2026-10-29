@@ -14,6 +14,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,8 @@ import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
 import app.seguridad.ui.screens.IdentityScreen
 import app.seguridad.ui.screens.LicensesScreen
+import app.seguridad.ui.screens.LocalOnMasterChanged
+import app.seguridad.ui.screens.MasterChangedDialog
 import app.seguridad.ui.screens.NoticeScreen
 import app.seguridad.ui.screens.SettingsScreen
 import app.seguridad.ui.screens.TextCryptoScreen
@@ -109,95 +112,110 @@ fun AppNavHost(container: AppContainer) {
     val onHealth: () -> Unit = { nav.navigate("vault/health") }
     val onNew: (EntryType) -> Unit = { type -> nav.navigate("vault/edit?type=${type.name}") }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                tabs.forEach { tab ->
-                    NavigationBarItem(
-                        selected = currentTab == tab.route,
-                        onClick = {
-                            nav.navigate(tab.route) {
-                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(tab.icon, contentDescription = null) },
-                        label = { Text(tab.label) },
+    // After the master password changes (from any screen), the dialog about the old copies and the identity.
+    var masterChanged by rememberSaveable { mutableStateOf(false) }
+    if (masterChanged) {
+        MasterChangedDialog(
+            autoBackupOn = settings.autoBackupUri != null,
+            replace = container.autoBackup::replaceOldCopies,
+            onRenew = {
+                masterChanged = false
+                nav.navigate("contacts/me")
+            },
+            onClose = { masterChanged = false },
+        )
+    }
+    CompositionLocalProvider(LocalOnMasterChanged provides { masterChanged = true }) {
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    tabs.forEach { tab ->
+                        NavigationBarItem(
+                            selected = currentTab == tab.route,
+                            onClick = {
+                                nav.navigate(tab.route) {
+                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(tab.icon, contentDescription = null) },
+                            label = { Text(tab.label) },
+                        )
+                    }
+                }
+            },
+        ) { padding ->
+            NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
+                composable("vault") { VaultScreen(vault, totpOnly = false, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
+                composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
+                composable("vault/entry/{id}") { entry ->
+                    val id = entry.arguments?.getString("id").orEmpty()
+                    VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=$id") }, onShowQr = { nav.navigate("vault/entry/$id/qr") }, onBack = back)
+                }
+                composable("vault/entry/{id}/qr") { entry ->
+                    OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
+                }
+                composable(
+                    "vault/edit?id={id}&type={type}",
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("type") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    ),
+                ) { entry ->
+                    VaultEntryEditScreen(
+                        vault,
+                        id = entry.arguments?.getString("id"),
+                        initialType = VAULT_ENTRY_TYPES.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
+                        onDone = back,
                     )
                 }
+                composable("vault/health") {
+                    HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=$id") }, onBack = back)
+                }
+                // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
+                // The fixed routes (me, add, encrypt, sign, open) are not ids: Navigation picks a route with no argument over contacts/{id}.
+                composable("contacts") {
+                    ContactsScreen(
+                        vault,
+                        onIdentity = { nav.navigate("contacts/me") },
+                        onAdd = { nav.navigate("contacts/add") },
+                        onContact = { id -> nav.navigate("contacts/$id") },
+                        onAction = { route -> nav.navigate(route) },
+                    )
+                }
+                composable("contacts/me") { IdentityScreen(vault, onBack = back) }
+                composable("contacts/add") { ContactAddScreen(vault, onBack = back) }
+                composable("contacts/encrypt") { EncryptForScreen(vault, onBack = back) }
+                composable("contacts/sign") { SignScreen(vault, onBack = back) }
+                composable("contacts/open") { OpenReceivedScreen(vault, onBack = back, onOpenSymmetric = { nav.navigate("tools/file") }) }
+                composable("contacts/{id}") { entry ->
+                    ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
+                }
+                composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
+                composable("tools/text") { TextCryptoScreen(settings.kdf.params, onBack = back) }
+                composable("tools/file") { FileCryptoScreen(settings.kdf.params, onBack = back, onOpenReceived = { nav.navigate("contacts/open") }) }
+                composable("tools/generator") { GeneratorScreen(onBack = back) }
+                composable("tools/breach") { BreachScreen(container.pwned, onBack = back) }
+                composable("tools/hash") { FileHashScreen(onBack = back) }
+                composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
+                composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
+                // The QR's text never goes in a route: it is handed over through QrHandoff.
+                composable("tools/qr") {
+                    QrInspectScreen(
+                        vault,
+                        onAddContact = { nav.navigate("contacts/add") },
+                        onOpenReceived = { nav.navigate("contacts/open") },
+                        onAddTotp = { nav.navigate("tools/qr/totp") },
+                        onBack = back,
+                    )
+                }
+                composable("tools/codes") { CodesScreen(vault, onBack = back) }
+                composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
+                composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
+                composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
+                composable("settings/licenses") { LicensesScreen(onBack = back) }
             }
-        },
-    ) { padding ->
-        NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
-            composable("vault") { VaultScreen(vault, totpOnly = false, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
-            composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
-            composable("vault/entry/{id}") { entry ->
-                val id = entry.arguments?.getString("id").orEmpty()
-                VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=$id") }, onShowQr = { nav.navigate("vault/entry/$id/qr") }, onBack = back)
-            }
-            composable("vault/entry/{id}/qr") { entry ->
-                OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
-            }
-            composable(
-                "vault/edit?id={id}&type={type}",
-                arguments = listOf(
-                    navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null },
-                    navArgument("type") { type = NavType.StringType; nullable = true; defaultValue = null },
-                ),
-            ) { entry ->
-                VaultEntryEditScreen(
-                    vault,
-                    id = entry.arguments?.getString("id"),
-                    initialType = VAULT_ENTRY_TYPES.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
-                    onDone = back,
-                )
-            }
-            composable("vault/health") {
-                HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=$id") }, onBack = back)
-            }
-            // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
-            // The fixed routes (me, add, encrypt, sign, open) are not ids: Navigation picks a route with no argument over contacts/{id}.
-            composable("contacts") {
-                ContactsScreen(
-                    vault,
-                    onIdentity = { nav.navigate("contacts/me") },
-                    onAdd = { nav.navigate("contacts/add") },
-                    onContact = { id -> nav.navigate("contacts/$id") },
-                    onAction = { route -> nav.navigate(route) },
-                )
-            }
-            composable("contacts/me") { IdentityScreen(vault, onBack = back) }
-            composable("contacts/add") { ContactAddScreen(vault, onBack = back) }
-            composable("contacts/encrypt") { EncryptForScreen(vault, onBack = back) }
-            composable("contacts/sign") { SignScreen(vault, onBack = back) }
-            composable("contacts/open") { OpenReceivedScreen(vault, onBack = back, onOpenSymmetric = { nav.navigate("tools/file") }) }
-            composable("contacts/{id}") { entry ->
-                ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
-            }
-            composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
-            composable("tools/text") { TextCryptoScreen(settings.kdf.params, onBack = back) }
-            composable("tools/file") { FileCryptoScreen(settings.kdf.params, onBack = back, onOpenReceived = { nav.navigate("contacts/open") }) }
-            composable("tools/generator") { GeneratorScreen(onBack = back) }
-            composable("tools/breach") { BreachScreen(container.pwned, onBack = back) }
-            composable("tools/hash") { FileHashScreen(onBack = back) }
-            composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
-            composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
-            // The QR's text never goes in a route: it is handed over through QrHandoff.
-            composable("tools/qr") {
-                QrInspectScreen(
-                    vault,
-                    onAddContact = { nav.navigate("contacts/add") },
-                    onOpenReceived = { nav.navigate("contacts/open") },
-                    onAddTotp = { nav.navigate("tools/qr/totp") },
-                    onBack = back,
-                )
-            }
-            composable("tools/codes") { CodesScreen(vault, onBack = back) }
-            composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
-            composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
-            composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
-            composable("settings/licenses") { LicensesScreen(onBack = back) }
         }
     }
 }

@@ -4,6 +4,8 @@ import app.seguridad.tools.photo.Found
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoReport
+import app.seguridad.vault.AUTO_BACKUP_REPLACED
+import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.round
@@ -424,6 +426,19 @@ const val STRONGBOX_AVAILABLE_NOTICE = "Este móvil tiene chip seguro. Para usar
 /** A6: goes before the design's text. */
 const val PASSWORD_CHANGE_COPIES = "Cambiar la contraseña no cambia las copias que ya existen."
 
+/** A6, the dialog after the master password changed: title, the two sentences (the first is above), and the buttons. */
+const val PASSWORD_CHANGED_TITLE = "Contraseña maestra cambiada"
+const val PASSWORD_CHANGE_OLD_BACKUPS = "Las copias .sgbak que hiciste antes se siguen abriendo con la contraseña anterior."
+const val PASSWORD_CHANGE_REPLACE_COPIES = "Borrar las copias automáticas anteriores y hacer una nueva"
+const val PASSWORD_CHANGE_RENEW_HINT = "Si temes que alguien tenga la contraseña anterior y una copia, renueva tu identidad"
+const val PASSWORD_CHANGE_WORKING = "Haciendo la copia nueva…"
+const val PASSWORD_CHANGE_CLOSE = "Entendido"
+
+/** A6, «Renovar identidad» (button, dialog title) and its strong warning, verbatim from the design. */
+const val RENEW_IDENTITY = "Renovar identidad"
+const val RENEW_IDENTITY_WARNING = "Tus contactos tendrán que añadir tu tarjeta nueva, y no podrás abrir lo que te enviaron a la anterior."
+const val RENEW_IDENTITY_DONE = "Identidad renovada. Comparte tu tarjeta nueva con tus contactos."
+
 /** A12, in the dialog. */
 const val RESET_WIPES_DAMAGED =
     "Se borrarán la bóveda y también los archivos dañados que la app guardó al intentar repararla. No se puede deshacer."
@@ -464,4 +479,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     KEY_LOCATION_TITLE, KEY_LOCATION_STRONGBOX, KEY_LOCATION_TEE, KEY_LOCATION_SOFTWARE, KEY_LOCATION_UNKNOWN,
     FINGERPRINT_NOT_RESPONDING, STRONGBOX_AVAILABLE_NOTICE,
     PASSWORD_CHANGE_COPIES, RESET_WIPES_DAMAGED,
+    PASSWORD_CHANGED_TITLE, PASSWORD_CHANGE_OLD_BACKUPS, PASSWORD_CHANGE_REPLACE_COPIES, PASSWORD_CHANGE_RENEW_HINT,
+    PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
+    AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS,
 )

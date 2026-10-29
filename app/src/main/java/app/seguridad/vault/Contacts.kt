@@ -73,6 +73,23 @@ fun newIdentityEntry(now: Long, random: SecureRandom = secureRandom): VaultEntry
 }
 
 /**
+ * La misma identidad con una semilla nueva («Renovar identidad»): conserva el `id`, `createdAt` y el nombre de la tarjeta,
+ * y pone `updatedAt` = [now]. La semilla sale de [random] como en [newIdentityEntry] (con `newIdentitySeed`, que luego
+ * deriva las claves Ed25519 y X-Wing igual que al crearla), y el array se pone a cero al terminar. Las claves de antes
+ * no se pueden recuperar de la entrada nueva: lo cifrado para ellas ya no se abre. Lanza [CryptoFailure] si [old] no es
+ * una identidad. Guardarla es cosa de `VaultStore.upsert`, que sustituye la entrada por su `id`.
+ */
+fun renewedIdentityEntry(old: VaultEntry, now: Long, random: SecureRandom = secureRandom): VaultEntry {
+    if (old.type != EntryType.IDENTITY) throw CryptoFailure(BAD_IDENTITY)
+    val seed = newIdentitySeed(random)
+    try {
+        return old.copy(identitySeed = encoder.encodeToString(seed), updatedAt = now)
+    } finally {
+        seed.fill(0)
+    }
+}
+
+/**
  * La entrada de un contacto con la tarjeta [card], que tiene que ser la que dicen sus bytes canónicos [cardBytes] (se
  * vuelve a leer con `parseCard`, firma incluida; si no coincide, [CryptoFailure]). Queda verificado solo si [viaQr]
  * (la tarjeta se escaneó en persona): `verifiedBy` = `"qr"`. Pegada como texto, no. El título es el nombre de la tarjeta

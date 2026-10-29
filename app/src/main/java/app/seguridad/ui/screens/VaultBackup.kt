@@ -14,7 +14,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.BiometricVault
@@ -37,6 +39,12 @@ import java.time.LocalDate
 
 const val MIN_MASTER = 10
 
+/**
+ * What to do once the master password was changed (the vault is then locked): the app root shows the dialog about the old
+ * copies and the identity ([MasterChangedDialog]). One place for every screen that can change it; the default does nothing.
+ */
+val LocalOnMasterChanged = staticCompositionLocalOf<() -> Unit> { {} }
+
 /** What the vault menu and Ajustes can do with the vault file; each one shows its own dialog or picker. */
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
 
@@ -50,6 +58,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var dialog by remember { mutableStateOf<String?>(null) }
+    val onMasterChanged by rememberUpdatedState(LocalOnMasterChanged.current)
 
     // A copy (.sgbak) is a ZIP, but saved as plain bytes so no app treats it as one to open or rename.
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -93,9 +102,11 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
         ) { pw ->
             scope.launch {
                 // Not cut short by leaving the screen: the fingerprint must be dropped together with the old key.
+                var changed = false
                 val msg = withContext(NonCancellable) {
                     try {
                         if (store.changeMaster(pw)) {
+                            changed = true
                             BiometricVault.disable(context) // It wrapped the old data key.
                             // changeMaster has locked the vault: it opens with the new password from now on.
                             "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."
@@ -108,6 +119,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                         pw.fill('\u0000')
                     }
                 }
+                if (changed) onMasterChanged() // Before the snackbar, which waits until it goes away.
                 snackbar.showSnackbar(msg)
             }
             dialog = null
