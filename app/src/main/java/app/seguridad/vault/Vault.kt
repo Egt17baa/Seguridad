@@ -344,10 +344,9 @@ object VaultCrypto {
         val known = resolve(file, dek)
         val entries = read(known, dek)
         val weaker = known.kdf.memoryKiB < kdf.memoryKiB || known.kdf.iterations < kdf.iterations
-        return if (known.format != VaultFile.FORMAT || known.version != VaultFile.VERSION) {
-            wrap(dek, entries, master, now, kdf, random, known.revision + 1)
-        } else if (weaker) {
-            val cost = KdfParams(maxOf(known.kdf.memoryKiB, kdf.memoryKiB), maxOf(known.kdf.iterations, kdf.iterations), kdf.parallelism)
+        // Whatever is wrapped again never costs less than the file did on either axis (a stronger old file keeps its strength).
+        val cost = KdfParams(maxOf(known.kdf.memoryKiB, kdf.memoryKiB), maxOf(known.kdf.iterations, kdf.iterations), kdf.parallelism)
+        return if (known.format != VaultFile.FORMAT || known.version != VaultFile.VERSION || weaker) {
             wrap(dek, entries, master, now, cost, random, known.revision + 1)
         } else {
             write(known.copy(masterCheckedAt = now), dek, entries, random)
@@ -386,10 +385,19 @@ object VaultCrypto {
      * highest time the app ever saw (a mark that only rises): a clock set back more than [CLOCK_SLACK_MS] behind it
      * asks for the master password, so setting the clock back no longer stretches the 7 days.
      */
-    fun biometricAllowed(file: VaultFile, now: Long, highWater: Long = 0): Boolean =
-        file.format == VaultFile.FORMAT && file.version != 1 && now - file.masterCheckedAt in 0 until MASTER_RECHECK_MS &&
-            now >= highWater - CLOCK_SLACK_MS
+    fun biometricAllowed(file: VaultFile, now: Long, highWater: Long = 0): Boolean = biometricRefusal(file, now, highWater) == null
+
+    /** Why [biometricAllowed] says no, or null when it says yes; the screen words the two reasons differently. */
+    fun biometricRefusal(file: VaultFile, now: Long, highWater: Long = 0): BiometricRefusal? = when {
+        file.format != VaultFile.FORMAT || file.version == 1 -> BiometricRefusal.MASTER_DUE
+        now < file.masterCheckedAt || now < highWater - CLOCK_SLACK_MS -> BiometricRefusal.CLOCK
+        now - file.masterCheckedAt >= MASTER_RECHECK_MS -> BiometricRefusal.MASTER_DUE
+        else -> null
+    }
 }
+
+/** Why the fingerprint is refused: the master password is due (format or 7 days), or the clock went backwards. */
+enum class BiometricRefusal { MASTER_DUE, CLOCK }
 
 /** How far behind the highest time seen the clock may be before the fingerprint asks for the master password. */
 const val CLOCK_SLACK_MS = 5 * 60_000L

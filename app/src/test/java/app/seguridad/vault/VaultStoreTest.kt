@@ -24,10 +24,10 @@ class VaultStoreTest {
         VaultStore(File(tmp.root, name), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
 
     /** A store with the 1.3.0 clock mark and the given Argon2id cost for what it wraps next. */
-    private fun clockStore(highWater: () -> Long, seen: (Long) -> Unit, kdf: KdfParams = KdfParams(1024, 1, 1)) =
+    private fun clockStore(highWater: () -> Long, seen: (Long) -> Unit, kdf: KdfParams = KdfParams(1024, 1, 1), reset: (Long) -> Unit = {}) =
         VaultStore(
             File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { kdf },
-            clockHighWater = highWater, onClockSeen = seen,
+            clockHighWater = highWater, onClockSeen = seen, onClockReset = reset,
         )
 
     /** A .sgbak (no attachments) of a vault made with [kdf] and one note, opened by the master password "m". */
@@ -450,7 +450,7 @@ class VaultStoreTest {
 
     // A8 (1.3.0): a copy with a cheap Argon2id is wrapped again with the profile's cost, same data key, revision + 1.
     @Test fun importWithWeakKdfIsRewrapped() = runTest {
-        val profile = KdfParams(64 * 1024, 3, 1)
+        val profile = app.seguridad.settings.KdfProfile.STANDARD.params
         val (copy, before) = backupWith(KdfParams(8 * 1024, 1, 1))
         val s = clockStore({ 0 }, {}, profile).apply { load(); create("otra".toCharArray()) }
         s.importReplace(copy.inputStream(), "m".toCharArray())
@@ -530,5 +530,33 @@ class VaultStoreTest {
         val spare = key.copyOf()
         noVault.unlockWithKey(spare)
         assertTrue(spare.all { it == 0.toByte() })
+    }
+
+    // Fix round 1: a mark left in the future (clock set forward once) is cleared by the master password.
+    @Test fun masterUnlockResetsAClockMarkInTheFuture() = runTest {
+        var mark = 0L
+        val s = clockStore({ mark }, { mark = maxOf(mark, it) }, reset = { mark = it }).apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        mark = clock + 365L * 24 * 60 * 60_000
+        assertEquals(BiometricRefusal.CLOCK, s.biometricRefusal)
+        assertFalse(s.biometricAllowed)
+        s.unlock("m".toCharArray()) // The mark came down to now.
+        assertEquals(clock, mark)
+        s.lock()
+        assertNull(s.biometricRefusal)
+        s.unlockWithKey(key.copyOf())
+        assertTrue(s.state.value is VaultState.Unlocked)
+        // confirmMaster and an import reset it too; a fingerprint unlock and touch() never lower it.
+        mark = clock + 60 * 60_000
+        assertTrue(s.confirmMaster("m".toCharArray()))
+        assertEquals(clock, mark)
+        mark = clock + 60 * 60_000
+        val (copy, _) = backupWith(KdfParams(1024, 1, 1))
+        s.importReplace(copy.inputStream(), "m".toCharArray())
+        assertEquals(clock, mark)
+        mark = clock + 3
+        s.touch()
+        assertEquals(clock + 3, mark)
     }
 }

@@ -48,5 +48,6 @@ class SeguridadApp : Application() {
         // A few hundred bytes, read before the first frame: the theme, the start notice and the lock time must be the
         // saved ones from the start (a damaged file just gives the defaults).
         runBlocking(Dispatchers.IO) { container.settings.load() }
+        container.rememberClock(System.currentTimeMillis()) // The clock mark also rises when the app starts, not only on use.
     }
 }
