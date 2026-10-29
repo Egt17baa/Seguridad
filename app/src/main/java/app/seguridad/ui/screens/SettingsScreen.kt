@@ -28,12 +28,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,10 +53,10 @@ import app.seguridad.settings.LockAfter
 import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.ThemeMode
-import app.seguridad.settings.withAutoBackupTurnedOff
 import app.seguridad.settings.withFolderChosen
 import app.seguridad.settings.availableOn
 import app.seguridad.tools.KEY_LOCATION_TITLE
+import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
 import app.seguridad.tools.KeyLevel
@@ -76,17 +74,15 @@ import app.seguridad.tools.shouldOfferStrongBoxHint
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
-import app.seguridad.vault.AUTO_BACKUP_FAILED
 import app.seguridad.vault.AUTO_BACKUP_REPLACED
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.vault.AutoBackup
-import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.ReplaceStatus
 import app.seguridad.vault.replaceStatus
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -251,8 +247,8 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             onClick = {
                 scope.launch {
                     try {
-                        val hadRequest = store.settings.value.autoBackupReplacePending
-                        store.update { it.withAutoBackupTurnedOff() }
+                        // From the write itself (T11-c): a replacement that finished just before is not «dropped».
+                        val hadRequest = store.turnOffAutoBackup()
                         SafBackupTarget.releaseFolder(context.contentResolver, folder)
                         snackbar.showSnackbar(
                             "Copia automática desactivada. Las copias ya hechas siguen en la carpeta." +
@@ -275,32 +271,27 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
 
 /**
  * What follows a change of master password (the vault is locked by then): the copies that already exist do not change,
- * the automatic ones can be replaced ([replace], only while [autoBackupOn], which is read again at each recomposition),
- * and the identity can be renewed ([onRenew] leads to «Mi identidad»). What the replacement is doing and how it went is
- * not kept in the dialog, which a rotation recreates: it is [replacing] (AutoBackup works in its own scope), [pending]
- * (asked while locked, saved in the settings) and [lastError] (saved too); only that it was asked for is remembered
- * across a rotation, so the button stays off. It is offered again only after a failure. The dialog cannot be dismissed
- * while it works.
+ * the automatic ones can be replaced ([onReplace], only while [autoBackupOn], which is read again at each recomposition),
+ * and the identity can be renewed ([onRenew] leads to «Mi identidad»). Nothing of it lives in the dialog, which a
+ * rotation recreates: [state] is AppContainer.masterChanged (whether it was asked, and what the call answered, recorded
+ * even if the activity was re-created meanwhile), [replacing] is AutoBackup working in its own scope, and [pending],
+ * [lastError] and [lastBackupAt] are the saved settings. It is offered again only after a failure. The dialog cannot be
+ * dismissed while it works.
  */
 @Composable
 fun MasterChangedDialog(
+    state: MasterChanged.State,
     autoBackupOn: Boolean,
     replacing: Boolean,
     pending: Boolean,
     lastError: String?,
     lastBackupAt: Long?,
-    replace: suspend () -> AutoBackupResult,
+    onReplace: () -> Unit,
     onRenew: () -> Unit,
     onClose: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-    // Kept across a rotation (the dialog is recreated, the call is not cancelled): when it was asked and what the call said.
-    var requestedAt by rememberSaveable { mutableLongStateOf(0L) }
-    var answered by rememberSaveable { mutableStateOf(false) }
-    var answerError by rememberSaveable { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    val working = busy || replacing
-    val status = replaceStatus(requestedAt, answered, answerError, pending, lastError, lastBackupAt)
+    val working = state.busy || replacing
+    val status = replaceStatus(state.requestedAt, state.answered, state.answerError, pending, lastError, lastBackupAt)
     val canReplace = !working && (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed)
     AlertDialog(
         onDismissRequest = { if (!working) onClose() },
@@ -308,30 +299,14 @@ fun MasterChangedDialog(
         text = {
             FilterObscuredTouches()
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Also said in a snackbar, which a rotation can lose: here it stays until the dialog is closed.
+                if (state.fingerprintFailed) Text(PASSWORD_CHANGED_FINGERPRINT_FAILED, color = NegativeColor)
                 Text(PASSWORD_CHANGE_COPIES)
                 Text(PASSWORD_CHANGE_OLD_BACKUPS)
                 if (autoBackupOn) {
                     OutlinedButton(
                         enabled = canReplace,
-                        onClick = {
-                            if (!canReplace) return@OutlinedButton
-                            requestedAt = System.currentTimeMillis()
-                            answered = false
-                            answerError = null
-                            busy = true
-                            scope.launch {
-                                val r = try {
-                                    replace()
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    AutoBackupResult("", null, AUTO_BACKUP_FAILED) // replace() reports its own failures; never closes the app.
-                                }
-                                answerError = r.error
-                                answered = true
-                                busy = false
-                            }
-                        },
+                        onClick = { if (canReplace) onReplace() },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(PASSWORD_CHANGE_REPLACE_COPIES) }
                     when {

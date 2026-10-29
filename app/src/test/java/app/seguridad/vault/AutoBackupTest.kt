@@ -879,7 +879,7 @@ class AutoBackupTest {
         assertFalse("Saved too", SettingsStore(settingsFile(), Dispatchers.Unconfined).apply { load() }.settings.value.autoBackupReplacePending)
         // The outcome waits (in the object, not in a screen) until it has been shown, then it is gone.
         assertNull(a2.replaceOutcome.value!!.error)
-        a2.replaceOutcomeShown()
+        a2.replaceOutcomeShown(a2.replaceOutcome.value!!)
         assertNull(a2.replaceOutcome.value)
     }
 
@@ -907,7 +907,7 @@ class AutoBackupTest {
         assertEquals(AUTO_BACKUP_WRITE_FAILED, settings.settings.value.lastAutoBackupError)
         assertEquals(own.size, settings.settings.value.currentAutoBackupCopies.size)
         assertEquals(AUTO_BACKUP_WRITE_FAILED, a.replaceOutcome.value!!.error)
-        a.replaceOutcomeShown()
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
 
         // Locked and opened again with room: it works, and only then is the request cleared.
         target.failAfterBytes = null
@@ -938,7 +938,7 @@ class AutoBackupTest {
         s.unlock(master.toCharArray())
         runCurrent()
         assertEquals(AUTO_BACKUP_WRITE_FAILED, a.replaceOutcome.value!!.error) // Told once, after the unlock.
-        a.replaceOutcomeShown()
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
         // Copies after edits retry the replacement and fail the same way: nothing opens again.
         repeat(3) { i ->
             clock += 60_000
@@ -954,7 +954,7 @@ class AutoBackupTest {
         settle()
         assertNull(a.replaceOutcome.value!!.error)
         assertFalse(settings.settings.value.autoBackupReplacePending)
-        a.replaceOutcomeShown()
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
         clock += 60_000
         s.upsert(note("after"))
         settle()
@@ -982,6 +982,72 @@ class AutoBackupTest {
         assertEquals(first, a.replaceOutcome.value)
     }
 
+    /** A folder whose copies fail, a replacement asked while locked whose failure was told and shown: [a]'s state then. */
+    private suspend fun TestScope.failureToldAndShown(): Triple<VaultStore, MemoryTarget, AutoBackup> {
+        val s = opened()
+        val target = MemoryTarget()
+        val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
+            load()
+            update { it.copy(autoBackupUri = FOLDER) }
+        }
+        val a = persistent(s, settings, target)
+        threeCopiesInto(s, settings, target)
+        s.lock()
+        runCurrent()
+        a.replaceOldCopies()
+        target.failAfterBytes = 100
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, a.replaceOutcome.value!!.error)
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
+        assertTrue(settings.settings.value.autoBackupReplacePending)
+        return Triple(s, target, a)
+    }
+
+    @Test fun aNewRequestWhileOpenStartsTheOnceRuleAgain() = runTest {
+        val (s, _, a) = failureToldAndShown()
+        // Asked again with the vault open (the direct path, not waitForUnlock): the caller gets the failure.
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, a.replaceOldCopies().error)
+        assertNull(a.replaceOutcome.value)
+        // The request is still saved; the next unlock retries it and fails the same way: that outcome belongs to the
+        // new request, so it is told, once.
+        s.lock()
+        runCurrent()
+        clock += 60_000
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, a.replaceOutcome.value!!.error)
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
+        s.lock()
+        runCurrent()
+        clock += 60_000
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertNull("Same request, same outcome: not told again", a.replaceOutcome.value)
+    }
+
+    @Test fun closingTheDialogAcknowledgesOnlyTheOutcomeItShowed() = runTest {
+        val (s, target, a) = failureToldAndShown()
+        // A new request while locked: it fails again after the unlock, and that is on screen.
+        s.lock()
+        runCurrent()
+        a.replaceOldCopies()
+        s.unlock(master.toCharArray())
+        runCurrent()
+        val onScreen = a.replaceOutcome.value!!
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, onScreen.error)
+        // Before the user taps «Entendido», a copy after an edit does the replacement: a different outcome.
+        target.failAfterBytes = null
+        clock += 60_000
+        s.upsert(note("ok"))
+        settle()
+        a.replaceOutcomeShown(onScreen)
+        val next = a.replaceOutcome.value
+        assertNull("The success arrived after what was shown: it is still to be told", next!!.error)
+        a.replaceOutcomeShown(next)
+        assertNull(a.replaceOutcome.value)
+    }
+
     @Test fun replaceStatusNeverClaimsDoneWithoutARecordedReplacement() {
         val waits = AUTO_BACKUP_REPLACE_WAITS
         assertEquals(ReplaceStatus.NotAsked, replaceStatus(0, false, null, false, null, null))
@@ -996,6 +1062,12 @@ class AutoBackupTest {
         // Nothing recorded after the request, nothing waiting, no error: unknown, never «done».
         assertEquals(ReplaceStatus.Unknown, replaceStatus(100, false, null, false, null, null))
         assertEquals(ReplaceStatus.Unknown, replaceStatus(100, false, null, false, null, 99))
+        // T11-b: the call said «waits», and then the settings record that it ran: the record wins.
+        assertEquals(ReplaceStatus.Done, replaceStatus(100, true, waits, false, null, 150))
+        assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_OLD_NOT_DELETED), replaceStatus(100, true, waits, false, AUTO_BACKUP_OLD_NOT_DELETED, 150))
+        // Still waiting, or nothing written after the request: it still waits.
+        assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, true, AUTO_BACKUP_WRITE_FAILED, 150))
+        assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, false, null, 99))
     }
 
     @Test fun cancellingTheCallerDoesNotCutTheReplacement() = runTest {

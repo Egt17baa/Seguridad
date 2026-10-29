@@ -41,10 +41,12 @@ import java.time.LocalDate
 const val MIN_MASTER = 10
 
 /**
- * What to do once the master password was changed (the vault is then locked): the app root shows the dialog about the old
- * copies and the identity ([MasterChangedDialog]). One place for every screen that can change it; the default does nothing.
+ * What to do once the master password was changed (the vault is then locked), with whether the fingerprint could not be
+ * turned off: the app root shows the dialog about the old copies and the identity ([MasterChangedDialog]). One place for
+ * every screen that can change it; the default does nothing. The app root provides AppContainer.masterChanged, which
+ * outlives the activity: a lambda captured before a rotation still reaches the dialog of the new one (M-3).
  */
-val LocalOnMasterChanged = staticCompositionLocalOf<() -> Unit> { {} }
+val LocalOnMasterChanged = staticCompositionLocalOf<(fingerprintFailed: Boolean) -> Unit> { {} }
 
 /** What the vault menu and Ajustes can do with the vault file; each one shows its own dialog or picker. */
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
@@ -113,8 +115,9 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                             } catch (e: Exception) {
                                 false
                             }
-                            // Inside this block: leaving the screen during the key derivation must not lose the dialog.
-                            onMasterChanged()
+                            // Inside this block: leaving the screen or rotating during the key derivation must not
+                            // lose the dialog (it is kept outside the activity).
+                            onMasterChanged(!fingerprintOff)
                             // changeMaster has locked the vault: it opens with the new password from now on.
                             if (fingerprintOff) {
                                 "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."

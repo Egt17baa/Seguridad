@@ -1,5 +1,6 @@
 package app.seguridad.vault
 
+import app.seguridad.core.Notice
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES
 import app.seguridad.settings.AUTO_BACKUP_KEEP_DEFAULT
@@ -172,20 +173,26 @@ class AutoBackup(
     /** True while [replaceOldCopies] works (also after the screen that asked for it was recreated). */
     val replacing: StateFlow<Boolean> = _replacing.asStateFlow()
 
-    private val _replaceOutcome = MutableStateFlow<AutoBackupResult?>(null)
+    private val outcome = Notice<AutoBackupResult>()
 
     /**
      * How a replacement that ran by itself (it was asked for while locked) went, until [replaceOutcomeShown]: it lives with
      * this object, not with a screen, so an activity re-created meanwhile still shows it, and once shown it is gone.
      */
-    val replaceOutcome: StateFlow<AutoBackupResult?> = _replaceOutcome.asStateFlow()
+    val replaceOutcome: StateFlow<AutoBackupResult?> = outcome.value
 
-    /** The user has been told [replaceOutcome]. */
-    fun replaceOutcomeShown() {
-        _replaceOutcome.value = null
+    /**
+     * The user has been told [shown], the outcome that was on screen. Only that one goes: an outcome that arrived between
+     * showing it and closing it is still told (compare-and-set by identity, [Notice]).
+     */
+    fun replaceOutcomeShown(shown: AutoBackupResult) {
+        outcome.shown(shown)
     }
 
-    /** What the last outcome told ([AutoBackupResult.error], "" for success); null before one. Only a different one is told again. */
+    /**
+     * What the last outcome told ([AutoBackupResult.error], "" for success); null before one. Only a different one is told
+     * again, until a new request ([replaceNow], by either path) starts the rule again. Read and written with [lock] held.
+     */
     private var toldOutcome: String? = null
 
     /** One copy at a time: the collector's and [replaceOldCopies]'s never overlap. */
@@ -219,6 +226,7 @@ class AutoBackup(
 
     private suspend fun replaceNow(): AutoBackupResult = lock.withLock {
         _replacing.value = true
+        toldOutcome = null // A new request: its outcomes are told even if they are the same as the last one's.
         try {
             val uri = folder() ?: return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
             when (store.state.value) {
@@ -237,7 +245,6 @@ class AutoBackup(
     /** The vault is locked: the request is saved (through [onResult]) and the first copy after the next unlock does it. */
     private suspend fun waitForUnlock(uri: String): AutoBackupResult {
         defer()
-        toldOutcome = null // A new request: its outcome is told even if it is the same as the last one.
         onResult(AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true))
         // Not saved (a full disk): do not say it will be done.
         return AutoBackupResult(uri, null, if (replacePending()) AUTO_BACKUP_REPLACE_WAITS else AUTO_BACKUP_FAILED)
@@ -261,7 +268,7 @@ class AutoBackup(
                 val key = result.error ?: ""
                 if (key != toldOutcome) {
                     toldOutcome = key
-                    _replaceOutcome.value = result
+                    outcome.post(result)
                 }
             }
         }
@@ -429,11 +436,15 @@ sealed interface ReplaceStatus {
 /**
  * The status to show. [requestedAt] is when the button was pressed (0 if not yet); [answered] and [answerError] what the call
  * said (kept across a re-creation); [pending], [lastError] and [lastBackupAt] what the settings say, which are what is
- * left when the answer was lost. «Done» only comes from an answer without error or from a copy written after the request
- * with no error and nothing waiting.
+ * left when the answer was lost, and what wins over an answer «waits» once they show the replacement ran. «Done» only
+ * comes from an answer without error or from a copy written after the request with no error and nothing waiting.
  */
 fun replaceStatus(requestedAt: Long, answered: Boolean, answerError: String?, pending: Boolean, lastError: String?, lastBackupAt: Long?): ReplaceStatus = when {
     requestedAt == 0L -> ReplaceStatus.NotAsked
+    // T11-b: «waits» was true when the call answered; once the settings record the replacement (nothing waiting and a
+    // copy written after the request), that record is what is shown.
+    answered && answerError == AUTO_BACKUP_REPLACE_WAITS && !pending && lastBackupAt != null && lastBackupAt >= requestedAt ->
+        lastError?.let { ReplaceStatus.Failed(it) } ?: ReplaceStatus.Done
     answered -> when (answerError) {
         null -> ReplaceStatus.Done
         AUTO_BACKUP_REPLACE_WAITS -> ReplaceStatus.Waits

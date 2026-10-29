@@ -292,4 +292,15 @@ class SettingsTest {
         assertFalse(s.settings.value.autoBackupOffForNewVault)
         assertFalse(file().exists())
     }
+
+    @Test fun turningTheCopiesOffSaysIfItDroppedAWaitingReplacement() = runTest {
+        val s = store().apply { load() }
+        s.update { it.copy(autoBackupUri = "content://carpeta", autoBackupReplacePending = true) }
+        assertTrue("Decided from the very write that turned them off (T11-c)", s.turnOffAutoBackup())
+        assertEquals(null, s.settings.value.autoBackupUri)
+        assertFalse(s.settings.value.autoBackupReplacePending)
+        s.update { it.copy(autoBackupUri = "content://carpeta") }
+        assertFalse(s.turnOffAutoBackup())
+        assertFalse("Already off: nothing dropped", s.turnOffAutoBackup())
+    }
 }

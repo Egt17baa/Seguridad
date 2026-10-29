@@ -114,31 +114,36 @@ fun AppNavHost(container: AppContainer) {
     val onHealth: () -> Unit = { nav.navigate("vault/health") }
     val onNew: (EntryType) -> Unit = { type -> nav.navigate("vault/edit?type=${type.name}") }
 
-    // After the master password changes (from any screen), the dialog about the old copies and the identity.
-    var masterChanged by rememberSaveable { mutableStateOf(false) }
+    // After the master password changes (from any screen), the dialog about the old copies and the identity. It lives in
+    // AppContainer, not here: a rotation while the new key is derived re-creates this composition, and the screen that
+    // changed the password writes to the holder, which the new composition reads (M-3).
+    val masterChanged = container.masterChanged
+    val masterState by masterChanged.state.collectAsStateWithLifecycle()
     // How a replacement asked for while locked went, told once after the unlock that ran it.
-    // It lives in AutoBackup until shown, so an activity re-created meanwhile still shows it; once closed it is gone.
+    // It lives in AutoBackup until shown, so an activity re-created meanwhile still shows it; closing it acknowledges only
+    // the outcome that was on screen (T11-d): one that arrived meanwhile is shown next.
     val replaceOutcome by container.autoBackup.replaceOutcome.collectAsStateWithLifecycle()
-    replaceOutcome?.let {
-        ReplaceOutcomeDialog(it.error ?: AUTO_BACKUP_REPLACED, failed = it.error != null, onClose = container.autoBackup::replaceOutcomeShown)
+    replaceOutcome?.let { shown ->
+        ReplaceOutcomeDialog(shown.error ?: AUTO_BACKUP_REPLACED, failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
     }
     val replacing by container.autoBackup.replacing.collectAsStateWithLifecycle()
-    if (masterChanged) {
+    if (masterState.open) {
         MasterChangedDialog(
+            state = masterState,
             autoBackupOn = settings.autoBackupUri != null,
             replacing = replacing,
             pending = settings.autoBackupReplacePending,
             lastError = settings.lastAutoBackupError,
             lastBackupAt = settings.lastAutoBackupAt,
-            replace = container.autoBackup::replaceOldCopies,
+            onReplace = { masterChanged.replace() },
             onRenew = {
-                masterChanged = false
+                masterChanged.close()
                 nav.navigate("contacts/me")
             },
-            onClose = { masterChanged = false },
+            onClose = masterChanged::close,
         )
     }
-    CompositionLocalProvider(LocalOnMasterChanged provides { masterChanged = true }) {
+    CompositionLocalProvider(LocalOnMasterChanged provides masterChanged::changed) {
         Scaffold(
             bottomBar = {
                 NavigationBar {
