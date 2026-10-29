@@ -389,17 +389,21 @@ object BiometricVault {
     /**
      * Asks for the fingerprint and hands back the data key; [onError] with a message otherwise. Ignored while another
      * unlock runs. The guard is freed on every end: [onKey], [onError], a cancel, a prompt that cannot be shown, any
-     * exception, and the activity going away (a prompt that never calls back).
+     * exception, and the activity going away once the prompt was shown (a prompt that never calls back). Before that,
+     * a re-creation (a rotation during Cipher.init) does not free it: the init still running ends through onEnd
+     * (canPrompt is false on a destroyed activity), so the new activity's automatic start can never run a second
+     * Cipher.init on StrongBox alongside it.
      */
     fun unlock(activity: FragmentActivity, onKey: (ByteArray) -> Unit, onError: (String) -> Unit) {
         val ticket = unlocking.start() ?: return
         var observer: LifecycleEventObserver? = null
+        var promptShown = false
         val finish: () -> Unit = {
             ticket.release()
             observer?.let { activity.lifecycle.removeObserver(it) }
             observer = null
         }
-        observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_DESTROY) finish() }.also {
+        observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_DESTROY && promptShown) finish() }.also {
             activity.lifecycle.addObserver(it)
         }
         try {
@@ -414,6 +418,7 @@ object BiometricVault {
                     onError(message)
                 },
                 onEnd = finish,
+                onShown = { promptShown = true },
             )
         } catch (e: Exception) {
             finish()
@@ -422,7 +427,13 @@ object BiometricVault {
     }
 
     /** [unlock] itself; [onEnd] when it ends without calling [onKey] or [onError] (a cancel, no prompt possible). */
-    private fun unlockOnce(activity: FragmentActivity, onKey: (ByteArray) -> Unit, onError: (String) -> Unit, onEnd: () -> Unit) {
+    private fun unlockOnce(
+        activity: FragmentActivity,
+        onKey: (ByteArray) -> Unit,
+        onError: (String) -> Unit,
+        onEnd: () -> Unit,
+        onShown: () -> Unit,
+    ) {
         val p = prefs(activity)
         val iv = p.getString(KEY_IV, null)
         val blob = p.getString(KEY_BLOB, null)
@@ -453,7 +464,7 @@ object BiometricVault {
         val scope = MainScope()
         scope.launch {
             try {
-                unlockStarted(activity, scope, ivBytes, wrapped, onKey, onError, onEnd, { key = it }, ::failedAt)
+                unlockStarted(activity, scope, ivBytes, wrapped, onKey, onError, onEnd, onShown, { key = it }, ::failedAt)
             } catch (e: CancellationException) {
                 onEnd()
                 throw e
@@ -472,6 +483,7 @@ object BiometricVault {
         onKey: (ByteArray) -> Unit,
         onError: (String) -> Unit,
         onEnd: () -> Unit,
+        onShown: () -> Unit,
         keptKey: (SecretKey) -> Unit,
         failedAt: (UnlockFailure, String) -> Unit,
     ) {
@@ -499,6 +511,7 @@ object BiometricVault {
             }
             // Back on the main thread: the activity may have gone meanwhile; a prompt asked for now would never show.
             if (!canPrompt(activity)) return onEnd()
+            onShown()
             showUnlockPrompt(activity, cipher, wrapped, onKey, onError, onEnd, failedAt)
         }
     }

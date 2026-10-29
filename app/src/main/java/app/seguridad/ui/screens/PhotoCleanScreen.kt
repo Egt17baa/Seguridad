@@ -190,7 +190,7 @@ private class PhotoCleanViewModel(private val appContext: Context, private val s
     /** Saves the copy to [dest]; a document not fully written is deleted, whatever ended the work. */
     fun save(dest: Uri) {
         val c = copy ?: run {
-            discardDocument(appContext, dest)
+            viewModelScope.launch(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
             error = PHOTO_LOST
             return
         }
@@ -209,7 +209,7 @@ private class PhotoCleanViewModel(private val appContext: Context, private val s
                 if (!written) withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
                 throw e
             } catch (e: Exception) {
-                discardDocument(appContext, dest) // Never a half-written copy.
+                withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) } // Never a half-made copy.
                 done = null
                 error = PHOTO_SAVE_FAILED
             } finally {
@@ -228,8 +228,11 @@ private class PhotoCleanViewModel(private val appContext: Context, private val s
             var handedOver = false
             try {
                 prepared = withContext(Dispatchers.IO) { shareTemp.prepare("$PHOTO_FILE_BASE.${c.ext}", c.bytes) }
-                shareReady = PreparedShare(prepared!!, c.mime)
-                handedOver = true
+                // The screen was left meanwhile: never a share sheet out of the blue when it comes back (finally drops it).
+                if (!leftWhileBusy) {
+                    shareReady = PreparedShare(prepared!!, c.mime)
+                    handedOver = true
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

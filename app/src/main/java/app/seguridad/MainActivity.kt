@@ -62,8 +62,10 @@ class MainActivity : FragmentActivity() {
         super.onStop()
         // Leaving the app locks the vault, except while a picker or the QR scanner we opened is on top.
         // Rotating, folding or resizing recreates the activity without leaving the app: no lock then.
-        // Before the lock: a screen that sees it (as «PIN y códigos») must know it came from leaving the app.
-        container.foreground = false
+        // Before the lock: a screen that sees it (as «PIN y códigos») must know it came from leaving the app. A rotation,
+        // a fold or a resize re-creates the activity without leaving the app: it stays in the foreground (there is no
+        // lock then either, and onStart sets it to true again right after).
+        if (!isChangingConfigurations) container.foreground = false
         if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.vault.lock(LockReason.LEFT_APP)
     }
 }

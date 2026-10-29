@@ -217,10 +217,11 @@ class ToolTextsTest {
             STRONGBOX_AVAILABLE_NOTICE,
         )
         assertEquals(
-            // CU-B: with the ViewModel the drawn values survive a rotation; this is when they really go (the Abogado's
-            // wording, plus «si bloqueas la bóveda», which CU-B revisión 1 made true).
-            "Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si se cierra la app, si " +
-                "bloqueas la bóveda o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo).",
+            // CU-B: with the ViewModel the drawn values survive a rotation; this is when they really go, and only they
+            // (the sites and the questions stay). The Abogado's and the reviewer's wording, revisión 2.
+            "Desbloquea la bóveda para guardarlo. El PIN, los códigos y las respuestas se pierden si vuelves atrás, si se " +
+                "cierra la app, si bloqueas la bóveda o si estás fuera de esta pantalla más tiempo que el bloqueo de la " +
+                "bóveda (1 minuto como mínimo).",
             CODES_UNLOCK_TO_SAVE,
         )
         assertEquals(

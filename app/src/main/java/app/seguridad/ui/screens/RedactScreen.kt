@@ -208,8 +208,9 @@ private suspend fun renderCopy(p: Picture, boxes: List<RedactBox>): ByteArray = 
 /**
  * What «Tachar» has open, for its navigation entry: the [Picture] and its boxes survive a configuration change, and the
  * bitmaps are recycled when another image is picked (the preview once it has left the composition, [RedactCanvas]) or
- * when the entry is gone for good ([onCleared]). Opening runs in [viewModelScope], so a rotation does not cut a decode;
- * saving and sharing stay with the screen (they need its activity, and a cut one already discards what it wrote).
+ * when the screen is left without a configuration change ([left]) or the entry is gone for good ([onCleared]). Opening,
+ * saving and preparing a share run in [viewModelScope] with the application's resolver, so a rotation cuts none of
+ * them; only opening the share sheet is the screen's (it needs the activity).
  */
 private class RedactViewModel(private val appContext: Context, private val shareTemp: ShareTemp) : ViewModel() {
     var picture by mutableStateOf<Picture?>(null)
@@ -290,7 +291,7 @@ private class RedactViewModel(private val appContext: Context, private val share
      */
     fun save(dest: Uri) {
         val p = picture ?: run {
-            discardDocument(appContext, dest)
+            viewModelScope.launch(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
             error = REDACT_LOST
             return
         }
@@ -312,15 +313,15 @@ private class RedactViewModel(private val appContext: Context, private val share
                 if (!written) withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
                 throw e
             } catch (e: BoxesChanged) {
-                discardDocument(appContext, dest)
+                withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
                 done = null
                 error = REDACT_CHANGED
             } catch (e: PhotoFailure) {
-                discardDocument(appContext, dest) // Never a half-made copy.
+                withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) } // Never a half-made copy.
                 done = null
                 error = REDACT_COPY_FAILED
             } catch (e: Exception) {
-                discardDocument(appContext, dest)
+                withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
                 done = null
                 error = PHOTO_SAVE_FAILED
             } finally {
@@ -342,8 +343,11 @@ private class RedactViewModel(private val appContext: Context, private val share
                 val bytes = renderCopy(p, snapshot)
                 if (!stillMatches(p, snapshot)) throw BoxesChanged()
                 prepared = withContext(Dispatchers.IO) { shareTemp.prepare(redactFileName(p.output), bytes) }
-                shareReady = PreparedShare(prepared!!, redactMime(p.output))
-                handedOver = true
+                // The screen was left meanwhile: never a share sheet out of the blue when it comes back (finally drops it).
+                if (!leftWhileBusy) {
+                    shareReady = PreparedShare(prepared!!, redactMime(p.output))
+                    handedOver = true
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: BoxesChanged) {

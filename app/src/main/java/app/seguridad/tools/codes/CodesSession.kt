@@ -67,8 +67,8 @@ class AnswerRow internal constructor(cells: CellFactory, question: String, answe
  * rotation, a theme change or a split screen keeps it, and the death of the process loses it (never in saved state:
  * the PIN, the codes and the answers are secrets). What was drawn goes ([wipe]) when the user comes back after more than
  * the lock time away ([stopped], [started]), when the vault locks with the app in use, on any tab ([vaultStateIs]),
- * and for good when the screen is left ([clear]). The site and the questions stay: they are not secrets. They are Strings (what Compose shows and copies), so they cannot be zeroed:
- * every reference to them is dropped.
+ * and for good when the screen is left ([clear]). The site and the questions stay: they are not secrets. The secrets
+ * are Strings (what Compose shows and copies), so they cannot be zeroed: every reference to them is dropped.
  */
 class CodesSession(
     private val cells: CellFactory = PlainCells,

@@ -11,13 +11,19 @@ fun java.io.InputStream.readAtMost(limit: Int, expected: Long? = null): ByteArra
     if (expected != null && expected in 1..limit.toLong()) {
         val exact = ByteArray(expected.toInt())
         var filled = 0
-        while (filled < exact.size) {
-            val n = read(exact, filled, exact.size - filled)
-            if (n < 0) return exact.copyOf(filled).also { exact.fill(0) }
-            filled += n
+        val next: Int
+        try {
+            while (filled < exact.size) {
+                val n = read(exact, filled, exact.size - filled)
+                if (n < 0) return exact.copyOf(filled).also { exact.fill(0) }
+                filled += n
+            }
+            if (filled == limit) return exact
+            next = read()
+        } catch (e: Throwable) {
+            exact.fill(0) // A read that fails partway (a provider gone, out of memory) leaves nothing behind.
+            throw e
         }
-        if (filled == limit) return exact
-        val next = read()
         if (next < 0) return exact
         // The provider reported too little: the rest, as without a size.
         val out = GrowingBuffer(minOf(limit, exact.size * 2))

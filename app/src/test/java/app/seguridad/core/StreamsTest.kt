@@ -52,4 +52,23 @@ class StreamsTest {
         assertArrayEquals(bytes(50), ByteArrayInputStream(bytes(50)).readAtMost(100, expected = -1))
         assertArrayEquals(bytes(50), ByteArrayInputStream(bytes(50)).readAtMost(100, expected = 0))
     }
+
+    @Test fun aReadThatFailsPartwayThrowsAndReturnsNothing() {
+        val failing = object : InputStream() {
+            var given = 0
+            override fun read(): Int = throw java.io.IOException("gone")
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (given > 0) throw java.io.IOException("gone")
+                given = minOf(len, 10)
+                for (i in 0 until given) b[off + i] = 7
+                return given
+            }
+        }
+        try {
+            failing.readAtMost(1000, expected = 100)
+            org.junit.Assert.fail("A provider that fails must not give a half-read image")
+        } catch (e: java.io.IOException) {
+            // expected: the caller shows its own fixed text
+        }
+    }
 }
