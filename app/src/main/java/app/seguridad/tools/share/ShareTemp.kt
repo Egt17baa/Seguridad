@@ -9,7 +9,10 @@ const val SHARE_DIR = "compartir"
 /** Back in Seguridad this long after sharing, the copy is deleted (the receiving app has had time to read it). */
 const val SHARE_KEEP_MS = 10 * 60_000L
 
-/** Base name of the shared photo copy («copia-de-foto.jpg|png|webp»): it says nothing about the person nor the date. */
+/**
+ * Base name of the shared photo copy («copia-de-foto.jpg|png|webp»): it says nothing about the person nor the date.
+ * It lives here, next to the code that validates the name; ToolTexts and the screen import it (a single source).
+ */
 const val PHOTO_FILE_BASE = "copia-de-foto"
 
 /** The fixed, neutral names the shared copies get: nothing in them tells the date or who is in the photo. */

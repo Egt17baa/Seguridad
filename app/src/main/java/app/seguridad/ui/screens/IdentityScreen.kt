@@ -296,7 +296,7 @@ private fun DeleteIdentity(store: VaultStore, identity: VaultEntry, snackbar: Sn
     if (step == 2) {
         AlertDialog(
             onDismissRequest = { step = 0 },
-            title = { Text("¿Borrarla de verdad?") },
+            title = { Text("¿Borrar tu identidad?") },
             text = {
                 FilterObscuredTouches()
                 Text(DELETE_IDENTITY_CONFIRMATION)

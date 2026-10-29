@@ -36,7 +36,7 @@ fun NoticeScreen(onAccept: () -> Unit) {
                     Text("Sin recuperación de la contraseña maestra", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "Si olvidas la contraseña maestra de la bóveda, o la de algo que cifres, nadie puede recuperar lo guardado: ni tú, ni nosotros. " +
-                            "Apúntala en un lugar seguro y exporta de vez en cuando una copia cifrada.",
+                            "Apúntala y guárdala donde solo tú puedas verla, y exporta de vez en cuando una copia cifrada.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )

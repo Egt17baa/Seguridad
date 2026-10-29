@@ -22,7 +22,7 @@ import java.util.Base64
 enum class EntryType(val label: String) {
     LOGIN("Acceso"),
     SEED("Frase semilla"),
-    NOTE("Nota segura"),
+    NOTE("Nota"),
     TOTP("Código 2FA"),
 
     /** The one identity of this person for public-key encryption and signatures (see `Contacts.kt`); version-3 vaults only. */
