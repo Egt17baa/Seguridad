@@ -129,6 +129,14 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val actions = vaultActions(store, snackbar)
+    // M-4: «Activar huella» cut short by a re-creation of the activity is said here, by the new one, once.
+    val interrupted by BiometricVault.interrupted.collectAsStateWithLifecycle()
+    interrupted?.let { message ->
+        LaunchedEffect(message) {
+            BiometricVault.interruptionShown(message)
+            snackbar.showSnackbar(message)
+        }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),

@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.os.Build
 import androidx.annotation.RequiresApi
+import app.seguridad.tools.ImageOutOfMemory
 import app.seguridad.tools.ImageTooLarge
 import app.seguridad.tools.qr.MAX_QR_DECODE_SIDE
 import app.seguridad.tools.qr.qrSampleSize
@@ -33,7 +34,7 @@ class QrImageUnreadable : Exception()
  * - Its pixels go to zxing through an [RGBLuminanceSource], with [MultiFormatReader] limited to QR_CODE and TRY_HARDER;
  *   a light-on-dark code is tried inverted. The Bitmap is recycled as soon as its pixels are copied.
  *
- * [QrImageUnreadable] for a file that is not a readable image, or for running out of memory. Runs on a background
+ * [QrImageUnreadable] for a file that is not a readable image, [ImageOutOfMemory] for running out of memory. Runs on a background
  * thread (CPU work, up to 16 MB of pixels).
  */
 fun decodeQrFromImage(bytes: ByteArray): String? {
@@ -44,7 +45,7 @@ fun decodeQrFromImage(bytes: ByteArray): String? {
     } catch (e: QrImageUnreadable) {
         throw e
     } catch (e: OutOfMemoryError) {
-        throw QrImageUnreadable()
+        throw ImageOutOfMemory() // M-7: said as such, never as an unreadable file.
     } catch (e: Exception) {
         throw QrImageUnreadable()
     }
@@ -54,7 +55,7 @@ fun decodeQrFromImage(bytes: ByteArray): String? {
         if (w <= 0 || h <= 0 || w > MAX_QR_DECODE_SIDE || h > MAX_QR_DECODE_SIDE) throw QrImageUnreadable()
         IntArray(w * h).also { bitmap.getPixels(it, 0, w, 0, 0, w, h) }
     } catch (e: OutOfMemoryError) {
-        throw QrImageUnreadable()
+        throw ImageOutOfMemory() // M-7: said as such, never as an unreadable file.
     } finally {
         bitmap.recycle()
     }
@@ -66,7 +67,7 @@ fun decodeQrFromImage(bytes: ByteArray): String? {
         }
         readQr(source) ?: readQr(source.invert())
     } catch (e: OutOfMemoryError) {
-        throw QrImageUnreadable()
+        throw ImageOutOfMemory() // M-7: said as such, never as an unreadable file.
     }
 }
 

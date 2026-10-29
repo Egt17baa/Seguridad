@@ -29,10 +29,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.heifToJpeg
 import app.seguridad.android.shareImage
 import app.seguridad.core.readAtMost
-import app.seguridad.tools.ImageTooLarge
+import app.seguridad.tools.ImageTooBig
+import app.seguridad.tools.imageOpenFailureText
 import app.seguridad.tools.MAX_IMAGE_BYTES
 import app.seguridad.tools.PHOTO_ANALYSING
 import app.seguridad.tools.PHOTO_EXPLANATION
@@ -69,24 +73,27 @@ import app.seguridad.ui.theme.SectionCard
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The cleaned copy, kept only in memory (never in saved state: the screen rebuilt means «vuelve a elegir la foto»).
+ * The cleaned copy, kept only in memory: in the screen's [PhotoCleanViewModel], so a rotation, a theme change or a split
+ * screen keeps it, and never in saved state (up to 50 MB; a Bundle can go to disk): the process gone means «vuelve a
+ * elegir la foto».
  * When [converted] (HEIC/HEIF/AVIF re-encoded as JPEG), [report] is the converted JPEG's own, so a colour profile the
  * encoder embedded is shown; otherwise it is the original's.
  */
 private class CleanCopy(val report: PhotoReport, val converted: Boolean, val bytes: ByteArray, val ext: String, val mime: String)
 
-internal class PhotoTooBig : Exception()
-
 /**
- * Reads the picked file, refusing anything over [MAX_IMAGE_BYTES] before it is loaded: first by the size the provider
- * reports (when it does), then by reading at most one byte more than the limit (the reported size may be missing or
- * wrong). Never writes to [uri]: the original is only opened for reading. Shared with «Tachar en imagen».
+ * Reads the picked file, refusing anything over [MAX_IMAGE_BYTES] ([ImageTooBig]) before it is loaded: first by the size
+ * the provider reports (when it does), then by reading at most one byte more than the limit (the reported size may be
+ * missing or wrong). With a reported size the bytes go into one array of that size (M-7: no growing buffer and no final
+ * copy, so a 50 MB photo needs about 50 MB, not 115). Never writes to [uri]: the original is only opened for reading.
+ * Shared with «Tachar en imagen» and the QR inspector.
  */
 internal fun readPhoto(context: Context, uri: Uri): ByteArray {
     val size = runCatching {
@@ -94,9 +101,9 @@ internal fun readPhoto(context: Context, uri: Uri): ByteArray {
             if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null
         }
     }.getOrNull()
-    if (size != null && size > MAX_IMAGE_BYTES) throw PhotoTooBig()
-    val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(MAX_IMAGE_BYTES + 1) }
-    if (bytes.size > MAX_IMAGE_BYTES) throw PhotoTooBig()
+    if (size != null && size > MAX_IMAGE_BYTES) throw ImageTooBig()
+    val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(MAX_IMAGE_BYTES + 1, expected = size) }
+    if (bytes.size > MAX_IMAGE_BYTES) throw ImageTooBig()
     return bytes
 }
 
@@ -124,6 +131,51 @@ private suspend fun cleanCopy(bytes: ByteArray): CleanCopy = withContext(Dispatc
 }
 
 /**
+ * What «Limpiar foto» opened, for its navigation entry: kept across a configuration change (M-1), lost with the process.
+ * Reading and cleaning run in [viewModelScope], so a rotation does not cut them; saving and sharing stay with the
+ * screen (they need its activity, and a cut save already discards its document).
+ */
+private class PhotoCleanViewModel(private val appContext: Context) : ViewModel() {
+    var copy by mutableStateOf<CleanCopy?>(null)
+    var opening by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
+    var done by mutableStateOf<String?>(null)
+    private var job: Job? = null
+
+    private fun failureText(t: Throwable) =
+        imageOpenFailureText(t, PHOTO_TOO_BIG, PHOTO_TOO_LARGE) { (it as? PhotoFailure)?.message ?: PHOTO_DAMAGED }
+
+    fun open(uri: Uri) {
+        job?.cancel()
+        copy = null // The previous copy goes before the next file is read.
+        done = null
+        error = null
+        opening = true
+        job = viewModelScope.launch {
+            val mine = coroutineContext[Job]
+            try {
+                val bytes = withContext(Dispatchers.IO) { readPhoto(appContext, uri) }
+                ensureActive()
+                copy = cleanCopy(bytes)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = failureText(e)
+            } catch (e: OutOfMemoryError) {
+                // Up to 50 MB plus its copy: on a small heap this is the error to show (M-7), not a crash.
+                error = failureText(e)
+            } finally {
+                if (job === mine) opening = false
+            }
+        }
+    }
+
+    override fun onCleared() {
+        copy = null // Not a secret, but up to 50 MB: it goes with the screen.
+    }
+}
+
+/**
  * «Limpiar foto»: shows what the picked photo carries and makes a copy without it, saved where the user chooses or
  * shared through the FileProvider. The original is never written. No vault access, so the pickers do not keep the vault
  * open (like «Huella de archivo»). Errors are always annex texts or the fixed ones in ToolTexts; nothing is logged.
@@ -132,20 +184,22 @@ private suspend fun cleanCopy(bytes: ByteArray): CleanCopy = withContext(Dispatc
 fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var copy by remember { mutableStateOf<CleanCopy?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var done by remember { mutableStateOf<String?>(null) }
+    val appContext = context.applicationContext
+    val vm = viewModel { PhotoCleanViewModel(appContext) }
+    val copy = vm.copy
+    // Saving or sharing (the screen's own work); opening is the ViewModel's.
+    var working by remember { mutableStateOf(false) }
+    val busy = working || vm.opening
     var pickerError by remember { mutableStateOf<String?>(null) }
 
     val onSaveTarget: (Uri?) -> Unit = saved@{ dest ->
         if (dest == null) return@saved
-        val c = copy ?: run {
+        val c = vm.copy ?: run {
             discardDocument(context, dest)
-            error = PHOTO_LOST
+            vm.error = PHOTO_LOST
             return@saved
         }
-        busy = true
+        working = true
         scope.launch {
             var written = false
             try {
@@ -153,18 +207,18 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                     context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(c.bytes) }
                     written = true
                 }
-                done = photoDoneMessage(c.report, c.converted)
-                error = null
+                vm.done = photoDoneMessage(c.report, c.converted)
+                vm.error = null
             } catch (e: CancellationException) {
                 // Screen gone: a fully written copy stays; an empty document does not.
                 if (!written) discardDocument(context, dest)
                 throw e
             } catch (e: Exception) {
                 discardDocument(context, dest) // Never a half-written copy.
-                done = null
-                error = PHOTO_SAVE_FAILED
+                vm.done = null
+                vm.error = PHOTO_SAVE_FAILED
             } finally {
-                busy = false
+                working = false
             }
         }
     }
@@ -173,33 +227,7 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     val saveWebp = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/webp"), onSaveTarget)
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        copy = null // The previous copy goes before the next file is read.
-        done = null
-        error = null
-        busy = true
-        scope.launch {
-            try {
-                val bytes = withContext(Dispatchers.IO) { readPhoto(context, uri) }
-                ensureActive()
-                copy = cleanCopy(bytes)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: PhotoTooBig) {
-                error = PHOTO_TOO_BIG
-            } catch (e: ImageTooLarge) {
-                error = PHOTO_TOO_LARGE
-            } catch (e: PhotoFailure) {
-                error = e.message ?: PHOTO_DAMAGED
-            } catch (e: Exception) {
-                error = PHOTO_DAMAGED
-            } catch (e: OutOfMemoryError) {
-                // Up to 50 MB plus its copy: on a small heap this is the error to show, not a crash.
-                error = PHOTO_DAMAGED
-            } finally {
-                busy = false
-            }
-        }
+        if (uri != null) vm.open(uri)
     }
 
     BackScaffold(PHOTO_TOOL_TITLE, onBack) { padding ->
@@ -221,7 +249,7 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                         Text(PHOTO_ANALYSING, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                error?.let { Text(it, color = NegativeColor) }
+                vm.error?.let { Text(it, color = NegativeColor) }
                 copy?.let { c -> CopyCard(c) }
                 copy?.let { c ->
                     Text(PHOTO_FILE_NAME_NOTE, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -235,7 +263,7 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                     ) { Text(PHOTO_SAVE_COPY) }
                     FilledTonalButton(
                         onClick = {
-                            busy = true
+                            working = true
                             scope.launch {
                                 var prepared: File? = null
                                 // Nothing was handed over: only the file this attempt wrote goes (prepare already
@@ -248,17 +276,17 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                                         shareTemp.prepare("$PHOTO_FILE_BASE.${c.ext}", c.bytes).also { prepared = it }
                                     }
                                     shareImage(context, file, c.mime)
-                                    done = photoDoneMessage(c.report, c.converted)
-                                    error = null
+                                    vm.done = photoDoneMessage(c.report, c.converted)
+                                    vm.error = null
                                 } catch (e: CancellationException) {
                                     discardPrepared()
                                     throw e
                                 } catch (e: Exception) {
                                     discardPrepared()
-                                    done = null
-                                    error = PHOTO_SHARE_FAILED
+                                    vm.done = null
+                                    vm.error = PHOTO_SHARE_FAILED
                                 } finally {
-                                    busy = false
+                                    working = false
                                 }
                             }
                         },
@@ -266,7 +294,7 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(SHARE) }
                 }
-                done?.let { Text(it) }
+                vm.done?.let { Text(it) }
             }
         }
     }

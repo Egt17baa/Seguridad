@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -288,7 +289,8 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
         }
     }
 
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // M-9: imePadding, so the field stays above the keyboard with edge-to-edge.
+    Column(Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(ENCRYPT_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextOrFile(isFile) { isFile = it; output = null; message = null }
         if (isFile) {
@@ -439,7 +441,8 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
         }
     }
 
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // M-9: imePadding, so the field stays above the keyboard with edge-to-edge.
+    Column(Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(SIGN_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!hasIdentity) Text(NO_IDENTITY_TO_SIGN, color = CautionColor)
         TextOrFile(isFile) { isFile = it; output = null; message = null }
@@ -659,7 +662,8 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         }
     }
 
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // M-9: imePadding, so the field stays above the keyboard with edge-to-edge.
+    Column(Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             "Pega lo que te hayan enviado (una tarjeta, un mensaje cifrado o un texto firmado), o elige un archivo cifrado (.sgenc) " +
                 "o una firma (.sgsig) con su archivo.",

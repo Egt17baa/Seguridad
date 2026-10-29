@@ -1,6 +1,7 @@
 package app.seguridad.ui.screens
 
 import android.graphics.Bitmap
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,6 +51,11 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.graphics.scale
 import app.seguridad.android.RedactSource
 import app.seguridad.android.decodeForRedaction
@@ -58,7 +65,8 @@ import app.seguridad.tools.PHOTO_DONE_SHORT
 import app.seguridad.tools.PHOTO_SAVE_COPY
 import app.seguridad.tools.PHOTO_SAVE_FAILED
 import app.seguridad.tools.PHOTO_SHARE_FAILED
-import app.seguridad.tools.ImageTooLarge
+import app.seguridad.tools.imageOpenFailureText
+import app.seguridad.tools.redactCanvasDescription
 import app.seguridad.tools.REDACT_CHANGED
 import app.seguridad.tools.REDACT_COPY_FAILED
 import app.seguridad.tools.REDACT_DAMAGED
@@ -97,6 +105,7 @@ import app.seguridad.ui.theme.SectionCard
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -137,8 +146,9 @@ private class SourceHolder(private val bitmap: Bitmap) {
 }
 
 /**
- * The picked image, only in memory (never in saved state: the screen rebuilt means «vuelve a elegir la imagen»). The
- * boxes are in pixels of the full-size image ([width]×[height]); the [preview] is the same image, smaller, and the
+ * The picked image, only in memory: in the screen's [RedactViewModel], so a rotation, a theme change or a split screen
+ * keeps it with its boxes (M-1), and never in saved state (a bitmap; a Bundle can go to disk): the process gone means
+ * «vuelve a elegir la imagen». The boxes are in pixels of the full-size image ([width]×[height]); the [preview] is the same image, smaller, and the
  * screen draws the boxes on it at the same image coordinates the copy uses.
  */
 private class Picture(
@@ -188,6 +198,85 @@ private suspend fun renderCopy(p: Picture, boxes: List<RedactBox>): ByteArray = 
 }
 
 /**
+ * What «Tachar» has open, for its navigation entry: the [Picture] and its boxes survive a configuration change, and the
+ * bitmaps are recycled when another image is picked (the preview once it has left the composition, [RedactCanvas]) or
+ * when the entry is gone for good ([onCleared]). Opening runs in [viewModelScope], so a rotation does not cut a decode;
+ * saving and sharing stay with the screen (they need its activity, and a cut one already discards what it wrote).
+ */
+private class RedactViewModel(private val appContext: Context) : ViewModel() {
+    var picture by mutableStateOf<Picture?>(null)
+        private set
+    var boxes by mutableStateOf(emptyList<RedactBox>())
+        private set
+    var canUndo by mutableStateOf(false)
+        private set
+    var canRedo by mutableStateOf(false)
+        private set
+    var busy by mutableStateOf<String?>(null)
+    var error by mutableStateOf<String?>(null)
+    var done by mutableStateOf<String?>(null)
+    private var job: Job? = null
+
+    fun sync() {
+        val p = picture
+        boxes = p?.history?.boxes.orEmpty()
+        canUndo = p?.history?.canUndo == true
+        canRedo = p?.history?.canRedo == true
+        done = null // A change after saving: the saved copy no longer matches what is shown.
+    }
+
+    private fun failureText(t: Throwable) = imageOpenFailureText(t, REDACT_TOO_BIG, REDACT_TOO_LARGE) {
+        if (it is PhotoFailure && it.message == PHOTO_UNSUPPORTED) PHOTO_UNSUPPORTED else REDACT_DAMAGED
+    }
+
+    fun open(uri: Uri) {
+        job?.cancel()
+        // The previous image goes before the next file is read (its preview, once RedactCanvas leaves the composition).
+        picture?.holder?.close()
+        picture = null
+        sync()
+        error = null
+        busy = REDACT_OPENING
+        job = viewModelScope.launch {
+            val mine = coroutineContext[Job]
+            var opened: RedactSource? = null
+            try {
+                val bytes = withContext(Dispatchers.IO) { readPhoto(appContext, uri) }
+                ensureActive()
+                val p = withContext(Dispatchers.Default) {
+                    val source = decodeForRedaction(bytes).also { opened = it }
+                    ensureActive()
+                    makePicture(source)
+                }
+                opened = null // Owned by the Picture from here on.
+                picture = p
+                sync()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = failureText(e)
+            } catch (e: OutOfMemoryError) {
+                // Up to 50 MB of file and a 24 MP bitmap: on a small heap this is the error to show (M-7), not a crash.
+                error = failureText(e)
+            } finally {
+                opened?.bitmap?.recycle() // Decoded but never shown (cancelled or failed after decoding).
+                if (job === mine) busy = null
+            }
+        }
+    }
+
+    override fun onCleared() {
+        // The screen is gone for good (its composition already left): the full-size bitmap goes once no copy is being made
+        // from it, and the preview now (recycling twice does nothing).
+        picture?.let {
+            it.holder.close()
+            it.previewBitmap.recycle()
+        }
+        picture = null
+    }
+}
+
+/**
  * «Tachar en imagen»: covers what the finger drags over with solid black boxes and makes a new copy, saved where the
  * user chooses or shared through the FileProvider. The original is never written. The copy is drawn from the pixels,
  * so it carries none of the original file's metadata, and it goes through PhotoCleaner. No vault access (like «Limpiar
@@ -197,46 +286,26 @@ private suspend fun renderCopy(p: Picture, boxes: List<RedactBox>): ByteArray = 
 fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var picture by remember { mutableStateOf<Picture?>(null) }
-    var boxes by remember { mutableStateOf(emptyList<RedactBox>()) }
-    var canUndo by remember { mutableStateOf(false) }
-    var canRedo by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf<String?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var done by remember { mutableStateOf<String?>(null) }
+    val appContext = context.applicationContext
+    val vm = viewModel { RedactViewModel(appContext) }
+    val picture = vm.picture
+    val boxes = vm.boxes
+    val busy = vm.busy
     var pickerError by remember { mutableStateOf<String?>(null) }
-
-    fun sync(p: Picture?) {
-        boxes = p?.history?.boxes.orEmpty()
-        canUndo = p?.history?.canUndo == true
-        canRedo = p?.history?.canRedo == true
-        done = null // A change after saving: the saved copy no longer matches what is shown.
-    }
-
-    // Leaving the screen: the full-size bitmap goes (once no copy is being made from it), and the preview too
-    // (RedactCanvas also recycles it when it leaves the composition; recycling twice does nothing).
-    DisposableEffect(Unit) {
-        onDispose {
-            picture?.let {
-                it.holder.close()
-                it.previewBitmap.recycle()
-            }
-        }
-    }
 
     // A copy is made from the boxes at the moment the button was pressed; if they differ when it is ready (input is
     // already blocked while busy, so this is the second line), nothing is saved or shared.
-    fun stillMatches(p: Picture, snapshot: List<RedactBox>) = picture === p && p.history.boxes == snapshot
+    fun stillMatches(p: Picture, snapshot: List<RedactBox>) = vm.picture === p && p.history.boxes == snapshot
 
     val onSaveTarget: (Uri?) -> Unit = saved@{ dest ->
         if (dest == null) return@saved
-        val p = picture ?: run {
+        val p = vm.picture ?: run {
             discardDocument(context, dest)
-            error = REDACT_LOST
+            vm.error = REDACT_LOST
             return@saved
         }
         val snapshot = p.history.boxes
-        busy = REDACT_RENDERING
+        vm.busy = REDACT_RENDERING
         scope.launch {
             var written = false
             try {
@@ -246,26 +315,26 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                     context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(bytes) }
                     written = true
                 }
-                done = PHOTO_DONE_SHORT
-                error = null
+                vm.done = PHOTO_DONE_SHORT
+                vm.error = null
             } catch (e: CancellationException) {
                 // Screen gone: a fully written copy stays; an empty document does not.
                 if (!written) discardDocument(context, dest)
                 throw e
             } catch (e: BoxesChanged) {
                 discardDocument(context, dest)
-                done = null
-                error = REDACT_CHANGED
+                vm.done = null
+                vm.error = REDACT_CHANGED
             } catch (e: PhotoFailure) {
                 discardDocument(context, dest) // Never a half-made copy.
-                done = null
-                error = REDACT_COPY_FAILED
+                vm.done = null
+                vm.error = REDACT_COPY_FAILED
             } catch (e: Exception) {
                 discardDocument(context, dest)
-                done = null
-                error = PHOTO_SAVE_FAILED
+                vm.done = null
+                vm.error = PHOTO_SAVE_FAILED
             } finally {
-                busy = null
+                vm.busy = null
             }
         }
     }
@@ -273,44 +342,7 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     val saveJpg = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg"), onSaveTarget)
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        // The previous image goes before the next file is read (its preview, once RedactCanvas leaves the composition).
-        picture?.holder?.close()
-        picture = null
-        sync(null)
-        error = null
-        busy = REDACT_OPENING
-        scope.launch {
-            var opened: RedactSource? = null
-            try {
-                val bytes = withContext(Dispatchers.IO) { readPhoto(context, uri) }
-                ensureActive()
-                val p = withContext(Dispatchers.Default) {
-                    val source = decodeForRedaction(bytes).also { opened = it }
-                    ensureActive()
-                    makePicture(source)
-                }
-                opened = null // Owned by the Picture from here on.
-                picture = p
-                sync(p)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: PhotoTooBig) {
-                error = REDACT_TOO_BIG
-            } catch (e: ImageTooLarge) {
-                error = REDACT_TOO_LARGE
-            } catch (e: PhotoFailure) {
-                error = if (e.message == PHOTO_UNSUPPORTED) PHOTO_UNSUPPORTED else REDACT_DAMAGED
-            } catch (e: Exception) {
-                error = REDACT_DAMAGED
-            } catch (e: OutOfMemoryError) {
-                // Up to 50 MB of file and a 24 MP bitmap: on a small heap this is the error to show, not a crash.
-                error = REDACT_DAMAGED
-            } finally {
-                opened?.bitmap?.recycle() // Decoded but never shown (cancelled or failed after decoding).
-                busy = null
-            }
-        }
+        if (uri != null) vm.open(uri)
     }
 
     BackScaffold(REDACT_TOOL_TITLE, onBack) { padding ->
@@ -335,24 +367,24 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                error?.let { Text(it, color = NegativeColor) }
+                vm.error?.let { Text(it, color = NegativeColor) }
                 picture?.let { p ->
                     p.downscaledNote?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    RedactCanvas(p, boxes, enabled = busy == null, onBox = { box ->
-                        if (busy == null) {
+                    RedactCanvas(p, boxes, enabled = busy == null, isShown = { vm.picture === p }, onBox = { box ->
+                        if (vm.busy == null) {
                             p.history.add(box)
-                            sync(p)
+                            vm.sync()
                         }
                     })
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
-                            onClick = { if (busy == null && p.history.undo()) sync(p) },
-                            enabled = canUndo && busy == null,
+                            onClick = { if (vm.busy == null && p.history.undo()) vm.sync() },
+                            enabled = vm.canUndo && busy == null,
                             modifier = Modifier.weight(1f),
                         ) { Text(REDACT_UNDO) }
                         OutlinedButton(
-                            onClick = { if (busy == null && p.history.redo()) sync(p) },
-                            enabled = canRedo && busy == null,
+                            onClick = { if (vm.busy == null && p.history.redo()) vm.sync() },
+                            enabled = vm.canRedo && busy == null,
                             modifier = Modifier.weight(1f),
                         ) { Text(REDACT_REDO) }
                     }
@@ -369,7 +401,7 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                     FilledTonalButton(
                         onClick = {
                             val snapshot = p.history.boxes
-                            busy = REDACT_RENDERING
+                            vm.busy = REDACT_RENDERING
                             scope.launch {
                                 var prepared: File? = null
                                 // Nothing was handed over: only the file this attempt wrote goes (prepare already
@@ -384,25 +416,25 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                                         shareTemp.prepare(redactFileName(p.output), bytes).also { prepared = it }
                                     }
                                     shareImage(context, file, redactMime(p.output))
-                                    done = PHOTO_DONE_SHORT
-                                    error = null
+                                    vm.done = PHOTO_DONE_SHORT
+                                    vm.error = null
                                 } catch (e: CancellationException) {
                                     discardPrepared()
                                     throw e
                                 } catch (e: BoxesChanged) {
                                     discardPrepared()
-                                    done = null
-                                    error = REDACT_CHANGED
+                                    vm.done = null
+                                    vm.error = REDACT_CHANGED
                                 } catch (e: PhotoFailure) {
                                     discardPrepared()
-                                    done = null
-                                    error = REDACT_COPY_FAILED
+                                    vm.done = null
+                                    vm.error = REDACT_COPY_FAILED
                                 } catch (e: Exception) {
                                     discardPrepared()
-                                    done = null
-                                    error = PHOTO_SHARE_FAILED
+                                    vm.done = null
+                                    vm.error = PHOTO_SHARE_FAILED
                                 } finally {
-                                    busy = null
+                                    vm.busy = null
                                 }
                             }
                         },
@@ -410,7 +442,7 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(SHARE) }
                 }
-                done?.let { Text(it) }
+                vm.done?.let { Text(it) }
             }
         }
     }
@@ -422,13 +454,19 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
  * [RedactBox]). The box being dragged is painted the same way, from the same [boxFromDrag] that will store it.
  * While a copy is being made ([enabled] false) it takes no input and shows no box in progress: the copy is made from
  * the boxes at the moment the button was pressed, and the screen must not show one the copy lacks. The preview bitmap
- * is recycled once this preview leaves the composition (another image picked, or the screen gone).
+ * is recycled once this preview leaves the composition because another image was picked ([isShown] false); a
+ * rotation re-creates the composition with the same picture, which keeps its preview (the ViewModel recycles it when
+ * the screen is gone for good).
+ *
+ * The image area is excluded from the system back gesture (M-2: a drag from the left edge to cover a name there must
+ * draw a box, not leave the screen; API 29+, nothing below) and tells TalkBack what it is and how many blocks it has (M-11).
  */
 @Composable
-private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, onBox: (RedactBox) -> Unit) {
+private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, isShown: () -> Boolean, onBox: (RedactBox) -> Unit) {
     val currentOnBox by rememberUpdatedState(onBox)
     val currentEnabled by rememberUpdatedState(enabled)
-    DisposableEffect(p) { onDispose { p.previewBitmap.recycle() } }
+    val currentIsShown by rememberUpdatedState(isShown)
+    DisposableEffect(p) { onDispose { if (!currentIsShown()) p.previewBitmap.recycle() } }
     var dragFrom by remember(p) { mutableStateOf<Offset?>(null) }
     var dragTo by remember(p) { mutableStateOf<Offset?>(null) }
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
@@ -439,7 +477,11 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, o
         val h = (w / aspect).coerceAtLeast(1.dp)
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Canvas(
-                Modifier.size(w, h).pointerInput(p) {
+                Modifier
+                    .size(w, h)
+                    .systemGestureExclusion()
+                    .semantics { contentDescription = redactCanvasDescription(boxes.size) }
+                    .pointerInput(p) {
                     awaitEachGesture {
                         // The box starts where the finger went down, not where the drag was recognised.
                         val down = awaitFirstDown()
