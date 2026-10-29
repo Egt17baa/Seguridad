@@ -4,7 +4,7 @@ App Android (Kotlin y Compose) de seguridad y criptografía: bóveda, 2FA, cifra
 
 ## Skills: siempre juntas
 
-Todo trabajo en este repositorio combina, en cada fase, **los plugins Superpowers, Ingeniero Móvil Senior y Abogado Digital**, **la skill del proyecto `experto-seguridad-cripto`** (`.claude/skills/experto-seguridad-cripto/`) y cualquier otra skill disponible que toque la tarea:
+Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/handoff/` y combina, en cada fase de construcción, **los plugins Superpowers e Ingeniero Móvil Senior**, **la skill del proyecto `experto-seguridad-cripto`** (`.claude/skills/experto-seguridad-cripto/`) y **todo lo que tenga que ver con la auditoría de la app** (`auditoria-seguridad-movil`, `auditoria-seguridad`, `security-review`, `code-review`):
 
 1. **superpowers** marca el proceso: brainstorming, plan, desarrollo por subagentes o en línea con TDD, revisión y verificación.
 2. **experto-seguridad-cripto** aporta en cada fase el criterio de seguridad. Su sección «Trabajo conjunto con superpowers» dice qué añade en cada fase.
@@ -12,17 +12,19 @@ Todo trabajo en este repositorio combina, en cada fase, **los plugins Superpower
    - `desarrollo-movil-senior` para la arquitectura, el ciclo de vida, la concurrencia y el rendimiento;
    - `seguridad-criptografia-movil` cuando se tocan Keystore, StrongBox, la biometría o el cifrado;
    - `auditoria-seguridad-movil` (OWASP MASVS) en las revisiones.
-4. **Abogado Digital** revisa todo texto nuevo o cambiado de la interfaz y de la documentación al terminar cada tarea, no solo al final:
-   - `despacho-digital`, más `privacidad-proteccion-datos`, `regulacion-digital-ue` o `propiedad-intelectual-ia` según el caso (licencias y atribuciones en este último);
-   - sus cambios se aplican antes de dar la tarea por terminada, siempre que `experto-seguridad-cripto` y el Ingeniero Móvil Senior no vean un problema técnico o de seguridad (por ejemplo, que rompa un formato, que el texto afirme algo falso sobre el código o que cambie el comportamiento). Si lo ven, se busca un texto que satisfaga a todos y la decisión queda apuntada.
+4. **Abogado Digital** no interviene en cada tarea: hace **una sola revisión al final**, con todo terminado y antes de publicar.
+   - Revisa todos los textos de la interfaz y de la documentación, las licencias y, sobre todo, la **política de privacidad y seguridad** (`docs/privacidad.html`) y la ficha de Google Play.
+   - Comprueba que cumplen la ley española, la europea y la internacional que aplique. La app no se publica en Francia en Google Play.
+   - Usa `despacho-digital`, más `privacidad-proteccion-datos`, `regulacion-digital-ue` y `propiedad-intelectual-ia` según el caso.
+   - Sus cambios se aplican siempre que `experto-seguridad-cripto` y el Ingeniero Móvil Senior no vean un problema técnico o de seguridad (por ejemplo, que rompa un formato, que el texto afirme algo falso sobre el código o que cambie el comportamiento). Si lo ven, se busca un texto que satisfaga a todos y la decisión queda apuntada.
 5. Todo implementador y todo revisor, incluidos los subagentes:
    - lee `SKILL.md` de `experto-seguridad-cripto` y las referencias que toquen su tarea, y las skills de Ingeniero Móvil Senior que correspondan;
    - cierra su informe con las secciones **«Revisión experto-seguridad-cripto»** y **«Revisión Ingeniero Móvil Senior»**, con la evidencia `archivo:línea`;
-   - si la tarea tiene textos, añade la sección **«Textos para el Abogado Digital»**.
+   - si la tarea tiene textos, los apunta en **«Textos para el Abogado Digital (revisión final)»** para que lleguen a esa revisión.
 6. Antes de fusionar en `main`, sobre la rama:
    - `code-review` y `security-review`;
-   - la revisión final con `experto-seguridad-cripto` y con `auditoria-seguridad-movil`;
-   - el visto bueno del Abogado Digital a todos los textos y licencias.
+   - la auditoría completa con `experto-seguridad-cripto`, `auditoria-seguridad-movil` y `auditoria-seguridad`;
+   - la revisión final del Abogado Digital (punto 4), con sus cambios aplicados.
 
 ## Reglas del proyecto
 
