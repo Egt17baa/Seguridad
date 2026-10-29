@@ -106,8 +106,8 @@ class KeyPlacementTest {
 
     @Test
     fun labels() {
-        assertEquals("Chip seguro (StrongBox)", keyLevelLabel(KeyLevel.STRONGBOX))
-        assertEquals("Zona segura del procesador", keyLevelLabel(KeyLevel.TEE))
+        assertEquals("Chip de seguridad (StrongBox)", keyLevelLabel(KeyLevel.STRONGBOX))
+        assertEquals("Zona aislada del procesador (TEE)", keyLevelLabel(KeyLevel.TEE))
         assertEquals("Software: el móvil no protege esta clave con hardware", keyLevelLabel(KeyLevel.SOFTWARE))
         assertEquals(KEY_LOCATION_UNKNOWN, keyLevelLabel(KeyLevel.UNKNOWN))
         // Every label is checked by ToolTextsTest (annex wording, forbidden words).

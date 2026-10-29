@@ -60,6 +60,7 @@ import app.seguridad.tools.photo.detectFormat
 import app.seguridad.tools.photoDoneMessage
 import app.seguridad.tools.photoFoundLines
 import app.seguridad.tools.photoHasSomethingToRemove
+import app.seguridad.tools.share.PHOTO_FILE_BASE
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
@@ -227,7 +228,7 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                     Button(
                         onClick = {
                             val launcher = when (c.ext) { "png" -> savePng; "webp" -> saveWebp; else -> saveJpg }
-                            pickerError = launcher.launchOrError("foto-limpia.${c.ext}")
+                            pickerError = launcher.launchOrError("$PHOTO_FILE_BASE.${c.ext}")
                         },
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
@@ -244,7 +245,7 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                                 }
                                 try {
                                     val file = withContext(Dispatchers.IO) {
-                                        shareTemp.prepare("foto-limpia.${c.ext}", c.bytes).also { prepared = it }
+                                        shareTemp.prepare("$PHOTO_FILE_BASE.${c.ext}", c.bytes).also { prepared = it }
                                     }
                                     shareImage(context, file, c.mime)
                                     done = photoDoneMessage(c.report, c.converted)

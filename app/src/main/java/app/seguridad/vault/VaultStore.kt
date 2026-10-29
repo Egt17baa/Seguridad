@@ -31,7 +31,7 @@ sealed interface VaultState {
 }
 
 /** Shown instead of the 7-day notice when the clock gate refused the fingerprint (A11). */
-const val CLOCK_CHANGED_TEXT = "La hora del móvil ha cambiado. Por seguridad, escribe la contraseña maestra."
+const val CLOCK_CHANGED_TEXT = "La hora del móvil se ha atrasado. Por seguridad, escribe la contraseña maestra."
 
 /**
  * Biometric unlock refused: the master password was not typed for [MASTER_RECHECK_MS], or the clock went backwards

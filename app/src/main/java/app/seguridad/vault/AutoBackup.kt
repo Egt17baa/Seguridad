@@ -92,8 +92,10 @@ const val AUTO_BACKUP_FAILED = "No se pudo hacer la copia automática."
 const val AUTO_BACKUP_OLD_NOT_DELETED = "La copia automática se hizo, pero no se pudieron borrar las antiguas."
 
 // «Borrar las copias automáticas anteriores y hacer una nueva» (tras cambiar la contraseña maestra).
-const val AUTO_BACKUP_REPLACED = "Se hizo una copia nueva y se borraron las copias automáticas anteriores de esta carpeta."
-const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda."
+const val AUTO_BACKUP_REPLACED =
+    "Se hizo una copia nueva y se borraron las copias automáticas anteriores de esta carpeta. Las que se hayan " +
+        "copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
+const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda con la contraseña nueva."
 
 /**
  * How a copy went: [folder] is the one it was made for (as [AutoBackup]'s folder gave it), [writtenAt] when the copy
