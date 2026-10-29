@@ -112,6 +112,8 @@ Guarda el `.jks` y sus contraseñas en un gestor de contraseñas y en una copia 
 
 ## 5. Comprobación antes de cada subida
 
+Hace falta `keystore.properties` con la clave de subida: sin ella, `assembleRelease` falla con «Sin clave de subida…». Con `-PfirmaDePrueba=true` se compila igual, pero firmado con la clave de prueba pública, que Google Play no acepta y que no se debe distribuir.
+
 ```bash
 ./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:checkLicense --no-daemon --max-workers=1
 ./gradlew -p jvm-check test --no-daemon --max-workers=1
