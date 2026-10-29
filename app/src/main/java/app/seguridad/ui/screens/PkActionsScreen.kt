@@ -70,6 +70,7 @@ import app.seguridad.vault.PickStep
 import app.seguridad.vault.PickedFile
 import app.seguridad.vault.PickedKind
 import app.seguridad.vault.PkInputs
+import app.seguridad.vault.PkMessage
 import app.seguridad.vault.PkResult
 import app.seguridad.vault.ReceivedFile
 import app.seguridad.vault.ReceivedOutcome
@@ -97,6 +98,7 @@ import app.seguridad.vault.nextPickStep
 import app.seguridad.vault.openErrorMessage
 import app.seguridad.vault.openReceivedText
 import app.seguridad.vault.resultFor
+import app.seguridad.vault.messageFor
 import app.seguridad.vault.classifyPicked
 import app.seguridad.vault.sanitizeReceivedName
 import app.seguridad.vault.saveReceivedFile
@@ -110,7 +112,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -134,8 +135,9 @@ import java.io.File
  *  - `keepOpenOnce` solo se pone junto a un selector (OpenDocument, CreateDocument), que lo quita en su callback.
  *  - A15a: un resultado lleva las entradas de las que salió (`PkResult`, `PkInputs`) y solo se enseña si son las de
  *    ahora (`resultFor`): un trabajo que termina después de cambiar el contacto, el texto o el archivo no enseña nada.
- *  - Un documento que no se llegó a escribir se borra fuera del hilo principal y sin que lo corte una cancelación
- *    (`NonCancellable + Dispatchers.IO`, como en Tachar y Limpiar foto).
+ *  - Un documento que no se llegó a escribir se borra fuera del hilo principal y sin que lo corte una cancelación:
+ *    `discardDocumentLater` (desde un callback, en el ámbito de la app) o `discardDocumentNow` (desde una corrutina,
+ *    con `NonCancellable + Dispatchers.IO`, como en Tachar y Limpiar foto).
  */
 
 
@@ -153,16 +155,6 @@ private fun discardInBackground(context: Context, received: ReceivedFile?) {
     if (received == null) return
     val scope = (context.applicationContext as? SeguridadApp)?.container?.appScope ?: CoroutineScope(Dispatchers.IO)
     scope.launch(Dispatchers.IO) { received.discard() }
-}
-
-/** Borra [dest] (un documento a medio hacer) en `Dispatchers.IO`, aunque la pantalla se vaya: [scope] puede estar cancelado. */
-private fun CoroutineScope.discardLater(context: Context, dest: Uri) {
-    launch(NonCancellable + Dispatchers.IO) { discardDocument(context, dest) }
-}
-
-/** Como [discardLater], desde una corrutina: espera al borrado, que no corta una cancelación. */
-private suspend fun discardNow(context: Context, dest: Uri) {
-    withContext(NonCancellable + Dispatchers.IO) { discardDocument(context, dest) }
 }
 
 /** Pone [VaultLock.keepOpenOnce] y cuenta el tiempo fuera desde aquí; lo quita si el selector no se abre. Devuelve el error, o `null`. */
@@ -268,7 +260,8 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
     var text by remember { mutableStateOf("") }
     // A15a: with the inputs it came from; a rotation loses it, like the text.
     var result by remember { mutableStateOf<PkResult?>(null) }
-    var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    // A15a: a message also carries the inputs it is about, and shows only next to them.
+    var tagged by remember { mutableStateOf<PkMessage?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
     // A15b: not a secret, so it may be saved; off by default (the real name goes inside, as before).
@@ -276,7 +269,8 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
     val contact = contacts.firstOrNull { it.id == contactId }
     val signNow = sign && hasIdentity
     val warning = contact?.let(::encryptWarning)
-    val output = resultFor(PkInputs(contact?.id, text.takeIf { !isFile }, source?.toString()?.takeIf { isFile }), result)
+    val inputsNow = PkInputs(contact?.id, text.takeIf { !isFile }, source?.toString()?.takeIf { isFile })
+    val output = resultFor(inputsNow, result)
     // The name that goes inside the file (encryptFileFor passes it through safeFileName too).
     val nameInside = if (hideName) anonymousFileName(sourceName) else safeFileName(sourceName)
 
@@ -286,13 +280,14 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
         val src = source
         val to = contact
         if (src == null || to == null) {
-            scope.discardLater(context, dest)
-            message = false to "No se ha guardado: vuelve a elegir el archivo y el contacto."
+            discardDocumentLater(context, dest)
+            tagged = PkMessage(inputsNow, false, "No se ha guardado: vuelve a elegir el archivo y el contacto.")
             return@rememberLauncherForActivityResult
         }
         val sender = signNow
         val name = if (hideName) anonymousFileName(sourceName) else sourceName
-        message = null
+        val jobInputs = PkInputs(to.id, null, src.toString())
+        tagged = null
         job = scope.launchBusy({ busy = it }) {
             try {
                 withContext(Dispatchers.Default) {
@@ -303,13 +298,13 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
                         }
                     }
                 }
-                message = true to "Archivo cifrado y guardado."
+                tagged = PkMessage(jobInputs, true, "Archivo cifrado y guardado.")
             } catch (e: CancellationException) {
-                discardNow(context, dest) // Never leave a truncated file behind.
+                discardDocumentNow(context, dest) // Never leave a truncated file behind.
                 throw e
             } catch (e: Exception) {
-                discardNow(context, dest)
-                message = false to actionErrorMessage(e, "No se ha podido cifrar el archivo.")
+                discardDocumentNow(context, dest)
+                tagged = PkMessage(jobInputs, false, actionErrorMessage(e, "No se ha podido cifrar el archivo."))
             }
         }
     }
@@ -318,17 +313,17 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
         if (uri != null) {
             source = uri
             sourceName = displayName(context, uri)
-            message = null
+            tagged = null
         }
     }
 
     // M-9: imePadding, so the field stays above the keyboard with edge-to-edge.
     Column(Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(ENCRYPT_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextOrFile(isFile) { isFile = it; result = null; message = null }
+        TextOrFile(isFile) { isFile = it; result = null; tagged = null }
         if (isFile) {
             SourceButton(source, sourceName) {
-                launchPicker(store) { pick.launchOrError(arrayOf("*/*")) }?.let { message = false to it }
+                launchPicker(store) { pick.launchOrError(arrayOf("*/*")) }?.let { tagged = PkMessage(inputsNow, false, it) }
             }
             if (source != null) {
                 // A15b: the recipient sees the name inside; «No enviar el nombre» sends archivo.<ext> instead.
@@ -345,7 +340,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
         } else {
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it; result = null; message = null },
+                onValueChange = { text = it; result = null; tagged = null },
                 label = { Text("Texto a cifrar") },
                 minLines = 4,
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
@@ -397,7 +392,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
                     // With «No enviar el nombre» the proposed outer name does not carry it either.
                     save.launchOrError(encryptedFileName(if (hideName) anonymousFileName(sourceName) else sourceName))?.let { failure ->
                         VaultLock.keepOpenOnce = false
-                        message = false to failure
+                        tagged = PkMessage(inputsNow, false, failure)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -410,7 +405,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
                     val plain = text
                     val sender = signNow
                     val inputs = PkInputs(to.id, plain, null)
-                    message = null
+                    tagged = null
                     result = null
                     job = scope.launchBusy({ busy = it }) {
                         try {
@@ -419,16 +414,16 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            message = false to actionErrorMessage(e, "No se ha podido cifrar el mensaje.")
+                            tagged = PkMessage(inputs, false, actionErrorMessage(e, "No se ha podido cifrar el mensaje."))
                         }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Cifrar") }
         }
-        if (busy) Busy("Cifrando…") { job?.cancel(); message = false to "Cancelado." }
-        ResultMessage(message)
-        output?.let { PublicOutput(context, it, "Compartir mensaje cifrado") { err -> message = false to err } }
+        if (busy) Busy("Cifrando…") { job?.cancel(); tagged = PkMessage(inputsNow, false, "Cancelado.") }
+        ResultMessage(messageFor(inputsNow, tagged))
+        output?.let { PublicOutput(context, it, "Compartir mensaje cifrado") { err -> tagged = PkMessage(inputsNow, false, err) } }
     }
 }
 
@@ -451,21 +446,24 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
     var text by remember { mutableStateOf("") }
     // A15a: with the inputs it came from; a rotation loses it, like the text.
     var result by remember { mutableStateOf<PkResult?>(null) }
-    var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    // A15a: a message also carries the inputs it is about, and shows only next to them.
+    var tagged by remember { mutableStateOf<PkMessage?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
-    val output = resultFor(PkInputs(null, text.takeIf { !isFile }, source?.toString()?.takeIf { isFile }), result)
+    val inputsNow = PkInputs(null, text.takeIf { !isFile }, source?.toString()?.takeIf { isFile })
+    val output = resultFor(inputsNow, result)
 
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         VaultLock.keepOpenOnce = false
         if (dest == null) return@rememberLauncherForActivityResult
         val src = source
         if (src == null) {
-            scope.discardLater(context, dest)
-            message = false to "No se ha guardado: vuelve a elegir el archivo."
+            discardDocumentLater(context, dest)
+            tagged = PkMessage(inputsNow, false, "No se ha guardado: vuelve a elegir el archivo.")
             return@rememberLauncherForActivityResult
         }
-        message = null
+        val jobInputs = PkInputs(null, null, src.toString())
+        tagged = null
         job = scope.launchBusy({ busy = it }) {
             try {
                 withContext(Dispatchers.Default) {
@@ -473,13 +471,13 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
                     val signature = context.contentResolver.openInputStream(src)!!.use { signFileAs(it.buffered(), entries, check) }
                     context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(signature) }
                 }
-                message = true to "Firma guardada. Envía el archivo y su .sgsig juntos."
+                tagged = PkMessage(jobInputs, true, "Firma guardada. Envía el archivo y su .sgsig juntos.")
             } catch (e: CancellationException) {
-                discardNow(context, dest)
+                discardDocumentNow(context, dest)
                 throw e
             } catch (e: Exception) {
-                discardNow(context, dest)
-                message = false to actionErrorMessage(e, "No se ha podido firmar el archivo.")
+                discardDocumentNow(context, dest)
+                tagged = PkMessage(jobInputs, false, actionErrorMessage(e, "No se ha podido firmar el archivo."))
             }
         }
     }
@@ -488,7 +486,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
         if (uri != null) {
             source = uri
             sourceName = displayName(context, uri)
-            message = null
+            tagged = null
         }
     }
 
@@ -496,10 +494,10 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
     Column(Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(SIGN_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!hasIdentity) Text(NO_IDENTITY_TO_SIGN, color = CautionColor)
-        TextOrFile(isFile) { isFile = it; result = null; message = null }
+        TextOrFile(isFile) { isFile = it; result = null; tagged = null }
         if (isFile) {
             SourceButton(source, sourceName) {
-                launchPicker(store) { pick.launchOrError(arrayOf("*/*")) }?.let { message = false to it }
+                launchPicker(store) { pick.launchOrError(arrayOf("*/*")) }?.let { tagged = PkMessage(inputsNow, false, it) }
             }
             Text(
                 "La firma va en un archivo aparte (.sgsig). No cubre el nombre del archivo.",
@@ -513,7 +511,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
                     store.touch()
                     save.launchOrError(signatureFileName(sourceName))?.let { failure ->
                         VaultLock.keepOpenOnce = false
-                        message = false to failure
+                        tagged = PkMessage(inputsNow, false, failure)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -521,7 +519,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
         } else {
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it; result = null; message = null },
+                onValueChange = { text = it; result = null; tagged = null },
                 label = { Text("Texto a firmar") },
                 minLines = 4,
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
@@ -532,7 +530,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
                 onClick = {
                     val plain = text
                     val inputs = PkInputs(null, plain, null)
-                    message = null
+                    tagged = null
                     result = null
                     job = scope.launchBusy({ busy = it }) {
                         try {
@@ -541,16 +539,16 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            message = false to actionErrorMessage(e, "No se ha podido firmar el texto.")
+                            tagged = PkMessage(inputs, false, actionErrorMessage(e, "No se ha podido firmar el texto."))
                         }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Firmar") }
         }
-        if (busy) Busy("Firmando…") { job?.cancel(); message = false to "Cancelado." }
-        ResultMessage(message)
-        output?.let { PublicOutput(context, it, "Compartir texto firmado") { err -> message = false to err } }
+        if (busy) Busy("Firmando…") { job?.cancel(); tagged = PkMessage(inputsNow, false, "Cancelado.") }
+        ResultMessage(messageFor(inputsNow, tagged))
+        output?.let { PublicOutput(context, it, "Compartir texto firmado") { err -> tagged = PkMessage(inputsNow, false, err) } }
     }
 }
 
@@ -612,6 +610,17 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         }
     }
 
+    // A15a: a text result is kept only if the field still holds the text it came from; a late one is dropped, not
+    // hidden (a card's bytes are zeroed; a decrypted String cannot be, but no reference to it is kept).
+    fun keepIfStillCurrent(outcome: ReceivedOutcome, from: PkInputs) {
+        if (from == PkInputs(null, pasted, null)) {
+            textResult = outcome
+            textResultFrom = from
+        } else if (outcome is ReceivedOutcome.CardFound) {
+            outcome.bytes.fill(0)
+        }
+    }
+
     fun resetFiles() {
         encUri = null
         encName = ""
@@ -631,7 +640,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
             // The screen was rebuilt meanwhile (the decrypted copy is never kept in saved state): nothing to write.
             pending = null
             if (dest != null) {
-                scope.discardLater(context, dest)
+                discardDocumentLater(context, dest)
                 message = false to "No se ha guardado: vuelve a descifrar el archivo."
             }
             return@rememberLauncherForActivityResult
@@ -652,10 +661,10 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 fileLine = senderLine(received.sender, addressedToMe = true)
                 message = true to "Archivo descifrado y guardado."
             } catch (e: CancellationException) {
-                discardNow(context, dest)
+                discardDocumentNow(context, dest)
                 throw e
             } catch (e: Exception) {
-                discardNow(context, dest)
+                discardDocumentNow(context, dest)
                 message = false to actionErrorMessage(e, "No se ha podido guardar el archivo.")
             } finally {
                 discardInBackground(context, received)
@@ -698,8 +707,9 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                     pasted = picked.text
                     fileLine = null
                     textResult = null
-                    textResult = withContext(Dispatchers.Default) { openReceivedText(picked.text, entries) }
-                    textResultFrom = PkInputs(null, picked.text, null)
+                    val from = PkInputs(null, picked.text, null)
+                    val outcome = withContext(Dispatchers.Default) { openReceivedText(picked.text, entries) }
+                    keepIfStillCurrent(outcome, from)
                 }
                 prompt = if (picked is PickedFile.Symmetric || picked is PickedFile.Text) {
                     null
@@ -762,14 +772,14 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                     fileLine = null
                     textResult = null
                     job = scope.launchBusy({ busy = it }) {
-                        try {
-                            textResult = withContext(Dispatchers.Default) { openReceivedText(text, entries) }
+                        val outcome = try {
+                            withContext(Dispatchers.Default) { openReceivedText(text, entries) }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            textResult = ReceivedOutcome.Failed(openErrorMessage(e))
+                            ReceivedOutcome.Failed(openErrorMessage(e))
                         }
-                        textResultFrom = PkInputs(null, text, null)
+                        keepIfStillCurrent(outcome, PkInputs(null, text, null))
                     }
                 },
             ) { Text("Abrir") }

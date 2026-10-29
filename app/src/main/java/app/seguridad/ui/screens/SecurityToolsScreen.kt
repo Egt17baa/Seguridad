@@ -42,6 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import app.seguridad.SeguridadApp
+import app.seguridad.vault.encryptedFileName
 import app.seguridad.android.copySensitive
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.Aead
@@ -77,6 +79,8 @@ import app.seguridad.net.PwnedPasswords
 import app.seguridad.vault.PickedKind
 import app.seguridad.vault.sanitizeReceivedName
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import app.seguridad.vault.pickedKind
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.CautionColor
@@ -233,7 +237,7 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
         if (dest == null) return@rememberLauncherForActivityResult
         val text = output ?: run {
             // The screen was rebuilt while the dialog was open (the result is never kept in saved state).
-            discardDocument(context, dest)
+            discardDocumentLater(context, dest)
             fileMessage = false to "No se ha guardado: vuelve a cifrar el texto."
             return@rememberLauncherForActivityResult
         }
@@ -244,7 +248,7 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                 }
                 true to "Guardado. El archivo solo contiene el texto cifrado: sin tu ${if (useKey) "clave" else "contraseña"} no sirve de nada."
             } catch (e: Exception) {
-                discardDocument(context, dest)
+                discardDocumentNow(context, dest)
                 false to "No se pudo guardar el archivo."
             }
         }
@@ -470,6 +474,21 @@ internal fun discardDocument(context: Context, uri: Uri) {
     runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
 }
 
+/**
+ * [discardDocument] from a callback (not a coroutine): in `Dispatchers.IO` on the app's scope (AppContainer.appScope), so
+ * it finishes even if the screen goes away.
+ */
+internal fun discardDocumentLater(context: Context, uri: Uri) {
+    val app = context.applicationContext
+    val scope = (app as? SeguridadApp)?.container?.appScope ?: CoroutineScope(Dispatchers.IO)
+    scope.launch(Dispatchers.IO) { discardDocument(app, uri) }
+}
+
+/** [discardDocument] from a coroutine: off the main thread, and not cut short by a cancellation. */
+internal suspend fun discardDocumentNow(context: Context, uri: Uri) {
+    withContext(NonCancellable + Dispatchers.IO) { discardDocument(context, uri) }
+}
+
 internal fun displayName(context: Context, uri: Uri): String =
     context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
         if (c.moveToFirst()) c.getString(0) else null
@@ -512,7 +531,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
         if (src == null || secret == null) {
             // The screen was rebuilt while the dialog was open: the file and secret are never kept in saved state.
             secret?.wipe()
-            discardDocument(context, dest)
+            discardDocumentLater(context, dest)
             message = false to "No se ha guardado: vuelve a elegir el archivo y la contraseña o clave."
             return@rememberLauncherForActivityResult
         }
@@ -526,7 +545,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
                 }
                 true to "Archivo cifrado y guardado."
             } catch (e: Exception) {
-                discardDocument(context, dest) // Never leave a truncated file behind.
+                discardDocumentNow(context, dest) // Never leave a truncated file behind.
                 false to "No se pudo cifrar el archivo."
             } finally {
                 secret.wipe()
@@ -540,7 +559,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             // The decrypted copy is gone (the app was restarted meanwhile): nothing to write.
             pendingPath = null
             if (dest != null) {
-                discardDocument(context, dest)
+                discardDocumentLater(context, dest)
                 message = false to "No se ha guardado: vuelve a descifrar el archivo."
             }
             return@rememberLauncherForActivityResult
@@ -556,7 +575,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
                     false to "No se ha guardado nada."
                 }
             } catch (e: Exception) {
-                dest?.let { discardDocument(context, it) }
+                dest?.let { discardDocumentNow(context, it) }
                 false to "No se pudo guardar el archivo."
             } finally {
                 tmp.delete()
@@ -624,7 +643,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             enabled = !busy && source != null && !checking && !(forContacts && !encrypt) && hasSecret(useKey, password, keyHex),
             onClick = {
                 if (encrypt) {
-                    saveEncrypted.launchOrError(sourceName + ENCRYPTED_EXTENSION)?.let { message = false to it }
+                    saveEncrypted.launchOrError(encryptedFileName(sourceName))?.let { message = false to it } // At most 255 bytes with «.sgenc».
                 } else {
                     val src = source ?: return@Button
                     val clearPasswordAfterUse = !useKey
