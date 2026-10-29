@@ -244,3 +244,130 @@ No son de `HEAD`. Se revisan para que no vuelvan a esta revisión.
   - Si `disable()` falla, la huella sigue marcada como activada. No funciona, porque `changeMaster` crea una clave de datos nueva (`Vault.kt:356-364`), pero el menú sigue ofreciendo «Desactivar huella» (`VaultScreen.kt:146`), no «Activar».
   - Hay que decir los pasos reales.
   - «desactivar» es la palabra que usa la app, no «apagar».
+
+## Verificación de CU-A (commit 3a625e5, 29-10-2026)
+
+**Método:**
+- **Literalidad.** Un script extrae cada texto propuesto en §1.1 y §4 y lo busca en todo `app/src/main` y en `licenses/bip39.txt`, con las concatenaciones de Kotlin unidas y `$PHOTO_FILE_BASE` sustituido por su valor. Resultado: 29 de 29 textos literales están presentes. C-4b y C-25b no son textos y los he revisado a mano.
+- **Textos antiguos.** He buscado «foto-limpia», «Chip seguro», «Zona segura» y `FORGOT_DIALOG_TEXT` en `app/src/main`: no queda ninguno.
+- **Palabras prohibidas.** He hecho el grep pedido sobre `app/src/main` y `README.md`.
+
+### Tabla
+
+| Elemento | Aplicado | archivo:línea | Observación |
+|---|---|---|---|
+| C-1 `PASSWORD_CHANGE_RENEW_HINT` | Sí | `tools/ToolTexts.kt:438` | Literal. Se muestra en `MasterChangedDialog` (`SettingsScreen.kt`, en el diálogo, «Text(PASSWORD_CHANGE_RENEW_HINT)»). |
+| C-2 `RENEW_IDENTITY_WARNING` | Sí | `tools/ToolTexts.kt:451` | Literal. |
+| C-3 `PHOTO_HEIF_NOTICE` | Sí | `tools/ToolTexts.kt:103` | Literal. El 24 fijo es correcto: `heifToJpeg` siempre usa `MAX_REDACT_PIXELS`. |
+| C-4a `PHOTO_FILE_NAME_NOTE` | Sí | `tools/ToolTexts.kt:108` | Literal, interpolado con `PHOTO_FILE_BASE`. |
+| C-4b nombre «copia-de-foto» | Sí | `tools/share/ShareTemp.kt:13` y `:16`; `ui/screens/PhotoCleanScreen.kt:231` y `:248` | Sirve para guardar y para compartir. Ver D-1. |
+| C-5 `KEY_LOCATION_STRONGBOX` | Sí | `tools/ToolTexts.kt:418` | Literal. |
+| C-6 `KEY_LOCATION_TEE` | Sí | `tools/ToolTexts.kt:419` | Literal. |
+| C-7 `STRONGBOX_AVAILABLE_NOTICE` | Sí | `tools/ToolTexts.kt:429` | Literal. |
+| C-8 `CODES_UNLOCK_TO_SAVE` | Sí | `tools/ToolTexts.kt:383` | Literal. Ahora es cierto. El riesgo de pérdida de datos sigue hasta que CU-B conserve el estado. Cuando lo haga, el texto tiene que pasar a «Desbloquea la bóveda para guardarlo. Lo que ves aquí se conserva mientras no salgas de esta pantalla.» |
+| C-9 `PHOTO_EXPLANATION` | Sí | `tools/ToolTexts.kt:26` | Literal. |
+| C-10 `PHOTO_TOOL_SUBTITLE` | Sí | `tools/ToolTexts.kt:23` | Literal. |
+| C-11 `PHOTO_DEVICE` | Sí | `tools/ToolTexts.kt:45` | Literal. |
+| C-12 nombre corto DEVICE | Sí | `tools/ToolTexts.kt:76` | Literal. |
+| C-13 `PHOTO_AUTHOR_RIGHTS` | Sí | `tools/ToolTexts.kt:54` | Literal. |
+| C-14 `PHOTO_SAVE_FAILED` | Sí | `tools/ToolTexts.kt:118` | Literal. Se usa también en Tachar. |
+| C-15 `QR_EXPLANATION` | Sí | `tools/ToolTexts.kt:214` | Literal. |
+| C-16 `QR_HIDDEN_ELSEWHERE` | Sí | `tools/ToolTexts.kt:277` | Literal. |
+| C-17 `QR_SGK1` | Sí | `tools/ToolTexts.kt:265` | Literal. |
+| C-18 `QR_TEXT_HIDDEN_PASSWORD` | Sí | `tools/ToolTexts.kt:286` | Literal. |
+| C-19 `QR_TEXT_HIDDEN_OTP` | Sí | `tools/ToolTexts.kt:287` | Literal. |
+| C-20 `PASSWORD_CHANGE_OLD_BACKUPS` | Sí | `tools/ToolTexts.kt:436` | Literal. |
+| C-21 `PASSWORD_CHANGE_REPLACE_COPIES` | Sí | `tools/ToolTexts.kt:437` | Literal. |
+| C-22 `AUTO_BACKUP_REPLACED` | Sí | `vault/AutoBackup.kt:95` | Literal. |
+| C-23 `AUTO_BACKUP_REPLACE_WAITS` | Sí | `vault/AutoBackup.kt:98` | Literal. Se muestra en `SettingsScreen.kt:340`. |
+| C-24 `CLOCK_CHANGED_TEXT` | Sí | `vault/VaultStore.kt:34` | Literal. Ahora también está en `ALL_TOOL_TEXTS`. |
+| C-25a y C-25b, una sola constante | Sí | `tools/ToolTexts.kt:458`; `ui/screens/VaultScreen.kt:68` y `:337` | Literal. Ver D-2. |
+| C-26 pantalla de licencias | Sí | `ui/screens/LicensesScreen.kt:34` | Literal. |
+| C-27 `bip39.txt` | Sí | `assets/licenses/bip39.txt:1` | Literal. |
+| §4 `AUTO_BACKUP_REPLACE_DROPPED` | Sí | `tools/ToolTexts.kt:444`; usos en `SettingsScreen.kt:183` (otra carpeta) y `:259` (desactivar) | Literal, y cierto en los dos casos. Tras «Desactivar» queda algo repetitivo («Las copias ya hechas siguen en la carpeta. Las copias automáticas anteriores… siguen en su carpeta.»), pero es exacto. Aceptable. |
+| §4 `PASSWORD_CHANGED_FINGERPRINT_FAILED` | Sí | `tools/ToolTexts.kt:445`; uso en `ui/screens/VaultBackup.kt:122` | Literal. Es cierto porque `changeMaster` crea una clave de datos nueva (`Vault.kt:356-364`). |
+| Tarea 11: «Copias automáticas» (`AUTO_BACKUP_OUTCOME_TITLE`) | Sí, OK | `tools/ToolTexts.kt:443`; `SettingsScreen.kt:358` | Correcto. |
+| Tarea 11: textos de A6 en su versión final (`PASSWORD_CHANGED_TITLE`, `PASSWORD_CHANGE_COPIES`, `PASSWORD_CHANGE_WORKING`, `PASSWORD_CHANGE_CLOSE`, `RENEW_IDENTITY`, `RENEW_IDENTITY_DONE`) | Sí, OK | `tools/ToolTexts.kt:432-455` | Textos y orden del diálogo comprobados (`SettingsScreen.kt`, `MasterChangedDialog`). |
+| D-1: `SHARE_NAMES` sin «foto-limpia» | Aceptable | `tools/share/ShareTemp.kt:16` y `:97-103` | `clear()` borra cualquier entrada de `compartir/`, se llame como se llame, así que el resto antiguo desaparece sin volver a escribir la palabra prohibida. Es mejor que lo que yo propuse. |
+| D-2: se conserva `RESET_WIPES_DAMAGED` y se borra `FORGOT_DIALOG_TEXT` | Aceptable | `tools/ToolTexts.kt:458` | El resultado es el mismo: una sola fuente de verdad. |
+| D-3: constante `PHOTO_FILE_BASE` | Aceptable | `tools/share/ShareTemp.kt:13` | Evita que el nombre del archivo y el texto que lo anuncia lleguen a ser distintos. |
+| D-4: `SUPERSEDED_ANNEX_TEXTS` en el test, con el anexo intacto | Aceptable, con condición | `app/src/test/.../ToolTextsTest.kt` | La condición es que la tarea 15 actualice el anexo (y la línea 210 del diseño), la política de privacidad y la ficha de Play (R-9), y que después borre esa lista. Hasta entonces, el anexo publicado no refleja los textos de la app. |
+| Palabras prohibidas en los textos de la 1.3.0 | Sin palabras prohibidas en `ToolTexts.kt`, salvo lo permitido | — | Solo quedan «no garantiza que sea seguro» (`QR_NO_ALERTS`, permitido) y el verbo «Limpiar» en «Limpiar foto» y en `PHOTO_DAMAGED` (R-1, que el dueño tiene que confirmar). «limpio» y «asegurar» aparecen en la lista BIP-39 en español (`bip39_spanish.txt:1024` y `:161`), que son datos y no textos de interfaz, aunque pueden salir como respuesta inventada. Es aceptable. |
+| Palabras prohibidas en textos anteriores a la 1.3.0 | **No** | ver la tabla siguiente | Hay 6 textos de versiones anteriores que el grep encuentra. No son de las tareas 1 a 11, pero incumplen la regla en `app/src/main`. |
+| `README.md` | OK | `README.md:27` | «diseñado para resistir también a ordenadores cuánticos futuros» no es «a prueba de cuánticos» y dice lo que pretende, no lo que garantiza. Está permitido. No hay más coincidencias. |
+
+### Cambios pendientes (textos anteriores a la 1.3.0 con palabras prohibidas)
+
+| Texto (archivo:línea) | Veredicto | Texto propuesto (exacto) |
+|---|---|---|
+| `ui/screens/NoticeScreen.kt:39`, «…Apúntala en un lugar seguro y exporta de vez en cuando una copia cifrada.» | Cambiar obligatorio | «Apúntala y guárdala donde solo tú puedas verla, y exporta de vez en cuando una copia cifrada.» |
+| `ui/screens/VaultEntryScreen.kt:287`, «🎲 Generar una segura» | Cambiar obligatorio | «🎲 Generar una al azar» |
+| `ui/screens/VaultEntryScreen.kt:304`, «🎲 Generar una segura» | Cambiar obligatorio | «🎲 Generar una al azar» |
+| `ui/screens/IdentityScreen.kt:299`, «¿Borrarla de verdad?» | Cambiar obligatorio | «¿Borrar tu identidad?» |
+| `ui/screens/SecurityToolsScreen.kt:162`, «Una clave aleatoria de 256 bits: imposible de adivinar. …» | Cambiar obligatorio | «Una clave aleatoria de 256 bits: en la práctica, nadie puede adivinarla. Apúntala en papel y guárdala SEPARADA del texto cifrado: sin ella nadie, ni tú, puede descifrarlo.» |
+| `vault/Vault.kt:25`, `NOTE("Nota segura")`, la etiqueta del tipo | Cambiar obligatorio | «Nota» |
+
+**Fundamento:**
+- Son las palabras prohibidas por el dueño: «seguro» y «segura» sin «no garantiza que sea seguro», «de verdad» e «imposible».
+- «imposible de adivinar» y «Nota segura» son afirmaciones absolutas de cualidad sobre el producto, que pesan en la valoración de la seguridad esperada (art. 7.2.a de la Directiva (UE) 2024/2853) y como posible acción engañosa (art. 6.1.b de la Directiva 2005/29/CE). Las demás son de tono, pero entran en la regla.
+- `EntryType` se serializa por el nombre del enum (`NOTE`), no por la etiqueta, así que cambiar la etiqueta no toca ningún formato. Aun así, el implementador debe confirmar que `NOTE.label` no se escribe en la bóveda ni en exportaciones (el grep solo encuentra usos en la interfaz).
+- El test `noForbiddenWords` solo cubre `ToolTexts.kt`. Recomiendo extenderlo a todas las cadenas de `app/src/main/java` (por ejemplo, con un test que lea el código fuente), para que estos casos no vuelvan.
+
+**Veredicto de la verificación:** **Cambios.** Todo C-1 a C-27 y §4 está aplicado literalmente en todos sus usos, y las desviaciones D-1 a D-4 son aceptables (D-4 con la condición de la tarea 15). Quedan los 6 textos anteriores de la tabla, y extender `noForbiddenWords` a toda la app.
+
+## CU-B (commits c808025 y 365e77c, 29-10-2026)
+
+He comparado cada texto con el código que lo muestra:
+- `CodesSession.kt:33-40` y `:207-236`, y `CodesScreen.kt:210-222`;
+- `BiometricVault.kt:240-246` y `VaultScreen.kt:132-139`;
+- `ImageLimits.kt:32-38`;
+- `RedactScreen.kt:483`;
+- `SettingsScreen.kt:303`;
+- `README.md:174-180`.
+
+| Texto | Veredicto | Texto propuesto exacto |
+|---|---|---|
+| `CODES_UNLOCK_TO_SAVE`, `tools/ToolTexts.kt:390` | Cambiar | «Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si se cierra la app o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo).» |
+| `IMAGE_NO_MEMORY`, `tools/ToolTexts.kt:216` | OK | Sin cambios. |
+| `FINGERPRINT_ENABLE_INTERRUPTED`, `tools/ToolTexts.kt:473` | Cambiar | «La activación de la huella se interrumpió porque cambió la pantalla (por ejemplo, al girar el móvil). Vuelve a tocar «Activar huella».» |
+| `redactCanvasDescription(n)`, `tools/ToolTexts.kt:212` | OK | Sin cambios. |
+| `PASSWORD_CHANGED_FINGERPRINT_FAILED`, ahora también en el diálogo, `ui/screens/SettingsScreen.kt:303` | OK | Sin cambios. Repite «Contraseña maestra cambiada.», que ya está en el título del diálogo. Es redundante, pero no es incorrecto. |
+| Comprobación manual de la huella, `README.md:178` («sale «Se interrumpió al girar el móvil…»») | Cambiar, solo si se acepta el cambio de `FINGERPRINT_ENABLE_INTERRUPTED` | «sale «La activación de la huella se interrumpió…»» |
+| Resto de líneas nuevas de `README.md:174-180` | OK | Sin cambios. Son instrucciones de prueba, citan textos que existen y no tienen palabras prohibidas. |
+
+**Fundamento:**
+
+- **`CODES_UNLOCK_TO_SAVE`.** La lógica que describe es correcta: se pierde al volver atrás, al morir el proceso y cuando el tiempo fuera llega al bloqueo de la bóveda, con un mínimo de 1 minuto (`awayTooLong`, `CodesSession.kt:40`). Cambio dos cosas:
+  - «si cierras la app» pasa a «si se cierra la app». Android también puede cerrar la app en segundo plano sin que el usuario lo haga, y el texto no debe prometer que lo generado sigue ahí mientras el usuario no la cierre (art. 6.1.c de la Directiva (UE) 2024/2853, pérdida de datos).
+  - «pasas fuera de esta pantalla» no es un español natural. Lo cambio por «estás fuera de esta pantalla».
+  - Además, «el bloqueo de la bóveda» enlaza con el ajuste «Bloquear la bóveda tras no usarla» (`SettingsScreen.kt:405`).
+- **`FINGERPRINT_ENABLE_INTERRUPTED`.**
+  - El aviso salta con cualquier recreación de la actividad (`activity.isChangingConfigurations`, `BiometricVault.kt:245`): también al cambiar el tema del sistema, la ventana flotante o la pantalla dividida, como reconoce el propio informe. «al girar el móvil» solo es exacto en un caso.
+  - El texto actual tampoco dice qué se interrumpió. Como sale en un snackbar de la pantalla Bóveda, tiene que poder entenderse solo.
+  - Uso el pretérito indefinido («se interrumpió»), como el resto de mensajes de la huella.
+- **`IMAGE_NO_MEMORY`.** Es exacto, no culpa al archivo y sustituye con razón al antiguo «archivo dañado». Hay coherencia de tono con los demás errores de imagen.
+- **`redactCanvasDescription`.** Es claro para TalkBack, no promete nada y da información útil (cuántos bloques hay). Sigue lo recomendado en R-6.
+
+**Veredicto CU-B: Cambios.** Hay que cambiar 2 textos, `CODES_UNLOCK_TO_SAVE` y `FINGERPRINT_ENABLE_INTERRUPTED`, y su cita en `README.md:178`.
+
+## CU-B ronda 1 (commit 0425a88, 29-10-2026)
+
+He comparado los textos con `tools/codes/CodesSession.kt`:
+- `wipe()` vuelve a sortear el PIN, los códigos y las respuestas, y descarta el guardado pendiente. Conserva las webs, las preguntas, la longitud elegida y el formulario.
+- `clear()`, al salir de la pantalla, lo quita todo.
+- `vaultStateIs`: un bloqueo a mano con la app en uso borra siempre; el bloqueo por inactividad solo borra si la pantalla tampoco se usó durante ese tiempo; el bloqueo al salir de la app no borra.
+
+| Texto | Veredicto | Texto propuesto exacto |
+|---|---|---|
+| `CODES_UNLOCK_TO_SAVE`, `tools/ToolTexts.kt:390` | Cambiar | «Desbloquea la bóveda para guardarlo. El PIN, los códigos y las respuestas se pierden si vuelves atrás, si se cierra la app, si bloqueas la bóveda o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo).» |
+| `README.md`, prueba de «PIN y códigos» (en la línea que empieza «- [ ] 1.3.0, «PIN y códigos»») | OK | Sin cambios. Coincide con `wipe()` y `vaultStateIs`, incluido el caso de seguir escribiendo con el bloqueo por inactividad. |
+| `README.md`, prueba de rotación en «Tachar» y «Limpiar foto» | OK | Sin cambios. |
+| `README.md`, prueba de «Activar huella» | Cambiar | Sustituir «sin «No responde»» por «sin «La huella no responde…»» |
+
+**Fundamento:**
+- **`CODES_UNLOCK_TO_SAVE`.** «Lo que ves aquí se pierde» ya no es exacto en tres de los cuatro casos (bloquear, estar fuera más tiempo que el bloqueo y que se cierre la app no siempre lo vacía todo): las webs y las preguntas se conservan, y solo cambian el PIN, los códigos y las respuestas. El texto mínimo exacto nombra lo que se pierde. En el cuarto caso, «vuelves atrás», se pierde todo, y el texto propuesto no dice lo contrario: solo afirma lo que se pierde siempre.
+- **«si bloqueas la bóveda».** Es correcto: el bloqueo a mano borra siempre, y el verbo en segunda persona excluye el bloqueo automático al salir de la app, que no borra. En el momento en que se lee este texto la bóveda ya está bloqueada, así que esta parte informa para después y no confunde.
+- **Línea de la huella en el README.** Hay que citar el texto real de la app (`FINGERPRINT_NOT_RESPONDING`, «La huella no responde: …»), igual que las demás líneas citan los textos tal cual.
+- **Palabras prohibidas.** No hay ninguna en las líneas nuevas.
+
+**Veredicto CU-B ronda 1: Cambios.** Hay 2 cambios: `CODES_UNLOCK_TO_SAVE` y la cita del README.
