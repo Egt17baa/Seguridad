@@ -289,11 +289,10 @@ class CryptoTest {
         // Every other Cf too, also outside the BMP: the tag characters (U+E0001, U+E0020–U+E007F).
         val tagA = String(Character.toChars(0xE0041))
         assertEquals("ab.txt", safeFileName("a${tagA}b${String(Character.toChars(0xE0001))}.txt"))
-        assertEquals("ab.txt", safeFileName("a\u180Eb.txt")) // Mongolian vowel separator (Cf)
-        // The zero-width joiner stays: it only joins the emoji of a sequence, as in sanitizeReceivedName.
+        // The zero-width joiner stays only inside an emoji sequence (see safeFileNameKeepsTheJoinerOnlyBetweenEmoji).
         val family = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67" // 👨‍👩‍👧
         assertEquals("$family.png", safeFileName("$family.png"))
-        assertEquals("a\u200Db.txt", safeFileName("a\u200Db.txt"))
+        assertEquals("ab.txt", safeFileName("a\u200Db.txt"))
         // Variation selectors (not Cf) and accents stay.
         assertEquals("\u2764\uFE0F.jpg", safeFileName("\u2764\uFE0F.jpg"))
         assertEquals("Ñandú.txt", safeFileName("Ñandú.txt"))
@@ -301,5 +300,35 @@ class CryptoTest {
         val zw = "\u200B"
         for (n in listOf("fac${zw}tura.pdf", zw, "$family.png", "a".repeat(119) + zw.repeat(50) + "b")) assertEquals(safeFileName(n), safeFileName(safeFileName(n)))
         assertEquals("a".repeat(119) + "b", safeFileName("a".repeat(119) + zw.repeat(50) + "b"))
+    }
+
+    @Test fun safeFileNameKeepsTheJoinerOnlyBetweenEmoji() {
+        val zwj = "\u200D"
+        val man = "\uD83D\uDC68"
+        val woman = "\uD83D\uDC69"
+        val girl = "\uD83D\uDC67"
+        val family = "$man$zwj$woman$zwj$girl" // 👨‍👩‍👧
+        // The emoji sequence is kept whole.
+        assertEquals("$family.png", safeFileName("$family.png"))
+        assertEquals("foto $family", safeFileName("foto $family"))
+        // Next to ASCII, at either end, next to a space or next to another joiner: it goes.
+        assertEquals("factura.pdf", safeFileName("fac${zwj}tura.pdf"))
+        assertEquals("$man.png", safeFileName("$zwj$man$zwj.png"))
+        assertEquals("$man $woman", safeFileName("$man$zwj $woman"))
+        assertEquals("$man$woman", safeFileName("$man$zwj$zwj$woman"))
+        assertEquals("ñandú", safeFileName("${zwj}ñandú$zwj"))
+        // Nothing visible left: «archivo».
+        for (n in listOf(zwj, zwj.repeat(5), "$zwj . $zwj", "..$zwj..", " $zwj ")) assertEquals("name=<$n>", "archivo", safeFileName(n))
+        // A joiner the byte cut leaves at the end goes: 82 «文» (246 bytes) + 😀 (250) + joiner (253) + 😀 (257).
+        val smile = "\uD83D\uDE00"
+        assertEquals("文".repeat(82) + smile, safeFileName("文".repeat(82) + smile + zwj + smile))
+        // And one the code-point cut leaves at the end: 118 «a» + «é» + joiner is 120 code points.
+        assertEquals("a".repeat(118) + "é", safeFileName("a".repeat(118) + "é" + zwj + "é"))
+        // A trim that leaves a joiner at an end: it goes too.
+        assertEquals(man, safeFileName("$man$zwj\u00A0"))
+        // Idempotent.
+        for (n in listOf("$family.png", "fac${zwj}tura", zwj, "文".repeat(82) + smile + zwj + smile, "$man$zwj\u00A0", "$man$zwj$zwj$woman")) {
+            assertEquals("name=<$n>", safeFileName(n), safeFileName(safeFileName(n)))
+        }
     }
 }
