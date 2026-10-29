@@ -94,6 +94,7 @@ class AppContainer(
         keep = { settings.settings.value.autoBackupKeep },
         lastCopyAt = { settings.settings.value.lastAutoBackupAt },
         copies = { settings.settings.value.currentAutoBackupCopies },
+        replacePending = { settings.settings.value.autoBackupReplacePending },
         onResult = ::recordAutoBackup,
     )
 
