@@ -13,7 +13,7 @@ const val CHUNK_BYTES = 64 * 1024
 const val ENCRYPTED_EXTENSION = ".sgenc"
 /** Extension of the legacy dialect's files (.cpenc), still read. */
 const val LEGACY_ENCRYPTED_EXTENSION = ".cpenc"
-/** The most the sealed file name may measure, in UTF-8 bytes ([safeFileName] keeps it far below: 120 code points, 480 bytes). Shared with the public-key files (`pk/FileMessage.kt`). */
+/** The most the sealed file name may measure, in UTF-8 bytes ([safeFileName] keeps it far below: [MAX_SAVED_NAME_BYTES]). Shared with the public-key files (`pk/FileMessage.kt`). */
 internal const val MAX_FILE_NAME_BYTES = 1024
 
 /** STREAM nonce: prefix (7) ‖ counter (4, big-endian) ‖ last-record flag (1). */
@@ -130,19 +130,59 @@ fun decryptStream(input: InputStream, output: OutputStream, secret: Secret): Str
     }
 }
 
-/** The most code points [safeFileName] keeps: at most 4 UTF-8 bytes each, so 480 bytes, far below [MAX_FILE_NAME_BYTES]. */
+/** The most code points [safeFileName] keeps (before the byte limit, [MAX_SAVED_NAME_BYTES]). */
 internal const val MAX_FILE_NAME_CODE_POINTS = 120
 
 /**
- * Name to save a decrypted file under: the stored one, never a path, nor turned around («factura\u202Efdp.exe»). At
- * most [MAX_FILE_NAME_CODE_POINTS] code points, cut between whole code points (A16b: never half of a surrogate pair, so
- * the UTF-8 is never cut inside a character). It only shortens, never rejects: a file written with a longer name (up to
- * [MAX_FILE_NAME_BYTES]) still decrypts, and only the name proposed to save it under is shortened.
+ * The most UTF-8 bytes of a name that is written or proposed to save under (A16b, design: «sin pasar de 255 bytes»; many
+ * file systems and some SAF providers refuse longer names). Only for writing and saving: reading still accepts up to
+ * [MAX_FILE_NAME_BYTES].
  */
-fun safeFileName(name: String): String {
-    val clean = withoutBidiControls(name.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\x00-\\x1F]"), "")).trim().ifEmpty { "archivo" }
-    if (clean.codePointCount(0, clean.length) <= MAX_FILE_NAME_CODE_POINTS) return clean
-    return clean.substring(0, clean.offsetByCodePoints(0, MAX_FILE_NAME_CODE_POINTS))
+const val MAX_SAVED_NAME_BYTES = 255
+
+/** Controls taken out of a name: C0, DEL, C1, and the line and paragraph separators (U+2028, U+2029). */
+private val NAME_CONTROLS = Regex("[\\x00-\\x1F\\x7F-\\x9F\\u2028\\u2029]")
+
+/** What [safeFileName] trims from both ends: dots and spaces (also the no-break ones), as `sanitizeReceivedName` does. */
+private fun isNameTrimmable(c: Char) = c == '.' || c.isWhitespace() || Character.isSpaceChar(c)
+
+/**
+ * Name to save a decrypted file under, and the one written inside a new file: the stored one, never a path, nor turned
+ * around («factura\u202Efdp.exe»), without controls (C0, DEL, C1, U+2028, U+2029), and without dots or spaces at either
+ * end (so never «.» nor «..»); empty, it is «archivo». At most [MAX_FILE_NAME_CODE_POINTS] code points and
+ * [MAX_SAVED_NAME_BYTES] UTF-8 bytes minus [reservedBytes] (the bytes of a suffix the caller appends, such as «.sgenc»),
+ * always cut between whole code points (A16b: never half of a surrogate pair, never inside a UTF-8 character). It only
+ * shortens, never rejects: a file written with a longer name (up to [MAX_FILE_NAME_BYTES]) still decrypts.
+ */
+fun safeFileName(name: String, reservedBytes: Int = 0): String {
+    val maxBytes = (MAX_SAVED_NAME_BYTES - reservedBytes).coerceAtLeast(1)
+    val clean = withoutBidiControls(name.substringAfterLast('/').substringAfterLast('\\').replace(NAME_CONTROLS, "")).trim(::isNameTrimmable)
+    val cut = takeUtf8Bytes(takeCodePoints(clean, MAX_FILE_NAME_CODE_POINTS), maxBytes).trim(::isNameTrimmable)
+    return if (cut.isEmpty() || cut == "." || cut == "..") "archivo" else cut
+}
+
+/** The first [max] code points of [s] (never half of a surrogate pair). */
+internal fun takeCodePoints(s: String, max: Int): String =
+    if (s.codePointCount(0, s.length) <= max) s else s.substring(0, s.offsetByCodePoints(0, max))
+
+/** The longest start of [s] made of whole code points whose UTF-8 measures at most [maxBytes]. */
+internal fun takeUtf8Bytes(s: String, maxBytes: Int): String {
+    var bytes = 0
+    var i = 0
+    while (i < s.length) {
+        val cp = s.codePointAt(i)
+        // A lone surrogate is written as «?» (1 byte); counting 3 only keeps the name shorter.
+        val n = when {
+            cp < 0x80 -> 1
+            cp < 0x800 -> 2
+            cp < 0x10000 -> 3
+            else -> 4
+        }
+        if (bytes + n > maxBytes) break
+        bytes += n
+        i += Character.charCount(cp)
+    }
+    return s.substring(0, i)
 }
 
 /**

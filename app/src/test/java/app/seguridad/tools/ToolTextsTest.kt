@@ -279,6 +279,9 @@ class ToolTextsTest {
         assertEquals("No enviar el nombre", DONT_SEND_FILE_NAME)
         assertEquals("Esta clave está guardada en 2 contactos.", sameKeyContactsText(2))
         assertEquals("Esta clave está guardada en 5 contactos.", sameKeyContactsText(5))
+        assertEquals("No se ha podido copiar.", CLIPBOARD_COPY_FAILED)
+        assertEquals("Entendido", CLIPBOARD_COPY_FAILED_OK)
+        assertTrue(ALL_TOOL_TEXTS.containsAll(listOf(CLIPBOARD_COPY_FAILED, CLIPBOARD_COPY_FAILED_OK)))
         assertTrue(ALL_TOOL_TEXTS.containsAll(listOf(fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2))))
     }
 

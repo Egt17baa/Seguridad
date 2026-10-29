@@ -188,46 +188,93 @@ class CryptoTest {
     }
 
     @Test fun safeFileNameKeepsWholeCodePoints() {
-        // A16b: cut by code points, never between the two halves of a surrogate pair.
-        val emoji = "\uD83D\uDE00" // 😀, outside the BMP: two UTF-16 units.
+        // A16b: cut by code points (at most 120) and then to at most 255 UTF-8 bytes, never between the two halves of a
+        // surrogate pair nor inside a UTF-8 character.
+        val emoji = "\uD83D\uDE00" // 😀, outside the BMP: two UTF-16 units, 4 UTF-8 bytes.
         val cut = safeFileName("a".repeat(119) + emoji + "x")
-        assertEquals("a".repeat(119) + emoji, cut)
+        assertEquals("a".repeat(119) + emoji, cut) // 123 bytes: only the code-point limit applies.
         assertTrue(cut.endsWith(emoji))
         assertEquals(120, cut.codePointCount(0, cut.length))
-        // 200 CJK characters (one unit each) keep 120.
+        // 200 CJK characters (3 bytes each): 120 code points would be 360 bytes, so the byte limit keeps 85 (255 bytes).
         val cjk = safeFileName("文".repeat(200))
-        assertEquals("文".repeat(120), cjk)
-        assertEquals(120, cjk.codePointCount(0, cjk.length))
-        // 200 emoji: 120 whole ones (240 units), far below the format's 1024 bytes.
-        val emojis = safeFileName(emoji.repeat(200))
-        assertEquals(emoji.repeat(120), emojis)
-        assertTrue(emojis.toByteArray(Charsets.UTF_8).size <= 480)
+        assertEquals("文".repeat(85), cjk)
+        assertTrue(cjk.toByteArray(Charsets.UTF_8).size <= MAX_SAVED_NAME_BYTES)
+        // 120 emoji (480 bytes): 63 whole ones (252 bytes), ending on a whole emoji.
+        for (n in listOf(120, 200)) {
+            val emojis = safeFileName(emoji.repeat(n))
+            assertEquals(emoji.repeat(63), emojis)
+            assertTrue(emojis.toByteArray(Charsets.UTF_8).size <= 255)
+            assertTrue(emojis.endsWith(emoji))
+            assertTrue(!emojis.last().isHighSurrogate())
+        }
+        // With a suffix the caller appends («.sgenc», 6 bytes), the name plus the suffix stay within 255 bytes.
+        for (name in listOf("文".repeat(200), emoji.repeat(120), "a".repeat(300))) {
+            val withSuffix = safeFileName(name, ENCRYPTED_EXTENSION.length) + ENCRYPTED_EXTENSION
+            assertTrue(withSuffix, withSuffix.toByteArray(Charsets.UTF_8).size <= 255)
+        }
+        assertEquals("文".repeat(83), safeFileName("文".repeat(200), 6)) // 249 bytes + 6.
         // Short names do not change.
         assertEquals("foto.jpg", safeFileName("foto.jpg"))
         assertEquals(emoji + ".png", safeFileName(emoji + ".png"))
+        assertEquals(255, MAX_SAVED_NAME_BYTES)
+        assertEquals(1024, MAX_FILE_NAME_BYTES) // The read limit does not change.
     }
 
-    @Test fun anOldFileWithANameLongerThan120CodePointsStillDecrypts() {
-        // A file whose sealed name is longer than safeFileName gives now (an older build or another app that wrote the
-        // format, up to MAX_FILE_NAME_BYTES): written by hand, the way encryptStream does, but without safeFileName.
-        val longName = "\u00F1".repeat(300) + ".txt" // 304 code points, 604 bytes.
-        val secret = Secret.Password("clave".toCharArray())
+    @Test fun safeFileNameNeverGivesDotsControlsOrLooseEnds() {
+        // Never «.» or «..», nor empty.
+        for (name in listOf(".", "..", " . ", "...", "/..", "a/.", "\u0085", "\u2028")) assertEquals("name=<$name>", "archivo", safeFileName(name))
+        // Dots and spaces at either end go, also the no-break space.
+        assertEquals("bashrc", safeFileName("..bashrc"))
+        assertEquals("informe.pdf", safeFileName("  informe.pdf. . "))
+        assertEquals("x", safeFileName("\u00A0x\u00A0"))
+        // DEL, C1 controls and the line and paragraph separators are taken out, like C0.
+        assertEquals("ab.txt", safeFileName("a\u007Fb.txt"))
+        for (c in 0x80..0x9F) assertEquals("c=${c.toString(16)}", "ab.txt", safeFileName("a${c.toChar()}b.txt"))
+        assertEquals("ab.txt", safeFileName("a\u2028b\u2029.txt"))
+        assertEquals("ab.txt", safeFileName("a\nb\r.txt"))
+        // After the cut, no space or dot is left at the end.
+        assertEquals("a".repeat(119), safeFileName("a".repeat(119) + " b"))
+        assertEquals("a".repeat(119), safeFileName("a".repeat(119) + ".pdf"))
+        assertEquals("文".repeat(84), safeFileName("文".repeat(84) + " " + "文".repeat(50))) // 252 bytes + space, cut at 255.
+        // Idempotent.
+        for (n in listOf("..bashrc", "文".repeat(200), "a".repeat(119) + " b", " . ")) assertEquals(safeFileName(n), safeFileName(safeFileName(n)))
+    }
+
+    /** A `.sgenc` written by hand like [encryptStream] does, but with the raw [name] (no safeFileName): as an older build or another app could. */
+    private fun oldStyleFile(name: String, password: String, plain: ByteArray): ByteArray {
+        val secret = Secret.Password(password.toCharArray())
         val header = newHeader(Header.KIND_FILE, Aead.AES_256_GCM, secret, FAST, secureRandom)
         val aad = header.bytes()
         val key = keyForHeader(secret, header)
         val out = ByteArrayOutputStream()
         out.write(aad)
-        val sealedName = aead(Aead.AES_256_GCM, true, key, streamNonce(header.nonce, 0, false), aad, longName.toByteArray(Charsets.UTF_8))
+        val sealedName = aead(Aead.AES_256_GCM, true, key, streamNonce(header.nonce, 0, false), aad, name.toByteArray(Charsets.UTF_8))
         out.write(byteArrayOf((sealedName.size shr 8).toByte(), sealedName.size.toByte()))
         out.write(sealedName)
-        out.write(aead(Aead.AES_256_GCM, true, key, streamNonce(header.nonce, 1, true), aad, "hola".toByteArray()))
+        out.write(aead(Aead.AES_256_GCM, true, key, streamNonce(header.nonce, 1, true), aad, plain))
+        return out.toByteArray()
+    }
+
+    @Test fun anOldFileWithANameLongerThan120CodePointsStillDecrypts() {
+        val longName = "\u00F1".repeat(300) + ".txt" // 304 code points, 604 bytes.
         val plain = ByteArrayOutputStream()
         // Reading never cuts nor rejects it: the whole name comes back.
-        val name = decryptStream(ByteArrayInputStream(out.toByteArray()), plain, "clave".toCharArray())
+        val name = decryptStream(ByteArrayInputStream(oldStyleFile(longName, "clave", "hola".toByteArray())), plain, "clave".toCharArray())
         assertEquals(longName, name)
         assertEquals("hola", plain.toString(Charsets.UTF_8.name()))
-        // Only the name to save under is shortened, by whole code points.
-        val toSave = safeFileName(name)
-        assertEquals("\u00F1".repeat(120), toSave)
+        // Only the name to save under is shortened, by whole code points (120 «ñ» are 240 bytes).
+        assertEquals("\u00F1".repeat(120), safeFileName(name))
+    }
+
+    @Test fun aNameOfExactly1024BytesStillDecryptsAnd1025DoesNot() {
+        val name1024 = "\u00E9".repeat(512) // 1024 bytes: the format's limit, MAX_FILE_NAME_BYTES.
+        assertEquals(MAX_FILE_NAME_BYTES, name1024.toByteArray(Charsets.UTF_8).size)
+        val plain = ByteArrayOutputStream()
+        assertEquals(name1024, decryptStream(ByteArrayInputStream(oldStyleFile(name1024, "clave", "x".toByteArray())), plain, "clave".toCharArray()))
+        assertEquals("x", plain.toString(Charsets.UTF_8.name()))
+        val saved = safeFileName(name1024)
+        assertTrue(saved.toByteArray(Charsets.UTF_8).size <= MAX_SAVED_NAME_BYTES)
+        // One byte more is not this format.
+        assertFails { decryptStream(ByteArrayInputStream(oldStyleFile(name1024 + "a", "clave", "x".toByteArray())), ByteArrayOutputStream(), "clave".toCharArray()) }
     }
 }

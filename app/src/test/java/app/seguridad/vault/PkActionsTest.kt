@@ -982,4 +982,71 @@ class PkActionsTest {
         assertEquals(newer, (opened.sender as Sender.Contact).entry)
         assertEquals("Esta clave está guardada en 2 contactos.", opened.line.sameKey)
     }
+
+    // ---- Fix round 1 ----
+
+    @Test fun saveNamesWithTheirSuffixStayWithin255Bytes() {
+        val emoji = "\uD83D\uDE00"
+        for (name in listOf("文".repeat(200), emoji.repeat(120), "a".repeat(300), "\u00F1".repeat(200) + ".pdf")) {
+            for (saved in listOf(encryptedFileName(name), signatureFileName(name))) {
+                assertTrue(saved, saved.toByteArray(Charsets.UTF_8).size <= 255)
+                assertEquals(saved, String(saved.toByteArray(Charsets.UTF_8), Charsets.UTF_8)) // no lone surrogate
+            }
+        }
+        assertTrue(encryptedFileName("文".repeat(200)).endsWith(".sgenc"))
+        assertTrue(signatureFileName(emoji.repeat(120)).endsWith(emoji + ".sgsig"))
+        // The received name proposed to save under also stays within 255 bytes (120 CJK would be 360).
+        val received = sanitizeReceivedName("文".repeat(200))
+        assertEquals("文".repeat(85), received)
+        assertEquals(received, sanitizeReceivedName(received))
+        assertEquals("a".repeat(120), sanitizeReceivedName("a".repeat(300))) // ASCII: the 120-character limit, as before.
+    }
+
+    /** A file for me from Ana whose name (raw UTF-8, no safeFileName) is [nameBytes]: like one from an older build. */
+    private fun oldStyleFileFromAna(nameBytes: ByteArray, plain: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        ana().use {
+            app.seguridad.crypto.pk.encryptFileForNameBytes(
+                ByteArrayInputStream(plain), out, nameBytes, myCard(), it, ByteArray(64) { 7 }, ByteArray(STREAM_PREFIX_BYTES) { 9 },
+            )
+        }
+        return out.toByteArray()
+    }
+
+    @Test fun aPublicKeyFileWithALongNameStillOpens() {
+        val dir = tempDir()
+        val emoji = "\uD83D\uDE00"
+        for (name in listOf("\u00F1".repeat(300) + ".txt", "\u00E9".repeat(512), emoji.repeat(256))) {
+            val nameBytes = name.toByteArray(Charsets.UTF_8)
+            assertTrue(nameBytes.size > 255 && nameBytes.size <= 1024)
+            val file = oldStyleFileFromAna(nameBytes, data(1000))
+            // decryptFileFor (FileMessage.kt) reads it: the raw name whole, or through safeFileName.
+            val raw = me().use { decryptFileFor(ByteArrayInputStream(file), ByteArrayOutputStream(), it, rawName = true) }
+            assertEquals(name, raw.name)
+            val safe = me().use { decryptFileFor(ByteArrayInputStream(file), ByteArrayOutputStream(), it) }
+            assertEquals(app.seguridad.crypto.safeFileName(name), safe.name)
+            assertTrue(safe.name.toByteArray(Charsets.UTF_8).size <= 255)
+            // «Abrir lo recibido»: decrypted, with the sender, and shown through sanitizeReceivedName.
+            val received = decryptToTemp(file, dir)
+            assertArrayEquals(data(1000), received.file.readBytes())
+            assertEquals(sanitizeReceivedName(name), received.name)
+            assertTrue(received.name.toByteArray(Charsets.UTF_8).size <= 255)
+            assertEquals(Sender.Contact(anaContact), received.sender)
+            received.discard()
+        }
+    }
+
+    @Test fun aLateMessageIsHiddenLikeALateResult() {
+        val inputs = PkInputs("ana", "hola", null)
+        val msg = PkMessage(inputs, false, "No se ha podido cifrar el mensaje.")
+        assertEquals(false to "No se ha podido cifrar el mensaje.", messageFor(inputs, msg))
+        assertNull(messageFor(PkInputs("luis", "hola", null), msg))
+        assertNull(messageFor(PkInputs("ana", "hola!", null), msg))
+        assertNull(messageFor(PkInputs("ana", null, "content://x/1"), msg))
+        assertNull(messageFor(inputs, null))
+        val fileMsg = PkMessage(PkInputs("ana", null, "content://x/1"), true, "Archivo cifrado y guardado.")
+        assertEquals(true to "Archivo cifrado y guardado.", messageFor(PkInputs("ana", null, "content://x/1"), fileMsg))
+        assertNull(messageFor(PkInputs("ana", null, "content://x/2"), fileMsg))
+        assertFalse("hola" in msg.toString())
+    }
 }

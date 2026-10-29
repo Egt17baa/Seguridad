@@ -123,4 +123,19 @@ class ClipboardNoticeTest {
         assertEquals(listOf("otro"), written)
         assertTrue(notice.acceptedNow)
     }
+
+    @Test fun theOutcomeSaysWhyNothingWasCopied() {
+        // Only a failed write is told to the user; a lock (the dialog is gone) and «nothing waiting» are not.
+        assertEquals(AcceptOutcome.NOTHING_WAITING, notice.acceptOutcome())
+        notice.ask("a", write)
+        epoch++
+        assertEquals(AcceptOutcome.LOCKED, notice.acceptOutcome())
+        notice.ask("b", write = { throw RuntimeException("clipboard") })
+        assertEquals(AcceptOutcome.WRITE_FAILED, notice.acceptOutcome())
+        assertFalse(notice.acceptedNow)
+        notice.ask("c", write)
+        assertEquals(AcceptOutcome.COPIED, notice.acceptOutcome())
+        assertEquals(listOf("c"), written)
+        assertTrue(notice.acceptedNow)
+    }
 }

@@ -63,26 +63,31 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
 
     /**
      * The user accepted: writes the waiting copy once, then its onCopied. Returns false, writing nothing, if there was
-     * none (already taken or dropped) or the vault locked since [ask]. If the write throws (the clipboard service failed),
-     * it returns false too: [acceptedNow] stays false and onCopied does not run, so the notice comes back on the next copy
-     * and the caller does not record it as accepted in Ajustes. The copy is not kept for a retry.
+     * none (already taken or dropped), the vault locked since [ask], or the write threw. See [acceptOutcome].
      */
-    fun accept(): Boolean {
+    fun accept(): Boolean = acceptOutcome() == AcceptOutcome.COPIED
+
+    /**
+     * [accept], saying why nothing was copied. If the write throws (the clipboard service failed), it is
+     * [AcceptOutcome.WRITE_FAILED]: [acceptedNow] stays false and onCopied does not run, so the notice comes back on the
+     * next copy and the caller does not record it as accepted in Ajustes. The copy is not kept for a retry.
+     */
+    fun acceptOutcome(): AcceptOutcome {
         val p = synchronized(this) {
-            val p = pending ?: return false
+            val p = pending ?: return AcceptOutcome.NOTHING_WAITING
             pending = null
             _asking.value = false
-            if (p.epoch != lockEpoch()) return false
+            if (p.epoch != lockEpoch()) return AcceptOutcome.LOCKED
             p
         }
         try {
             p.write(p.text)
         } catch (e: Exception) {
-            return false
+            return AcceptOutcome.WRITE_FAILED
         }
         acceptedNow = true // Only once the copy is really in the clipboard.
         p.onCopied?.invoke()
-        return true
+        return AcceptOutcome.COPIED
     }
 
     /** The user said no: nothing is copied. */
@@ -94,3 +99,6 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
         _asking.value = false
     }
 }
+
+/** What [ClipboardNoticeRequest.acceptOutcome] did. Only [WRITE_FAILED] is told to the user: with a lock the dialog is gone. */
+enum class AcceptOutcome { COPIED, NOTHING_WAITING, LOCKED, WRITE_FAILED }

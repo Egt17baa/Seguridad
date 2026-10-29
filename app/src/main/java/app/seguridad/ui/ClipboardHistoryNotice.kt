@@ -5,9 +5,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.AppContainer
 import app.seguridad.android.FilterObscuredTouches
+import app.seguridad.tools.AcceptOutcome
+import app.seguridad.tools.CLIPBOARD_COPY_FAILED
+import app.seguridad.tools.CLIPBOARD_COPY_FAILED_OK
 import app.seguridad.tools.CLIPBOARD_HISTORY_ACCEPT
 import app.seguridad.tools.CLIPBOARD_HISTORY_CANCEL
 import app.seguridad.tools.clipboardHistoryNoticeText
@@ -24,6 +30,15 @@ import kotlinx.coroutines.launch
 fun ClipboardHistoryNotice(container: AppContainer) {
     val notice = container.clipboardNotice
     val asking by notice.asking.collectAsStateWithLifecycle()
+    // The write failed on accept (the clipboard service): said in a short dialog, since the notice is already gone.
+    var copyFailed by rememberSaveable { mutableStateOf(false) }
+    if (copyFailed) {
+        AlertDialog(
+            onDismissRequest = { copyFailed = false },
+            text = { Text(CLIPBOARD_COPY_FAILED) },
+            confirmButton = { TextButton(onClick = { copyFailed = false }) { Text(CLIPBOARD_COPY_FAILED_OK) } },
+        )
+    }
     if (!asking) return
     val settings by container.settings.settings.collectAsStateWithLifecycle()
     AlertDialog(
@@ -35,8 +50,13 @@ fun ClipboardHistoryNotice(container: AppContainer) {
         },
         confirmButton = {
             TextButton(onClick = {
-                // Writes the waiting copy (and its onCopied); nothing if the vault locked meanwhile.
-                if (!notice.accept()) return@TextButton
+                // Writes the waiting copy (and its onCopied); nothing if the vault locked meanwhile (then the screen is
+                // gone too, so nothing is said). A failed write is told, and the notice is not recorded as accepted.
+                when (notice.acceptOutcome()) {
+                    AcceptOutcome.COPIED -> Unit
+                    AcceptOutcome.WRITE_FAILED -> { copyFailed = true; return@TextButton }
+                    AcceptOutcome.LOCKED, AcceptOutcome.NOTHING_WAITING -> return@TextButton
+                }
                 // If saving fails (full storage), the notice is not shown again in this run and comes back next time.
                 container.appScope.launch {
                     try {

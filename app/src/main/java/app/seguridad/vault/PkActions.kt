@@ -4,7 +4,9 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.Dialect
 import app.seguridad.crypto.Header
 import app.seguridad.crypto.ENCRYPTED_EXTENSION
+import app.seguridad.crypto.MAX_SAVED_NAME_BYTES
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
+import app.seguridad.crypto.takeUtf8Bytes
 import app.seguridad.crypto.pk.Card
 import app.seguridad.crypto.pk.PkKind
 import app.seguridad.crypto.pk.Received
@@ -145,7 +147,8 @@ fun actionErrorMessage(e: Throwable, fallback: String): String =
  * sanea: se queda con el último trozo no vacío tras separar por `/` y `\` (nunca una ruta); se quitan los controles
  * (Cc: C0, DEL y C1), los de dirección del texto y todo lo de la lista fija de nombres de tarjeta
  * (`hasForbiddenNameCharacter`); se recortan los espacios y los puntos de los extremos (así `.` y `..` quedan vacíos); no
- * pasa de 120 caracteres ni parte un par sustituto; y si queda vacío es [DEFAULT_RECEIVED_NAME]. Es idempotente.
+ * pasa de 120 caracteres ni de [MAX_SAVED_NAME_BYTES] bytes en UTF-8 (es el nombre que se propone para guardar) ni parte
+ * un par sustituto; y si queda vacío es [DEFAULT_RECEIVED_NAME]. Es idempotente.
  */
 fun sanitizeReceivedName(name: String): String {
     val segments = name.split('/', '\\').map { trimEnds(withoutForbidden(it)) }
@@ -155,6 +158,7 @@ fun sanitizeReceivedName(name: String): String {
         if (result.last().isHighSurrogate()) result = result.dropLast(1)
         result = trimEnds(result)
     }
+    if (result.toByteArray(Charsets.UTF_8).size > MAX_SAVED_NAME_BYTES) result = trimEnds(takeUtf8Bytes(result, MAX_SAVED_NAME_BYTES))
     return result.ifEmpty { DEFAULT_RECEIVED_NAME }
 }
 
@@ -191,10 +195,12 @@ fun anonymousFileName(original: String): String {
 }
 
 /** `<original>.sgenc`: cómo se llama el archivo cifrado para un contacto. */
-fun encryptedFileName(original: String): String = safeFileName(original) + ENCRYPTED_EXTENSION
+fun encryptedFileName(original: String): String = safeFileName(original, ENCRYPTED_EXTENSION.utf8Size()) + ENCRYPTED_EXTENSION
 
 /** `<original>.sgsig`: cómo se llama la firma de un archivo. */
-fun signatureFileName(original: String): String = safeFileName(original) + SIGNATURE_EXTENSION
+fun signatureFileName(original: String): String = safeFileName(original, SIGNATURE_EXTENSION.utf8Size()) + SIGNATURE_EXTENSION
+
+private fun String.utf8Size() = toByteArray(Charsets.UTF_8).size
 
 // ---- A15a: un resultado solo junto a las entradas de las que salió ----
 
@@ -218,6 +224,14 @@ data class PkResult(val inputs: PkInputs, val output: String) {
  * nuevas (como `ContactAddScreen` en la 1.2.1).
  */
 fun resultFor(current: PkInputs, last: PkResult?): String? = last?.takeIf { it.inputs == current }?.output
+
+/** A message under «Cifrar para…» or «Firmar» ([ok] for success, [text] in Spanish) with the inputs it is about. */
+data class PkMessage(val inputs: PkInputs, val ok: Boolean, val text: String) {
+    override fun toString(): String = "PkMessage($inputs, ok=$ok)"
+}
+
+/** Like [resultFor] for a message: [last] as (ok, text) only while the inputs are still [current]; a late one is hidden. */
+fun messageFor(current: PkInputs, last: PkMessage?): Pair<Boolean, String>? = last?.takeIf { it.inputs == current }?.let { it.ok to it.text }
 
 // ---- Abrir lo recibido (texto) ----
 

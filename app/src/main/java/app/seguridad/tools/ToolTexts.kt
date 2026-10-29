@@ -487,6 +487,12 @@ const val CLIPBOARD_HISTORY_ACCEPT = "Entendido, copiar"
 /** A14: copies nothing. */
 const val CLIPBOARD_HISTORY_CANCEL = "Cancelar"
 
+/** A14: «Entendido, copiar» was tapped but the clipboard refused the copy (nothing was copied). */
+const val CLIPBOARD_COPY_FAILED = "No se ha podido copiar."
+
+/** A14: closes [CLIPBOARD_COPY_FAILED]. */
+const val CLIPBOARD_COPY_FAILED_OK = "Entendido"
+
 /**
  * A15b, on «Cifrar para…» with a file: the name that goes inside, encrypted, is [name] (the real one, or `archivo.<ext>`
  * with «No enviar el nombre»). The design's text, with a final period.
@@ -539,6 +545,6 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PASSWORD_CHANGED_TITLE, PASSWORD_CHANGE_OLD_BACKUPS, PASSWORD_CHANGE_REPLACE_COPIES, PASSWORD_CHANGE_RENEW_HINT,
     PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, AUTO_BACKUP_OUTCOME_TITLE, AUTO_BACKUP_REPLACE_DROPPED, PASSWORD_CHANGED_FINGERPRINT_FAILED, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
     AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS, CLOCK_CHANGED_TEXT,
-    CLIPBOARD_HISTORY_ACCEPT, CLIPBOARD_HISTORY_CANCEL,
+    CLIPBOARD_HISTORY_ACCEPT, CLIPBOARD_HISTORY_CANCEL, CLIPBOARD_COPY_FAILED, CLIPBOARD_COPY_FAILED_OK,
     fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2),
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) }
