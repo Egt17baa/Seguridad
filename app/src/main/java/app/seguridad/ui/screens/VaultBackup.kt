@@ -23,6 +23,7 @@ import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
@@ -105,14 +106,21 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                 val msg = withContext(NonCancellable) {
                     try {
                         if (store.changeMaster(pw)) {
-                            try {
+                            // From here the password did change: nothing below may say it did not.
+                            val fingerprintOff = try {
                                 BiometricVault.disable(context) // It wrapped the old data key.
-                            } finally {
-                                // Inside this block: leaving the screen during the key derivation must not lose the dialog.
-                                onMasterChanged()
+                                true
+                            } catch (e: Exception) {
+                                false
                             }
+                            // Inside this block: leaving the screen during the key derivation must not lose the dialog.
+                            onMasterChanged()
                             // changeMaster has locked the vault: it opens with the new password from now on.
-                            "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."
+                            if (fingerprintOff) {
+                                "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."
+                            } else {
+                                PASSWORD_CHANGED_FINGERPRINT_FAILED
+                            }
                         } else {
                             "La bóveda se bloqueó: no se ha cambiado nada"
                         }

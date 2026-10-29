@@ -67,6 +67,22 @@ val Settings.currentAutoBackupCopies: List<String>
 fun Settings.forgettingAutoBackupCopies(): Settings =
     copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null, autoBackupReplacePending = false)
 
+/**
+ * These settings with [chosen] as the folder for the copies. The request to replace the old copies ([Settings.autoBackupReplacePending])
+ * goes only if the folder is another one: the same folder chosen again still has the copies it was asked about.
+ */
+fun Settings.withFolderChosen(chosen: String): Settings = copy(
+    autoBackupUri = chosen,
+    lastAutoBackupError = null,
+    lastAutoBackupAt = null,
+    autoBackupOffForNewVault = false,
+    autoBackupReplacePending = autoBackupReplacePending && chosen == autoBackupUri,
+)
+
+/** These settings with the automatic copies turned off by the user: a request to replace the old ones goes with them. */
+fun Settings.withAutoBackupTurnedOff(): Settings =
+    copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupReplacePending = false)
+
 /** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
 const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
     "Elige la carpeta otra vez para activarla."
