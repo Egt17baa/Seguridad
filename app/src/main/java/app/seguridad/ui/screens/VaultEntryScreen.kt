@@ -295,8 +295,8 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             { seed = it },
                             label = { Text("Palabras de recuperación, separadas por espacios") },
                             minLines = 3,
-                            // A password field: well-behaved keyboards (Gboard among them) neither learn nor suggest from it, nor sync
-                            // it. That is up to the keyboard: Compose cannot force it.
+                            // A password field: well-behaved keyboards (Gboard among them) neither suggest from it nor sync it. Not
+                            // learning is also asked of every field by NoLearningInput; both are up to the keyboard to honour.
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                             modifier = Modifier.fillMaxWidth(),
                         )

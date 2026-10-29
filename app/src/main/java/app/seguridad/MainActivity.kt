@@ -12,6 +12,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.clearStaleCopy
 import app.seguridad.android.secureWindow
 import app.seguridad.ui.AppNavHost
+import app.seguridad.ui.ClipboardHistoryNotice
+import app.seguridad.ui.NoLearningInput
 import app.seguridad.ui.theme.SeguridadTheme
 import app.seguridad.ui.theme.isDark
 import app.seguridad.vault.LockReason
@@ -36,7 +38,13 @@ class MainActivity : FragmentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            SeguridadTheme(settings.theme) { AppNavHost(container) }
+            SeguridadTheme(settings.theme) {
+                // A7: no keyboard learns from any field, dialogs included. A14: the clipboard notice, for every screen.
+                NoLearningInput {
+                    AppNavHost(container)
+                    ClipboardHistoryNotice(container)
+                }
+            }
         }
     }
 
@@ -66,6 +74,8 @@ class MainActivity : FragmentActivity() {
         // a fold or a resize re-creates the activity without leaving the app: it stays in the foreground (there is no
         // lock then either, and onStart sets it to true again right after).
         if (!isChangingConfigurations) container.foreground = false
+        // A14: a copy waiting for the notice is dropped on leaving the app, whether or not the vault was open.
+        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.clipboardNotice.drop()
         if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.vault.lock(LockReason.LEFT_APP)
     }
 }

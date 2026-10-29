@@ -228,8 +228,8 @@ private fun ContactsList(entries: List<VaultEntry>, onIdentity: () -> Unit, onCo
                     onValueChange = { query = it },
                     label = { Text("Buscar contacto") },
                     singleLine = true,
-                    // No corrections or suggestions. The keyboard may still learn the words (Compose has no
-                    // IME_FLAG_NO_PERSONALIZED_LEARNING): only titles and names go here, never a secret.
+                    // No corrections or suggestions. autoCorrectEnabled = false does not stop the keyboard from learning:
+                    // that is NoLearningInput (IME_FLAG_NO_PERSONALIZED_LEARNING, for every field of the app).
                     keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )

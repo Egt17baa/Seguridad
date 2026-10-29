@@ -287,8 +287,8 @@ private fun QrResult(v: QrView, onCopied: (String) -> Unit, onAction: () -> Unit
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { revealed = !revealed }) { Text(if (revealed) QR_HIDE else QR_SHOW) }
                         FilledTonalButton(onClick = {
-                            copySensitive(context, secret)
-                            v.secretCopyNotice?.let(onCopied)
+                            // Waiting for the A14 notice: nothing copied yet, so no snackbar about the copy.
+                            if (copySensitive(context, secret)) v.secretCopyNotice?.let(onCopied)
                         }) { Text(QR_COPY_PASSWORD) }
                     }
                 }
@@ -318,8 +318,7 @@ private fun QrResult(v: QrView, onCopied: (String) -> Unit, onAction: () -> Unit
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Copied as it is, hidden characters included (never stripped): when there are any, the snackbar says so.
                 FilledTonalButton(onClick = {
-                    copySensitive(context, v.text)
-                    v.copyNotice?.let(onCopied)
+                    if (copySensitive(context, v.text)) v.copyNotice?.let(onCopied)
                 }) { Text(QR_COPY) }
                 if (v.textHidden) OutlinedButton(onClick = { revealed = !revealed }) { Text(if (revealed) QR_HIDE else QR_SHOW) }
             }
