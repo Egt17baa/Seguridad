@@ -4,12 +4,25 @@ App Android (Kotlin y Compose) de seguridad y criptografía: bóveda, 2FA, cifra
 
 ## Skills: siempre juntas
 
-Todo trabajo en este repositorio combina **las skills de proceso de superpowers** con **la skill del proyecto `experto-seguridad-cripto`** (`.claude/skills/experto-seguridad-cripto/`):
+Todo trabajo en este repositorio combina, en cada fase, **los plugins Superpowers, Ingeniero Móvil Senior y Abogado Digital**, **la skill del proyecto `experto-seguridad-cripto`** (`.claude/skills/experto-seguridad-cripto/`) y cualquier otra skill disponible que toque la tarea:
 
 1. **superpowers** marca el proceso: brainstorming, plan, desarrollo por subagentes o en línea con TDD, revisión y verificación.
 2. **experto-seguridad-cripto** aporta en cada fase el criterio de seguridad. Su sección «Trabajo conjunto con superpowers» dice qué añade en cada fase.
-3. Todo implementador y todo revisor, incluidos los subagentes, lee `SKILL.md` de `experto-seguridad-cripto` y las referencias que toquen su tarea, y cierra su informe con una sección **«Revisión experto-seguridad-cripto»** con la evidencia `archivo:línea`.
-4. Antes de fusionar en `main`: `code-review` y `security-review` sobre la rama, más la revisión final con esta skill.
+3. **Ingeniero Móvil Senior** aporta el criterio de Android, Kotlin y Compose:
+   - `desarrollo-movil-senior` para la arquitectura, el ciclo de vida, la concurrencia y el rendimiento;
+   - `seguridad-criptografia-movil` cuando se tocan Keystore, StrongBox, la biometría o el cifrado;
+   - `auditoria-seguridad-movil` (OWASP MASVS) en las revisiones.
+4. **Abogado Digital** revisa todo texto nuevo o cambiado de la interfaz y de la documentación al terminar cada tarea, no solo al final:
+   - `despacho-digital`, más `privacidad-proteccion-datos`, `regulacion-digital-ue` o `propiedad-intelectual-ia` según el caso (licencias y atribuciones en este último);
+   - sus cambios se aplican antes de dar la tarea por terminada.
+5. Todo implementador y todo revisor, incluidos los subagentes:
+   - lee `SKILL.md` de `experto-seguridad-cripto` y las referencias que toquen su tarea, y las skills de Ingeniero Móvil Senior que correspondan;
+   - cierra su informe con las secciones **«Revisión experto-seguridad-cripto»** y **«Revisión Ingeniero Móvil Senior»**, con la evidencia `archivo:línea`;
+   - si la tarea tiene textos, añade la sección **«Textos para el Abogado Digital»**.
+6. Antes de fusionar en `main`, sobre la rama:
+   - `code-review` y `security-review`;
+   - la revisión final con `experto-seguridad-cripto` y con `auditoria-seguridad-movil`;
+   - el visto bueno del Abogado Digital a todos los textos y licencias.
 
 ## Reglas del proyecto
 
