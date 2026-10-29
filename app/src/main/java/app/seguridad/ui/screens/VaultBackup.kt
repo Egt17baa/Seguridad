@@ -102,12 +102,15 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
         ) { pw ->
             scope.launch {
                 // Not cut short by leaving the screen: the fingerprint must be dropped together with the old key.
-                var changed = false
                 val msg = withContext(NonCancellable) {
                     try {
                         if (store.changeMaster(pw)) {
-                            changed = true
-                            BiometricVault.disable(context) // It wrapped the old data key.
+                            try {
+                                BiometricVault.disable(context) // It wrapped the old data key.
+                            } finally {
+                                // Inside this block: leaving the screen during the key derivation must not lose the dialog.
+                                onMasterChanged()
+                            }
                             // changeMaster has locked the vault: it opens with the new password from now on.
                             "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."
                         } else {
@@ -119,7 +122,6 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                         pw.fill('\u0000')
                     }
                 }
-                if (changed) onMasterChanged() // Before the snackbar, which waits until it goes away.
                 snackbar.showSnackbar(msg)
             }
             dialog = null

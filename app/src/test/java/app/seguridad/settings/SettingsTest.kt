@@ -3,6 +3,7 @@ package app.seguridad.settings
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED
 import app.seguridad.vault.AUTO_BACKUP_FAILED
+import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KDF_OUT_OF_MEMORY
 import app.seguridad.crypto.KdfParams
@@ -211,6 +212,44 @@ class SettingsTest {
         assertEquals(emptyList<String>(), written.copy(autoBackupUri = null).currentAutoBackupCopies)
         // An imported vault: forgotten for good.
         assertEquals(emptyList<String>(), written.forgettingAutoBackupCopies().currentAutoBackupCopies)
+    }
+
+    @Test fun theReplacementRequestIsPersistedAndOlderFilesStillLoad() = runTest {
+        // A settings.json from before the field existed.
+        file().writeText("""{"autoBackupKeep":10}""")
+        assertFalse(store().apply { load() }.settings.value.autoBackupReplacePending)
+        val s = store().apply { load() }
+        s.update { it.copy(autoBackupReplacePending = true) }
+        assertTrue(store().apply { load() }.settings.value.autoBackupReplacePending)
+    }
+
+    @Test fun theReplacementRequestIsSetByTheWaitingResultAndClearedByTheCopyThatReplaced() {
+        val on = Settings(autoBackupUri = folder, lastAutoBackupError = "antes")
+        // Asked while locked: only the flag; the error shown in Ajustes and the last copy do not change.
+        val asked = on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true))
+        assertEquals(on.copy(autoBackupReplacePending = true), asked)
+        // A normal copy meanwhile does not clear it.
+        assertTrue(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a"))).autoBackupReplacePending)
+        // A failed replacement keeps it, with the error.
+        val failed = asked.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED))
+        assertTrue(failed.autoBackupReplacePending)
+        assertEquals(AUTO_BACKUP_FAILED, failed.lastAutoBackupError)
+        // The copy that replaced the old ones (even if some could not be deleted) clears it.
+        val done = asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("b"), replaced = true))
+        assertFalse(done.autoBackupReplacePending)
+        assertEquals(listOf("b"), done.autoBackupCopies)
+        assertFalse(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaced = true)).autoBackupReplacePending)
+        // For another folder, or with the copies off, it says nothing.
+        assertEquals(on.copy(autoBackupUri = null), on.copy(autoBackupUri = null).withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true)))
+        // Forgotten with the copies (new or imported vault) or when they are turned off.
+        assertFalse(asked.forgettingAutoBackupCopies().autoBackupReplacePending)
+    }
+
+    @Test fun newVaultClearsTheReplacementRequest() = runTest {
+        val s = store().apply { load() }
+        s.update { it.copy(autoBackupUri = folder, autoBackupReplacePending = true) }
+        s.turnOffAutoBackupForNewVault()
+        assertFalse(s.settings.value.autoBackupReplacePending)
     }
 
     @Test fun newVaultTurnsAutoBackupOff() = runTest {

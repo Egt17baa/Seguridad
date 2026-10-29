@@ -1,6 +1,12 @@
 package app.seguridad.vault
 
 import app.seguridad.crypto.KdfParams
+import app.seguridad.settings.Settings
+import app.seguridad.settings.SettingsStore
+import app.seguridad.settings.currentAutoBackupCopies
+import app.seguridad.settings.withAutoBackupResult
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,6 +49,8 @@ private class MemoryTarget : BackupTarget {
     var renames = true
     var writes = 0
     val written = mutableListOf<String>()
+    /** Called at the first byte written to any file (to cut the caller in the middle of the work). */
+    var onWrite: (() -> Unit)? = null
 
     override suspend fun create(name: String): BackupFile {
         failWrite?.let { throw it }
@@ -62,6 +70,10 @@ private class MemoryTarget : BackupTarget {
                 val out = object : OutputStream() {
                     override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
                     override fun write(b: ByteArray, off: Int, len: Int) {
+                        onWrite?.let { hook ->
+                            onWrite = null
+                            hook()
+                        }
                         val next = files.getValue(current) + b.copyOfRange(off, off + len)
                         failAfterBytes?.let { if (next.size > it) throw IOException("disco lleno") }
                         files[current] = next
@@ -125,6 +137,9 @@ class AutoBackupTest {
     /** The copies made, as Ajustes keeps them from each result (only those to the folder still chosen). */
     private var copies: List<String> = emptyList()
 
+    /** Settings.autoBackupReplacePending, as Ajustes keeps it from each result. */
+    private var replaceFlag = false
+
     private fun TestScope.auto(store: VaultStore, target: BackupTarget?, keep: () -> Int = { 5 }): AutoBackup =
         AutoBackup(
             store,
@@ -135,10 +150,12 @@ class AutoBackupTest {
             keep = keep,
             lastCopyAt = { lastCopy },
             copies = { copies },
+            replacePending = { replaceFlag },
             onResult = { r ->
                 results += r
                 errors += r.error
                 if (r.folder == folder) r.copies?.let { copies = it }
+                replaceFlag = Settings(autoBackupUri = folder, autoBackupReplacePending = replaceFlag).withAutoBackupResult(r).autoBackupReplacePending
             },
             zone = ZoneOffset.UTC,
         ).also { runCurrent() }
@@ -716,6 +733,19 @@ class AutoBackupTest {
         return own
     }
 
+    /** Three copies made with the real settings of [settings]; their names. */
+    private suspend fun TestScope.threeCopiesInto(s: VaultStore, settings: SettingsStore, target: MemoryTarget): Set<String> {
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("$i"))
+            settle()
+        }
+        val own = target.files.keys.filter { name.matches(it) }.toSet()
+        assertEquals(3, own.size)
+        assertEquals(3, settings.settings.value.currentAutoBackupCopies.size)
+        return own
+    }
+
     @Test fun replaceOldCopiesDeletesOnlyOwnIds() = runTest {
         val s = opened()
         val target = MemoryTarget()
@@ -785,16 +815,133 @@ class AutoBackupTest {
         val result = a.replaceOldCopies()
         assertEquals(AUTO_BACKUP_REPLACE_WAITS, result.error)
         assertNull(result.writtenAt)
+        assertTrue("The request is kept (persisted) until it is done", replaceFlag)
         assertEquals(own, target.files.keys.toSet()) // Nothing deleted, nothing written yet.
         s.unlock(master.toCharArray())
         runCurrent()
         assertEquals(setOf("seguridad-auto-20261026-100400.sgbak"), target.files.keys.toSet())
         assertEquals(1, copies.size)
+        assertFalse("Cleared once the new copy is recorded", replaceFlag)
         // It was asked for once: the next copy after a change is a normal one and the new copy stays.
         clock += 60_000
         s.upsert(note("x"))
         settle()
         assertEquals(2, target.files.size)
+    }
+
+    /** The settings file of "the phone", which a restart reads again. */
+    private fun settingsFile() = File(tmp.root, "settings.json")
+
+    /** An AutoBackup over [s] that keeps its results in [settings] (the real ones, on disk), as the app does. */
+    private fun TestScope.persistent(s: VaultStore, settings: SettingsStore, target: MemoryTarget, outcomes: MutableList<AutoBackupResult>? = null): AutoBackup {
+        val a = AutoBackup(
+            s,
+            folder = { settings.settings.value.autoBackupUri },
+            open = { target },
+            backgroundScope,
+            now = { clock },
+            keep = { 5 },
+            lastCopyAt = { Long.MAX_VALUE },
+            copies = { settings.settings.value.currentAutoBackupCopies },
+            replacePending = { settings.settings.value.autoBackupReplacePending },
+            onResult = { r -> settings.update { it.withAutoBackupResult(r) } },
+            zone = ZoneOffset.UTC,
+        )
+        if (outcomes != null) backgroundScope.launch { a.replaceOutcomes.collect { outcomes += it } }
+        return a.also { runCurrent() }
+    }
+
+    @Test fun aReplacementAskedWhileLockedSurvivesARestartAndRunsAtTheNextUnlock() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val settings1 = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
+            load()
+            update { it.copy(autoBackupUri = FOLDER) }
+        }
+        val a = persistent(s, settings1, target)
+        val own = threeCopiesInto(s, settings1, target)
+        s.lock() // As after «Cambiar contraseña maestra».
+        runCurrent()
+        clock += 60_000
+        assertEquals(AUTO_BACKUP_REPLACE_WAITS, a.replaceOldCopies().error)
+        assertTrue(settings1.settings.value.autoBackupReplacePending)
+        assertEquals(own, target.files.keys.toSet())
+
+        // The process dies: a new settings store and a new AutoBackup read what is on disk.
+        val settings2 = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply { load() }
+        assertTrue("Persisted", settings2.settings.value.autoBackupReplacePending)
+        val s2 = store().apply { load() }
+        val outcomes = mutableListOf<AutoBackupResult>()
+        persistent(s2, settings2, target, outcomes)
+        s2.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(setOf("seguridad-auto-20261026-100400.sgbak"), target.files.keys.toSet())
+        assertEquals(1, settings2.settings.value.currentAutoBackupCopies.size)
+        assertFalse(settings2.settings.value.autoBackupReplacePending)
+        assertFalse("Saved too", SettingsStore(settingsFile(), Dispatchers.Unconfined).apply { load() }.settings.value.autoBackupReplacePending)
+        // The outcome is told once, to be shown after that unlock.
+        assertEquals(1, outcomes.size)
+        assertNull(outcomes.single().error)
+    }
+
+    @Test fun theReplacementStaysAskedWhileTheNewCopyFailsAndIsClearedOnlyAfterItWorks() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
+            load()
+            update { it.copy(autoBackupUri = FOLDER) }
+        }
+        val outcomes = mutableListOf<AutoBackupResult>()
+        val a = persistent(s, settings, target, outcomes)
+        val own = threeCopiesInto(s, settings, target)
+        s.lock()
+        runCurrent()
+        a.replaceOldCopies()
+        assertTrue(settings.settings.value.autoBackupReplacePending)
+
+        // The next unlock cannot write the copy: the old ones stay, the request stays, the error is recorded and told.
+        target.failAfterBytes = 100
+        clock += 60_000
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(own, target.files.keys.toSet())
+        assertTrue(settings.settings.value.autoBackupReplacePending)
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, settings.settings.value.lastAutoBackupError)
+        assertEquals(own.size, settings.settings.value.currentAutoBackupCopies.size)
+        assertEquals(listOf<String?>(AUTO_BACKUP_WRITE_FAILED), outcomes.map { it.error })
+
+        // Locked and opened again with room: it works, and only then is the request cleared.
+        target.failAfterBytes = null
+        s.lock()
+        runCurrent()
+        clock += 60_000
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(setOf("seguridad-auto-20261026-100500.sgbak"), target.files.keys.toSet())
+        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertNull(settings.settings.value.lastAutoBackupError)
+        assertEquals(listOf<String?>(AUTO_BACKUP_WRITE_FAILED, null), outcomes.map { it.error })
+    }
+
+    @Test fun cancellingTheCallerDoesNotCutTheReplacement() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target)
+        var caller: Job? = null
+        // The caller (the dialog's scope, on a rotation) is cancelled while the new copy is being written.
+        target.onWrite = { caller?.cancel() }
+        clock += 60_000
+        caller = launch { a.replaceOldCopies() }
+        runCurrent()
+        assertTrue(caller.isCancelled)
+        // The work went on: the new copy is on the list, the old ones are gone, nothing is left outside the list.
+        val fresh = "seguridad-auto-20261026-100400.sgbak"
+        assertEquals(setOf(fresh), target.files.keys.toSet())
+        assertTrue(own.none { it in target.files })
+        assertEquals(1, copies.size)
+        assertEquals(copies, results.last().copies)
+        assertFalse(a.replacing.value)
     }
 
     @Test fun replaceOldCopiesWithNoFolderOrNoVaultWritesNothing() = runTest {

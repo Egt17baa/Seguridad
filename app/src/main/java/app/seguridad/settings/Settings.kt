@@ -49,6 +49,12 @@ data class Settings(
      */
     val autoBackupCopies: List<String> = emptyList(),
     val autoBackupCopiesFolder: String? = null,
+    /**
+     * «Borrar las copias automáticas anteriores y hacer una nueva» was asked for while the vault was locked (it always is
+     * right after a change of master password): the first copy made after the next unlock replaces the old ones, and
+     * this is cleared once that copy is recorded. Saved, so a restart in between does not lose the request.
+     */
+    val autoBackupReplacePending: Boolean = false,
     /** The highest time of day the app ever saw (epoch ms), a mark that only rises: a clock set back behind it ends the fingerprint. */
     val clockHighWaterMs: Long = 0,
 )
@@ -58,7 +64,8 @@ val Settings.currentAutoBackupCopies: List<String>
     get() = if (autoBackupUri != null && autoBackupCopiesFolder == autoBackupUri) autoBackupCopies else emptyList()
 
 /** Settings with no automatic copy listed as this app's (see [Settings.autoBackupCopies]). */
-fun Settings.forgettingAutoBackupCopies(): Settings = copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null)
+fun Settings.forgettingAutoBackupCopies(): Settings =
+    copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null, autoBackupReplacePending = false)
 
 /** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
 const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
@@ -71,9 +78,18 @@ const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al
  */
 fun Settings.withAutoBackupResult(r: AutoBackupResult): Settings = when {
     autoBackupUri != r.folder -> this
+    // Asked while the vault was locked: only the request is kept; what Ajustes shows about the last copy does not change.
+    r.replaceRequested -> copy(autoBackupReplacePending = true)
+    // The copy that replaced the old ones (even if some could not be deleted) is what clears the request: a failure keeps it.
     r.writtenAt != null && r.copies != null ->
-        copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupCopies = r.copies, autoBackupCopiesFolder = r.folder)
-    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt)
+        copy(
+            lastAutoBackupError = r.error,
+            lastAutoBackupAt = r.writtenAt,
+            autoBackupCopies = r.copies,
+            autoBackupCopiesFolder = r.folder,
+            autoBackupReplacePending = autoBackupReplacePending && !r.replaced,
+        )
+    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupReplacePending = autoBackupReplacePending && !r.replaced)
     else -> copy(lastAutoBackupError = r.error)
 }
 

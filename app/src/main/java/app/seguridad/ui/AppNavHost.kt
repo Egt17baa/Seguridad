@@ -54,6 +54,7 @@ import app.seguridad.ui.screens.IdentityScreen
 import app.seguridad.ui.screens.LicensesScreen
 import app.seguridad.ui.screens.LocalOnMasterChanged
 import app.seguridad.ui.screens.MasterChangedDialog
+import app.seguridad.ui.screens.ReplaceOutcomeDialog
 import app.seguridad.ui.screens.NoticeScreen
 import app.seguridad.ui.screens.SettingsScreen
 import app.seguridad.ui.screens.TextCryptoScreen
@@ -62,6 +63,7 @@ import app.seguridad.ui.screens.VaultEntryDetailScreen
 import app.seguridad.ui.screens.VaultEntryEditScreen
 import app.seguridad.ui.screens.VaultIdleTicker
 import app.seguridad.ui.screens.VaultScreen
+import app.seguridad.vault.AUTO_BACKUP_REPLACED
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import kotlinx.coroutines.launch
@@ -114,9 +116,23 @@ fun AppNavHost(container: AppContainer) {
 
     // After the master password changes (from any screen), the dialog about the old copies and the identity.
     var masterChanged by rememberSaveable { mutableStateOf(false) }
+    // How a replacement asked for while locked went, told once after the unlock that ran it.
+    var replaceOutcome by rememberSaveable { mutableStateOf<String?>(null) }
+    var replaceFailed by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(container.autoBackup) {
+        container.autoBackup.replaceOutcomes.collect {
+            replaceFailed = it.error != null
+            replaceOutcome = it.error ?: AUTO_BACKUP_REPLACED
+        }
+    }
+    replaceOutcome?.let { ReplaceOutcomeDialog(it, replaceFailed, onClose = { replaceOutcome = null }) }
+    val replacing by container.autoBackup.replacing.collectAsStateWithLifecycle()
     if (masterChanged) {
         MasterChangedDialog(
             autoBackupOn = settings.autoBackupUri != null,
+            replacing = replacing,
+            pending = settings.autoBackupReplacePending,
+            lastError = settings.lastAutoBackupError,
             replace = container.autoBackup::replaceOldCopies,
             onRenew = {
                 masterChanged = false

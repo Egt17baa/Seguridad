@@ -313,6 +313,31 @@ class VaultV3Test {
         assertEquals(1, s.entries().count { it.type == EntryType.IDENTITY })
     }
 
+    @Test fun renovarLaIdentidadLaSustituyeYNoCuentaComoUnaSegunda() = runTest {
+        val dir = phone("renovar")
+        val s = store(dir).apply { load(); create("otra".toCharArray()) }
+        val first = identityEntry().copy(username = "Yo")
+        s.upsert(first)
+        val before = s.entries().identity()!!.openIdentity().use { it.edPublic to it.kemPublic }
+        clock += 1_000
+        // No lo rechaza ONLY_ONE_IDENTITY: es el mismo id.
+        s.upsert(renewedIdentityEntry(s.entries().identity()!!, clock))
+        assertEquals(1, s.entries().count { it.type == EntryType.IDENTITY })
+        val renewed = s.entries().identity()!!
+        assertEquals(first.id, renewed.id)
+        assertEquals(first.createdAt, renewed.createdAt)
+        assertEquals(clock, renewed.updatedAt)
+        assertEquals("Yo", renewed.username)
+        val after = renewed.openIdentity().use { it.edPublic to it.kemPublic }
+        assertFalse(before.first.contentEquals(after.first))
+        assertFalse(before.second.contentEquals(after.second))
+        // Y queda guardada en disco: al cerrar y abrir sigue siendo la nueva, y sigue siendo una sola.
+        s.lock()
+        s.unlock("otra".toCharArray())
+        assertEquals(1, s.entries().count { it.type == EntryType.IDENTITY })
+        assertArrayEquals(after.first, s.entries().identity()!!.openIdentity().use { it.edPublic })
+    }
+
     @Test fun unaIdentidadNoLlevaAdjuntos() = runTest {
         val dir = phone("adjuntos")
         val s = store(dir).apply { load(); create("otra".toCharArray()) }
