@@ -269,6 +269,20 @@ class ToolTextsTest {
     }
 
     @Test
+    fun publicKeyTextsAreTheDesignOnes() {
+        // A15b and A16a, verbatim from the design (rows A15b and A16a) with a final period; the real name and count go in.
+        assertEquals("El nombre del archivo («x») va dentro, cifrado: lo verá el destinatario.", fileNameInsideText("x"))
+        assertEquals(
+            "El nombre del archivo («factura marzo.pdf») va dentro, cifrado: lo verá el destinatario.",
+            fileNameInsideText("factura marzo.pdf"),
+        )
+        assertEquals("No enviar el nombre", DONT_SEND_FILE_NAME)
+        assertEquals("Esta clave está guardada en 2 contactos.", sameKeyContactsText(2))
+        assertEquals("Esta clave está guardada en 5 contactos.", sameKeyContactsText(5))
+        assertTrue(ALL_TOOL_TEXTS.containsAll(listOf(fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2))))
+    }
+
+    @Test
     fun everyTextConstantIsChecked() {
         // A new text in ToolTexts.kt cannot escape noForbiddenWords: every String constant there is in the list
         // (private fragments, such as the GPS line's prefix, inside one of its texts).

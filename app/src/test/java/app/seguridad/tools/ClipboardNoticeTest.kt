@@ -105,4 +105,22 @@ class ClipboardNoticeTest {
         assertEquals(listOf("después"), written)
         assertFalse(first)
     }
+
+    @Test fun aWriteThatThrowsLetsTheNoticeAppearAgain() {
+        var copied = false
+        val failing: (String) -> Unit = { throw IllegalStateException("clipboard service gone") }
+        assertFalse(copyOrAskNotice("secreto", notice, accepted = false, sdk = 30, write = failing, onCopied = { copied = true }))
+        // Nothing was copied: not accepted, no onCopied, and the copy is gone (it is not retried behind the user's back).
+        assertFalse(notice.accept())
+        assertFalse(copied)
+        assertFalse(notice.acceptedNow)
+        assertFalse(notice.asking.value)
+        // The next copy asks again.
+        assertFalse(copyOrAskNotice("otro", notice, accepted = false, sdk = 30, write = write))
+        assertTrue(notice.asking.value)
+        assertTrue(written.isEmpty())
+        assertTrue(notice.accept())
+        assertEquals(listOf("otro"), written)
+        assertTrue(notice.acceptedNow)
+    }
 }
