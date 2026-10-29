@@ -266,6 +266,10 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     }
 }
 
+/** Dialog of «He olvidado la contraseña maestra» (A12): it also says that the damaged files kept aside go. */
+const val FORGOT_DIALOG_TEXT =
+    "Se borrarán la bóveda y también los archivos dañados que la app guardó al intentar repararla. No se puede deshacer."
+
 @Composable
 private fun UnlockVault(store: VaultStore) {
     val context = LocalContext.current
@@ -326,7 +330,7 @@ private fun UnlockVault(store: VaultStore) {
             title = { Text("Sin la contraseña no hay recuperación") },
             text = {
                 FilterObscuredTouches()
-                Text("Lo guardado no se puede descifrar. Puedes borrar la bóveda y crear una nueva vacía. Esto no se puede deshacer.")
+                Text(FORGOT_DIALOG_TEXT)
             },
             confirmButton = {
                 TextButton(onClick = {

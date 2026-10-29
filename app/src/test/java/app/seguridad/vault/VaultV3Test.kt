@@ -589,4 +589,33 @@ class VaultV3Test {
         } catch (e: Throwable) {
             if (e is T) e else throw e
         }
+
+    // A11 (1.3.0): the pure gate. A clock set back more than 5 minutes behind the highest time seen asks for the master.
+    @Test fun clockSetBackBlocksBiometrics() {
+        val now = 1_000_000_000L
+        val (file, dek) = VaultCrypto.create("m".toCharArray(), now, KdfParams(1024, 1, 1))
+        dek.fill(0)
+        assertFalse(VaultCrypto.biometricAllowed(file, now, highWater = now + 6 * 60_000))
+        assertTrue(VaultCrypto.biometricAllowed(file, now, highWater = now + 4 * 60_000))
+        assertTrue(VaultCrypto.biometricAllowed(file, now, highWater = now + CLOCK_SLACK_MS))
+        assertTrue(VaultCrypto.biometricAllowed(file, now)) // No mark yet.
+    }
+
+    // A8 (1.3.0): afterMasterUnlock re-wraps a v3 file whose Argon2id is cheaper than asked, keeping the data key.
+    @Test fun afterMasterUnlockRewrapsOnlyAWeakerKdf() {
+        val master = "m".toCharArray()
+        val (weak, dek) = VaultCrypto.create(master, 1, KdfParams(1024, 1, 1))
+        val asked = KdfParams(2048, 2, 1)
+        val up = VaultCrypto.afterMasterUnlock(weak, dek.copyOf(), master, 2, asked)
+        assertEquals(VaultKdf(2048, 2, 1), up.kdf)
+        assertEquals(weak.revision + 1, up.revision)
+        assertEquals(weak.version, up.version)
+        assertArrayEquals(dek, VaultCrypto.unlock(up, master)) // Same data key.
+        val same = VaultCrypto.afterMasterUnlock(up, dek.copyOf(), master, 3, KdfParams(1024, 1, 1))
+        assertEquals(up.kdf, same.kdf) // Cheaper ask: never lowered.
+        assertEquals(up.salt, same.salt)
+        // One axis weaker is enough, and the stronger axis is not lowered.
+        val mixed = VaultCrypto.afterMasterUnlock(up, dek.copyOf(), master, 4, KdfParams(1024, 3, 1))
+        assertEquals(VaultKdf(2048, 3, 1), mixed.kdf)
+    }
 }

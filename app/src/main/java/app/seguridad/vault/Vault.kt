@@ -336,13 +336,19 @@ object VaultCrypto {
      * After the master password opened [file]: records the check (re-sealing, since it is authenticated) and turns a
      * legacy file (any version), a version-1 file or a version-2 file into [VaultFile.FORMAT] version 3, which needs
      * the master password once more to wrap the key with the new binding. The data key stays the same (a fingerprint
-     * set up with it keeps working) and the revision goes up by one. A version-3 file is only re-sealed.
+     * set up with it keeps working) and the revision goes up by one. A version-3 file is only re-sealed, unless its
+     * Argon2id is cheaper than [kdf] in memory or passes (an imported copy): then the key is wrapped again with the
+     * cost asked, never lower than the file's on either axis, same data key, revision + 1.
      */
     fun afterMasterUnlock(file: VaultFile, dek: ByteArray, master: CharArray, now: Long, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): VaultFile {
         val known = resolve(file, dek)
         val entries = read(known, dek)
+        val weaker = known.kdf.memoryKiB < kdf.memoryKiB || known.kdf.iterations < kdf.iterations
         return if (known.format != VaultFile.FORMAT || known.version != VaultFile.VERSION) {
             wrap(dek, entries, master, now, kdf, random, known.revision + 1)
+        } else if (weaker) {
+            val cost = KdfParams(maxOf(known.kdf.memoryKiB, kdf.memoryKiB), maxOf(known.kdf.iterations, kdf.iterations), kdf.parallelism)
+            wrap(dek, entries, master, now, cost, random, known.revision + 1)
         } else {
             write(known.copy(masterCheckedAt = now), dek, entries, random)
         }
@@ -376,11 +382,17 @@ object VaultCrypto {
     /**
      * Whether a biometric unlock may proceed: only for [VaultFile.FORMAT] (a legacy file needs the master password
      * once to be converted), not for version 1 (date not authenticated; an unknown version is [resolve]d with the
-     * key first), within 7 days of the last master check and never with a date in the future.
+     * key first), within 7 days of the last master check and never with a date in the future. [highWater] is the
+     * highest time the app ever saw (a mark that only rises): a clock set back more than [CLOCK_SLACK_MS] behind it
+     * asks for the master password, so setting the clock back no longer stretches the 7 days.
      */
-    fun biometricAllowed(file: VaultFile, now: Long): Boolean =
-        file.format == VaultFile.FORMAT && file.version != 1 && now - file.masterCheckedAt in 0 until MASTER_RECHECK_MS
+    fun biometricAllowed(file: VaultFile, now: Long, highWater: Long = 0): Boolean =
+        file.format == VaultFile.FORMAT && file.version != 1 && now - file.masterCheckedAt in 0 until MASTER_RECHECK_MS &&
+            now >= highWater - CLOCK_SLACK_MS
 }
+
+/** How far behind the highest time seen the clock may be before the fingerprint asks for the master password. */
+const val CLOCK_SLACK_MS = 5 * 60_000L
 
 /** Biometrics need the master password again after this long. */
 const val MASTER_RECHECK_MS = 7L * 24 * 60 * 60_000
