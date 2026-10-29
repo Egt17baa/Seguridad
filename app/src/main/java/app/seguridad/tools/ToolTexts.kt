@@ -388,8 +388,8 @@ const val CODES_SITE_LABEL = "Web o servicio"
 const val CODES_SITE_NEEDED = "Escribe la web o el servicio para dar nombre a la nota."
 const val CODES_QUESTION_LABEL = "Pregunta"
 const val CODES_UNLOCK_TO_SAVE =
-    "Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si cierras la app o si pasas " +
-        "fuera de esta pantalla más tiempo que el de bloqueo de la bóveda (como mínimo, 1 minuto)."
+    "Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si se cierra la app, si bloqueas " +
+        "la bóveda o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo)."
 const val CODES_CANCEL_SAVE = "No guardar"
 const val CODES_SAVED = "Guardado en la bóveda como nota."
 const val CODES_SAVE_FAILED = "No se pudo guardar en la bóveda."
@@ -470,7 +470,9 @@ const val RESET_WIPES_DAMAGED =
         "contraseña con la que se hicieron, podrás importarlas en una bóveda nueva."
 
 /** M-4: the activity was re-created (a turn of the phone) while the fingerprint was being turned on. */
-const val FINGERPRINT_ENABLE_INTERRUPTED = "Se interrumpió al girar el móvil. Vuelve a tocar «Activar huella»."
+const val FINGERPRINT_ENABLE_INTERRUPTED =
+    "La activación de la huella se interrumpió porque cambió la pantalla (por ejemplo, al girar el móvil). Vuelve a " +
+        "tocar «Activar huella»."
 
 /** Every text above, the parameterised ones with the annex's placeholders; ToolTextsTest checks them. */
 val ALL_TOOL_TEXTS: List<String> = listOf(

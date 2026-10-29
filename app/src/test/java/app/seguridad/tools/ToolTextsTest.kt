@@ -217,10 +217,16 @@ class ToolTextsTest {
             STRONGBOX_AVAILABLE_NOTICE,
         )
         assertEquals(
-            // CU-B: with the ViewModel the drawn values survive a rotation; this is when they really go.
-            "Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si cierras la app o si " +
-                "pasas fuera de esta pantalla más tiempo que el de bloqueo de la bóveda (como mínimo, 1 minuto).",
+            // CU-B: with the ViewModel the drawn values survive a rotation; this is when they really go (the Abogado's
+            // wording, plus «si bloqueas la bóveda», which CU-B revisión 1 made true).
+            "Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si se cierra la app, si " +
+                "bloqueas la bóveda o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo).",
             CODES_UNLOCK_TO_SAVE,
+        )
+        assertEquals(
+            "La activación de la huella se interrumpió porque cambió la pantalla (por ejemplo, al girar el móvil). Vuelve " +
+                "a tocar «Activar huella».",
+            FINGERPRINT_ENABLE_INTERRUPTED,
         )
         assertEquals(
             "Las fotos HEIC, HEIF y AVIF se guardan como JPEG: la copia puede perder algo de calidad y, si la foto pasa " +

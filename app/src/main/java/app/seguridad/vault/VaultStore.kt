@@ -23,6 +23,21 @@ import app.seguridad.crypto.NONCE_BYTES
 import app.seguridad.crypto.TAG_BYTES
 import app.seguridad.crypto.randomBytes
 
+/**
+ * Why the vault was last locked ([VaultStore.lastLockReason]): screens that hold their own secrets (as «PIN y códigos»)
+ * treat a lock by hand differently from the idle one and from leaving the app. Not a secret, not saved.
+ */
+enum class LockReason {
+    /** «Bloquear», a change of master password, an import, deleting the vault: everything that is not the two below. */
+    MANUAL,
+
+    /** [VaultStore.lockIfIdle]: unused for the chosen time. */
+    IDLE,
+
+    /** MainActivity.onStop: the user left the app. */
+    LEFT_APP,
+}
+
 sealed interface VaultState {
     data object Loading : VaultState
     data object NoVault : VaultState
@@ -55,6 +70,8 @@ class VaultStore(
     private val idleLockMs: () -> Long = { 5 * 60_000L },
     /** Whether a picker or the QR scanner we opened keeps the vault open in the background ([VaultLock.keepOpenOnce]). */
     private val keptOpen: () -> Boolean = { VaultLock.keepOpenOnce },
+    /** Whether the app is in use (AppContainer.foreground), recorded with each lock ([lastLockInForeground]). */
+    private val inForeground: () -> Boolean = { true },
     /** Encrypted attachments, in files/vault/att/ next to the vault file. */
     private val attachments: AttachmentStore = AttachmentStore(File(file.absoluteFile.parentFile, "att")),
     /**
@@ -343,11 +360,23 @@ class VaultStore(
     /** A copy of the open data key, to wrap it with the biometric key; null while locked. */
     fun dataKeyCopy(): ByteArray? = dek?.copyOf()
 
-    fun lock() = synchronized(opening) {
+    /** Why the last lock from open to locked happened; set before the state changes, so a collector of [state] reads its own. */
+    @Volatile var lastLockReason: LockReason = LockReason.MANUAL
+        private set
+
+    /** Whether the app was in use at that lock (read at the lock, not when a collector gets to it). */
+    @Volatile var lastLockInForeground: Boolean = true
+        private set
+
+    fun lock(reason: LockReason = LockReason.MANUAL) = synchronized(opening) {
         epoch++
         dek?.fill(0)
         dek = null
-        if (vault != null && _state.value is VaultState.Unlocked) _state.value = VaultState.Locked
+        if (vault != null && _state.value is VaultState.Unlocked) {
+            lastLockReason = reason
+            lastLockInForeground = inForeground()
+            _state.value = VaultState.Locked
+        }
     }
 
     fun touch() {
@@ -365,7 +394,7 @@ class VaultStore(
         val chosen = idleLockMs()
         val limit = if (chosen > 0) chosen else if (keptOpen()) AWAY_BACKSTOP_MS else 0L
         if (limit > 0 && dek != null && now() - lastUse >= limit) {
-            lock()
+            lock(LockReason.IDLE)
             return true
         }
         return false

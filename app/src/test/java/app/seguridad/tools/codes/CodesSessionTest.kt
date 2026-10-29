@@ -7,6 +7,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import app.seguridad.vault.LockReason
 
 /** «PIN y códigos» outside the screen: what survives a rotation, and when what was drawn goes (I-1). */
 class CodesSessionTest {
@@ -79,12 +80,15 @@ class CodesSessionTest {
         assertNotEquals(pin, s.pin)
         assertTrue(s.pin.startsWith("pin8-")) // The chosen length and form stay: they are not secrets.
         assertNotEquals(codes, s.codes)
-        assertEquals(1, s.rows.size)
+        assertEquals(2, s.rows.size)
         assertNotEquals(answers[0], s.rows[0].answer)
+        assertNotEquals(answers[1], s.rows[1].answer)
         assertTrue(s.rows[0].answer.startsWith("answer-a-"))
-        assertEquals("", s.rows[0].question)
-        assertEquals("", s.recoverySite)
-        assertEquals("", s.answersSite)
+        // Not secrets: the sites and the questions stay.
+        assertEquals("¿Primera mascota?", s.rows[0].question)
+        assertEquals("¿Calle?", s.rows[1].question)
+        assertEquals("banco.es", s.recoverySite)
+        assertEquals("correo.es", s.answersSite)
         assertNull("A save waiting for the vault holds the secrets: it goes too", s.pending)
     }
 
@@ -106,29 +110,70 @@ class CodesSessionTest {
         assertTrue(s.started(60_000, lockAfterMs = 0))
     }
 
-    @Test fun theVaultLockingWhileTheScreenIsShownWipesIt() {
+    /** The vault opens, then locks for [reason]; [usedAt] is the last tap on the screen, [at] the time of the lock. */
+    private fun CodesSession.lockedBy(reason: LockReason, foreground: Boolean = true, usedAt: Long = 0, at: Long = 1_000) {
+        used(usedAt)
+        vaultStateIs(unlocked = true) { error("not a lock") }
+        vaultStateIs(unlocked = false) { LockSeen(reason, foreground, at, lockAfterMs = 300_000) }
+    }
+
+    @Test fun onlyAChangeFromOpenToLockedIsALock() {
         val s = filled()
         val pin = s.pin
-        s.vaultStateIs(unlocked = false) // Loading or locked at first: nothing to do.
+        s.vaultStateIs(unlocked = false) { error("Loading or locked at first: not a lock") }
+        s.vaultStateIs(unlocked = true) { error("not a lock") }
+        s.vaultStateIs(unlocked = true) { error("not a lock") }
         assertEquals(pin, s.pin)
-        s.vaultStateIs(unlocked = true)
-        s.vaultStateIs(unlocked = true)
-        assertEquals(pin, s.pin)
-        s.vaultStateIs(unlocked = false)
+    }
+
+    @Test fun aLockByHandWipesItOnThisTabOrAnother() {
+        val s = filled()
+        val pin = s.pin
+        s.lockedBy(LockReason.MANUAL)
         assertNotEquals(pin, s.pin)
-        assertEquals("", s.recoverySite)
+        // «Bloquear» in Bóveda or Contactos, with «PIN y códigos» on the Herramientas tab (stopped): wiped too.
+        val other = filled()
+        val otherPin = other.pin
+        other.stopped(0)
+        other.lockedBy(LockReason.MANUAL, at = 2_000)
+        assertNotEquals(otherPin, other.pin)
+        assertEquals("banco.es", other.recoverySite)
+    }
+
+    @Test fun theIdleLockKeepsAScreenInUse() {
+        val s = filled()
+        val pin = s.pin
+        s.lockedBy(LockReason.IDLE, usedAt = 1_000_000, at = 1_000_000 + 299_999)
+        assertEquals("Typed on it within the lock time: kept", pin, s.pin)
+    }
+
+    @Test fun theIdleLockWipesAScreenLeftUnused() {
+        val s = filled()
+        val pin = s.pin
+        s.lockedBy(LockReason.IDLE, usedAt = 1_000_000, at = 1_000_000 + 300_000)
+        assertNotEquals(pin, s.pin)
+        val other = filled()
+        val otherPin = other.pin
+        other.stopped(0) // On another tab, unused just as long: wiped as well.
+        other.lockedBy(LockReason.IDLE, usedAt = 0, at = 400_000)
+        assertNotEquals(otherPin, other.pin)
     }
 
     @Test fun theLockFromLeavingTheAppIsLeftToTheTimeAwayRule() {
-        // Leaving the app locks the vault (MainActivity.onStop) after the screen saw ON_STOP: copying a code, pasting it
-        // in the bank's site and coming back within the time must not lose it.
+        // Leaving the app locks the vault (MainActivity.onStop) with the foreground flag already false: copying a code,
+        // pasting it in the bank's site and coming back within the time must not lose it.
         val s = filled()
         val pin = s.pin
-        s.vaultStateIs(unlocked = true)
         s.stopped(0)
-        s.vaultStateIs(unlocked = false)
+        s.lockedBy(LockReason.LEFT_APP, foreground = false, usedAt = 0, at = 10_000_000)
         assertFalse(s.started(30_000, lockAfterMs = 0))
         assertEquals(pin, s.pin)
+        // Any other lock seen while the app is in the background (the idle check of onStart) is the same.
+        val t = filled()
+        val tPin = t.pin
+        t.lockedBy(LockReason.IDLE, foreground = false, usedAt = 0, at = 10_000_000)
+        t.lockedBy(LockReason.MANUAL, foreground = false)
+        assertEquals(tPin, t.pin)
     }
 
     @Test fun clearingTheHolderDropsEverySecret() {

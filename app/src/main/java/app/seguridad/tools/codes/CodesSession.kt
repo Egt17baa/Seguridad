@@ -1,5 +1,6 @@
 package app.seguridad.tools.codes
 
+import app.seguridad.vault.LockReason
 import app.seguridad.vault.VaultEntry
 import kotlin.reflect.KProperty
 
@@ -47,6 +48,13 @@ enum class SaveKind { RECOVERY, ANSWERS }
  */
 class PendingSave(val kind: SaveKind, val entry: VaultEntry)
 
+/**
+ * A lock of the vault, as the screen's holder saw it: [reason] from VaultStore.lastLockReason, [appInForeground] from
+ * AppContainer.foreground (false once MainActivity.onStop began), [now] on the monotonic clock, and the vault's
+ * [lockAfterMs].
+ */
+data class LockSeen(val reason: LockReason, val appInForeground: Boolean, val now: Long, val lockAfterMs: Long)
+
 class AnswerRow internal constructor(cells: CellFactory, question: String, answer: String) {
     private val q = cells.cell(question)
     private val a = cells.cell(answer)
@@ -58,8 +66,8 @@ class AnswerRow internal constructor(cells: CellFactory, question: String, answe
  * Everything «PIN y códigos» shows, outside the composition: on Android it lives in the screen's ViewModel, so a
  * rotation, a theme change or a split screen keeps it, and the death of the process loses it (never in saved state:
  * the PIN, the codes and the answers are secrets). What was drawn goes ([wipe]) when the user comes back after more than
- * the lock time away ([stopped], [started]), when the vault locks while the screen is shown ([vaultStateIs]), and for
- * good when the screen is left ([clear]). They are Strings (what Compose shows and copies), so they cannot be zeroed:
+ * the lock time away ([stopped], [started]), when the vault locks with the app in use, on any tab ([vaultStateIs]),
+ * and for good when the screen is left ([clear]). The site and the questions stay: they are not secrets. They are Strings (what Compose shows and copies), so they cannot be zeroed:
  * every reference to them is dropped.
  */
 class CodesSession(
@@ -67,6 +75,8 @@ class CodesSession(
     private val pinOf: (Int) -> String = { generatePin(it) },
     private val codesOf: () -> List<String> = { recoveryCodes() },
     private val answerOf: (List<String>, Boolean) -> String = { words, plain -> inventedAnswer(words, plain) },
+    /** When the session was made (monotonic ms): the first [lastUsed]. */
+    createdAt: Long = 0L,
 ) {
     private val wordsCell = cells.cell<List<String>?>(null)
 
@@ -114,6 +124,14 @@ class CodesSession(
 
     /** The vault was open the last time its state was told: only a change from open to not open is a lock. */
     private var wasUnlocked = false
+
+    /** The last tap or key on this screen (monotonic ms), for the idle lock: the screen never touches the vault. */
+    private var lastUsed: Long = createdAt
+
+    /** Any tap or key on the screen. */
+    fun used(now: Long) {
+        lastUsed = now
+    }
 
     val canDrawAnswers: Boolean get() = words != null
 
@@ -226,25 +244,31 @@ class CodesSession(
     }
 
     /**
-     * The vault's state, each time it changes. A lock while the screen is shown wipes it, as the vault's own screens
-     * empty. A lock while it is stopped (leaving the app always locks the vault) is left to [started]: the time away
-     * decides, or the copy-and-come-back use would be lost.
+     * The vault's state, each time it changes; [lock] is asked only for a change from open to locked. With the app in use
+     * (on this tab or another) a lock wipes the screen: by hand always, the idle one only if this screen was not used for
+     * the lock time either ([awayTooLong] since [lastUsed]), so typing here keeps it. A lock from leaving the app (always
+     * there, MainActivity.onStop) is left to [started]: the time away decides, or copying a code into a website and
+     * coming back would lose it.
      */
-    fun vaultStateIs(unlocked: Boolean) {
+    fun vaultStateIs(unlocked: Boolean, lock: () -> LockSeen) {
         val locked = wasUnlocked && !unlocked
         wasUnlocked = unlocked
-        if (locked && stoppedAt == null) wipe()
+        if (!locked) return
+        val seen = lock()
+        if (!seen.appInForeground || seen.reason == LockReason.LEFT_APP) return
+        if (seen.reason == LockReason.IDLE && !awayTooLong(seen.now - lastUsed, seen.lockAfterMs)) return
+        wipe()
     }
 
-    /** Everything drawn goes and the screen is as on a new visit; only the chosen length and form stay (not secrets). */
+    /**
+     * What was drawn goes: the PIN, the codes and the answers are drawn again, and a save waiting for the vault (it holds
+     * them) is dropped. The sites, the questions, the chosen length and the form stay: they are not secrets.
+     */
     fun wipe() {
         pending = null
         pin = pinOf(digits)
         codes = codesOf()
-        recoverySite = ""
-        answersSite = ""
-        rowList.clear()
-        rowList.add(AnswerRow(cells, "", answer()))
+        rowList.forEach { it.answer = answer() }
     }
 
     /** The screen is gone for good: every reference to a secret is dropped. */

@@ -47,6 +47,13 @@ class AppContainer(
 ) {
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE))
 
+    /**
+     * The app's activity is started (MainActivity.onStart to onStop). Set to false in onStop before the vault is locked,
+     * so a lock seen while it is true happened with the app in use, on any tab («PIN y códigos» wipes then); a lock
+     * from leaving the app is seen with it false.
+     */
+    @Volatile var foreground: Boolean = false
+
     /** The only connection of the app (Have I Been Pwned), with the eMudhra keys distrusted; built on first use. */
     val client: OkHttpClient by lazy { secureClient(appVersion) }
 
@@ -55,6 +62,7 @@ class AppContainer(
         File(File(filesDir, "vault"), "vault.bin"),
         kdf = { settings.settings.value.kdf.params },
         idleLockMs = { settings.settings.value.lockAfter.ms },
+        inForeground = { foreground },
         // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
         // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
         beforeCreate = { settings.turnOffAutoBackupForNewVault()?.let(releaseFolder) },

@@ -23,7 +23,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -107,6 +108,16 @@ internal fun readPhoto(context: Context, uri: Uri): ByteArray {
     return bytes
 }
 
+/** Writes [bytes] over the document at [uri] (from CreateDocument); throws if it cannot be opened. Blocking: IO. */
+internal fun writeDocument(context: Context, uri: Uri, bytes: ByteArray) {
+    val out = context.contentResolver.openOutputStream(uri, "wt") ?: throw java.io.IOException()
+    try {
+        out.write(bytes)
+    } finally {
+        out.close() // Explicit rather than use {}: lint's Recycle check does not follow use here.
+    }
+}
+
 /**
  * CPU work, on Dispatchers.Default: only HEIF goes to the JPEG conversion; an unknown format is refused. Stops between
  * steps once the screen is gone.
@@ -132,15 +143,21 @@ private suspend fun cleanCopy(bytes: ByteArray): CleanCopy = withContext(Dispatc
 
 /**
  * What «Limpiar foto» opened, for its navigation entry: kept across a configuration change (M-1), lost with the process.
- * Reading and cleaning run in [viewModelScope], so a rotation does not cut them; saving and sharing stay with the
- * screen (they need its activity, and a cut save already discards its document).
+ * Reading, cleaning, saving and preparing a share run in [viewModelScope] with the application's resolver, so a
+ * rotation cuts none of them; only opening the share sheet is the screen's (it needs the activity).
  */
-private class PhotoCleanViewModel(private val appContext: Context) : ViewModel() {
+private class PhotoCleanViewModel(private val appContext: Context, private val shareTemp: ShareTemp) : ViewModel() {
     var copy by mutableStateOf<CleanCopy?>(null)
     var opening by mutableStateOf(false)
+
+    /** Saving or preparing a share. */
+    var working by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var done by mutableStateOf<String?>(null)
+    var shareReady by mutableStateOf<PreparedShare?>(null)
+        private set
     private var job: Job? = null
+    private var leftWhileBusy = false
 
     private fun failureText(t: Throwable) =
         imageOpenFailureText(t, PHOTO_TOO_BIG, PHOTO_TOO_LARGE) { (it as? PhotoFailure)?.message ?: PHOTO_DAMAGED }
@@ -170,6 +187,110 @@ private class PhotoCleanViewModel(private val appContext: Context) : ViewModel()
         }
     }
 
+    /** Saves the copy to [dest]; a document not fully written is deleted, whatever ended the work. */
+    fun save(dest: Uri) {
+        val c = copy ?: run {
+            discardDocument(appContext, dest)
+            error = PHOTO_LOST
+            return
+        }
+        working = true
+        viewModelScope.launch {
+            var written = false
+            try {
+                withContext(Dispatchers.IO) {
+                    writeDocument(appContext, dest, c.bytes)
+                    written = true
+                }
+                done = photoDoneMessage(c.report, c.converted)
+                error = null
+            } catch (e: CancellationException) {
+                // The screen gone for good: a fully written copy stays; an empty document does not.
+                if (!written) withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
+                throw e
+            } catch (e: Exception) {
+                discardDocument(appContext, dest) // Never a half-written copy.
+                done = null
+                error = PHOTO_SAVE_FAILED
+            } finally {
+                working = false
+                releaseIfLeft()
+            }
+        }
+    }
+
+    /** Writes the copy for «Compartir»; [shareReady] then holds it until the screen has handed it over ([shared]). */
+    fun share() {
+        val c = copy ?: return
+        working = true
+        viewModelScope.launch {
+            var prepared: File? = null
+            var handedOver = false
+            try {
+                prepared = withContext(Dispatchers.IO) { shareTemp.prepare("$PHOTO_FILE_BASE.${c.ext}", c.bytes) }
+                shareReady = PreparedShare(prepared!!, c.mime)
+                handedOver = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                done = null
+                error = PHOTO_SHARE_FAILED
+            } finally {
+                // Nothing was handed over: only the file this attempt wrote goes, and it need not wait the 10 minutes.
+                if (!handedOver) {
+                    prepared?.let { withContext(NonCancellable + Dispatchers.IO) { shareTemp.discard(it) } }
+                    working = false
+                    releaseIfLeft()
+                }
+            }
+        }
+    }
+
+    /** The screen opened the share sheet for [ready] ([ok]), or could not. */
+    fun shared(ready: PreparedShare, ok: Boolean) {
+        if (shareReady !== ready) return
+        shareReady = null
+        val c = copy
+        if (ok && c != null) {
+            done = photoDoneMessage(c.report, c.converted)
+            error = null
+        } else {
+            viewModelScope.launch(NonCancellable + Dispatchers.IO) { shareTemp.discard(ready.file) }
+            done = null
+            error = PHOTO_SHARE_FAILED
+        }
+        working = false
+        releaseIfLeft()
+    }
+
+    fun shown() {
+        leftWhileBusy = false
+    }
+
+    /**
+     * The screen left without a configuration change (another tab, back): the copy (up to 50 MB) goes now, not when the
+     * entry is destroyed. Opening is cancelled; a save under way first ends, unless the screen comes back first.
+     */
+    fun left() {
+        shareReady?.let { shared(it, ok = false) } // Not handed over: never opened later, out of the blue.
+        if (working) {
+            leftWhileBusy = true
+            return
+        }
+        job?.cancel()
+        opening = false
+        copy = null
+        error = null
+        done = null
+    }
+
+    private fun releaseIfLeft() {
+        if (leftWhileBusy) {
+            leftWhileBusy = false
+            copy = null
+        }
+    }
+
     override fun onCleared() {
         copy = null // Not a secret, but up to 50 MB: it goes with the screen.
     }
@@ -183,45 +304,32 @@ private class PhotoCleanViewModel(private val appContext: Context) : ViewModel()
 @Composable
 fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val appContext = context.applicationContext
-    val vm = viewModel { PhotoCleanViewModel(appContext) }
+    val vm = viewModel { PhotoCleanViewModel(appContext, shareTemp) }
     val copy = vm.copy
-    // Saving or sharing (the screen's own work); opening is the ViewModel's.
-    var working by remember { mutableStateOf(false) }
-    val busy = working || vm.opening
+    val busy = vm.working || vm.opening
     var pickerError by remember { mutableStateOf<String?>(null) }
 
-    val onSaveTarget: (Uri?) -> Unit = saved@{ dest ->
-        if (dest == null) return@saved
-        val c = vm.copy ?: run {
-            discardDocument(context, dest)
-            vm.error = PHOTO_LOST
-            return@saved
-        }
-        working = true
-        scope.launch {
-            var written = false
-            try {
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(dest, "wt")!!.use { it.write(c.bytes) }
-                    written = true
-                }
-                vm.done = photoDoneMessage(c.report, c.converted)
-                vm.error = null
-            } catch (e: CancellationException) {
-                // Screen gone: a fully written copy stays; an empty document does not.
-                if (!written) discardDocument(context, dest)
-                throw e
+    val activity = context.fragmentActivity()
+    // Only a rotation (or another configuration change) keeps the copy: any other way out lets it go now.
+    DisposableEffect(vm) {
+        vm.shown()
+        onDispose { if (activity?.isChangingConfigurations != true) vm.left() }
+    }
+    // The copy for «Compartir» is ready: the share sheet needs this activity, so the screen opens it.
+    vm.shareReady?.let { ready ->
+        LaunchedEffect(ready) {
+            val ok = try {
+                shareImage(context, ready.file, ready.mime)
+                true
             } catch (e: Exception) {
-                discardDocument(context, dest) // Never a half-written copy.
-                vm.done = null
-                vm.error = PHOTO_SAVE_FAILED
-            } finally {
-                working = false
+                false
             }
+            vm.shared(ready, ok)
         }
     }
+
+    val onSaveTarget: (Uri?) -> Unit = { dest -> if (dest != null) vm.save(dest) }
     val saveJpg = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg"), onSaveTarget)
     val savePng = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png"), onSaveTarget)
     val saveWebp = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/webp"), onSaveTarget)
@@ -262,34 +370,7 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(PHOTO_SAVE_COPY) }
                     FilledTonalButton(
-                        onClick = {
-                            working = true
-                            scope.launch {
-                                var prepared: File? = null
-                                // Nothing was handed over: only the file this attempt wrote goes (prepare already
-                                // removed any earlier one), and it need not wait the 10 minutes.
-                                suspend fun discardPrepared() {
-                                    prepared?.let { withContext(NonCancellable + Dispatchers.IO) { shareTemp.discard(it) } }
-                                }
-                                try {
-                                    val file = withContext(Dispatchers.IO) {
-                                        shareTemp.prepare("$PHOTO_FILE_BASE.${c.ext}", c.bytes).also { prepared = it }
-                                    }
-                                    shareImage(context, file, c.mime)
-                                    vm.done = photoDoneMessage(c.report, c.converted)
-                                    vm.error = null
-                                } catch (e: CancellationException) {
-                                    discardPrepared()
-                                    throw e
-                                } catch (e: Exception) {
-                                    discardPrepared()
-                                    vm.done = null
-                                    vm.error = PHOTO_SHARE_FAILED
-                                } finally {
-                                    working = false
-                                }
-                            }
-                        },
+                        onClick = vm::share,
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(SHARE) }
