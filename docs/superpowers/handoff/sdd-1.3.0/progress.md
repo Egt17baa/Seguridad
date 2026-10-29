@@ -221,3 +221,12 @@ Task 13: fix round 3 commit b6e0d4a (953). Pushed. Re-review (sonnet) dispatched
 Task 13: fix round 3/5 (3 addressed, 0 open; commits aebc400..b6e0d4a). Re-review ae9a3de approved; OOS: ZWJ between non-ASCII letters («ñ‍ñ») kept — accepted, matches ruling, invisible and harmless; U+180E still asserted in CardTest.kt:238,266 and QrContentTest.kt:385 (JDK Unicode-version dependent).
 Ruling: U+180E in CardTest/QrContentTest folded into Task 14 — cost: none.
 Task 13: complete (commits 86bfd1b..b6e0d4a, review clean)
+Task 14: dispatched (BASE 5e44bdb, opus). Folded: U+180E out of CardTest.kt:238,266 and QrContentTest.kt:385.
+Task 14: implementer DONE_WITH_CONCERNS, commit cfc8d44. U+180E kept: production lists 0x180E explicitly (Card.kt:238, Visible.kt:78), tests JDK-independent; comments added. CI split build / build-firma (environment firma, YAML anchor); release-apk needs build-firma; play-bundle declares firma; PreviewActivity allowed only on debuggable APK; docs/PUBLICAR.md updated. Pushed. Review (opus) dispatched.
+Ruling: U+180E kept — implementer is right, the earlier OOS premise was wrong — cost: none.
+Task 14: review a648c25 -> Changes required (minors only): M1 sha256-only changes not counted; M2 PR base should be HEAD^1; M3 README GitHub plan note incomplete (required reviewers / tag rulesets on private repos); M4 README build command fails without keystore, give -PfirmaDePrueba variant + PUBLICAR §5; M5 docs claim secrets only reach firma before they are moved. U+180E kept confirmed.
+Ruling: all 5 fixed in round 1 (owner rule) — cost: none.
+Task 14: fix round 1 sent to a3619cd.
+Task 14: fix round 1 commit 5454356. Ruleset plan wording marked to verify in final review. Pushed. Re-review (sonnet) dispatched.
+Task 14: fix round 1/5 (5 addressed, 0 open; commits cfc8d44..5454356). Re-review a6b9648 approved; 2 minors (long workflow comment line 23; README «expresiones del flujo» sentence covered only build, not play-bundle's if-gating) — fixed by controller in docs-only commit (YAML re-parsed).
+Task 14: complete (commits 5e44bdb..HEAD, review clean). Owner to verify in final review: GitHub plan limits for tag rulesets (README «Planes de GitHub»).

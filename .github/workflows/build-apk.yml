@@ -20,8 +20,9 @@ permissions:
 # play-bundle), which the owner limits to main and the v* tags. That holds once the secrets live in the environment and
 # have been deleted from the repository; until then they are repository secrets, which build gates with the trusted-run
 # expressions below. A job that uses an environment gets its secrets, and an environment secret takes precedence over
-# a repository secret of the same name, so the repository secrets keep working until they are moved there. A workflow that names an environment that does not exist creates it, with no protection
-# rules and no secrets. Setup steps: README, "Entorno de firma".
+# a repository secret of the same name, so the repository secrets keep working until they are moved there.
+# A workflow that names an environment that does not exist creates it, with no protection rules and no secrets.
+# Setup steps: README, "Entorno de firma".
 jobs:
   # Untrusted builds (pull requests, branches other than main, manual runs not from main): the same steps as
   # build-firma, with no environment. Their secret expressions below evaluate to '' here, so they never get the key
