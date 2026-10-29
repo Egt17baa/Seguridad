@@ -559,4 +559,47 @@ class VaultStoreTest {
         s.touch()
         assertEquals(clock + 3, mark)
     }
+
+    // Fix round 2 (I-1): the mark restarts only once the copy is saved; a failed save lowers nothing.
+    @Test fun failedImportSaveNeverResetsTheClockMark() = runTest {
+        val resets = mutableListOf<Long>()
+        val s = clockStore({ 0 }, {}, reset = { resets += it }).apply { load(); create("otra".toCharArray()) }
+        val (copy, written) = backupWith(KdfParams(1024, 1, 1))
+        val json = VaultCrypto.encodeFile(written)
+        breakSaving()
+        for (import in listOf<suspend () -> Unit>(
+            { s.importReplace(json, "m".toCharArray()) },
+            { s.importReplace(copy.inputStream(), "m".toCharArray()) },
+        )) {
+            try {
+                import()
+                fail()
+            } catch (e: java.io.IOException) {
+                // expected
+            }
+        }
+        assertTrue(resets.isEmpty())
+        assertTrue((s.state.value as VaultState.Unlocked).entries.isEmpty()) // The old vault stays.
+    }
+
+    // Fix round 2 (M-1): the refusal carries its reason and its message names only that one; the key is still zeroed.
+    @Test fun unlockWithKeyRefusalCarriesItsReason() = runTest {
+        var mark = 0L
+        val s = clockStore({ mark }, {}).apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        mark = clock + 6 * 60_000
+        val a = key.copyOf()
+        val clockRefusal = try { s.unlockWithKey(a); null } catch (e: MasterRequired) { e }!!
+        assertEquals(BiometricRefusal.CLOCK, clockRefusal.reason)
+        assertEquals(CLOCK_CHANGED_TEXT, clockRefusal.message)
+        assertTrue(a.all { it == 0.toByte() })
+        mark = 0
+        clock += MASTER_RECHECK_MS
+        val b = key.copyOf()
+        val due = try { s.unlockWithKey(b); null } catch (e: MasterRequired) { e }!!
+        assertEquals(BiometricRefusal.MASTER_DUE, due.reason)
+        assertFalse(due.message!!.contains("hora"))
+        assertTrue(b.all { it == 0.toByte() })
+    }
 }
