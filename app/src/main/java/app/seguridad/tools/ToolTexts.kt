@@ -487,6 +487,18 @@ const val CLIPBOARD_HISTORY_ACCEPT = "Entendido, copiar"
 /** A14: copies nothing. */
 const val CLIPBOARD_HISTORY_CANCEL = "Cancelar"
 
+/**
+ * A15b, on «Cifrar para…» with a file: the name that goes inside, encrypted, is [name] (the real one, or `archivo.<ext>`
+ * with «No enviar el nombre»). The design's text, with a final period.
+ */
+fun fileNameInsideText(name: String): String = "El nombre del archivo («$name») va dentro, cifrado: lo verá el destinatario."
+
+/** A15b: the checkbox that sends `archivo.<ext>` instead of the real name. */
+const val DONT_SEND_FILE_NAME = "No enviar el nombre"
+
+/** A16a, when opening something signed with a key that [count] contacts (more than one) keep. The design's text, with a final period. */
+fun sameKeyContactsText(count: Int): String = "Esta clave está guardada en $count contactos."
+
 /** Every text above, the parameterised ones with the annex's placeholders; ToolTextsTest checks them. */
 val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE, PHOTO_EXPLANATION, PHOTO_PICK, PHOTO_PICK_OTHER, PHOTO_FOUND_TITLE,
@@ -528,4 +540,5 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, AUTO_BACKUP_OUTCOME_TITLE, AUTO_BACKUP_REPLACE_DROPPED, PASSWORD_CHANGED_FINGERPRINT_FAILED, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
     AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS, CLOCK_CHANGED_TEXT,
     CLIPBOARD_HISTORY_ACCEPT, CLIPBOARD_HISTORY_CANCEL,
+    fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2),
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) }

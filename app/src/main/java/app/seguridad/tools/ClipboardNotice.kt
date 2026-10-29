@@ -63,7 +63,9 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
 
     /**
      * The user accepted: writes the waiting copy once, then its onCopied. Returns false, writing nothing, if there was
-     * none (already taken or dropped) or the vault locked since [ask].
+     * none (already taken or dropped) or the vault locked since [ask]. If the write throws (the clipboard service failed),
+     * it returns false too: [acceptedNow] stays false and onCopied does not run, so the notice comes back on the next copy
+     * and the caller does not record it as accepted in Ajustes. The copy is not kept for a retry.
      */
     fun accept(): Boolean {
         val p = synchronized(this) {
@@ -71,10 +73,14 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
             pending = null
             _asking.value = false
             if (p.epoch != lockEpoch()) return false
-            acceptedNow = true
             p
         }
-        p.write(p.text)
+        try {
+            p.write(p.text)
+        } catch (e: Exception) {
+            return false
+        }
+        acceptedNow = true // Only once the copy is really in the clipboard.
         p.onCopied?.invoke()
         return true
     }

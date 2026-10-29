@@ -13,7 +13,7 @@ const val CHUNK_BYTES = 64 * 1024
 const val ENCRYPTED_EXTENSION = ".sgenc"
 /** Extension of the legacy dialect's files (.cpenc), still read. */
 const val LEGACY_ENCRYPTED_EXTENSION = ".cpenc"
-/** The most the sealed file name may measure, in UTF-8 bytes ([safeFileName] keeps it far below: 120 characters). Shared with the public-key files (`pk/FileMessage.kt`). */
+/** The most the sealed file name may measure, in UTF-8 bytes ([safeFileName] keeps it far below: 120 code points, 480 bytes). Shared with the public-key files (`pk/FileMessage.kt`). */
 internal const val MAX_FILE_NAME_BYTES = 1024
 
 /** STREAM nonce: prefix (7) ‖ counter (4, big-endian) ‖ last-record flag (1). */
@@ -130,9 +130,20 @@ fun decryptStream(input: InputStream, output: OutputStream, secret: Secret): Str
     }
 }
 
-/** Name to save a decrypted file under: the stored one, never a path, nor turned around («factura\u202Efdp.exe»). */
-fun safeFileName(name: String): String =
-    withoutBidiControls(name.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\x00-\\x1F]"), "")).trim().ifEmpty { "archivo" }.take(120)
+/** The most code points [safeFileName] keeps: at most 4 UTF-8 bytes each, so 480 bytes, far below [MAX_FILE_NAME_BYTES]. */
+internal const val MAX_FILE_NAME_CODE_POINTS = 120
+
+/**
+ * Name to save a decrypted file under: the stored one, never a path, nor turned around («factura\u202Efdp.exe»). At
+ * most [MAX_FILE_NAME_CODE_POINTS] code points, cut between whole code points (A16b: never half of a surrogate pair, so
+ * the UTF-8 is never cut inside a character). It only shortens, never rejects: a file written with a longer name (up to
+ * [MAX_FILE_NAME_BYTES]) still decrypts, and only the name proposed to save it under is shortened.
+ */
+fun safeFileName(name: String): String {
+    val clean = withoutBidiControls(name.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\x00-\\x1F]"), "")).trim().ifEmpty { "archivo" }
+    if (clean.codePointCount(0, clean.length) <= MAX_FILE_NAME_CODE_POINTS) return clean
+    return clean.substring(0, clean.offsetByCodePoints(0, MAX_FILE_NAME_CODE_POINTS))
+}
 
 /**
  * [text] without the characters that change the direction text is shown in: the bidi embeddings and overrides

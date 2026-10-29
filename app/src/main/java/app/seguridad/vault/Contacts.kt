@@ -130,8 +130,11 @@ sealed interface Sender {
     /** La firma es de mi propia identidad. */
     data object Me : Sender
 
-    /** La firma es de este contacto (verificado o no: eso lo dice la entrada). */
-    data class Contact(val entry: VaultEntry) : Sender
+    /**
+     * La firma es de este contacto (verificado o no: eso lo dice la entrada). [sameKeyCount] es cuántos contactos guardan
+     * esa misma Ed25519 (A16a: con más de uno, la pantalla lo avisa).
+     */
+    data class Contact(val entry: VaultEntry, val sameKeyCount: Int = 1) : Sender
 
     /** La firma es válida, pero de una clave que no es mía ni de ningún contacto. */
     data object UnknownKey : Sender
@@ -142,19 +145,29 @@ sealed interface Sender {
 
 /**
  * Quién es el firmante con la Ed25519 [senderEd]: `null` es [Sender.Unsigned]; si coincide con mi identidad, [Sender.Me]
- * (tiene prioridad sobre un contacto con mis mismas claves); si coincide con un contacto, [Sender.Contact] (con dos con
- * la misma Ed25519, el primero de la lista); si no, [Sender.UnknownKey]. Un contacto cuya tarjeta no se lee, o una identidad
- * rota, se saltan: nunca lanza. Las claves son públicas, así que se comparan sin tiempo constante.
+ * (tiene prioridad sobre un contacto con mis mismas claves); si coincide con uno o más contactos, [Sender.Contact] con
+ * cuántos son ([sameKeyCount]). A16a: entre varios con la misma Ed25519 gana el verificado y, entre iguales, el de
+ * `updatedAt` mayor (el más reciente); con todo igual, el primero de la lista. Si no, [Sender.UnknownKey]. Un contacto
+ * cuya tarjeta no se lee, o una identidad rota, se saltan: nunca lanza. Las claves son públicas, así que se comparan con
+ * `contentEquals`, sin tiempo constante (como en [checkIncomingCard]).
  */
 fun senderOf(senderEd: ByteArray?, entries: List<VaultEntry>): Sender {
     if (senderEd == null) return Sender.Unsigned
     if (ownKeys(entries)?.first?.contentEquals(senderEd) == true) return Sender.Me
-    for (entry in entries) {
-        val card = readableCard(entry) ?: continue
-        if (card.edPublic.contentEquals(senderEd)) return Sender.Contact(entry)
+    val matches = contactsWithKey(senderEd, entries)
+    var best = matches.firstOrNull() ?: return Sender.UnknownKey
+    for (entry in matches) {
+        val better = if (entry.verified != best.verified) entry.verified else entry.updatedAt > best.updatedAt
+        if (better) best = entry
     }
-    return Sender.UnknownKey
+    return Sender.Contact(best, matches.size)
 }
+
+/** Cuántos contactos (con tarjeta legible) guardan la Ed25519 [senderEd]; ni mi identidad ni otras entradas cuentan. */
+fun sameKeyCount(senderEd: ByteArray, entries: List<VaultEntry>): Int = contactsWithKey(senderEd, entries).size
+
+private fun contactsWithKey(senderEd: ByteArray, entries: List<VaultEntry>): List<VaultEntry> =
+    entries.filter { readableCard(it)?.edPublic?.contentEquals(senderEd) == true }
 
 /** Qué hacer con una tarjeta que llega (la lógica; los avisos son de la pantalla). */
 sealed interface CardCheck {

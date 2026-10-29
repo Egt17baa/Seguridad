@@ -261,6 +261,36 @@ class ContactsTest {
         assertSame(second, (senderOf(ana.ed(), listOf(second, first)) as Sender.Contact).entry)
     }
 
+    @Test fun senderPrefersVerifiedThenNewest() {
+        // A16a: two contacts with the same Ed25519. The verified one wins, whatever the order or the dates.
+        val ana = person()
+        val verifiedOld = contactOf(ana, "Ana").copy(verified = true, updatedAt = now - 1_000)
+        val unverifiedNew = contactOf(ana, "Ana (nueva)").copy(verified = false, updatedAt = now + 1_000)
+        for (list in listOf(listOf(verifiedOld, unverifiedNew), listOf(unverifiedNew, verifiedOld))) {
+            val s = senderOf(ana.ed(), list) as Sender.Contact
+            assertSame(verifiedOld, s.entry)
+            assertEquals(2, s.sameKeyCount)
+        }
+        // Both alike: the newest (higher updatedAt) wins, whatever the order.
+        val older = contactOf(ana, "Ana").copy(updatedAt = now - 1_000)
+        val newer = contactOf(ana, "Ana (otra)").copy(updatedAt = now + 1_000)
+        assertSame(newer, (senderOf(ana.ed(), listOf(older, newer)) as Sender.Contact).entry)
+        assertSame(newer, (senderOf(ana.ed(), listOf(newer, older)) as Sender.Contact).entry)
+        val bothVerifiedOld = older.copy(verified = true)
+        val bothVerifiedNew = newer.copy(verified = true)
+        assertSame(bothVerifiedNew, (senderOf(ana.ed(), listOf(bothVerifiedNew, bothVerifiedOld)) as Sender.Contact).entry)
+        assertSame(bothVerifiedNew, (senderOf(ana.ed(), listOf(bothVerifiedOld, bothVerifiedNew)) as Sender.Contact).entry)
+        // The count: only readable contacts with that Ed25519 (not another person, not my identity, not a note).
+        val me = Person(newIdentityEntry(now))
+        val entries = listOf(older, contactOf(person(), "Luis"), me.entry, newer, contactOf(ana, "Nota").copy(type = EntryType.NOTE))
+        assertEquals(2, sameKeyCount(ana.ed(), entries))
+        assertEquals(1, sameKeyCount(ana.ed(), listOf(older)))
+        assertEquals(0, sameKeyCount(person().ed(), entries))
+        assertEquals(2, (senderOf(ana.ed(), entries) as Sender.Contact).sameKeyCount)
+        // One contact with that key: count 1 (no warning).
+        assertEquals(1, (senderOf(ana.ed(), listOf(older)) as Sender.Contact).sameKeyCount)
+    }
+
     @Test fun senderOfSaltaLosContactosIlegiblesYLaIdentidadRota() {
         val ana = person()
         val good = contactOf(ana, "Ana")

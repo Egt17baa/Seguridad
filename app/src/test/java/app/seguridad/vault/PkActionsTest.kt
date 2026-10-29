@@ -914,4 +914,72 @@ class PkActionsTest {
         assertTrue(SYMMETRIC_FILE_NOTICE.contains("cifrado con contraseña"))
         assertFalse(SYMMETRIC_FILE_NOTICE.lowercase().contains("firma"))
     }
+
+    // ---- A15a: a result is shown only next to the inputs it came from ----
+
+    @Test fun staleResultIsHidden() {
+        val inputs = PkInputs(contactId = "ana", text = "hola", fileUri = null)
+        val last = PkResult(inputs, "SGM1:abc")
+        assertEquals("SGM1:abc", resultFor(inputs, last))
+        assertEquals("SGM1:abc", resultFor(PkInputs("ana", "hola", null), last))
+        // Another contact, another text or another file: nothing.
+        assertNull(resultFor(PkInputs("luis", "hola", null), last))
+        assertNull(resultFor(PkInputs("ana", "hola!", null), last))
+        assertNull(resultFor(PkInputs("ana", "", null), last))
+        assertNull(resultFor(PkInputs(null, "hola", null), last))
+        assertNull(resultFor(PkInputs("ana", null, "content://x/1"), last))
+        assertNull(resultFor(inputs, null))
+        // «Firmar» has no contact: the text is what counts.
+        val signed = PkResult(PkInputs(null, "texto", null), "SGS1:xyz")
+        assertEquals("SGS1:xyz", resultFor(PkInputs(null, "texto", null), signed))
+        assertNull(resultFor(PkInputs(null, "texto ", null), signed))
+        // The plain text never shows in toString.
+        assertFalse("hola" in inputs.toString())
+        assertFalse("hola" in last.toString())
+    }
+
+    // ---- A15b: «No enviar el nombre» ----
+
+    @Test fun anonymousFileName() {
+        assertEquals("archivo.pdf", anonymousFileName("factura marzo.pdf"))
+        assertEquals("archivo", anonymousFileName("sin-extension"))
+        assertEquals("archivo", anonymousFileName("datos.extensionlarga")) // 15 characters
+        assertEquals("archivo.abcdefghij", anonymousFileName("x.abcdefghij")) // exactly 10
+        assertEquals("archivo", anonymousFileName("foto.jp-g"))
+        assertEquals("archivo", anonymousFileName("foto.jpé"))
+        assertEquals("archivo", anonymousFileName("foto.\u0661\u0662")) // Arabic-Indic digits are not ASCII.
+        assertEquals("archivo", anonymousFileName("termina en punto."))
+        assertEquals("archivo", anonymousFileName(""))
+        // Lowercased, and only the last extension.
+        assertEquals("archivo.jpg", anonymousFileName("IMG_20261027_1200.JPG"))
+        assertEquals("archivo.gz", anonymousFileName("copia de Ana.tar.gz"))
+        // A path or a direction override never get through.
+        assertEquals("archivo.txt", anonymousFileName("../../Ana García/notas.txt"))
+        assertEquals("archivo.exe", anonymousFileName("factura\u202Efdp.exe")) // The real extension, not the one shown.
+        // Nothing of the original name is left.
+        assertFalse("factura" in anonymousFileName("factura marzo.pdf"))
+    }
+
+    // ---- A16a: the same signing key in several contacts ----
+
+    @Test fun senderLineWarnsWhenTheKeyIsInSeveralContacts() {
+        val ana = contactOf(ana(), "Ana", verified = true)
+        val line = senderLine(Sender.Contact(ana, sameKeyCount = 2), addressedToMe = true)
+        assertEquals("De Ana (verificado)", line.text)
+        assertEquals("Esta clave está guardada en 2 contactos.", line.sameKey)
+        assertEquals("Esta clave está guardada en 3 contactos.", senderLine(Sender.Contact(ana, sameKeyCount = 3), addressedToMe = false).sameKey)
+        // One contact: no warning.
+        assertNull(senderLine(Sender.Contact(ana), addressedToMe = true).sameKey)
+        assertNull(senderLine(Sender.Me, addressedToMe = true).sameKey)
+    }
+
+    @Test fun openingAMessageFromAKeyKeptTwiceSaysSo() {
+        val older = contactOf(ana(), "Ana").copy(updatedAt = now - 5)
+        val newer = contactOf(ana(), "Ana", title = "Ana trabajo").copy(updatedAt = now + 5)
+        val token = ana().use { a -> encryptMessage("hola", myCard(), a) }
+        val opened = openReceivedText(token, listOf(meEntry, older, newer)) as ReceivedOutcome.Opened
+        assertEquals("hola", opened.text)
+        assertEquals(newer, (opened.sender as Sender.Contact).entry)
+        assertEquals("Esta clave está guardada en 2 contactos.", opened.line.sameKey)
+    }
 }

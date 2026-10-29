@@ -71,7 +71,8 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                 withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")!!.use { store.exportBackup(it) } }
             }
             val ok = result.getOrNull() == true
-            if (!ok) discardDocument(context, uri) // Never leave an empty or cut copy that looks like a backup.
+            // Never leave an empty or cut copy that looks like a backup: off the main thread, and not cut by a cancellation.
+            if (!ok) withContext(NonCancellable + Dispatchers.IO) { discardDocument(context, uri) }
             // A CryptoFailure names the attachment that is missing or damaged; false with a vault means it locked
             // meanwhile, and only an open vault's attachments can be checked.
             val failure = (result.exceptionOrNull() as? CryptoFailure)?.message

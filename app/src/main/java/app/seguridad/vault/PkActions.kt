@@ -23,6 +23,7 @@ import app.seguridad.crypto.pk.signText
 import app.seguridad.crypto.pk.verifyFileSignature
 import app.seguridad.crypto.pk.verifySignedText
 import app.seguridad.crypto.safeFileName
+import app.seguridad.tools.sameKeyContactsText
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -92,8 +93,11 @@ private const val TEMP_PREFIX = "recibido"
 /** Cuánto hay que fiarse de lo que dice una línea de remitente: la pantalla elige el color. */
 enum class TrustLevel { GOOD, CAUTION, WARNING }
 
-/** Lo que la pantalla escribe de quién es lo que se acaba de abrir; [note], si hay, va debajo en letra pequeña. */
-data class SenderLine(val text: String, val level: TrustLevel, val note: String? = null)
+/**
+ * Lo que la pantalla escribe de quién es lo que se acaba de abrir; [note], si hay, va debajo en letra pequeña. [sameKey],
+ * si hay, es el aviso de A16a: la clave de firma está guardada en varios contactos.
+ */
+data class SenderLine(val text: String, val level: TrustLevel, val note: String? = null, val sameKey: String? = null)
 
 /** Debajo de «Firmado por …» en un `SGS1:` o un `.sgsig`: son públicos, cualquiera puede reenviarlos (Davis 2001). */
 const val SIGNATURE_FORWARD_NOTE = "Una firma dice quién lo firmó, no a quién iba dirigido."
@@ -111,8 +115,9 @@ fun senderLine(sender: Sender, addressedToMe: Boolean): SenderLine = when (sende
     is Sender.Contact -> {
         val from = if (addressedToMe) "De" else "Firmado por"
         val note = if (addressedToMe) null else SIGNATURE_FORWARD_NOTE
-        if (sender.entry.verified) SenderLine("$from ${sender.entry.title} (verificado)", TrustLevel.GOOD, note)
-        else SenderLine("$from ${sender.entry.title}, sin verificar: compara la huella", TrustLevel.CAUTION, note)
+        val sameKey = if (sender.sameKeyCount > 1) sameKeyContactsText(sender.sameKeyCount) else null
+        if (sender.entry.verified) SenderLine("$from ${sender.entry.title} (verificado)", TrustLevel.GOOD, note, sameKey)
+        else SenderLine("$from ${sender.entry.title}, sin verificar: compara la huella", TrustLevel.CAUTION, note, sameKey)
     }
     Sender.UnknownKey -> SenderLine("Firmado por una clave que no está en tus contactos", TrustLevel.WARNING)
     Sender.Unsigned -> SenderLine("Sin firmar: cualquiera pudo enviarlo", TrustLevel.WARNING)
@@ -166,11 +171,53 @@ private fun isTrimmable(c: Char) = c == '.' || c.isWhitespace() || Character.isS
 
 private fun trimEnds(s: String): String = s.trim(::isTrimmable)
 
+/** El nombre que va dentro con «No enviar el nombre» (A15b), sin la extensión. */
+const val ANONYMOUS_FILE_BASE = "archivo"
+
+private const val MAX_ANONYMOUS_EXTENSION_CHARS = 10
+
+/**
+ * A15b, «No enviar el nombre»: `archivo.<ext>`, con la extensión de [original] (la que queda tras [safeFileName], así que
+ * nunca la de una ruta ni la de un nombre dado la vuelta) en minúsculas, solo si mide de 1 a 10 caracteres y todos son
+ * letras o cifras ASCII; si no, `archivo`. No queda nada más del nombre original.
+ */
+fun anonymousFileName(original: String): String {
+    val name = safeFileName(original)
+    val dot = name.lastIndexOf('.')
+    if (dot < 0) return ANONYMOUS_FILE_BASE
+    val ext = name.substring(dot + 1)
+    val ok = ext.length in 1..MAX_ANONYMOUS_EXTENSION_CHARS && ext.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' }
+    return if (ok) "$ANONYMOUS_FILE_BASE.${ext.lowercase(java.util.Locale.ROOT)}" else ANONYMOUS_FILE_BASE
+}
+
 /** `<original>.sgenc`: cómo se llama el archivo cifrado para un contacto. */
 fun encryptedFileName(original: String): String = safeFileName(original) + ENCRYPTED_EXTENSION
 
 /** `<original>.sgsig`: cómo se llama la firma de un archivo. */
 fun signatureFileName(original: String): String = safeFileName(original) + SIGNATURE_EXTENSION
+
+// ---- A15a: un resultado solo junto a las entradas de las que salió ----
+
+/**
+ * Las entradas de las que sale un resultado de «Cifrar para…» o «Firmar»: el contacto (su id; `null` en «Firmar»), el
+ * texto (`null` con un archivo) y el archivo (su URI como texto; `null` con un texto). [text] es el texto en claro: vive
+ * solo en memoria, como el campo, y no sale en `toString`.
+ */
+data class PkInputs(val contactId: String?, val text: String?, val fileUri: String?) {
+    override fun toString(): String = "PkInputs(contact=${contactId != null}, text=${text != null}, file=${fileUri != null})"
+}
+
+/** Un resultado ([output], el `SGM1:` o el `SGS1:`, que es público) con las entradas de las que salió. */
+data class PkResult(val inputs: PkInputs, val output: String) {
+    override fun toString(): String = "PkResult($inputs)"
+}
+
+/**
+ * Lo que se enseña como resultado: [last] solo si salió de las entradas de ahora ([current]); si no, `null`. Así un
+ * trabajo que termina después de cambiar el contacto, el texto o el archivo nunca pone su salida junto a las entradas
+ * nuevas (como `ContactAddScreen` en la 1.2.1).
+ */
+fun resultFor(current: PkInputs, last: PkResult?): String? = last?.takeIf { it.inputs == current }?.output
 
 // ---- Abrir lo recibido (texto) ----
 
