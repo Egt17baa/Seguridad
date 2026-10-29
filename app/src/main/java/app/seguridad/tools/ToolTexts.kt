@@ -388,8 +388,9 @@ const val CODES_SITE_LABEL = "Web o servicio"
 const val CODES_SITE_NEEDED = "Escribe la web o el servicio para dar nombre a la nota."
 const val CODES_QUESTION_LABEL = "Pregunta"
 const val CODES_UNLOCK_TO_SAVE =
-    "Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si se cierra la app, si bloqueas " +
-        "la bóveda o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo)."
+    "Desbloquea la bóveda para guardarlo. El PIN, los códigos y las respuestas se pierden si vuelves atrás, si se " +
+        "cierra la app, si bloqueas la bóveda o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda " +
+        "(1 minuto como mínimo)."
 const val CODES_CANCEL_SAVE = "No guardar"
 const val CODES_SAVED = "Guardado en la bóveda como nota."
 const val CODES_SAVE_FAILED = "No se pudo guardar en la bóveda."
