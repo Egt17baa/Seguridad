@@ -17,9 +17,10 @@ permissions:
 # Every dependency and plugin is checked against gradle/verification-metadata.xml (sha256) before it is used.
 #
 # Signing secrets (SEGURIDAD_*) are read only by jobs that declare the GitHub environment "firma" (build-firma and
-# play-bundle), which the owner limits to main and the v* tags. A job that uses an environment gets its secrets, and an
-# environment secret takes precedence over a repository secret of the same name, so the repository secrets keep working
-# until they are moved there. A workflow that names an environment that does not exist creates it, with no protection
+# play-bundle), which the owner limits to main and the v* tags. That holds once the secrets live in the environment and
+# have been deleted from the repository; until then they are repository secrets, which build gates with the trusted-run
+# expressions below. A job that uses an environment gets its secrets, and an environment secret takes precedence over
+# a repository secret of the same name, so the repository secrets keep working until they are moved there. A workflow that names an environment that does not exist creates it, with no protection
 # rules and no secrets. Setup steps: README, "Entorno de firma".
 jobs:
   # Untrusted builds (pull requests, branches other than main, manual runs not from main): the same steps as
@@ -150,8 +151,18 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
-          # Base: the PR base, else the commit before the push, else (new branch or tag) the previous v* tag.
-          base="${PR_BASE:-$PUSH_BEFORE}"
+          # Base: on a pull request HEAD is the merge commit, so its first parent (the base branch it was merged into),
+          # else the PR base; on a push, the commit before it; else (new branch or tag) the previous v* tag.
+          base=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            if git rev-parse -q --verify "HEAD^2" >/dev/null; then
+              base="$(git rev-parse HEAD^1)"
+            else
+              base="$PR_BASE"
+            fi
+          else
+            base="$PUSH_BEFORE"
+          fi
           if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
             base="$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)"
           fi
@@ -164,13 +175,19 @@ jobs:
             fi
             echo "Base: \`$(git rev-parse --short "$base")\`. Todo cambio aquí se revisa como cambio de seguridad."
             echo
-            echo "| Archivo | Líneas añadidas | Líneas quitadas | Líneas \`<component\` añadidas | Líneas \`<component\` quitadas |"
-            echo "|---|---|---|---|---|"
+            # A new or updated checksum of an existing artifact changes only its <sha256 line, not the <component line,
+            # so both are counted: "Sumas añadidas o cambiadas" are the + lines of <sha256 (a replaced sum is one - and
+            # one +).
+            echo "| Archivo | Líneas añadidas | Líneas quitadas | Líneas \`<component\` añadidas | Líneas \`<component\` quitadas | Sumas añadidas o cambiadas | Sumas quitadas |"
+            echo "|---|---|---|---|---|---|---|"
             for f in gradle/verification-metadata.xml jvm-check/gradle/verification-metadata.xml; do
               read -r added removed _ < <(git diff --numstat "$base" HEAD -- "$f"; echo "0 0 -")
-              comp_added=$(git diff -U0 "$base" HEAD -- "$f" | grep -c '^+[[:space:]]*<component' || true)
-              comp_removed=$(git diff -U0 "$base" HEAD -- "$f" | grep -c '^-[[:space:]]*<component' || true)
-              echo "| \`$f\` | $added | $removed | $comp_added | $comp_removed |"
+              diff_u0="$(git diff -U0 "$base" HEAD -- "$f")"
+              comp_added=$(printf '%s\n' "$diff_u0" | grep -c '^+[[:space:]]*<component' || true)
+              comp_removed=$(printf '%s\n' "$diff_u0" | grep -c '^-[[:space:]]*<component' || true)
+              sum_added=$(printf '%s\n' "$diff_u0" | grep -c '^+[[:space:]]*<sha256' || true)
+              sum_removed=$(printf '%s\n' "$diff_u0" | grep -c '^-[[:space:]]*<sha256' || true)
+              echo "| \`$f\` | $added | $removed | $comp_added | $comp_removed | $sum_added | $sum_removed |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
