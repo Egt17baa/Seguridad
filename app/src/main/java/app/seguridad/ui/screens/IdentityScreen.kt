@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -111,7 +112,7 @@ private fun IdentityBody(store: VaultStore, identity: VaultEntry?, snackbar: Sna
     }
 
     Column(
-        Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), // M-9: fields above the keyboard.
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

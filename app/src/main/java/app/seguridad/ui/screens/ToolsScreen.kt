@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import app.seguridad.settings.Settings
 import app.seguridad.tools.CODES_TOOL_SUBTITLE
@@ -63,7 +64,8 @@ fun ToolsScreen(settings: Settings, onTool: (String) -> Unit) {
             items(TOOLS, key = { it.route }) { t ->
                 SectionCard(Modifier.fillMaxWidth().heightIn(min = 132.dp), onClick = { onTool(t.route) }) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(t.icon, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                        // Decorative (M-11): TalkBack reads the title, not «esponja» or «cuadrado negro grande».
+                        Text(t.icon, Modifier.clearAndSetSemantics { }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                         Text(t.title, style = MaterialTheme.typography.titleSmall)
                         Text(t.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }

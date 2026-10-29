@@ -3,6 +3,7 @@ package app.seguridad.android
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.os.Build
+import app.seguridad.tools.ImageOutOfMemory
 import app.seguridad.tools.ImageTooLarge
 import app.seguridad.tools.MAX_REDACT_PIXELS
 import app.seguridad.tools.photo.PHOTO_DAMAGED
@@ -21,7 +22,8 @@ import kotlin.math.sqrt
  * Images above [MAX_REDACT_PIXELS] are scaled down while decoding, so a huge one never takes the memory.
  * Fails closed: [PHOTO_UNSUPPORTED] before Android 9 (no ImageDecoder) and for AVIF before Android 12 (ImageDecoder
  * reads AVIF only from API 31), [ImageTooLarge] when the header declares more than declaredSizeAllowed accepts
- * (thrown from the header listener, before any pixel is inflated), [PHOTO_DAMAGED] for anything else that goes wrong.
+ * (thrown from the header listener, before any pixel is inflated), [ImageOutOfMemory] when the Java heap runs out,
+ * [PHOTO_DAMAGED] for anything else that goes wrong.
  */
 fun heifToJpeg(bytes: ByteArray): ByteArray {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) throw PhotoFailure(PHOTO_UNSUPPORTED)
@@ -52,7 +54,7 @@ fun heifToJpeg(bytes: ByteArray): ByteArray {
     } catch (e: ImageTooLarge) {
         throw e
     } catch (e: OutOfMemoryError) {
-        throw PhotoFailure(PHOTO_DAMAGED)
+        throw ImageOutOfMemory() // M-7: said as such, never as a damaged file.
     } catch (e: Exception) {
         throw PhotoFailure(PHOTO_DAMAGED)
     }

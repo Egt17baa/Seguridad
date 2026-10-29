@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -273,7 +274,8 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
 
     BackScaffold(if (existing == null) "Nueva entrada" else "Editar", onDone) { padding ->
         NoCopy {
-            Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // M-9: imePadding, so the notes and the last fields stay above the keyboard with edge-to-edge.
+            Column(Modifier.padding(padding).imePadding().touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (existing == null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                         VAULT_ENTRY_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${typeIcon(t)} ${t.label}") }) }

@@ -208,6 +208,13 @@ const val REDACT_DAMAGED =
 const val REDACT_COPY_FAILED = "No se ha podido crear la copia tachada. No se ha guardado nada."
 const val REDACT_LOST = "No se ha guardado: vuelve a elegir la imagen y a tachar lo que quieras tapar."
 
+/** M-11, for TalkBack: what the preview is and how many blocks it has. */
+fun redactCanvasDescription(blocks: Int) =
+    "Imagen para tachar. Arrastra el dedo sobre lo que quieras tapar. Bloques puestos: $blocks."
+
+/** M-7: memory ran out reading or decoding a picked image («Limpiar foto», «Tachar» and the QR inspector). */
+const val IMAGE_NO_MEMORY = "No hay memoria suficiente para abrir esta imagen en este móvil."
+
 // ---- Inspector de QR ----
 
 /** Anexo: «Explicación». */
@@ -380,7 +387,9 @@ const val CODES_SAVE_AS_NOTE = "Guardar en la bóveda como nota"
 const val CODES_SITE_LABEL = "Web o servicio"
 const val CODES_SITE_NEEDED = "Escribe la web o el servicio para dar nombre a la nota."
 const val CODES_QUESTION_LABEL = "Pregunta"
-const val CODES_UNLOCK_TO_SAVE = "Desbloquea la bóveda para guardarlo. Si sales de esta pantalla o giras el móvil, lo que ves aquí se pierde."
+const val CODES_UNLOCK_TO_SAVE =
+    "Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si cierras la app o si pasas " +
+        "fuera de esta pantalla más tiempo que el de bloqueo de la bóveda (como mínimo, 1 minuto)."
 const val CODES_CANCEL_SAVE = "No guardar"
 const val CODES_SAVED = "Guardado en la bóveda como nota."
 const val CODES_SAVE_FAILED = "No se pudo guardar en la bóveda."
@@ -460,6 +469,9 @@ const val RESET_WIPES_DAMAGED =
         "app guardó al intentar repararla. No se puede deshacer. Las copias .sgbak no se borran: si recuerdas la " +
         "contraseña con la que se hicieron, podrás importarlas en una bóveda nueva."
 
+/** M-4: the activity was re-created (a turn of the phone) while the fingerprint was being turned on. */
+const val FINGERPRINT_ENABLE_INTERRUPTED = "Se interrumpió al girar el móvil. Vuelve a tocar «Activar huella»."
+
 /** Every text above, the parameterised ones with the annex's placeholders; ToolTextsTest checks them. */
 val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE, PHOTO_EXPLANATION, PHOTO_PICK, PHOTO_PICK_OTHER, PHOTO_FOUND_TITLE,
@@ -472,6 +484,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE, REDACT_EXPLANATION, REDACT_LIMITS, REDACT_DOWNSCALED, redactDownscaledText(6),
     REDACT_PICK, REDACT_PICK_OTHER, REDACT_OPENING, REDACT_RENDERING, REDACT_UNDO, REDACT_REDO, REDACT_TOO_BIG,
     REDACT_TOO_LARGE, REDACT_CHANGED, REDACT_DAMAGED, REDACT_COPY_FAILED, REDACT_LOST,
+    redactCanvasDescription(3), IMAGE_NO_MEMORY, FINGERPRINT_ENABLE_INTERRUPTED,
     QR_EXPLANATION, QR_NO_ALERTS, qrAlertsTitle("N"), QR_MIXED_SCRIPTS, qrPunycode("…"), QR_IP_HOST, QR_HTTP,
     qrUserInfo("[host]"), qrPort("[:puerto]"), QR_SHORTENER, QR_SUBDOMAINS, qrScheme("[esquema]"), qrBidi("⟨U+202E⟩"),
     QR_WIFI_OPEN, QR_WIFI_WEP, QR_SEPA, QR_CRYPTO, QR_SMS, QR_SGK1, QR_TOO_BIG,

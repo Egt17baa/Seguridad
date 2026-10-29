@@ -49,7 +49,7 @@ import app.seguridad.android.QrImageUnreadable
 import app.seguridad.android.copySensitive
 import app.seguridad.android.decodeQrFromImage
 import app.seguridad.android.scanQrOptions
-import app.seguridad.tools.ImageTooLarge
+import app.seguridad.tools.imageOpenFailureText
 import app.seguridad.tools.QR_ADD_CONTACT
 import app.seguridad.tools.QR_ADD_TOTP
 import app.seguridad.tools.QR_CAMERA_FAILED
@@ -178,17 +178,11 @@ fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived:
                 if (text == null) error = QR_NOT_FOUND else show(text)
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: PhotoTooBig) {
-                error = QR_IMAGE_TOO_BIG
-            } catch (e: ImageTooLarge) {
-                error = QR_IMAGE_TOO_LARGE
-            } catch (e: QrImageUnreadable) {
-                error = QR_IMAGE_DAMAGED
             } catch (e: Exception) {
-                error = QR_IMAGE_DAMAGED
+                error = imageOpenFailureText(e, QR_IMAGE_TOO_BIG, QR_IMAGE_TOO_LARGE) { QR_IMAGE_DAMAGED }
             } catch (e: OutOfMemoryError) {
-                // Up to 50 MB read: on a small heap this is the error to show, not a crash.
-                error = QR_IMAGE_DAMAGED
+                // Up to 50 MB read: on a small heap this is the error to show (M-7), not a crash.
+                error = imageOpenFailureText(e, QR_IMAGE_TOO_BIG, QR_IMAGE_TOO_LARGE) { QR_IMAGE_DAMAGED }
             } finally {
                 busy = false
             }

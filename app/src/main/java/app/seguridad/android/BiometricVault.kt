@@ -16,6 +16,8 @@ import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import app.seguridad.core.Notice
+import app.seguridad.tools.FINGERPRINT_ENABLE_INTERRUPTED
 import app.seguridad.tools.FINGERPRINT_NOT_RESPONDING
 import app.seguridad.tools.KeyLevel
 import app.seguridad.tools.PromptErrorKind
@@ -33,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.security.KeyStore
@@ -191,6 +194,17 @@ object BiometricVault {
     private fun canPrompt(activity: FragmentActivity): Boolean =
         !activity.isFinishing && !activity.isDestroyed && !activity.supportFragmentManager.isStateSaved
 
+    private val interruption = Notice<String>()
+
+    /**
+     * M-4: an enable cut short because the activity was re-created (a turn of the phone, a theme change) while it ran. The
+     * screen that asked is gone with that activity, so the message waits here for the new one ([VaultScreen] shows it,
+     * then [interruptionShown]). Nothing was stored: the switch stays off and «Activar huella» can be tapped again.
+     */
+    val interrupted: StateFlow<String?> = interruption.value
+
+    fun interruptionShown(message: String) = interruption.shown(message)
+
     // One enable at a time: a second «Activar huella» while one is running is ignored. Freed by [release], from [end] on
     // every exit, or once a key generation still running at [end] has returned.
     private val enabling = AtomicBoolean(false)
@@ -212,7 +226,9 @@ object BiometricVault {
      * at any step (key, init, prompt error, doFinal) deletes the key and runs the whole cycle once more in the processor's
      * secure zone: the fingerprint may be asked for twice. «StrongBox falló» is recorded only on evidence
      * ([shouldMarkStrongBoxFailed]). A user cancel stops, with no retry and no message. [onDone] gets null when enabled,
-     * a message when not; it is not called on cancel, nor when the activity goes away. Call it on the main thread.
+     * a message when not; it is not called on cancel, nor when the activity goes away. When the activity is re-created
+     * meanwhile (M-4), the flow ends as well (its prompt belongs to the old activity), and [interrupted] says so instead,
+     * for the new activity. Call it on the main thread.
      */
     fun enable(activity: FragmentActivity, dataKey: ByteArray, onDone: (String?) -> Unit) {
         if (!enabling.compareAndSet(false, true)) {
@@ -224,7 +240,11 @@ object BiometricVault {
         val spare = if (nextAfterFailure(first, cancelled = false) != null) dataKey.copyOf() else null
         val flow = EnableFlow(activity, listOfNotNull(dataKey, spare), onDone)
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_DESTROY) end(flow, null, stored = false, notify = false)
+            if (event == Lifecycle.Event.ON_DESTROY) {
+                // Never a silent cancel on a re-creation: the new activity tells the user to tap again.
+                if (!flow.done && activity.isChangingConfigurations) interruption.post(FINGERPRINT_ENABLE_INTERRUPTED)
+                end(flow, null, stored = false, notify = false)
+            }
         }
         flow.observer = observer
         activity.lifecycle.addObserver(observer)
@@ -372,16 +392,47 @@ object BiometricVault {
             }
         }
 
-        val cipher = try {
-            key = keyStore().getKey(ALIAS, null) as? SecretKey ?: throw KeyPermanentlyInvalidatedException()
-            Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, ivBytes)) }
-        } catch (e: KeyPermanentlyInvalidatedException) {
-            disable(activity)
-            return onError("Has cambiado las huellas del móvil: entra con la contraseña maestra y vuelve a activarla")
-        } catch (e: Exception) {
-            // Broad on purpose: any failure to start a StrongBox key leads to the TEE on re-enable, the safe direction.
-            return failedAt(UnlockFailure.INIT, "No se pudo usar la huella")
+        // M-5: loading the Keystore and Cipher.init (a begin on the StrongBox chip, tens to hundreds of ms on some phones)
+        // run off the main thread. The CryptoObject contract is unchanged: the cipher is initialised before authenticate,
+        // which is called back on the main thread.
+        val scope = MainScope()
+        scope.launch {
+            val started: Result<Cipher> = try {
+                withContext(Dispatchers.Default) {
+                    try {
+                        val k = keyStore().getKey(ALIAS, null) as? SecretKey ?: throw KeyPermanentlyInvalidatedException()
+                        key = k
+                        Result.success(Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, k, GCMParameterSpec(128, ivBytes)) })
+                    } catch (e: Exception) {
+                        Result.failure(e)
+                    }
+                }
+            } finally {
+                scope.cancel() // One step; what follows does not suspend.
+            }
+            val cipher = started.getOrElse { e ->
+                if (e is KeyPermanentlyInvalidatedException) {
+                    disable(activity)
+                    return@launch onError("Has cambiado las huellas del móvil: entra con la contraseña maestra y vuelve a activarla")
+                }
+                // Broad on purpose: any failure to start a StrongBox key leads to the TEE on re-enable, the safe direction.
+                return@launch failedAt(UnlockFailure.INIT, "No se pudo usar la huella")
+            }
+            // Back on the main thread: the activity may have gone meanwhile; a prompt asked for now would never show.
+            if (!canPrompt(activity)) return@launch
+            showUnlockPrompt(activity, cipher, wrapped, onKey, onError, ::failedAt)
         }
+    }
+
+    /** The unlock prompt for an initialised [cipher]; [failedAt] decides what a failure means (see [unlock]). */
+    private fun showUnlockPrompt(
+        activity: FragmentActivity,
+        cipher: Cipher,
+        wrapped: ByteArray,
+        onKey: (ByteArray) -> Unit,
+        onError: (String) -> Unit,
+        failedAt: (UnlockFailure, String) -> Unit,
+    ) {
         prompt(activity, "Desbloquear la bóveda", cipher, onOk = { c ->
             if (c == null) return@prompt failedAt(UnlockFailure.NO_CRYPTO_OBJECT, "No se pudo usar la huella")
             // A StrongBox that rejects the fingerprint's auth token fails here, not at init.

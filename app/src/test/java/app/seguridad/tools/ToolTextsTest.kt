@@ -217,7 +217,9 @@ class ToolTextsTest {
             STRONGBOX_AVAILABLE_NOTICE,
         )
         assertEquals(
-            "Desbloquea la bóveda para guardarlo. Si sales de esta pantalla o giras el móvil, lo que ves aquí se pierde.",
+            // CU-B: with the ViewModel the drawn values survive a rotation; this is when they really go.
+            "Desbloquea la bóveda para guardarlo. Lo que ves aquí se pierde si vuelves atrás, si cierras la app o si " +
+                "pasas fuera de esta pantalla más tiempo que el de bloqueo de la bóveda (como mínimo, 1 minuto).",
             CODES_UNLOCK_TO_SAVE,
         )
         assertEquals(

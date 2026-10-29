@@ -17,3 +17,24 @@ const val MAX_DECLARED_SIDE = 32_768
 
 /** The declared size is over [MAX_DECLARED_PIXELS] or [MAX_DECLARED_SIDE]; each screen shows its own fixed text. */
 class ImageTooLarge : Exception()
+
+/** The picked file is over [MAX_IMAGE_BYTES], by the size its provider reports or by what was read. */
+class ImageTooBig : Exception()
+
+/**
+ * The phone ran out of memory reading or decoding the image (a decoder turns its OutOfMemoryError into this, so it is
+ * never told apart as a damaged file).
+ */
+class ImageOutOfMemory : Exception()
+
+/**
+ * What a screen says when opening a picked image failed with [t]: its own texts for a file too big ([tooBig]) or an
+ * image too large ([tooLarge]), [IMAGE_NO_MEMORY] when memory ran out (M-7: never «el archivo está dañado»), and
+ * [other] for anything else.
+ */
+fun imageOpenFailureText(t: Throwable, tooBig: String, tooLarge: String, other: (Throwable) -> String): String = when (t) {
+    is ImageTooBig -> tooBig
+    is ImageTooLarge -> tooLarge
+    is ImageOutOfMemory, is OutOfMemoryError -> IMAGE_NO_MEMORY
+    else -> other(t)
+}

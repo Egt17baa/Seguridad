@@ -11,6 +11,7 @@ import android.graphics.Rect
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.graphics.createBitmap
+import app.seguridad.tools.ImageOutOfMemory
 import app.seguridad.tools.ImageTooLarge
 import app.seguridad.tools.MAX_REDACT_PIXELS
 import app.seguridad.tools.photo.PHOTO_DAMAGED
@@ -40,7 +41,7 @@ class RedactSource(val bitmap: Bitmap, val format: PhotoFormat, val downscaled: 
  * - Android 8: BitmapFactory with inSampleSize, and the JPEG's EXIF orientation applied with a Matrix.
  *
  * Fails closed with [PhotoFailure]: [PHOTO_UNSUPPORTED] for an unknown format, HEIC before Android 9 and AVIF before
- * Android 12; [PHOTO_DAMAGED] for anything else, out of memory included. A header that declares more than
+ * Android 12; [PHOTO_DAMAGED] for anything else; [ImageOutOfMemory] when the Java heap runs out. A header that declares more than
  * declaredSizeAllowed accepts throws [ImageTooLarge] before any pixel is inflated. Whatever the preview shows is what
  * the copy gets: both come from this one bitmap.
  */
@@ -66,13 +67,24 @@ fun decodeForRedaction(bytes: ByteArray): RedactSource {
         throw e
     } catch (e: OutOfMemoryError) {
         bitmap?.recycle()
-        throw PhotoFailure(PHOTO_DAMAGED)
+        throw ImageOutOfMemory() // M-7: said as such, never as a damaged file.
     } catch (e: Exception) {
         bitmap?.recycle()
         throw PhotoFailure(PHOTO_DAMAGED)
     }
 }
 
+/**
+ * M-8, native memory (to check on a phone of 3 or 4 GB): the 24 MP limit assumes 4 bytes per pixel, but
+ * - setTargetSize with a factor that is not a power of two first subsamples to the next power of two above the target
+ *   and then rescales: a 200 MP photo (16320×12240) passes through an 8160×6120 bitmap (about 200 MB of native memory)
+ *   on its way to the 96 MB one kept;
+ * - a 16-bit PNG or an HDR HEIC/AVIF decodes to RGBA_F16 (8 bytes per pixel, about 192 MB at 24 MP) unless asked not to.
+ * That memory is native: running out of it is not an OutOfMemoryError that a catch can turn into a message, the system
+ * kills the process (fails closed, nothing is written). Left as it is until the phone checklist shows it is needed;
+ * the low-risk changes then are decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM) (API 28, avoids F16)
+ * when info.isWideGamut or the image is 16-bit, or setTargetSampleSize(n) when that alone keeps under the limit.
+ */
 @RequiresApi(Build.VERSION_CODES.P)
 private fun withImageDecoder(bytes: ByteArray): Pair<Bitmap, Boolean> {
     var downscaled = false

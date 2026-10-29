@@ -1,5 +1,7 @@
 package app.seguridad.ui.screens
 
+import android.content.res.AssetManager
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,20 +37,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.copySensitive
 import app.seguridad.tools.ANSWERS_ADD_QUESTION
 import app.seguridad.tools.ANSWERS_BLANK_QUESTION
@@ -78,18 +85,16 @@ import app.seguridad.tools.CODES_SITE_NEEDED
 import app.seguridad.tools.CODES_TOOL_TITLE
 import app.seguridad.tools.CODES_UNLOCK_TO_SAVE
 import app.seguridad.tools.RECOVERY_CODES_TEXT
-import app.seguridad.tools.codes.InventedQuestion
-import app.seguridad.tools.codes.generatePin
-import app.seguridad.tools.codes.inventedAnswer
-import app.seguridad.tools.codes.inventedAnswersNote
+import app.seguridad.tools.codes.Cell
+import app.seguridad.tools.codes.CellFactory
+import app.seguridad.tools.codes.CodesSession
+import app.seguridad.tools.codes.PendingSave
+import app.seguridad.tools.codes.SaveKind
 import app.seguridad.tools.codes.pinBits
-import app.seguridad.tools.codes.recoveryCodes
-import app.seguridad.tools.codes.recoveryCodesNote
 import app.seguridad.tools.codes.strongPinCount
 import app.seguridad.tools.pinCountText
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.SectionCard
-import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CancellationException
@@ -99,6 +104,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -111,113 +118,124 @@ private val pinCounts = ConcurrentHashMap<Int, Deferred<Long>>()
 
 private fun pinCount(digits: Int): Deferred<Long> = pinCounts.computeIfAbsent(digits) { pinCountScope.async { strongPinCount(digits) } }
 
-private enum class SaveKind { RECOVERY, ANSWERS }
+/** Compose state for a [CodesSession]: what the ViewModel holds redraws the screen when it changes. */
+private object ComposeCells : CellFactory {
+    override fun <T> cell(initial: T): Cell<T> = object : Cell<T> {
+        private val state = mutableStateOf(initial)
+        override var value: T
+            get() = state.value
+            set(v) {
+                state.value = v
+            }
+    }
 
-/**
- * A save waiting for the vault to open. The note is built (with its id) when it is queued, so writing it again, whatever
- * the reason, replaces the same entry with the same content instead of adding another.
- */
-private class PendingSave(val kind: SaveKind, val entry: VaultEntry)
-
-private class AnswerRow(question: String, answer: String) {
-    var question by mutableStateOf(question)
-    var answer by mutableStateOf(answer)
+    override fun <T> list(): MutableList<T> = mutableStateListOf()
 }
 
 /**
- * «PIN y códigos» (`tools/codes`): a random PIN without the usual patterns, ten recovery codes and invented answers for
- * security questions. All three are drawn here from the app's secure random source and nothing leaves the phone.
- *
- * What is drawn is a secret: it lives only in `remember` (never in saved state, never in a log), and the system text
- * menu has no Copy ([NoCopy]); it leaves through «Copiar» ([copySensitive]) or into the vault as a note. Saving goes
- * through the existing [VaultGate] when the vault is locked, and the draw waits on this screen meanwhile.
+ * Holds the screen's [CodesSession] for its navigation entry: a rotation, a theme change or a split screen keeps what
+ * was drawn, the death of the process does not (never in saved state: a Bundle can go to disk). The BIP-39 list is read
+ * here, off the main thread (M-10). A save runs in [viewModelScope], so a rotation does not cut it. When the vault locks
+ * the session decides what goes ([CodesSession.vaultStateIs]); when the entry is gone for good, every secret goes.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
-    val actions = vaultActions(store, snackbar)
-    val vaultState by store.state.collectAsStateWithLifecycle()
-    // The Bóveda tab loads it too; this screen can be reached first.
-    LaunchedEffect(store) { store.load() }
+private class CodesViewModel(private val store: VaultStore, assets: AssetManager) : ViewModel() {
+    val session = CodesSession(ComposeCells)
 
-    val words = remember { context.assets.open("bip39_spanish.txt").bufferedReader(Charsets.UTF_8).use { it.readLines() }.filter { it.isNotBlank() } }
+    /** What the last save said, for the snackbar; null once shown. */
+    var saveMessage by mutableStateOf<String?>(null)
 
-    var digits by remember { mutableIntStateOf(6) }
-    var pin by remember { mutableStateOf(generatePin(6)) }
-    var count by remember { mutableStateOf<Long?>(null) }
-    // Off the main thread, once per length: 10^8 values at 8 digits take a few seconds.
-    LaunchedEffect(digits) { count = pinCount(digits).await() }
-
-    var codes by remember { mutableStateOf(recoveryCodes()) }
-    var recoverySite by remember { mutableStateOf("") }
-
-    var plain by remember { mutableStateOf(true) }
-    var answersSite by remember { mutableStateOf("") }
-    val rows = remember { mutableStateListOf(AnswerRow("", inventedAnswer(words, plain = true))) }
-
-    var pending by remember { mutableStateOf<PendingSave?>(null) }
-    var saving by remember { mutableStateOf(false) }
-
-    fun noteFor(kind: SaveKind): VaultEntry {
-        val now = System.currentTimeMillis()
-        val id = UUID.randomUUID().toString()
-        return when (kind) {
-            SaveKind.RECOVERY -> recoveryCodesNote(recoverySite.trim(), codes, now, id)
-            SaveKind.ANSWERS -> inventedAnswersNote(
-                answersSite.trim(),
-                rows.map { InventedQuestion(it.question.trim(), it.answer) },
-                now,
-                id,
-            )
+    init {
+        viewModelScope.launch {
+            val words = withContext(Dispatchers.IO) {
+                try {
+                    assets.open("bip39_spanish.txt").bufferedReader(Charsets.UTF_8).use { it.readLines() }.filter { it.isNotBlank() }
+                } catch (e: IOException) {
+                    null // Never happens with the APK's own asset; the answers just stay off.
+                }
+            }
+            words?.let(session::wordsLoaded)
         }
+        // Collected for the entry's whole life (also while another screen is on top): the session tells a lock seen
+        // while the screen is shown from the one that leaving the app makes.
+        viewModelScope.launch { store.state.collect { session.vaultStateIs(it is VaultState.Unlocked) } }
+    }
+
+    fun requestSave(kind: SaveKind) {
+        val unlocked = store.state.value is VaultState.Unlocked
+        val save = session.requestSave(kind, unlocked, System.currentTimeMillis(), UUID.randomUUID().toString()) ?: return
+        write(save)
     }
 
     /**
-     * Writes [save]'s note, in the screen's own scope (leaving the gate does not cancel it). Idempotent: one write at a
-     * time, and the entry keeps its id, so a repeat replaces it. Whenever the note was written, what it holds leaves the
-     * screen (drawn again or blank), so it does not stay in view; on failure nothing is cleared. The gate, if any, goes.
+     * Writes [save]'s note. Idempotent: one write at a time, and the entry keeps its id, so a repeat replaces it. The gate,
+     * if any, goes; whenever the note was written, what it holds leaves the screen ([CodesSession.endWrite]).
      */
     fun write(save: PendingSave) {
-        if (saving) return
-        saving = true
-        scope.launch {
+        if (!session.beginWrite(save)) return
+        viewModelScope.launch {
             val saved = try {
                 store.upsert(save.entry)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 false // Nothing is logged: the note holds the secrets.
-            } finally {
-                saving = false
-                pending = null
             }
-            if (saved) {
-                when (save.kind) {
-                    SaveKind.RECOVERY -> {
-                        codes = recoveryCodes()
-                        recoverySite = ""
-                    }
-                    SaveKind.ANSWERS -> {
-                        answersSite = ""
-                        rows.clear()
-                        rows.add(AnswerRow("", inventedAnswer(words, plain)))
-                    }
-                }
-            }
-            // Its own coroutine: showSnackbar waits until the message goes, and nothing here waits for that.
-            scope.launch { snackbar.showSnackbar(if (saved) CODES_SAVED else CODES_SAVE_FAILED) }
+            session.endWrite(save, saved)
+            saveMessage = if (saved) CODES_SAVED else CODES_SAVE_FAILED
         }
     }
 
-    fun requestSave(kind: SaveKind) {
-        if (saving || pending != null) return // One save at a time: a second tap would add a second note.
-        val save = PendingSave(kind, noteFor(kind))
-        if (vaultState is VaultState.Unlocked) write(save) else pending = save
+    override fun onCleared() {
+        session.clear()
+        saveMessage = null
+    }
+}
+
+/**
+ * «PIN y códigos» (`tools/codes`): a random PIN without the usual patterns, ten recovery codes and invented answers for
+ * security questions. All three are drawn here from the app's secure random source and nothing leaves the phone.
+ *
+ * What is drawn is a secret: it lives in this entry's [CodesViewModel] (never in saved state, never in a log), and the
+ * system text menu has no Copy ([NoCopy]); it leaves through «Copiar» ([copySensitive]) or into the vault as a note.
+ * Saving goes through the existing [VaultGate] when the vault is locked, and the draw waits on this screen meanwhile.
+ * I-1: back after more than the vault's lock time away ([lockAfterMs], at least a minute, measured on the monotonic
+ * clock from ON_STOP), or once the vault locks while it is shown, the screen is empty again.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val actions = vaultActions(store, snackbar)
+    // The Bóveda tab loads it too; this screen can be reached first.
+    LaunchedEffect(store) { store.load() }
+
+    val appAssets = context.applicationContext.assets
+    val vm = viewModel { CodesViewModel(store, appAssets) }
+    val session = vm.session
+    val currentLockAfter by rememberUpdatedState(lockAfterMs)
+
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { session.stopped(SystemClock.elapsedRealtime()) }
+    // Also replayed when the screen is composed again (a rotation, back from another tab): a stop of the same trip is
+    // used once, and a first visit has none.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { session.started(SystemClock.elapsedRealtime(), currentLockAfter()) }
+    // Another tab chosen: this composition goes without a stop of its own; the time away counts from here.
+    DisposableEffect(session) { onDispose { session.stopped(SystemClock.elapsedRealtime()) } }
+
+    var count by remember { mutableStateOf<Long?>(null) }
+    // Off the main thread, once per length: 10^8 values at 8 digits take a few seconds.
+    LaunchedEffect(session.digits) { count = pinCount(session.digits).await() }
+
+    vm.saveMessage?.let { message ->
+        LaunchedEffect(message) {
+            vm.saveMessage = null
+            snackbar.showSnackbar(message)
+        }
     }
 
+    val saving = session.saving
+    val pending = session.pending
+    val rows = session.rows
     val busy = saving || pending != null
     val blankQuestion = rows.any { it.question.isBlank() }
 
@@ -236,18 +254,20 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
             Column(Modifier.padding(padding).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(CODES_UNLOCK_TO_SAVE, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(enabled = !saving, onClick = { pending = null }) { Text(CODES_CANCEL_SAVE) }
+                    TextButton(enabled = !saving, onClick = session::cancelSave) { Text(CODES_CANCEL_SAVE) }
                 }
                 VaultGate(store, onImport = actions.import, modifier = Modifier.weight(1f)) {
                     // Open now: write the note queued, then back to the screen.
-                    LaunchedEffect(waiting) { write(waiting) }
+                    LaunchedEffect(waiting) { vm.write(waiting) }
                     CircularProgressIndicator()
                 }
             }
         } else {
             NoCopy {
                 Column(
-                    Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+                    // imePadding (M-9): with edge-to-edge the keyboard does not shrink the window, so the last questions
+                    // would stay under it.
+                    Modifier.padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     // ---- PIN ----
@@ -258,10 +278,10 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                     )
                     SectionCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(pin, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.headlineMedium)
+                            Text(session.pin, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.headlineMedium)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                FilledTonalButton(onClick = { pin = generatePin(digits) }) { Text(CODES_ANOTHER_PIN) }
-                                OutlinedButton(onClick = { copySensitive(context, pin) }) { Text(CODES_COPY) }
+                                FilledTonalButton(onClick = session::newPin) { Text(CODES_ANOTHER_PIN) }
+                                OutlinedButton(onClick = { copySensitive(context, session.pin) }) { Text(CODES_COPY) }
                             }
                         }
                     }
@@ -269,14 +289,10 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         (4..8).forEachIndexed { i, n ->
                             SegmentedButton(
-                                selected = digits == n,
+                                selected = session.digits == n,
                                 onClick = {
                                     // The effect keyed on the length computes the count; tapping the selected length only draws again.
-                                    if (n != digits) {
-                                        digits = n
-                                        count = null
-                                    }
-                                    pin = generatePin(n)
+                                    if (session.chooseDigits(n)) count = null
                                 },
                                 shape = SegmentedButtonDefaults.itemShape(i, 5),
                             ) { Text("$n") }
@@ -290,17 +306,17 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                     Text(RECOVERY_CODES_TEXT, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SectionCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            codes.forEach { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium) }
+                            session.codes.forEach { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium) }
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                FilledTonalButton(onClick = { codes = recoveryCodes() }) { Text(CODES_ANOTHER_CODES) }
-                                OutlinedButton(onClick = { copySensitive(context, codes.joinToString("\n")) }) { Text(CODES_COPY_ALL) }
+                                FilledTonalButton(onClick = session::newCodes) { Text(CODES_ANOTHER_CODES) }
+                                OutlinedButton(onClick = { copySensitive(context, session.codes.joinToString("\n")) }) { Text(CODES_COPY_ALL) }
                             }
                         }
                     }
-                    SiteField(recoverySite) { recoverySite = it }
+                    SiteField(session.recoverySite) { session.recoverySite = it }
                     Button(
-                        enabled = !busy && recoverySite.isNotBlank(),
-                        onClick = { requestSave(SaveKind.RECOVERY) },
+                        enabled = !busy && session.recoverySite.isNotBlank(),
+                        onClick = { vm.requestSave(SaveKind.RECOVERY) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(CODES_SAVE_AS_NOTE) }
 
@@ -314,12 +330,9 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(ANSWERS_NO_ACCENTS, modifier = Modifier.weight(1f))
                         Switch(
-                            checked = plain,
-                            onCheckedChange = { on ->
-                                plain = on
-                                // Accents cannot be put back on a plain answer: every answer is drawn again in the chosen form.
-                                rows.forEach { it.answer = inventedAnswer(words, plain = on) }
-                            },
+                            checked = session.plain,
+                            enabled = session.canDrawAnswers,
+                            onCheckedChange = session::setPlainAnswers,
                         )
                     }
                     Text(
@@ -327,7 +340,7 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    SiteField(answersSite) { answersSite = it }
+                    SiteField(session.answersSite) { session.answersSite = it }
                     rows.forEachIndexed { i, row ->
                         SectionCard(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -340,23 +353,23 @@ fun CodesScreen(store: VaultStore, onBack: () -> Unit) {
                                 )
                                 Text(row.answer, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    FilledTonalButton(onClick = { rows[i].answer = inventedAnswer(words, plain) }) { Text(ANSWERS_OTHER) }
-                                    OutlinedButton(onClick = { copySensitive(context, row.answer) }) { Text(CODES_COPY) }
-                                    if (rows.size > 1) TextButton(onClick = { rows.removeAt(i) }) { Text(ANSWERS_REMOVE_QUESTION) }
+                                    FilledTonalButton(enabled = session.canDrawAnswers, onClick = { session.newAnswer(i) }) { Text(ANSWERS_OTHER) }
+                                    OutlinedButton(enabled = row.answer.isNotEmpty(), onClick = { copySensitive(context, row.answer) }) { Text(CODES_COPY) }
+                                    if (rows.size > 1) TextButton(onClick = { session.removeQuestion(i) }) { Text(ANSWERS_REMOVE_QUESTION) }
                                 }
                             }
                         }
                     }
                     OutlinedButton(
-                        onClick = { rows.add(AnswerRow("", inventedAnswer(words, plain))) },
+                        onClick = session::addQuestion,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(ANSWERS_ADD_QUESTION) }
                     if (blankQuestion) {
                         Text(ANSWERS_BLANK_QUESTION, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Button(
-                        enabled = !busy && answersSite.isNotBlank() && !blankQuestion,
-                        onClick = { requestSave(SaveKind.ANSWERS) },
+                        enabled = !busy && session.answersSite.isNotBlank() && !blankQuestion && session.canDrawAnswers,
+                        onClick = { vm.requestSave(SaveKind.ANSWERS) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(ANSWERS_SAVE) }
                 }
