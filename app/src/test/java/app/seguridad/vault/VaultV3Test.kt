@@ -618,4 +618,26 @@ class VaultV3Test {
         val mixed = VaultCrypto.afterMasterUnlock(up, dek.copyOf(), master, 4, KdfParams(1024, 3, 1))
         assertEquals(VaultKdf(2048, 3, 1), mixed.kdf)
     }
+
+    @Test fun biometricRefusalSaysWhyTheClockOrTheSevenDays() {
+        val now = 1_000_000_000L
+        val (file, dek) = VaultCrypto.create("m".toCharArray(), now, KdfParams(1024, 1, 1))
+        dek.fill(0)
+        assertNull(VaultCrypto.biometricRefusal(file, now, now))
+        assertEquals(BiometricRefusal.CLOCK, VaultCrypto.biometricRefusal(file, now, now + 6 * 60_000))
+        assertEquals(BiometricRefusal.CLOCK, VaultCrypto.biometricRefusal(file, now - 1)) // Before the last check.
+        assertEquals(BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file, now + MASTER_RECHECK_MS))
+        assertEquals(BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file.copy(version = 1), now))
+    }
+
+    // Fix round 1: converting an old file never lowers its cost either (real 1.1 file: 1024 KiB, 1 pass).
+    @Test fun conversionOfAStrongerOldFileKeepsItsCost() {
+        val v2 = v2Fixture()
+        val up = VaultCrypto.afterMasterUnlock(v2, fixtureDek(), master.toCharArray(), clock, KdfParams(512, 3, 1))
+        assertEquals(VaultKdf(1024, 3, 1), up.kdf)
+        assertEquals(3, up.version)
+        val keep = VaultCrypto.afterMasterUnlock(v2, fixtureDek(), master.toCharArray(), clock, KdfParams(256, 1, 1))
+        assertEquals(v2.kdf, keep.kdf)
+        assertArrayEquals(fixtureDek(), VaultCrypto.unlock(up, master.toCharArray()))
+    }
 }

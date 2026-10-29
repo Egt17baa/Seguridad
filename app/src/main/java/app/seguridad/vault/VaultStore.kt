@@ -64,6 +64,8 @@ class VaultStore(
     private val clockHighWater: () -> Long = { 0 },
     /** Told the time at every unlock and every [touch]; the app keeps the highest in the settings. */
     private val onClockSeen: (Long) -> Unit = {},
+    /** Told the time after the master password was verified (unlock, [confirmMaster], import): the mark restarts there, even lower. */
+    private val onClockReset: (Long) -> Unit = {},
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -268,11 +270,15 @@ class VaultStore(
             key.fill(0)
             throw e
         }
+        onClockReset(now()) // The master password was right: a clock set forward no longer blocks the fingerprint.
         // A full disk must not lock the user out of their passwords: open anyway (see [commit]).
         commit(checked, key, since, mustSave = false)
     }
 
-    val biometricAllowed: Boolean get() = vault?.let { VaultCrypto.biometricAllowed(it, now(), clockHighWater()) } ?: false
+    val biometricAllowed: Boolean get() = biometricRefusal == null && vault != null
+
+    /** Why the fingerprint is refused now (null when allowed or there is no vault). */
+    val biometricRefusal: BiometricRefusal? get() = vault?.let { VaultCrypto.biometricRefusal(it, now(), clockHighWater()) }
 
     /** With a data key released by the biometric prompt. Throws [MasterRequired] when the 7-day recheck is due. */
     suspend fun unlockWithKey(key: ByteArray) {
@@ -311,6 +317,7 @@ class VaultStore(
         if (dek == null || _state.value !is VaultState.Unlocked) return@withLock false
         val since = epoch
         val key = withContext(compute) { VaultCrypto.unlock(v, master) }
+        onClockReset(now())
         if (v.format == VaultFile.FORMAT && v.version == VaultFile.VERSION) {
             key.fill(0) // Only the check.
             return@withLock true
@@ -621,6 +628,7 @@ class VaultStore(
                 withContext(io) { refs.forEach { checkInBackup(it, backup.first) } }
             }
             beforeReplace() // Last: only when all of the copy is fine.
+            onClockReset(now()) // The copy's master password was verified.
             checked to refs
         } catch (e: Exception) {
             key.fill(0)

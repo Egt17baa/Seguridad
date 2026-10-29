@@ -67,6 +67,7 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.totpCode
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
+import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
@@ -270,6 +271,9 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
 const val FORGOT_DIALOG_TEXT =
     "Se borrarán la bóveda y también los archivos dañados que la app guardó al intentar repararla. No se puede deshacer."
 
+/** Shown instead of the 7-day notice when the clock gate refused the fingerprint (A11). */
+const val CLOCK_CHANGED_TEXT = "La hora del móvil ha cambiado. Por seguridad, escribe la contraseña maestra."
+
 @Composable
 private fun UnlockVault(store: VaultStore) {
     val context = LocalContext.current
@@ -318,8 +322,13 @@ private fun UnlockVault(store: VaultStore) {
         ) { Text("Desbloquear") }
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
         if (bio) OutlinedButton(onClick = ::withFingerprint, modifier = Modifier.fillMaxWidth()) { Text("Usar huella") }
-        if (BiometricVault.enabled(context) && !store.biometricAllowed) {
-            Text("Por seguridad, cada 7 días hay que escribir la contraseña maestra.", style = MaterialTheme.typography.bodySmall)
+        if (BiometricVault.enabled(context)) {
+            when (store.biometricRefusal) {
+                BiometricRefusal.CLOCK -> Text(CLOCK_CHANGED_TEXT, style = MaterialTheme.typography.bodySmall)
+                BiometricRefusal.MASTER_DUE ->
+                    Text("Por seguridad, cada 7 días hay que escribir la contraseña maestra.", style = MaterialTheme.typography.bodySmall)
+                null -> Unit
+            }
         }
         error?.let { Text(it, color = NegativeColor) }
         TextButton(onClick = { confirmDestroy = true }) { Text("He olvidado la contraseña maestra") }

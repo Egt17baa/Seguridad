@@ -2,7 +2,11 @@ package app.seguridad
 
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.net.secureClient
+import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.settings.SettingsStore
+import app.seguridad.settings.clockMarkWorthWriting
+import app.seguridad.settings.resettingClock
+import app.seguridad.settings.seeingClock
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.withAutoBackupResult
 import app.seguridad.tools.share.ShareTemp
@@ -20,9 +24,6 @@ import java.io.File
 
 /** The settings file, in the app's private files directory. */
 const val SETTINGS_FILE = "settings.json"
-
-/** The clock mark in the settings is rewritten only when the time is this far past it. */
-private const val CLOCK_WRITE_STEP_MS = 30_000L
 
 /**
  * Manual dependency graph, one per process. Plain JVM: no Android types, so jvm-check compiles it too.
@@ -60,15 +61,22 @@ class AppContainer(
         beforeReplace = { settings.forgetAutoBackupCopies() },
         clockHighWater = { settings.settings.value.clockHighWaterMs },
         onClockSeen = ::rememberClock,
+        onClockReset = ::resetClock,
     )
 
     /**
-     * Keeps the highest time seen in the settings (it only rises). Called at every unlock and touch, so it writes only
-     * when the time is [CLOCK_WRITE_STEP_MS] past the mark: the mark may lag by that much, well under the 5 minutes of slack.
+     * Keeps the highest time seen in the settings (it only rises). Called at every unlock and touch and once at start,
+     * so it writes only when the time is [CLOCK_WRITE_STEP_MS] past the mark: the mark may lag by that much, well
+     * under the 5 minutes of slack.
      */
-    private fun rememberClock(seen: Long) {
-        if (seen < settings.settings.value.clockHighWaterMs + CLOCK_WRITE_STEP_MS) return
-        appScope.launch { settings.update { if (seen > it.clockHighWaterMs) it.copy(clockHighWaterMs = seen) else it } }
+    fun rememberClock(seen: Long) {
+        if (!clockMarkWorthWriting(settings.settings.value.clockHighWaterMs, seen)) return
+        appScope.launch { settings.update { it.seeingClock(seen) } }
+    }
+
+    /** After a master password check the mark restarts at [now], even lower: a clock set forward by mistake heals. */
+    private fun resetClock(now: Long) {
+        appScope.launch { settings.update { it.resettingClock(now) } }
     }
 
     /** The one shared image copy (cacheDir/compartir/): wiped at start and on return after 10 minutes, never on lock. */

@@ -87,3 +87,15 @@ const val AUTO_BACKUP_KEEP_DEFAULT = 5
  * also opens on phones with a somewhat smaller heap.
  */
 fun KdfProfile.availableOn(heapKiB: Long): Boolean = this == KdfProfile.STANDARD || heapKiB / 2 >= params.memoryKiB
+
+/** The clock mark is rewritten only when the time is this far past it (it is told at every touch). */
+const val CLOCK_WRITE_STEP_MS = 30_000L
+
+/** Whether [seen] is worth writing over [mark]: at least [CLOCK_WRITE_STEP_MS] past it. A lower time never is. */
+fun clockMarkWorthWriting(mark: Long, seen: Long): Boolean = seen >= mark + CLOCK_WRITE_STEP_MS
+
+/** These settings having seen [seen]: the mark only rises. */
+fun Settings.seeingClock(seen: Long): Settings = if (seen > clockHighWaterMs) copy(clockHighWaterMs = seen) else this
+
+/** These settings after a master password check at [now]: the mark restarts there, which may lower it. */
+fun Settings.resettingClock(now: Long): Settings = if (now == clockHighWaterMs) this else copy(clockHighWaterMs = now)
