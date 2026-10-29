@@ -284,7 +284,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                     EntryType.LOGIN -> {
                         OutlinedTextField(username, { username = it }, label = { Text("Usuario o correo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         PasswordField(loginPassword, { loginPassword = it })
-                        TextButton(onClick = { loginPassword = generatePassword(PasswordOptions(length = 20)) ?: loginPassword }) { Text("🎲 Generar una segura") }
+                        TextButton(onClick = { loginPassword = generatePassword(PasswordOptions(length = 20)) ?: loginPassword }) { Text("🎲 Generar una al azar") }
                         OutlinedTextField(url, { url = it }, label = { Text("Web") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
                     EntryType.SEED -> {
@@ -301,7 +301,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                         val (n, valid) = seedWordCount(seed)
                         if (n > 0) Text("$n palabras" + if (valid) " ✓" else " (lo habitual son 12, 15, 18, 21 o 24)", style = MaterialTheme.typography.bodySmall)
                         PasswordField(seedPassphrase, { seedPassphrase = it }, label = "Passphrase BIP-39 (opcional)")
-                        TextButton(onClick = { seedPassphrase = generatePassword(PasswordOptions(length = 20)) ?: seedPassphrase }) { Text("🎲 Generar una segura") }
+                        TextButton(onClick = { seedPassphrase = generatePassword(PasswordOptions(length = 20)) ?: seedPassphrase }) { Text("🎲 Generar una al azar") }
                         Text(
                             "Una passphrase crea una wallet distinta. Guárdala en un sitio distinto de la frase: quien tenga solo la frase no accede a esos fondos. Si la pierdes, tú tampoco.",
                             style = MaterialTheme.typography.bodySmall,

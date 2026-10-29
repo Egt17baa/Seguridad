@@ -88,22 +88,19 @@ class ToolTextsTest {
 
     @Test
     fun noForbiddenWords() {
-        // Explicitly allowed by the annex: «Sin avisos» names «seguro» only to deny it, and Tachar says «no se puede
-        // recuperar» about the covered pixels of the copy.
-        val exceptions = setOf(QR_NO_ALERTS, REDACT_EXPLANATION)
-        val banned = listOf("anónim", "imposible", "100 %", "100%", "de verdad", "validez legal", "sospechos")
-        for (text in ALL_TOOL_TEXTS - exceptions) {
-            val t = text.lowercase()
-            for (b in banned) assertFalse("«$b» in: $text", b in t)
-            Regex("garantiza").findAll(t).forEach { m ->
-                assertTrue("«garantiza» without «no» in: $text", t.substring(0, m.range.first).endsWith("no "))
-            }
-            // «limpio/a/os/as» (the verb in «Limpiar foto» names an action, not a state: the owner allows it).
-            assertFalse("«limpio/a» in: $text", Regex("(?<![\\p{L}])limpi[oa]s?(?![\\p{L}])").containsMatchIn(t))
-            // «seguro», «segura» and their plurals as whole words (not «Seguridad» nor «Por seguridad»).
-            val claims = t.replace("no garantiza que sea seguro", "")
-            assertFalse("«seguro/a» in: $text", Regex("(?<![\\p{L}])segur[oa]s?(?![\\p{L}])").containsMatchIn(claims))
+        // «Sin avisos» names «seguro» only to deny it: ForbiddenWords strips «no garantiza que sea seguro». Tachar says
+        // «no se puede recuperar» about the covered pixels of the copy; no word of it is forbidden, so no text is exempt.
+        for (text in ALL_TOOL_TEXTS) {
+            val problems = ForbiddenWords.problems(text)
+            assertTrue("$problems in: $text", problems.isEmpty())
         }
+    }
+
+    @Test
+    fun heifNoticeNamesTheRealLimit() {
+        // The text says «unos 24 megapíxeles»: it must follow the limit heifToJpeg really applies.
+        assertTrue("${MAX_REDACT_PIXELS / 1_000_000} megapíxeles" in PHOTO_HEIF_NOTICE)
+        assertEquals(24_000_000, MAX_REDACT_PIXELS)
     }
 
     @Test

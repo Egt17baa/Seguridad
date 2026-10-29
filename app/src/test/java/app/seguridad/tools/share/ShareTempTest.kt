@@ -93,7 +93,7 @@ class ShareTempTest {
         temp.onReturn()
         // Something left by an earlier process (the start wipe failed or has not run yet): stale, so it goes.
         dir.mkdirs()
-        File(dir, "foto-limpia.jpg").writeText("de antes") // an old name: a leftover is wiped whatever its name
+        File(dir, "foto-limpia.jpg").writeText("de antes") // the name an earlier build gave the copy: nothing is special about it, whatever is in compartir/ goes
         temp.onReturn()
         assertTrue(names().isEmpty())
     }

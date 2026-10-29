@@ -159,7 +159,7 @@ private fun SecretInput(
             if (isRawKeyText(keyHex)) OutlinedButton(onClick = { copySensitive(context, keyHex) }) { Text("Copiar clave") }
         }
         Text(
-            "Una clave aleatoria de 256 bits: imposible de adivinar. Apúntala en papel y guárdala SEPARADA del texto cifrado: " +
+            "Una clave aleatoria de 256 bits: en la práctica, nadie puede adivinarla. Apúntala en papel y guárdala SEPARADA del texto cifrado: " +
                 "sin ella nadie, ni tú, puede descifrarlo.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
