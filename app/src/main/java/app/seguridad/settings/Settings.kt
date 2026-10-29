@@ -49,6 +49,8 @@ data class Settings(
      */
     val autoBackupCopies: List<String> = emptyList(),
     val autoBackupCopiesFolder: String? = null,
+    /** The highest time of day the app ever saw (epoch ms), a mark that only rises: a clock set back behind it ends the fingerprint. */
+    val clockHighWaterMs: Long = 0,
 )
 
 /** [Settings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */

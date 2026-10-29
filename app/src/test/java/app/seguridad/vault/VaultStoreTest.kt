@@ -23,6 +23,20 @@ class VaultStoreTest {
     private fun store(name: String = "vault.bin") =
         VaultStore(File(tmp.root, name), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
 
+    /** A store with the 1.3.0 clock mark and the given Argon2id cost for what it wraps next. */
+    private fun clockStore(highWater: () -> Long, seen: (Long) -> Unit, kdf: KdfParams = KdfParams(1024, 1, 1)) =
+        VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { kdf },
+            clockHighWater = highWater, onClockSeen = seen,
+        )
+
+    /** A .sgbak (no attachments) of a vault made with [kdf] and one note, opened by the master password "m". */
+    private fun backupWith(kdf: KdfParams): Pair<ByteArray, VaultFile> {
+        val (file, dek) = VaultCrypto.create("m".toCharArray(), clock, kdf)
+        val written = VaultCrypto.write(file, dek, listOf(entry("1", "Wallet")))
+        return java.io.ByteArrayOutputStream().also { writeBackup(it, VaultCrypto.encodeFile(written), emptyMap()) }.toByteArray() to written
+    }
+
     private fun entry(id: String, title: String) = VaultEntry(id, EntryType.NOTE, title, notes = "secreto", createdAt = 0, updatedAt = 0)
 
     @Test fun `create, add, lock and unlock again`() = runTest {
@@ -432,5 +446,89 @@ class VaultStoreTest {
         assertFalse(f.exists())
         assertEquals(0L, s.revision.value)
         assertTrue(tmp.root.listFiles()!!.any { it.name.startsWith("vault.bin.bad-") && it.readText() == "dañado" })
+    }
+
+    // A8 (1.3.0): a copy with a cheap Argon2id is wrapped again with the profile's cost, same data key, revision + 1.
+    @Test fun importWithWeakKdfIsRewrapped() = runTest {
+        val profile = KdfParams(64 * 1024, 3, 1)
+        val (copy, before) = backupWith(KdfParams(8 * 1024, 1, 1))
+        val s = clockStore({ 0 }, {}, profile).apply { load(); create("otra".toCharArray()) }
+        s.importReplace(copy.inputStream(), "m".toCharArray())
+        val saved = VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText())
+        assertEquals(VaultKdf(profile.memoryKiB, profile.iterations, profile.parallelism), saved.kdf)
+        assertEquals(before.revision + 1, saved.revision)
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+        s.lock()
+        s.unlock("m".toCharArray()) // The master opens it with the new cost.
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+    }
+
+    @Test fun importWithStrongerKdfIsKept() = runTest {
+        val strong = KdfParams(128 * 1024, 4, 1)
+        val (copy, _) = backupWith(strong)
+        val s = clockStore({ 0 }, {}, KdfParams(64 * 1024, 3, 1)).apply { load(); create("otra".toCharArray()) }
+        s.importReplace(copy.inputStream(), "m".toCharArray())
+        val saved = VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText())
+        assertEquals(VaultKdf(strong.memoryKiB, strong.iterations, strong.parallelism), saved.kdf)
+        assertEquals(1, (s.state.value as VaultState.Unlocked).entries.size)
+    }
+
+    // A11 (1.3.0): the store reports the clock it sees and refuses the fingerprint after the clock was set back.
+    @Test fun clockSeenOnUnlockAndTouchAndMarkBlocksFingerprint() = runTest {
+        val seen = mutableListOf<Long>()
+        var mark = 0L
+        val s = clockStore({ mark }, { seen += it }).apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        assertEquals(listOf(clock), seen) // The creation opened it.
+        clock += 10; s.touch()
+        assertEquals(clock, seen.last())
+        s.lock()
+        mark = clock + 6 * 60_000
+        assertFalse(s.biometricAllowed)
+        try {
+            s.unlockWithKey(key.copyOf())
+            fail()
+        } catch (e: MasterRequired) {
+            // expected
+        }
+        mark = clock + 4 * 60_000
+        assertTrue(s.biometricAllowed)
+        s.unlockWithKey(key.copyOf())
+        assertTrue(s.state.value is VaultState.Unlocked)
+    }
+
+    // A12 (1.3.0): destroy() also removes what keepAside() left.
+    @Test fun destroyRemovesBadCopies() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        File(tmp.root, "vault.bin.bad-123").writeText("x")
+        File(tmp.root, "vault.bin.bad-456").writeText("y")
+        File(tmp.root, "att.bad-123").apply { mkdirs(); File(this, "f").writeText("z") }
+        File(tmp.root, "otra.bin.bad-1").writeText("not ours")
+        File(tmp.root, "att").mkdirs()
+        s.destroy()
+        val left = tmp.root.listFiles()!!.map { it.name }
+        assertTrue(left.toString(), left.none { it.startsWith("vault.bin.bad-") || it.startsWith("att.bad-") })
+        assertTrue(left.contains("otra.bin.bad-1"))
+        assertFalse(File(tmp.root, "vault.bin").exists())
+    }
+
+    // A16c (1.2.1, covered here): the key handed to unlockWithKey is zeroed on every early exit.
+    @Test fun unlockWithKeyEarlyExitWipesKey() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        clock += MASTER_RECHECK_MS // Recheck due: early exit with MasterRequired.
+        val due = key.copyOf()
+        try {
+            s.unlockWithKey(due)
+            fail()
+        } catch (e: MasterRequired) {
+            // expected
+        }
+        assertTrue(due.all { it == 0.toByte() })
+        val noVault = store("none.bin").apply { load() } // No vault: nothing to open.
+        val spare = key.copyOf()
+        noVault.unlockWithKey(spare)
+        assertTrue(spare.all { it == 0.toByte() })
     }
 }

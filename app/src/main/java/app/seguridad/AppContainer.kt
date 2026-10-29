@@ -14,11 +14,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.File
 
 /** The settings file, in the app's private files directory. */
 const val SETTINGS_FILE = "settings.json"
+
+/** The clock mark in the settings is rewritten only when the time is this far past it. */
+private const val CLOCK_WRITE_STEP_MS = 30_000L
 
 /**
  * Manual dependency graph, one per process. Plain JVM: no Android types, so jvm-check compiles it too.
@@ -54,7 +58,18 @@ class AppContainer(
         beforeCreate = { settings.turnOffAutoBackupForNewVault()?.let(releaseFolder) },
         // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted.
         beforeReplace = { settings.forgetAutoBackupCopies() },
+        clockHighWater = { settings.settings.value.clockHighWaterMs },
+        onClockSeen = ::rememberClock,
     )
+
+    /**
+     * Keeps the highest time seen in the settings (it only rises). Called at every unlock and touch, so it writes only
+     * when the time is [CLOCK_WRITE_STEP_MS] past the mark: the mark may lag by that much, well under the 5 minutes of slack.
+     */
+    private fun rememberClock(seen: Long) {
+        if (seen < settings.settings.value.clockHighWaterMs + CLOCK_WRITE_STEP_MS) return
+        appScope.launch { settings.update { if (seen > it.clockHighWaterMs) it.copy(clockHighWaterMs = seen) else it } }
+    }
 
     /** The one shared image copy (cacheDir/compartir/): wiped at start and on return after 10 minutes, never on lock. */
     val shareTemp = ShareTemp(cacheDir, System::currentTimeMillis)

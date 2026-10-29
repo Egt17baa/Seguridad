@@ -393,6 +393,7 @@ object BiometricVault {
             try {
                 onKey(dataKey)
             } catch (e: Exception) {
+                dataKey.fill(0) // onKey took the key and failed: nobody else holds this copy.
                 onError("No se pudo desbloquear con la huella")
             }
         }, onError = { _, message ->

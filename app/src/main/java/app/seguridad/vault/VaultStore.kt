@@ -60,6 +60,10 @@ class VaultStore(
      * made, so they are never rotated away: they are the replaced vault's). If it throws, nothing is replaced.
      */
     private val beforeReplace: suspend () -> Unit = {},
+    /** The highest time the app ever saw (a mark that only rises), kept in the settings; see [VaultCrypto.biometricAllowed]. */
+    private val clockHighWater: () -> Long = { 0 },
+    /** Told the time at every unlock and every [touch]; the app keeps the highest in the settings. */
+    private val onClockSeen: (Long) -> Unit = {},
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -221,6 +225,7 @@ class VaultStore(
             if (dek !== key) dek?.fill(0)
             dek = key
             lastUse = now()
+            onClockSeen(lastUse)
             _state.value = VaultState.Unlocked(entries)
         }
     }
@@ -267,7 +272,7 @@ class VaultStore(
         commit(checked, key, since, mustSave = false)
     }
 
-    val biometricAllowed: Boolean get() = vault?.let { VaultCrypto.biometricAllowed(it, now()) } ?: false
+    val biometricAllowed: Boolean get() = vault?.let { VaultCrypto.biometricAllowed(it, now(), clockHighWater()) } ?: false
 
     /** With a data key released by the biometric prompt. Throws [MasterRequired] when the 7-day recheck is due. */
     suspend fun unlockWithKey(key: ByteArray) {
@@ -284,7 +289,7 @@ class VaultStore(
             key.fill(0)
             throw e
         }
-        if (!VaultCrypto.biometricAllowed(known, now())) {
+        if (!VaultCrypto.biometricAllowed(known, now(), clockHighWater())) {
             key.fill(0)
             throw MasterRequired()
         }
@@ -332,6 +337,7 @@ class VaultStore(
 
     fun touch() {
         lastUse = now()
+        onClockSeen(lastUse)
     }
 
     /**
@@ -726,7 +732,12 @@ class VaultStore(
     /** Deletes the vault for good (forgotten master password). */
     suspend fun destroy() = mutex.withLock {
         lock()
-        withContext(io) { file.delete() }
+        withContext(io) {
+            file.delete()
+            // What keepAside() left (vault.bin.bad-<time>, att.bad-<time>) goes too: «He olvidado la contraseña» says so.
+            val dir = file.absoluteFile.parentFile
+            dir?.listFiles()?.filter { it.name.startsWith(file.name + ".bad-") || it.name.startsWith("att.bad-") }?.forEach { it.deleteRecursively() }
+        }
         // Their keys were in the vault: the files are useless now.
         try {
             withContext(io) { attachments.collectGarbage(emptySet()) }
