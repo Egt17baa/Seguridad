@@ -13,9 +13,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -136,7 +134,8 @@ data class AutoBackupResult(
  * caller leaving (a rotation) cannot cut it between the deletions and [onResult]. Asked while the vault is locked, the
  * request is handed to [onResult] ([AutoBackupResult.replaceRequested]) to be saved ([replacePending]); the first copy
  * after the next unlock, even after a restart, does it, and the result that records it ([AutoBackupResult.replaced])
- * clears the request. A failure keeps it. That outcome is also given once to [replaceOutcomes], to be told to the user.
+ * clears the request. A failure keeps it. That outcome is also kept in [replaceOutcome] until the user has been told
+ * ([replaceOutcomeShown]), once for each different outcome: a folder that keeps failing does not open it again and again.
  *
  * Nothing here can close the app or touch the vault: every outcome goes to [onResult], failures as a fixed Spanish
  * message. With no folder ([folder] null, or [open] null) or no vault nothing happens.
@@ -171,10 +170,21 @@ class AutoBackup(
     /** True while [replaceOldCopies] works (also after the screen that asked for it was recreated). */
     val replacing: StateFlow<Boolean> = _replacing.asStateFlow()
 
-    private val _replaceOutcomes = MutableSharedFlow<AutoBackupResult>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val _replaceOutcome = MutableStateFlow<AutoBackupResult?>(null)
 
-    /** How a replacement that ran after an unlock (it was asked for while locked) went, once: for the user to be told. */
-    val replaceOutcomes: SharedFlow<AutoBackupResult> = _replaceOutcomes.asSharedFlow()
+    /**
+     * How a replacement that ran by itself (it was asked for while locked) went, until [replaceOutcomeShown]: it lives with
+     * this object, not with a screen, so an activity re-created meanwhile still shows it, and once shown it is gone.
+     */
+    val replaceOutcome: StateFlow<AutoBackupResult?> = _replaceOutcome.asStateFlow()
+
+    /** The user has been told [replaceOutcome]. */
+    fun replaceOutcomeShown() {
+        _replaceOutcome.value = null
+    }
+
+    /** What the last outcome told ([AutoBackupResult.error], "" for success); null before one. Only a different one is told again. */
+    private var toldOutcome: String? = null
 
     /** One copy at a time: the collector's and [replaceOldCopies]'s never overlap. */
     private val lock = Mutex()
@@ -225,6 +235,7 @@ class AutoBackup(
     /** The vault is locked: the request is saved (through [onResult]) and the first copy after the next unlock does it. */
     private suspend fun waitForUnlock(uri: String): AutoBackupResult {
         defer()
+        toldOutcome = null // A new request: its outcome is told even if it is the same as the last one.
         onResult(AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true))
         // Not saved (a full disk): do not say it will be done.
         return AutoBackupResult(uri, null, if (replacePending()) AUTO_BACKUP_REPLACE_WAITS else AUTO_BACKUP_FAILED)
@@ -244,7 +255,13 @@ class AutoBackup(
             // Read inside the lock, from what is saved: a request made before a restart is done too.
             val replace = replacePending()
             val result = attempt(replaceAll = replace)
-            if (replace && result != null) _replaceOutcomes.tryEmit(result)
+            if (replace && result != null) {
+                val key = result.error ?: ""
+                if (key != toldOutcome) {
+                    toldOutcome = key
+                    _replaceOutcome.value = result
+                }
+            }
         }
     }
 
@@ -388,4 +405,40 @@ class AutoBackup(
         is IOException -> AUTO_BACKUP_WRITE_FAILED
         else -> AUTO_BACKUP_FAILED
     }
+}
+
+/** What the dialog after a change of master password says about the replacement of the old copies. */
+sealed interface ReplaceStatus {
+    /** Not asked for yet. */
+    data object NotAsked : ReplaceStatus
+
+    /** Asked, but it cannot be told how it went (the screen was re-created while it ran): never shown as done. */
+    data object Unknown : ReplaceStatus
+
+    /** Asked while the vault is locked: it is done after the next unlock. */
+    data object Waits : ReplaceStatus
+
+    /** A copy was written and the old ones were deleted. */
+    data object Done : ReplaceStatus
+
+    data class Failed(val message: String) : ReplaceStatus
+}
+
+/**
+ * The status to show. [requestedAt] is when the button was pressed (0 if not yet); [answered] and [answerError] what the call
+ * said (kept across a re-creation); [pending], [lastError] and [lastBackupAt] what the settings say, which are what is
+ * left when the answer was lost. «Done» only comes from an answer without error or from a copy written after the request
+ * with no error and nothing waiting.
+ */
+fun replaceStatus(requestedAt: Long, answered: Boolean, answerError: String?, pending: Boolean, lastError: String?, lastBackupAt: Long?): ReplaceStatus = when {
+    requestedAt == 0L -> ReplaceStatus.NotAsked
+    answered -> when (answerError) {
+        null -> ReplaceStatus.Done
+        AUTO_BACKUP_REPLACE_WAITS -> ReplaceStatus.Waits
+        else -> ReplaceStatus.Failed(answerError)
+    }
+    pending -> ReplaceStatus.Waits
+    lastError != null -> ReplaceStatus.Failed(lastError)
+    lastBackupAt != null && lastBackupAt >= requestedAt -> ReplaceStatus.Done
+    else -> ReplaceStatus.Unknown
 }

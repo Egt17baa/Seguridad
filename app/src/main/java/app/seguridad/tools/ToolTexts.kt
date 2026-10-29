@@ -434,6 +434,9 @@ const val PASSWORD_CHANGE_RENEW_HINT = "Si temes que alguien tenga la contraseñ
 const val PASSWORD_CHANGE_WORKING = "Haciendo la copia nueva…"
 const val PASSWORD_CHANGE_CLOSE = "Entendido"
 const val AUTO_BACKUP_OUTCOME_TITLE = "Copias automáticas"
+const val AUTO_BACKUP_REPLACE_DROPPED = "No se borraron las copias automáticas anteriores: siguen en la carpeta anterior."
+const val PASSWORD_CHANGED_FINGERPRINT_FAILED =
+    "Contraseña maestra cambiada. No se pudo apagar la huella: abre la bóveda con la contraseña nueva y vuelve a activarla."
 
 /** A6, «Renovar identidad» (button, dialog title) and its strong warning, verbatim from the design. */
 const val RENEW_IDENTITY = "Renovar identidad"
@@ -481,6 +484,6 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     FINGERPRINT_NOT_RESPONDING, STRONGBOX_AVAILABLE_NOTICE,
     PASSWORD_CHANGE_COPIES, RESET_WIPES_DAMAGED,
     PASSWORD_CHANGED_TITLE, PASSWORD_CHANGE_OLD_BACKUPS, PASSWORD_CHANGE_REPLACE_COPIES, PASSWORD_CHANGE_RENEW_HINT,
-    PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, AUTO_BACKUP_OUTCOME_TITLE, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
+    PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, AUTO_BACKUP_OUTCOME_TITLE, AUTO_BACKUP_REPLACE_DROPPED, PASSWORD_CHANGED_FINGERPRINT_FAILED, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
     AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS,
 )

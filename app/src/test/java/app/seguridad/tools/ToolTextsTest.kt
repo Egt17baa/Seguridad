@@ -164,6 +164,8 @@ class ToolTextsTest {
             "Tus contactos tendrán que añadir tu tarjeta nueva, y no podrás abrir lo que te enviaron a la anterior.",
             RENEW_IDENTITY_WARNING,
         )
+        assertEquals("No se borraron las copias automáticas anteriores: siguen en la carpeta anterior.", AUTO_BACKUP_REPLACE_DROPPED)
+        assertTrue(PASSWORD_CHANGED_FINGERPRINT_FAILED.startsWith("Contraseña maestra cambiada."))
         // The result texts of the replacement are in the list too, so noForbiddenWords covers them.
         assertTrue(ALL_TOOL_TEXTS.containsAll(listOf(AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS)))
     }

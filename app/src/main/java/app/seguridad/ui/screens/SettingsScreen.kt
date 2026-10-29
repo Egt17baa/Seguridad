@@ -28,6 +28,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -54,9 +55,12 @@ import app.seguridad.settings.LockAfter
 import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.ThemeMode
+import app.seguridad.settings.withAutoBackupTurnedOff
+import app.seguridad.settings.withFolderChosen
 import app.seguridad.settings.availableOn
 import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
+import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
 import app.seguridad.tools.KeyLevel
 import app.seguridad.tools.PASSWORD_CHANGED_TITLE
 import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
@@ -77,6 +81,8 @@ import app.seguridad.vault.AUTO_BACKUP_REPLACED
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.ReplaceStatus
+import app.seguridad.vault.replaceStatus
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
@@ -161,10 +167,11 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             }
             val chosen = uri.toString()
             val previous = store.settings.value.autoBackupUri
+            val hadRequest = store.settings.value.autoBackupReplacePending
             try {
                 // The copies listed stay with the folder they are in ([Settings.currentAutoBackupCopies]): the same one
-                // chosen again goes on rotating them, another one starts with none.
-                store.update { it.copy(autoBackupUri = chosen, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = false, autoBackupReplacePending = false) }
+                // chosen again goes on rotating them (and keeps a request to replace them), another one starts with none.
+                store.update { it.withFolderChosen(chosen) }
             } catch (e: Exception) {
                 if (chosen != previous) SafBackupTarget.releaseFolder(resolver, chosen)
                 snackbar.showSnackbar("No se pudo guardar el ajuste")
@@ -172,12 +179,14 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             }
             if (previous != null && previous != chosen) SafBackupTarget.releaseFolder(resolver, previous)
             autoBackup.request()
+            // A request to replace the old copies that the new folder dropped is said, not lost in silence.
+            val dropped = if (hadRequest && !store.settings.value.autoBackupReplacePending) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
             snackbar.showSnackbar(
                 when (vault.state.value) {
                     VaultState.Locked -> "Copia automática activada: se hará una en cuanto abras la bóveda y después tras cada cambio."
                     VaultState.NoVault -> "Copia automática activada: se hará una cuando crees la bóveda y después tras cada cambio."
                     else -> "Copia automática activada: se hará una ahora y tras cada cambio en la bóveda."
-                },
+                } + dropped,
             )
         }
     }
@@ -242,9 +251,13 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             onClick = {
                 scope.launch {
                     try {
-                        store.update { it.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupReplacePending = false) }
+                        val hadRequest = store.settings.value.autoBackupReplacePending
+                        store.update { it.withAutoBackupTurnedOff() }
                         SafBackupTarget.releaseFolder(context.contentResolver, folder)
-                        snackbar.showSnackbar("Copia automática desactivada. Las copias ya hechas siguen en la carpeta.")
+                        snackbar.showSnackbar(
+                            "Copia automática desactivada. Las copias ya hechas siguen en la carpeta." +
+                                if (hadRequest) " $AUTO_BACKUP_REPLACE_DROPPED" else "",
+                        )
                     } catch (e: Exception) {
                         snackbar.showSnackbar("No se pudo guardar el ajuste")
                     }
@@ -275,18 +288,20 @@ fun MasterChangedDialog(
     replacing: Boolean,
     pending: Boolean,
     lastError: String?,
+    lastBackupAt: Long?,
     replace: suspend () -> AutoBackupResult,
     onRenew: () -> Unit,
     onClose: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var requested by rememberSaveable { mutableStateOf(false) }
+    // Kept across a rotation (the dialog is recreated, the call is not cancelled): when it was asked and what the call said.
+    var requestedAt by rememberSaveable { mutableLongStateOf(0L) }
+    var answered by rememberSaveable { mutableStateOf(false) }
+    var answerError by rememberSaveable { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    // What the call itself said, while this composition lives; after a rotation the saved state below says it.
-    var answer by remember { mutableStateOf<AutoBackupResult?>(null) }
     val working = busy || replacing
-    val shownError: String? = if (answer != null) answer?.error else if (pending) AUTO_BACKUP_REPLACE_WAITS else lastError
-    val canReplace = !working && (!requested || (shownError != null && shownError != AUTO_BACKUP_REPLACE_WAITS))
+    val status = replaceStatus(requestedAt, answered, answerError, pending, lastError, lastBackupAt)
+    val canReplace = !working && (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed)
     AlertDialog(
         onDismissRequest = { if (!working) onClose() },
         title = { Text(PASSWORD_CHANGED_TITLE) },
@@ -300,9 +315,10 @@ fun MasterChangedDialog(
                         enabled = canReplace,
                         onClick = {
                             if (!canReplace) return@OutlinedButton
-                            requested = true
+                            requestedAt = System.currentTimeMillis()
+                            answered = false
+                            answerError = null
                             busy = true
-                            answer = null
                             scope.launch {
                                 val r = try {
                                     replace()
@@ -311,7 +327,8 @@ fun MasterChangedDialog(
                                 } catch (e: Exception) {
                                     AutoBackupResult("", null, AUTO_BACKUP_FAILED) // replace() reports its own failures; never closes the app.
                                 }
-                                answer = r
+                                answerError = r.error
+                                answered = true
                                 busy = false
                             }
                         },
@@ -319,10 +336,10 @@ fun MasterChangedDialog(
                     ) { Text(PASSWORD_CHANGE_REPLACE_COPIES) }
                     when {
                         working -> Hint(PASSWORD_CHANGE_WORKING)
-                        !requested -> Unit
-                        shownError == null -> Hint(AUTO_BACKUP_REPLACED)
-                        shownError == AUTO_BACKUP_REPLACE_WAITS -> Hint(AUTO_BACKUP_REPLACE_WAITS)
-                        else -> Text(shownError, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+                        status is ReplaceStatus.Done -> Hint(AUTO_BACKUP_REPLACED)
+                        status is ReplaceStatus.Waits -> Hint(AUTO_BACKUP_REPLACE_WAITS)
+                        status is ReplaceStatus.Failed -> Text(status.message, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+                        else -> Unit
                     }
                 }
                 Text(PASSWORD_CHANGE_RENEW_HINT)

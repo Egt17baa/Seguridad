@@ -117,15 +117,11 @@ fun AppNavHost(container: AppContainer) {
     // After the master password changes (from any screen), the dialog about the old copies and the identity.
     var masterChanged by rememberSaveable { mutableStateOf(false) }
     // How a replacement asked for while locked went, told once after the unlock that ran it.
-    var replaceOutcome by rememberSaveable { mutableStateOf<String?>(null) }
-    var replaceFailed by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(container.autoBackup) {
-        container.autoBackup.replaceOutcomes.collect {
-            replaceFailed = it.error != null
-            replaceOutcome = it.error ?: AUTO_BACKUP_REPLACED
-        }
+    // It lives in AutoBackup until shown, so an activity re-created meanwhile still shows it; once closed it is gone.
+    val replaceOutcome by container.autoBackup.replaceOutcome.collectAsStateWithLifecycle()
+    replaceOutcome?.let {
+        ReplaceOutcomeDialog(it.error ?: AUTO_BACKUP_REPLACED, failed = it.error != null, onClose = container.autoBackup::replaceOutcomeShown)
     }
-    replaceOutcome?.let { ReplaceOutcomeDialog(it, replaceFailed, onClose = { replaceOutcome = null }) }
     val replacing by container.autoBackup.replacing.collectAsStateWithLifecycle()
     if (masterChanged) {
         MasterChangedDialog(
@@ -133,6 +129,7 @@ fun AppNavHost(container: AppContainer) {
             replacing = replacing,
             pending = settings.autoBackupReplacePending,
             lastError = settings.lastAutoBackupError,
+            lastBackupAt = settings.lastAutoBackupAt,
             replace = container.autoBackup::replaceOldCopies,
             onRenew = {
                 masterChanged = false

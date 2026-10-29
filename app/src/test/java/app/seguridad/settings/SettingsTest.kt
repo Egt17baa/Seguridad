@@ -245,6 +245,21 @@ class SettingsTest {
         assertFalse(asked.forgettingAutoBackupCopies().autoBackupReplacePending)
     }
 
+    @Test fun theSameFolderChosenAgainKeepsTheRequestAndAnotherOrOffDropsIt() {
+        val asked = Settings(autoBackupUri = folder, autoBackupReplacePending = true, autoBackupOffForNewVault = true)
+        val same = asked.withFolderChosen(folder)
+        assertTrue(same.autoBackupReplacePending)
+        assertFalse(same.autoBackupOffForNewVault)
+        assertEquals(null, same.lastAutoBackupAt)
+        assertFalse(asked.withFolderChosen("content://y/tree/otra").autoBackupReplacePending)
+        assertEquals("content://y/tree/otra", asked.withFolderChosen("content://y/tree/otra").autoBackupUri)
+        // From none (copies off): there is nothing to replace.
+        assertFalse(Settings(autoBackupReplacePending = true).withFolderChosen(folder).autoBackupReplacePending)
+        val off = asked.withAutoBackupTurnedOff()
+        assertEquals(null, off.autoBackupUri)
+        assertFalse(off.autoBackupReplacePending)
+    }
+
     @Test fun newVaultClearsTheReplacementRequest() = runTest {
         val s = store().apply { load() }
         s.update { it.copy(autoBackupUri = folder, autoBackupReplacePending = true) }

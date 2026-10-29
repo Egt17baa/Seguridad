@@ -833,7 +833,7 @@ class AutoBackupTest {
     private fun settingsFile() = File(tmp.root, "settings.json")
 
     /** An AutoBackup over [s] that keeps its results in [settings] (the real ones, on disk), as the app does. */
-    private fun TestScope.persistent(s: VaultStore, settings: SettingsStore, target: MemoryTarget, outcomes: MutableList<AutoBackupResult>? = null): AutoBackup {
+    private fun TestScope.persistent(s: VaultStore, settings: SettingsStore, target: MemoryTarget): AutoBackup {
         val a = AutoBackup(
             s,
             folder = { settings.settings.value.autoBackupUri },
@@ -847,7 +847,6 @@ class AutoBackupTest {
             onResult = { r -> settings.update { it.withAutoBackupResult(r) } },
             zone = ZoneOffset.UTC,
         )
-        if (outcomes != null) backgroundScope.launch { a.replaceOutcomes.collect { outcomes += it } }
         return a.also { runCurrent() }
     }
 
@@ -871,17 +870,17 @@ class AutoBackupTest {
         val settings2 = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply { load() }
         assertTrue("Persisted", settings2.settings.value.autoBackupReplacePending)
         val s2 = store().apply { load() }
-        val outcomes = mutableListOf<AutoBackupResult>()
-        persistent(s2, settings2, target, outcomes)
+        val a2 = persistent(s2, settings2, target)
         s2.unlock(master.toCharArray())
         runCurrent()
         assertEquals(setOf("seguridad-auto-20261026-100400.sgbak"), target.files.keys.toSet())
         assertEquals(1, settings2.settings.value.currentAutoBackupCopies.size)
         assertFalse(settings2.settings.value.autoBackupReplacePending)
         assertFalse("Saved too", SettingsStore(settingsFile(), Dispatchers.Unconfined).apply { load() }.settings.value.autoBackupReplacePending)
-        // The outcome is told once, to be shown after that unlock.
-        assertEquals(1, outcomes.size)
-        assertNull(outcomes.single().error)
+        // The outcome waits (in the object, not in a screen) until it has been shown, then it is gone.
+        assertNull(a2.replaceOutcome.value!!.error)
+        a2.replaceOutcomeShown()
+        assertNull(a2.replaceOutcome.value)
     }
 
     @Test fun theReplacementStaysAskedWhileTheNewCopyFailsAndIsClearedOnlyAfterItWorks() = runTest {
@@ -891,8 +890,7 @@ class AutoBackupTest {
             load()
             update { it.copy(autoBackupUri = FOLDER) }
         }
-        val outcomes = mutableListOf<AutoBackupResult>()
-        val a = persistent(s, settings, target, outcomes)
+        val a = persistent(s, settings, target)
         val own = threeCopiesInto(s, settings, target)
         s.lock()
         runCurrent()
@@ -908,7 +906,8 @@ class AutoBackupTest {
         assertTrue(settings.settings.value.autoBackupReplacePending)
         assertEquals(AUTO_BACKUP_WRITE_FAILED, settings.settings.value.lastAutoBackupError)
         assertEquals(own.size, settings.settings.value.currentAutoBackupCopies.size)
-        assertEquals(listOf<String?>(AUTO_BACKUP_WRITE_FAILED), outcomes.map { it.error })
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, a.replaceOutcome.value!!.error)
+        a.replaceOutcomeShown()
 
         // Locked and opened again with room: it works, and only then is the request cleared.
         target.failAfterBytes = null
@@ -920,7 +919,83 @@ class AutoBackupTest {
         assertEquals(setOf("seguridad-auto-20261026-100500.sgbak"), target.files.keys.toSet())
         assertFalse(settings.settings.value.autoBackupReplacePending)
         assertNull(settings.settings.value.lastAutoBackupError)
-        assertEquals(listOf<String?>(AUTO_BACKUP_WRITE_FAILED, null), outcomes.map { it.error })
+        assertNull(a.replaceOutcome.value!!.error)
+    }
+
+    @Test fun aFolderThatKeepsFailingDoesNotOpenTheOutcomeAgainAndTheSuccessIsToldOnce() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
+            load()
+            update { it.copy(autoBackupUri = FOLDER) }
+        }
+        val a = persistent(s, settings, target)
+        threeCopiesInto(s, settings, target)
+        s.lock()
+        runCurrent()
+        a.replaceOldCopies()
+        target.failAfterBytes = 100
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, a.replaceOutcome.value!!.error) // Told once, after the unlock.
+        a.replaceOutcomeShown()
+        // Copies after edits retry the replacement and fail the same way: nothing opens again.
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("f$i"))
+            settle()
+            assertNull(a.replaceOutcome.value)
+        }
+        assertTrue(settings.settings.value.autoBackupReplacePending)
+        // It works at last, from a copy after an edit: that success is told, once.
+        target.failAfterBytes = null
+        clock += 60_000
+        s.upsert(note("ok"))
+        settle()
+        assertNull(a.replaceOutcome.value!!.error)
+        assertFalse(settings.settings.value.autoBackupReplacePending)
+        a.replaceOutcomeShown()
+        clock += 60_000
+        s.upsert(note("after"))
+        settle()
+        assertNull("Dismissed: it does not come back", a.replaceOutcome.value)
+        assertEquals(2, target.files.keys.count { name.matches(it) }) // Normal rotation again: no replacement.
+    }
+
+    @Test fun anOutcomeNotShownYetSurvivesUntilItIsAcknowledged() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
+            load()
+            update { it.copy(autoBackupUri = FOLDER) }
+        }
+        val a = persistent(s, settings, target)
+        threeCopiesInto(s, settings, target)
+        s.lock()
+        runCurrent()
+        a.replaceOldCopies()
+        s.unlock(master.toCharArray())
+        runCurrent()
+        // Nobody collected anything (the activity was being re-created): it is still there for whoever looks next.
+        val first = a.replaceOutcome.value
+        assertNull(first!!.error)
+        assertEquals(first, a.replaceOutcome.value)
+    }
+
+    @Test fun replaceStatusNeverClaimsDoneWithoutARecordedReplacement() {
+        val waits = AUTO_BACKUP_REPLACE_WAITS
+        assertEquals(ReplaceStatus.NotAsked, replaceStatus(0, false, null, false, null, null))
+        // The call said it could not save the request: after a rotation (answer kept) it is still a failure.
+        assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_FAILED), replaceStatus(100, true, AUTO_BACKUP_FAILED, false, null, null))
+        assertEquals(ReplaceStatus.Done, replaceStatus(100, true, null, false, null, 150))
+        assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, true, null, null))
+        // The answer was lost (re-created while it ran): only the settings can say.
+        assertEquals(ReplaceStatus.Waits, replaceStatus(100, false, null, true, null, null))
+        assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_WRITE_FAILED), replaceStatus(100, false, null, false, AUTO_BACKUP_WRITE_FAILED, 90))
+        assertEquals(ReplaceStatus.Done, replaceStatus(100, false, null, false, null, 150))
+        // Nothing recorded after the request, nothing waiting, no error: unknown, never «done».
+        assertEquals(ReplaceStatus.Unknown, replaceStatus(100, false, null, false, null, null))
+        assertEquals(ReplaceStatus.Unknown, replaceStatus(100, false, null, false, null, 99))
     }
 
     @Test fun cancellingTheCallerDoesNotCutTheReplacement() = runTest {
