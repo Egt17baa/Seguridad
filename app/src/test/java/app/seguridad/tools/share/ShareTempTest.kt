@@ -20,8 +20,8 @@ class ShareTempTest {
     private fun names() = dir.listFiles()?.map { it.name }?.sorted().orEmpty()
 
     @Test fun onlyOneFileAtATime() {
-        val first = temp.prepare("foto-limpia.jpg", byteArrayOf(1, 2, 3))
-        assertEquals(File(dir, "foto-limpia.jpg"), first)
+        val first = temp.prepare("copia-de-foto.jpg", byteArrayOf(1, 2, 3))
+        assertEquals(File(dir, "copia-de-foto.jpg"), first)
         val second = temp.prepare("imagen-tachada.png", byteArrayOf(4, 5))
         assertEquals(listOf("imagen-tachada.png"), names())
         assertArrayEquals(byteArrayOf(4, 5), second.readBytes())
@@ -36,16 +36,16 @@ class ShareTempTest {
         File(dir, "otro.bin").writeText("x")
         File(dir, "sub").mkdirs()
         File(File(dir, "sub"), "y").writeText("y")
-        temp.prepare("foto-limpia.webp", byteArrayOf(9))
-        assertEquals(listOf("foto-limpia.webp"), names())
+        temp.prepare("copia-de-foto.webp", byteArrayOf(9))
+        assertEquals(listOf("copia-de-foto.webp"), names())
     }
 
     @Test fun discardRemovesOnlyThePreparedFile() {
-        val outside = tmp.newFile("foto-limpia.jpg")
-        val file = temp.prepare("foto-limpia.jpg", byteArrayOf(1))
+        val outside = tmp.newFile("copia-de-foto.jpg")
+        val file = temp.prepare("copia-de-foto.jpg", byteArrayOf(1))
         temp.discard(outside) // Not in compartir/: left alone.
         assertTrue(outside.exists())
-        assertEquals(listOf("foto-limpia.jpg"), names())
+        assertEquals(listOf("copia-de-foto.jpg"), names())
         temp.discard(file)
         assertEquals(emptyList<String>(), names())
         temp.discard(file) // Already gone: never fails.
@@ -71,14 +71,14 @@ class ShareTempTest {
     }
 
     @Test fun returnBeforeTenMinutesKeepsIt() {
-        temp.prepare("foto-limpia.png", byteArrayOf(1))
+        temp.prepare("copia-de-foto.png", byteArrayOf(1))
         clock += 9 * 60_000L + 59_000L
         temp.onReturn()
-        assertEquals(listOf("foto-limpia.png"), names())
+        assertEquals(listOf("copia-de-foto.png"), names())
     }
 
     @Test fun returnAfterTenMinutesWipes() {
-        temp.prepare("foto-limpia.png", byteArrayOf(1))
+        temp.prepare("copia-de-foto.png", byteArrayOf(1))
         clock += SHARE_KEEP_MS
         temp.onReturn()
         assertTrue(names().isEmpty())
@@ -93,13 +93,13 @@ class ShareTempTest {
         temp.onReturn()
         // Something left by an earlier process (the start wipe failed or has not run yet): stale, so it goes.
         dir.mkdirs()
-        File(dir, "foto-limpia.jpg").writeText("de antes")
+        File(dir, "foto-limpia.jpg").writeText("de antes") // an old name: a leftover is wiped whatever its name
         temp.onReturn()
         assertTrue(names().isEmpty())
     }
 
     @Test fun clockGoingBackwardsWipes() {
-        temp.prepare("foto-limpia.jpg", byteArrayOf(1))
+        temp.prepare("copia-de-foto.jpg", byteArrayOf(1))
         clock -= 1
         temp.onReturn()
         assertTrue(names().isEmpty())
@@ -120,9 +120,9 @@ class ShareTempTest {
 
     @Test fun rejectsOtherNames() {
         val bad = listOf(
-            "../x", "IMG_2026.jpg", "foto-limpia.exe", "foto-limpia.jpeg", "imagen-tachada.webp", "foto-limpia.JPG",
-            "foto-limpia.jpg/", "/foto-limpia.jpg", "sub/foto-limpia.jpg", "../foto-limpia.jpg", "foto-limpia.jpg\u0000",
-            "", "foto-limpia", ".jpg",
+            "../x", "IMG_2026.jpg", "copia-de-foto.exe", "copia-de-foto.jpeg", "foto-limpia.jpg", "imagen-tachada.webp", "copia-de-foto.JPG",
+            "copia-de-foto.jpg/", "/copia-de-foto.jpg", "sub/copia-de-foto.jpg", "../copia-de-foto.jpg", "copia-de-foto.jpg\u0000",
+            "", "copia-de-foto", ".jpg",
         )
         for (name in bad) {
             try {
@@ -137,7 +137,7 @@ class ShareTempTest {
     }
 
     @Test fun acceptsTheFixedNames() {
-        for (name in listOf("foto-limpia.jpg", "foto-limpia.png", "foto-limpia.webp", "imagen-tachada.jpg", "imagen-tachada.png")) {
+        for (name in listOf("copia-de-foto.jpg", "copia-de-foto.png", "copia-de-foto.webp", "imagen-tachada.jpg", "imagen-tachada.png")) {
             temp.prepare(name, byteArrayOf(1))
             assertEquals(listOf(name), names())
         }

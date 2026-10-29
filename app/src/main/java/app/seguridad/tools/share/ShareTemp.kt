@@ -9,8 +9,11 @@ const val SHARE_DIR = "compartir"
 /** Back in Seguridad this long after sharing, the copy is deleted (the receiving app has had time to read it). */
 const val SHARE_KEEP_MS = 10 * 60_000L
 
+/** Base name of the shared photo copy («copia-de-foto.jpg|png|webp»): it says nothing about the person nor the date. */
+const val PHOTO_FILE_BASE = "copia-de-foto"
+
 /** The fixed, neutral names the shared copies get: nothing in them tells the date or who is in the photo. */
-private val SHARE_NAMES = Regex("foto-limpia\\.(jpg|png|webp)|imagen-tachada\\.(jpg|png)")
+private val SHARE_NAMES = Regex("${PHOTO_FILE_BASE}\\.(jpg|png|webp)|imagen-tachada\\.(jpg|png)")
 
 /**
  * The copy handed to another app through «Compartir». Never wiped on lock: leaving for WhatsApp or Gmail locks the
@@ -30,7 +33,7 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
 
     /**
      * Writes [bytes] as `compartir/<name>`, the only file left there, and returns it. [name] must be one of the fixed
-     * names (`foto-limpia.jpg|png|webp`, `imagen-tachada.jpg|png`); anything else throws IllegalArgumentException.
+     * names (`copia-de-foto.jpg|png|webp`, `imagen-tachada.jpg|png`); anything else throws IllegalArgumentException.
      * On a write error nothing is left behind and the IOException goes up.
      */
     @Synchronized

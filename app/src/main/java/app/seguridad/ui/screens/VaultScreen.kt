@@ -65,6 +65,7 @@ import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.totpCode
+import app.seguridad.tools.RESET_WIPES_DAMAGED
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BiometricRefusal
@@ -268,10 +269,6 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     }
 }
 
-/** Dialog of «He olvidado la contraseña maestra» (A12): it also says that the damaged files kept aside go. */
-const val FORGOT_DIALOG_TEXT =
-    "Se borrarán la bóveda y también los archivos dañados que la app guardó al intentar repararla. No se puede deshacer."
-
 @Composable
 private fun UnlockVault(store: VaultStore) {
     val context = LocalContext.current
@@ -337,7 +334,7 @@ private fun UnlockVault(store: VaultStore) {
             title = { Text("Sin la contraseña no hay recuperación") },
             text = {
                 FilterObscuredTouches()
-                Text(FORGOT_DIALOG_TEXT)
+                Text(RESET_WIPES_DAMAGED)
             },
             confirmButton = {
                 TextButton(onClick = {

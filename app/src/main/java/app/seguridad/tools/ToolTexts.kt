@@ -4,8 +4,10 @@ import app.seguridad.tools.photo.Found
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoReport
+import app.seguridad.tools.share.PHOTO_FILE_BASE
 import app.seguridad.vault.AUTO_BACKUP_REPLACED
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
+import app.seguridad.vault.CLOCK_CHANGED_TEXT
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.round
@@ -18,7 +20,7 @@ import kotlin.math.round
 // ---- Limpiar foto ----
 
 const val PHOTO_TOOL_TITLE = "Limpiar foto"
-const val PHOTO_TOOL_SUBTITLE = "Quita la ubicación y otros datos ocultos"
+const val PHOTO_TOOL_SUBTITLE = "Quita la ubicación y otros datos ocultos del archivo"
 
 /** Anexo: «Explicación (antes de elegir)». */
 const val PHOTO_EXPLANATION =
@@ -26,8 +28,8 @@ const val PHOTO_EXPLANATION =
         "otros. No cambia lo que se ve: una cara, una matrícula, tu portal o un reflejo pueden delatarte igual; para eso, " +
         "usa «Tachar en imagen». Tampoco quita las marcas invisibles que pueda llevar la propia imagen ni el rastro que " +
         "deja el sensor de cada cámara. Muchas apps de mensajería quitan parte de estos datos al enviar una foto, pero no " +
-        "siempre todos, y no cuando la envías como documento o archivo. La foto se analiza en tu móvil y no se envía a " +
-        "ningún sitio."
+        "siempre todos, y no cuando la envías como documento o archivo. La foto se analiza en tu móvil y la app no la " +
+        "envía a ningún sitio: solo sale si tú compartes la copia."
 
 const val PHOTO_PICK = "Elegir foto"
 const val PHOTO_PICK_OTHER = "Elegir otra foto"
@@ -40,7 +42,7 @@ private const val PHOTO_GPS_SUFFIX = " (redondeado)"
 
 /** GPS found (in XMP) without coordinates we can read: the annex line without the numbers. */
 const val PHOTO_GPS_NO_COORDS = "Ubicación GPS"
-const val PHOTO_DEVICE = "Móvil: marca, modelo y número de serie"
+const val PHOTO_DEVICE = "Móvil o cámara: marca y modelo, y a veces número de serie o nombre del propietario"
 const val PHOTO_DATE_SOFTWARE = "Fecha y hora, y programa usado"
 const val PHOTO_THUMBNAIL = "Miniatura incrustada: puede mostrar la foto entera, antes de recortarla o editarla"
 const val PHOTO_XMP_COMMENTS = "Datos del editor (XMP), comentarios"
@@ -49,7 +51,7 @@ const val PHOTO_MOTION_VIDEO = "Incluye un vídeo corto (foto en movimiento): se
 const val PHOTO_C2PA =
     "Credenciales de contenido (C2PA): dicen cómo se creó o editó la imagen, a veces con IA. Si la imagen está hecha o " +
         "retocada con IA y la vas a publicar, dilo tú"
-const val PHOTO_AUTHOR_RIGHTS = "Datos de autor y de derechos: si la foto no es tuya, no los quites para ocultar de quién es"
+const val PHOTO_AUTHOR_RIGHTS = "Datos de autor y de derechos: la copia no los lleva. Si la foto no es tuya, no uses la copia para ocultar de quién es"
 
 /** Not in the annex (no line there for what the reader does not recognise): neutral, it only names it. */
 const val PHOTO_OTHER = "Otros datos ocultos del archivo"
@@ -71,7 +73,7 @@ val PHOTO_FOUND_TEXTS: Map<Found, String> = linkedMapOf(
 /** Short names for «Copia lista, sin estos datos: [lista]», taken from the lines above. ICC_KEPT is kept, so absent. */
 val PHOTO_REMOVED_NAMES: Map<Found, String> = linkedMapOf(
     Found.GPS to "ubicación GPS",
-    Found.DEVICE to "marca, modelo y número de serie del móvil",
+    Found.DEVICE to "datos del móvil o la cámara",
     Found.DATE_SOFTWARE to "fecha y hora, y programa usado",
     Found.THUMBNAIL to "miniatura incrustada",
     Found.XMP_COMMENTS to "datos del editor (XMP), comentarios",
@@ -98,12 +100,14 @@ const val PHOTO_NOTHING_FOUND =
         "las apps, así que el original de tu galería podría tenerla: comparte la copia de Seguridad, no el original."
 
 /** Anexo: «HEIC, HEIF y AVIF». */
-const val PHOTO_HEIF_NOTICE = "Las fotos HEIC, HEIF y AVIF se guardan como JPEG: la copia puede perder algo de calidad."
+const val PHOTO_HEIF_NOTICE =
+    "Las fotos HEIC, HEIF y AVIF se guardan como JPEG: la copia puede perder algo de calidad y, si la foto pasa de " +
+        "unos 24 megapíxeles, se reduce a ese tamaño."
 
 /** Anexo: «Nombre del archivo». */
 const val PHOTO_FILE_NAME_NOTE =
     "El nombre del archivo también puede decir algo de ti (por ejemplo, la fecha en «IMG_20261027_…»). Por eso la " +
-        "copia se llama «foto-limpia»."
+        "copia se llama «$PHOTO_FILE_BASE»."
 
 /** Anexo: the button that stays available when there is nothing to remove. */
 const val PHOTO_SAVE_COPY = "Guardar copia"
@@ -111,7 +115,7 @@ const val SHARE = "Compartir"
 
 /** Not in the annex: plain failure messages, without internal details. */
 const val PHOTO_TOO_BIG = "La foto ocupa más de 50 MB. No se ha guardado nada."
-const val PHOTO_SAVE_FAILED = "No se ha podido guardar la copia. No se ha guardado nada."
+const val PHOTO_SAVE_FAILED = "No se ha podido guardar la copia. Si ha quedado un archivo a medias en la carpeta, bórralo."
 const val PHOTO_SHARE_FAILED = "No se ha podido compartir la copia."
 const val PHOTO_LOST = "No se ha guardado: vuelve a elegir la foto."
 
@@ -208,8 +212,9 @@ const val REDACT_LOST = "No se ha guardado: vuelve a elegir la imagen y a tachar
 
 /** Anexo: «Explicación». */
 const val QR_EXPLANATION =
-    "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes Wi-Fi, ni pagos. Solo puedes copiarlo. La " +
-        "imagen se analiza en tu móvil y no se guarda."
+    "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes Wi-Fi, ni pagos. Puedes copiarlo y, si es una " +
+        "tarjeta o un mensaje de Seguridad o un código 2FA, pasarlo a su pantalla. La imagen se analiza en tu móvil y " +
+        "no se guarda."
 
 /** Anexo: «Sin avisos», shown in a neutral colour, without ✓. */
 const val QR_NO_ALERTS =
@@ -258,7 +263,7 @@ const val QR_SMS = "Un SMS a un número corto puede tener coste."
 /** Not in the annex: the text is over [app.seguridad.tools.qr.MAX_QR_TEXT_BYTES]; nothing is analysed. */
 const val QR_TOO_BIG = "El código QR tiene demasiado texto para inspeccionarlo."
 const val QR_SGK1 =
-    "Se añadirá como contacto sin verificar. Para verificarlo, compara la huella con la persona, en persona o por llamada."
+    "Se añadirá como contacto sin verificar. Para verificarlo, compara la huella con esa persona, cara a cara o por llamada."
 
 /** Not in the annex: the tile in Herramientas (the plan's words). */
 const val QR_TOOL_TITLE = "Inspector de QR"
@@ -270,16 +275,16 @@ const val QR_TOOL_SUBTITLE = "Mira qué hay en un QR sin abrirlo"
  * the annex line; goes to the Abogado Digital with the other new texts.
  */
 const val QR_HIDDEN_ELSEWHERE =
-    "Hay caracteres invisibles o que cambian el orden del texto escondidos en el enlace (codificados con «%», junto a " +
-        "un emoji del nombre o como saltos de línea). Pueden hacer que el texto parezca otro."
+    "Hay caracteres invisibles o que cambian el orden del texto escondidos en el enlace, aunque aquí no se vean (por " +
+        "ejemplo, codificados con «%», junto a un emoji del nombre o como saltos de línea). Pueden hacer que el texto parezca otro."
 
 /** Not in the annex: buttons, progress, the hidden full text and plain failure messages, without internal details. */
 const val QR_SCAN = "📷 Escanear QR"
 const val QR_PICK_IMAGE = "Elegir imagen"
 const val QR_READING_IMAGE = "Buscando el código en la imagen…"
 const val QR_FULL_TEXT = "Texto completo"
-const val QR_TEXT_HIDDEN_PASSWORD = "Lleva la contraseña de la red: toca «Mostrar» para verlo."
-const val QR_TEXT_HIDDEN_OTP = "Lleva la clave secreta del código 2FA: toca «Mostrar» para verlo."
+const val QR_TEXT_HIDDEN_PASSWORD = "El texto completo lleva la contraseña de la red: toca «Mostrar» para verlo."
+const val QR_TEXT_HIDDEN_OTP = "El texto completo lleva la clave secreta del código 2FA: toca «Mostrar» para verlo."
 const val QR_SHOW = "Mostrar"
 const val QR_HIDE = "Ocultar"
 const val QR_COPY = "Copiar"
@@ -375,7 +380,7 @@ const val CODES_SAVE_AS_NOTE = "Guardar en la bóveda como nota"
 const val CODES_SITE_LABEL = "Web o servicio"
 const val CODES_SITE_NEEDED = "Escribe la web o el servicio para dar nombre a la nota."
 const val CODES_QUESTION_LABEL = "Pregunta"
-const val CODES_UNLOCK_TO_SAVE = "Desbloquea la bóveda para guardarlo. Lo que ves aquí se conserva mientras tanto."
+const val CODES_UNLOCK_TO_SAVE = "Desbloquea la bóveda para guardarlo. Si sales de esta pantalla o giras el móvil, lo que ves aquí se pierde."
 const val CODES_CANCEL_SAVE = "No guardar"
 const val CODES_SAVED = "Guardado en la bóveda como nota."
 const val CODES_SAVE_FAILED = "No se pudo guardar en la bóveda."
@@ -410,8 +415,8 @@ const val ANSWERS_REMOVE_QUESTION = "Quitar pregunta"
 // ---- StrongBox y pendientes ----
 
 const val KEY_LOCATION_TITLE = "Dónde está la clave de la huella"
-const val KEY_LOCATION_STRONGBOX = "Chip seguro (StrongBox)"
-const val KEY_LOCATION_TEE = "Zona segura del procesador"
+const val KEY_LOCATION_STRONGBOX = "Chip de seguridad (StrongBox)"
+const val KEY_LOCATION_TEE = "Zona aislada del procesador (TEE)"
 const val KEY_LOCATION_SOFTWARE = "Software: el móvil no protege esta clave con hardware"
 
 /** Not in the annex: the Keystore did not say where the key is (no key, or KeyInfo unreadable). */
@@ -421,31 +426,39 @@ const val KEY_LOCATION_UNKNOWN = "No se pudo comprobar"
 const val FINGERPRINT_NOT_RESPONDING = "La huella no responde: entra con la contraseña maestra y vuelve a activarla"
 
 /** R2, shown once. */
-const val STRONGBOX_AVAILABLE_NOTICE = "Este móvil tiene chip seguro. Para usarlo, desactiva la huella y vuelve a activarla."
+const val STRONGBOX_AVAILABLE_NOTICE = "Este móvil tiene chip de seguridad (StrongBox). Para usarlo, desactiva la huella y vuelve a activarla."
 
 /** A6: goes before the design's text. */
 const val PASSWORD_CHANGE_COPIES = "Cambiar la contraseña no cambia las copias que ya existen."
 
 /** A6, the dialog after the master password changed: title, the two sentences (the first is above), and the buttons. */
 const val PASSWORD_CHANGED_TITLE = "Contraseña maestra cambiada"
-const val PASSWORD_CHANGE_OLD_BACKUPS = "Las copias .sgbak que hiciste antes se siguen abriendo con la contraseña anterior."
-const val PASSWORD_CHANGE_REPLACE_COPIES = "Borrar las copias automáticas anteriores y hacer una nueva"
-const val PASSWORD_CHANGE_RENEW_HINT = "Si temes que alguien tenga la contraseña anterior y una copia, renueva tu identidad"
+const val PASSWORD_CHANGE_OLD_BACKUPS = "Las copias .sgbak de antes, también las automáticas, se siguen abriendo con la contraseña anterior."
+const val PASSWORD_CHANGE_REPLACE_COPIES = "Hacer una copia nueva y borrar las automáticas anteriores"
+const val PASSWORD_CHANGE_RENEW_HINT =
+    "Si temes que alguien tenga la contraseña anterior y una copia, con las dos puede ver todo lo que guardabas al " +
+        "hacerla: cambia las contraseñas y los códigos 2FA que más te importen, y renueva tu identidad."
 const val PASSWORD_CHANGE_WORKING = "Haciendo la copia nueva…"
 const val PASSWORD_CHANGE_CLOSE = "Entendido"
 const val AUTO_BACKUP_OUTCOME_TITLE = "Copias automáticas"
-const val AUTO_BACKUP_REPLACE_DROPPED = "No se borraron las copias automáticas anteriores: siguen en la carpeta anterior."
+const val AUTO_BACKUP_REPLACE_DROPPED = "Las copias automáticas anteriores que ibas a borrar no se borraron: siguen en su carpeta."
 const val PASSWORD_CHANGED_FINGERPRINT_FAILED =
-    "Contraseña maestra cambiada. No se pudo apagar la huella: abre la bóveda con la contraseña nueva y vuelve a activarla."
+    "Contraseña maestra cambiada. La huella ya no abre la bóveda, pero no se pudo desactivar: abre la bóveda con la " +
+        "contraseña nueva, desactiva la huella y vuelve a activarla."
 
 /** A6, «Renovar identidad» (button, dialog title) and its strong warning, verbatim from the design. */
 const val RENEW_IDENTITY = "Renovar identidad"
-const val RENEW_IDENTITY_WARNING = "Tus contactos tendrán que añadir tu tarjeta nueva, y no podrás abrir lo que te enviaron a la anterior."
+const val RENEW_IDENTITY_WARNING =
+    "Tus contactos tendrán que añadir tu tarjeta nueva, y no podrás abrir lo que te enviaron a la anterior. Avísales " +
+        "por otro medio: mientras usen la anterior, quien tenga tu identidad antigua podrá firmar como tú y leer lo que " +
+        "te envíen, si llega a ver esos mensajes."
 const val RENEW_IDENTITY_DONE = "Identidad renovada. Comparte tu tarjeta nueva con tus contactos."
 
-/** A12, in the dialog. */
+/** A12, the only text of the dialog «He olvidado la contraseña maestra» (VaultScreen uses this constant). */
 const val RESET_WIPES_DAMAGED =
-    "Se borrarán la bóveda y también los archivos dañados que la app guardó al intentar repararla. No se puede deshacer."
+    "Lo guardado no se puede descifrar sin la contraseña. Se borrarán la bóveda y también los archivos dañados que la " +
+        "app guardó al intentar repararla. No se puede deshacer. Las copias .sgbak no se borran: si recuerdas la " +
+        "contraseña con la que se hicieron, podrás importarlas en una bóveda nueva."
 
 /** Every text above, the parameterised ones with the annex's placeholders; ToolTextsTest checks them. */
 val ALL_TOOL_TEXTS: List<String> = listOf(
@@ -485,5 +498,5 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PASSWORD_CHANGE_COPIES, RESET_WIPES_DAMAGED,
     PASSWORD_CHANGED_TITLE, PASSWORD_CHANGE_OLD_BACKUPS, PASSWORD_CHANGE_REPLACE_COPIES, PASSWORD_CHANGE_RENEW_HINT,
     PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, AUTO_BACKUP_OUTCOME_TITLE, AUTO_BACKUP_REPLACE_DROPPED, PASSWORD_CHANGED_FINGERPRINT_FAILED, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
-    AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS,
+    AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS, CLOCK_CHANGED_TEXT,
 )

@@ -1,6 +1,7 @@
 package app.seguridad.tools
 
 import app.seguridad.tools.photo.Found
+import app.seguridad.tools.share.PHOTO_FILE_BASE
 import app.seguridad.tools.photo.PhotoFormat
 import app.seguridad.tools.photo.PhotoReport
 import app.seguridad.vault.AUTO_BACKUP_REPLACED
@@ -11,6 +12,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.lang.reflect.Modifier
+
+/** Annex texts the Abogado Digital's review replaced (CU-A). Task 15 updates the annex and deletes this list. */
+private val SUPERSEDED_ANNEX_TEXTS = setOf(
+    "Las fotos HEIC, HEIF y AVIF se guardan como JPEG: la copia puede perder algo de calidad.",
+    "Quita los datos que la foto guarda dentro del archivo: la ubicación, el modelo del móvil, la fecha, la miniatura y " +
+        "otros. No cambia lo que se ve: una cara, una matrícula, tu portal o un reflejo pueden delatarte igual; para eso, " +
+        "usa «Tachar en imagen». Tampoco quita las marcas invisibles que pueda llevar la propia imagen ni el rastro que " +
+        "deja el sensor de cada cámara. Muchas apps de mensajería quitan parte de estos datos al enviar una foto, pero no " +
+        "siempre todos, y no cuando la envías como documento o archivo. La foto se analiza en tu móvil y no se envía a " +
+        "ningún sitio.",
+    "Móvil: marca, modelo y número de serie",
+    "Datos de autor y de derechos: si la foto no es tuya, no los quites para ocultar de quién es",
+    "El nombre del archivo también puede decir algo de ti (por ejemplo, la fecha en «IMG_20261027_…»). Por eso la copia " +
+        "se llama «foto-limpia».",
+    "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes Wi-Fi, ni pagos. Solo puedes copiarlo. La " +
+        "imagen se analiza en tu móvil y no se guarda.",
+    "Se añadirá como contacto sin verificar. Para verificarlo, compara la huella con la persona, en persona o por llamada.",
+    "Se borrarán la bóveda y también los archivos dañados que la app guardó al intentar repararla. No se puede deshacer.",
+    "Chip seguro (StrongBox)",
+    "Zona segura del procesador",
+    "Este móvil tiene chip seguro. Para usarlo, desactiva la huella y vuelve a activarla.",
+)
 
 class ToolTextsTest {
     private val annexPath = "docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md"
@@ -53,8 +76,14 @@ class ToolTextsTest {
     fun everyAnnexTextIsInTheListVerbatim() {
         val texts = annexTexts()
         assertTrue("Annex parse found too few texts: ${texts.size}", texts.size >= 50)
-        val missing = texts.filter { it !in ALL_TOOL_TEXTS }
+        val missing = texts.filter { it !in ALL_TOOL_TEXTS && it !in SUPERSEDED_ANNEX_TEXTS }
         assertTrue("Annex texts missing from ToolTexts (or not verbatim):\n" + missing.joinToString("\n"), missing.isEmpty())
+    }
+
+    @Test
+    fun supersededAnnexTextsAreGoneFromTheApp() {
+        // The Abogado Digital's review replaced these annex texts; Task 15 updates the annex and removes this list.
+        for (old in SUPERSEDED_ANNEX_TEXTS) assertFalse("Still shown: $old", old in ALL_TOOL_TEXTS)
     }
 
     @Test
@@ -62,16 +91,18 @@ class ToolTextsTest {
         // Explicitly allowed by the annex: «Sin avisos» names «seguro» only to deny it, and Tachar says «no se puede
         // recuperar» about the covered pixels of the copy.
         val exceptions = setOf(QR_NO_ALERTS, REDACT_EXPLANATION)
-        val banned = listOf("anónim", "imposible", "100 %", "100%", "de verdad", "validez legal", "limpio", "sospechos")
+        val banned = listOf("anónim", "imposible", "100 %", "100%", "de verdad", "validez legal", "sospechos")
         for (text in ALL_TOOL_TEXTS - exceptions) {
             val t = text.lowercase()
             for (b in banned) assertFalse("«$b» in: $text", b in t)
             Regex("garantiza").findAll(t).forEach { m ->
                 assertTrue("«garantiza» without «no» in: $text", t.substring(0, m.range.first).endsWith("no "))
             }
-            // «Chip seguro (StrongBox)» is the annex's name for the hardware, not a claim about the app.
-            val claims = t.replace("chip seguro", "")
-            if ("seguro" in claims) assertTrue("«seguro» in: $text", "no garantiza que sea seguro" in claims)
+            // «limpio/a/os/as» (the verb in «Limpiar foto» names an action, not a state: the owner allows it).
+            assertFalse("«limpio/a» in: $text", Regex("(?<![\\p{L}])limpi[oa]s?(?![\\p{L}])").containsMatchIn(t))
+            // «seguro», «segura» and their plurals as whole words (not «Seguridad» nor «Por seguridad»).
+            val claims = t.replace("no garantiza que sea seguro", "")
+            assertFalse("«seguro/a» in: $text", Regex("(?<![\\p{L}])segur[oa]s?(?![\\p{L}])").containsMatchIn(claims))
         }
     }
 
@@ -156,18 +187,64 @@ class ToolTextsTest {
     @Test
     fun afterChangingTheMasterPasswordTheTextsAreTheOnesOfTheDesign() {
         assertEquals("Cambiar la contraseña no cambia las copias que ya existen.", PASSWORD_CHANGE_COPIES)
-        assertEquals("Las copias .sgbak que hiciste antes se siguen abriendo con la contraseña anterior.", PASSWORD_CHANGE_OLD_BACKUPS)
-        assertEquals("Borrar las copias automáticas anteriores y hacer una nueva", PASSWORD_CHANGE_REPLACE_COPIES)
-        assertEquals("Si temes que alguien tenga la contraseña anterior y una copia, renueva tu identidad", PASSWORD_CHANGE_RENEW_HINT)
+        assertEquals("Las copias .sgbak de antes, también las automáticas, se siguen abriendo con la contraseña anterior.", PASSWORD_CHANGE_OLD_BACKUPS)
+        assertEquals("Hacer una copia nueva y borrar las automáticas anteriores", PASSWORD_CHANGE_REPLACE_COPIES)
+        assertEquals(
+            "Si temes que alguien tenga la contraseña anterior y una copia, con las dos puede ver todo lo que guardabas " +
+                "al hacerla: cambia las contraseñas y los códigos 2FA que más te importen, y renueva tu identidad.",
+            PASSWORD_CHANGE_RENEW_HINT,
+        )
         assertEquals("Renovar identidad", RENEW_IDENTITY)
         assertEquals(
-            "Tus contactos tendrán que añadir tu tarjeta nueva, y no podrás abrir lo que te enviaron a la anterior.",
+            "Tus contactos tendrán que añadir tu tarjeta nueva, y no podrás abrir lo que te enviaron a la anterior. " +
+                "Avísales por otro medio: mientras usen la anterior, quien tenga tu identidad antigua podrá firmar como " +
+                "tú y leer lo que te envíen, si llega a ver esos mensajes.",
             RENEW_IDENTITY_WARNING,
         )
-        assertEquals("No se borraron las copias automáticas anteriores: siguen en la carpeta anterior.", AUTO_BACKUP_REPLACE_DROPPED)
-        assertTrue(PASSWORD_CHANGED_FINGERPRINT_FAILED.startsWith("Contraseña maestra cambiada."))
+        assertEquals("Las copias automáticas anteriores que ibas a borrar no se borraron: siguen en su carpeta.", AUTO_BACKUP_REPLACE_DROPPED)
+        assertEquals(
+            "Contraseña maestra cambiada. La huella ya no abre la bóveda, pero no se pudo desactivar: abre la bóveda con " +
+                "la contraseña nueva, desactiva la huella y vuelve a activarla.",
+            PASSWORD_CHANGED_FINGERPRINT_FAILED,
+        )
         // The result texts of the replacement are in the list too, so noForbiddenWords covers them.
         assertTrue(ALL_TOOL_TEXTS.containsAll(listOf(AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS)))
+    }
+
+    @Test
+    fun textsOfTheLegalReviewAreTheProposedOnes() {
+        assertEquals("Chip de seguridad (StrongBox)", KEY_LOCATION_STRONGBOX)
+        assertEquals("Zona aislada del procesador (TEE)", KEY_LOCATION_TEE)
+        assertEquals(
+            "Este móvil tiene chip de seguridad (StrongBox). Para usarlo, desactiva la huella y vuelve a activarla.",
+            STRONGBOX_AVAILABLE_NOTICE,
+        )
+        assertEquals(
+            "Desbloquea la bóveda para guardarlo. Si sales de esta pantalla o giras el móvil, lo que ves aquí se pierde.",
+            CODES_UNLOCK_TO_SAVE,
+        )
+        assertEquals(
+            "Las fotos HEIC, HEIF y AVIF se guardan como JPEG: la copia puede perder algo de calidad y, si la foto pasa " +
+                "de unos 24 megapíxeles, se reduce a ese tamaño.",
+            PHOTO_HEIF_NOTICE,
+        )
+        assertTrue("«copia-de-foto»" in PHOTO_FILE_NAME_NOTE)
+        assertEquals("copia-de-foto", PHOTO_FILE_BASE)
+        assertEquals("Quita la ubicación y otros datos ocultos del archivo", PHOTO_TOOL_SUBTITLE)
+        assertEquals("Móvil o cámara: marca y modelo, y a veces número de serie o nombre del propietario", PHOTO_DEVICE)
+        assertEquals("datos del móvil o la cámara", PHOTO_REMOVED_NAMES.getValue(Found.DEVICE))
+        assertEquals(
+            "Datos de autor y de derechos: la copia no los lleva. Si la foto no es tuya, no uses la copia para ocultar de quién es",
+            PHOTO_AUTHOR_RIGHTS,
+        )
+        assertEquals("No se ha podido guardar la copia. Si ha quedado un archivo a medias en la carpeta, bórralo.", PHOTO_SAVE_FAILED)
+        assertEquals("El texto completo lleva la contraseña de la red: toca «Mostrar» para verlo.", QR_TEXT_HIDDEN_PASSWORD)
+        assertEquals("El texto completo lleva la clave secreta del código 2FA: toca «Mostrar» para verlo.", QR_TEXT_HIDDEN_OTP)
+        assertEquals("Se hará en cuanto abras la bóveda con la contraseña nueva.", AUTO_BACKUP_REPLACE_WAITS)
+        assertEquals("La hora del móvil se ha atrasado. Por seguridad, escribe la contraseña maestra.", app.seguridad.vault.CLOCK_CHANGED_TEXT)
+        assertTrue(RESET_WIPES_DAMAGED.startsWith("Lo guardado no se puede descifrar sin la contraseña. Se borrarán"))
+        assertTrue("Las copias .sgbak no se borran" in RESET_WIPES_DAMAGED)
+        assertTrue(app.seguridad.vault.CLOCK_CHANGED_TEXT in ALL_TOOL_TEXTS)
     }
 
     @Test
