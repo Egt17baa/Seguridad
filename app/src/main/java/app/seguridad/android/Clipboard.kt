@@ -8,7 +8,7 @@ import android.os.Build
 import android.os.PersistableBundle
 import app.seguridad.SeguridadApp
 import app.seguridad.settings.ClipboardClear
-import app.seguridad.tools.needsClipboardHistoryNotice
+import app.seguridad.tools.copyOrAskNotice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,24 +35,24 @@ private fun ClipboardManager.wipe() {
 /**
  * Copies [text] marked as sensitive (hidden in the keyboard's clipboard preview) and clears it after the chosen time if
  * unchanged. On Android 8 to 12 (no EXTRA_IS_SENSITIVE) the first copy waits for the A14 notice at the root of the app
- * (ClipboardHistoryNotice) and is made only if the user accepts it. Returns whether it was copied now (false: it waits
- * for the notice), so a screen says «copiado» only then.
+ * (ClipboardHistoryNotice) and is made only if the user accepts it ([copyOrAskNotice]). [onCopied] runs once the text is
+ * in the clipboard (at once, or on accept), never if it is not. Returns whether it was copied now.
  */
-fun copySensitive(context: Context, text: String): Boolean {
+fun copySensitive(context: Context, text: String, onCopied: (() -> Unit)? = null): Boolean {
     val container = (context.applicationContext as? SeguridadApp)?.container
-    if (container != null) {
-        val notice = container.clipboardNotice
-        val accepted = container.settings.settings.value.clipboardHistoryNoticeAccepted || notice.acceptedNow
-        if (needsClipboardHistoryNotice(Build.VERSION.SDK_INT, accepted)) {
-            notice.ask(text)
-            return false
-        }
-    }
-    copySensitiveNow(context, text)
-    return true
+        ?: return true.also { copySensitiveNow(context, text); onCopied?.invoke() }
+    val app = context.applicationContext
+    return copyOrAskNotice(
+        text,
+        container.clipboardNotice,
+        accepted = container.settings.settings.value.clipboardHistoryNoticeAccepted,
+        sdk = Build.VERSION.SDK_INT,
+        write = { copySensitiveNow(app, it) },
+        onCopied = onCopied,
+    )
 }
 
-/** [copySensitive] without the A14 notice: only for the notice's own «Entendido, copiar». */
+/** [copySensitive] without the A14 notice: what it writes, now or on «Entendido, copiar». */
 fun copySensitiveNow(context: Context, text: String) {
     val cm = context.getSystemService(ClipboardManager::class.java) ?: return
     val clip = ClipData.newPlainText(CLIP_LABEL, text)

@@ -120,8 +120,10 @@ class AppContainer(
     /**
      * A copy waiting for the A14 notice (Android 8 to 12), shown by the dialog at the root of the app. Here for the same
      * reason as [masterChanged]; the text is dropped when the vault locks (here) and when the app is left (MainActivity).
+     * The drop here comes a moment later and may miss a quick lock and unlock: the lock counter makes accept() refuse
+     * either way.
      */
-    val clipboardNotice = ClipboardNoticeRequest().also { notice ->
+    val clipboardNotice = ClipboardNoticeRequest(lockEpoch = { vault.lockEpoch }).also { notice ->
         appScope.launch {
             vault.state.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) notice.drop() }
         }

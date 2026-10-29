@@ -479,7 +479,7 @@ const val FINGERPRINT_ENABLE_INTERRUPTED =
 /** A14: the notice before the first copy of a secret on Android 8 to 12; [seconds] is the time chosen in Ajustes. */
 fun clipboardHistoryNoticeText(seconds: Int): String =
     "En este Android, el teclado puede guardar lo copiado en su historial. Seguridad lo borra del portapapeles a los " +
-        "$seconds s, pero no del historial del teclado."
+        "$seconds s (si Android cierra la app antes, al volver a abrirla), pero no del historial del teclado."
 
 /** A14: copies (and records the notice as accepted). */
 const val CLIPBOARD_HISTORY_ACCEPT = "Entendido, copiar"
