@@ -277,4 +277,29 @@ class CryptoTest {
         // One byte more is not this format.
         assertFails { decryptStream(ByteArrayInputStream(oldStyleFile(name1024 + "a", "clave", "x".toByteArray())), ByteArrayOutputStream(), "clave".toCharArray()) }
     }
+
+    @Test fun safeFileNameDropsZeroWidthAndFormatCharacters() {
+        // Invisible characters that could make one name look like another (category Cf), one by one.
+        val listed = (0x200B..0x200F) + (0x202A..0x202E) + (0x2060..0x2064) + (0x2066..0x2069) + listOf(0xFEFF, 0x00AD, 0x061C)
+        for (cp in listed - 0x200D) {
+            val c = String(Character.toChars(cp))
+            assertEquals("cp=${cp.toString(16)}", "factura.pdf", safeFileName("fac${c}tura.p${c}df"))
+            assertEquals("cp=${cp.toString(16)}", "archivo", safeFileName(c)) // only invisible: the fallback
+        }
+        // Every other Cf too, also outside the BMP: the tag characters (U+E0001, U+E0020–U+E007F).
+        val tagA = String(Character.toChars(0xE0041))
+        assertEquals("ab.txt", safeFileName("a${tagA}b${String(Character.toChars(0xE0001))}.txt"))
+        assertEquals("ab.txt", safeFileName("a\u180Eb.txt")) // Mongolian vowel separator (Cf)
+        // The zero-width joiner stays: it only joins the emoji of a sequence, as in sanitizeReceivedName.
+        val family = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67" // 👨‍👩‍👧
+        assertEquals("$family.png", safeFileName("$family.png"))
+        assertEquals("a\u200Db.txt", safeFileName("a\u200Db.txt"))
+        // Variation selectors (not Cf) and accents stay.
+        assertEquals("\u2764\uFE0F.jpg", safeFileName("\u2764\uFE0F.jpg"))
+        assertEquals("Ñandú.txt", safeFileName("Ñandú.txt"))
+        // Idempotent, and the format characters do not count towards the limits.
+        val zw = "\u200B"
+        for (n in listOf("fac${zw}tura.pdf", zw, "$family.png", "a".repeat(119) + zw.repeat(50) + "b")) assertEquals(safeFileName(n), safeFileName(safeFileName(n)))
+        assertEquals("a".repeat(119) + "b", safeFileName("a".repeat(119) + zw.repeat(50) + "b"))
+    }
 }

@@ -60,7 +60,10 @@ fun encryptStream(
     val key = keyForHeader(secret, header)
     try {
         output.write(aad)
-        val nameBytes = safeFileName(name).toByteArray(Charsets.UTF_8).let { if (it.size > MAX_FILE_NAME_BYTES) it.copyOf(MAX_FILE_NAME_BYTES) else it }
+        // safeFileName keeps it within MAX_SAVED_NAME_BYTES (255); a longer one would be a bug, never cut (it could split a
+        // UTF-8 character).
+        val nameBytes = safeFileName(name).toByteArray(Charsets.UTF_8)
+        if (nameBytes.size > MAX_FILE_NAME_BYTES) throw CryptoFailure("No se ha podido cifrar el archivo")
         val sealedName = aead(alg, true, key, streamNonce(header.nonce, 0, false), aad, nameBytes, header.dialect)
         output.write(ByteBuffer.allocate(2).putShort(sealedName.size.toShort()).array())
         output.write(sealedName)
@@ -140,8 +143,14 @@ internal const val MAX_FILE_NAME_CODE_POINTS = 120
  */
 const val MAX_SAVED_NAME_BYTES = 255
 
-/** Controls taken out of a name: C0, DEL, C1, and the line and paragraph separators (U+2028, U+2029). */
-private val NAME_CONTROLS = Regex("[\\x00-\\x1F\\x7F-\\x9F\\u2028\\u2029]")
+/**
+ * Taken out of a name: C0, DEL, C1, the line and paragraph separators (U+2028, U+2029), and every format character
+ * (category Cf: zero-width spaces and marks U+200B–U+200F, bidi controls U+202A–U+202E and U+2066–U+2069, U+2060–U+2064,
+ * U+FEFF, the soft hyphen U+00AD, U+061C, the tag characters U+E0000–U+E007F…), which are invisible and can make a name
+ * look like another. Except the zero-width joiner (U+200D), which only joins the emoji of a sequence («👨‍👩‍👧») and is
+ * kept, as in `sanitizeReceivedName`.
+ */
+private val NAME_CONTROLS = Regex("[\\x00-\\x1F\\x7F-\\x9F\\u2028\\u2029\\p{Cf}&&[^\\u200D]]")
 
 /** What [safeFileName] trims from both ends: dots and spaces (also the no-break ones), as `sanitizeReceivedName` does. */
 private fun isNameTrimmable(c: Char) = c == '.' || c.isWhitespace() || Character.isSpaceChar(c)
