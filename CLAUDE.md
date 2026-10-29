@@ -26,6 +26,58 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
    - la auditoría completa con `experto-seguridad-cripto`, `auditoria-seguridad-movil` y `auditoria-seguridad`;
    - la revisión final del Abogado Digital (punto 4), con sus cambios aplicados.
 
+## Estado actual: Seguridad 1.3.0 (30-10-2026)
+
+**Fase:** desarrollo de la 1.3.0 por subagentes, en la rama `ccr-a1a6eabb-765f9g`; todavía no hay nada en `main`. Hay que seguir el traspaso `docs/superpowers/handoff/2026-10-28-seguridad-1.3.0-traspaso.md`. El registro de la ejecución está en `docs/superpowers/handoff/sdd-1.3.0/progress.md`, con su copia de trabajo en `.superpowers/sdd/2026-10-27-seguridad-1.3.0-herramientas/`.
+
+| Paso | Estado |
+|---|---|
+| Tareas 1 a 12 | Terminadas y revisadas |
+| Puesta al día CU-A (textos, Abogado Digital) y CU-B (Android, Ingeniero Móvil Senior) | Terminadas |
+| Tarea 13: clave pública (A15a, A15b, A16a y A16b) | Implementada (`7268a24`), en la ronda 1 de arreglos |
+| Tarea 14: CI y publicación | Pendiente |
+| Tarea 15: documentos, versión 1.3.0 y anexo de textos | Pendiente |
+| Tarea 16: auditoría completa, revisión final del Abogado Digital, prueba en el móvil, fusión en `main` y APK | Pendiente |
+
+**Decisiones del dueño y del controlador que siguen vigentes** (el detalle está en `progress.md`, en las líneas «Ruling»):
+- **Detalles menores:** se arreglan todos, no se aplazan.
+- **Nombre de salida de Limpiar foto:** `copia-de-foto.<ext>`, y no `foto-limpia`, porque «limpio» es una palabra prohibida. Tachar sigue con `imagen-tachada.<ext>`.
+- **Estado que sobrevive al giro:** la imagen y los recuadros de Tachar, la copia de Limpiar foto, el PIN, los códigos, las respuestas y el diálogo de A6 viven en un ViewModel o en `AppContainer`, **nunca** en `rememberSaveable` ni en un `Bundle` si son secretos o imágenes. Se pierden si Android cierra la app, y eso se acepta.
+- **«PIN y códigos»:** el PIN, los códigos y las respuestas se borran:
+  - al volver atrás;
+  - al bloquear la bóveda con la app en primer plano;
+  - con el bloqueo por inactividad, solo si la pantalla no se ha usado durante `max(bloqueo, 60 s)`;
+  - al volver después de ese tiempo fuera.
+
+  Los sitios y las preguntas se conservan.
+- **Huella (A11):** se guarda la hora más alta vista. La huella pide la maestra si el reloj va más de 5 min por detrás. Un desbloqueo con la maestra baja esa marca, pero una importación solo la baja después de guardar la bóveda.
+- **Importar (A8):** si la copia tiene un Argon2id más débil, se vuelve a envolver con el máximo, eje por eje, entre el de la copia y el del perfil. Nunca se baja el coste.
+- **Copias tras cambiar la maestra (A6):** la petición de reemplazo se guarda en `Settings.autoBackupReplacePending`. Primero se hace la copia nueva y después se borran solo las de la lista propia.
+- **Portapapeles en Android 8 a 12 (A14):** el aviso se acepta una vez, y la copia pendiente se rechaza si la bóveda se bloquea entre el aviso y la aceptación.
+- **Nombres de archivo (A16b):** se cortan por puntos de código, con un máximo de 255 bytes al escribir y guardar. Al leer se siguen aceptando hasta 1024 bytes (`MAX_FILE_NAME_BYTES`).
+- **Prueba de palabras prohibidas:** `SourceTextsTest` revisa todas las cadenas de `app/src/main/java`, no solo `ToolTexts.kt`.
+
+**Pendientes que ya tienen tarea:**
+- **Tarea 15:**
+  - actualizar el anexo de textos, la línea 210 del diseño y el plan (`foto-limpia` → `copia-de-foto`);
+  - después, borrar `SUPERSEDED_ANNEX_TEXTS` de `ToolTextsTest`;
+  - corregir los límites menores de `SourceTextsTest`: cadenas partidas, un carácter literal dentro de una plantilla y «garantiza» repartido en varios trozos.
+- **Tarea 16, Abogado Digital (una sola revisión final):**
+  - todos los textos, incluidos los apuntados en «Textos para el Abogado Digital (revisión final)» en los informes de la tarea 12 en adelante;
+  - las licencias y la atribución de BIP-39;
+  - la política de privacidad y seguridad `docs/privacidad.html` y la ficha de Google Play, según la ley española, la europea y la internacional. Francia queda fuera de los países de publicación;
+  - comprobar las fechas de la Directiva (UE) 2024/2853, del CRA y del AI Act, que quedaron sin verificar.
+- **Tarea 16, auditoría y APK:**
+  - auditoría completa con el método de la auditoría externa;
+  - revisar con `aapt2` los permisos del APK de publicación;
+  - comprobar que el `PreviewActivity` exportado solo existe en debug.
+- **Tarea 16, prueba del dueño en el Honor Magic 8 Pro:** la lista del traspaso (§2.6), más las pruebas nuevas de los informes `ingeniero-movil-1-11.md`, `cu-b-report.md` y `task-12-report.md`:
+  - girar el móvil durante «Activar huella» y durante el desbloqueo;
+  - Gboard, en un campo normal y en un campo dentro de un diálogo;
+  - fotos de 200 MP;
+  - un móvil de 3 a 4 GB de RAM para la memoria nativa de Tachar.
+- **Detalles menores aplazados** de las tareas 1 a 9: el traspaso, §2.5. Se cierran en la revisión final.
+
 ## Reglas del proyecto
 
 - **No romper datos existentes:** los formatos `SG1:`, `.sgenc`, `seguridad-vault` y `seguridad-backup` se leen para siempre, y `CP1:`, `.cpenc` y `criptopanel-vault` (CriptoPanel) también. Cualquier cambio de formato lleva tests con datos reales anteriores.
