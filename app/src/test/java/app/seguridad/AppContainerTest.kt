@@ -138,7 +138,7 @@ class AppContainerTest {
         assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS, c.clockMark)
     }
 
-    @Test fun `BOV-1 a failure in a background job never reaches the thread's uncaught handler`() {
+    @Test fun `BOV-1 an exception in a background job never reaches the thread's uncaught handler, an Error does`() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         val got = CopyOnWriteArrayList<Throwable>()
         Thread.setDefaultUncaughtExceptionHandler { _, e -> got += e }
@@ -147,6 +147,10 @@ class AppContainerTest {
             runBlocking { c.appScope.launch { throw java.io.IOException("No space left on device") }.join() }
             Thread.sleep(100)
             assertTrue(got.isEmpty())
+            val error = OutOfMemoryError("prueba")
+            runBlocking { c.appScope.launch { throw error }.join() }
+            Thread.sleep(100)
+            assertEquals(listOf<Throwable>(error), got.toList())
         } finally {
             Thread.setDefaultUncaughtExceptionHandler(previous)
         }

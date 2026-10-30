@@ -5,6 +5,8 @@ import app.seguridad.net.secureClient
 import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.clockMarkWorthWriting
+import app.seguridad.settings.resettingClock
+import app.seguridad.settings.seeingClock
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.withAutoBackupResult
 import app.seguridad.tools.ClipboardNoticeRequest
@@ -31,10 +33,13 @@ import java.io.File
 const val SETTINGS_FILE = "settings.json"
 
 /**
- * The last guard of [AppContainer.appScope]: a background job that fails anyway (each one catches what it expects) must
- * never close the app, as an uncaught exception would on Android (BOV-1). Nothing is logged: it could carry data.
+ * The last guard of [AppContainer.appScope]: an exception a background job did not catch (each one catches what it
+ * expects) must never close the app, as it would on Android (BOV-1). An Error (OutOfMemoryError, say) goes on to the
+ * thread's handler as before. Nothing is logged: it could carry data.
  */
-private val backgroundFailure = CoroutineExceptionHandler { _, _ -> }
+private val backgroundFailure = CoroutineExceptionHandler { _, e ->
+    if (e !is Exception) Thread.currentThread().let { t -> t.uncaughtExceptionHandler?.uncaughtException(t, e) }
+}
 
 /**
  * Manual dependency graph, one per process. Plain JVM: no Android types, so jvm-check compiles it too.
@@ -156,7 +161,8 @@ class AppContainer(
                 settings.update { s ->
                     synchronized(clockLock) {
                         resets = clockResets
-                        s.copy(clockHighWaterMs = maxOf(clockLowered ?: s.clockHighWaterMs, clockSeen))
+                        // The reset not saved yet (it may lower the mark), then the highest time seen since (only raises it).
+                        (clockLowered?.let(s::resettingClock) ?: s).seeingClock(clockSeen)
                     }
                 }
                 saved = true

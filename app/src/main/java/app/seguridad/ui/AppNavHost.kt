@@ -111,8 +111,8 @@ fun AppNavHost(container: AppContainer) {
     LaunchedEffect(onTab) { if (onTab != null) lastTab = onTab }
     val currentTab = onTab ?: lastTab
     val back: () -> Unit = { nav.popBackStack() }
-    // Ids are encoded into the routes: an imported copy only brings ids of the app's own shape (isEntryId), and this
-    // keeps any other one (an older vault) from matching another route or breaking it (LIBRE-1).
+    // Ids are encoded into the routes: an imported copy (or a vault that imported one with 1.0 to 1.2.x) may hold any id,
+    // and encoded it can neither match another route nor break this one (LIBRE-1).
     val onOpen: (String) -> Unit = { id -> nav.navigate("vault/entry/${Uri.encode(id)}") }
     val onHealth: () -> Unit = { nav.navigate("vault/health") }
     val onNew: (EntryType) -> Unit = { type -> nav.navigate("vault/edit?type=${type.name}") }
@@ -195,13 +195,14 @@ fun AppNavHost(container: AppContainer) {
                     HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = back)
                 }
                 // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
-                // The fixed routes (me, add, encrypt, sign, open) are not ids: Navigation picks a route with no argument over contacts/{id}.
+                // A contact's own screen is under contacts/c/, so no id (an imported copy brings any) can ever be taken for one
+                // of the fixed routes (me, add, encrypt, sign, open); the id is encoded, so it stays one path segment (LIBRE-1).
                 composable("contacts") {
                     ContactsScreen(
                         vault,
                         onIdentity = { nav.navigate("contacts/me") },
                         onAdd = { nav.navigate("contacts/add") },
-                        onContact = { id -> nav.navigate("contacts/${Uri.encode(id)}") },
+                        onContact = { id -> nav.navigate("contacts/c/${Uri.encode(id)}") },
                         onAction = { route -> nav.navigate(route) },
                     )
                 }
@@ -210,7 +211,7 @@ fun AppNavHost(container: AppContainer) {
                 composable("contacts/encrypt") { EncryptForScreen(vault, onBack = back) }
                 composable("contacts/sign") { SignScreen(vault, onBack = back) }
                 composable("contacts/open") { OpenReceivedScreen(vault, onBack = back, onOpenSymmetric = { nav.navigate("tools/file") }) }
-                composable("contacts/{id}") { entry ->
+                composable("contacts/c/{id}") { entry ->
                     ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
                 }
                 composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
