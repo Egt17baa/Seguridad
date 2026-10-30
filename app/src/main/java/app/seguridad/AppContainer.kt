@@ -88,8 +88,10 @@ class AppContainer(
         // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
         // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
         beforeCreate = { settings.turnOffAutoBackupForNewVault()?.let(releaseFolder) },
-        // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted.
-        beforeReplace = { settings.forgetAutoBackupCopies() },
+        // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted. Only
+        // once the imported vault is saved (COPIAS-3); a copy still being written of the replaced vault is told apart by
+        // the vault's generation (CADENAS-3, see [recordAutoBackup]).
+        onReplaced = { settings.forgetAutoBackupCopies() },
         clockHighWater = { clockMark },
         onClockSeen = ::rememberClock,
         onClockReset = ::resetClock,
@@ -220,11 +222,13 @@ class AppContainer(
 
     /**
      * Keeps how the last automatic copy went, for Ajustes, and the copies it made (for the next rotation), if it went
-     * to the folder still chosen. Waited for by [AutoBackup] before its next copy, so that one sees this list.
+     * to the folder still chosen. Waited for by [AutoBackup] before its next copy, so that one sees this list. The vault's
+     * generation is read inside the settings' lock: an import bumps it before it forgets the list (a write that takes that
+     * same lock), so a copy of the replaced vault can never put its list back, whichever of the two writes first (CADENAS-3).
      */
     private suspend fun recordAutoBackup(result: AutoBackupResult) {
         try {
-            settings.update { it.withAutoBackupResult(result) }
+            settings.update { it.withAutoBackupResult(result, vault.generation) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

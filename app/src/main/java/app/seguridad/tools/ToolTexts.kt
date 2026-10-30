@@ -8,6 +8,7 @@ import app.seguridad.tools.photo.PhotoReport
 import app.seguridad.tools.share.PHOTO_FILE_BASE
 import app.seguridad.vault.AUTO_BACKUP_REPLACED
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
+import app.seguridad.vault.autoBackupUnlistedText
 import app.seguridad.vault.BIOMETRIC_UNLOCK_FAILED
 import app.seguridad.vault.CLOCK_CHANGED_TEXT
 import java.util.Locale
@@ -467,6 +468,12 @@ const val PASSWORD_CHANGE_WORKING = "Haciendo la copia nueva…"
 const val PASSWORD_CHANGE_CLOSE = "Entendido"
 const val AUTO_BACKUP_OUTCOME_TITLE = "Copias automáticas"
 const val AUTO_BACKUP_REPLACE_DROPPED = "Las copias automáticas anteriores que ibas a borrar no se borraron: siguen en su carpeta."
+
+/**
+ * COV2-1 (audit 1.3.0): under the folder of the copies, «Conservar», the lock, the clipboard and the Argon2id cost while
+ * the vault is locked, and in a snackbar if it locked while the folder picker was open.
+ */
+const val SETTINGS_NEED_OPEN_VAULT = "Abre la bóveda (pestaña Bóveda) para cambiar este ajuste."
 const val PASSWORD_CHANGED_FINGERPRINT_FAILED =
     "Contraseña maestra cambiada. La huella ya no abre la bóveda, pero no se pudo desactivar: abre la bóveda con la " +
         "contraseña nueva, desactiva la huella y vuelve a activarla."
@@ -559,6 +566,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PASSWORD_CHANGED_TITLE, PASSWORD_CHANGE_OLD_BACKUPS, PASSWORD_CHANGE_REPLACE_COPIES, PASSWORD_CHANGE_RENEW_HINT,
     PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, AUTO_BACKUP_OUTCOME_TITLE, AUTO_BACKUP_REPLACE_DROPPED, PASSWORD_CHANGED_FINGERPRINT_FAILED, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
     AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS, CLOCK_CHANGED_TEXT, BIOMETRIC_UNLOCK_FAILED,
+    autoBackupUnlistedText(1), autoBackupUnlistedText(2), SETTINGS_NEED_OPEN_VAULT,
     CLIPBOARD_HISTORY_ACCEPT, CLIPBOARD_HISTORY_CANCEL, CLIPBOARD_COPY_FAILED, CLIPBOARD_COPY_FAILED_OK,
     fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2),
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) }

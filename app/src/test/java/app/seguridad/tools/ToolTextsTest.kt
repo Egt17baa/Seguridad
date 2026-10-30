@@ -84,7 +84,7 @@ class ToolTextsTest {
         // The number of texts of each section, exactly: a text that loses its «» would no longer be checked.
         val expected = linkedMapOf(
             "Limpiar foto" to 17, "Tachar en imagen" to 3, "Inspector de QR" to 19, "PIN y códigos" to 2,
-            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 36,
+            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 39,
             "Textos de la app que no estaban en el dictamen" to 123,
         )
         val sections = annexSections()

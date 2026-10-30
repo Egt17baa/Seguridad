@@ -2,7 +2,6 @@ package app.seguridad
 
 import android.app.Application
 import android.os.SystemClock
-import androidx.core.net.toUri
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.ui.screens.DECRYPT_TMP_PREFIX
@@ -18,7 +17,8 @@ class SeguridadApp : Application() {
             filesDir,
             cacheDir,
             appVersion = BuildConfig.VERSION_NAME,
-            backupFolder = { uri -> SafBackupTarget(contentResolver, uri.toUri()) },
+            // Only a folder the app holds a persisted permission for (CADENAS-1): any other throws, and no copy goes there.
+            backupFolder = { uri -> SafBackupTarget.open(contentResolver, uri) },
             releaseFolder = { uri -> SafBackupTarget.releaseFolder(contentResolver, uri) },
             // Counts deep sleep too (System.nanoTime does not): the idle lock must see the time the screen was off.
             elapsedRealtime = SystemClock::elapsedRealtime,

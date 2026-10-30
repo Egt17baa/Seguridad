@@ -23,6 +23,7 @@ import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
 import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
@@ -153,9 +154,10 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                 val msg = withContext(NonCancellable) {
                     try {
                         // A .sgbak copy or a JSON export: the store tells them apart by their first bytes.
-                        withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { store.importReplace(it, pw) } }
+                        // True when the import dropped a pending request to replace the old automatic copies (COPIAS-3).
+                        val dropped = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { store.importReplace(it, pw) } }
                         BiometricVault.disable(context)
-                        "Copia importada"
+                        if (dropped) "Copia importada. $AUTO_BACKUP_REPLACE_DROPPED" else "Copia importada"
                     } catch (e: CryptoFailure) {
                         e.message ?: "Contraseña incorrecta"
                     } catch (e: Exception) {

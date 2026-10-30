@@ -81,6 +81,10 @@ private const val TEMP_SUFFIX = ".tmp"
 
 /** The temporary names this class writes: the only files it deletes by name (cut copies, never complete ones). */
 private val TEMP_NAME = Regex("seguridad-auto-\\d{8}-\\d{6}\\.sgbak\\.tmp")
+
+/** The names of complete copies: only counted (COPIAS-2), never deleted by name (NV-2). */
+private val COPY_NAME = Regex("seguridad-auto-\\d{8}-\\d{6}\\.sgbak")
+
 private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 
 // Shown in Ajustes. Fixed texts: never a path, a URI, an attachment name or what an exception said.
@@ -93,9 +97,26 @@ const val AUTO_BACKUP_FAILED = "No se pudo hacer la copia automática."
 const val AUTO_BACKUP_OLD_NOT_DELETED = "La copia automática se hizo, pero no se pudieron borrar las antiguas."
 
 // «Borrar las copias automáticas anteriores y hacer una nueva» (tras cambiar la contraseña maestra).
+// Only what is true whatever the folder holds: the copies deleted are those the app had listed (COPIAS-2).
 const val AUTO_BACKUP_REPLACED =
-    "Se hizo una copia nueva y se borraron las copias automáticas anteriores de esta carpeta. Las que se hayan " +
-        "copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
+    "Se hizo una copia nueva y se borraron las copias automáticas anteriores que la app tenía apuntadas en esta carpeta. " +
+        "Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
+
+/** COPIAS-2: added to [AUTO_BACKUP_REPLACED] when [n] files with a copy's name, not on the app's list, are left in the folder. */
+fun autoBackupUnlistedText(n: Int): String = if (n == 1) {
+    "En la carpeta queda 1 copia con nombre de copia automática que la app no tenía apuntada (por ejemplo, de antes de " +
+        "la versión 1.2.1 o de otra bóveda): no se ha borrado y puede abrirse con una contraseña anterior. Si no la " +
+        "necesitas, bórrala a mano."
+} else {
+    "En la carpeta quedan $n copias con nombre de copia automática que la app no tenía apuntadas (por ejemplo, de antes " +
+        "de la versión 1.2.1 o de otra bóveda): no se han borrado y pueden abrirse con una contraseña anterior. Si no las " +
+        "necesitas, bórralas a mano."
+}
+
+/** What a replacement that went well says ([AutoBackupResult.unlistedLeft]: 0 when unknown, as after a re-creation). */
+fun replacedText(unlistedLeft: Int): String =
+    if (unlistedLeft > 0) AUTO_BACKUP_REPLACED + " " + autoBackupUnlistedText(unlistedLeft) else AUTO_BACKUP_REPLACED
+
 const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda con la contraseña nueva."
 
 /**
@@ -113,6 +134,17 @@ data class AutoBackupResult(
     val replaced: Boolean = false,
     /** Nothing was written: [AutoBackup.replaceOldCopies] was asked while the vault was locked, to be done after the next unlock. */
     val replaceRequested: Boolean = false,
+    /**
+     * [VaultStore.generation] when the copy started; null when nothing was written. The settings keep [copies] only if
+     * it is still the vault's when this is recorded (CADENAS-3).
+     */
+    val generation: Long? = null,
+    /**
+     * After [replaced]: the files left in the folder with exactly a copy's name that are not on the list (made before
+     * 1.2.1, before choosing another folder and coming back, by another vault, or by someone else). Never deleted, only
+     * counted, so the text does not claim more than was done (COPIAS-2).
+     */
+    val unlistedLeft: Int = 0,
 )
 
 /**
@@ -139,6 +171,9 @@ data class AutoBackupResult(
  * after the next unlock, even after a restart, does it, and the result that records it ([AutoBackupResult.replaced])
  * clears the request. A failure keeps it. That outcome is also kept in [replaceOutcome] until the user has been told
  * ([replaceOutcomeShown]), once for each different outcome: a folder that keeps failing does not open it again and again.
+ *
+ * A copy whose vault was replaced while it was written (an import, a new vault, [VaultStore.generation]) is left in the
+ * folder unlisted: never rotated, never deleted by A6, and the list the import forgot is never written back.
  *
  * Nothing here can close the app or touch the vault: every outcome goes to [onResult], failures as a fixed Spanish
  * message. With no folder ([folder] null, or [open] null) or no vault nothing happens.
@@ -289,16 +324,29 @@ class AutoBackup(
                 return null
             }
             val at = now()
+            // Read before the snapshot: if it is the same after the copy, no import, new vault or deletion came in between,
+            // so the copy is of the vault the list belongs to. The vault's mutex only covers the snapshot, not the write
+            // (a slow provider must not hold the vault), so an import can run while the copy is written (CADENAS-3).
+            val generation = store.generation
             val written = copyTo(target, at) ?: return null
-            // Read after the copy: an import that ran meanwhile (it waits for the vault, as the copy does) has already
-            // forgotten the replaced vault's copies, so they are never put back on the list.
-            val owned = copies()
-            val (rotated, mine) = try {
-                rotate(target, owned, written, replaceAll)
-            } catch (e: Exception) {
-                AUTO_BACKUP_OLD_NOT_DELETED to (owned + written.id) // The copy is there all the same.
+            if (store.generation != generation) {
+                stale(uri, at, generation, replaceAll)
+            } else {
+                val owned = copies()
+                val rotation = try {
+                    rotate(target, owned, written, replaceAll, generation)
+                } catch (e: Exception) {
+                    Rotation(AUTO_BACKUP_OLD_NOT_DELETED, owned + written.id, 0) // The copy is there all the same.
+                }
+                if (rotation.mine == null) {
+                    stale(uri, at, generation, replaceAll)
+                } else {
+                    AutoBackupResult(
+                        uri, at, rotation.error, rotation.mine, replaced = replaceAll, generation = generation,
+                        unlistedLeft = rotation.unlistedLeft,
+                    )
+                }
             }
-            AutoBackupResult(uri, at, rotated, mine, replaced = replaceAll)
         } catch (e: CancellationException) {
             // Only this class's scope being cancelled ends the copies; one thrown by the folder is just a failure.
             currentCoroutineContext().ensureActive()
@@ -310,6 +358,17 @@ class AutoBackup(
         onResult(result)
         return result
     }
+
+    /**
+     * A copy of a vault replaced while it was written: it stays in the folder, never listed (so never deleted by a
+     * rotation of the vault there is now, nor by A6), and the list already forgotten is not written back. A replacement
+     * asked for says it deleted nothing, and its request (if any is left) stays.
+     */
+    private fun stale(uri: String, at: Long, generation: Long, replaceAll: Boolean) =
+        AutoBackupResult(uri, at, if (replaceAll) AUTO_BACKUP_OLD_NOT_DELETED else null, copies = null, generation = generation)
+
+    /** What [rotate] did: [mine] null when the vault was replaced meanwhile (it stopped deleting). */
+    private class Rotation(val error: String?, val mine: List<String>?, val unlistedLeft: Int)
 
     /** No vault: nothing to copy. A locked one: the copy waits for it to be opened. */
     private fun defer() {
@@ -384,9 +443,11 @@ class AutoBackup(
      * Its own copies are only those in [owned], the documents it created, by id: never a file by its name alone, as
      * another app that can write to the folder could leave some with a later date in the name to have the real ones
      * deleted. They are ordered by when they were made, not by the date in their names, so a clock set back changes
-     * nothing either. Copies made before 1.2.1 are not on the list: they stay until deleted by hand.
+     * nothing either. Copies made before 1.2.1 are not on the list: they stay until deleted by hand; with [replaceAll]
+     * they are counted ([Rotation.unlistedLeft]). Before each deletion it checks that the vault is still the one of
+     * [generation]: if an import replaced it meanwhile, it stops and lists nothing (CADENAS-3).
      */
-    private fun rotate(folder: BackupTarget, owned: List<String>, newest: BackupEntry, replaceAll: Boolean): Pair<String?, List<String>> {
+    private fun rotate(folder: BackupTarget, owned: List<String>, newest: BackupEntry, replaceAll: Boolean, generation: Long): Rotation {
         val present = folder.list(AUTO_BACKUP_PREFIX)
         val ids = present.mapTo(HashSet()) { it.id }
         val kept = if (replaceAll) 1 else keep().takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: AUTO_BACKUP_KEEP_DEFAULT
@@ -397,6 +458,7 @@ class AutoBackup(
         val notDeleted = ArrayList<String>()
         var failed = false
         for (id in old + leftovers) {
+            if (store.generation != generation) return Rotation(null, null, 0)
             try {
                 folder.delete(id)
             } catch (e: Exception) {
@@ -404,7 +466,10 @@ class AutoBackup(
                 if (id in old) notDeleted += id // Still ours: tried again next time.
             }
         }
-        return (if (failed) AUTO_BACKUP_OLD_NOT_DELETED else null) to (notDeleted + others.takeLast(kept - 1) + newest.id)
+        if (store.generation != generation) return Rotation(null, null, 0)
+        val ownedIds = owned.toHashSet()
+        val unlisted = if (!replaceAll) 0 else present.count { COPY_NAME.matches(it.name) && it.id !in ownedIds && it.id != newest.id }
+        return Rotation(if (failed) AUTO_BACKUP_OLD_NOT_DELETED else null, notDeleted + others.takeLast(kept - 1) + newest.id, unlisted)
     }
 
     private fun messageFor(e: Throwable): String = when (e) {

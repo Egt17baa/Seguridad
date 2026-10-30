@@ -58,7 +58,7 @@ private sealed interface SavedFingerprint {
 }
 
 /**
- * A contact (`contacts/{id}`): its saved name, the fingerprint to compare, «Marcar como verificado», rename and delete.
+ * A contact (`contacts/c/{id}`): its saved name, the fingerprint to compare, «Marcar como verificado», rename and delete.
  * The name is the user's own and drawn as plain text. If the contact no longer exists, it goes back.
  */
 @Composable
