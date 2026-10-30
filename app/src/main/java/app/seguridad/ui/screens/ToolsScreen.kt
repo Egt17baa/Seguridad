@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import app.seguridad.settings.Settings
 import app.seguridad.tools.CODES_TOOL_SUBTITLE
 import app.seguridad.tools.CODES_TOOL_TITLE
+import app.seguridad.tools.IMAGE_TOOLS_LIMIT
 import app.seguridad.tools.PHOTO_TOOL_SUBTITLE
 import app.seguridad.tools.PHOTO_TOOL_TITLE
 import app.seguridad.tools.QR_TOOL_SUBTITLE
@@ -79,6 +80,7 @@ fun ToolsScreen(settings: Settings, onTool: (String) -> Unit) {
                             "Todo se hace en tu móvil. Solo «¿Filtrada?» y «Comprobar filtraciones» usan internet, cuando las pulsas, y solo envían 5 caracteres de la huella de cada contraseña.",
                             "Cifrado autenticado (AES-256-GCM, ChaCha20-Poly1305 y otros): cualquier cambio en lo cifrado se detecta.",
                             "Tu contraseña se convierte en clave con Argon2id (${settings.kdf.label}), muy costoso de atacar por fuerza bruta.",
+                            IMAGE_TOOLS_LIMIT,
                             "Sin capturas de pantalla en toda la app; lo que copias se borra del portapapeles a los ${settings.clipboard.seconds} s.",
                             "Si olvidas la contraseña de algo cifrado, no hay forma de recuperarlo.",
                             "Estas herramientas no han pasado una auditoría independiente. Para fondos importantes usa una wallet hardware.",
