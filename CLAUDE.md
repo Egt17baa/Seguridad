@@ -67,6 +67,11 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
   - las licencias y la atribución de BIP-39;
   - la política de privacidad y seguridad `docs/privacidad.html` y la ficha de Google Play, según la ley española, la europea y la internacional. Francia queda fuera de los países de publicación;
   - comprobar las fechas de la Directiva (UE) 2024/2853, del CRA y del AI Act, que quedaron sin verificar.
+- **Tarea 16, nombre de la app (petición del dueño, 30-10-2026):** «Seguridad» es demasiado genérico. Al final, antes de la revisión final de textos, el Abogado Digital (`propiedad-intelectual-ia`) ayuda al dueño a elegir un nombre nuevo:
+  - antes de proponerlo, busca marcas parecidas en OEPM, EUIPO y WIPO, en la clase 9. Por ejemplo, «FortisVault» se parece a la familia «Forti-» de Fortinet;
+  - con el nombre elegido, se cambian el nombre visible, los textos, la política, la ficha y el README;
+  - **no** cambian el `applicationId` (`io.github.egt17baa.seguridad`) ni los nombres internos de los formatos (`seguridad-vault`, `seguridad-backup`, `SG1:`…);
+  - después, la revisión final del Abogado ya revisa los textos con el nombre nuevo.
 - **Tarea 16, auditoría y APK:**
   - auditoría completa con el método de la auditoría externa;
   - revisar con `aapt2` los permisos del APK de publicación;
