@@ -1,6 +1,7 @@
 package app.seguridad
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.core.net.toUri
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.tools.qr.QrHandoff
@@ -19,6 +20,8 @@ class SeguridadApp : Application() {
             appVersion = BuildConfig.VERSION_NAME,
             backupFolder = { uri -> SafBackupTarget(contentResolver, uri.toUri()) },
             releaseFolder = { uri -> SafBackupTarget.releaseFolder(contentResolver, uri) },
+            // Counts deep sleep too (System.nanoTime does not): the idle lock must see the time the screen was off.
+            elapsedRealtime = SystemClock::elapsedRealtime,
         )
     }
 

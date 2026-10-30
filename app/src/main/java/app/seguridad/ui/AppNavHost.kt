@@ -1,5 +1,6 @@
 package app.seguridad.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -110,7 +111,9 @@ fun AppNavHost(container: AppContainer) {
     LaunchedEffect(onTab) { if (onTab != null) lastTab = onTab }
     val currentTab = onTab ?: lastTab
     val back: () -> Unit = { nav.popBackStack() }
-    val onOpen: (String) -> Unit = { id -> nav.navigate("vault/entry/$id") }
+    // Ids are encoded into the routes: an imported copy only brings ids of the app's own shape (isEntryId), and this
+    // keeps any other one (an older vault) from matching another route or breaking it (LIBRE-1).
+    val onOpen: (String) -> Unit = { id -> nav.navigate("vault/entry/${Uri.encode(id)}") }
     val onHealth: () -> Unit = { nav.navigate("vault/health") }
     val onNew: (EntryType) -> Unit = { type -> nav.navigate("vault/edit?type=${type.name}") }
 
@@ -169,7 +172,7 @@ fun AppNavHost(container: AppContainer) {
                 composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
                 composable("vault/entry/{id}") { entry ->
                     val id = entry.arguments?.getString("id").orEmpty()
-                    VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=$id") }, onShowQr = { nav.navigate("vault/entry/$id/qr") }, onBack = back)
+                    VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") }, onBack = back)
                 }
                 composable("vault/entry/{id}/qr") { entry ->
                     OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
@@ -189,7 +192,7 @@ fun AppNavHost(container: AppContainer) {
                     )
                 }
                 composable("vault/health") {
-                    HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=$id") }, onBack = back)
+                    HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = back)
                 }
                 // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
                 // The fixed routes (me, add, encrypt, sign, open) are not ids: Navigation picks a route with no argument over contacts/{id}.
@@ -198,7 +201,7 @@ fun AppNavHost(container: AppContainer) {
                         vault,
                         onIdentity = { nav.navigate("contacts/me") },
                         onAdd = { nav.navigate("contacts/add") },
-                        onContact = { id -> nav.navigate("contacts/$id") },
+                        onContact = { id -> nav.navigate("contacts/${Uri.encode(id)}") },
                         onAction = { route -> nav.navigate(route) },
                     )
                 }

@@ -76,6 +76,7 @@ import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.launchUnlockWithKey
 import app.seguridad.vault.query
 import app.seguridad.vault.seedWordCount
 import kotlinx.coroutines.delay
@@ -288,14 +289,10 @@ private fun UnlockVault(store: VaultStore) {
     val bio = BiometricVault.enabled(context) && store.biometricAllowed
     fun withFingerprint() {
         val activity = context.fragmentActivity() ?: return
+        // The key is handed over even if this screen's scope is gone (a rotation): opened or wiped, never dropped (BOV-3);
+        // only the store's own texts are shown, never a raw exception (LIBRE-4).
         BiometricVault.unlock(activity, onKey = { key ->
-            scope.launch {
-                try {
-                    store.unlockWithKey(key)
-                } catch (e: Exception) {
-                    error = e.message
-                }
-            }
+            scope.launchUnlockWithKey(store, key) { error = it }
         }, onError = { error = it })
     }
     LaunchedEffect(Unit) { if (bio) withFingerprint() }

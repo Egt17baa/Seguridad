@@ -1,11 +1,17 @@
 package app.seguridad.vault
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -47,6 +53,37 @@ sealed interface VaultState {
 
 /** Shown instead of the 7-day notice when the clock gate refused the fingerprint (A11). */
 const val CLOCK_CHANGED_TEXT = "La hora del móvil se ha atrasado. Por seguridad, escribe la contraseña maestra."
+
+/** Shown when a fingerprint unlock fails for a reason the store has no text of its own for (LIBRE-4). */
+const val BIOMETRIC_UNLOCK_FAILED = "No se pudo abrir la bóveda con la huella"
+
+/**
+ * What the unlock screen shows when [VaultStore.unlockWithKey] throws [e]: the store's own Spanish texts (a wrong or
+ * damaged key, the master password due, the clock gone back) and a fixed text for anything else, so an unexpected
+ * exception (in English, maybe with a path) is never shown as it is.
+ */
+fun biometricUnlockError(e: Exception): String = when (e) {
+    is CryptoFailure, is MasterRequired -> e.message ?: BIOMETRIC_UNLOCK_FAILED
+    else -> BIOMETRIC_UNLOCK_FAILED
+}
+
+/**
+ * Hands the key the fingerprint released to [store], also from a scope already cancelled (the prompt of a screen that
+ * a rotation re-created may answer late): started atomically, so [VaultStore.unlockWithKey] always runs and either
+ * keeps the key in the open vault or wipes it, never drops it (BOV-3). A cancellation is not reported; any other
+ * failure goes to [onError] with [biometricUnlockError].
+ */
+@OptIn(DelicateCoroutinesApi::class) // ATOMIC: the body must run even on a cancelled scope, to own the key.
+fun CoroutineScope.launchUnlockWithKey(store: VaultStore, key: ByteArray, onError: (String) -> Unit): Job =
+    launch(start = CoroutineStart.ATOMIC) {
+        try {
+            store.unlockWithKey(key)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onError(biometricUnlockError(e))
+        }
+    }
 
 /**
  * Biometric unlock refused: the master password was not typed for [MASTER_RECHECK_MS], or the clock went backwards
@@ -90,6 +127,12 @@ class VaultStore(
     private val onClockSeen: (Long) -> Unit = {},
     /** Told the time after the master password was verified (unlock, [confirmMaster], import): the mark restarts there, even lower. */
     private val onClockReset: (Long) -> Unit = {},
+    /**
+     * A clock that only moves forward and keeps counting while the phone sleeps (Android: SystemClock.elapsedRealtime),
+     * in ms: the idle lock and its backstop measure time without use with it, so a wall clock set back (by hand, NITZ
+     * or NTP) never delays them (COV2-2). [now] stays for the dates and the A11 clock mark.
+     */
+    private val elapsed: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -124,6 +167,8 @@ class VaultStore(
             _needsMaster.value = needsMaster(value)
         }
     private var dek: ByteArray? = null
+
+    /** [elapsed] at the last use; only read while [dek] is set ([opened] sets both). */
     private var lastUse = 0L
 
     /**
@@ -189,6 +234,13 @@ class VaultStore(
         }
     }
 
+    /**
+     * Runs [block] on [compute] and returns what it made even if the caller was cancelled meanwhile, so a key it derives
+     * always reaches the code that wipes it (BOV-3): `withContext(compute)` alone, or with NonCancellable added to it,
+     * drops the result when it switches back to a cancelled caller.
+     */
+    private suspend fun <T> derive(block: () -> T): T = withContext(NonCancellable) { withContext(compute) { block() } }
+
     private suspend fun save(v: VaultFile) = withContext(io) { file.writeTextAtomically(VaultCrypto.encodeFile(v)) }
 
     /**
@@ -248,23 +300,35 @@ class VaultStore(
         synchronized(opening) {
             if (entries == null || epoch != since) {
                 key.fill(0)
-                if (_state.value !is VaultState.NoVault) _state.value = VaultState.Locked
+                // [v] is the vault in memory, and on disk: even an import from «Crea tu bóveda» cut by leaving the app
+                // shows it locked, never «Crea tu bóveda» again (which would refuse a new import and set it aside, BOV-2).
+                _state.value = VaultState.Locked
                 return
             }
             if (dek !== key) dek?.fill(0)
             dek = key
-            lastUse = now()
-            onClockSeen(lastUse)
+            lastUse = elapsed()
+            onClockSeen(now())
             _state.value = VaultState.Unlocked(entries)
         }
     }
 
+    /**
+     * Creates a new vault; only with none readable (the «Crea tu bóveda» screen), else [IllegalStateException] and
+     * nothing changes. Once Argon2id has run, a cancelled caller does not stop it: the vault is created (BOV-3).
+     */
     suspend fun create(master: CharArray) {
         val since = epoch
-        mutex.withLock { createLocked(master, since) }
+        mutex.withLock { withContext(NonCancellable) { createLocked(master, since) } }
     }
 
     private suspend fun createLocked(master: CharArray, since: Int) {
+        // Never over a readable vault (an import that finished while the screen still offered to create one): it would
+        // be set aside as if damaged (BOV-2).
+        if (vault != null) {
+            if (_state.value is VaultState.NoVault) _state.value = VaultState.Locked
+            throw IllegalStateException("A vault already exists")
+        }
         val (v, key) = withContext(compute) { VaultCrypto.create(master, now(), kdf()) }
         try {
             beforeCreate()
@@ -282,10 +346,14 @@ class VaultStore(
         }
     }
 
-    /** Throws [CryptoFailure] for a wrong password. */
+    /**
+     * Throws [CryptoFailure] for a wrong password. Once it has the mutex it runs to the end even if the caller is
+     * cancelled (a rotation during Argon2id): the key it derives is kept by the open vault or wiped, never left
+     * behind (BOV-3); a lock meanwhile still leaves it locked.
+     */
     suspend fun unlock(master: CharArray) {
         val since = epoch
-        mutex.withLock { unlockLocked(master, since) }
+        mutex.withLock { withContext(NonCancellable) { unlockLocked(master, since) } }
     }
 
     private suspend fun unlockLocked(master: CharArray, since: Int) {
@@ -307,10 +375,19 @@ class VaultStore(
     /** Why the fingerprint is refused now (null when allowed or there is no vault). */
     val biometricRefusal: BiometricRefusal? get() = vault?.let { VaultCrypto.biometricRefusal(it, now(), clockHighWater()) }
 
-    /** With a data key released by the biometric prompt. Throws [MasterRequired] when the 7-day recheck is due. */
+    /**
+     * With a data key released by the biometric prompt, which the store owns from here: it ends in the open vault or
+     * wiped, also when the caller is cancelled while it waits for the mutex (BOV-3). Throws [MasterRequired] when the
+     * 7-day recheck is due.
+     */
     suspend fun unlockWithKey(key: ByteArray) {
         val since = epoch
-        mutex.withLock { unlockWithKeyLocked(key, since) }
+        try {
+            mutex.withLock { withContext(NonCancellable) { unlockWithKeyLocked(key, since) } }
+        } catch (e: Throwable) {
+            synchronized(opening) { if (dek !== key) key.fill(0) }
+            throw e
+        }
     }
 
     private suspend fun unlockWithKeyLocked(key: ByteArray, since: Int) {
@@ -340,15 +417,18 @@ class VaultStore(
      * [unlock], it leaves [master] to the caller to wipe, and a full disk does not matter here (see [commit]): the
      * next save writes the upgrade.
      */
-    suspend fun confirmMaster(master: CharArray): Boolean = mutex.withLock {
-        val v = vault ?: return@withLock false
-        if (dek == null || _state.value !is VaultState.Unlocked) return@withLock false
+    suspend fun confirmMaster(master: CharArray): Boolean = mutex.withLock { withContext(NonCancellable) { confirmMasterLocked(master) } }
+
+    /** [confirmMaster] with the mutex held; not cancellable, as [unlock] (BOV-3). */
+    private suspend fun confirmMasterLocked(master: CharArray): Boolean {
+        val v = vault ?: return false
+        if (dek == null || _state.value !is VaultState.Unlocked) return false
         val since = epoch
         val key = withContext(compute) { VaultCrypto.unlock(v, master) }
         onClockReset(now())
         if (v.format == VaultFile.FORMAT && v.version == VaultFile.VERSION) {
             key.fill(0) // Only the check.
-            return@withLock true
+            return true
         }
         val upgraded = try {
             withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
@@ -357,7 +437,7 @@ class VaultStore(
             throw e
         }
         commit(upgraded, key, since, mustSave = false)
-        true
+        return true
     }
 
     /** A copy of the open data key, to wrap it with the biometric key; null while locked. */
@@ -383,8 +463,8 @@ class VaultStore(
     }
 
     fun touch() {
-        lastUse = now()
-        onClockSeen(lastUse)
+        lastUse = elapsed()
+        onClockSeen(now())
     }
 
     /**
@@ -396,7 +476,7 @@ class VaultStore(
     fun lockIfIdle(): Boolean {
         val chosen = idleLockMs()
         val limit = if (chosen > 0) chosen else if (keptOpen()) AWAY_BACKSTOP_MS else 0L
-        if (limit > 0 && dek != null && now() - lastUse >= limit) {
+        if (limit > 0 && dek != null && elapsed() - lastUse >= limit) {
             lock(LockReason.IDLE)
             return true
         }
@@ -543,7 +623,7 @@ class VaultStore(
         val v = vault ?: return@withLock false
         val key = dek?.copyOf() ?: return@withLock false
         val (next, newKey) = try {
-            withContext(compute) { VaultCrypto.changeMaster(v, key, newMaster, now(), kdf()) }
+            derive { VaultCrypto.changeMaster(v, key, newMaster, now(), kdf()) }
         } finally {
             key.fill(0)
         }
@@ -653,7 +733,7 @@ class VaultStore(
      * when the import started: a lock since then leaves the imported vault locked.
      */
     private suspend fun replace(incoming: VaultFile, master: CharArray, backup: Pair<BackupContents, File>?, since: Int) = mutex.withLock {
-        val key = withContext(compute) { VaultCrypto.unlock(incoming, master) }
+        val key = derive { VaultCrypto.unlock(incoming, master) }
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
             val checked = withContext(compute) { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
@@ -708,6 +788,9 @@ class VaultStore(
      * A copy this app made always passes; one written by hand (with its master password) may not.
      */
     private fun checkRestorable(entries: List<VaultEntry>) {
+        // The id goes into the screens' routes (vault/entry/{id}, contacts/{id}): only the shape this app and CriptoPanel
+        // make, never one that would open another screen or break the route (LIBRE-1).
+        if (entries.any { !isEntryId(it.id) }) throw CryptoFailure(COPY_DAMAGED)
         if (entries.map { it.id }.distinct().size != entries.size) throw CryptoFailure(COPY_DAMAGED)
         if (entries.any { it.type.isPersonal && (it.attachments.isNotEmpty() || it.passwordHistory.isNotEmpty()) }) throw CryptoFailure(COPY_DAMAGED)
         val refs = entries.flatMap { it.attachments }
@@ -810,6 +893,17 @@ private const val IMPORT_TOO_BIG = "El archivo pasa de 20 MB: no es una copia de
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"
 private const val IMPORT_DIR_PREFIX = "import-"
 private val IMPORT_DIR = Regex("import-[0-9a-f]{16}")
+
+/**
+ * The shape of an entry id this app makes (a UUID) and CriptoPanel made: ASCII letters, digits, «-» and «_», 1 to 64
+ * of them, and not one of the fixed contacts/… routes. Nothing else is imported: the id goes into a route (LIBRE-1).
+ */
+private val ENTRY_ID = Regex("[A-Za-z0-9_-]{1,64}")
+
+/** The fixed routes under contacts/ (AppNavHost), which Navigation would pick over contacts/{id}. */
+private val ROUTE_NAMES = setOf("me", "add", "encrypt", "sign", "open")
+
+internal fun isEntryId(id: String): Boolean = ENTRY_ID.matches(id) && id !in ROUTE_NAMES
 
 private fun attachmentUnusable(name: String) = "El adjunto «$name» falta o está dañado: quítalo de su entrada para poder hacer la copia"
 

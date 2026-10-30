@@ -1,6 +1,14 @@
 package app.seguridad
 
+import app.seguridad.settings.CLOCK_WRITE_STEP_MS
+import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.VaultState
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,6 +18,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 
 class AppContainerTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -71,5 +80,75 @@ class AppContainerTest {
             // expected
         }
         assertEquals(listOf("doc-2"), c.settings.settings.value.autoBackupCopies)
+    }
+
+    // ---- Audit 1.3.0, F2: BOV-1 ----
+
+    /** As a full disk: the settings file cannot be written (its temporary file is a folder), so every save throws. */
+    private fun fillDisk() = check(File(tmp.root, "settings.json.tmp").mkdir())
+
+    private fun freeDisk() = check(File(tmp.root, "settings.json.tmp").delete())
+
+    @Test fun `BOV-1 a clock mark that cannot be saved never closes the app and still guards the fingerprint`() = runTest {
+        val errors = CopyOnWriteArrayList<Throwable>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined + CoroutineExceptionHandler { _, e -> errors += e })
+        var elapsed = 0L
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = scope, elapsedRealtime = { elapsed }, settingsIo = Dispatchers.Unconfined)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create("maestra-larga".toCharArray())
+        val saved = c.settings.settings.value.clockHighWaterMs
+        fillDisk()
+        // The highest time seen is an hour ahead of the phone's clock now (the clock went back an hour).
+        val ahead = System.currentTimeMillis() + 60 * 60_000L
+        c.rememberClock(ahead)
+        assertTrue(errors.isEmpty())
+        assertEquals(saved, c.settings.settings.value.clockHighWaterMs) // Not saved...
+        assertEquals(ahead, c.clockMark) // ...but kept in memory,
+        assertEquals(BiometricRefusal.CLOCK, c.vault.biometricRefusal) // so the fingerprint still asks for the master.
+        // The master password with the disk still full: it opens, and its reset of the mark does not close the app.
+        c.vault.lock()
+        c.vault.unlock("maestra-larga".toCharArray())
+        assertTrue(c.vault.state.value is VaultState.Unlocked)
+        assertTrue(errors.isEmpty())
+        assertNull(c.vault.biometricRefusal) // The reset holds in memory too.
+        assertTrue(c.clockMark < ahead)
+        // Space again: the next time seen, once the back-off has passed, saves the mark.
+        freeDisk()
+        c.rememberClock(System.currentTimeMillis())
+        assertEquals(saved, c.settings.settings.value.clockHighWaterMs) // Not yet: a failed write waits a little.
+        elapsed += CLOCK_WRITE_STEP_MS
+        c.rememberClock(System.currentTimeMillis())
+        assertEquals(c.clockMark, c.settings.settings.value.clockHighWaterMs)
+        assertTrue(c.settings.settings.value.clockHighWaterMs < ahead)
+        assertTrue(errors.isEmpty())
+    }
+
+    @Test fun `BOV-1 a mark that rises less than the step is kept in memory and not written`() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), settingsIo = Dispatchers.Unconfined)
+        c.settings.load()
+        c.settings.update { it.copy(clockHighWaterMs = 1_000_000L) }
+        c.rememberClock(1_000_000L + CLOCK_WRITE_STEP_MS - 1)
+        assertEquals(1_000_000L, c.settings.settings.value.clockHighWaterMs)
+        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS - 1, c.clockMark)
+        c.rememberClock(1_000_000L + CLOCK_WRITE_STEP_MS)
+        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS, c.settings.settings.value.clockHighWaterMs)
+        // A lower time never lowers it (only a master password check does).
+        c.rememberClock(5L)
+        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS, c.clockMark)
+    }
+
+    @Test fun `BOV-1 a failure in a background job never reaches the thread's uncaught handler`() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        val got = CopyOnWriteArrayList<Throwable>()
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> got += e }
+        try {
+            val c = AppContainer(tmp.root, cache, appVersion = "test") // The production scope.
+            runBlocking { c.appScope.launch { throw java.io.IOException("No space left on device") }.join() }
+            Thread.sleep(100)
+            assertTrue(got.isEmpty())
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous)
+        }
     }
 }
