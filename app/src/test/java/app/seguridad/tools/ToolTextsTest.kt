@@ -13,28 +13,6 @@ import org.junit.Test
 import java.io.File
 import java.lang.reflect.Modifier
 
-/** Annex texts the Abogado Digital's review replaced (CU-A). Task 15 updates the annex and deletes this list. */
-private val SUPERSEDED_ANNEX_TEXTS = setOf(
-    "Las fotos HEIC, HEIF y AVIF se guardan como JPEG: la copia puede perder algo de calidad.",
-    "Quita los datos que la foto guarda dentro del archivo: la ubicación, el modelo del móvil, la fecha, la miniatura y " +
-        "otros. No cambia lo que se ve: una cara, una matrícula, tu portal o un reflejo pueden delatarte igual; para eso, " +
-        "usa «Tachar en imagen». Tampoco quita las marcas invisibles que pueda llevar la propia imagen ni el rastro que " +
-        "deja el sensor de cada cámara. Muchas apps de mensajería quitan parte de estos datos al enviar una foto, pero no " +
-        "siempre todos, y no cuando la envías como documento o archivo. La foto se analiza en tu móvil y no se envía a " +
-        "ningún sitio.",
-    "Móvil: marca, modelo y número de serie",
-    "Datos de autor y de derechos: si la foto no es tuya, no los quites para ocultar de quién es",
-    "El nombre del archivo también puede decir algo de ti (por ejemplo, la fecha en «IMG_20261027_…»). Por eso la copia " +
-        "se llama «foto-limpia».",
-    "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes Wi-Fi, ni pagos. Solo puedes copiarlo. La " +
-        "imagen se analiza en tu móvil y no se guarda.",
-    "Se añadirá como contacto sin verificar. Para verificarlo, compara la huella con la persona, en persona o por llamada.",
-    "Se borrarán la bóveda y también los archivos dañados que la app guardó al intentar repararla. No se puede deshacer.",
-    "Chip seguro (StrongBox)",
-    "Zona segura del procesador",
-    "Este móvil tiene chip seguro. Para usarlo, desactiva la huella y vuelve a activarla.",
-)
-
 class ToolTextsTest {
     private val annexPath = "docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md"
 
@@ -49,12 +27,17 @@ class ToolTextsTest {
         error("Annex not found: $annexPath")
     }
 
-    /** Top-level «…» quotes (nested ones stay inside) of the tool sections of the annex. */
-    private fun annexTexts(): List<String> {
+    /** The tool sections of the annex (from «Limpiar foto» to before «Cambios en los documentos»), by heading. */
+    private fun annexSections(): Map<String, String> {
         val text = annex()
         val tools = text.substring(text.indexOf("\n## Limpiar foto"), text.indexOf("\n## Cambios en los documentos"))
+        return tools.split("\n## ").filter { it.isNotBlank() }.associate { it.substringBefore('\n').trim() to it }
+    }
+
+    /** Top-level «…» quotes (nested ones stay inside) of [section]. */
+    private fun quotes(section: String): List<String> {
         val out = mutableListOf<String>()
-        for (line in tools.lines()) {
+        for (line in section.lines()) {
             // A rule for the implementer, not a text shown on screen.
             if (line.trimStart().startsWith("- Los acortadores")) continue
             var depth = 0
@@ -72,18 +55,42 @@ class ToolTextsTest {
         return out - setOf("limpio")
     }
 
+    /** Top-level «…» quotes of all the tool sections of the annex. */
+    private fun annexTexts(): List<String> = annexSections().values.flatMap { quotes(it) }
+
     @Test
     fun everyAnnexTextIsInTheListVerbatim() {
         val texts = annexTexts()
         assertTrue("Annex parse found too few texts: ${texts.size}", texts.size >= 50)
-        val missing = texts.filter { it !in ALL_TOOL_TEXTS && it !in SUPERSEDED_ANNEX_TEXTS }
+        val missing = texts.filter { it !in ALL_TOOL_TEXTS }
         assertTrue("Annex texts missing from ToolTexts (or not verbatim):\n" + missing.joinToString("\n"), missing.isEmpty())
     }
 
     @Test
-    fun supersededAnnexTextsAreGoneFromTheApp() {
-        // The Abogado Digital's review replaced these annex texts; Task 15 updates the annex and removes this list.
-        for (old in SUPERSEDED_ANNEX_TEXTS) assertFalse("Still shown: $old", old in ALL_TOOL_TEXTS)
+    fun everyToolSectionOfTheAnnexIsCheckedAgainstTheApp() {
+        // One section per task (4: Limpiar foto, 5: Tachar, 6-7: QR, 8: PIN and answers, 9: StrongBox, 10-13 and the
+        // catch-ups: the texts added after the opinion): none may drop out of the parse, and all are in the app.
+        // The number of texts of each section, exactly: a text that loses its «» would no longer be checked.
+        val expected = linkedMapOf(
+            "Limpiar foto" to 17, "Tachar en imagen" to 3, "Inspector de QR" to 19, "PIN y códigos" to 2,
+            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 34,
+        )
+        val sections = annexSections()
+        assertEquals(expected.keys.toList(), sections.keys.toList())
+        for ((title, count) in expected) {
+            val texts = quotes(sections.getValue(title))
+            assertEquals("$title: texts found", count, texts.size)
+            val missing = texts.filter { it !in ALL_TOOL_TEXTS }
+            assertTrue("$title, not in the app:\n" + missing.joinToString("\n"), missing.isEmpty())
+        }
+    }
+
+    @Test
+    fun theAnnexNamesTheCopyAsTheAppDoes() {
+        val text = annex()
+        assertTrue("`$PHOTO_FILE_BASE.<ext>`" in text)
+        assertFalse("foto-limpia" in text)
+        assertTrue(IMAGE_TOOLS_LIMIT in quotes(annexSections().getValue("Textos añadidos después del dictamen")))
     }
 
     @Test

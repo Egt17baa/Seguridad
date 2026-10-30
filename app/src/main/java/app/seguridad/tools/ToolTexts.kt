@@ -213,6 +213,9 @@ const val REDACT_LOST = "No se ha guardado: vuelve a elegir la imagen y a tachar
 fun redactCanvasDescription(blocks: Int) =
     "Imagen para tachar. Arrastra el dedo sobre lo que quieras tapar. Bloques puestos: $blocks."
 
+/** Herramientas, «Cómo protegemos tus datos»: what the image tools do not do (the Play listing has the same sentence). */
+const val IMAGE_TOOLS_LIMIT = "Las herramientas de imagen no quitan lo que se ve ni cambian el original: comparte la copia."
+
 /** M-7: memory ran out reading or decoding a picked image («Limpiar foto», «Tachar» and the QR inspector). */
 const val IMAGE_NO_MEMORY = "No hay memoria suficiente para abrir esta imagen en este móvil."
 
@@ -517,7 +520,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE, REDACT_EXPLANATION, REDACT_LIMITS, REDACT_DOWNSCALED, redactDownscaledText(6),
     REDACT_PICK, REDACT_PICK_OTHER, REDACT_OPENING, REDACT_RENDERING, REDACT_UNDO, REDACT_REDO, REDACT_TOO_BIG,
     REDACT_TOO_LARGE, REDACT_CHANGED, REDACT_DAMAGED, REDACT_COPY_FAILED, REDACT_LOST,
-    redactCanvasDescription(3), IMAGE_NO_MEMORY, FINGERPRINT_ENABLE_INTERRUPTED,
+    redactCanvasDescription(3), IMAGE_NO_MEMORY, IMAGE_TOOLS_LIMIT, FINGERPRINT_ENABLE_INTERRUPTED,
     QR_EXPLANATION, QR_NO_ALERTS, qrAlertsTitle("N"), QR_MIXED_SCRIPTS, qrPunycode("…"), QR_IP_HOST, QR_HTTP,
     qrUserInfo("[host]"), qrPort("[:puerto]"), QR_SHORTENER, QR_SUBDOMAINS, qrScheme("[esquema]"), qrBidi("⟨U+202E⟩"),
     QR_WIFI_OPEN, QR_WIFI_WEP, QR_SEPA, QR_CRYPTO, QR_SMS, QR_SGK1, QR_TOO_BIG,
