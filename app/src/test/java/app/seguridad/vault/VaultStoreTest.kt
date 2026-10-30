@@ -722,10 +722,42 @@ class VaultStoreTest {
         // The key it derived is held by the open vault (wiped by the next lock), not left behind in the heap.
         assertTrue(s.state.value is VaultState.Unlocked)
         assertEquals(1, resets)
-        val key = s.dataKeyCopy()!!
+        val held = dekOf(s)!!
         s.lock()
         assertNull(s.dataKeyCopy())
-        assertFalse(key.all { it == 0.toByte() }) // The copy is the caller's; the store's own key is gone.
+        assertTrue(held.all { it == 0.toByte() })
+    }
+
+    private fun dekOf(s: VaultStore): ByteArray? = VaultStore::class.java.getDeclaredField("dek").apply { isAccessible = true }.get(s) as ByteArray?
+
+    @Test fun `BOV-3 an unlock cancelled during Argon2id and then locked by leaving the app stays locked and wipes its key`() = runTest {
+        val compute = GateDispatcher()
+        var resets = 0
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = { KdfParams(1024, 1, 1) }, onClockReset = { resets++ })
+        s.load(); s.create("m".toCharArray()); s.lock()
+        resets = 0
+        compute.open = false
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { s.unlock("m".toCharArray()) }
+        job.cancel() // A rotation...
+        s.lock(LockReason.LEFT_APP) // ...and then Home, while Argon2id still runs.
+        compute.release()
+        job.join()
+        assertEquals(VaultState.Locked, s.state.value)
+        assertNull(s.dataKeyCopy())
+        assertNull(dekOf(s))
+        assertEquals(1, resets) // The master password was right: the clock mark restarts once.
+    }
+
+    @Test fun `LIBRE-1 a sgbak of a vault holding an old odd id restores and opens`() = runTest {
+        val old = store("old.bin").apply { load(); create("m".toCharArray()) }
+        old.upsert(entry("a.b", "Wallet"))
+        old.upsert(entry("ñ x", "Otra"))
+        val copy = java.io.ByteArrayOutputStream().also { assertTrue(old.exportBackup(it)) }.toByteArray()
+        val s = store().apply { load(); create("mia".toCharArray()) }
+        s.importReplace(copy.inputStream(), "m".toCharArray())
+        s.lock()
+        s.unlock("m".toCharArray())
+        assertEquals(setOf("a.b", "ñ x"), (s.state.value as VaultState.Unlocked).entries.map { it.id }.toSet())
     }
 
     @Test fun `BOV-3 a create cancelled during Argon2id still finishes`() = runTest {
@@ -758,8 +790,8 @@ class VaultStoreTest {
         assertTrue(s.state.value is VaultState.Unlocked)
     }
 
-    @Test fun `LIBRE-1 a copy with an id the app never makes is refused as damaged`() = runTest {
-        for (bad in listOf("a/qr", "a/b/c", "%zz", "x?id=y", "x#y", "x&y", "", " ", "a.b", "ñ", "x".repeat(65), "me", "add", "encrypt", "sign", "open")) {
+    @Test fun `LIBRE-1 a copy with an id nothing could show is refused as damaged`() = runTest {
+        for (bad in listOf("", "x".repeat(1025), "a\u0000b", "a\nb", "\t", "a\u007Fb", "a\u0085b")) {
             val s = store("v-${bad.hashCode()}.bin").apply { load(); create("mia".toCharArray()) }
             try {
                 s.importReplace(exportWithIds("ok-1", bad), "m".toCharArray())
@@ -771,8 +803,11 @@ class VaultStoreTest {
         }
     }
 
-    @Test fun `LIBRE-1 the ids the app and CriptoPanel make still import`() = runTest {
-        val ids = arrayOf(java.util.UUID.randomUUID().toString(), "login-1", "totp_2", "A".repeat(64))
+    @Test fun `LIBRE-1 any other id 1_0 to 1_2_x let in still imports`() = runTest {
+        val ids = arrayOf(
+            java.util.UUID.randomUUID().toString(), "login-1", "totp_2", " ", "a.b", "ñ", "a/qr", "a/b/c", "%zz", "x?id=y",
+            "x#y", "x&y", "me", "add", "encrypt", "sign", "open", "x".repeat(1024),
+        )
         val s = store().apply { load(); create("mia".toCharArray()) }
         s.importReplace(exportWithIds(*ids), "m".toCharArray())
         assertEquals(ids.sorted(), (s.state.value as VaultState.Unlocked).entries.map { it.id }.sorted())

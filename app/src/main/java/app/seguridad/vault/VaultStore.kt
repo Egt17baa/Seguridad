@@ -788,8 +788,8 @@ class VaultStore(
      * A copy this app made always passes; one written by hand (with its master password) may not.
      */
     private fun checkRestorable(entries: List<VaultEntry>) {
-        // The id goes into the screens' routes (vault/entry/{id}, contacts/{id}): only the shape this app and CriptoPanel
-        // make, never one that would open another screen or break the route (LIBRE-1).
+        // The id goes, encoded, into the screens' routes (AppNavHost): only an id nothing could ever show or route is
+        // refused, so a copy of a vault that 1.0 to 1.2.x let in with any other id still restores (LIBRE-1).
         if (entries.any { !isEntryId(it.id) }) throw CryptoFailure(COPY_DAMAGED)
         if (entries.map { it.id }.distinct().size != entries.size) throw CryptoFailure(COPY_DAMAGED)
         if (entries.any { it.type.isPersonal && (it.attachments.isNotEmpty() || it.passwordHistory.isNotEmpty()) }) throw CryptoFailure(COPY_DAMAGED)
@@ -894,16 +894,14 @@ private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el 
 private const val IMPORT_DIR_PREFIX = "import-"
 private val IMPORT_DIR = Regex("import-[0-9a-f]{16}")
 
+/** Longest entry id a copy may bring (the app makes 36-character UUIDs). */
+private const val MAX_ENTRY_ID_CHARS = 1024
+
 /**
- * The shape of an entry id this app makes (a UUID) and CriptoPanel made: ASCII letters, digits, «-» and «_», 1 to 64
- * of them, and not one of the fixed contacts/… routes. Nothing else is imported: the id goes into a route (LIBRE-1).
+ * An entry id a copy may bring: not empty, at most [MAX_ENTRY_ID_CHARS] and without control characters. Anything else
+ * that 1.0 to 1.2.x accepted is kept (the vault is read forever); the routes encode the id (LIBRE-1).
  */
-private val ENTRY_ID = Regex("[A-Za-z0-9_-]{1,64}")
-
-/** The fixed routes under contacts/ (AppNavHost), which Navigation would pick over contacts/{id}. */
-private val ROUTE_NAMES = setOf("me", "add", "encrypt", "sign", "open")
-
-internal fun isEntryId(id: String): Boolean = ENTRY_ID.matches(id) && id !in ROUTE_NAMES
+internal fun isEntryId(id: String): Boolean = id.isNotEmpty() && id.length <= MAX_ENTRY_ID_CHARS && id.none { it.isISOControl() }
 
 private fun attachmentUnusable(name: String) = "El adjunto «$name» falta o está dañado: quítalo de su entrada para poder hacer la copia"
 
