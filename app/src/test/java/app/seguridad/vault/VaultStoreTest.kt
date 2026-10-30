@@ -646,14 +646,19 @@ class VaultStoreTest {
         return other.exportText()!!
     }
 
-    /** BOV-2: a store with no vault whose import is cut by MainActivity.onStop (lock) after the copy was checked. */
+    /**
+     * BOV-2: a store with no vault whose import is cut by MainActivity.onStop (lock) in the middle, before the save: the
+     * cost is read once the copy's password is checked (A8, inside replace). Since F3 (COPIAS-3) the import hook
+     * (onReplaced, formerly beforeReplace) runs only after the save, so it can no longer stand for that moment.
+     */
     private fun storeLockingDuringImport(): VaultStore {
         lateinit var s: VaultStore
-        var lockOnce = true
+        var lockOnce = false
         s = VaultStore(
-            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
-            beforeReplace = { if (lockOnce) { lockOnce = false; s.lock(LockReason.LEFT_APP) } },
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock },
+            kdf = { if (lockOnce) { lockOnce = false; s.lock(LockReason.LEFT_APP) }; KdfParams(1024, 1, 1) },
         )
+        lockOnce = true
         return s
     }
 

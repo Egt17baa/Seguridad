@@ -59,8 +59,23 @@ class SettingsStore(
         before.autoBackupReplacePending && !after.autoBackupReplacePending
     }
 
-    /** An imported vault replaces this one: its automatic copies are no longer listed as ours, so none is ever rotated away. */
-    suspend fun forgetAutoBackupCopies() = update { it.forgettingAutoBackupCopies() }
+    /**
+     * An imported vault replaced this one: its automatic copies are no longer listed as ours, so none is ever rotated
+     * away. True when this dropped a request, still waiting, to replace them (A6), for «Copia importada» to say so.
+     * Never throws: if the file cannot be written (a full disk) the list is forgotten in memory all the same, and the
+     * next save that works writes it out (COPIAS-3), as the vault is imported by then whatever happens here.
+     */
+    suspend fun forgetAutoBackupCopies(): Boolean = mutex.withLock {
+        val before = _settings.value
+        val next = sane(before.forgettingAutoBackupCopies())
+        _settings.value = next
+        try {
+            withContext(io) { file.writeTextAtomically(appJson.encodeToString(Settings.serializer(), next)) }
+        } catch (e: Exception) {
+            // Kept in memory (see above).
+        }
+        before.autoBackupReplacePending
+    }
 
     private suspend fun write(change: Settings) {
         val next = sane(change)

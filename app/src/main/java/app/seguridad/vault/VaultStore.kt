@@ -117,10 +117,12 @@ class VaultStore(
      */
     private val beforeCreate: suspend () -> Unit = {},
     /**
-     * Runs before an import replaces the vault, once the copy is checked (the app forgets which automatic copies it
-     * made, so they are never rotated away: they are the replaced vault's). If it throws, nothing is replaced.
+     * Runs once an import has replaced the vault and it is saved (the app forgets which automatic copies it made, so they
+     * are never rotated away: they are the replaced vault's). Never before the save: a failed import keeps them listed,
+     * and a request to replace them (A6) stays (COPIAS-3). Returns whether that dropped such a request, which
+     * [importReplace] hands back so «Copia importada» says so. A throw is ignored: the vault is imported all the same.
      */
-    private val beforeReplace: suspend () -> Unit = {},
+    private val onReplaced: suspend () -> Boolean = { false },
     /** The highest time the app ever saw (a mark that only rises), kept in the settings; see [VaultCrypto.biometricAllowed]. */
     private val clockHighWater: () -> Long = { 0 },
     /** Told the time at every unlock and every [touch]; the app keeps the highest in the settings. */
@@ -147,6 +149,22 @@ class VaultStore(
 
     private fun changed() {
         _revision.value += 1
+    }
+
+    @Volatile private var _generation = 0L
+
+    /**
+     * Which vault this is, in memory: goes up (with the mutex held) when [create] makes a new one, when an import is about
+     * to replace it and when [destroy] deletes it; never with an edit. [AutoBackup] reads it before taking its snapshot
+     * and again after writing it: a copy whose vault was replaced meanwhile is never listed as the current vault's, so
+     * its rotation and A6 never delete the replaced vault's copies (CADENAS-3, COPIAS-1). Not saved: it only has to tell
+     * apart what happens within one process.
+     */
+    val generation: Long get() = _generation
+
+    /** Call with the mutex held (it is the only writer). */
+    private fun nextGeneration() {
+        _generation += 1
     }
 
     private val mutex = Mutex()
@@ -330,6 +348,7 @@ class VaultStore(
             throw IllegalStateException("A vault already exists")
         }
         val (v, key) = withContext(compute) { VaultCrypto.create(master, now(), kdf()) }
+        nextGeneration() // Before anything is turned off or written: a copy still being written is not this vault's.
         try {
             beforeCreate()
         } catch (e: Exception) {
@@ -676,11 +695,12 @@ class VaultStore(
     /**
      * Replaces this vault with an exported one after checking its master password. Throws [CryptoFailure]. An export
      * whose entries have attachments is refused (its files are only in the .sgbak copy), and so is one with more than
-     * one identity; nothing changes.
+     * one identity; nothing changes. True when the import dropped a request, still waiting, to replace the old
+     * automatic copies (A6; see [onReplaced]), so the caller says so.
      */
-    suspend fun importReplace(text: String, master: CharArray) {
+    suspend fun importReplace(text: String, master: CharArray): Boolean {
         checkCanReplace()
-        importText(text, master, epoch)
+        return importText(text, master, epoch)
     }
 
     /**
@@ -691,9 +711,9 @@ class VaultStore(
         if (vault != null && _state.value !is VaultState.Unlocked) throw CryptoFailure(REPLACE_NEEDS_OPEN)
     }
 
-    private suspend fun importText(text: String, master: CharArray, since: Int) {
+    private suspend fun importText(text: String, master: CharArray, since: Int): Boolean {
         val incoming = withContext(compute) { VaultCrypto.decodeFile(text) }
-        replace(incoming, master, null, since)
+        return replace(incoming, master, null, since)
     }
 
     /**
@@ -702,9 +722,10 @@ class VaultStore(
      * a temporary folder next to the attachments, before taking the mutex and always deleted afterwards. All or
      * nothing: its master password and every attachment (present, with the SHA-256 its entry records) are checked
      * before anything is replaced; if writing the vault then fails, the attachments are put back as they were.
-     * The attachments the old vault had and the new one does not are collected after the save.
+     * The attachments the old vault had and the new one does not are collected after the save. Returns what the
+     * other [importReplace] does.
      */
-    suspend fun importReplace(input: InputStream, master: CharArray) {
+    suspend fun importReplace(input: InputStream, master: CharArray): Boolean {
         checkCanReplace()
         val since = epoch // Leaving the app while the file is read still locks: the copy is imported, but stays locked.
         val buffered = BufferedInputStream(input)
@@ -715,11 +736,10 @@ class VaultStore(
         if (!isBackup(head)) {
             val bytes = withContext(io) { buffered.readAtMost(VAULT_IMPORT_MAX_BYTES + 1) }
             if (bytes.size > VAULT_IMPORT_MAX_BYTES) throw CryptoFailure(IMPORT_TOO_BIG)
-            importText(bytes.decodeToString(), master, since)
-            return
+            return importText(bytes.decodeToString(), master, since)
         }
         val temp = File(attachments.dir.absoluteFile.parentFile, IMPORT_DIR_PREFIX + randomBytes(8).joinToString("") { "%02x".format(it) })
-        try {
+        return try {
             val contents = withContext(io) { BackupReader().read(buffered, temp) }
             val incoming = withContext(compute) { VaultCrypto.decodeFile(contents.vaultJson) }
             replace(incoming, master, contents to temp, since)
@@ -730,9 +750,9 @@ class VaultStore(
 
     /**
      * [importReplace]; [backup] is the copy read and its temporary folder, null for a JSON export. [since] is [epoch]
-     * when the import started: a lock since then leaves the imported vault locked.
+     * when the import started: a lock since then leaves the imported vault locked. Returns what [onReplaced] said.
      */
-    private suspend fun replace(incoming: VaultFile, master: CharArray, backup: Pair<BackupContents, File>?, since: Int) = mutex.withLock {
+    private suspend fun replace(incoming: VaultFile, master: CharArray, backup: Pair<BackupContents, File>?, since: Int): Boolean = mutex.withLock {
         val key = derive { VaultCrypto.unlock(incoming, master) }
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
@@ -747,19 +767,22 @@ class VaultStore(
             } else {
                 withContext(io) { refs.forEach { checkInBackup(it, backup.first) } }
             }
-            beforeReplace() // Last: only when all of the copy is fine.
             checked to refs
         } catch (e: Exception) {
             key.fill(0)
             throw e
         }
         withContext(NonCancellable) {
+            // All of the copy is fine: from here a copy still being written is of the vault being replaced (CADENAS-3).
+            // Bumped before the save, so it is never listed even if it ends between the save and [onReplaced]; if the
+            // save fails, such a copy only stays unlisted (never deleted), which is the safe side.
+            nextGeneration()
             // Importing with no readable vault (the "Crea tu bóveda" screen): a file that could not be read is kept, as in [create].
             if (vault == null) withContext(io) { keepAside() }
             if (backup == null) {
                 commit(checked, key, since)
                 onClockReset(now()) // Only once the copy is saved: a failed save lowers nothing.
-                return@withContext
+                return@withContext replaced()
             }
             val moved = try {
                 withContext(io) { moveIn(refs.mapTo(HashSet()) { it.id }, backup.first.attachments, backup.second) }
@@ -776,9 +799,18 @@ class VaultStore(
                 throw e
             }
             onClockReset(now()) // Saved: the copy's master password was verified and it is the vault now.
+            val dropped = replaced()
             opened(checked, key, since)
             collectGarbage() // The old vault's attachments the new one does not use.
+            dropped
         }
+    }
+
+    /** [onReplaced], once the imported vault is saved (COPIAS-3); a failure there never undoes the import. */
+    private suspend fun replaced(): Boolean = try {
+        onReplaced()
+    } catch (e: Exception) {
+        false
     }
 
     /**
@@ -863,6 +895,7 @@ class VaultStore(
 
     /** Deletes the vault for good (forgotten master password). */
     suspend fun destroy() = mutex.withLock {
+        nextGeneration()
         lock()
         withContext(io) {
             file.delete()

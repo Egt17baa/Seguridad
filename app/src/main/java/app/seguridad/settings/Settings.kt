@@ -2,6 +2,7 @@ package app.seguridad.settings
 
 import app.seguridad.crypto.KdfParams
 import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.VaultState
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -95,9 +96,16 @@ const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al
 /**
  * How the last automatic copy went, for Ajustes: only when [r] went to the folder still chosen (turned off or another
  * folder chosen meanwhile, that copy says nothing about the current one). A written copy updates the date even if its
- * old copies could not be deleted.
+ * old copies could not be deleted. [generation] is the vault's ([app.seguridad.vault.VaultStore.generation]) when this
+ * is recorded: a result of a vault that was replaced since ([AutoBackupResult.generation] differs) keeps neither its
+ * list nor its «replaced», so the forgotten list of the replaced vault is never written back (CADENAS-3).
  */
-fun Settings.withAutoBackupResult(r: AutoBackupResult): Settings = when {
+fun Settings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null): Settings {
+    val stale = r.generation != null && generation != null && r.generation != generation
+    return recording(if (stale) r.copy(copies = null, replaced = false) else r)
+}
+
+private fun Settings.recording(r: AutoBackupResult): Settings = when {
     autoBackupUri != r.folder -> this
     // Asked while the vault was locked: only the request is kept; what Ajustes shows about the last copy does not change.
     r.replaceRequested -> copy(autoBackupReplacePending = true)
@@ -136,3 +144,11 @@ fun Settings.seeingClock(seen: Long): Settings = if (seen > clockHighWaterMs) co
 
 /** These settings after a master password check at [now]: the mark restarts there, which may lower it. */
 fun Settings.resettingClock(now: Long): Settings = if (now == clockHighWaterMs) this else copy(clockHighWaterMs = now)
+
+/**
+ * COV2-1 (owner's ruling): whether Ajustes lets the copies' folder (choose, change, turn off), «Conservar las N
+ * últimas», the idle lock, the clipboard time and the Argon2id cost be changed. Only with the vault open, or with no
+ * vault (nothing to protect, and the Argon2id cost also serves text and file encryption): someone holding the phone
+ * for a moment with the vault locked must not redirect its copies or weaken its defences.
+ */
+fun settingsEditable(state: VaultState): Boolean = state is VaultState.Unlocked || state is VaultState.NoVault

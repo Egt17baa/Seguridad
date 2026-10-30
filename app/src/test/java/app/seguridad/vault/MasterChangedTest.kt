@@ -65,4 +65,15 @@ class MasterChangedTest {
         assertNull(m.state.value.answerError)
         assertFalse(m.state.value.answered)
     }
+
+    @Test fun `COPIAS-2 the dialog keeps how many unlisted copies with a copy's name were left`() = runTest {
+        val m = MasterChanged(backgroundScope, replace = { AutoBackupResult("f", 1, null, listOf("a"), replaced = true, unlistedLeft = 2) }, now = { 1 })
+        m.changed(fingerprintFailed = false)
+        m.replace()
+        runCurrent()
+        assertNull(m.state.value.answerError)
+        assertEquals(2, m.state.value.answerUnlisted)
+        m.replace() // A second request starts from nothing.
+        assertEquals(0, m.state.value.answerUnlisted)
+    }
 }

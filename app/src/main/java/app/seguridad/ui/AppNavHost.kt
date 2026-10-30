@@ -64,7 +64,7 @@ import app.seguridad.ui.screens.VaultEntryDetailScreen
 import app.seguridad.ui.screens.VaultEntryEditScreen
 import app.seguridad.ui.screens.VaultIdleTicker
 import app.seguridad.ui.screens.VaultScreen
-import app.seguridad.vault.AUTO_BACKUP_REPLACED
+import app.seguridad.vault.replacedText
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import kotlinx.coroutines.launch
@@ -127,7 +127,7 @@ fun AppNavHost(container: AppContainer) {
     // the outcome that was on screen (T11-d): one that arrived meanwhile is shown next.
     val replaceOutcome by container.autoBackup.replaceOutcome.collectAsStateWithLifecycle()
     replaceOutcome?.let { shown ->
-        ReplaceOutcomeDialog(shown.error ?: AUTO_BACKUP_REPLACED, failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
+        ReplaceOutcomeDialog(shown.error ?: replacedText(shown.unlistedLeft), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
     }
     val replacing by container.autoBackup.replacing.collectAsStateWithLifecycle()
     if (masterState.open) {
