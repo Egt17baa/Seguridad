@@ -98,6 +98,10 @@ class SourceTextsTest {
         assertTrue(ForbiddenWords.problems("No garantiza que el enlace web sea seguro").isEmpty())
         // More than three words between «que» and «sea» is no longer the denial.
         assertTrue(ForbiddenWords.problems("No garantiza que lo que tú ves sea seguro").isNotEmpty())
+        // Round 2: only the final «sea seguro» is exempt; a «seguro» among the words in between is reported.
+        assertTrue(ForbiddenWords.problems("No garantiza que el seguro sea seguro").isNotEmpty())
+        assertTrue(ForbiddenWords.problems("No garantiza que lo seguro sea seguro").isNotEmpty())
+        assertTrue(ForbiddenWords.problems("No garantiza que el seguro de hogar sea seguro").isNotEmpty())
         // «seguro» elsewhere in a text that also has the denial is still reported.
         assertTrue(ForbiddenWords.problems("No garantiza que sea seguro. Es seguro.").isNotEmpty())
     }
@@ -154,6 +158,18 @@ class SourceTextsTest {
         assertEquals(listOf("es seguro"), texts("val t = \"es segur\\u006F\""))
         assertTrue(reported("val t = \"es segur\" + '\\u006F'"))
         assertEquals(listOf("a\nb \$c"), texts("val t = \"a\\nb \\\$c\""))
+    }
+
+    @Test
+    fun escapedInvisibleOrLetterCharactersInASourceLiteralAreCaught() {
+        // Round 2: the source text "segu\u00ADro" (an escaped soft hyphen) and "segur\u006F" (an escaped «o») are
+        // decoded by the lexer and then normalised, so both are reported.
+        assertEquals(listOf("es segu\u00ADro"), texts("val t = \"es segu\\u00ADro\""))
+        assertTrue(reported("val t = \"es segu\\u00ADro\""))
+        assertTrue(reported("val t = \"es segur\\u006F\""))
+        assertTrue(reported("val t = \"es de\\tverdad\""))
+        assertTrue(reported("val t = \"es de\\nverdad\""))
+        assertTrue(reported("val t = \"\"\"es segu\u00ADro\"\"\""))
     }
 
     @Test
