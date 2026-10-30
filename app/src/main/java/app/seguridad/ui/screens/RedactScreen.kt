@@ -3,6 +3,7 @@ package app.seguridad.ui.screens
 import android.graphics.Bitmap
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -85,6 +86,7 @@ import app.seguridad.tools.REDACT_REDO
 import app.seguridad.tools.REDACT_RENDERING
 import app.seguridad.tools.REDACT_TOOL_TITLE
 import app.seguridad.tools.REDACT_TOO_BIG
+import app.seguridad.tools.photoUnsupportedText
 import app.seguridad.tools.REDACT_TOO_LARGE
 import app.seguridad.tools.REDACT_UNDO
 import app.seguridad.tools.SHARE
@@ -242,7 +244,8 @@ private class RedactViewModel(private val appContext: Context, private val share
     }
 
     private fun failureText(t: Throwable) = imageOpenFailureText(t, REDACT_TOO_BIG, REDACT_TOO_LARGE) {
-        if (it is PhotoFailure && it.message == PHOTO_UNSUPPORTED) PHOTO_UNSUPPORTED else REDACT_DAMAGED
+        // M-3: no HEIC suggested before Android 9.
+        if (it is PhotoFailure && it.message == PHOTO_UNSUPPORTED) photoUnsupportedText(Build.VERSION.SDK_INT) else REDACT_DAMAGED
     }
 
     fun open(uri: Uri) {

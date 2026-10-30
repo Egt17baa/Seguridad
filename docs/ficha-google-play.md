@@ -32,7 +32,7 @@ Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una b
 
 **Herramientas**
 • Generador de contraseñas y frases, PIN al azar sin patrones habituales, códigos de recuperación y respuestas inventadas para preguntas de seguridad.
-• Limpiar foto: quita la ubicación y otros datos ocultos del archivo antes de enviarla. No cambia lo que se ve en ella. Las fotos HEIC, HEIF y AVIF se guardan como JPEG, reducidas si pasan de unos 24 megapíxeles.
+• Limpiar foto: quita la ubicación y otros datos ocultos del archivo antes de enviarla; la copia solo conserva la imagen, sus datos de color y, en las JPEG, la orientación. No cambia lo que se ve en ella. Las fotos HEIC y HEIF (desde Android 9) y AVIF (desde Android 12) se guardan como JPEG, reducidas si pasan de unos 24 megapíxeles.
 • Tachar en imagen: tapa con bloques negros lo que no quieras enseñar en una captura.
 • Inspector de QR: enseña qué hay en un QR, con avisos de señales típicas de engaño, sin abrir nada. No garantiza que un enlace sea seguro.
 • Huella SHA-256 de archivos y comprobación de contraseñas filtradas.
@@ -43,7 +43,7 @@ Todo se queda en tu móvil. La única conexión a Internet es opcional: cuando p
 **Antes de usarla, ten en cuenta**
 • Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
 • Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Seguridad.
-• Las herramientas de imagen no quitan lo que se ve ni cambian el original: comparte la copia.
+• Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia.
 • Cambiar la contraseña maestra no cambia las copias que ya existen: se siguen abriendo con la contraseña anterior.
 • Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes, usa un dispositivo hardware dedicado.
 

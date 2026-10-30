@@ -2,6 +2,7 @@ package app.seguridad.ui.screens
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,6 +55,7 @@ import app.seguridad.tools.PHOTO_SHARE_FAILED
 import app.seguridad.tools.PHOTO_TOOL_TITLE
 import app.seguridad.tools.PHOTO_TOO_BIG
 import app.seguridad.tools.PHOTO_TOO_LARGE
+import app.seguridad.tools.photoUnsupportedText
 import app.seguridad.tools.SHARE
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
@@ -160,7 +162,10 @@ private class PhotoCleanViewModel(private val appContext: Context, private val s
     private var leftWhileBusy = false
 
     private fun failureText(t: Throwable) =
-        imageOpenFailureText(t, PHOTO_TOO_BIG, PHOTO_TOO_LARGE) { (it as? PhotoFailure)?.message ?: PHOTO_DAMAGED }
+        imageOpenFailureText(t, PHOTO_TOO_BIG, PHOTO_TOO_LARGE) {
+            val m = (it as? PhotoFailure)?.message ?: PHOTO_DAMAGED
+            if (m == PHOTO_UNSUPPORTED) photoUnsupportedText(Build.VERSION.SDK_INT) else m // M-3: no HEIC before Android 9
+        }
 
     fun open(uri: Uri) {
         job?.cancel()

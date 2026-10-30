@@ -86,6 +86,36 @@ class SourceTextsTest {
         assertTrue(ForbiddenWords.problems("Seguridad y limpiar foto, no garantiza que sea seguro").isEmpty())
     }
 
+    @Test
+    fun theAllowedDenialsAreWholeWordsAndOnlyThose() {
+        // M-1: «no» must be a whole word: «moderno garantiza» is a forbidden «garantiza».
+        assertTrue(ForbiddenWords.problems("El cifrado moderno garantiza que sea seguro").isNotEmpty())
+        assertTrue(ForbiddenWords.problems("Esto no garantiza nada").isEmpty())
+        // M-2: the three legitimate denials.
+        assertTrue(ForbiddenWords.problems("Eso no se garantiza").isEmpty())
+        assertTrue(ForbiddenWords.problems("La app no lo garantiza").isEmpty())
+        assertTrue(ForbiddenWords.problems("No garantiza que un enlace sea seguro").isEmpty())
+        assertTrue(ForbiddenWords.problems("No garantiza que el enlace web sea seguro").isEmpty())
+        // More than three words between «que» and «sea» is no longer the denial.
+        assertTrue(ForbiddenWords.problems("No garantiza que lo que tú ves sea seguro").isNotEmpty())
+        // «seguro» elsewhere in a text that also has the denial is still reported.
+        assertTrue(ForbiddenWords.problems("No garantiza que sea seguro. Es seguro.").isNotEmpty())
+    }
+
+    @Test
+    fun spacingAndInvisibleCharactersDoNotHideAWord() {
+        // M-2: a no-break space, a line break or a run of spaces is one space.
+        assertTrue(ForbiddenWords.problems("Protección al 100\u00A0%").isNotEmpty())
+        assertTrue(ForbiddenWords.problems("Protección al 100\u202F%").isNotEmpty())
+        assertTrue(ForbiddenWords.problems("Es  de\nverdad").isNotEmpty())
+        assertTrue(ForbiddenWords.problems("Eso no\ngarantiza que sea seguro").isEmpty())
+        assertTrue(ForbiddenWords.problems("Eso no\u00A0 garantiza que sea seguro").isEmpty())
+        // An invisible character inside the word (soft hyphen, zero-width space or joiner) does not split it.
+        assertTrue(ForbiddenWords.problems("Esto garanti\u00ADza que funcione").isNotEmpty())
+        assertTrue(ForbiddenWords.problems("Una nota se\u200Bgura").isNotEmpty())
+        assertTrue(ForbiddenWords.problems("Es im\u2060posible").isNotEmpty())
+    }
+
     private fun texts(src: String) = kotlinLiterals(src).map { it.second }
     private fun reported(src: String) = texts(src).any { ForbiddenWords.problems(it).isNotEmpty() }
 
@@ -137,6 +167,9 @@ class SourceTextsTest {
             "Rock &amp; roll</string>\n<plurals name=\"c\"><item quantity=\"one\">Una de verdad</item></plurals>\n</resources>"
         assertEquals(listOf("Nota segura", "Rock & roll", "Una de verdad"), xmlTexts(xml).map { it.second })
         assertEquals(listOf(2, 3, 4), xmlTexts(xml).map { it.first })
+        // M-2: a <string-array> is not a <string>; its items are read one by one.
+        val array = "<resources>\n<string-array name=\"a\">\n<item>Uno seguro</item>\n<item>Dos</item>\n</string-array>\n</resources>"
+        assertEquals(listOf(3 to "Uno seguro", 4 to "Dos"), xmlTexts(array))
         // A label written in the manifest itself (not a @string reference) is a text too.
         assertEquals(listOf("Abrir seguro"), xmlTexts("<activity android:label=\"Abrir seguro\" android:icon=\"@x\"/>\n<a android:label=\"@string/app_name\"/>").map { it.second })
     }
@@ -149,7 +182,7 @@ class SourceTextsTest {
  * Android escapes decoded.
  */
 internal fun xmlTexts(xml: String): List<Pair<Int, String>> {
-    val body = Regex("<(string|item)\\b[^>]*>(.*?)</\\1\\s*>", RegexOption.DOT_MATCHES_ALL)
+    val body = Regex("<(string|item)(?=[\\s/>])[^>]*>(.*?)</\\1\\s*>", RegexOption.DOT_MATCHES_ALL)
     val attr = Regex("android:(?:label|description)\\s*=\\s*\"([^\"@][^\"]*)\"")
     val found = body.findAll(xml).map { it.range.first to it.groupValues[2] } +
         attr.findAll(xml).map { it.range.first to it.groupValues[1] }

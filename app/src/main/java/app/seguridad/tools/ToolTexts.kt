@@ -125,6 +125,16 @@ const val PHOTO_TOO_LARGE =
     "La foto es demasiado grande para convertirla: pasa de 260 megapíxeles o de 32.768 píxeles de lado. No se ha " +
         "guardado nada."
 
+/**
+ * M-3: [PHOTO_UNSUPPORTED] suggests HEIC, which needs ImageDecoder (Android 9, API 28); minSdk is 26. Below it the
+ * screens show this one instead. The pure code still throws [PHOTO_UNSUPPORTED]: only the text shown changes.
+ */
+const val PHOTO_UNSUPPORTED_BEFORE_ANDROID_9 =
+    "Este formato no se admite en este móvil. Usa una foto JPEG, PNG o WebP: las HEIC necesitan Android 9 o posterior."
+
+/** The unsupported-format text for Android API [sdk] (Build.VERSION.SDK_INT): HEIC only where it can be converted. */
+fun photoUnsupportedText(sdk: Int): String = if (sdk >= 28) PHOTO_UNSUPPORTED else PHOTO_UNSUPPORTED_BEFORE_ANDROID_9
+
 /** Anexo: «Al terminar»; [list] replaces «[lista]». */
 fun photoDoneText(list: String) =
     "Copia lista, sin estos datos: $list. El original no se ha tocado y sigue teniéndolos: comparte la copia, no el original."
@@ -214,7 +224,7 @@ fun redactCanvasDescription(blocks: Int) =
     "Imagen para tachar. Arrastra el dedo sobre lo que quieras tapar. Bloques puestos: $blocks."
 
 /** Herramientas, «Cómo protegemos tus datos»: what the image tools do not do (the Play listing has the same sentence). */
-const val IMAGE_TOOLS_LIMIT = "Las herramientas de imagen no quitan lo que se ve ni cambian el original: comparte la copia."
+const val IMAGE_TOOLS_LIMIT = "Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia."
 
 /** M-7: memory ran out reading or decoding a picked image («Limpiar foto», «Tachar» and the QR inspector). */
 const val IMAGE_NO_MEMORY = "No hay memoria suficiente para abrir esta imagen en este móvil."
@@ -516,7 +526,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_DONE_CONVERTED, PHOTO_DONE_SHORT, "$PHOTO_DONE_CONVERTED $PHOTO_ICC_KEPT.", PHOTO_NOTHING_FOUND,
     PHOTO_HEIF_NOTICE, PHOTO_FILE_NAME_NOTE, PHOTO_SAVE_COPY, SHARE,
     PHOTO_TOO_BIG, PHOTO_TOO_LARGE, PHOTO_SAVE_FAILED, PHOTO_SHARE_FAILED, PHOTO_LOST, photoDoneText("[lista]"),
-    PHOTO_DAMAGED, PHOTO_UNSUPPORTED,
+    PHOTO_DAMAGED, PHOTO_UNSUPPORTED, PHOTO_UNSUPPORTED_BEFORE_ANDROID_9,
     REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE, REDACT_EXPLANATION, REDACT_LIMITS, REDACT_DOWNSCALED, redactDownscaledText(6),
     REDACT_PICK, REDACT_PICK_OTHER, REDACT_OPENING, REDACT_RENDERING, REDACT_UNDO, REDACT_REDO, REDACT_TOO_BIG,
     REDACT_TOO_LARGE, REDACT_CHANGED, REDACT_DAMAGED, REDACT_COPY_FAILED, REDACT_LOST,
