@@ -36,7 +36,7 @@ Your report must end with the sections 'Revisión experto-seguridad-cripto' and 
 
   Errores con mensaje en español; nunca un cuelgue, un archivo a medias ni un log.
 - **Textos:** los del anexo, tal cual. Nunca «seguro» sin «no garantiza que sea seguro», «anónimo», «imposible», «100 %», «garantiza» (salvo «no garantiza»), «de verdad», «validez legal», «limpio» ni «sospechoso». Cada herramienta dice lo que no protege.
-- **Nombres de archivo de salida, fijos:** `copia-de-foto.<ext>` (no `foto-limpia`: «limpio» está prohibido) e `imagen-tachada.<ext>`, con `<ext>` = `jpg`, `png` o `webp`.
+- **Nombres de archivo de salida, fijos:** `copia-de-foto.<ext>` (no `foto-limpia`: «limpio» está prohibido), con `<ext>` = `jpg`, `png` o `webp`, e `imagen-tachada.<ext>`, con `<ext>` = `jpg` o `png`.
 - **Aleatoriedad:** `secureRandom` de `crypto/` (el de `Generator.kt`), con muestreo por rechazo y nunca `%` sesgado.
 - **StrongBox:** nunca `setUnlockedDeviceRequired`. Cualquier fallo se resuelve con el respaldo a la zona segura del procesador.
 - **`FLAG_SECURE`** en toda ventana nueva (las pantallas son de `MainActivity`, que ya lo pone).

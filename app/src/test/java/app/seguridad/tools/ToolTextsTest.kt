@@ -1,6 +1,7 @@
 package app.seguridad.tools
 
 import app.seguridad.tools.photo.Found
+import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.share.PHOTO_FILE_BASE
 import app.seguridad.tools.photo.PhotoFormat
 import app.seguridad.tools.photo.PhotoReport
@@ -67,13 +68,24 @@ class ToolTextsTest {
     }
 
     @Test
+    fun everyAppTextIsInTheAnnex() {
+        // M-5: the other way round. Every text of ALL_TOOL_TEXTS (with the placeholders it is listed with) is quoted in
+        // the annex verbatim, so the final legal review sees all of them in one place.
+        val annex = annexTexts().toSet()
+        val missing = ALL_TOOL_TEXTS.distinct().filter { it !in annex }
+        assertTrue("App texts missing from the annex:\n" + missing.joinToString("\n") { "«$it»" }, missing.isEmpty())
+    }
+
+    @Test
     fun everyToolSectionOfTheAnnexIsCheckedAgainstTheApp() {
         // One section per task (4: Limpiar foto, 5: Tachar, 6-7: QR, 8: PIN and answers, 9: StrongBox, 10-13 and the
-        // catch-ups: the texts added after the opinion): none may drop out of the parse, and all are in the app.
+        // catch-ups: the texts added after the opinion), plus the app texts the opinion did not list (M-5): none may
+        // drop out of the parse, and all are in the app.
         // The number of texts of each section, exactly: a text that loses its «» would no longer be checked.
         val expected = linkedMapOf(
             "Limpiar foto" to 17, "Tachar en imagen" to 3, "Inspector de QR" to 19, "PIN y códigos" to 2,
-            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 34,
+            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 35,
+            "Textos de la app que no estaban en el dictamen" to 123,
         )
         val sections = annexSections()
         assertEquals(expected.keys.toList(), sections.keys.toList())
@@ -123,6 +135,25 @@ class ToolTextsTest {
         // The text says «unos 24 megapíxeles»: it must follow the limit heifToJpeg really applies.
         assertTrue("${MAX_REDACT_PIXELS / 1_000_000} megapíxeles" in PHOTO_HEIF_NOTICE)
         assertEquals(24_000_000, MAX_REDACT_PIXELS)
+    }
+
+    @Test
+    fun theUnsupportedFormatTextNamesHeicOnlyWhereItCanBeConverted() {
+        // HEIC needs ImageDecoder (Android 9, API 28); minSdk is 26, where the text must not suggest it.
+        assertEquals(PHOTO_UNSUPPORTED, photoUnsupportedText(28))
+        assertEquals(PHOTO_UNSUPPORTED, photoUnsupportedText(35))
+        for (sdk in listOf(26, 27)) {
+            val t = photoUnsupportedText(sdk)
+            assertFalse(t, "HEIC" in t.substringBefore(":"))
+            assertEquals(PHOTO_UNSUPPORTED_BEFORE_ANDROID_9, t)
+        }
+        assertEquals(
+            "Este formato no se admite en este móvil. Usa una foto JPEG, PNG o WebP: las HEIC necesitan Android 9 o posterior.",
+            PHOTO_UNSUPPORTED_BEFORE_ANDROID_9,
+        )
+        assertTrue(PHOTO_UNSUPPORTED_BEFORE_ANDROID_9 in ALL_TOOL_TEXTS)
+        // AVIF (API 31) is never offered: from Android 9 to 11 the text names only formats that work there.
+        assertFalse("AVIF" in PHOTO_UNSUPPORTED)
     }
 
     @Test
