@@ -36,7 +36,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | Puesta al día CU-A (textos, Abogado Digital) y CU-B (Android, Ingeniero Móvil Senior) | Terminadas |
 | Tarea 13: clave pública (A15a, A15b, A16a y A16b) | Terminada y revisada (`7268a24..b6e0d4a`) |
 | Tarea 14: CI y publicación | Terminada y revisada |
-| Tarea 15: documentos, versión 1.3.0 y anexo de textos | Pendiente |
+| Tarea 15: documentos, versión 1.3.0 y anexo de textos | Terminada y revisada (`f439d00..01f44fc`) |
 | Tarea 16: auditoría completa, revisión final del Abogado Digital, prueba en el móvil, fusión en `main` y APK | Pendiente |
 
 **Decisiones del dueño y del controlador que siguen vigentes** (el detalle está en `progress.md`, en las líneas «Ruling»):
@@ -58,10 +58,6 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Prueba de palabras prohibidas:** `SourceTextsTest` revisa todas las cadenas de `app/src/main/java`, no solo `ToolTexts.kt`.
 
 **Pendientes que ya tienen tarea:**
-- **Tarea 15:**
-  - actualizar el anexo de textos, la línea 210 del diseño y el plan (`foto-limpia` → `copia-de-foto`);
-  - después, borrar `SUPERSEDED_ANNEX_TEXTS` de `ToolTextsTest`;
-  - corregir los límites menores de `SourceTextsTest`: cadenas partidas, un carácter literal dentro de una plantilla y «garantiza» repartido en varios trozos.
 - **Tarea 16, Abogado Digital (una sola revisión final):**
   - todos los textos, incluidos los apuntados en «Textos para el Abogado Digital (revisión final)» en los informes de la tarea 12 en adelante;
   - las licencias y la atribución de BIP-39;
