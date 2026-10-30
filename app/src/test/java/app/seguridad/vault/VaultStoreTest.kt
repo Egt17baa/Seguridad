@@ -21,7 +21,7 @@ class VaultStoreTest {
     private var clock = 1_000L
     private val idle = 5 * 60_000L
     private fun store(name: String = "vault.bin") =
-        VaultStore(File(tmp.root, name), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+        VaultStore(File(tmp.root, name), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) }, elapsed = { clock })
 
     /** A store with the 1.3.0 clock mark and the given Argon2id cost for what it wraps next. */
     private fun clockStore(highWater: () -> Long, seen: (Long) -> Unit, kdf: KdfParams = KdfParams(1024, 1, 1), reset: (Long) -> Unit = {}) =
@@ -113,7 +113,7 @@ class VaultStoreTest {
         var foreground = true
         val s = VaultStore(
             File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock },
-            kdf = { KdfParams(1024, 1, 1) }, inForeground = { foreground },
+            kdf = { KdfParams(1024, 1, 1) }, inForeground = { foreground }, elapsed = { clock },
         ).apply { load(); create("m".toCharArray()) }
         s.lock()
         assertTrue(s.lastLockInForeground)
@@ -634,5 +634,219 @@ class VaultStoreTest {
         assertEquals(BiometricRefusal.MASTER_DUE, due.reason)
         assertFalse(due.message!!.contains("hora"))
         assertTrue(b.all { it == 0.toByte() })
+    }
+
+    // ---- Audit 1.3.0, F2 (BOV-2, BOV-3, LIBRE-1, COV2-2) ----
+
+    /** An export of another vault (master "m") with one note per id in [ids]. */
+    private suspend fun exportWithIds(vararg ids: String): String {
+        val other = VaultStore(File(tmp.newFolder(), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+        other.load(); other.create("m".toCharArray())
+        ids.forEach { other.upsert(entry(it, "Wallet")) }
+        return other.exportText()!!
+    }
+
+    /** BOV-2: a store with no vault whose import is cut by MainActivity.onStop (lock) after the copy was checked. */
+    private fun storeLockingDuringImport(): VaultStore {
+        lateinit var s: VaultStore
+        var lockOnce = true
+        s = VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            beforeReplace = { if (lockOnce) { lockOnce = false; s.lock(LockReason.LEFT_APP) } },
+        )
+        return s
+    }
+
+    @Test fun `BOV-2 an import from Crea tu boveda cut by leaving the app shows the imported vault locked`() = runTest {
+        val export = exportWithIds("1")
+        val s = storeLockingDuringImport().apply { load() }
+        assertEquals(VaultState.NoVault, s.state.value)
+        s.importReplace(export, "m".toCharArray())
+        assertEquals(VaultState.Locked, s.state.value)
+        s.unlock("m".toCharArray())
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+    }
+
+    @Test fun `BOV-2 the same with a sgbak copy`() = runTest {
+        val (copy, _) = backupWith(KdfParams(1024, 1, 1))
+        val s = storeLockingDuringImport().apply { load() }
+        s.importReplace(copy.inputStream(), "m".toCharArray())
+        assertEquals(VaultState.Locked, s.state.value)
+        s.unlock("m".toCharArray())
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+    }
+
+    @Test fun `BOV-2 creating a vault never sets a readable imported vault aside`() = runTest {
+        val s = storeLockingDuringImport().apply { load() }
+        s.importReplace(exportWithIds("1"), "m".toCharArray())
+        try {
+            s.create("nueva".toCharArray())
+            fail()
+        } catch (e: IllegalStateException) {
+            // expected
+        }
+        assertTrue(tmp.root.listFiles()!!.none { it.name.startsWith("vault.bin.bad-") })
+        assertEquals(VaultState.Locked, s.state.value)
+        s.unlock("m".toCharArray())
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+    }
+
+    private fun mutexOf(s: VaultStore): kotlinx.coroutines.sync.Mutex =
+        VaultStore::class.java.getDeclaredField("mutex").apply { isAccessible = true }.get(s) as kotlinx.coroutines.sync.Mutex
+
+    @Test fun `BOV-3 a fingerprint key whose unlock is cancelled while waiting is wiped`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        val m = mutexOf(s)
+        m.lock() // Another operation (a save, an import) holds the mutex.
+        val job = launch { s.unlockWithKey(key) }
+        testScheduler.runCurrent()
+        job.cancel()
+        testScheduler.runCurrent()
+        m.unlock()
+        assertTrue(key.all { it == 0.toByte() })
+        assertEquals(VaultState.Locked, s.state.value)
+    }
+
+    @Test fun `BOV-3 an unlock cancelled during Argon2id still finishes, so its key is never dropped`() = runTest {
+        val compute = GateDispatcher()
+        var resets = 0
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = { KdfParams(1024, 1, 1) }, onClockReset = { resets++ })
+        s.load(); s.create("m".toCharArray()); s.lock()
+        compute.open = false
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { s.unlock("m".toCharArray()) }
+        job.cancel() // A rotation: the screen's scope goes while Argon2id runs.
+        compute.release()
+        job.join()
+        // The key it derived is held by the open vault (wiped by the next lock), not left behind in the heap.
+        assertTrue(s.state.value is VaultState.Unlocked)
+        assertEquals(1, resets)
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        assertNull(s.dataKeyCopy())
+        assertFalse(key.all { it == 0.toByte() }) // The copy is the caller's; the store's own key is gone.
+    }
+
+    @Test fun `BOV-3 a create cancelled during Argon2id still finishes`() = runTest {
+        val compute = GateDispatcher()
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+        s.load()
+        compute.open = false
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { s.create("m".toCharArray()) }
+        job.cancel()
+        compute.release()
+        job.join()
+        assertTrue(s.state.value is VaultState.Unlocked)
+        s.lock()
+        s.unlock("m".toCharArray())
+        assertTrue(s.state.value is VaultState.Unlocked)
+    }
+
+    @Test fun `BOV-3 a confirmMaster cancelled during Argon2id still upgrades`() = runTest {
+        val compute = GateDispatcher()
+        var resets = 0
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, compute, now = { clock }, kdf = { KdfParams(1024, 1, 1) }, onClockReset = { resets++ })
+        s.load(); s.create("m".toCharArray())
+        resets = 0
+        compute.open = false
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { s.confirmMaster("m".toCharArray()) }
+        job.cancel()
+        compute.release()
+        job.join()
+        assertEquals(1, resets)
+        assertTrue(s.state.value is VaultState.Unlocked)
+    }
+
+    @Test fun `LIBRE-1 a copy with an id the app never makes is refused as damaged`() = runTest {
+        for (bad in listOf("a/qr", "a/b/c", "%zz", "x?id=y", "x#y", "x&y", "", " ", "a.b", "ñ", "x".repeat(65), "me", "add", "encrypt", "sign", "open")) {
+            val s = store("v-${bad.hashCode()}.bin").apply { load(); create("mia".toCharArray()) }
+            try {
+                s.importReplace(exportWithIds("ok-1", bad), "m".toCharArray())
+                fail("accepted id «$bad»")
+            } catch (e: CryptoFailure) {
+                assertEquals("La copia está dañada: no se puede importar", e.message)
+            }
+            assertEquals(0, (s.state.value as VaultState.Unlocked).entries.size)
+        }
+    }
+
+    @Test fun `LIBRE-1 the ids the app and CriptoPanel make still import`() = runTest {
+        val ids = arrayOf(java.util.UUID.randomUUID().toString(), "login-1", "totp_2", "A".repeat(64))
+        val s = store().apply { load(); create("mia".toCharArray()) }
+        s.importReplace(exportWithIds(*ids), "m".toCharArray())
+        assertEquals(ids.sorted(), (s.state.value as VaultState.Unlocked).entries.map { it.id }.sorted())
+    }
+
+    @Test fun `COV2-2 the idle lock counts real time, not the wall clock`() = runTest {
+        var elapsed = 50_000L
+        val s = VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            idleLockMs = { 60_000L }, elapsed = { elapsed },
+        ).apply { load(); create("m".toCharArray()) }
+        clock -= 3_600_000 // The wall clock goes back an hour (by hand, NITZ or NTP).
+        elapsed += 59_999
+        assertFalse(s.lockIfIdle())
+        elapsed += 1
+        assertTrue(s.lockIfIdle())
+    }
+
+    @Test fun `COV2-2 the backstop of Al salir counts real time too`() = runTest {
+        var elapsed = 0L
+        val s = VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            idleLockMs = { 0L }, keptOpen = { true }, elapsed = { elapsed },
+        ).apply { load(); create("m".toCharArray()) }
+        clock += 24 * 3_600_000L // A wall clock set forward a day: no real time has passed.
+        assertFalse(s.lockIfIdle())
+        clock -= 48 * 3_600_000L
+        elapsed += AWAY_BACKSTOP_MS
+        assertTrue(s.lockIfIdle())
+    }
+
+    @Test fun `LIBRE-4 a fingerprint unlock shows only its own messages`() {
+        assertEquals("Contraseña incorrecta o datos dañados", biometricUnlockError(CryptoFailure()))
+        assertEquals(CLOCK_CHANGED_TEXT, biometricUnlockError(MasterRequired(BiometricRefusal.CLOCK)))
+        assertEquals(MasterRequired().message, biometricUnlockError(MasterRequired()))
+        assertEquals(BIOMETRIC_UNLOCK_FAILED, biometricUnlockError(java.io.IOException("/data/user/0/app/files/vault: ENOSPC")))
+        assertEquals(BIOMETRIC_UNLOCK_FAILED, biometricUnlockError(IllegalStateException()))
+        assertEquals("No se pudo abrir la bóveda con la huella", BIOMETRIC_UNLOCK_FAILED)
+    }
+
+    @Test fun `BOV-3 a fingerprint key handed over from a scope already gone opens the vault`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        val gone = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Job().apply { cancel() }) // The old composition's scope.
+        val errors = mutableListOf<String>()
+        gone.launchUnlockWithKey(s, key) { errors += it }.join()
+        assertTrue(s.state.value is VaultState.Unlocked)
+        assertTrue(key.contentEquals(s.dataKeyCopy()!!))
+        assertTrue(errors.isEmpty())
+    }
+
+    @Test fun `BOV-3 a fingerprint key handed over from a scope already gone while the vault is busy is wiped`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        val m = mutexOf(s)
+        m.lock()
+        val gone = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Job().apply { cancel() })
+        val errors = mutableListOf<String>()
+        gone.launchUnlockWithKey(s, key) { errors += it }.join()
+        m.unlock()
+        assertTrue(key.all { it == 0.toByte() })
+        assertEquals(VaultState.Locked, s.state.value)
+        assertTrue(errors.isEmpty()) // A cancellation is not an error to show.
+    }
+
+    @Test fun `BOV-3 a refused fingerprint key reports the store's message`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        s.lock()
+        val errors = mutableListOf<String>()
+        val bad = ByteArray(32) { 1 }
+        launchUnlockWithKey(s, bad) { errors += it }.join()
+        assertEquals(listOf("Contraseña incorrecta o datos dañados"), errors)
+        assertTrue(bad.all { it == 0.toByte() })
     }
 }

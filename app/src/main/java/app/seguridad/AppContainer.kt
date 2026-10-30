@@ -5,8 +5,6 @@ import app.seguridad.net.secureClient
 import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.clockMarkWorthWriting
-import app.seguridad.settings.resettingClock
-import app.seguridad.settings.seeingClock
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.withAutoBackupResult
 import app.seguridad.tools.ClipboardNoticeRequest
@@ -18,6 +16,8 @@ import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,6 +29,12 @@ import java.io.File
 
 /** The settings file, in the app's private files directory. */
 const val SETTINGS_FILE = "settings.json"
+
+/**
+ * The last guard of [AppContainer.appScope]: a background job that fails anyway (each one catches what it expects) must
+ * never close the app, as an uncaught exception would on Android (BOV-1). Nothing is logged: it could carry data.
+ */
+private val backgroundFailure = CoroutineExceptionHandler { _, _ -> }
 
 /**
  * Manual dependency graph, one per process. Plain JVM: no Android types, so jvm-check compiles it too.
@@ -47,9 +53,16 @@ class AppContainer(
      * Lives as long as the process: the automatic copies, the record of how they went, and the clean-ups that must finish
      * even if the screen that started them goes away (the temporary files of «Abrir lo recibido»).
      */
-    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundFailure),
+    /**
+     * A clock that only moves forward, also while the phone sleeps (SeguridadApp passes SystemClock.elapsedRealtime):
+     * the vault's idle lock (COV2-2) and the wait before writing the clock mark again after a failed write.
+     */
+    private val elapsedRealtime: () -> Long = { System.nanoTime() / 1_000_000 },
+    /** Where the settings file is read and written (tests run it in place). */
+    settingsIo: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    val settings = SettingsStore(File(filesDir, SETTINGS_FILE))
+    val settings = SettingsStore(File(filesDir, SETTINGS_FILE), settingsIo)
 
     /**
      * The app's activity is started (MainActivity.onStart to onStop). Set to false in onStop before the vault is locked,
@@ -72,24 +85,94 @@ class AppContainer(
         beforeCreate = { settings.turnOffAutoBackupForNewVault()?.let(releaseFolder) },
         // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted.
         beforeReplace = { settings.forgetAutoBackupCopies() },
-        clockHighWater = { settings.settings.value.clockHighWaterMs },
+        clockHighWater = { clockMark },
         onClockSeen = ::rememberClock,
         onClockReset = ::resetClock,
+        elapsed = elapsedRealtime,
     )
 
+    // The A11 clock mark. The one in force is kept here, in memory, and saved to the settings when it is worth it: a
+    // write that fails (a full disk) never closes the app and never lowers the mark the fingerprint is checked against
+    // (BOV-1). All guarded by [clockLock].
+    private val clockLock = Any()
+
+    /** The highest time told by [rememberClock] since the last [resetClock] (or since the app started). */
+    private var clockSeen = 0L
+
+    /** A reset not saved yet: the mark restarts there instead of at the saved one. */
+    private var clockLowered: Long? = null
+
+    /** Counts the resets, so a write that started before one never clears it. */
+    private var clockResets = 0
+
+    private var clockWriting = false
+
+    /** [elapsedRealtime] before which no write is tried again, after one failed. */
+    private var clockRetryAt = Long.MIN_VALUE
+
     /**
-     * Keeps the highest time seen in the settings (it only rises). Called at every unlock and touch and once at start,
-     * so it writes only when the time is [CLOCK_WRITE_STEP_MS] past the mark: the mark may lag by that much, well
-     * under the 5 minutes of slack.
+     * The highest time the app has seen (A11): the saved mark, or the reset not saved yet, raised by every time seen
+     * since. The vault's fingerprint gate reads it, so a mark that could not be saved still counts.
+     */
+    val clockMark: Long
+        get() = synchronized(clockLock) { maxOf(clockLowered ?: settings.settings.value.clockHighWaterMs, clockSeen) }
+
+    /**
+     * Keeps the highest time seen (it only rises). Called at every unlock and touch and once at start, so it writes
+     * only when the time is [CLOCK_WRITE_STEP_MS] past the saved mark: the saved one may lag by that much, well under
+     * the 5 minutes of slack, and the one in memory never does.
      */
     fun rememberClock(seen: Long) {
-        if (!clockMarkWorthWriting(settings.settings.value.clockHighWaterMs, seen)) return
-        appScope.launch { settings.update { it.seeingClock(seen) } }
+        synchronized(clockLock) { if (seen > clockSeen) clockSeen = seen }
+        saveClock()
     }
 
     /** After a master password check the mark restarts at [now], even lower: a clock set forward by mistake heals. */
     private fun resetClock(now: Long) {
-        appScope.launch { settings.update { it.resettingClock(now) } }
+        synchronized(clockLock) {
+            clockLowered = now
+            clockSeen = now
+            clockResets++
+        }
+        saveClock()
+    }
+
+    /**
+     * Writes [clockMark] to the settings when it is due (a reset, or a rise of [CLOCK_WRITE_STEP_MS]), one write at a
+     * time. A failed write is tried again by a later call, once [CLOCK_WRITE_STEP_MS] have passed; meanwhile the mark in
+     * memory is the one that counts.
+     */
+    private fun saveClock() {
+        synchronized(clockLock) {
+            val saved = settings.settings.value.clockHighWaterMs
+            val due = clockLowered != null || clockMarkWorthWriting(saved, clockSeen)
+            if (!due || clockWriting || elapsedRealtime() < clockRetryAt) return
+            clockWriting = true
+        }
+        appScope.launch {
+            var resets = -1
+            var saved = false
+            try {
+                settings.update { s ->
+                    synchronized(clockLock) {
+                        resets = clockResets
+                        s.copy(clockHighWaterMs = maxOf(clockLowered ?: s.clockHighWaterMs, clockSeen))
+                    }
+                }
+                saved = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A full disk: the mark stays in memory (see [clockMark]) and is written later. Never closes the app.
+            } finally {
+                synchronized(clockLock) {
+                    clockWriting = false
+                    if (saved && resets == clockResets) clockLowered = null
+                    if (!saved) clockRetryAt = elapsedRealtime() + CLOCK_WRITE_STEP_MS
+                }
+            }
+            if (saved) saveClock() // What was told while this write ran.
+        }
     }
 
     /** The one shared image copy (cacheDir/compartir/): wiped at start and on return after 10 minutes, never on lock. */
