@@ -10,9 +10,11 @@ Huella SHA-256 esperada del certificado de la clave de subida (es pública, no e
 74:63:98:EA:37:06:5C:F0:F3:B2:AC:A2:23:FB:8C:DB:79:16:7C:B4:C5:3B:8D:21:EF:E3:C0:71:17:93:DF:9E
 ```
 
-El trabajo **build-firma** de la CI (o **build**, en un PR o una rama) escribe la huella del APK en el resumen de cada ejecución (*Actions → la ejecución → Summary*). Tiene que ser esta. Si sale `C0:01:4D:F6:…:18:34`, el APK está firmado con la clave de prueba pública (`app/debug.keystore`), la CI lo avisa con un `warning` y ese APK no se debe distribuir: cualquiera puede firmar una «actualización» con esa clave.
+El trabajo **build-firma** de la CI (o **build**, en un PR, una rama o un push a `main`) escribe la huella del APK en el resumen de cada ejecución (*Actions → la ejecución → Summary*). Tiene que ser esta. Si sale `C0:01:4D:F6:…:18:34`, el APK está firmado con la clave de prueba pública (`app/debug.keystore`), la CI lo avisa con un `warning` y ese APK no se debe distribuir: cualquiera puede firmar una «actualización» con esa clave.
 
-Desde la 1.3.0, **build-firma** y **play-bundle** fallan si el APK o el AAB no llevan esta huella (`UPLOAD_CERT_SHA256` en `.github/workflows/build-apk.yml`), y solo firman un commit que ya esté en `main`. Paran errores honrados (otro secreto, una etiqueta en otra rama), no a quien pueda cambiar `build-apk.yml` en `main` o empujar a `main`. Lo que protege la clave son los ajustes de GitHub: la lista del apartado 5 y el [README](../README.md#entorno-de-firma), «Entorno de firma».
+Desde la 1.3.0, **build-firma** y **play-bundle** fallan si el APK o el AAB no llevan esta huella (`UPLOAD_CERT_SHA256` en `.github/workflows/build-apk.yml`), y solo firman un commit que ya esté en `main`. Paran errores honrados (otro secreto, una etiqueta en otra rama), no a quien pueda cambiar `build-apk.yml` en `main` o meter código en `main`. Solo firman una etiqueta `v*` empujada o una ejecución a mano desde `main`; un push a `main` no firma.
+
+**Huella comprobada contra lo publicado** (31-10-2026, controlador de la auditoría): `Seguridad-v1.2.2.apk` de *Releases* (SHA-256 `7fc9dd60f2c5c99b96cdc0f1579d2f1de51bf045d888c76b1cb6f642c3d0391a`, igual al que da GitHub para ese archivo) da con `apksigner verify --print-certs` `Signer #1 certificate SHA-256 digest: 746398ea37065cf0f3b2aca223fb8cdb79167cb4c53b8d21efe3c0711793df9e`, que es la huella de arriba y `UPLOAD_CERT_SHA256`. Antes de la primera etiqueta de la 1.3.0, compruébalo tú también con ese APK. Lo que protege la clave son los ajustes de GitHub: la lista del apartado 5 y el [README](../README.md#entorno-de-firma), «Entorno de firma».
 
 Para comprobar un APK descargado:
 
@@ -30,7 +32,7 @@ keytool -list -v -keystore tu.jks -alias TU_ALIAS | grep SHA256
 
 ## 2. Descargar el APK (instalación directa)
 
-Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo `v1.1.1`) adjunta a su release `Seguridad-v1.1.1.apk` y `Seguridad-v1.1.1.apk.sha256`; si la release no existe aún, se crea con el nombre de la etiqueta. Los push a `main` ya no publican nada (antes iba a `apk-latest`): así no llegan a nadie versiones sin estabilizar.
+Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo `v1.1.1`) adjunta a su release `Seguridad-v1.1.1.apk` y `Seguridad-v1.1.1.apk.sha256`; si la release no existe aún, se crea con el nombre de la etiqueta. Los push a `main` ya no publican nada (antes iba a `apk-latest`): así no llegan a nadie versiones sin estabilizar. Desde la 1.3.0 tampoco se firman con la clave de subida: dejan un APK de prueba como artefacto.
 
 1. En GitHub, abre el repositorio → *Releases* → la última versión.
 2. Descarga `Seguridad-vX.Y.Z.apk` y comprueba su huella (apartado 1) y su SHA-256.
@@ -48,7 +50,7 @@ Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo 
 
 **La 1.2.0 se instala encima de la 1.1.1** (mismo identificador y misma firma) y conserva la bóveda, pero después de abrirla con la 1.2 no se puede volver a la 1.1: la bóveda pasa a la versión 3 y la 1.1 no puede usarla (con la maestra no la abre y con la huella no puede guardar cambios; no se pierden datos). Conviene exportar una copia `.sgbak` antes de actualizar.
 
-Las ramas `claude/**` y los pull requests no publican nada: su APK queda como artefacto `Seguridad-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
+Las ramas `claude/**`, los pull requests y los push a `main` no publican nada: su APK queda como artefacto `Seguridad-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
 
 Un APK firmado con la clave de subida y otro firmado con la de prueba no se actualizan entre sí: Android pide desinstalar, y al desinstalar se borra la bóveda. Exporta antes una copia.
 
@@ -83,7 +85,7 @@ Las instalaciones desde Play y las del APK de *Releases* tienen firmas distintas
 4. Descarga el artefacto (*Actions → la ejecución → Artifacts*), descomprime el zip y queda `app-release.aab`.
 5. *Prueba y publicación → Prueba cerrada* (o *Producción* si tu cuenta lo permite) → *Crear versión* → sube `app-release.aab`, escribe las notas de la versión y envía a revisión.
 
-**No bajar de versión.** Que el `versionCode` suba no impide publicar código viejo: no etiquetes nunca un commit anterior a una versión ya publicada. Tendría un `versionCode` mayor, Android lo instalaría encima sin avisar, y la versión vieja borra al guardar los ajustes que no conoce (la 1.2.2, por ejemplo, la petición de reemplazar las copias tras cambiar la maestra, la marca del reloj de la huella y el aviso del portapapeles aceptado). Android sí rechaza un `versionCode` menor en la misma app. Las compilaciones locales llevan siempre el `versionCode` 1 y la clave de prueba, así que entre ellas sí se puede instalar una versión vieja encima: hazlo solo con una bóveda de prueba.
+**No bajar de versión.** Que el `versionCode` suba no impide publicar código viejo: no etiquetes nunca un commit anterior a una versión ya publicada. Tendría un `versionCode` mayor, Android lo instalaría encima sin avisar, y la versión vieja borra al guardar los ajustes que no conoce (la 1.2.2, por ejemplo, la petición de reemplazar las copias tras cambiar la maestra, la marca del reloj de la huella y el aviso del portapapeles aceptado). Android sí rechaza un `versionCode` menor en la misma app. Las compilaciones locales llevan el `versionCode` 1 (salvo con `-PversionCode`), así que una más vieja se instala encima de otra firmada con la misma clave, sea la de prueba o la de subida de `keystore.properties`: hazlo solo con una bóveda de prueba.
 
 ### 3.5 Formularios de la ficha
 
@@ -118,10 +120,10 @@ Guarda el `.jks` y sus contraseñas en un gestor de contraseñas y en una copia 
 
 **Ajustes de GitHub** (antes de la primera etiqueta firmada desde la 1.3.0, y después de cualquier cambio de los ajustes). Los pasos están en el [README](../README.md#entorno-de-firma), «Entorno de firma», en el orden en que se hacen: justo después de fusionar la 1.3.0 en `main` y antes de crear la etiqueta `v1.3.0`.
 
-- [ ] `main` protegida con un ruleset sin nadie en la lista de omisión: sin borrar ni *force push*, con PR obligatorio (0 aprobaciones, solo *Merge*) y con `build` y `jvm-check` como comprobaciones obligatorias.
+- [ ] `main` protegida con un ruleset sin nadie en la lista de omisión: sin borrar ni *force push*, con PR obligatorio (0 aprobaciones, solo *Merge*) y con `build` y `jvm-check` como comprobaciones obligatorias, con la fuente *GitHub Actions*.
 - [ ] Ruleset de las etiquetas `v*` activo (crear, mover y borrar), con su lista de omisión revisada: con el rol *Admin* en *Always*, tu cuenta y cualquier sesión que la use crean etiquetas, y las frena la aprobación del entorno.
-- [ ] Entorno `firma` con las reglas *Branch* `main` y *Tag* `v*`, *Required reviewers* (tú, sin *Prevent self-review*) y los cuatro `SEGURIDAD_*`.
-- [ ] Una ejecución desde `main` aprobada, con la huella del apartado 1 en el resumen de **build-firma**.
+- [ ] Entorno `firma` con las reglas *Branch* `main` y *Tag* `v*`, *Required reviewers* (tú, sin *Prevent self-review* y sin la omisión de administradores) y los cuatro `SEGURIDAD_*`. Solo apruebas las ejecuciones que has lanzado tú.
+- [ ] Una ejecución a mano desde `main` (pone en marcha **build-firma** y **play-bundle**, dos aprobaciones) con la huella del apartado 1 en el resumen de **build-firma** y en el de **play-bundle**, que deja un AAB como artefacto. La huella coincide con la del APK de la 1.2.2 de *Releases* (apartado 1).
 - [ ] Ningún `SEGURIDAD_*` en los secretos del repositorio.
 - [ ] *Workflow permissions* de Actions en solo lectura, sin crear ni aprobar PR.
 - [ ] La prueba de una rama con `PRESENTE`/`VACIO` da `VACIO`, y un push directo a `main` se rechaza.

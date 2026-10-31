@@ -605,8 +605,9 @@ const val TOOLS_AWAY_WIPE_NOTE =
 /** Start notice («Antes de empezar»), the first paragraph. LIBRE-2 + COV1-3 (audit 1.3.0): what leaves the phone. */
 const val NOTICE_INTRO =
     "Seguridad guarda tus contraseñas, códigos 2FA y frases semilla, y cifra textos y archivos, sin cuentas. La bóveda se " +
-        "queda cifrada en este móvil. De la app solo sale lo que tú exportas, guardas o compartes, la copia automática (a " +
-        "la carpeta que elijas) y, si compruebas si una contraseña está filtrada, los 5 primeros caracteres de su huella SHA-1."
+        "queda cifrada en este móvil. De la app solo sale lo que tú exportas, guardas, copias o compartes, la copia " +
+        "automática (a la carpeta que elijas) y, si compruebas si una contraseña está filtrada, los 5 primeros " +
+        "caracteres de su huella SHA-1."
 
 /** Ajustes → Acerca de, under the version. LIBRE-2 + COV1-3 (audit 1.3.0). */
 const val ABOUT_SUMMARY =
