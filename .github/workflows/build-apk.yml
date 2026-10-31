@@ -4,8 +4,9 @@ on:
   push:
     branches: [main, "claude/**"]
     tags: ["v*"]
-  # PRs and non-release branches build without signing secrets. Never use pull_request_target: it could expose them
-  # to untrusted code. A version tag is trusted only on a tag push; manual dispatch may use main only for signing.
+  # PRs, pushes to any branch (main included) and manual runs off main build without signing secrets. Never use
+  # pull_request_target: it could expose them to untrusted code. Only a pushed v* tag and a manual run from main sign
+  # (the owner's ruling of 31-10-2026, «firmar solo al publicar»): a merge into main asks for no approval.
   pull_request:
   workflow_dispatch:
 
@@ -33,12 +34,12 @@ env:
   UPLOAD_CERT_SHA256: 746398EA37065CF0F3B2ACA223FB8CDB79167CB4C53B8D21EFE3C0711793DF9E
 
 jobs:
-  # Untrusted builds (pull requests, branches other than main, manual runs not from main): the same steps as
-  # build-firma, with no environment. Their secret expressions below evaluate to '' here, so they never get the key
+  # Untrusted builds (pull requests, pushes to any branch, main included, and manual runs not from main): the same
+  # steps as build-firma, with no environment. Their secret expressions below evaluate to '' here, so they never get the key
   # and the release APK is signed with the public test key (-PfirmaDePrueba=true): not for distribution. The checks
   # that the commit is on main and that the APK has the upload key's fingerprint run only in build-firma.
   build:
-    if: ${{ !((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) }}
+    if: ${{ !((startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) }}
     runs-on: ubuntu-latest
     # The same list is reused by build-firma (YAML alias; GitHub Actions supports anchors and aliases, not merge keys).
     steps: &build-steps
@@ -48,14 +49,15 @@ jobs:
           persist-credentials: false
           fetch-depth: ${{ github.job == 'build-firma' && '0' || '1' }}
 
-      # Signing only from main (audit 1.3.0, CADENAS-6): a v* tag, a push or a manual run must point at a commit that
-      # is already on main, so an honest mistake (a tag on a branch, an old commit) never gets the upload key. It does
-      # not stop someone who can rewrite this file on main or push to main: that is up to the GitHub settings
-      # (README, "Entorno de firma").
+      # Signing only from main (audit 1.3.0, CADENAS-6): a v* tag or a manual run must point at a commit that is already
+      # on main, so an honest mistake (a tag on another branch) never gets the upload key. It does not stop a tag on an
+      # old commit of main (docs/PUBLICAR.md, "No bajar de versión"), nor someone who can rewrite this file on main or
+      # merge into main: that is up to the GitHub settings (README, "Entorno de firma"). Gated on $GITHUB_JOB, which
+      # the runner always sets, inside the script: if anything were off, it fails closed (no origin/main) rather than
+      # skipping the check.
       - name: Check that the commit is on main
-        if: github.job == 'build-firma'
         run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          if [ "$GITHUB_JOB" = "build-firma" ] && ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::El commit $GITHUB_SHA no está en main: solo se firma lo que ya está en main."
             exit 1
           fi
@@ -78,17 +80,16 @@ jobs:
 
       # The secrets exist only inside this step, which only packages the APK. This narrows what can read them, but does
       # not close it: the Gradle build scripts and plugins still run here, and a process an earlier step left running
-      # could read this step's environment. Who can push to main and to v* tags is what really protects the key.
+      # could read this step's environment. Who can merge into main, create v* tags and approve "firma" really protects it.
       - name: Build the release APK
         env:
-          KEYSTORE_BASE64: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEYSTORE_BASE64 || '' }}
-          SEGURIDAD_KEYSTORE_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEYSTORE_PASSWORD || '' }}
-          SEGURIDAD_KEY_ALIAS: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEY_ALIAS || '' }}
-          SEGURIDAD_KEY_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEY_PASSWORD || '' }}
+          KEYSTORE_BASE64: ${{ ((startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) && secrets.SEGURIDAD_KEYSTORE_BASE64 || '' }}
+          SEGURIDAD_KEYSTORE_PASSWORD: ${{ ((startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) && secrets.SEGURIDAD_KEYSTORE_PASSWORD || '' }}
+          SEGURIDAD_KEY_ALIAS: ${{ ((startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) && secrets.SEGURIDAD_KEY_ALIAS || '' }}
+          SEGURIDAD_KEY_PASSWORD: ${{ ((startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) && secrets.SEGURIDAD_KEY_PASSWORD || '' }}
         run: |
           # The checks above have passed: a distributable build without the production signing key is refused here.
           if [ -z "$KEYSTORE_BASE64" ] && {
-            { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; } ||
             { [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; } ||
             { [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; }
           }; then
@@ -103,7 +104,7 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
             export SEGURIDAD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
           else
-            echo "::warning::Sin secretos de firma: las compilaciones de PR/ramas usan la clave de prueba pública."
+            echo "::warning::Sin secretos de firma: los PR, las ramas y los push a main usan la clave de prueba pública."
             test_key=(-PfirmaDePrueba=true)
           fi
 
@@ -127,6 +128,7 @@ jobs:
       # anything other than the upload key (UPLOAD_CERT_SHA256) fails, so release-apk never publishes another key's APK.
       - name: Signing certificate fingerprint
         run: |
+          set -o pipefail # A failing apksigner fails the step, not only an empty fingerprint.
           APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           if [ ! -x "$APKSIGNER" ]; then
             APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)apksigner"
@@ -157,10 +159,11 @@ jobs:
           name: Seguridad-apk
           path: Seguridad.apk
 
-  # Trusted builds (pushes to main or of a v* tag, manual runs from main): signed with the upload key from the
-  # environment "firma". Without the key the step fails instead of building a distributable APK with the test key.
+  # Trusted builds (a pushed v* tag, or a manual run from main): signed with the upload key from the environment
+  # "firma". Without the key the step fails instead of building a distributable APK with the test key. A push to main
+  # is not one of them: it runs build, with the test key, so a merge needs no approval (owner's ruling, 31-10-2026).
   build-firma:
-    if: (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')
+    if: (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')
     environment: firma
     runs-on: ubuntu-latest
     steps: *build-steps
@@ -275,7 +278,7 @@ jobs:
   play-bundle:
     needs: [build-firma, jvm-check]
     # Signing secrets are used only for pushed version tags or manual runs from main, never arbitrary branches.
-    if: (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    if: (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')
     environment: firma
     runs-on: ubuntu-latest
     steps:
@@ -326,6 +329,7 @@ jobs:
       # artefact for Play is never signed with another key.
       - name: Signing certificate fingerprint
         run: |
+          set -o pipefail # A failing keytool fails the step, not only an empty fingerprint.
           keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab | tee certs.txt
           FP=$(grep -m 1 'SHA256:' certs.txt | awk '{print toupper($NF)}' | tr -d ':')
           if [ -z "$FP" ]; then

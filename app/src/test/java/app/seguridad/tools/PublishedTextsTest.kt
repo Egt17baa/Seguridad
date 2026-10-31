@@ -54,7 +54,7 @@ class PublishedTextsTest {
     fun theScreensSayWhatLeavesThePhone() {
         // Start notice: the vault stays encrypted here; the exports, shares, the automatic copy and 5 SHA-1 characters
         // leave it.
-        for (fact in listOf("cifrada en este móvil", "exportas, guardas o compartes", "copia automática", "carpeta que elijas", "5 primeros caracteres")) {
+        for (fact in listOf("cifrada en este móvil", "exportas, guardas, copias o compartes", "copia automática", "carpeta que elijas", "5 primeros caracteres")) {
             assertTrue("NOTICE_INTRO: $fact", fact in NOTICE_INTRO)
         }
         for (fact in listOf("cifrada en este móvil", "copia automática", "carpeta que elijas")) {
