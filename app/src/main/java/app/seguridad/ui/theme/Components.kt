@@ -1,12 +1,17 @@
 package app.seguridad.ui.theme
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuComponent
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSeparator
+import androidx.compose.foundation.text.contextmenu.modifier.filterTextContextMenuComponents
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
@@ -68,8 +73,12 @@ fun BackScaffold(title: String, onBack: () -> Unit, content: @Composable (Paddin
     )
 }
 
-/** The system text menu without Copy and Cut: those would skip the sensitive flag and the timed clearing. */
-private class NoCopyToolbar(private val base: TextToolbar) : TextToolbar {
+/**
+ * The old system text menu ([LocalTextToolbar], used by Compose when its new menu is off) without Copy, Cut and
+ * Autofill: a copy would skip the sensitive flag and the timed clearing, and a manual autofill request would hand the
+ * field to the autofill service (M1).
+ */
+internal class NoCopyToolbar(private val base: TextToolbar) : TextToolbar {
     override val status: TextToolbarStatus get() = base.status
 
     override fun showMenu(
@@ -87,30 +96,56 @@ private class NoCopyToolbar(private val base: TextToolbar) : TextToolbar {
         onCutRequested: (() -> Unit)?,
         onSelectAllRequested: (() -> Unit)?,
         onAutofillRequested: (() -> Unit)?,
-    ) = base.showMenu(rect, null, onPasteRequested, null, onSelectAllRequested, onAutofillRequested)
+    ) = base.showMenu(rect, null, onPasteRequested, null, onSelectAllRequested, null)
 
     override fun hide() = base.hide()
 }
 
-/** Secrets typed or shown in [content] can only leave through the app's own "Copiar" (pasting still works). */
+/**
+ * TECLADO-1 (audit 1.3.0): what stays in the new text menu of Compose foundation 1.9+ (on by default, and it never
+ * asks [LocalTextToolbar]): «Pegar», «Seleccionar todo» and the separators. An allow-list, so Copy, Cut, Autofill, the
+ * other apps' PROCESS_TEXT actions («Traducir»…) and the text classification items go, and so does anything a later
+ * Compose adds.
+ */
+internal fun keptInNoCopyMenu(component: TextContextMenuComponent): Boolean =
+    component is TextContextMenuSeparator ||
+        component.key == TextContextMenuKeys.PasteKey ||
+        component.key == TextContextMenuKeys.SelectAllKey
+
+private val NoCopyMenuFilter: (TextContextMenuComponent) -> Boolean = ::keptInNoCopyMenu
+
+/**
+ * Secrets typed or shown in [content] can only leave through the app's own «Copiar» (pasting still works), with both
+ * of Compose's text menus: the new one is filtered by a modifier on a box around [content] (it applies to the text
+ * fields and SelectionContainers inside, in this window only: a dialog needs its own NoCopy inside), the old one by
+ * [NoCopyToolbar]. [modifier] goes on that box, which passes its minimum size on to [content]: put a single layout in.
+ */
 @Composable
-fun NoCopy(content: @Composable () -> Unit) {
+fun NoCopy(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val base = LocalTextToolbar.current
-    CompositionLocalProvider(LocalTextToolbar provides remember(base) { NoCopyToolbar(base) }, content = content)
+    val toolbar = remember(base) { base as? NoCopyToolbar ?: NoCopyToolbar(base) }
+    CompositionLocalProvider(LocalTextToolbar provides toolbar) {
+        Box(modifier.filterTextContextMenuComponents(NoCopyMenuFilter), propagateMinConstraints = true) { content() }
+    }
 }
 
-/** Password field with a show/hide switch; never put in saved state. */
+/**
+ * Password field with a show/hide switch; never put in saved state. Hidden, Compose offers no Copy; after «Ver» it
+ * would, so the field is always inside [NoCopy] (TECLADO-2): the master password and every other one.
+ */
 @Composable
 fun PasswordField(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, label: String = "Contraseña") {
     var visible by remember { mutableStateOf(false) }
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label) },
-        singleLine = true,
-        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-        trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) "Ocultar" else "Ver", style = MaterialTheme.typography.labelMedium) } },
-        modifier = modifier.fillMaxWidth(),
-    )
+    NoCopy(modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onChange,
+            label = { Text(label) },
+            singleLine = true,
+            visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+            trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) "Ocultar" else "Ver", style = MaterialTheme.typography.labelMedium) } },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }

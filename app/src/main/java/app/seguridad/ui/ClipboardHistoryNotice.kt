@@ -35,7 +35,11 @@ fun ClipboardHistoryNotice(container: AppContainer) {
     if (copyFailed) {
         AlertDialog(
             onDismissRequest = { copyFailed = false },
-            text = { Text(CLIPBOARD_COPY_FAILED) },
+            text = {
+                // ANDROID-3: like every other window of the app.
+                FilterObscuredTouches()
+                Text(CLIPBOARD_COPY_FAILED)
+            },
             confirmButton = { TextButton(onClick = { copyFailed = false }) { Text(CLIPBOARD_COPY_FAILED_OK) } },
         )
     }

@@ -84,8 +84,8 @@ class ToolTextsTest {
         // The number of texts of each section, exactly: a text that loses its «» would no longer be checked.
         val expected = linkedMapOf(
             "Limpiar foto" to 17, "Tachar en imagen" to 3, "Inspector de QR" to 19, "PIN y códigos" to 2,
-            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 43,
-            "Textos de la app que no estaban en el dictamen" to 123,
+            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 45,
+            "Textos de la app que no estaban en el dictamen" to 125,
         )
         val sections = annexSections()
         assertEquals(expected.keys.toList(), sections.keys.toList())
@@ -321,6 +321,30 @@ class ToolTextsTest {
         assertEquals("Entendido", CLIPBOARD_COPY_FAILED_OK)
         assertTrue(ALL_TOOL_TEXTS.containsAll(listOf(CLIPBOARD_COPY_FAILED, CLIPBOARD_COPY_FAILED_OK)))
         assertTrue(ALL_TOOL_TEXTS.containsAll(listOf(fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2))))
+    }
+
+    @Test
+    fun clipboardTextsSayThisPhoneOnlyAndTheReopening() {
+        // COV2-5 and TECLADO-3 (audit 1.3.0): the clearing is of this phone's clipboard, and a copy left when Android
+        // closes the app goes on reopening it.
+        assertEquals(
+            "Sin capturas de pantalla en toda la app. Lo que copias se borra del portapapeles de este móvil a los 45 s " +
+                "(si Android cierra la app antes, al volver a abrirla); si compartes el portapapeles con otros " +
+                "dispositivos, allí puede quedarse.",
+            clipboardAboutText(45),
+        )
+        for (c in app.seguridad.settings.ClipboardClear.entries) {
+            assertTrue(clipboardAboutText(c.seconds) in ALL_TOOL_TEXTS)
+            assertTrue("a los ${c.seconds} s (" in clipboardAboutText(c.seconds))
+        }
+        assertEquals(
+            "Con la app en primer plano, solo se borra si sigue ahí lo que copiaste desde ella. Si no lo está, desde " +
+                "Android 10 la app no puede ver el portapapeles y lo vacía, aunque hayas copiado otra cosa después. Si " +
+                "Android cierra la app antes, lo que copiaste se borra al volver a abrirla. Solo se borra en este móvil: " +
+                "si compartes el portapapeles con otros dispositivos, allí puede quedarse.",
+            CLIPBOARD_CLEAR_HINT,
+        )
+        assertTrue(CLIPBOARD_CLEAR_HINT in ALL_TOOL_TEXTS)
     }
 
     @Test

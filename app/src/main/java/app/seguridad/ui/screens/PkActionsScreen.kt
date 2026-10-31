@@ -59,6 +59,7 @@ import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.tools.qr.QrTarget
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
+import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PositiveColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.ENCRYPT_HELP
@@ -337,14 +338,17 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
                 }
             }
         } else {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it; result = null; tagged = null },
-                label = { Text("Texto a cifrar") },
-                minLines = 4,
-                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // TECLADO-2: the plain text is a secret; it leaves only as the encrypted or signed result.
+            NoCopy(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it; result = null; tagged = null },
+                    label = { Text("Texto a cifrar") },
+                    minLines = 4,
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
 
         Text("Para", style = MaterialTheme.typography.titleSmall)
@@ -516,14 +520,17 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Firmar y guardar") }
         } else {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it; result = null; tagged = null },
-                label = { Text("Texto a firmar") },
-                minLines = 4,
-                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // TECLADO-2: the plain text is a secret; it leaves only as the encrypted or signed result.
+            NoCopy(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it; result = null; tagged = null },
+                    label = { Text("Texto a firmar") },
+                    minLines = 4,
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Button(
                 enabled = !busy && hasIdentity && text.isNotBlank(),
                 onClick = {

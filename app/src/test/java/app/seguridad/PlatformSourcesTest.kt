@@ -1,5 +1,7 @@
 package app.seguridad
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -47,5 +49,155 @@ class PlatformSourcesTest {
     @Test fun `ANDROID-1 a deleted share copy has its URI permission revoked`() {
         assertTrue("revokeUriPermission" in code("android/ImageShare.kt"))
         assertTrue("revokeSharedCopy" in code("SeguridadApp.kt"))
+    }
+
+    /**
+     * [src] with every comment and the inside of every string literal turned into spaces: same length and same line
+     * breaks, so an index found in [src] is the same here, and a parenthesis or brace inside a text is not counted.
+     */
+    private fun blank(src: String): String {
+        val out = StringBuilder(src)
+        var i = 0
+        fun clear(from: Int, to: Int) { for (k in from until to) if (out[k] != '\n') out[k] = ' ' }
+        while (i < src.length) {
+            when {
+                src.startsWith("//", i) -> { val e = src.indexOf('\n', i).let { if (it < 0) src.length else it }; clear(i, e); i = e }
+                src.startsWith("/*", i) -> {
+                    var depth = 0
+                    var j = i
+                    while (j < src.length) {
+                        if (src.startsWith("/*", j)) { depth++; j += 2 } else if (src.startsWith("*/", j)) { depth--; j += 2; if (depth == 0) break } else j++
+                    }
+                    clear(i, j); i = j
+                }
+                src.startsWith("\"\"\"", i) -> { val e = src.indexOf("\"\"\"", i + 3).let { if (it < 0) src.length else it + 3 }; clear(i + 3, e - 3); i = e }
+                src[i] == '"' -> {
+                    var j = i + 1
+                    while (j < src.length && src[j] != '"') j += if (src[j] == '\\') 2 else 1
+                    clear(i + 1, j); i = j + 1
+                }
+                src[i] == '\'' -> {
+                    var j = i + 1
+                    while (j < src.length && src[j] != '\'') j += if (src[j] == '\\') 2 else 1
+                    clear(i + 1, j); i = j + 1
+                }
+                else -> i++
+            }
+        }
+        return out.toString()
+    }
+
+    /** The index just past the bracket that closes the one at [open] in blanked code [b]. */
+    private fun closing(b: String, open: Int): Int {
+        val o = b[open]
+        val c = if (o == '(') ')' else '}'
+        var depth = 0
+        for (k in open until b.length) {
+            if (b[k] == o) depth++ else if (b[k] == c) { depth--; if (depth == 0) return k + 1 }
+        }
+        error("Unbalanced ${o} at $open")
+    }
+
+    /** The call at [at] (its name) up to the end of its arguments and of a trailing lambda, in blanked code [b]. */
+    private fun callRange(b: String, at: Int): IntRange {
+        val paren = b.indexOf('(', at)
+        var end = closing(b, paren)
+        var k = end
+        while (k < b.length && b[k].isWhitespace()) k++
+        if (k < b.length && b[k] == '{') end = closing(b, k)
+        return at until end
+    }
+
+    /** Whether [index] of [src] is inside the content lambda of a call to [call]. */
+    private fun insideCall(src: String, call: String, index: Int): Boolean {
+        val b = blank(src)
+        return Regex("""\b$call\b""").findAll(b).any { m ->
+            val start = m.range.first
+            if (start >= index || b.lastIndexOf("fun ", start).let { it >= 0 && b.substring(it + 4, start).isBlank() }) return@any false
+            var k = m.range.last + 1
+            while (k < b.length && b[k].isWhitespace()) k++
+            if (k < b.length && b[k] == '(') { k = closing(b, k); while (k < b.length && b[k].isWhitespace()) k++ }
+            k < b.length && b[k] == '{' && index in k until closing(b, k)
+        }
+    }
+
+    @Test fun `ANDROID-3 every dialog and menu window of the app filters obscured touches`() {
+        val root = mainDir()
+        val window = Regex("""\b(AlertDialog|BasicAlertDialog|Dialog|DropdownMenu|ExposedDropdownMenu|ModalBottomSheet|Popup|DatePickerDialog)\(""")
+        val missing = mutableListOf<String>()
+        var windows = 0
+        root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
+            val src = f.readText()
+            val b = blank(src)
+            for (m in window.findAll(b)) {
+                val before = b.substring(b.lastIndexOf('\n', m.range.first) + 1, m.range.first)
+                if (before.trimStart().startsWith("import") || before.trimEnd().endsWith("fun")) continue
+                windows++
+                val range = callRange(b, m.range.first)
+                if ("FilterObscuredTouches()" !in b.substring(range.first, range.last + 1)) {
+                    missing += "${f.name}:${src.substring(0, m.range.first).count { it == '\n' } + 1} ${m.groupValues[1]}"
+                }
+            }
+        }
+        assertTrue("Too few dialogs found: $windows", windows >= 15)
+        assertTrue("Windows without FilterObscuredTouches():\n" + missing.joinToString("\n"), missing.isEmpty())
+    }
+
+    private fun mainDir(): File {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null) {
+            val f = File(dir, "app/src/main/java/app/seguridad")
+            if (f.isDirectory) return f
+            dir = dir.parentFile
+        }
+        error("app/src/main/java/app/seguridad not found")
+    }
+
+    @Test fun `the source helpers see through texts and comments`() {
+        val src = "AlertDialog(text = { Text(\"a ) b\") /* ) */ }) // )\nNoCopy(Modifier) { Field(\"x\") }\nOther { \"y\" }"
+        assertEquals(src.length, blank(src).length)
+        assertEquals(0 until src.indexOf(" // )"), callRange(blank(src), 0))
+        assertTrue(insideCall(src, "NoCopy", src.indexOf("\"x\"")))
+        assertFalse(insideCall(src, "NoCopy", src.indexOf("\"y\"")))
+    }
+
+    @Test fun `TECLADO-1 NoCopy filters the new text menu and keeps the old toolbar`() {
+        val src = main("ui/theme/Components.kt")
+        val b = blank(src)
+        val noCopy = callRange(b, b.indexOf("fun NoCopy("))
+        val body = b.substring(noCopy.first, noCopy.last + 1)
+        assertTrue("the new menu (Compose foundation 1.9+)", "filterTextContextMenuComponents(" in body)
+        assertTrue("with the tested allow-list", "keptInNoCopyMenu" in code("ui/theme/Components.kt"))
+        assertTrue("the old menu", "LocalTextToolbar provides" in body)
+    }
+
+    @Test fun `TECLADO-2 the plain texts of Cifrar para and Firmar and every password field are inside NoCopy`() {
+        val pk = main("ui/screens/PkActionsScreen.kt")
+        for (label in listOf("\"Texto a cifrar\"", "\"Texto a firmar\"")) {
+            val at = pk.indexOf(label)
+            assertTrue("$label not found", at >= 0)
+            assertTrue("$label outside NoCopy", insideCall(pk, "NoCopy", at))
+        }
+        // The master password (create, unlock, the contacts prompt) and every other PasswordField, also after «Ver».
+        val comp = main("ui/theme/Components.kt")
+        val field = comp.indexOf("OutlinedTextField(", comp.indexOf("fun PasswordField("))
+        assertTrue(field > 0)
+        assertTrue("PasswordField outside NoCopy", insideCall(comp, "NoCopy", field))
+    }
+
+    @Test fun `TECLADO-3 a copy found on reopening is cleared by its time, also when the app was closed before`() {
+        val src = code("android/Clipboard.kt")
+        assertTrue("ownCopyClearDelay(" in src)
+        assertTrue("wipeReopenedCopy(" in src)
+        assertTrue("clearStaleCopy(this)" in code("MainActivity.kt"))
+    }
+
+    @Test fun `COV2-5 the clipboard texts come from ToolTexts and say this phone only`() {
+        val tools = code("ui/screens/ToolsScreen.kt")
+        assertTrue("clipboardAboutText(settings.clipboard.seconds)" in tools)
+        assertFalse("lo que copias se borra del portapapeles a los" in tools)
+        val settings = code("ui/screens/SettingsScreen.kt")
+        assertTrue("Hint(CLIPBOARD_CLEAR_HINT)" in settings)
+        assertFalse("Solo se borra si sigue" in settings)
     }
 }
