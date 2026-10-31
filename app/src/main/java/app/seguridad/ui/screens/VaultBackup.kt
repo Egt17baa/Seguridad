@@ -45,8 +45,9 @@ const val MIN_MASTER = 10
 /**
  * What to do once the master password was changed (the vault is then locked), with whether the fingerprint could not be
  * turned off and whether the vault had an identity (R-5 of the earlier dictamen): the app root shows the dialog about
- * the old copies and the identity ([MasterChangedDialog]). One place for every screen that can change it; the default does nothing. The app root provides AppContainer.masterChanged, which
- * outlives the activity: a lambda captured before a rotation still reaches the dialog of the new one (M-3).
+ * the old copies and the identity ([MasterChangedDialog]). One place for every screen that can change it; the default
+ * does nothing. The app root provides AppContainer.masterChanged, which outlives the activity: a lambda captured before
+ * a rotation still reaches the dialog of the new one (M-3).
  */
 val LocalOnMasterChanged = staticCompositionLocalOf<(fingerprintFailed: Boolean, hasIdentity: Boolean) -> Unit> { { _, _ -> } }
 

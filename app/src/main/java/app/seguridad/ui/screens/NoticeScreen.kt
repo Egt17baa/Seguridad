@@ -48,7 +48,7 @@ fun NoticeScreen(onAccept: () -> Unit) {
                     Text("Sin auditoría independiente", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "La app usa algoritmos estándar y bibliotecas conocidas, pero no ha pasado una auditoría de seguridad independiente. " +
-                            "Para fondos importantes usa una wallet hardware y un gestor de contraseñas auditado.",
+                            "Para fondos importantes usa una cartera física de criptomonedas y un gestor de contraseñas auditado.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )

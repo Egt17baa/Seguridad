@@ -644,8 +644,8 @@ const val ABOUT_SUMMARY =
 /** «Crea tu bóveda», the paragraph under the title. LIBRE-2 + COV1-3 (audit 1.3.0): the automatic copy is named. */
 const val VAULT_CREATE_INTRO =
     "Guarda contraseñas, frases semilla de tus carteras de criptomonedas, notas y códigos 2FA, cifrados con AES-256-GCM y " +
-        "una clave derivada de tu contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de Google); puedes exportar una copia cifrada " +
-        "o activar la copia automática en una carpeta que elijas."
+        "una clave derivada de tu contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de " +
+        "Google); puedes exportar una copia cifrada o activar la copia automática en una carpeta que elijas."
 
 /**
  * Owner's decision (31-10-2026): shown once, only to those who update from an earlier version, after the app's visible

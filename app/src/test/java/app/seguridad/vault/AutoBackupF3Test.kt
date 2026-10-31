@@ -205,6 +205,38 @@ class AutoBackupF3Test {
         assertTrue("nothing of the old vault deleted", t.deleted.none { it in old })
     }
 
+    // M-5 (review of batch AB): the import fails after it dropped the request, so it puts it back: the promise is true.
+    @Test fun `R-6 a replacement during an import that fails keeps the promise, and the next copy deletes the targets`() = runTest {
+        val (s, t, text) = setup()
+        val a = auto(s, t)
+        val old = threeCopies(s, t).toList()
+        settings.update { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        val gate = CompletableDeferred<Unit>()
+        t.gate = gate
+        clock += 60_000
+        s.upsert(note("old-last"))
+        settle() // the pending replacement starts: snapshot, upload held
+        assertFalse(gate.isCompleted)
+        // Make the import's save fail: vault.bin.tmp is a non-empty directory (works as root too).
+        val blocker = File(tmp.root, "a/vault.bin.tmp").apply { mkdirs(); File(this, "x").writeText("x") }
+        val generation = s.generation
+        val failed = try { s.importReplace(text, "maestra-b".toCharArray()); false } catch (e: Exception) { true }
+        assertTrue(failed)
+        assertTrue("the import got as far as replacing", s.generation > generation)
+        assertTrue("the request is back", settings.settings.value.autoBackupReplacePending)
+        gate.complete(Unit); runCurrent()
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, settings.settings.value.lastAutoBackupError)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, a.replaceOutcome.value?.error)
+        assertTrue(settings.settings.value.autoBackupReplacePending)
+        assertTrue("nothing deleted by the stale copy", t.deleted.none { it in old })
+        // The promise holds: the next copy deletes them.
+        blocker.deleteRecursively()
+        clock += 60_000; s.upsert(note("y")); settle()
+        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertNull(settings.settings.value.lastAutoBackupError)
+        assertTrue("the targets went: ${t.deleted}", old.all { it in t.deleted && it !in t.idOfName.values })
+    }
+
     @Test fun `R-6 a replacement with no request saved never promises to try again`() = runTest {
         val (s, t, _) = setup()
         val a = auto(s, t)

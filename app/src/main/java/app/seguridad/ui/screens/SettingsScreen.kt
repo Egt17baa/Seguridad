@@ -510,7 +510,7 @@ fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
             Text("Clavero ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.headlineSmall)
             Hint(ABOUT_SUMMARY)
             Section("Avisos") {
-                Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una wallet hardware y un gestor de contraseñas auditado.")
+                Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una cartera física de criptomonedas y un gestor de contraseñas auditado.")
                 Hint("• Sin recuperación: si olvidas la contraseña maestra o la de algo cifrado, nadie puede recuperar lo guardado.")
                 Hint("• Red: solo se conectan «¿Filtrada?» y «Comprobar filtraciones» de la salud de la bóveda, cuando las pulsas, a api.pwnedpasswords.com, y solo envían los 5 primeros caracteres de la huella SHA-1 de cada contraseña.")
             }
