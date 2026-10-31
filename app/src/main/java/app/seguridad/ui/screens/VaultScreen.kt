@@ -67,6 +67,7 @@ import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.totpCode
 import app.seguridad.tools.RESET_WIPES_DAMAGED
+import app.seguridad.tools.VAULT_CREATE_INTRO
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BiometricRefusal
@@ -234,8 +235,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
         Text("Crea tu bóveda", style = MaterialTheme.typography.headlineSmall)
         failed?.let { Text(it, color = NegativeColor) }
         Text(
-            "Guarda contraseñas, frases semilla de tus wallets, notas y códigos 2FA, cifrados con AES-256-GCM y una clave derivada de tu " +
-                "contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de Google); puedes exportar una copia cifrada.",
+            VAULT_CREATE_INTRO,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         PasswordField(a, { a = it }, label = "Contraseña maestra (mínimo $MIN_MASTER caracteres)")

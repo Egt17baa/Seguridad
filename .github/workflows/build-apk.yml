@@ -23,18 +23,42 @@ permissions:
 # a repository secret of the same name, so the repository secrets keep working until they are moved there.
 # A workflow that names an environment that does not exist creates it, with no protection rules and no secrets.
 # Setup steps: README, "Entorno de firma".
+#
+# Never rename or move this file: github.run_number, the versionCode of every APK and AAB, is counted per workflow
+# file and would start again at 1 (docs/PUBLICAR.md, 3.4).
+
+# SHA-256 of the upload key's certificate (public; docs/PUBLICAR.md, section 1). build-firma and play-bundle fail if what
+# they signed has another one. If the upload key is ever replaced (docs/PUBLICAR.md, section 4), change it here too.
+env:
+  UPLOAD_CERT_SHA256: 746398EA37065CF0F3B2ACA223FB8CDB79167CB4C53B8D21EFE3C0711793DF9E
+
 jobs:
   # Untrusted builds (pull requests, branches other than main, manual runs not from main): the same steps as
   # build-firma, with no environment. Their secret expressions below evaluate to '' here, so they never get the key
-  # and the release APK is signed with the public test key (-PfirmaDePrueba=true): not for distribution.
+  # and the release APK is signed with the public test key (-PfirmaDePrueba=true): not for distribution. The checks
+  # that the commit is on main and that the APK has the upload key's fingerprint run only in build-firma.
   build:
     if: ${{ !((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) }}
     runs-on: ubuntu-latest
     # The same list is reused by build-firma (YAML alias; GitHub Actions supports anchors and aliases, not merge keys).
     steps: &build-steps
+      # build-firma (and play-bundle) need the whole history for the check that the commit is on main; build does not.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          fetch-depth: ${{ github.job == 'build-firma' && '0' || '1' }}
+
+      # Signing only from main (audit 1.3.0, CADENAS-6): a v* tag, a push or a manual run must point at a commit that
+      # is already on main, so an honest mistake (a tag on a branch, an old commit) never gets the upload key. It does
+      # not stop someone who can rewrite this file on main or push to main: that is up to the GitHub settings
+      # (README, "Entorno de firma").
+      - name: Check that the commit is on main
+        if: github.job == 'build-firma'
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::El commit $GITHUB_SHA no está en main: solo se firma lo que ya está en main."
+            exit 1
+          fi
 
       # gradlew runs this JAR before anything else is checked: it must be Gradle's own (the official checksum of the
       # wrapper JAR of Gradle 8.14.5, which generated it, at gradle.org/release-checksums; the wrapper then downloads
@@ -47,50 +71,49 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # The secrets exist only inside this step (not in the job), so no other step or action can read them.
-      - name: Test, lint, licences and build
+      # All the checks run first, with no signing secret in the environment (audit 1.3.0): the unit tests, lint and the
+      # licence and asset checks cannot read the upload key.
+      - name: Test, lint, licences and assets
+        run: ./gradlew :app:testDebugUnitTest :app:lintRelease :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon
+
+      # The secrets exist only inside this step, which only packages the APK. This narrows what can read them, but does
+      # not close it: the Gradle build scripts and plugins still run here, and a process an earlier step left running
+      # could read this step's environment. Who can push to main and to v* tags is what really protects the key.
+      - name: Build the release APK
         env:
           KEYSTORE_BASE64: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEYSTORE_BASE64 || '' }}
           SEGURIDAD_KEYSTORE_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEYSTORE_PASSWORD || '' }}
           SEGURIDAD_KEY_ALIAS: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEY_ALIAS || '' }}
           SEGURIDAD_KEY_PASSWORD: ${{ ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push')) && secrets.SEGURIDAD_KEY_PASSWORD || '' }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
-            export SEGURIDAD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
-          else
-            echo "::warning::Sin secretos de firma: las compilaciones de PR/ramas usan la clave de prueba pública."
-          fi
-
-          # Run all validation before refusing a distributable build that lacks the production signing key.
-          status=0
-          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon || status=$?
-          if [ "$status" -ne 0 ]; then
-            rm -f "$RUNNER_TEMP/upload.jks"
-            exit "$status"
-          fi
-
+          # The checks above have passed: a distributable build without the production signing key is refused here.
           if [ -z "$KEYSTORE_BASE64" ] && {
             { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; } ||
             { [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; } ||
             { [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; }
           }; then
             echo "::error::No se genera una release distribuible sin clave de firma de producción. Configura SEGURIDAD_* en Actions."
-            rm -f "$RUNNER_TEMP/upload.jks"
             exit 1
           fi
 
           # Without the upload key, app/build.gradle.kts refuses to package a release unless asked for the test key.
           test_key=()
-          if [ -z "$KEYSTORE_BASE64" ]; then
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            trap 'rm -f "$RUNNER_TEMP/upload.jks"' EXIT
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+            export SEGURIDAD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          else
+            echo "::warning::Sin secretos de firma: las compilaciones de PR/ramas usan la clave de prueba pública."
             test_key=(-PfirmaDePrueba=true)
           fi
 
-          status=0
           # Same versionCode as the Play bundle of this run, so every published APK is newer than the one before.
-          ./gradlew :app:assembleRelease -PversionCode="$GITHUB_RUN_NUMBER" "${test_key[@]}" --no-daemon || status=$?
-          rm -f "$RUNNER_TEMP/upload.jks"
-          exit "$status"
+          ./gradlew :app:assembleRelease -PversionCode="$GITHUB_RUN_NUMBER" "${test_key[@]}" --no-daemon
+
+      # Also when the build failed or was cancelled: the decoded keystore never stays on the runner.
+      - name: Delete the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"
 
       # A17: only MainActivity and the DUMP-protected ProfileInstallReceiver exported, the FileProvider present and not
       # exported, and exactly the permissions of 1.2.2. --release also rejects a debuggable APK.
@@ -100,7 +123,8 @@ jobs:
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk Seguridad.apk
 
-      # Prints the signing certificate's SHA-256 in the job summary, to compare with docs/PUBLICAR.md.
+      # Prints the signing certificate's SHA-256 in the job summary, to compare with docs/PUBLICAR.md. In build-firma,
+      # anything other than the upload key (UPLOAD_CERT_SHA256) fails, so release-apk never publishes another key's APK.
       - name: Signing certificate fingerprint
         run: |
           APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
@@ -122,6 +146,10 @@ jobs:
           if [ "$FP" = "C0014DF66F103A436485115FE0880512C9F05DB39E0E3A94D659997EE9411834" ]; then
             echo "::warning::El APK está firmado con la clave de prueba pública (C0014DF6…). No es una versión para distribuir."
             echo "**Clave de prueba pública:** no distribuyas este APK." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$GITHUB_JOB" = "build-firma" ] && [ "$FP" != "$UPLOAD_CERT_SHA256" ]; then
+            echo "::error::El APK no está firmado con la clave de subida (docs/PUBLICAR.md, apartado 1): no se publica."
+            exit 1
           fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -240,9 +268,12 @@ jobs:
             Seguridad-${{ github.ref_name }}.apk
             Seguridad-${{ github.ref_name }}.apk.sha256
 
-  # Google Play bundle, signed with the upload key. Runs on tags v* or manually; Play rejects the public test key,
-  # so without the SEGURIDAD_* secrets this job fails instead of building an unusable bundle.
+  # Google Play bundle, signed with the upload key. Runs on tags v* or manually from main, and only once build-firma
+  # (tests, lint, licences, assets and the manifest, on the same commit) and jvm-check have passed (audit 1.3.0, RED-2).
+  # Play rejects the public test key, so without the SEGURIDAD_* secrets this job fails instead of building an unusable
+  # bundle.
   play-bundle:
+    needs: [build-firma, jvm-check]
     # Signing secrets are used only for pushed version tags or manual runs from main, never arbitrary branches.
     if: (startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     environment: firma
@@ -251,6 +282,15 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # As in build-firma: only a commit that is already on main is signed (honest mistakes; see the build job).
+      - name: Check that the commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::El commit $GITHUB_SHA no está en main: solo se firma lo que ya está en main."
+            exit 1
+          fi
 
       - name: Check the Gradle wrapper (see the build job)
         run: echo "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
@@ -260,6 +300,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Only packaging runs with the secrets here; the checks ran in build-firma, without them (see the build job).
       - name: Build signed bundle
         env:
           KEYSTORE_BASE64: ${{ secrets.SEGURIDAD_KEYSTORE_BASE64 }}
@@ -272,12 +313,35 @@ jobs:
             echo "::error::Faltan los secretos de firma (SEGURIDAD_KEYSTORE_BASE64, ...). Google Play no acepta la clave de prueba. Ver docs/PUBLICAR.md"
             exit 1
           fi
+          trap 'rm -f "$RUNNER_TEMP/upload.jks"' EXIT
           echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
           export SEGURIDAD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
-          status=0
-          ./gradlew :app:bundleRelease -PversionCode="$VERSION_CODE" --no-daemon || status=$?
-          rm -f "$RUNNER_TEMP/upload.jks"
-          exit $status
+          ./gradlew :app:bundleRelease -PversionCode="$VERSION_CODE" --no-daemon
+
+      - name: Delete the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"
+
+      # The AAB is JAR-signed: keytool prints its certificate. Anything other than the upload key fails, so the
+      # artefact for Play is never signed with another key.
+      - name: Signing certificate fingerprint
+        run: |
+          keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab | tee certs.txt
+          FP=$(grep -m 1 'SHA256:' certs.txt | awk '{print toupper($NF)}' | tr -d ':')
+          if [ -z "$FP" ]; then
+            echo "::error::keytool no ha dado la huella SHA-256 del certificado del AAB"
+            exit 1
+          fi
+          FP_COLONS=$(echo "$FP" | sed 's/../&:/g; s/:$//')
+          {
+            echo "### Firma del AAB"
+            echo
+            echo "Huella SHA-256 del certificado: \`$FP_COLONS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$FP" != "$UPLOAD_CERT_SHA256" ]; then
+            echo "::error::El AAB no está firmado con la clave de subida (docs/PUBLICAR.md, apartado 1): no se sube."
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

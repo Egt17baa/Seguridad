@@ -602,6 +602,23 @@ const val TOOLS_AWAY_WIPE_NOTE =
     "Lo que escribes aquí y el resultado se borran si vuelves atrás, si se cierra la app, si bloqueas la bóveda o si " +
         "estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo)."
 
+/** Start notice («Antes de empezar»), the first paragraph. LIBRE-2 + COV1-3 (audit 1.3.0): what leaves the phone. */
+const val NOTICE_INTRO =
+    "Seguridad guarda tus contraseñas, códigos 2FA y frases semilla, y cifra textos y archivos, sin cuentas. La bóveda se " +
+        "queda cifrada en este móvil. De la app solo sale lo que tú exportas, guardas o compartes, la copia automática (a " +
+        "la carpeta que elijas) y, si compruebas si una contraseña está filtrada, los 5 primeros caracteres de su huella SHA-1."
+
+/** Ajustes → Acerca de, under the version. LIBRE-2 + COV1-3 (audit 1.3.0). */
+const val ABOUT_SUMMARY =
+    "Contraseñas, códigos 2FA, frases semilla y cifrado, sin cuentas. La bóveda se queda cifrada en este móvil; la copia " +
+        "automática, si la activas, va a la carpeta que elijas."
+
+/** «Crea tu bóveda», the paragraph under the title. LIBRE-2 + COV1-3 (audit 1.3.0): the automatic copy is named. */
+const val VAULT_CREATE_INTRO =
+    "Guarda contraseñas, frases semilla de tus wallets, notas y códigos 2FA, cifrados con AES-256-GCM y una clave derivada de tu " +
+        "contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de Google); puedes exportar una copia cifrada " +
+        "o activar la copia automática en una carpeta que elijas."
+
 /** Every text above, the parameterised ones with the annex's placeholders; ToolTextsTest checks them. */
 val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE, PHOTO_EXPLANATION, PHOTO_PICK, PHOTO_PICK_OTHER, PHOTO_FOUND_TITLE,
@@ -653,4 +670,6 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     FILE_SIGNATURE_VALID, fileSignatureUnverifiedText("x"), FILE_SIGNATURE_UNKNOWN_KEY, PASSWORD_NOT_TEXT,
     // Audit 1.3.0, F6 (COV1-1).
     TOOLS_AWAY_WIPE_NOTE,
+    // Audit 1.3.0, F7 (LIBRE-2 + COV1-3).
+    NOTICE_INTRO, ABOUT_SUMMARY, VAULT_CREATE_INTRO,
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) } + ClipboardClear.entries.map { clipboardAboutText(it.seconds) }
