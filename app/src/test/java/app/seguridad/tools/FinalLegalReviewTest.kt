@@ -5,9 +5,11 @@ import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY
 import app.seguridad.vault.AUTO_BACKUP_REPLACED
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.time.LocalDate
 
 /**
  * The final review of the Abogado Digital (31-10-2026, `abogado-revision-final.md`): its required changes (O-1 to O-8)
@@ -35,6 +37,31 @@ class FinalLegalReviewTest {
     )
 
     private fun literals(path: String) = kotlinLiterals(read(path)).map { it.second }
+
+    private val months = listOf(
+        "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    )
+
+    /** The date of «Última actualización: D de <mes> de AAAA.»; fails if the policy does not have one in that form. */
+    private fun policyDate(text: String): LocalDate {
+        val m = Regex("Última actualización: (\\d{1,2}) de (${months.joinToString("|")}) de (\\d{4})\\.").find(text)
+        assertNotNull("no «Última actualización: D de <mes> de AAAA.» in the policy", m)
+        val (d, mo, y) = m!!.destructured
+        return LocalDate.of(y.toInt(), months.indexOf(mo) + 1, d.toInt())
+    }
+
+    /** Every Kotlin literal of the app's sources, with its file and line. */
+    private fun appLiterals(): List<Triple<File, Int, String>> = File(repo(), "app/src/main/java").walkTopDown()
+        .filter { it.isFile && it.extension == "kt" }
+        .flatMap { f -> kotlinLiterals(f.readText()).map { Triple(f, it.first, it.second) } }
+        .toList()
+
+    @Test
+    fun thePolicyDateIsReadInEveryFormTheOwnerMayWrite() {
+        assertEquals(LocalDate.of(2026, 11, 4), policyDate("Última actualización: 4 de noviembre de 2026."))
+        assertEquals(LocalDate.of(2026, 10, 31), policyDate("x Última actualización: 31 de octubre de 2026. y"))
+        assertTrue(policyDate("Última actualización: 30 de octubre de 2026.").isBefore(LocalDate.of(2026, 10, 31)))
+    }
 
     @Test
     fun o1ThePolicySaysOnlyTheListedCopiesAreDeleted() {
@@ -85,7 +112,9 @@ class FinalLegalReviewTest {
         assertTrue("1-2-2027" in pub)
         // O-7.
         assertTrue("actualiza la fecha de la política el día que se publique y publica `docs/privacidad.html` en GitHub Pages antes de enviar la app a revisión" in pub)
-        assertTrue("Última actualización: 31 de octubre de 2026." in policy())
+        // The owner sets the publication day (PUBLICAR 3.5): only the format, and never older than the reviewed policy.
+        val date = policyDate(policy())
+        assertFalse("older than the reviewed policy: $date", date.isBefore(LocalDate.of(2026, 10, 31)))
         // O-8: the developer name is the policy's.
         assertTrue("**Nombre de desarrollador:** «Egt17baa»" in pub)
         // The owner's open actions.
@@ -167,10 +196,27 @@ class FinalLegalReviewTest {
     @Test
     fun r13NoButtonSaysCameraToTalkBack() {
         assertEquals("Escanear QR", QR_SCAN)
-        val java = File(repo(), "app/src/main/java")
-        val bad = java.walkTopDown().filter { it.isFile && it.extension == "kt" }
-            .flatMap { f -> kotlinLiterals(f.readText()).filter { "📷 " in it.second }.map { "${f.name}:${it.first}" } }.toList()
-        assertTrue(bad.toString(), bad.isEmpty())
+        // The camera emoji only as the decoration of ScanQrLabel: alone in its literal, on a line hidden from TalkBack.
+        val cameras = appLiterals().filter { "📷" in it.third }
+        assertEquals(cameras.map { "${it.first.name}:${it.second}" }.toString(), 1, cameras.size)
+        val (file, line, text) = cameras.single()
+        assertEquals("Components.kt", file.name)
+        assertEquals("📷", text)
+        assertTrue("clearAndSetSemantics" in file.readLines()[line - 1])
+        // QR_SCAN is shown only through ScanQrLabel, never as a label of its own.
+        val users = File(repo(), "app/src/main/java").walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .filter { f -> f.readLines().any { Regex("\\bQR_SCAN\\b") in it && !it.trimStart().startsWith("import ") } }
+            .map { it.name }.toSet()
+        assertEquals(setOf("ToolTexts.kt", "Components.kt"), users)
+        val label = read("app/src/main/java/app/seguridad/ui/theme/Components.kt").substringAfter("fun ScanQrLabel()").substringBefore("\n}\n")
+        assertTrue(label, "Text(QR_SCAN)" in label)
+    }
+
+    // M-2 of the review of this batch: R-14's reason holds for every screen that may be in a Play screenshot.
+    @Test
+    fun noAppTextSaysWallet() {
+        val bad = appLiterals().filter { "wallet" in it.third.lowercase() }.map { "${it.first.name}:${it.second} «${it.third}»" }
+        assertTrue(bad.joinToString("\n"), bad.isEmpty())
     }
 
     @Test

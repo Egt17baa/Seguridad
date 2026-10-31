@@ -396,7 +396,7 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
             OutlinedTextField(
                 value = s.input,
                 onValueChange = { s.guard.typed(); s.input = if (s.seedMode) it.lowercase() else it; vm.reset() },
-                label = { Text(if (s.seedMode) "Las 12, 18 o 24 palabras de tu wallet" else "Texto a cifrar") },
+                label = { Text(if (s.seedMode) "Las 12, 18 o 24 palabras de tu cartera" else "Texto a cifrar") },
                 minLines = 4,
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
@@ -1109,7 +1109,7 @@ fun FileHashScreen(onBack: () -> Unit) {
     ToolColumn("Huella SHA-256", onBack) {
         Text(
             "Calcula la huella SHA-256 de un archivo y compárala con la que publica la web oficial (por ejemplo, de una app o del firmware " +
-                "de tu wallet). Si no coinciden, el archivo se ha alterado o está dañado.",
+                "de tu cartera física). Si no coinciden, el archivo se ha alterado o está dañado.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedButton(

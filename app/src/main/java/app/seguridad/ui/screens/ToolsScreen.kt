@@ -84,7 +84,7 @@ fun ToolsScreen(settings: Settings, onTool: (String) -> Unit) {
                             IMAGE_TOOLS_LIMIT,
                             clipboardAboutText(settings.clipboard.seconds),
                             "Si olvidas la contraseña de algo cifrado, no hay forma de recuperarlo.",
-                            "Estas herramientas no han pasado una auditoría independiente. Para fondos importantes usa una wallet hardware.",
+                            "Estas herramientas no han pasado una auditoría independiente. Para fondos importantes usa una cartera física de criptomonedas.",
                         ).forEach { Text("• $it", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                     }
                 }
