@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.android.copySensitive
+import app.seguridad.android.readClipboardText
 import app.seguridad.crypto.PasswordOptions
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.generatePassword
@@ -323,8 +324,8 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                                 }
                             }) { Text("📷 Escanear QR") }
                             OutlinedButton(onClick = {
-                                val cm = context.getSystemService(android.content.ClipboardManager::class.java)
-                                cm?.primaryClip?.getItemAt(0)?.text?.toString()?.let(::applyOtpAuth) ?: run { error = "El portapapeles está vacío" }
+                                // M3 (audit 1.3.0, teclado): never throws, like every other «Pegar».
+                                readClipboardText(context)?.let(::applyOtpAuth) ?: run { error = "El portapapeles está vacío" }
                             }) { Text("Pegar enlace") }
                         }
                         OutlinedTextField(totp.issuer, { totp = totp.copy(issuer = it) }, label = { Text("Servicio") }, singleLine = true, modifier = Modifier.fillMaxWidth())

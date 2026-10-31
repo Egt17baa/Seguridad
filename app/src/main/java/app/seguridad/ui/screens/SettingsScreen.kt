@@ -59,6 +59,7 @@ import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
+import app.seguridad.tools.CLIPBOARD_CLEAR_HINT
 import app.seguridad.tools.LOCK_ON_EXIT_HINT
 import app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT
 import app.seguridad.tools.KeyLevel
@@ -431,7 +432,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                     if (settingsEditable(vault.state.value)) change { it.copy(clipboard = v) }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
-                Hint("Solo se borra si sigue ahí lo que copiaste desde la app.")
+                Hint(CLIPBOARD_CLEAR_HINT)
             }
             Section("Coste de Argon2id para lo nuevo") {
                 Choices(KdfProfile.entries, settings.kdf, { it.label }, enabled = { editable && (it != KdfProfile.HIGH || highAvailable) }) { v ->

@@ -8,9 +8,13 @@ import android.os.Build
 import android.os.PersistableBundle
 import app.seguridad.SeguridadApp
 import app.seguridad.settings.ClipboardClear
+import app.seguridad.tools.CLIPBOARD_OWN_LABEL
 import app.seguridad.tools.copyOrAskNotice
+import app.seguridad.tools.ownCopyClearDelay
+import app.seguridad.tools.wipeReopenedCopy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -19,7 +23,7 @@ import kotlinx.coroutines.launch
 private val clipboardScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
 /** Label of everything this app copies, so a leftover copy can be recognised later. */
-const val CLIP_LABEL = "Seguridad"
+const val CLIP_LABEL = CLIPBOARD_OWN_LABEL
 
 /** How long a copy stays, from Ajustes. */
 private fun clearAfterMs(context: Context): Long {
@@ -82,12 +86,31 @@ fun readClipboardText(context: Context): String? = runCatching {
     if (clip == null || clip.itemCount == 0) null else clip.getItemAt(0)?.text?.toString()
 }.getOrNull()
 
+/** The timer of [clearStaleCopy]; only one, replaced on each call (the main thread only). */
+private var reopenedCopyTimer: Job? = null
+
 /**
- * Clears a copy of ours older than the chosen time, left behind because the app was closed before its timer ran
- * (Android 8–12 never clear the clipboard themselves). Call when the app has focus (needed to read it).
+ * TECLADO-3: a copy of ours left behind because Android closed the app before its timer ran (no timer outlives the
+ * process: there is no reliable one without new permissions or components). Call when the app has focus, which is
+ * needed to read it. Older than the chosen time, or with the clock set back since: cleared now. Younger (the app was
+ * reopened before the time): cleared when its time is up, while the app is alive, with the same rule as the copy's own
+ * timer ([wipeReopenedCopy]). A copy of this run also has its own timer; clearing it twice is harmless.
  */
 fun clearStaleCopy(context: Context) {
     val cm = context.getSystemService(ClipboardManager::class.java) ?: return
     val desc = runCatching { cm.primaryClipDescription }.getOrNull() ?: return
-    if (desc.label == CLIP_LABEL && System.currentTimeMillis() - desc.timestamp >= clearAfterMs(context)) cm.wipe()
+    if (desc.label?.toString() != CLIP_LABEL) return
+    val copiedAt = desc.timestamp
+    val wait = ownCopyClearDelay(System.currentTimeMillis(), copiedAt, clearAfterMs(context))
+    reopenedCopyTimer?.cancel()
+    reopenedCopyTimer = null
+    if (wait == 0L) {
+        runCatching { cm.wipe() }
+        return
+    }
+    reopenedCopyTimer = clipboardScope.launch {
+        delay(wait)
+        val now = runCatching { cm.primaryClipDescription }.getOrNull()
+        if (wipeReopenedCopy(now?.label, now?.timestamp, copiedAt)) runCatching { cm.wipe() }
+    }
 }

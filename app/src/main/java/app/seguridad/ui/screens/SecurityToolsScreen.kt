@@ -381,7 +381,8 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
                     )
                     when {
                         seed -> SeedGrid(bip39.normalize(out))
-                        // The ciphertext can be selected; the decrypted text only leaves through "Copiar" (sensitive, cleared).
+                        // The ciphertext can be selected to read it; inside NoCopy the menu has no Copy (TECLADO-1), so both
+                        // the ciphertext and the decrypted text leave through «Copiar» (sensitive, cleared) or «Compartir».
                         encrypt -> SelectionContainer { Text(out, fontFamily = FontFamily.Monospace) }
                         else -> Text(out)
                     }

@@ -530,6 +530,28 @@ const val CLIPBOARD_HISTORY_ACCEPT = "Entendido, copiar"
 /** A14: copies nothing. */
 const val CLIPBOARD_HISTORY_CANCEL = "Cancelar"
 
+/**
+ * Herramientas, «Cómo protegemos tus datos», the clipboard line; [seconds] is the time chosen in Ajustes. COV2-5 and
+ * TECLADO-3 (audit 1.3.0): only this phone's clipboard is cleared (not a copy synced to other devices), and a copy left
+ * when Android closes the app before the time goes on reopening it (clearStaleCopy).
+ */
+fun clipboardAboutText(seconds: Int): String =
+    "Sin capturas de pantalla en toda la app. Lo que copias se borra del portapapeles de este móvil a los $seconds s " +
+        "(si Android cierra la app antes, al volver a abrirla); si compartes el portapapeles con otros dispositivos, " +
+        "allí puede quedarse."
+
+/**
+ * Ajustes, under «Borrar del portapapeles lo copiado» (replaces «Solo se borra si sigue ahí lo que copiaste desde la
+ * app.», which was not true in the background). In the foreground the app reads the clipboard and leaves another
+ * copy alone; from Android 10, in the background it cannot read it and clears it (android/Clipboard.kt, M2). TECLADO-3
+ * and COV2-5 as [clipboardAboutText].
+ */
+const val CLIPBOARD_CLEAR_HINT =
+    "Con la app en primer plano, solo se borra si sigue ahí lo que copiaste desde ella. Si no lo está, desde " +
+        "Android 10 la app no puede ver el portapapeles y lo vacía, aunque hayas copiado otra cosa después. Si " +
+        "Android cierra la app antes, lo que copiaste se borra al volver a abrirla. Solo se borra en este móvil: " +
+        "si compartes el portapapeles con otros dispositivos, allí puede quedarse."
+
 /** A14: «Entendido, copiar» was tapped but the clipboard refused the copy (nothing was copied). */
 const val CLIPBOARD_COPY_FAILED = "No se ha podido copiar."
 
@@ -591,5 +613,5 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     autoBackupUnlistedText(1), autoBackupUnlistedText(2), SETTINGS_NEED_OPEN_VAULT, IMPORT_SETTINGS_FAILED, LOCK_ON_EXIT_HINT, PICKER_REJECTED,
     PICKER_REJECTED_OK,
     CLIPBOARD_HISTORY_ACCEPT, CLIPBOARD_HISTORY_CANCEL, CLIPBOARD_COPY_FAILED, CLIPBOARD_COPY_FAILED_OK,
-    fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2),
-) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) }
+    fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2), CLIPBOARD_CLEAR_HINT,
+) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) } + ClipboardClear.entries.map { clipboardAboutText(it.seconds) }
