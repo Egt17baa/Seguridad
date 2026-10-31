@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import app.seguridad.tools.ImageTooLarge
 import app.seguridad.tools.redact.declaredSizeAllowed
+import app.seguridad.tools.redact.decodedSizeAllowed
 import java.nio.ByteBuffer
 
 /** What [decodeBounded] gave: the bitmap, and whether it was asked for at a smaller size than the image declares. */
@@ -20,7 +21,9 @@ internal class BoundedBitmap(val bitmap: Bitmap, val downscaled: Boolean)
  * - a declared size over what [declaredSizeAllowed] accepts throws [ImageTooLarge] from the header listener, so the
  *   decode stops before any pixel is inflated;
  * - [targetSize] (the caller's own limit, from the declared width and height) is asked with setTargetSize when it is
- *   not null.
+ *   not null;
+ * - the bitmap decoded is checked against [decodedSizeAllowed] (M5): a decoder that ignored the size asked is refused
+ *   (the bitmap recycled, the caller's [invalidSize] thrown), never handed on.
  * What it throws otherwise (a damaged file, an OutOfMemoryError) is left to the caller to map, as before.
  */
 @RequiresApi(Build.VERSION_CODES.P)
@@ -38,6 +41,10 @@ internal fun decodeBounded(bytes: ByteArray, invalidSize: () -> Exception, targe
             decoder.setTargetSize(tw, th)
             downscaled = true
         }
+    }
+    if (!decodedSizeAllowed(bitmap.width, bitmap.height)) {
+        bitmap.recycle()
+        throw invalidSize()
     }
     return BoundedBitmap(bitmap, downscaled)
 }

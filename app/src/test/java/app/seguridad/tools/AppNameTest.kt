@@ -63,10 +63,20 @@ class AppNameTest {
         for (f in java.walkTopDown().filter { it.isFile && it.extension == "kt" }) {
             for ((line, lit) in kotlinLiterals(f.readText())) {
                 if (f.name == "ClipboardClearing.kt" && lit == CLIPBOARD_OWN_LABEL) continue
+                // The one notice that says the app used to be called «Seguridad» (owner's decision, 31-10-2026).
+                if (f.name == "ToolTexts.kt" && lit == APP_RENAMED_TEXT) continue
                 if (oldName in withoutAddresses(lit)) bad += "${f.name}:$line «$lit»"
             }
         }
         assertTrue("Texts that still name the app «Seguridad»:\n" + bad.joinToString("\n"), bad.isEmpty())
+    }
+
+    @Test
+    fun onlyTheRenameNoticeNamesTheOldName() {
+        // The named exception above covers exactly this text, which must say both names.
+        assertTrue(oldName in APP_RENAMED_TEXT && "Clavero" in APP_RENAMED_TEXT)
+        val uses = kotlinLiterals(read("app/src/main/java/app/seguridad/tools/ToolTexts.kt")).count { (_, lit) -> oldName in lit }
+        assertEquals("only APP_RENAMED_TEXT in ToolTexts.kt", 1, uses)
     }
 
     @Test

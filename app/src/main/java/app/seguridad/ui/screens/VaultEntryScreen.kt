@@ -20,6 +20,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -32,14 +33,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.android.copySensitive
 import app.seguridad.android.readClipboardText
 import app.seguridad.crypto.PasswordOptions
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.generatePassword
-import app.seguridad.crypto.MigrationResult
 import app.seguridad.crypto.parseOtpAuth
 import app.seguridad.crypto.parseOtpMigration
 import app.seguridad.crypto.totpCode
@@ -49,14 +52,17 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.tools.codes.getValue
+import app.seguridad.tools.codes.setValue
+import app.seguridad.vault.EntryEditSession
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.PendingMigration
 import app.seguridad.vault.PasswordChange
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
-import app.seguridad.vault.initialPassword
 import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.passwordToSave
 import app.seguridad.vault.seedWordCount
@@ -67,6 +73,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -200,10 +207,111 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
 }
 
 /**
- * A new entry ([id] null) or an existing one. [otpAuthText] is a 2FA text the QR inspector read (`otpauth://` or a
- * Google Authenticator export): applied once per composition, exactly as a scan here would be (so a rotation, which
- * composes the form again, fills it again). [onOtpAuthImported] is called once a Google Authenticator batch was added,
- * so the caller lets that text go and a rotation does not offer the same batch again (CR-4).
+ * Holds the entry editor's [EntryEditSession] for its navigation entry (M6, concern 3 of the CR review): a rotation keeps
+ * what was typed and the pending Google Authenticator import; the death of the process does not (never in saved state).
+ * Save and import run in [viewModelScope], so a rotation cuts neither them nor what follows them. The vault's state is
+ * collected for the entry's whole life (not tied to the lifecycle): a lock clears the form at once, also in the
+ * background. When the entry is gone for good ([onCleared]), everything goes.
+ */
+private class EntryEditViewModel(private val store: VaultStore, id: String?, initialType: EntryType) : ViewModel() {
+    val form = EntryEditSession(ComposeCells, id, initialType, newId = UUID.randomUUID().toString())
+
+    init {
+        (store.state.value as? VaultState.Unlocked)?.let { form.load(it.entries) }
+        viewModelScope.launch {
+            store.state.collect { form.vaultStateIs(it is VaultState.Unlocked, (it as? VaultState.Unlocked)?.entries.orEmpty()) }
+        }
+    }
+
+    /** A 2FA text scanned, pasted or handed over by the QR inspector: applied exactly as a scan here. */
+    fun applyOtpAuth(text: String) {
+        val entries = (store.state.value as? VaultState.Unlocked)?.entries ?: return
+        form.info.value = null
+        if (text.trimStart().startsWith("otpauth-migration://", ignoreCase = true)) {
+            val result = parseOtpMigration(text)
+            if (result == null) {
+                form.error.value = "El QR de Google Authenticator no es válido o está dañado"
+            } else {
+                val (added, dupes) = totpImportEntries(result.imported, entries, System.currentTimeMillis()) { UUID.randomUUID().toString() }
+                form.migration.value = PendingMigration(result, added, result.skipped + dupes)
+                form.error.value = null
+            }
+            return
+        }
+        val parsed = parseOtpAuth(text)
+        if (parsed == null) {
+            form.error.value = "El QR o enlace no es un código 2FA (otpauth://totp/…)"
+        } else {
+            form.totp.value = parsed
+            if (form.title.value.isBlank()) form.title.value = parsed.issuer.ifBlank { parsed.account }
+            form.error.value = null
+        }
+    }
+
+    fun save(entry: VaultEntry) {
+        if (form.saving.value) return
+        form.saving.value = true
+        viewModelScope.launch {
+            try {
+                if (store.upsert(entry)) {
+                    form.finish()
+                } else if (form.loaded) {
+                    form.error.value = "La bóveda se bloqueó: no se ha guardado"
+                }
+            } catch (x: CancellationException) {
+                throw x
+            } catch (x: Exception) {
+                if (form.loaded) form.error.value = "No se pudo guardar"
+            } finally {
+                form.saving.value = false
+            }
+        }
+    }
+
+    /** «Importar» in the Google Authenticator dialog: [pending]'s entries, then what the batch says comes next. */
+    fun importMigration(pending: PendingMigration) {
+        if (form.saving.value) return
+        val result = pending.result
+        val batch = result.batchIndex + 1
+        val more = result.batchSize > 1 && batch < result.batchSize
+        if (pending.entries.isEmpty()) {
+            form.migration.value = null
+            if (more) form.info.value = "Lote $batch de ${result.batchSize}: escanea el siguiente"
+            return
+        }
+        form.saving.value = true
+        viewModelScope.launch {
+            try {
+                when {
+                    !store.addAll(pending.entries) -> if (form.loaded) form.error.value = "La bóveda se bloqueó: no se ha importado nada"
+                    more -> form.info.value =
+                        "Lote $batch de ${result.batchSize} importado (${pending.entries.size}). Lote ${batch + 1} de ${result.batchSize}: escanea el siguiente"
+                    // Editing an entry: leaving would lose its unsaved changes, so it stays here.
+                    form.existing.value != null -> form.info.value =
+                        "Importados ${pending.entries.size} códigos de Google Authenticator. Esta entrada sigue abierta: " +
+                            "guárdala si la has cambiado."
+                    else -> form.finish()
+                }
+            } catch (x: CancellationException) {
+                throw x
+            } catch (x: Exception) {
+                if (form.loaded) form.error.value = "No se pudo importar"
+            } finally {
+                form.migration.value = null
+                form.saving.value = false
+            }
+        }
+    }
+
+    override fun onCleared() {
+        form.clear()
+    }
+}
+
+/**
+ * A new entry ([id] null) or an existing one. Its state lives in [EntryEditViewModel] (a rotation keeps it). [otpAuthText]
+ * is a 2FA text the QR inspector read (`otpauth://` or a Google Authenticator export): applied once per session, exactly
+ * as a scan here would be; [onOtpAuthTaken] then lets the caller drop its own copy.
  */
 @Composable
 fun VaultEntryEditScreen(
@@ -212,77 +320,62 @@ fun VaultEntryEditScreen(
     initialType: EntryType,
     onDone: () -> Unit,
     otpAuthText: String? = null,
-    onOtpAuthImported: () -> Unit = {},
+    onOtpAuthTaken: () -> Unit = {},
 ) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     val unlocked = state as? VaultState.Unlocked ?: return LockedNotice(onDone)
-    val existing = remember(id) { id?.let { i -> unlocked.entries.firstOrNull { it.id == i } } }
+    val vm = viewModel { EntryEditViewModel(store, id, initialType) }
+    val form = vm.form
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var type by remember { mutableStateOf(existing?.type ?: initialType) }
-    var title by remember { mutableStateOf(existing?.title.orEmpty()) }
-    var username by remember { mutableStateOf(existing?.username.orEmpty()) }
+    val activity = context.fragmentActivity()
+    // Only a rotation (or another configuration change) keeps what was typed: leaving otherwise lets it go now.
+    DisposableEffect(vm) {
+        onDispose { if (activity?.isChangingConfigurations != true) form.clear() }
+    }
+    if (form.finished.value) {
+        LaunchedEffect(Unit) { onDone() }
+        return
+    }
+    // Back after leaving (another tab): from the vault again, never from what was typed. A no-op once loaded.
+    form.load(unlocked.entries)
+    val existing = form.existing.value
+    var type by form.type
+    var title by form.title
+    var username by form.username
     // One field per type: a password generated under «Acceso» must never become a seed's passphrase.
-    var loginPassword by remember { mutableStateOf(initialPassword(existing, EntryType.LOGIN)) }
-    var seedPassphrase by remember { mutableStateOf(initialPassword(existing, EntryType.SEED)) }
-    var url by remember { mutableStateOf(existing?.url.orEmpty()) }
-    var notes by remember { mutableStateOf(existing?.notes.orEmpty()) }
-    var seed by remember { mutableStateOf(existing?.seedWords.orEmpty()) }
-    var totp by remember { mutableStateOf(existing?.totp ?: TotpSecret("")) }
-    var favorite by remember { mutableStateOf(existing?.favorite ?: false) }
-    var tagsText by remember { mutableStateOf(existing?.tags.orEmpty().joinToString(", ")) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var saving by remember { mutableStateOf(false) }
-    // One id for a new entry, however many times Guardar is tapped.
-    val newId = remember { UUID.randomUUID().toString() }
+    var loginPassword by form.loginPassword
+    var seedPassphrase by form.seedPassphrase
+    var url by form.url
+    var notes by form.notes
+    var seed by form.seed
+    var totp by form.totp
+    var favorite by form.favorite
+    var tagsText by form.tagsText
+    var error by form.error
+    val info = form.info.value
+    val saving = form.saving.value
     // Typing counts as use too, so a long note is not lost to the idle lock.
     LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp, tagsText) { store.touch() }
 
-    // A Google Authenticator export waiting for the user's confirmation, with the entries it would add.
-    var migration by remember { mutableStateOf<Pair<MigrationResult, List<VaultEntry>>?>(null) }
-    var migrationLeftOut by remember { mutableStateOf(emptyList<String>()) }
-    var info by remember { mutableStateOf<String?>(null) }
-
-    fun applyOtpAuth(text: String) {
-        info = null
-        if (text.trimStart().startsWith("otpauth-migration://", ignoreCase = true)) {
-            val result = parseOtpMigration(text)
-            if (result == null) {
-                error = "El QR de Google Authenticator no es válido o está dañado"
-            } else {
-                val (entries, dupes) = totpImportEntries(result.imported, unlocked.entries, System.currentTimeMillis()) { UUID.randomUUID().toString() }
-                migration = result to entries
-                migrationLeftOut = result.skipped + dupes
-                error = null
-            }
-            return
-        }
-        val parsed = parseOtpAuth(text)
-        if (parsed == null) {
-            error = "El QR o enlace no es un código 2FA (otpauth://totp/…)"
-        } else {
-            totp = parsed
-            if (title.isBlank()) title = parsed.issuer.ifBlank { parsed.account }
-            error = null
-        }
+    LaunchedEffect(Unit) {
+        form.takeHandOver(otpAuthText)?.let(vm::applyOtpAuth)
+        onOtpAuthTaken()
     }
-
-    LaunchedEffect(Unit) { otpAuthText?.let(::applyOtpAuth) }
 
     // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
         val raw = result.contents
         when {
-            raw != null -> applyOtpAuth(raw)
+            raw != null -> vm.applyOtpAuth(raw)
             result.originalIntent?.getBooleanExtra(com.google.zxing.client.android.Intents.Scan.MISSING_CAMERA_PERMISSION, false) == true ->
                 error = "Sin permiso de cámara: pega el enlace otpauth:// o escribe la clave"
             // Otherwise the user cancelled: nothing to say.
         }
     }
 
-    BackScaffold(if (existing == null) "Nueva entrada" else "Editar", onDone) { padding ->
+    BackScaffold(if (existing == null) "Nueva entrada" else "Editar", form::finish) { padding ->
         NoCopy {
             // M-9: imePadding, so the notes and the last fields stay above the keyboard with edge-to-edge.
             Column(Modifier.padding(padding).imePadding().touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -334,7 +427,7 @@ fun VaultEntryEditScreen(
                             }) { Text("📷 Escanear QR") }
                             OutlinedButton(onClick = {
                                 // M3 (audit 1.3.0, teclado): never throws, like every other «Pegar».
-                                readClipboardText(context)?.let(::applyOtpAuth) ?: run { error = "El portapapeles está vacío" }
+                                readClipboardText(context)?.let(vm::applyOtpAuth) ?: run { error = "El portapapeles está vacío" }
                             }) { Text("Pegar enlace") }
                         }
                         OutlinedTextField(totp.issuer, { totp = totp.copy(issuer = it) }, label = { Text("Servicio") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -387,7 +480,7 @@ fun VaultEntryEditScreen(
                         }
                         if (error != null) return@Button
                         val e = VaultEntry(
-                            id = existing?.id ?: newId,
+                            id = form.entryId,
                             type = type,
                             title = title.trim(),
                             username = if (type == EntryType.LOGIN) username.trim() else "",
@@ -401,16 +494,7 @@ fun VaultEntryEditScreen(
                             favorite = favorite,
                             tags = normalizeTags(tagsText),
                         )
-                        saving = true
-                        scope.launch {
-                            try {
-                                if (store.upsert(e)) onDone() else error = "La bóveda se bloqueó: no se ha guardado"
-                            } catch (x: Exception) {
-                                error = "No se pudo guardar"
-                            } finally {
-                                saving = false
-                            }
-                        }
+                        vm.save(e)
                     },
                     enabled = !saving,
                     modifier = Modifier.fillMaxWidth(),
@@ -418,7 +502,9 @@ fun VaultEntryEditScreen(
             }
         }
     }
-    migration?.let { (result, entries) ->
+    form.migration.value?.let { pending ->
+        val result = pending.result
+        val entries = pending.entries
         val batch = result.batchIndex + 1
         val more = result.batchSize > 1 && batch < result.batchSize
         val batchNote = when {
@@ -427,7 +513,7 @@ fun VaultEntryEditScreen(
             else -> "Lote $batch de ${result.batchSize}: es el último"
         }
         AlertDialog(
-            onDismissRequest = { if (!saving) migration = null },
+            onDismissRequest = { if (!saving) form.migration.value = null },
             title = { Text("Importar de Google Authenticator") },
             text = {
                 FilterObscuredTouches()
@@ -439,46 +525,19 @@ fun VaultEntryEditScreen(
                             else -> "Se añadirán ${entries.size} códigos nuevos a la bóveda: ${entries.joinToString(", ") { it.title }}."
                         },
                     )
-                    if (migrationLeftOut.isNotEmpty()) {
-                        Text("No se importan (${migrationLeftOut.size}):", style = MaterialTheme.typography.labelLarge)
-                        migrationLeftOut.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                    if (pending.leftOut.isNotEmpty()) {
+                        Text("No se importan (${pending.leftOut.size}):", style = MaterialTheme.typography.labelLarge)
+                        pending.leftOut.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
                     }
                     batchNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
                 }
             },
             confirmButton = {
-                TextButton(enabled = !saving, onClick = {
-                    if (entries.isEmpty()) {
-                        migration = null
-                        if (more) info = "Lote $batch de ${result.batchSize}: escanea el siguiente"
-                        return@TextButton
-                    }
-                    saving = true
-                    scope.launch {
-                        try {
-                            val added = store.addAll(entries)
-                            if (added) onOtpAuthImported()
-                            if (!added) {
-                                error = "La bóveda se bloqueó: no se ha importado nada"
-                            } else if (more) {
-                                info = "Lote $batch de ${result.batchSize} importado (${entries.size}). Lote ${batch + 1} de ${result.batchSize}: escanea el siguiente"
-                            } else if (existing != null) {
-                                // Editing an entry: leaving would lose its unsaved changes, so it stays here.
-                                info = "Importados ${entries.size} códigos de Google Authenticator. Esta entrada sigue abierta: " +
-                                    "guárdala si la has cambiado."
-                            } else {
-                                onDone()
-                            }
-                        } catch (x: Exception) {
-                            error = "No se pudo importar"
-                        } finally {
-                            migration = null
-                            saving = false
-                        }
-                    }
-                }) { Text(if (entries.isEmpty()) "Aceptar" else "Importar ${entries.size}") }
+                TextButton(enabled = !saving, onClick = { vm.importMigration(pending) }) {
+                    Text(if (entries.isEmpty()) "Aceptar" else "Importar ${entries.size}")
+                }
             },
-            dismissButton = { if (entries.isNotEmpty()) TextButton(enabled = !saving, onClick = { migration = null }) { Text("Cancelar") } },
+            dismissButton = { if (entries.isNotEmpty()) TextButton(enabled = !saving, onClick = { form.migration.value = null }) { Text("Cancelar") } },
         )
     }
 }

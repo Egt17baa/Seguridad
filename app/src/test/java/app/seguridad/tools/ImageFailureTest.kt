@@ -34,7 +34,7 @@ class ImageFailureTest {
     }
 
     @Test fun theTextIsChecked() {
-        assertEquals("No hay memoria suficiente para abrir esta imagen en este móvil.", IMAGE_NO_MEMORY)
+        assertEquals("No hay memoria suficiente para trabajar con esta imagen en este móvil.", IMAGE_NO_MEMORY)
         assert(IMAGE_NO_MEMORY in ALL_TOOL_TEXTS)
     }
 }

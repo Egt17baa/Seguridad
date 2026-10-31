@@ -99,6 +99,8 @@ class AutoBackupF3Test {
         s, folder = { settings.settings.value.autoBackupUri }, open = { target }, backgroundScope, now = { clock },
         keep = { 5 }, lastCopyAt = { Long.MAX_VALUE }, copies = { settings.settings.value.currentAutoBackupCopies },
         replacePending = { settings.settings.value.autoBackupReplacePending },
+        replaceTargets = { settings.settings.value.autoBackupReplaceTargets },
+        replaceTold = { settings.settings.value.autoBackupReplaceTold },
         // As AppContainer.recordAutoBackup: the vault's generation is read under the settings lock.
         onResult = { r -> settings.update { it.withAutoBackupResult(r, s.generation) } }, zone = ZoneOffset.UTC,
     ).also { runCurrent() }

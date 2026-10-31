@@ -19,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -73,6 +74,23 @@ class SettingsTest {
         assertTrue(s.noticeAccepted)
         assertEquals(listOf("doc:1", "doc:2"), s.autoBackupCopies)
         assertFalse(s.clipboardHistoryNoticeAccepted)
+    }
+
+    // M2, M4: a request saved by 1.2.x has neither targets nor what was told: it still reads, as a request without targets.
+    @Test fun aPendingRequestFrom122ReadsWithoutTargetsOrTold() = runTest {
+        file().writeText(
+            """{"autoBackupUri":"content://x/tree/primary%3ACopias","autoBackupReplacePending":true,""" +
+                """"autoBackupCopies":["doc:1"],"autoBackupCopiesFolder":"content://x/tree/primary%3ACopias"}""",
+        )
+        val s = store().apply { load() }.settings.value
+        assertTrue(s.autoBackupReplacePending)
+        assertEquals(null, s.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), s.autoBackupReplaceTold)
+        // And what 1.3.0 saves reads back.
+        store().apply { load(); update { it.copy(autoBackupReplaceTargets = listOf("doc:1"), autoBackupReplaceTold = listOf("x")) } }
+        val back = store().apply { load() }.settings.value
+        assertEquals(listOf("doc:1"), back.autoBackupReplaceTargets)
+        assertEquals(listOf("x"), back.autoBackupReplaceTold)
     }
 
     @Test fun clipboardHistoryNoticeAcceptancePersists() = runTest {
@@ -264,8 +282,31 @@ class SettingsTest {
         val done = asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("b"), replaced = true))
         assertFalse(done.autoBackupReplacePending)
         assertEquals(listOf("b"), done.autoBackupCopies)
-        // CR-1: never with old copies left (AutoBackup does not say «replaced» then; and if it did, the error keeps it).
-        assertTrue(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaced = true)).autoBackupReplacePending)
+        // CR-1: AutoBackup says «replaced» only when every target and leftover temporary copy went (M3, M4), so that is
+        // what clears it, even if a copy beyond «Copias que guardar» could not be deleted (the error says so).
+        assertFalse(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaced = true)).autoBackupReplacePending)
+        // Not replaced: kept, with the targets left and the failure told (M2, M4).
+        val left = asked.withAutoBackupResult(
+            AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaceTargets = listOf("a"), toldKey = AUTO_BACKUP_OLD_NOT_DELETED),
+        )
+        assertTrue(left.autoBackupReplacePending)
+        assertEquals(listOf("a"), left.autoBackupReplaceTargets)
+        assertEquals(listOf(AUTO_BACKUP_OLD_NOT_DELETED), left.autoBackupReplaceTold)
+        // A failure with nothing written is told and kept too; asked again with the vault open, what was told starts again.
+        val offline = left.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED, toldKey = AUTO_BACKUP_FAILED))
+        assertEquals(listOf(AUTO_BACKUP_OLD_NOT_DELETED, AUTO_BACKUP_FAILED), offline.autoBackupReplaceTold)
+        assertEquals(listOf("a"), offline.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), offline.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED, newRequest = true)).autoBackupReplaceTold)
+        // Every way the request goes takes its targets and what it told with it.
+        for (gone in listOf(left.forgettingAutoBackupCopies(), left.withAutoBackupTurnedOff(), left.withFolderChosen("content://y/tree/otra"))) {
+            assertFalse(gone.autoBackupReplacePending)
+            assertNull(gone.autoBackupReplaceTargets)
+            assertEquals(emptyList<String>(), gone.autoBackupReplaceTold)
+        }
+        // A new request while locked: its own targets, nothing told yet.
+        val again = left.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = listOf("a", "b")))
+        assertEquals(listOf("a", "b"), again.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), again.autoBackupReplaceTold)
         // For another folder, or with the copies off, it says nothing.
         assertEquals(on.copy(autoBackupUri = null), on.copy(autoBackupUri = null).withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true)))
         // Forgotten with the copies (new or imported vault) or when they are turned off.
