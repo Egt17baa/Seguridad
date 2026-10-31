@@ -68,12 +68,15 @@ fun copySensitiveNow(context: Context, text: String) {
     val wait = clearAfterMs(context)
     clipboardScope.launch {
         delay(wait)
-        // Hidden from us (Android 10+ hides the clipboard from apps in the background) or empty: clear it, never leave
-        // a secret there. Readable: someone else's copy since then (an image, another app's text, labelled or not)
-        // stays, and so does a newer copy of ours (another text). Text unreadable under our label: ours, cleared.
+        // Hidden from us (Android 10+ hides the clipboard from an app without the input focus) or empty: clear it, never
+        // leave a secret there. Readable: someone else's copy since then (an image, another app's text, labelled or not)
+        // stays, and so does a newer copy of ours (another text). Text unreadable under our label: ours, cleared. The
+        // text is read only under our label (F4 re-review N1): reading another app's clip shows Android 12+'s toast.
         val desc = runCatching { cm.primaryClipDescription }.getOrNull()
-        val same = desc == null || runCatching { cm.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull().let { it == null || it == text }
-        if (wipeOwnCopy(described = desc != null, seenLabel = desc?.label, sameCopy = same)) runCatching { cm.wipe() }
+        val clear = wipeOwnCopy(described = desc != null, seenLabel = desc?.label) {
+            runCatching { cm.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull().let { it == null || it == text }
+        }
+        if (clear) runCatching { cm.wipe() }
     }
 }
 
@@ -112,6 +115,6 @@ fun clearStaleCopy(context: Context) {
     reopenedCopyTimer = clipboardScope.launch {
         delay(wait)
         val now = runCatching { cm.primaryClipDescription }.getOrNull()
-        if (wipeOwnCopy(described = now != null, seenLabel = now?.label, sameCopy = now?.timestamp == copiedAt)) runCatching { cm.wipe() }
+        if (wipeOwnCopy(described = now != null, seenLabel = now?.label) { now?.timestamp == copiedAt }) runCatching { cm.wipe() }
     }
 }

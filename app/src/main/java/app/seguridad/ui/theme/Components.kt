@@ -144,7 +144,8 @@ internal fun isCopyOrCutKey(keyCode: Int, ctrl: Boolean, shift: Boolean): Boolea
  *   panel's copy and cut arrive as key events.
  *
  * Not covered, and no parent can cover them: an accessibility service's «Copiar» action (TalkBack's editing actions)
- * on a visible field that is not a password, since Compose gives every such field copyText and cutText semantics; and
+ * on any field that is not a hidden password (a [PasswordField] after «Ver» included), since Compose gives every such
+ * field copyText and cutText semantics (F4 re-review N3); and
  * a keyboard that reads the field itself through its InputConnection (it already sees what is typed) and copies it
  * on its own. [modifier] goes on the box, which passes its minimum size on to [content]: put a single layout in.
  */
