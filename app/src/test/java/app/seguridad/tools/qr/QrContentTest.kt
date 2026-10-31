@@ -462,6 +462,15 @@ class QrContentTest {
             "bitcoin:?lno=lno1bogusoffer",
             // An empty key is not one of the three.
             "bitcoin:$address?=1",
+            // N3 of the F6 re-review: an amount not written as BIP-21 writes it.
+            "bitcoin:$address?amount=1e3",
+            "bitcoin:$address?amount=-1",
+            "bitcoin:$address?amount=1#frag",
+            "bitcoin:$address?amount=abc",
+            "bitcoin:$address?amount=0.001%20BTC%20(10%20EUR)",
+            "bitcoin:$address?amount=1,5",
+            "bitcoin:$address?amount=.",
+            "bitcoin:$address?amount=%EF%BC%91", // a fullwidth digit
         )) {
             assertEquals(t, QrKind.PlainText(t), classifyQr(t))
         }
@@ -474,6 +483,10 @@ class QrContentTest {
             "BITCOIN:${address.uppercase()}?AMOUNT=1&LABEL=X&MESSAGE=y" to "1",
             "bitcoin:$address?%61mount=2" to "2",
             "bitcoin:$address?label=a&label=b&amount=1" to "1",
+            "bitcoin:$address?amount=0.001" to "0.001",
+            "bitcoin:$address?amount=.5" to ".5",
+            "bitcoin:$address?amount=1." to "1.",
+            "bitcoin:$address?amount=" to null,
         )) {
             val k = classifyQr(t)
             assertTrue(t, k is QrKind.Crypto)

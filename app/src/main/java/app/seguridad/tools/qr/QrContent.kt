@@ -135,9 +135,17 @@ private fun otherWayToPay(key: String): Boolean = key.trim().let { it == "lightn
 private val BITCOIN_PAYMENT_KEYS = setOf("amount", "label", "message")
 
 /**
+ * N3 of the F6 re-review: a `bitcoin:` amount as BIP-21/321 writes it, in BTC: digits with an optional decimal point
+ * (`*digit [ "." *digit ]`, at least one digit). Anything else (`1e3`, `-1`, `1#frag`, `0.001 BTC (10 EUR)`) is not
+ * shown as the amount a wallet pays: the whole QR is plain text. An empty one is no amount, as before.
+ */
+private val BITCOIN_AMOUNT = Regex("""^[0-9]+(\.[0-9]*)?$|^\.[0-9]+$""")
+
+/**
  * A payment request. [text] is the QR as it came, for the cases where it is better not to frame it as a payment at all.
  * If `address`, `value` or `amount` appears twice, a wallet may use either one, so the one shown could be the wrong
- * one: plain text. The same with a `bitcoin:` key other than [BITCOIN_PAYMENT_KEYS] (any case, percent-decoded), and
+ * one: plain text. The same with a `bitcoin:` key other than [BITCOIN_PAYMENT_KEYS] (any case, percent-decoded) or an
+ * amount that is not [BITCOIN_AMOUNT], and
  * with a second way to pay or a required key in the other schemes ([otherWayToPay]).
  */
 private fun crypto(t: String, text: String): QrKind? {
@@ -147,6 +155,7 @@ private fun crypto(t: String, text: String): QrKind? {
     val pairs = queryPairs(rest.substringAfter('?', ""))
     if (listOf("address", "value", "amount").any { key -> pairs.count { it.first == key } > 1 }) return QrKind.PlainText(text)
     if (scheme == "bitcoin" && pairs.any { it.first !in BITCOIN_PAYMENT_KEYS }) return QrKind.PlainText(text)
+    if (scheme == "bitcoin" && pairs.any { it.first == "amount" && it.second.isNotBlank() && !BITCOIN_AMOUNT.matches(it.second.trim()) }) return QrKind.PlainText(text)
     if (pairs.any { otherWayToPay(it.first) }) return QrKind.PlainText(text)
     val query = pairs.reversed().toMap()
     if (scheme == "ethereum") return ethereum(path, query) ?: QrKind.PlainText(text)

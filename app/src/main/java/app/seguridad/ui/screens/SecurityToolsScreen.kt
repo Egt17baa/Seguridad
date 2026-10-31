@@ -704,16 +704,16 @@ private class FileCryptoViewModel(
                     s.pending = PendingCopy(file.path, run)
                     decrypted = DecryptedReady(name, run)
                 } else {
-                    file.delete()
+                    deleteNow(file)
                 }
             } catch (e: CryptoFailure) {
-                tmp?.delete()
+                deleteNow(tmp)
                 if (s.isCurrent(run)) s.message = false to (e.message ?: "Contraseña incorrecta o archivo dañado")
             } catch (e: CancellationException) {
-                tmp?.delete() // Never leave decrypted data behind in the cache.
+                deleteNow(tmp) // Never leave decrypted data behind in the cache.
                 throw e
             } catch (e: Exception) {
-                tmp?.delete()
+                deleteNow(tmp)
                 if (s.isCurrent(run)) s.message = false to "No se pudo leer el archivo."
             } finally {
                 secret.wipe()
@@ -723,8 +723,22 @@ private class FileCryptoViewModel(
         }
     }
 
-    /** Copies the decrypted [tmp] into [dest] (null: the dialog was cancelled), and deletes [tmp] whatever happens. */
+    /**
+     * N5 of the F6 re-review: deleting a decrypted copy (it may be several GB) is disk work: on IO, and not cut short by
+     * a cancellation.
+     */
+    private suspend fun deleteNow(file: File?) {
+        if (file != null) withContext(NonCancellable + Dispatchers.IO) { file.delete() }
+    }
+
+    /**
+     * Copies the decrypted [tmp] into [dest] (null: the dialog was cancelled), and deletes [tmp] whatever happens. N7 of
+     * the F6 re-review: if the screen was emptied during a long copy, a success is not shown (the file is saved where
+     * the user chose, in time, and the screen's results go by the rule); a failure still is, because then nothing was
+     * kept and the user must know.
+     */
     fun writeDecrypted(tmp: File, dest: Uri?) {
+        val run = session.token()
         viewModelScope.launch {
             val message = try {
                 if (dest != null) {
@@ -742,9 +756,9 @@ private class FileCryptoViewModel(
                 dest?.let { discardDocumentNow(appContext, it) }
                 false to "No se pudo guardar el archivo."
             } finally {
-                withContext(NonCancellable + Dispatchers.IO) { tmp.delete() }
+                deleteNow(tmp)
             }
-            session.message = message
+            if (session.isCurrent(run) || !message.first) session.message = message
         }
     }
 
@@ -868,7 +882,10 @@ fun FileCryptoScreen(
             )
             Button(onClick = onOpenReceived, modifier = Modifier.fillMaxWidth()) { Text("Abrir lo recibido") }
         }
-        if (checking) Text("Comprobando el archivo…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        // N6 of the F6 re-review: also while the chosen file's name is read from its provider (M7), in either mode.
+        if (checking || (source != null && vm.sourceName == null)) {
+            Text("Comprobando el archivo…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        }
         SecretInput(
             s.useKey, { s.useKey = it; s.message = null }, s.password, { s.password = it; s.message = null }, s.keyHex, { s.keyHex = it; s.message = null },
             allowGenerate = encrypt,

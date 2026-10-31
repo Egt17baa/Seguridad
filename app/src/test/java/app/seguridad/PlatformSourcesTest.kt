@@ -98,6 +98,18 @@ class PlatformSourcesTest {
         assertTrue(Regex("""withContext\(Dispatchers\.IO\) \{ runCatching \{ displayName\(appContext, uri\) \}""").findAll(src).count() >= 2)
     }
 
+    @Test fun `F6 N5 to N7 the decrypted copy is deleted on IO, the name read is shown, a late success is not`() {
+        val src = code("ui/screens/SecurityToolsScreen.kt")
+        val vm = src.substringAfter("private class FileCryptoViewModel(").substringBefore("@Composable\nfun FileCryptoScreen(")
+        // N5: every deletion in the ViewModel goes through deleteNow (IO, NonCancellable) or deleteLater (the app's scope).
+        assertEquals(1, Regex("""\.delete\(\)""").findAll(vm).count())
+        assertTrue("withContext(NonCancellable + Dispatchers.IO) { file.delete() }" in vm)
+        // N7: a success after a wipe is not shown.
+        assertTrue("if (session.isCurrent(run) || !message.first) session.message = message" in vm)
+        // N6: «Comprobando el archivo…» also while the name is read.
+        assertTrue("if (checking || (source != null && vm.sourceName == null))" in src)
+    }
+
     @Test fun `COV1-2 Huella SHA-256 cancels the run before, and its button is off while one runs`() {
         val src = code("ui/screens/SecurityToolsScreen.kt").substringAfter("class FileHashViewModel")
         assertTrue("job?.cancel()" in src)

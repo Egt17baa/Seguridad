@@ -111,14 +111,15 @@ object Jpeg {
 
         val after = trailing(b, imageEnd, check)
         // M5 of the F6 review: a gain map is named only when its image is there (an editor may keep the XMP and drop
-        // it); that image is then named once, as the gain map. MPF without anything after EOI, or a lone ISO 21496-1
-        // block, are only other data.
+        // it); that image is then named once, as the gain map. MPF without an image after EOI (N4 of the F6 re-review:
+        // nothing, or data that is not an image), or a lone ISO 21496-1 block, are only other data; with one, the image
+        // is already named from the trailer.
         if (Mark.GAIN_MAP in marks && Found.EXTRA_IMAGE in after) {
             found += Found.HDR_GAIN_MAP
             found += after - Found.EXTRA_IMAGE
         } else {
             found += after
-            if (Mark.MPF in marks) found += if (after.isEmpty()) Found.OTHER else Found.EXTRA_IMAGE
+            if (Mark.MPF in marks && Found.EXTRA_IMAGE !in after) found += Found.OTHER
             if (Mark.ISO_GAIN_MAP in marks) found += Found.OTHER
         }
         val report = PhotoReport(PhotoFormat.JPEG, found.toSet(), exif?.gps, exif?.orientation ?: 1)
@@ -160,11 +161,22 @@ object Jpeg {
         while (k < n && (b[k] == 0.toByte() || b[k] == 0xFF.toByte())) k++
         if (k >= n) return emptySet()
         val out = HashSet<Found>()
-        if (k > from && b[k] == 0xD8.toByte() && b[k - 1] == 0xFF.toByte() && k + 1 < n && b[k + 1] == 0xFF.toByte()) out += Found.EXTRA_IMAGE
-        // The box size before `ftyp` starts with zero bytes, which the loop above went past.
-        if (hasVideo(b, from, maxOf(from, k - 3), check)) out += Found.MOTION_VIDEO
+        val image = k > from && b[k] == 0xD8.toByte() && b[k - 1] == 0xFF.toByte() && k + 1 < n && b[k + 1] == 0xFF.toByte()
+        if (image) out += Found.EXTRA_IMAGE
+        // The box size before `ftyp` starts with zero bytes, which the loop above went past. Right at the start, any
+        // brand but a still image's is a video (N2 of the F6 re-review: as before M4); deeper, only a video brand.
+        if ((!image && startsWithVideo(b, from, k)) || hasVideo(b, from, maxOf(from, k - 3), check)) out += Found.MOTION_VIDEO
         if (out.isEmpty()) out += Found.OTHER
         return out
+    }
+
+    /** An `ftyp` box right where the trailer starts ([k] is its first byte past the padding) whose brand is not HEIF/AVIF. */
+    private fun startsWithVideo(b: ByteArray, from: Int, k: Int): Boolean {
+        val n = b.size
+        for (i in maxOf(from, k - 3) until minOf(n - 8, k + 12)) {
+            if (Bytes.startsWith(b, i, i + 4, FTYP)) return String(b, i + 4, 4, Charsets.ISO_8859_1) !in HEIF_BRANDS
+        }
+        return false
     }
 
     /**
@@ -317,7 +329,8 @@ object Jpeg {
 
     /** The `ftyp` brands of a video (MP4, QuickTime, 3GP): «heic» and «avif», still images, are not among them. */
     private val VIDEO_BRANDS = setOf(
-        "mp41", "mp42", "isom", "iso2", "iso4", "iso5", "iso6", "avc1", "qt  ", "3gp4", "3gp5", "3gp6", "3g2a", "M4V ", "mmp4", "MSNV", "dash",
+        "mp41", "mp42", "mp71", "isom", "iso2", "iso3", "iso4", "iso5", "iso6", "iso7", "iso8", "iso9", "avc1", "XAVC",
+        "qt  ", "3gp4", "3gp5", "3gp6", "3g2a", "M4V ", "mmp4", "MSNV", "dash",
     )
 
     /** The scan data loop calls the checkpoint once per 2^20 steps (about a MiB). */
