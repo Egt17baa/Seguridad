@@ -58,7 +58,9 @@ class DocumentUriTest {
     /**
      * The lint-like check (M4 of the F1 review), on the whole text of each file, so a call split over lines is caught:
      * outside ui/screens/Pickers.kt, no file or folder picker is registered or launched by any other way than
-     * rememberDocumentPicker, which runs the guard before the screen sees the URI.
+     * rememberDocumentPicker, which runs the guard before the screen sees the URI: not with another launcher, a picker
+     * intent (as a constant or a string), a contract of one's own, nor the old startActivityForResult / onActivityResult /
+     * activityResultRegistry route (N2 of the F1 re-review).
      */
     @Test fun everyDocumentPickerGoesThroughTheGuard() {
         val files = mainRoot().walkTopDown().filter { it.isFile && it.extension == "kt" && it.name != "Pickers.kt" }.toList()
@@ -84,6 +86,13 @@ class DocumentUriTest {
             "object Picker : ActivityResultContract<String, Uri?>() { }",
             "val c = ActivityResultContracts.OpenDocument()",
             "ActivityResultContracts.GetContent()", "ActivityResultContracts.PickVisualMedia()",
+            // The old Activity result API, with the action written as a string (N2 of the F1 re-review).
+            "startActivityForResult(Intent(\"android.provider.action.PICK_IMAGES\"), 1)",
+            "startActivityForResult (intent, 2)",
+            "startIntentSenderForResult(sender, 3, null, 0, 0, 0)",
+            "override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) { }",
+            "activityResultRegistry.register(\"k\", contract) { }",
+            "Intent(\"android.provider.action.PICK_IMAGES\")",
         )
         for (text in bad) assertTrue("not caught: $text", pickerViolations(text).isNotEmpty())
         val good = listOf(
@@ -109,8 +118,12 @@ class DocumentUriTest {
         val contracts = Regex("""ActivityResultContracts\.(OpenDocument|OpenMultipleDocuments|CreateDocument|OpenDocumentTree|GetContent|GetMultipleContents|PickVisualMedia|PickMultipleVisualMedia|StartActivityForResult|StartIntentSenderForResult)\b""")
         val guarded = guardedPicker.findAll(text).map { it.range.last - "ActivityResultContracts.".length + 1 }.toSet()
         for (m in contracts.findAll(text)) if (m.range.first !in guarded) out += m.value
-        // Pickers built by hand: their intents, or a contract of one's own.
-        val byHand = Regex("""ACTION_OPEN_DOCUMENT|ACTION_CREATE_DOCUMENT|ACTION_GET_CONTENT|ACTION_PICK|intent\.action\.(OPEN_DOCUMENT|CREATE_DOCUMENT|GET_CONTENT|PICK)|StartActivityForResult|StartIntentSenderForResult|ActivityResultContract\s*<""")
+        // Pickers built by hand: their intents (constants or strings), a contract of one's own, or the old Activity result API.
+        val byHand = Regex(
+            """ACTION_OPEN_DOCUMENT|ACTION_CREATE_DOCUMENT|ACTION_GET_CONTENT|ACTION_PICK|intent\.action\.(OPEN_DOCUMENT|CREATE_DOCUMENT|GET_CONTENT|PICK)""" +
+                """|provider\.action\.PICK_IMAGES|StartActivityForResult|StartIntentSenderForResult|ActivityResultContract\s*<""" +
+                """|\bstartActivityForResult\s*\(|\bstartIntentSenderForResult\s*\(|\bonActivityResult\s*\(|\bactivityResultRegistry\b""",
+        )
         for (m in byHand.findAll(text)) out += m.value
         return out
     }
