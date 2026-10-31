@@ -302,12 +302,14 @@ fun MasterChangedDialog(
     pending: Boolean,
     lastError: String?,
     lastBackupAt: Long?,
+    /** m3: a failure of this request was already told (Settings.autoBackupReplaceTold is not empty). */
+    toldSinceRequest: Boolean,
     onReplace: () -> Unit,
     onRenew: () -> Unit,
     onClose: () -> Unit,
 ) {
     val working = state.busy || replacing
-    val status = replaceStatus(state.requestedAt, state.answered, state.answerError, pending, lastError, lastBackupAt)
+    val status = replaceStatus(state.requestedAt, state.answered, state.answerError, pending, lastError, lastBackupAt, toldSinceRequest)
     val canReplace = !working && (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed)
     AlertDialog(
         onDismissRequest = { if (!working) onClose() },

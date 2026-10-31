@@ -1203,6 +1203,65 @@ class AutoBackupTest {
         assertEquals((7..11).map { "seguridad-auto-20261026-10%02d00.sgbak".format(it) }.toSet(), target.files.keys.toSet())
     }
 
+    // m2 (CR re-review): once every target is gone the replacement is done and said as a success, even if a copy beyond
+    // «Copias que guardar» (made after the change, new password) could not be deleted; that one is just tried again.
+    @Test fun aSurplusCopyThatCannotBeDeletedDoesNotMakeADoneReplacementAFailure() = runTest {
+        val (s, settings, ta) = persistentWithThree(keep = 5)
+        val (target, a) = ta
+        val stuck = "seguridad-auto-20261026-100100.sgbak"
+        target.undeletable = { it == stuck }
+        s.lock()
+        runCurrent()
+        a.replaceOldCopies()
+        clock += 60_000
+        s.unlock(master.toCharArray()) // 10:04
+        runCurrent()
+        a.replaceOutcome.value?.let(a::replaceOutcomeShown)
+        repeat(6) { i -> // 10:05 to 10:10: five new copies kept
+            clock += 60_000
+            s.upsert(note("n$i"))
+            settle()
+        }
+        // 10:11: the stuck target can go now, but the surplus new copy (10:06) cannot.
+        val surplus = "seguridad-auto-20261026-100600.sgbak"
+        target.undeletable = { it == surplus }
+        clock += 60_000
+        s.upsert(note("ok"))
+        settle()
+        assertFalse(stuck in target.files)
+        assertTrue(surplus in target.files)
+        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertNull("A success, not «no se pudieron borrar las antiguas»", a.replaceOutcome.value!!.error)
+        assertNull(settings.settings.value.lastAutoBackupError)
+        // The surplus one stays listed and goes with the next normal rotation.
+        target.undeletable = { false }
+        clock += 60_000
+        s.upsert(note("after"))
+        settle()
+        assertFalse(surplus in target.files)
+        assertEquals(5, target.files.keys.count { name.matches(it) })
+    }
+
+    // m2 (CR re-review): «Volver a intentarlo» with the vault open and nothing pending deletes only the copies listed when the
+    // password changed (the snapshot the dialog took), never those made after the change.
+    @Test fun aReplacementAskedWithTheVaultOpenDeletesOnlyTheCopiesFromBeforeTheChange() = runTest {
+        val (s, settings, ta) = persistentWithThree(keep = 5)
+        val (target, a) = ta
+        val beforeChange = settings.settings.value.currentAutoBackupCopies
+        repeat(2) { i -> // Copies made after the change (the vault was opened again with the new password).
+            clock += 60_000
+            s.upsert(note("n$i"))
+            settle()
+        }
+        clock += 60_000
+        val r = a.replaceOldCopies(beforeChange)
+        assertNull(r.error)
+        assertEquals(
+            setOf("seguridad-auto-20261026-100400.sgbak", "seguridad-auto-20261026-100500.sgbak", "seguridad-auto-20261026-100600.sgbak"),
+            target.files.keys.toSet(),
+        )
+    }
+
     // M4: a request saved before 1.3.0 has no targets: its first attempt deletes every listed copy but the new one, as
     // before, and what is left becomes the targets; from then on the new copies follow «Copias que guardar».
     @Test fun aRequestWithoutTargetsFallsBackToReplacingEverythingOnce() = runTest {
@@ -1337,8 +1396,12 @@ class AutoBackupTest {
         assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_WRITE_FAILED), replaceStatus(100, true, waits, true, AUTO_BACKUP_WRITE_FAILED, 150))
         assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_NO_PERMISSION), replaceStatus(100, true, waits, true, AUTO_BACKUP_NO_PERMISSION, 150))
         assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_NO_FOLDER), replaceStatus(100, false, null, true, AUTO_BACKUP_NO_FOLDER, 150))
-        // Nothing written after the request: it still waits.
+        // Nothing written after the request: it still waits, unless an attempt for this request already failed and was
+        // told (m3: the first attempt after the unlock was offline, so no copy was written).
         assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, true, AUTO_BACKUP_WRITE_FAILED, 99))
+        assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_WRITE_FAILED), replaceStatus(100, true, waits, true, AUTO_BACKUP_WRITE_FAILED, 99, toldSinceRequest = true))
+        assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_NO_FOLDER), replaceStatus(100, false, null, true, AUTO_BACKUP_NO_FOLDER, null, toldSinceRequest = true))
+        assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, true, null, null, toldSinceRequest = true))
         assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, false, null, 99))
         // CR-1: the copy after the request was written but its old copies are left: that is said, though it is retried.
         assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_OLD_NOT_DELETED), replaceStatus(100, true, waits, true, AUTO_BACKUP_OLD_NOT_DELETED, 150))

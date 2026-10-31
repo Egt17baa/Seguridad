@@ -52,8 +52,9 @@ data class Settings(
     val autoBackupCopiesFolder: String? = null,
     /**
      * «Borrar las copias automáticas anteriores y hacer una nueva» was asked for while the vault was locked (it always is
-     * right after a change of master password): the first copy made after the next unlock replaces the old ones, and
-     * this is cleared once that copy is recorded. Saved, so a restart in between does not lose the request.
+     * right after a change of master password): the copies made after the next unlock replace the old ones, and this is
+     * cleared once a copy has deleted every target ([autoBackupReplaceTargets]) and every leftover temporary copy; until
+     * then each copy tries again. Saved, so a restart in between does not lose the request.
      */
     val autoBackupReplacePending: Boolean = false,
     /**

@@ -2,6 +2,10 @@ package app.seguridad.vault
 
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.tools.codes.PlainCells
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -12,6 +16,7 @@ import org.junit.Test
  * M6 and concern 3 of the CR review: the entry editor's state lives in its ViewModel (this session), so a rotation keeps
  * what was typed, and it goes on a lock, on save, on back, on leaving and when the ViewModel is cleared. In memory only.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class EntryEditSessionTest {
     private val saved = VaultEntry(
         id = "e1", type = EntryType.LOGIN, title = "Banco", username = "ana", password = "clave-guardada",
@@ -137,5 +142,37 @@ class EntryEditSessionTest {
         s.vaultStateIs(unlocked = false, emptyList())
         s.vaultStateIs(unlocked = true, emptyList())
         assertNull(s.takeHandOver("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP"))
+    }
+
+    // m6 (CR re-review): the ViewModel's wiring, as a function the ViewModel calls: the vault's state is followed with no
+    // composition at all (a lock in the background clears at once), and leaving or being cleared lets it go.
+    @Test fun followingTheVaultClearsOnALockWithNoScreenAndReloadsOnTheNextUnlock() = runTest {
+        val state = MutableStateFlow<VaultState>(VaultState.Unlocked(listOf(saved)))
+        val s = session(id = "e1")
+        s.followVault(state, backgroundScope)
+        runCurrent()
+        assertEquals("Banco", s.title.value)
+        s.typeEverything()
+        state.value = VaultState.Locked // In the background: no composition exists.
+        runCurrent()
+        s.assertEmpty()
+        state.value = VaultState.Unlocked(listOf(saved))
+        runCurrent()
+        assertEquals("Banco", s.title.value)
+        assertEquals("clave-guardada", s.loginPassword.value)
+    }
+
+    @Test fun leavingWithoutAConfigurationChangeOrBeingClearedLetsItGo() {
+        val s = session(id = "e1")
+        s.load(listOf(saved))
+        s.typeEverything()
+        s.left(changingConfigurations = true) // A rotation: kept.
+        assertEquals("contraseña-escrita", s.loginPassword.value)
+        s.left(changingConfigurations = false) // Another tab, or the activity finishing: gone.
+        s.assertEmpty()
+        s.load(listOf(saved))
+        s.typeEverything()
+        s.cleared() // The ViewModel's onCleared.
+        s.assertEmpty()
     }
 }

@@ -43,6 +43,21 @@ class MasterChangedTest {
         assertEquals(1, calls)
     }
 
+    // m2 (CR re-review): the copies listed when the password changed are what any later «Borrar…» or «Volver a intentarlo»
+    // replaces: copies made afterwards (under the new password) are never in it.
+    @Test fun theCopiesToReplaceAreTheOnesListedWhenThePasswordChanged() = runTest {
+        var listed = listOf("a", "b")
+        val asked = mutableListOf<List<String>?>()
+        val m = MasterChanged(backgroundScope, replace = { asked += it; AutoBackupResult("f", 1, null) }, now = { 1 }, oldCopies = { listed })
+        m.changed(fingerprintFailed = false)
+        listed = listOf("a", "b", "c") // A copy made after the change.
+        m.replace()
+        runCurrent()
+        m.replace()
+        runCurrent()
+        assertEquals(listOf<List<String>?>(listOf("a", "b"), listOf("a", "b")), asked)
+    }
+
     @Test fun aFailingCallIsAnAnswerAndNeverEscapes() = runTest {
         val m = MasterChanged(backgroundScope, replace = { throw IllegalStateException("x") }, now = { 1 })
         m.changed(fingerprintFailed = false)

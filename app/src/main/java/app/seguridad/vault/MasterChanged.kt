@@ -17,8 +17,10 @@ import kotlinx.coroutines.launch
  */
 class MasterChanged(
     private val scope: CoroutineScope,
-    replace: suspend () -> AutoBackupResult,
+    replace: suspend (List<String>?) -> AutoBackupResult,
     private val now: () -> Long,
+    /** The copies listed now (Settings.currentAutoBackupCopies): read once, when the password has changed ([changed]). */
+    private val oldCopies: () -> List<String>? = { null },
 ) {
     data class State(
         val open: Boolean = false,
@@ -31,6 +33,11 @@ class MasterChanged(
         /** What the answer said of the copies with a copy's name left unlisted ([AutoBackupResult.unlistedLeft], COPIAS-2). */
         val answerUnlisted: Int = 0,
         val busy: Boolean = false,
+        /**
+         * m2 (CR re-review): the copies listed when the password changed, the only ones «Borrar…» and «Volver a intentarlo»
+         * replace (copies made after it are under the new password); null if none could be read.
+         */
+        val oldCopies: List<String>? = null,
     )
 
     private val replaceCopies = replace
@@ -40,7 +47,7 @@ class MasterChanged(
 
     /** Called once the new password is saved (the vault is then locked), from whichever screen changed it. */
     fun changed(fingerprintFailed: Boolean) {
-        _state.value = State(open = true, fingerprintFailed = fingerprintFailed)
+        _state.value = State(open = true, fingerprintFailed = fingerprintFailed, oldCopies = oldCopies())
     }
 
     fun close() {
@@ -61,7 +68,7 @@ class MasterChanged(
         val asked = started ?: return false
         scope.launch {
             val r = try {
-                replaceCopies()
+                replaceCopies(asked.oldCopies)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

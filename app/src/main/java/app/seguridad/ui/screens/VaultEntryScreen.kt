@@ -55,6 +55,9 @@ import app.seguridad.ui.theme.SectionCard
 import app.seguridad.tools.codes.getValue
 import app.seguridad.tools.codes.setValue
 import app.seguridad.vault.EntryEditSession
+import app.seguridad.vault.cleared
+import app.seguridad.vault.followVault
+import app.seguridad.vault.left
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.PendingMigration
 import app.seguridad.vault.PasswordChange
@@ -218,9 +221,7 @@ private class EntryEditViewModel(private val store: VaultStore, id: String?, ini
 
     init {
         (store.state.value as? VaultState.Unlocked)?.let { form.load(it.entries) }
-        viewModelScope.launch {
-            store.state.collect { form.vaultStateIs(it is VaultState.Unlocked, (it as? VaultState.Unlocked)?.entries.orEmpty()) }
-        }
+        form.followVault(store.state, viewModelScope)
     }
 
     /** A 2FA text scanned, pasted or handed over by the QR inspector: applied exactly as a scan here. */
@@ -304,7 +305,7 @@ private class EntryEditViewModel(private val store: VaultStore, id: String?, ini
     }
 
     override fun onCleared() {
-        form.clear()
+        form.cleared()
     }
 }
 
@@ -331,7 +332,7 @@ fun VaultEntryEditScreen(
     val activity = context.fragmentActivity()
     // Only a rotation (or another configuration change) keeps what was typed: leaving otherwise lets it go now.
     DisposableEffect(vm) {
-        onDispose { if (activity?.isChangingConfigurations != true) form.clear() }
+        onDispose { form.left(changingConfigurations = activity?.isChangingConfigurations == true) }
     }
     if (form.finished.value) {
         LaunchedEffect(Unit) { onDone() }

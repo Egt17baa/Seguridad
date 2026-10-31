@@ -136,14 +136,15 @@ fun AppNavHost(container: AppContainer) {
     replaceOutcome?.let { shown ->
         ReplaceOutcomeDialog(shown.error ?: replacedText(shown.unlistedLeft), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
     }
-    // The notice of the new name, once, to those who updated (owner's decision, 31-10-2026). Not at the vault's gate,
-    // where it would cover the password field or sit under the fingerprint prompt: once the vault is open, or at once
-    // when there is none. It lives in AppContainer, so a rotation keeps it up until «Entendido».
+    // The notice of the new name, once, to those who updated (owner's decision, 31-10-2026). Never at the vault's gate,
+    // where it would cover the password field or sit under the fingerprint prompt: only while the vault is open, or when
+    // there is none (m4: a lock while it is up hides it until the next unlock). It lives in AppContainer, so a rotation
+    // keeps it up until «Entendido».
     val vaultState by vault.state.collectAsStateWithLifecycle()
     val renameReady = vaultState is VaultState.Unlocked || vaultState is VaultState.NoVault
     LaunchedEffect(renameReady) { if (renameReady) container.renameNotice.showIfDue() }
     val renameVisible by container.renameNotice.visible.collectAsStateWithLifecycle()
-    if (renameVisible) RenameNoticeDialog(onClose = container.renameNotice::closed)
+    if (renameVisible && renameReady) RenameNoticeDialog(onClose = container.renameNotice::closed)
     val replacing by container.autoBackup.replacing.collectAsStateWithLifecycle()
     if (masterState.open) {
         MasterChangedDialog(
@@ -153,6 +154,7 @@ fun AppNavHost(container: AppContainer) {
             pending = settings.autoBackupReplacePending,
             lastError = settings.lastAutoBackupError,
             lastBackupAt = settings.lastAutoBackupAt,
+            toldSinceRequest = settings.autoBackupReplaceTold.isNotEmpty(),
             onReplace = { masterChanged.replace() },
             onRenew = {
                 masterChanged.close()
