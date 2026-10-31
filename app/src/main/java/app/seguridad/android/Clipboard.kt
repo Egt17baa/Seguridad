@@ -11,7 +11,7 @@ import app.seguridad.settings.ClipboardClear
 import app.seguridad.tools.CLIPBOARD_OWN_LABEL
 import app.seguridad.tools.copyOrAskNotice
 import app.seguridad.tools.ownCopyClearDelay
-import app.seguridad.tools.wipeReopenedCopy
+import app.seguridad.tools.wipeOwnCopy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -58,7 +58,8 @@ fun copySensitive(context: Context, text: String, onCopied: (() -> Unit)? = null
 
 /** [copySensitive] without the A14 notice: what it writes, now or on «Entendido, copiar». */
 fun copySensitiveNow(context: Context, text: String) {
-    val cm = context.getSystemService(ClipboardManager::class.java) ?: return
+    // The application's: the timer below outlives any screen (F4 review M2).
+    val cm = context.applicationContext.getSystemService(ClipboardManager::class.java) ?: return
     val clip = ClipData.newPlainText(CLIP_LABEL, text)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
@@ -67,13 +68,12 @@ fun copySensitiveNow(context: Context, text: String) {
     val wait = clearAfterMs(context)
     clipboardScope.launch {
         delay(wait)
-        // Someone else's copy since then (an image, another app's text): leave it alone.
-        val label = runCatching { cm.primaryClipDescription?.label }.getOrNull()
-        if (label != null && label != CLIP_LABEL) return@launch
-        // Ours, or hidden from us (Android 10+ hides the clipboard from apps in the background): clear it, never
-        // leave a secret there. If it is readable and no longer our text, it was replaced: leave it.
-        val current = runCatching { cm.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull()
-        if (current == null || current == text) cm.wipe()
+        // Hidden from us (Android 10+ hides the clipboard from apps in the background) or empty: clear it, never leave
+        // a secret there. Readable: someone else's copy since then (an image, another app's text, labelled or not)
+        // stays, and so does a newer copy of ours (another text). Text unreadable under our label: ours, cleared.
+        val desc = runCatching { cm.primaryClipDescription }.getOrNull()
+        val same = desc == null || runCatching { cm.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull().let { it == null || it == text }
+        if (wipeOwnCopy(described = desc != null, seenLabel = desc?.label, sameCopy = same)) runCatching { cm.wipe() }
     }
 }
 
@@ -94,10 +94,11 @@ private var reopenedCopyTimer: Job? = null
  * process: there is no reliable one without new permissions or components). Call when the app has focus, which is
  * needed to read it. Older than the chosen time, or with the clock set back since: cleared now. Younger (the app was
  * reopened before the time): cleared when its time is up, while the app is alive, with the same rule as the copy's own
- * timer ([wipeReopenedCopy]). A copy of this run also has its own timer; clearing it twice is harmless.
+ * timer ([wipeOwnCopy]). A copy of this run also has its own timer; clearing it twice is harmless.
  */
 fun clearStaleCopy(context: Context) {
-    val cm = context.getSystemService(ClipboardManager::class.java) ?: return
+    // The application's ClipboardManager: the timer below outlives the Activity and must not keep it (F4 review M2).
+    val cm = context.applicationContext.getSystemService(ClipboardManager::class.java) ?: return
     val desc = runCatching { cm.primaryClipDescription }.getOrNull() ?: return
     if (desc.label?.toString() != CLIP_LABEL) return
     val copiedAt = desc.timestamp
@@ -111,6 +112,6 @@ fun clearStaleCopy(context: Context) {
     reopenedCopyTimer = clipboardScope.launch {
         delay(wait)
         val now = runCatching { cm.primaryClipDescription }.getOrNull()
-        if (wipeReopenedCopy(now?.label, now?.timestamp, copiedAt)) runCatching { cm.wipe() }
+        if (wipeOwnCopy(described = now != null, seenLabel = now?.label, sameCopy = now?.timestamp == copiedAt)) runCatching { cm.wipe() }
     }
 }

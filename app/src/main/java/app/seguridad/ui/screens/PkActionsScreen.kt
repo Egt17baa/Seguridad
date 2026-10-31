@@ -754,6 +754,8 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         )
 
         // ---- Pasted text ----
+        // Not in NoCopy (F4 review): it holds what was received (a ciphertext, a card or a text signed by someone else),
+        // usually pasted; the opened text below is not selectable and leaves only through «Copiar».
         OutlinedTextField(
             value = pasted,
             onValueChange = {

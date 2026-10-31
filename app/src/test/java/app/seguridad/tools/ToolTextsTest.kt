@@ -338,8 +338,8 @@ class ToolTextsTest {
             assertTrue("a los ${c.seconds} s (" in clipboardAboutText(c.seconds))
         }
         assertEquals(
-            "Con la app en primer plano, solo se borra si sigue ahí lo que copiaste desde ella. Si no lo está, desde " +
-                "Android 10 la app no puede ver el portapapeles y lo vacía, aunque hayas copiado otra cosa después. Si " +
+            "Con la app en primer plano, solo se borra si sigue ahí lo que copiaste desde ella. Con la app en segundo " +
+                "plano, desde Android 10 no puede ver el portapapeles y lo vacía, aunque hayas copiado otra cosa después. Si " +
                 "Android cierra la app antes, lo que copiaste se borra al volver a abrirla. Solo se borra en este móvil: " +
                 "si compartes el portapapeles con otros dispositivos, allí puede quedarse.",
             CLIPBOARD_CLEAR_HINT,
