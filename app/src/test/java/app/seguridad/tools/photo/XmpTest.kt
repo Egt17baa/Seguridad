@@ -105,16 +105,92 @@ class XmpTest {
         assertTrue("45 MB of one declaration", ms { Xmp.flags(dup, 0, dup.size) } < SLOW_CI_MS)
     }
 
+    /**
+     * N1 of the F6 re-review: the worst text for a search per prefix, 16 Dublin Core prefixes of 64 characters
+     * («a»×63 and one letter) and a filler of «a», so that each `prefix:creator` search compares about 64 characters at
+     * every byte (210 s for 45 MB with the reader of round 1).
+     */
+    private fun longPrefixesXmp(bytes: Int): ByteArray {
+        val sb = StringBuilder(bytes + 4096)
+        for (i in 0 until Xmp.MAX_DC_PREFIXES) sb.append("xmlns:").append("a".repeat(63)).append('A' + i).append("=\"$dcNs\" ")
+        while (sb.length < bytes) sb.append('a')
+        return ascii(sb.toString())
+    }
+
+    @Test fun sixteenLongPrefixesOverFortyFiveMegabytesAreReadInLinearTime() {
+        val hostile = longPrefixesXmp(45_000_000)
+        var r: Set<Found>? = null
+        val t = ms { r = Xmp.flags(hostile, 0, hostile.size) }
+        assertTrue("45 MB took $t ms", t < SLOW_CI_MS)
+        assertFalse(Found.AUTHOR_RIGHTS in r!!) // 16 prefixes, none used
+        // The same file with a use of the last prefix at the very end is found.
+        val used = concat(hostile, ascii("a".repeat(63) + "P:creator=\"x\""))
+        assertTrue(Found.AUTHOR_RIGHTS in Xmp.flags(used, 0, used.size))
+    }
+
     @Test fun growsLinearly() {
         // Four times the text costs about four times the time (the quadratic reader cost sixteen); best of three runs.
         fun best(b: ByteArray) = (1..3).minOf { ms { Xmp.flags(b, 0, b.size) } }
-        val small = worstXmp(4_000_000)
-        val big = worstXmp(16_000_000)
-        best(small) // warm-up
-        val ts = best(small)
-        val tb = best(big)
-        assertTrue("4 MB: $ts ms, 16 MB: $tb ms", tb < 10 * ts + 200)
+        for (make in listOf(::worstXmp, ::longPrefixesXmp)) {
+            val small = make(4_000_000)
+            val big = make(16_000_000)
+            best(small) // warm-up
+            val ts = best(small)
+            val tb = best(big)
+            assertTrue("4 MB: $ts ms, 16 MB: $tb ms", tb < 10 * ts + 200)
+        }
     }
+
+    /** The windowed reader and the reference (the regex reader of 14ec824) on the same text. */
+    private fun assertSame(text: String): Set<Found> {
+        val b = ascii(text)
+        val reference = XmpReference.flags(b, 0, b.size)
+        assertEquals(text.take(200), reference, Xmp.flags(b, 0, b.size))
+        return reference
+    }
+
+    @Test fun findsExactlyWhatTheReferenceFinds() {
+        // N1 of the F6 re-review: a differential test against the old reader. Short random texts made of the pieces
+        // that matter (declarations, prefixes, quotes, spaces, the needles), with a fixed seed.
+        val pieces = listOf(
+            "xmlns:", "xmlns:dc", "zz", "a", "x", "9a", "_q", "a.b-c", "dc", ":", "=", " ", "\t", "\n", "\u000B", "\u000C",
+            "\u0085", "\u00A0", "\"", "'", dcNs, "http://purl.org/dc/elements/1.1", ":creator", ":rights", "creator", "rights",
+            "dc:creator", "dc:rights", "xmpRights:", "GPSLatitude", "tiff:Make", "SerialNumber", "MotionPhoto", "MicroVideo",
+            "<", ">", "/", "XMLNS:", "a".repeat(63), "a".repeat(64), " ".repeat(16), " ".repeat(17),
+        )
+        val random = java.util.Random(20261031)
+        var authors = 0
+        repeat(300_000) {
+            val sb = StringBuilder()
+            repeat(1 + random.nextInt(14)) { sb.append(pieces[random.nextInt(pieces.size)]) }
+            if (Found.AUTHOR_RIGHTS in assertSame(sb.toString())) authors++
+        }
+        assertTrue("the random texts reach author data too ($authors)", authors > 1_000)
+        // Hand-picked cases: before, after, inside a longer name, mixed quotes, too long, too many spaces, too many prefixes.
+        for (t in listOf(
+            "zz:creator xmlns:zz='$dcNs'", "xmlns:zz=\"$dcNs' xzz:rights", "xmlns:${"a".repeat(64)}=\"$dcNs\" ${"a".repeat(64)}:creator",
+            "xmlns:${"a".repeat(65)}=\"$dcNs\" ${"a".repeat(65)}:creator", "xmlns:zz${" ".repeat(16)}=${"\t".repeat(16)}\"$dcNs\" zz:creator",
+            (0..16).joinToString("") { "xmlns:p$it=\"$dcNs\" " }, (0..15).joinToString("") { "xmlns:p$it=\"$dcNs\" " } + "p15:rights",
+        )) assertSame(t)
+    }
+
+    @Test fun findsWhatTheReferenceFindsAtEveryWindowBoundary() {
+        // A use of a short and of a 64-character prefix at offsets 0 to 70 of a window that is not the first, the
+        // declaration far before it, and a longer name ending in the prefix.
+        val long = "b".repeat(63) + "Q"
+        for (prefix in listOf("zz", long)) {
+            val head = "xmlns:$prefix=\"$dcNs\" "
+            for (off in (0..70) + listOf(-80, -10, -1, 100, 200, 255, 256, 300)) {
+                for (use in listOf("$prefix:creator", "x$prefix:rights", "$prefix:creatoX")) {
+                    // The «:» of the use lands at [off] from the start of the second window.
+                    val pad = Xmp.WINDOW + off - head.length - use.indexOf(':')
+                    if (pad < 0) continue
+                    assertSame(head + " ".repeat(pad) + use + " ".repeat(40))
+                }
+            }
+        }
+    }
+
 
     @Test fun aLongPacketIsCancelledWithinOneWindow() {
         val worst = worstXmp(45_000_000)

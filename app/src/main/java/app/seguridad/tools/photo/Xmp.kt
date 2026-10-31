@@ -32,9 +32,12 @@ internal object Xmp {
 
     /**
      * Linear in the packet, with no regular expression (M6: the old one cost about 60 ns per byte on text made to
-     * nearly match it): a fixed list of substring searches and one hand-written pass over the declarations, then, only
-     * if Dublin Core is bound under some prefix, one more pass for `prefix:creator` and `prefix:rights`. [check] is the
-     * caller's cancellation checkpoint (`ensureActive()` on Android), called before each window.
+     * nearly match it) and no search whose pattern the file chooses (N1 of the F6 re-review: one per prefix cost about
+     * 64 comparisons per byte with 64-character prefixes, minutes for 45 MB). A fixed list of substring searches and
+     * one hand-written pass over the declarations, then, only if Dublin Core is bound under some prefix, one pass for
+     * the fixed `:creator` and `:rights` that compares the name before each with the prefixes ([usedAnywhere]): at
+     * most about (12 + 16) · n comparisons in all. [check] is the caller's cancellation checkpoint (`ensureActive()` on
+     * Android), called before each window.
      */
     fun flags(b: ByteArray, from: Int, to: Int, check: () -> Unit = {}): Set<Found> {
         if (from < 0 || to > b.size || from > to) return emptySet()
@@ -70,12 +73,30 @@ internal object Xmp {
 
     /**
      * creator or rights under one of [prefixes]: any `prefix:creator` or `prefix:rights` in the packet, also at the end
-     * of a longer name (as a plain substring search found it). At most 2 × [MAX_DC_PREFIXES] searches per window.
+     * of a longer name (exactly what a substring search for `prefix:creator` found). The fixed needles start with `:`,
+     * never a name character, so searching them costs about one comparison per byte; before each hit at most
+     * [MAX_NAME] name characters are walked back, and those runs never overlap (each one stops at a `:`), so comparing
+     * them with the at most [MAX_DC_PREFIXES] prefixes costs at most 16 · n in all, whatever names the file picks. A hit
+     * near the start of a window that is not the first was already seen whole in the previous window's overlap, and
+     * `regionMatches` with a negative offset is false, so nothing is lost nor counted twice.
      */
     private fun usedAnywhere(b: ByteArray, from: Int, to: Int, prefixes: Set<String>, check: () -> Unit): Boolean {
+        val list = prefixes.toList()
         var found = false
         windows(b, from, to, check) { text ->
-            if (!found) found = prefixes.any { p -> USES.any { "$p$it" in text } }
+            for (use in USES) {
+                var i = if (found) -1 else text.indexOf(use)
+                while (i >= 0) {
+                    var k = i // the name characters right before «:», at most MAX_NAME of them
+                    while (k > 0 && i - k < MAX_NAME && isNameChar(text[k - 1])) k--
+                    val run = i - k
+                    if (list.any { p -> p.length <= run && text.regionMatches(i - p.length, p, 0, p.length) }) {
+                        found = true
+                        break
+                    }
+                    i = text.indexOf(use, i + 1)
+                }
+            }
         }
         return found
     }

@@ -60,8 +60,8 @@ class JpegTest {
     @Test fun reportNamesWhatIsThere() {
         val r = Jpeg.inspect(TestImages.everything())
         assertEquals(PhotoFormat.JPEG, r.format)
-        // MPF is another image, and the junk after EOI is neither a video nor an image.
-        assertEquals(setOf(GPS, DEVICE, DATE_SOFTWARE, THUMBNAIL, XMP_COMMENTS, ICC_KEPT, EXTRA_IMAGE, AUTHOR_RIGHTS, OTHER), r.found)
+        // The junk after EOI is neither a video nor an image, so MPF names no image either (N4 of the F6 re-review).
+        assertEquals(setOf(GPS, DEVICE, DATE_SOFTWARE, THUMBNAIL, XMP_COMMENTS, ICC_KEPT, AUTHOR_RIGHTS, OTHER), r.found)
         assertEquals(40.42 to -3.7, r.gps)
         assertEquals(1, r.orientation)
     }
@@ -156,6 +156,22 @@ class JpegTest {
         assertEquals(setOf(EXTRA_IMAGE), Jpeg.inspect(concat(TestImages.plainJpeg(), TestImages.plainJpeg(), heic)).found)
     }
 
+    @Test fun anMp4RightAfterTheImageIsAVideoWhateverItsBrand() {
+        // N2 of the F6 re-review: right at the start of the trailer, any brand but a still image's is a video (as before
+        // the M4 round); deeper in it, only a video brand counts, against chance matches.
+        fun mp4(brand: String) = concat(bytes(0, 0, 0, 0x18), ascii("ftyp$brand"), ByteArray(16) { 1 })
+        for (brand in listOf("iso3", "mp71", "XAVC", "f4v ", "nvr1", "mp42", "isom")) {
+            assertEquals(brand, setOf(MOTION_VIDEO), Jpeg.inspect(concat(TestImages.plainJpeg(), mp4(brand))).found)
+            assertArrayEquals(TestImages.plainJpeg(), PhotoCleaner.clean(concat(TestImages.plainJpeg(), mp4(brand))))
+        }
+        for (brand in listOf("heic", "avif", "mif1")) {
+            assertEquals(brand, setOf(OTHER), Jpeg.inspect(concat(TestImages.plainJpeg(), mp4(brand))).found)
+        }
+        // Deeper, after another image: a video brand is a video, an unknown one is not taken for one.
+        assertEquals(setOf(EXTRA_IMAGE, MOTION_VIDEO), Jpeg.inspect(concat(TestImages.plainJpeg(), TestImages.plainJpeg(), mp4("iso3"))).found)
+        assertEquals(setOf(EXTRA_IMAGE), Jpeg.inspect(concat(TestImages.plainJpeg(), TestImages.plainJpeg(), mp4("nvr1"))).found)
+    }
+
     @Test fun aGainMapIsNamedOnlyWhenTheSecondImageIsThere() {
         // M5 of the F6 review: an editor kept the Ultra HDR XMP and dropped the gain map. No «second image» is claimed.
         assertEquals(setOf(XMP_COMMENTS), Jpeg.inspect(concat(SOI, ultraHdrXmp, baseline.body(), EOI)).found)
@@ -165,9 +181,9 @@ class JpegTest {
         assertEquals(setOf(OTHER), Jpeg.inspect(concat(SOI, TestImages.mpf(), baseline.body(), EOI)).found)
         val iso = TestImages.seg(0xE2, concat(ascii("urn:iso:std:iso:ts:21496:-1"), bytes(0, 0, 0, 0, 0)))
         assertEquals(setOf(OTHER), Jpeg.inspect(concat(SOI, iso, baseline.body(), EOI)).found)
-        // Gain map metadata and something after EOI that is not an image: no gain map either.
+        // Gain map metadata and something after EOI that is not an image: no gain map, and no other image (N4).
         assertEquals(
-            setOf(XMP_COMMENTS, EXTRA_IMAGE, OTHER),
+            setOf(XMP_COMMENTS, OTHER),
             Jpeg.inspect(concat(SOI, ultraHdrXmp, TestImages.mpf(), baseline.body(), EOI, ascii("datos tras el final"))).found,
         )
         // The copy is the base image in every case.

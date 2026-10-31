@@ -30,7 +30,8 @@ data class PhotoReport(
 /** The message is always [PHOTO_DAMAGED] or [PHOTO_UNSUPPORTED]. */
 class PhotoFailure(message: String) : Exception(message)
 
-private val HEIF_BRANDS = setOf("heic", "heix", "hevc", "heim", "heis", "mif1", "msf1", "avif")
+/** The HEIF and AVIF brands: still images (also read by the JPEG trailer check, N2 of the F6 re-review). */
+internal val HEIF_BRANDS = setOf("heic", "heix", "hevc", "heim", "heis", "mif1", "msf1", "avif")
 
 /** AVIF brands, still and sequence, and the HEVC ones that make a file decodable as HEIC whatever else it lists. */
 private val AVIF_BRANDS = setOf("avif", "avis")
