@@ -141,6 +141,46 @@ class CipherSessionsTest {
         assertNull(b.result)
     }
 
+    @Test fun `M1 typing is use, so the idle lock keeps what is being typed`() {
+        // The soft keyboard sends no key event and no tap lands on the app: each change of a field calls used().
+        for (session in listOf<GuardedSession>(decrypted(), FileCryptoSession().apply { password = "contraseña" }, BreachSession().apply { password = "123" })) {
+            session.guard.vaultStateIs(unlocked = true) { error("not a lock") }
+            session.guard.used(1_000) // the last tap, on the field
+            session.guard.used(61_000) // a letter typed 60 s later
+            session.guard.vaultStateIs(unlocked = false) { LockSeen(LockReason.IDLE, appInForeground = true, now = 62_000, lockAfterMs = 60_000) }
+            when (session) {
+                is TextCryptoSession -> assertEquals(seed, session.output)
+                is FileCryptoSession -> assertEquals("contraseña", session.password)
+                is BreachSession -> assertEquals("123", session.password)
+            }
+        }
+        // Without the typing, the same lock wipes.
+        val s = decrypted()
+        s.guard.vaultStateIs(unlocked = true) { error("not a lock") }
+        s.guard.used(1_000)
+        s.guard.vaultStateIs(unlocked = false) { LockSeen(LockReason.IDLE, appInForeground = true, now = 62_000, lockAfterMs = 60_000) }
+        s.assertWiped()
+    }
+
+    @Test fun `M2 a wipe gives the decrypted copy waiting for the save dialog up`() {
+        val discarded = mutableListOf<String>()
+        val f = FileCryptoSession(onDiscard = { discarded += it })
+        f.pending = PendingCopy("/cache/dec123", f.token())
+        f.guard.stopped(0)
+        assertTrue(f.guard.started(60_000, lockAfterMs = 0))
+        assertNull("the dialog's answer finds nothing to save", f.takePending())
+        assertEquals(listOf("/cache/dec123"), discarded)
+        // Back in time: the answer takes the copy (once), and nothing is deleted.
+        val g = FileCryptoSession(onDiscard = { discarded += it })
+        g.pending = PendingCopy("/cache/dec456", g.token())
+        g.guard.stopped(0)
+        assertFalse(g.guard.started(59_999, lockAfterMs = 0))
+        assertEquals("/cache/dec456", g.takePending()?.path)
+        assertNull(g.takePending())
+        g.wipe()
+        assertEquals(listOf("/cache/dec123"), discarded)
+    }
+
     @Test fun `the guard is the rule of PIN y codigos`() {
         var wipes = 0
         val g = ScreenGuard(createdAt = 0) { wipes++ }
@@ -177,5 +217,9 @@ class CipherSessionsTest {
         assertTrue(h.finish(c, null)) // unreadable
         assertNull(h.hash)
         assertFalse(h.busy)
+        // M8: the screen says it could not be read, until the next pick.
+        assertTrue(h.failed)
+        h.start()
+        assertFalse(h.failed)
     }
 }

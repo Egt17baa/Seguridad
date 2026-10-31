@@ -440,6 +440,48 @@ class QrContentTest {
     }
 
     @Test
+    fun bitcoinIsAPaymentOnlyWithAmountLabelAndMessage() {
+        // M3 of the F6 review: BIP-321 lets a QR carry other payment instructions (lightning, lno, pay, sp, bech32 ones
+        // under their HRP such as bc= or tb=, payjoin's pj), and a newer wallet may pay any of them, not the address
+        // shown. So a bitcoin: URI is shown as a payment only when every key is one the screen understands.
+        val address = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
+        for (t in listOf(
+            "bitcoin:$address?amount=0.001&sp=sp1qattacker",
+            "bitcoin:$address?amount=0.001&bc=bc1qattacker",
+            "bitcoin:$address?tb=tb1qattacker",
+            "bitcoin:$address?bcrt=bcrt1qattacker",
+            "bitcoin:$address?tsp=tsp1qattacker",
+            "bitcoin:$address?pay=lnurlattacker",
+            "bitcoin:$address?pj=https://example.com/pj&pjos=0",
+            "bitcoin:$address?amount=1&SP=sp1qattacker",
+            "bitcoin:$address?amount=1&%73p=sp1qattacker",
+            // BIP-321's own examples.
+            "bitcoin:?sp=sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv",
+            "bitcoin:$address?somethingyoudontunderstand=50&somethingelseyoudontget=999",
+            "bitcoin:$address?req-somethingyoudontunderstand=50&req-somethingelseyoudontget=999",
+            "bitcoin:?lno=lno1bogusoffer",
+            // An empty key is not one of the three.
+            "bitcoin:$address?=1",
+        )) {
+            assertEquals(t, QrKind.PlainText(t), classifyQr(t))
+        }
+        // Only amount, label and message (any case, percent-encoded too, repeated label): a payment, as BIP-321 shows.
+        for ((t, amount) in listOf(
+            "bitcoin:$address" to null,
+            "bitcoin:$address?label=Luke-Jr" to null,
+            "bitcoin:$address?amount=20.3&label=Luke-Jr" to "20.3",
+            "bitcoin:$address?amount=50&label=Luke-Jr&message=Donation%20for%20project%20xyz" to "50",
+            "BITCOIN:${address.uppercase()}?AMOUNT=1&LABEL=X&MESSAGE=y" to "1",
+            "bitcoin:$address?%61mount=2" to "2",
+            "bitcoin:$address?label=a&label=b&amount=1" to "1",
+        )) {
+            val k = classifyQr(t)
+            assertTrue(t, k is QrKind.Crypto)
+            assertEquals(t, amount, (k as QrKind.Crypto).amount)
+        }
+    }
+
+    @Test
     fun emojiVariationSelectorIsNotMarkedAfterAnEmojiOrSymbol() {
         assertEquals("\u2764\uFE0F", visibleText("\u2764\uFE0F")) // ❤️
         assertEquals("\u2764\uFE0E", visibleText("\u2764\uFE0E"))

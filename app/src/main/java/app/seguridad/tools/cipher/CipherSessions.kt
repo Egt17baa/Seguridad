@@ -80,8 +80,19 @@ class TextCryptoSession(cells: CellFactory = PlainCells, createdAt: Long = 0L) :
     }
 }
 
-/** «Cifrar archivos»: the password or key and what the last run said (the file itself is never kept here). */
-class FileCryptoSession(cells: CellFactory = PlainCells, createdAt: Long = 0L) : GuardedSession(createdAt) {
+/** A decrypted copy in the app's private cache, waiting for the save dialog: its [path] and the [run] that made it. */
+class PendingCopy(val path: String, val run: Long)
+
+/**
+ * «Cifrar archivos»: the password or key, what the last run said, and the decrypted copy waiting to be saved (its path:
+ * the file itself is never kept here). M2 of the F6 review: a wipe also gives that copy up ([onDiscard] deletes it), so
+ * the save dialog's answer after the time away saves nothing.
+ */
+class FileCryptoSession(
+    cells: CellFactory = PlainCells,
+    createdAt: Long = 0L,
+    private val onDiscard: (String) -> Unit = {},
+) : GuardedSession(createdAt) {
     private val useKeyCell = cells.cell(false)
     var useKey: Boolean by useKeyCell
     private val passwordCell = cells.cell("")
@@ -93,10 +104,18 @@ class FileCryptoSession(cells: CellFactory = PlainCells, createdAt: Long = 0L) :
     private val busyCell = cells.cell(false)
     var busy: Boolean by busyCell
 
+    /** The decrypted copy the save dialog is for; null once saved, given up or wiped. */
+    var pending: PendingCopy? = null
+
+    /** The save dialog answered: the pending copy, now the caller's to write and delete; null if it was given up. */
+    fun takePending(): PendingCopy? = pending.also { pending = null }
+
     override fun forget() {
         password = ""
         keyHex = ""
         message = null
+        pending?.let { onDiscard(it.path) }
+        pending = null
     }
 }
 
@@ -132,6 +151,11 @@ class FileHashSession(cells: CellFactory = PlainCells) {
     var busy: Boolean by busyCell
         private set
 
+    /** M8 of the F6 review: the file picked last could not be read (the screen says so). */
+    private val failedCell = cells.cell(false)
+    var failed: Boolean by failedCell
+        private set
+
     /**
      * A file was picked: the previous name and result go, and the returned run is the only one [named] and [finish]
      * accept. The name is read from the provider off the main thread, so it comes later ([named]).
@@ -140,6 +164,7 @@ class FileHashSession(cells: CellFactory = PlainCells) {
         run++
         name = null
         hash = null
+        failed = false
         busy = true
         return run
     }
@@ -155,6 +180,7 @@ class FileHashSession(cells: CellFactory = PlainCells) {
     fun finish(run: Long, hash: String?): Boolean {
         if (run != this.run) return false
         this.hash = hash
+        failed = hash == null
         busy = false
         return true
     }

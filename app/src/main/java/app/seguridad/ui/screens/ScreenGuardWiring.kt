@@ -73,6 +73,12 @@ internal fun GuardEffects(guard: ScreenGuard, lockAfterMs: () -> Long) {
     DisposableEffect(guard) { onDispose { guard.stopped(SystemClock.elapsedRealtime()) } }
 }
 
+/**
+ * M1 of the F6 review: a change of a text field is use of the screen too. The soft keyboard sends no key event and no tap
+ * lands on the app window ([usedFor] sees neither), so every `onValueChange` calls this (as CodesScreen does).
+ */
+internal fun ScreenGuard.typed() = used(SystemClock.elapsedRealtime())
+
 /** Any tap or key on the screen is use of it, for the idle lock (it never touches the vault: no store.touch()). */
 internal fun Modifier.usedFor(guard: ScreenGuard): Modifier = this
     .pointerInput(guard) {
