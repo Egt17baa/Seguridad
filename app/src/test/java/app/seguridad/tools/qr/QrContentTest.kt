@@ -512,6 +512,26 @@ class QrContentTest {
     }
 
     @Test
+    fun keycapSelectorIsNotMarkedAsTheFileNamesKeepIt() {
+        // MN (T6 of §2.5): «1️⃣» is 1, U+FE0F, U+20E3, and the selector is part of the emoji that is seen, the same rule as
+        // safeFileName (CIFRADO-2): after 0–9, # or * only when U+20E3 follows.
+        for (k in listOf("1", "0", "9", "#", "*")) {
+            assertEquals(k, "Casa $k\uFE0F\u20E3", visibleText("Casa $k\uFE0F\u20E3"))
+            assertFalse(k, hasHiddenChars("Casa $k\uFE0F\u20E3"))
+            assertTrue(k, hiddenMarks("$k\uFE0F\u20E3").isEmpty())
+        }
+        // Without the keycap after it, after a letter, or the text selector U+FE0E: marked, as before.
+        assertEquals("1\u27E8U+FE0F\u27E9", visibleText("1\uFE0F"))
+        assertEquals("1\u27E8U+FE0F\u27E9x", visibleText("1\uFE0Fx"))
+        assertEquals("a\u27E8U+FE0F\u27E9\u20E3", visibleText("a\uFE0F\u20E3"))
+        assertEquals("1\u27E8U+FE0E\u27E9\u20E3", visibleText("1\uFE0E\u20E3"))
+        // Two selectors: neither sits right between the digit and U+20E3, so both are marked.
+        assertEquals("1\u27E8U+FE0F\u27E9\u27E8U+FE0F\u27E9\u20E3", visibleText("1\uFE0F\uFE0F\u20E3"))
+        // In a host name it always counts: a browser drops it.
+        assertTrue(hasHiddenChars("1\uFE0F\u20E3", allowEmojiVariation = false))
+    }
+
+    @Test
     fun emojiVariationOnlyFollowsTheEmojiPlane() {
         // Above the emoji and symbol plane (U+1F000..U+1FFFF) nothing is an emoji: a CJK ideograph of plane 2, a tag
         // character and a supplementary selector do not make the U+FE0F after them its normal presentation.

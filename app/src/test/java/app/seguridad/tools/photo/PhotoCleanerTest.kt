@@ -84,36 +84,57 @@ class PhotoCleanerTest {
         PhotoCleaner.verify(PhotoFormat.JPEG, concat(SOI, TestImages.icc(), baseline.body(), EOI))
         PhotoCleaner.verify(PhotoFormat.JPEG, concat(SOI, TestImages.orientationApp1(6), TestImages.icc(), TestImages.adobe(), baseline.body(), EOI))
         for (o in 2..8) PhotoCleaner.verify(PhotoFormat.JPEG, concat(SOI, TestImages.orientationApp1(o), baseline.body(), EOI))
+        // Each dirty shape with the one reason it must be refused for (MN, T1 of §2.5): a case refused for some other
+        // reason (a length running past the end, say) would not prove the rule it names.
         val dirty = listOf(
-            concat(SOI, TestImages.com("x"), baseline.body(), EOI),
-            concat(SOI, TestImages.fullExif(), baseline.body(), EOI),
-            concat(TestImages.plainJpeg(), ByteArray(8)),
-            concat(TestImages.plainJpeg(), TestImages.plainJpeg()),
-            concat(SOI, baseline.body()),
-            ascii("GIF89a"),
+            JpegRefusal.MARKER_NOT_KEPT to concat(SOI, TestImages.com("x"), baseline.body(), EOI),
+            JpegRefusal.APP1_NOT_CANONICAL to concat(SOI, TestImages.fullExif(), baseline.body(), EOI),
+            JpegRefusal.BYTES_AFTER_EOI to concat(TestImages.plainJpeg(), ByteArray(8)),
+            JpegRefusal.BYTES_AFTER_EOI to concat(TestImages.plainJpeg(), TestImages.plainJpeg()),
+            JpegRefusal.NO_EOI to concat(SOI, baseline.body()),
+            JpegRefusal.NOT_JPEG to ascii("GIF89a"),
             // (a) JFIF with a 0x0 thumbnail and bytes hidden after it: inspect reports nothing.
-            concat(SOI, TestImages.seg(0xE0, concat(ascii("JFIF"), bytes(0, 1, 1, 0, 0, 1, 0, 1, 0, 0), ascii("secreto"))), baseline.body(), EOI),
+            JpegRefusal.MARKER_NOT_KEPT to concat(SOI, TestImages.seg(0xE0, concat(ascii("JFIF"), bytes(0, 1, 1, 0, 0, 1, 0, 1, 0, 0), ascii("secreto"))), baseline.body(), EOI),
             // (b) EXIF with an empty IFD0, and the canonical Orientation APP1 with bytes appended.
-            concat(SOI, TestImages.exifSegment(TestImages.Tiff().build(emptyList())), baseline.body(), EOI),
-            concat(SOI, TestImages.seg(0xE1, concat(TestImages.orientationApp1(6).copyOfRange(4, 36), ascii("secreto"))), baseline.body(), EOI),
-            // (c) APP14 Adobe longer than its 12 bytes.
-            concat(SOI, TestImages.seg(0xEE, concat(ascii("Adobe"), bytes(0, 100, 0, 0, 0, 0, 1), ascii("secreto"))), baseline.body(), EOI),
-            // (d) Standalone RST and TEM markers at the top level.
-            concat(SOI, bytes(0xFF, 0xD0), baseline.body(), EOI),
-            concat(SOI, bytes(0xFF, 0x01), baseline.body(), EOI),
-            // Fill bytes: clean never writes them.
-            concat(SOI, bytes(0xFF), TestImages.icc(), baseline.body(), EOI),
+            JpegRefusal.APP1_NOT_CANONICAL to concat(SOI, TestImages.exifSegment(TestImages.Tiff().build(emptyList())), baseline.body(), EOI),
+            JpegRefusal.APP1_NOT_CANONICAL to concat(SOI, TestImages.seg(0xE1, concat(TestImages.orientationApp1(6).copyOfRange(4, 36), ascii("secreto"))), baseline.body(), EOI),
+            // The canonical Orientation APP1, but not right after SOI.
+            JpegRefusal.APP1_NOT_CANONICAL to concat(SOI, TestImages.icc(), TestImages.orientationApp1(6), baseline.body(), EOI),
+            // (c) APP14 Adobe longer than its 12 bytes, and an APP14 that is not Adobe's.
+            JpegRefusal.ADOBE_NOT_CANONICAL to concat(SOI, TestImages.seg(0xEE, concat(ascii("Adobe"), bytes(0, 100, 0, 0, 0, 0, 1), ascii("secreto"))), baseline.body(), EOI),
+            JpegRefusal.ADOBE_NOT_CANONICAL to concat(SOI, TestImages.seg(0xEE, concat(ascii("Abode"), bytes(0, 100, 0, 0, 0, 0, 1))), baseline.body(), EOI),
+            // An APP2 that is not the colour profile (MPF).
+            JpegRefusal.APP2_NOT_ICC to concat(SOI, TestImages.seg(0xE2, concat(ascii("MPF"), bytes(0), ascii("secreto"))), baseline.body(), EOI),
+            // (d) Standalone RST and TEM markers at the top level. Followed by valid segments, so only the marker can be
+            // what is refused; and once more followed by a length that fits, so it is not taken for a segment either.
+            JpegRefusal.STANDALONE_MARKER to concat(SOI, bytes(0xFF, 0xD0), baseline.body(), EOI),
+            JpegRefusal.STANDALONE_MARKER to concat(SOI, bytes(0xFF, 0x01), baseline.body(), EOI),
+            JpegRefusal.STANDALONE_MARKER to concat(SOI, bytes(0xFF, 0xD7, 0x00, 0x02), baseline.body(), EOI),
+            JpegRefusal.STANDALONE_MARKER to concat(SOI, bytes(0xFF, 0x01, 0x00, 0x02), baseline.body(), EOI),
+            // Fill bytes: clean never writes them (also when what follows could be read as a length that fits).
+            JpegRefusal.FILL_BYTES to concat(SOI, bytes(0xFF), TestImages.icc(), baseline.body(), EOI),
+            JpegRefusal.FILL_BYTES to concat(SOI, bytes(0xFF, 0xFF, 0x00, 0x02), baseline.body(), EOI),
+            // A JPG (C8) or a reserved marker with a length that fits: refused by its name.
+            JpegRefusal.MARKER_NOT_KEPT to concat(SOI, TestImages.seg(0xC8, bytes(1, 2)), baseline.body(), EOI),
+            JpegRefusal.MARKER_NOT_KEPT to concat(SOI, TestImages.seg(0xF0, bytes(1, 2)), baseline.body(), EOI),
+            // A length below 2, and one running past the end.
+            JpegRefusal.BAD_LENGTH to concat(SOI, bytes(0xFF, 0xDB, 0x00, 0x01), baseline.body(), EOI),
+            JpegRefusal.BAD_LENGTH to concat(SOI, bytes(0xFF, 0xDB, 0x7F, 0xFF), EOI),
+            JpegRefusal.TRUNCATED to concat(SOI, bytes(0xFF, 0xDB, 0x00)),
             // Orientation 1 is never written, and an APP1 out of the canonical bytes is refused.
-            concat(SOI, TestImages.orientationApp1(1), baseline.body(), EOI),
+            JpegRefusal.APP1_NOT_CANONICAL to concat(SOI, TestImages.orientationApp1(1), baseline.body(), EOI),
             // SOS before SOF, and no SOS at all.
-            concat(SOI, baseline.sos, baseline.scan, *baseline.tables.toTypedArray(), EOI),
-            concat(SOI, *baseline.tables.toTypedArray(), EOI),
+            JpegRefusal.SOS_BEFORE_SOF to concat(SOI, baseline.sos, baseline.scan, *baseline.tables.toTypedArray(), EOI),
+            JpegRefusal.NO_SOS to concat(SOI, *baseline.tables.toTypedArray(), EOI),
         )
-        for ((i, d) in dirty.withIndex()) {
+        for ((i, case) in dirty.withIndex()) {
+            val (reason, d) = case
             fails(PHOTO_DAMAGED) { PhotoCleaner.verify(PhotoFormat.JPEG, d) }
-            // The structural check alone refuses each one, without help from inspect or idempotence.
+            // The structural check alone refuses each one, without help from inspect or idempotence, and for its reason.
             assertFalse("caso $i", Jpeg.isCleanOutput(d))
+            assertEquals("caso $i", reason, Jpeg.cleanOutputRefusal(d))
         }
+        assertNull(Jpeg.cleanOutputRefusal(concat(SOI, TestImages.orientationApp1(6), TestImages.icc(), TestImages.adobe(), baseline.body(), EOI)))
         assertTrue(Jpeg.isCleanOutput(concat(SOI, TestImages.orientationApp1(6), TestImages.icc(), TestImages.adobe(), baseline.body(), EOI)))
     }
 

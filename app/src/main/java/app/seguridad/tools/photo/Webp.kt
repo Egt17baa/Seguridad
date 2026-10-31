@@ -146,7 +146,11 @@ object Webp {
         return Parsed(PhotoReport(PhotoFormat.WEBP, found.toSet(), exif?.gps, exif?.orientation ?: 1), out)
     }
 
-    /** VP8X payload with the EXIF and XMP bits, the other reserved bits and the reserved bytes at zero. */
+    /**
+     * The VP8X payload with what can never stay cleared: the EXIF and XMP bits, the reserved bits and the three reserved
+     * bytes (a set one is reported as OTHER); the canvas size stays. The ICC, alpha and animation bits are not decided
+     * here: [parse] sets them again from the chunks it kept ([Order.flags]), and [isCleanOutput] checks they match.
+     */
     private fun vp8x(b: ByteArray, c: Chunk, found: MutableSet<Found>): ByteArray {
         val out = b.copyOfRange(c.dataAt, c.dataEnd)
         val flags = out[0].toInt() and 0xFF
@@ -238,7 +242,8 @@ object Webp {
             p = c.next
         }
         // A lone VP8X is not a file; a simple file is one VP8 or VP8L, which [Order] already limits to one.
-        // The flags match the kept chunks (alpha may also be set for VP8L or frames that carry it).
+        // The ICC and animation bits match the kept chunks, and so does alpha when ALPH is there; without ALPH an alpha bit
+        // is the input's, kept because a VP8L bitstream or a frame can carry its own alpha ([Order.flags]).
         if (extended && vp8xFlags != order.flags(vp8xFlags)) return false
         return order.complete()
     }

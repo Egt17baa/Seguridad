@@ -1,7 +1,7 @@
 package app.seguridad.ui.screens
 
-import android.graphics.Bitmap
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,16 +13,16 @@ import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.systemGestures
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
@@ -34,10 +34,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,27 +53,24 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.core.graphics.scale
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.core.graphics.scale
 import app.seguridad.android.RedactSource
 import app.seguridad.android.decodeForRedaction
 import app.seguridad.android.renderRedacted
 import app.seguridad.android.shareImage
+import app.seguridad.tools.ImageOutOfMemory
 import app.seguridad.tools.PHOTO_DONE_SHORT
 import app.seguridad.tools.PHOTO_SAVE_COPY
 import app.seguridad.tools.PHOTO_SAVE_FAILED
 import app.seguridad.tools.PHOTO_SHARE_FAILED
-import app.seguridad.tools.ImageOutOfMemory
-import app.seguridad.tools.imageCopyFailureText
-import app.seguridad.tools.imageOpenFailureText
-import app.seguridad.tools.redactCanvasDescription
 import app.seguridad.tools.REDACT_CHANGED
 import app.seguridad.tools.REDACT_COPY_FAILED
 import app.seguridad.tools.REDACT_DAMAGED
@@ -87,15 +84,16 @@ import app.seguridad.tools.REDACT_REDO
 import app.seguridad.tools.REDACT_RENDERING
 import app.seguridad.tools.REDACT_TOOL_TITLE
 import app.seguridad.tools.REDACT_TOO_BIG
-import app.seguridad.tools.photoUnsupportedText
 import app.seguridad.tools.REDACT_TOO_LARGE
 import app.seguridad.tools.REDACT_UNDO
 import app.seguridad.tools.SHARE
+import app.seguridad.tools.imageCopyFailureText
+import app.seguridad.tools.imageOpenFailureText
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoFailure
 import app.seguridad.tools.photo.PhotoFormat
-import app.seguridad.tools.redact.Box as RedactBox
+import app.seguridad.tools.photoUnsupportedText
 import app.seguridad.tools.redact.RedactHistory
 import app.seguridad.tools.redact.ViewRect
 import app.seguridad.tools.redact.boxFromDrag
@@ -104,13 +102,13 @@ import app.seguridad.tools.redact.redactFileName
 import app.seguridad.tools.redact.redactMegapixels
 import app.seguridad.tools.redact.redactMime
 import app.seguridad.tools.redact.redactOutputFormat
+import app.seguridad.tools.redactCanvasDescription
 import app.seguridad.tools.redactDownscaledText
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.SectionCard
-import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -118,7 +116,9 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.max
+import app.seguridad.tools.redact.Box as RedactBox
 
 /** Longest side of the bitmap the screen draws: a full 24 MP one may be too big for the GPU to show. */
 private const val PREVIEW_MAX_SIDE = 2048
@@ -303,6 +303,14 @@ private class RedactViewModel(private val appContext: Context, private val share
             return
         }
         val snapshot = p.history.boxes
+        // The button is off with no box; checked again here (MN, T5 of §2.5): an empty document chosen in the picker is
+        // never filled with an untouched copy named «imagen-tachada».
+        if (snapshot.isEmpty()) {
+            viewModelScope.launch(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
+            done = null
+            error = REDACT_CHANGED
+            return
+        }
         busy = REDACT_RENDERING
         viewModelScope.launch {
             var written = false
@@ -339,6 +347,7 @@ private class RedactViewModel(private val appContext: Context, private val share
     fun share() {
         val p = picture ?: return
         val snapshot = p.history.boxes
+        if (snapshot.isEmpty()) return // As in [save]: the button is off with no box.
         busy = REDACT_RENDERING
         viewModelScope.launch {
             var prepared: File? = null

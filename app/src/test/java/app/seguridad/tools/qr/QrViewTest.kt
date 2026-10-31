@@ -148,6 +148,20 @@ class QrViewTest {
     }
 
     @Test
+    fun aLinkWithUserInfoIsClearedOnLeavingButStaysShown() {
+        // MN (T7 of §2.5): «usuario:contraseña@» (or a token where the user name goes) is a credential: it goes when the
+        // app stops, like a Wi-Fi password, but the text stays on screen as before (it is what the alert points at).
+        for (t in listOf("https://ana:clave@banco.es/", "https://ghp_token@github.com/x", "www.ana:clave@banco.es", "https://banco.es@evil.com/")) {
+            val v = qrView(t)
+            assertTrue(t, v.carriesSecret)
+            assertFalse(t, v.textHidden)
+            assertNull(t, v.secret)
+        }
+        assertFalse(qrView("https://banco.es/ana@x").carriesSecret) // An «@» in the path is not user info.
+        assertFalse(qrView("mailto:ana@banco.es").carriesSecret)
+    }
+
+    @Test
     fun aDangerousSchemeIsNamedWithItsMarks() {
         assertEquals(listOf(qrScheme("data:")), qrView("data:text/html,<b>x</b>").alerts)
     }

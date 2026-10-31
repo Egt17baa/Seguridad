@@ -10,6 +10,13 @@ package app.seguridad.tools.photo
  *
  * Input is hostile: every length and offset is checked against the array before use, every
  * loop advances, and the only exception that leaves this object is [PhotoFailure].
+ *
+ * Accepted residual risk (MN, T1 of §2.5): the bodies of the kept segments are copied as they are, checked only for
+ * their length. A DQT, DHT or SOF with spare bytes inside, the header of an SOS, the 12 bytes of APP14, the ICC profile
+ * (whose `desc` and `cprt` tags are free text, such as the maker's name) and the scan data itself can carry a few bytes
+ * of anything. That is a small hidden channel a sender can fill on purpose, not metadata a camera or a viewer writes or
+ * reads: checking every table would not close it (the pixels can hide data too), and rewriting them would mean decoding
+ * and encoding the image, which «Limpiar foto» does not do. The screen says the colour profile is kept.
  */
 object Jpeg {
     /** [check]: the caller's cancellation checkpoint, called once per segment and every MiB of scan data (HERR-1). */
@@ -260,36 +267,53 @@ object Jpeg {
      * least one SOF before the first SOS; and a final EOI with nothing after. No fill bytes,
      * no standalone markers, nothing else: exactly the shapes [clean] writes.
      */
-    internal fun isCleanOutput(b: ByteArray, check: () -> Unit = {}): Boolean {
+    internal fun isCleanOutput(b: ByteArray, check: () -> Unit = {}): Boolean = cleanOutputRefusal(b, check) == null
+
+    /**
+     * Why [isCleanOutput] refuses [b], or null when it does not. The first rule broken, in file order, so a test can
+     * check that each dirty shape is refused for the reason it names and not for another one (a length that runs past
+     * the end, say: MN, T1 of §2.5). Fill bytes and standalone markers are refused by name before any length is read.
+     */
+    internal fun cleanOutputRefusal(b: ByteArray, check: () -> Unit = {}): JpegRefusal? {
         val n = b.size
         fun u8(i: Int) = b[i].toInt() and 0xFF
-        if (n < 4 || u8(0) != 0xFF || u8(1) != 0xD8) return false
+        if (n < 4 || u8(0) != 0xFF || u8(1) != 0xD8) return JpegRefusal.NOT_JPEG
         val canonicalApp1 = (2..8).map { orientationApp1(it) }
         var sawSof = false
         var sawSos = false
         var p = 2
         while (true) {
             check()
-            if (p + 2 > n || u8(p) != 0xFF) return false
+            if (p + 2 > n || u8(p) != 0xFF) return JpegRefusal.TRUNCATED
             val m = u8(p + 1)
-            if (m == 0xD9) return sawSos && p + 2 == n
-            if (p + 4 > n) return false
+            if (m == 0xD9) {
+                return when {
+                    !sawSos -> JpegRefusal.NO_SOS
+                    p + 2 != n -> JpegRefusal.BYTES_AFTER_EOI
+                    else -> null
+                }
+            }
+            if (m == 0xFF) return JpegRefusal.FILL_BYTES
+            if (m == 0x01 || m in 0xD0..0xD7) return JpegRefusal.STANDALONE_MARKER
+            if (p + 4 > n) return JpegRefusal.TRUNCATED
             val len = (u8(p + 2) shl 8) or u8(p + 3)
             val end = p + 2 + len
-            if (len < 2 || end > n) return false
-            val ok = when (m) {
-                0xDB, 0xC4, 0xDD, 0xCC -> true
-                in 0xC0..0xCF -> if (m == 0xC8) false else { sawSof = true; true }
-                0xE1 -> p == 2 && canonicalApp1.any { Bytes.startsWith(b, p, end, it) && end - p == it.size }
-                0xE2 -> Bytes.startsWith(b, p + 4, end, ICC)
-                0xEE -> len == ADOBE_PAYLOAD + 2 && Bytes.startsWith(b, p + 4, end, ADOBE)
-                0xDA -> sawSof
-                else -> false
+            if (len < 2 || end > n) return JpegRefusal.BAD_LENGTH
+            val refusal = when (m) {
+                0xDB, 0xC4, 0xDD, 0xCC -> null
+                in 0xC0..0xCF -> if (m == 0xC8) JpegRefusal.MARKER_NOT_KEPT else { sawSof = true; null }
+                0xE1 -> JpegRefusal.APP1_NOT_CANONICAL.takeUnless {
+                    p == 2 && canonicalApp1.any { Bytes.startsWith(b, p, end, it) && end - p == it.size }
+                }
+                0xE2 -> JpegRefusal.APP2_NOT_ICC.takeUnless { Bytes.startsWith(b, p + 4, end, ICC) }
+                0xEE -> JpegRefusal.ADOBE_NOT_CANONICAL.takeUnless { len == ADOBE_PAYLOAD + 2 && Bytes.startsWith(b, p + 4, end, ADOBE) }
+                0xDA -> JpegRefusal.SOS_BEFORE_SOF.takeUnless { sawSof }
+                else -> JpegRefusal.MARKER_NOT_KEPT
             }
-            if (!ok) return false
+            if (refusal != null) return refusal
             p = if (m == 0xDA) {
                 sawSos = true
-                try { scanEnd(b, end, check) } catch (e: PhotoFailure) { return false }
+                try { scanEnd(b, end, check) } catch (e: PhotoFailure) { return JpegRefusal.NO_EOI }
             } else {
                 end
             }
@@ -499,4 +523,46 @@ internal object Exif {
     }
 
     private fun round2(v: Double): Double = Math.round(v * 100) / 100.0
+}
+
+/** Why [Jpeg.isCleanOutput] refuses a file ([Jpeg.cleanOutputRefusal]): the first rule it breaks. */
+internal enum class JpegRefusal {
+    /** Not SOI at the start. */
+    NOT_JPEG,
+
+    /** Ends before a marker or its length, or something other than FF where a marker goes. */
+    TRUNCATED,
+
+    /** An FF before the marker: [Jpeg.clean] never writes fill bytes. */
+    FILL_BYTES,
+
+    /** RST0 to RST7 or TEM at the top level. */
+    STANDALONE_MARKER,
+
+    /** A segment length below 2, or one that runs past the end. */
+    BAD_LENGTH,
+
+    /** A segment not on the list (COM, other APPn, JPG, DNL, reserved…). */
+    MARKER_NOT_KEPT,
+
+    /** An APP1 that is not one of the canonical Orientation segments (2 to 8) right after SOI. */
+    APP1_NOT_CANONICAL,
+
+    /** An APP2 that is not the colour profile. */
+    APP2_NOT_ICC,
+
+    /** An APP14 that is not Adobe's, trimmed to its 12 bytes. */
+    ADOBE_NOT_CANONICAL,
+
+    /** A scan before any frame header. */
+    SOS_BEFORE_SOF,
+
+    /** Scan data that never ends with a marker: no EOI. */
+    NO_EOI,
+
+    /** EOI with no scan before it. */
+    NO_SOS,
+
+    /** Anything after the EOI. */
+    BYTES_AFTER_EOI,
 }

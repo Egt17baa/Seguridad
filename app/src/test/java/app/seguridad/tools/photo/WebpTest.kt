@@ -183,7 +183,7 @@ class WebpTest {
         // Animation bit follows ANIM and ANMF.
         assertArrayEquals(riff(vp8x(0), vp8), Webp.clean(riff(vp8x(ANIM_FLAG), vp8)))
         assertArrayEquals(riff(vp8x(ANIM_FLAG), anim, anmf(vp8)), Webp.clean(riff(vp8x(0), anim, anmf(vp8))))
-        // Alpha is set when ALPH is kept.
+        // Alpha is set when ALPH is kept (and an input alpha bit with no ALPH stays: see below).
         val alph = riffChunk("ALPH", bytes(0, 1, 2))
         assertArrayEquals(riff(vp8x(ALPHA_FLAG), alph, vp8), Webp.clean(riff(vp8x(0), alph, vp8)))
         // The structural check refuses each mismatch.
@@ -191,7 +191,9 @@ class WebpTest {
             riff(vp8x(ICC_FLAG), vp8), riff(vp8x(0), icc, vp8), riff(vp8x(ANIM_FLAG), vp8),
             riff(vp8x(0), anim, anmf(vp8)), riff(vp8x(0), alph, vp8),
         )) assertFalse(Webp.isCleanOutput(m))
-        assertTrue(Webp.isCleanOutput(riff(vp8x(ICC_FLAG or ALPHA_FLAG), icc, vp8))) // alpha may come from VP8L-like data
+        // An alpha bit without ALPH is the input's and is kept ([Order.flags]: a VP8L or a frame can carry alpha), so it
+        // is no mismatch.
+        assertTrue(Webp.isCleanOutput(riff(vp8x(ICC_FLAG or ALPHA_FLAG), icc, vp8)))
     }
 
     @Test fun frameHeaderReservedBitsAreCleared() {

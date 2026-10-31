@@ -55,6 +55,7 @@ import app.seguridad.android.copySensitive
 import app.seguridad.android.decodeQrFromImage
 import app.seguridad.android.scanQrOptions
 import app.seguridad.tools.imageOpenFailureText
+import app.seguridad.tools.LatestOnly
 import app.seguridad.tools.QR_ADD_CONTACT
 import app.seguridad.tools.QR_ADD_TOTP
 import app.seguridad.tools.QR_CAMERA_FAILED
@@ -138,13 +139,15 @@ fun QrInspectScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
+    // One copy notice at a time: tapping «Copiar» again replaces it instead of queueing another (MN, T7 of §2.5).
+    val copyNotices = remember { LatestOnly() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     // Back here, a text handed to a screen that never took it (its vault gate was left locked) does not stay around.
     LaunchedEffect(Unit) { QrHandoff.clear() }
 
-    // A result with a secret in it (a Wi-Fi password, a 2FA key) does not wait on screen for whoever picks the phone up
-    // next: it goes when the app stops (Home, screen off, another app; the scanner and the picker too, which is harmless:
+    // A result with a secret in it (a Wi-Fi password, a 2FA key, a link with user info) does not wait on screen for
+    // whoever picks the phone up next: it goes when the app stops (Home, screen off, another app; the scanner and the picker too, which is harmless:
     // the result they bring is shown after) and when the vault locks, as the vault's own screens do.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (view?.carriesSecret == true) view = null }
     LaunchedEffect(store) {
@@ -265,7 +268,7 @@ fun QrInspectScreen(
                 }
                 error?.let { Text(it, color = NegativeColor) }
                 view?.let { v ->
-                    QrResult(v, onCopied = { notice -> scope.launch { snackbar.showSnackbar(notice) } }, onAction = {
+                    QrResult(v, onCopied = { notice -> copyNotices.launch(scope) { snackbar.showSnackbar(notice) } }, onAction = {
                         when (v.action) {
                             QrAction.ADD_CONTACT -> { QrHandoff.put(QrTarget.CARD, v.text); onAddContact() }
                             QrAction.OPEN_RECEIVED -> { QrHandoff.put(QrTarget.RECEIVED, v.text); onOpenReceived() }
