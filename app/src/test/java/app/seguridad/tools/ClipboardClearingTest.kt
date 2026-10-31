@@ -30,15 +30,31 @@ class ClipboardClearingTest {
     @Test fun `at its time, a copy is cleared only if it is still that copy of ours, or if the clipboard is hidden`() {
         // One rule for both timers (the copy's own and the one armed on reopening), F4 review M3.
         // Hidden (Android 10+ with the app in the background) or empty: cleared, never a secret left behind.
-        assertTrue(wipeOwnCopy(described = false, seenLabel = null, sameCopy = false))
+        assertTrue(wipeOwnCopy(described = false, seenLabel = null) { false })
         // Still ours, the same copy.
-        assertTrue(wipeOwnCopy(described = true, seenLabel = CLIPBOARD_OWN_LABEL, sameCopy = true))
+        assertTrue(wipeOwnCopy(described = true, seenLabel = CLIPBOARD_OWN_LABEL) { true })
         // Another app's copy since: left alone, also when it has no label (an image, a ClipData without a label).
-        assertFalse(wipeOwnCopy(described = true, seenLabel = "Otra", sameCopy = false))
-        assertFalse(wipeOwnCopy(described = true, seenLabel = "", sameCopy = false))
-        assertFalse(wipeOwnCopy(described = true, seenLabel = null, sameCopy = false))
-        assertFalse(wipeOwnCopy(described = true, seenLabel = null, sameCopy = true))
+        assertFalse(wipeOwnCopy(described = true, seenLabel = "Otra") { false })
+        assertFalse(wipeOwnCopy(described = true, seenLabel = "") { false })
+        assertFalse(wipeOwnCopy(described = true, seenLabel = null) { false })
+        assertFalse(wipeOwnCopy(described = true, seenLabel = null) { true })
         // A newer copy of ours: its own timer clears it.
-        assertFalse(wipeOwnCopy(described = true, seenLabel = CLIPBOARD_OWN_LABEL, sameCopy = false))
+        assertFalse(wipeOwnCopy(described = true, seenLabel = CLIPBOARD_OWN_LABEL) { false })
+    }
+
+    @Test fun `another app's clip is never read, and a hidden clipboard needs no read either (F4 re-review N1)`() {
+        // Reading another app's clip (getPrimaryClip) shows Android 12+'s access toast: the check of the copy must not
+        // run unless the label is ours. A check that throws proves it is not called.
+        var reads = 0
+        val read: () -> Boolean = { reads++; error("must not read another app's clip") }
+        assertFalse(wipeOwnCopy(described = true, seenLabel = "Otra", sameCopy = read))
+        assertFalse(wipeOwnCopy(described = true, seenLabel = "", sameCopy = read))
+        assertFalse(wipeOwnCopy(described = true, seenLabel = null, sameCopy = read))
+        assertTrue(wipeOwnCopy(described = false, seenLabel = null, sameCopy = read))
+        assertEquals(0, reads)
+        // Ours: the check runs, once.
+        var ownReads = 0
+        assertTrue(wipeOwnCopy(described = true, seenLabel = CLIPBOARD_OWN_LABEL) { ownReads++; true })
+        assertEquals(1, ownReads)
     }
 }

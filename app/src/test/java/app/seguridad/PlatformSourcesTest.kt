@@ -222,6 +222,12 @@ class PlatformSourcesTest {
         assertTrue("ownCopyClearDelay(" in src)
         // F4 review M3: both timers use the same rule.
         assertEquals(2, Regex("""wipeOwnCopy\(""").findAll(src).count())
+        // F4 re-review N1: the clip's text is read only inside the check, which runs only under our label.
+        val clip = main("android/Clipboard.kt")
+        val read = clip.indexOf("cm.primaryClip?.getItemAt")
+        assertTrue(read > 0)
+        assertTrue("the text read must be inside wipeOwnCopy's check", insideCall(clip, "wipeOwnCopy", read))
+        assertEquals("one read of the clip's content", 1, Regex("""\.primaryClip\b""").findAll(code("android/Clipboard.kt").substringBefore("fun readClipboardText")).count())
         // F4 review M2: the process-wide timer must not hold the Activity.
         val b = blank(main("android/Clipboard.kt"))
         val stale = callRange(b, b.indexOf("fun clearStaleCopy("))

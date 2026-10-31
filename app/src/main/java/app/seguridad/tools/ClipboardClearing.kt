@@ -17,10 +17,11 @@ fun ownCopyClearDelay(nowMs: Long, copiedAtMs: Long, clearAfterMs: Long): Long {
 /**
  * At the time of a copy of ours, whether to clear the clipboard: one rule for the copy's own timer and for the one
  * armed on reopening (F4 review M3). [described] is whether Android gave the clip's description: without it the
- * clipboard is hidden (Android 10+, app not in the foreground) or empty, and it is cleared, never leaving a secret
- * there. With it, only that same copy of ours goes ([sameCopy]: its text, or its time for a copy found on reopening):
- * another app's copy stays, also one with no label (an image, a ClipData without a label), and a newer copy of ours
- * has its own timer.
+ * clipboard is hidden (Android 10+, the app without the input focus) or empty, and it is cleared, never leaving a
+ * secret there. With it, only that same copy of ours goes: another app's copy stays, also one with no label (an image,
+ * a ClipData without a label), and a newer copy of ours has its own timer. [sameCopy] (its text, or its time for a copy
+ * found on reopening) runs only when the label is ours, so another app's clip is never read: reading it shows Android
+ * 12+'s clipboard access toast and takes its content for nothing (F4 re-review N1).
  */
-fun wipeOwnCopy(described: Boolean, seenLabel: CharSequence?, sameCopy: Boolean): Boolean =
-    !described || seenLabel?.toString() == CLIPBOARD_OWN_LABEL && sameCopy
+fun wipeOwnCopy(described: Boolean, seenLabel: CharSequence?, sameCopy: () -> Boolean): Boolean =
+    !described || seenLabel?.toString() == CLIPBOARD_OWN_LABEL && sameCopy()
