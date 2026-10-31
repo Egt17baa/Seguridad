@@ -119,19 +119,14 @@ class CodesSession(
     var saving: Boolean by savingCell
         private set
 
-    /** When the screen stopped (monotonic ms); null while it is shown. */
-    private var stoppedAt: Long? = null
-
     /** The vault was open the last time its state was told: only a change from open to not open is a lock. */
     private var wasUnlocked = false
 
-    /** The last tap or key on this screen (monotonic ms), for the idle lock: the screen never touches the vault. */
-    private var lastUsed: Long = createdAt
+    /** When what was drawn must go: the time away, in the other app too, and the locks ([ScreenAway]). */
+    private val away = ScreenAway(createdAt)
 
-    /** Any tap or key on the screen. */
-    fun used(now: Long) {
-        lastUsed = now
-    }
+    /** Any tap or key on the screen (monotonic ms), for the idle lock: the screen never touches the vault. */
+    fun used(now: Long) = away.used(now)
 
     val canDrawAnswers: Boolean get() = words != null
 
@@ -227,18 +222,27 @@ class CodesSession(
      * tab). [now] from SystemClock.elapsedRealtime(). The first stop of a trip away counts: a later one (a rotation's
      * dispose after its ON_STOP) does not move it.
      */
-    fun stopped(now: Long) {
-        if (stoppedAt == null) stoppedAt = now
-    }
+    fun stopped(now: Long) = away.stopped(now)
 
     /**
      * ON_START of the screen. True (and the screen is empty) when it was away at least the lock time ([awayTooLong]):
      * a short trip, to copy a code into a website and come back, keeps everything.
      */
     fun started(now: Long, lockAfterMs: Long): Boolean {
-        val at = stoppedAt ?: return false
-        stoppedAt = null
-        if (!awayTooLong(now - at, lockAfterMs)) return false
+        if (!away.started(now, lockAfterMs)) return false
+        wipe()
+        return true
+    }
+
+    /**
+     * COV2-3 (M3 of the F1 review): another app took the focus while Seguridad stays visible, in split screen or a floating
+     * window (no ON_STOP comes). The time in the other app counts as time away.
+     */
+    fun otherAppFocused(now: Long) = away.otherAppFocused(now)
+
+    /** Back from the other app: true (and the screen is empty) when it was there at least [awayTooLong]. */
+    fun otherAppLeft(now: Long, lockAfterMs: Long): Boolean {
+        if (!away.otherAppLeft(now, lockAfterMs)) return false
         wipe()
         return true
     }
@@ -246,18 +250,16 @@ class CodesSession(
     /**
      * The vault's state, each time it changes; [lock] is asked only for a change from open to locked. With the app in use
      * (on this tab or another) a lock wipes the screen: by hand always, the idle one only if this screen was not used for
-     * the lock time either ([awayTooLong] since [lastUsed]), so typing here keeps it. A lock from leaving the app (always
-     * there, MainActivity.onStop) is left to [started]: the time away decides, or copying a code into a website and
-     * coming back would lose it.
+     * the lock time either ([awayTooLong] since the last [used]), so typing here keeps it; while the user is in another
+     * app in multi-window ([otherAppFocused]), always. A lock from leaving the app (always there, MainActivity.onStop) is
+     * left to [started]: the time away decides, or copying a code into a website and coming back would lose it. The rule
+     * itself is [ScreenAway.lockWipes].
      */
     fun vaultStateIs(unlocked: Boolean, lock: () -> LockSeen) {
         val locked = wasUnlocked && !unlocked
         wasUnlocked = unlocked
         if (!locked) return
-        val seen = lock()
-        if (!seen.appInForeground || seen.reason == LockReason.LEFT_APP) return
-        if (seen.reason == LockReason.IDLE && !awayTooLong(seen.now - lastUsed, seen.lockAfterMs)) return
-        wipe()
+        if (away.lockWipes(lock())) wipe()
     }
 
     /**

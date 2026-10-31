@@ -23,6 +23,9 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -81,6 +84,16 @@ class AppContainer(
      */
     @Volatile var foreground: Boolean = false
 
+    private val _awayInOtherApp = MutableStateFlow(false)
+
+    /**
+     * COV2-3: in split screen or a floating window, another app has the focus (Seguridad is still visible, so no onStop).
+     * Set by MainActivity through [leftForAnotherApp] and [backFromAnotherApp]; the vault's idle lock reads it (the
+     * «Al salir» backstop) and «PIN y códigos» counts it as time away (M3 of the F1 review). The app's own dialogs and
+     * menus never change it: they are windows of the activity, not activities.
+     */
+    val awayInOtherApp: StateFlow<Boolean> = _awayInOtherApp.asStateFlow()
+
     /** The only connection of the app (Have I Been Pwned), with the eMudhra keys distrusted; built on first use. */
     val client: OkHttpClient by lazy { secureClient(appVersion) }
 
@@ -101,7 +114,24 @@ class AppContainer(
         onClockSeen = ::rememberClock,
         onClockReset = ::resetClock,
         elapsed = elapsedRealtime,
+        awayInMultiWindow = { _awayInOtherApp.value },
     )
+
+    /**
+     * Another app took the focus in multi-window. With «Al salir» the vault's backstop counts from now
+     * ([VaultStore.leftForAnotherWindow], M1); a repeat while already away changes nothing.
+     */
+    fun leftForAnotherApp() {
+        if (_awayInOtherApp.value) return
+        vault.leftForAnotherWindow()
+        _awayInOtherApp.value = true
+    }
+
+    /** Back on top: the time away is checked first (it may lock, as on onStart), then the flag goes. */
+    fun backFromAnotherApp() {
+        vault.lockIfIdle()
+        _awayInOtherApp.value = false
+    }
 
     // The A11 clock mark. The one in force is kept here, in memory, and saved to the settings when it is worth it: a
     // write that fails (a full disk) never closes the app and never lowers the mark the fingerprint is checked against

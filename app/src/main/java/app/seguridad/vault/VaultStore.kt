@@ -107,8 +107,8 @@ class VaultStore(
     private val idleLockMs: () -> Long = { 5 * 60_000L },
     /** Whether a picker or the QR scanner we opened keeps the vault open in the background ([VaultLock.keepOpenOnce]). */
     private val keptOpen: () -> Boolean = { VaultLock.keepOpenOnce },
-    /** Whether, in split screen or a floating window, another app has the focus ([VaultLock.awayInMultiWindow], COV2-3). */
-    private val awayInMultiWindow: () -> Boolean = { VaultLock.awayInMultiWindow },
+    /** Whether, in split screen or a floating window, another app has the focus (AppContainer.awayInOtherApp, COV2-3). */
+    private val awayInMultiWindow: () -> Boolean = { false },
     /** Whether the app is in use (AppContainer.foreground), recorded with each lock ([lastLockInForeground]). */
     private val inForeground: () -> Boolean = { true },
     /** Encrypted attachments, in files/vault/att/ next to the vault file. */
@@ -488,6 +488,15 @@ class VaultStore(
     fun touch() {
         lastUse = elapsed()
         onClockSeen(now())
+    }
+
+    /**
+     * Another app takes the focus in multi-window (COV2-3). With «Al salir» the time away starts now, as before a picker
+     * ([backstopFromLeaving], M1 of the F1 review): its [AWAY_BACKSTOP_MS] count from the app switch, not from the last
+     * vault screen touched. A time chosen in Ajustes keeps counting from the real last use.
+     */
+    fun leftForAnotherWindow() {
+        if (backstopFromLeaving(idleLockMs())) touch()
     }
 
     /**
@@ -984,14 +993,13 @@ internal fun idleLimitMs(chosen: Long, keptOpen: Boolean, awayInMultiWindow: Boo
     else -> 0L
 }
 
+/**
+ * Whether the [AWAY_BACKSTOP_MS] of a trip away (to another app in multi-window) count from the moment of leaving: only
+ * with «Al salir» ([chosen] 0). A time chosen in Ajustes already counts the time without use.
+ */
+internal fun backstopFromLeaving(chosen: Long): Boolean = chosen <= 0L
+
 object VaultLock {
     /** Set just before the vault opens a system screen (file picker, QR scanner) so leaving the app for it does not lock. */
     @Volatile var keepOpenOnce = false
-
-    /**
-     * COV2-3: in split screen or a floating window, the activity lost the focus to another app (it is still visible,
-     * so no onStop). Set and cleared by MainActivity; [VaultStore.lockIfIdle] then locks after [AWAY_BACKSTOP_MS]
-     * without use, also with «Al salir». The app's own dialogs never change it (they are windows, not activities).
-     */
-    @Volatile var awayInMultiWindow = false
 }

@@ -176,6 +176,94 @@ class CodesSessionTest {
         assertEquals(tPin, t.pin)
     }
 
+    @Test fun `M3 split screen, back from the other app after the time away, everything drawn is new`() {
+        val s = filled()
+        val pin = s.pin
+        val codes = s.codes
+        val answers = s.rows.map { it.answer }
+        s.otherAppFocused(0)
+        assertFalse(s.otherAppLeft(59_999, lockAfterMs = 0)) // A short trip to the browser keeps it.
+        assertEquals(pin, s.pin)
+        s.otherAppFocused(100_000)
+        assertFalse(s.otherAppLeft(100_000 + 299_999, lockAfterMs = 300_000))
+        assertEquals(pin, s.pin)
+        s.otherAppFocused(1_000_000)
+        assertTrue(s.otherAppLeft(1_000_000 + 60_000, lockAfterMs = 0))
+        assertNotEquals(pin, s.pin)
+        assertNotEquals(codes, s.codes)
+        assertNotEquals(answers, s.rows.map { it.answer })
+        // Not secrets: they stay.
+        assertEquals("banco.es", s.recoverySite)
+        assertEquals("¿Calle?", s.rows[1].question)
+    }
+
+    @Test fun `M3 a lock while the user is in the other app wipes, even right after using the screen`() {
+        val s = filled()
+        val pin = s.pin
+        s.vaultStateIs(unlocked = true) { error("not a lock") }
+        s.used(1_000)
+        s.otherAppFocused(1_000)
+        s.vaultStateIs(unlocked = false) { LockSeen(LockReason.IDLE, appInForeground = true, now = 2_000, lockAfterMs = 300_000) }
+        assertNotEquals(pin, s.pin)
+        // Back in the app afterwards: nothing more to do.
+        val again = s.pin
+        assertFalse(s.otherAppLeft(3_000, lockAfterMs = 0))
+        assertEquals(again, s.pin)
+    }
+
+    @Test fun `M3 the idle lock in the app, after coming back from the other app, keeps a screen in use`() {
+        val s = filled()
+        val pin = s.pin
+        s.vaultStateIs(unlocked = true) { error("not a lock") }
+        s.otherAppFocused(0)
+        assertFalse(s.otherAppLeft(10_000, lockAfterMs = 0))
+        s.used(10_000)
+        s.vaultStateIs(unlocked = false) { LockSeen(LockReason.IDLE, appInForeground = true, now = 20_000, lockAfterMs = 0) }
+        assertEquals(pin, s.pin)
+    }
+
+    @Test fun `M3 the other app never uses up the stop of another tab or of leaving the app`() {
+        // On another tab (the composition went, so the time away counts from there), then a trip to the other app.
+        val s = filled()
+        val pin = s.pin
+        s.stopped(0)
+        s.otherAppFocused(10_000)
+        assertFalse(s.otherAppLeft(20_000, lockAfterMs = 0))
+        assertTrue("The tab's stop still counts", s.started(60_000, lockAfterMs = 0))
+        assertNotEquals(pin, s.pin)
+        // In the other app, then Home (a real ON_STOP): the trip counts from the first of the two, once.
+        val t = filled()
+        val tPin = t.pin
+        t.otherAppFocused(0)
+        t.stopped(5_000)
+        assertFalse(t.started(50_000, lockAfterMs = 0))
+        assertFalse(t.otherAppLeft(120_000, lockAfterMs = 0))
+        assertEquals(tPin, t.pin)
+        // Never focused away: back does nothing.
+        assertFalse(filled().otherAppLeft(10_000_000, lockAfterMs = 0))
+    }
+
+    @Test fun `M3 the rule on its own, for other screens`() {
+        val a = ScreenAway(createdAt = 0)
+        a.otherAppFocused(0)
+        assertTrue(a.inOtherApp)
+        assertTrue(a.otherAppLeft(60_000, lockAfterMs = 0))
+        assertFalse(a.inOtherApp)
+        a.stopped(100_000)
+        assertFalse(a.started(159_999, lockAfterMs = 0))
+        a.stopped(200_000)
+        assertTrue(a.started(260_000, lockAfterMs = 0))
+        // The lock: wiped by hand always, idle only when unused, never one from leaving the app; always in the other app.
+        a.used(1_000)
+        assertTrue(a.lockWipes(LockSeen(LockReason.MANUAL, true, 1_001, 300_000)))
+        assertFalse(a.lockWipes(LockSeen(LockReason.IDLE, true, 1_001, 300_000)))
+        assertTrue(a.lockWipes(LockSeen(LockReason.IDLE, true, 301_000, 300_000)))
+        assertFalse(a.lockWipes(LockSeen(LockReason.LEFT_APP, false, 10_000_000, 0)))
+        assertFalse(a.lockWipes(LockSeen(LockReason.IDLE, false, 10_000_000, 0)))
+        a.otherAppFocused(1_002)
+        assertTrue(a.lockWipes(LockSeen(LockReason.IDLE, true, 1_003, 300_000)))
+    }
+
     @Test fun clearingTheHolderDropsEverySecret() {
         val s = filled()
         s.requestSave(SaveKind.RECOVERY, unlocked = false, now = 0, id = "x")
