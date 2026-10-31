@@ -14,9 +14,10 @@ import java.io.ByteArrayOutputStream
  * least 8 bytes, and the only exception that leaves this object is [PhotoFailure].
  */
 object Webp {
-    fun inspect(bytes: ByteArray): PhotoReport = parse(bytes).report
+    /** [check]: the caller's cancellation checkpoint, called once per chunk and in the XMP reader (HERR-1). */
+    fun inspect(bytes: ByteArray, check: () -> Unit = {}): PhotoReport = parse(bytes, check).report
 
-    fun clean(bytes: ByteArray): ByteArray = parse(bytes).out
+    fun clean(bytes: ByteArray, check: () -> Unit = {}): ByteArray = parse(bytes, check).out
 
     private class Parsed(val report: PhotoReport, val out: ByteArray)
 
@@ -83,7 +84,7 @@ object Webp {
         }
     }
 
-    private fun parse(b: ByteArray): Parsed {
+    private fun parse(b: ByteArray, check: () -> Unit): Parsed {
         val end = riffEnd(b) ?: damaged()
         val found = HashSet<Found>()
         if (end < b.size) found += Found.OTHER // bytes after the RIFF
@@ -95,6 +96,7 @@ object Webp {
         var p = 12
         var index = 0
         while (p < end) {
+            check()
             val c = chunkAt(b, p, end) ?: damaged()
             if (dirtyPad(b, c)) found += Found.OTHER
             when (c.id) {
@@ -108,7 +110,7 @@ object Webp {
                     if (!order.accept(c.id)) damaged()
                     if (c.id == "ANIM" && c.size != ANIM_SIZE) damaged()
                     if (c.id == "ICCP") found += Found.ICC_KEPT
-                    write(body, c.id, if (c.id == "ANMF") anmf(b, c, found) else b.copyOfRange(c.dataAt, c.dataEnd))
+                    write(body, c.id, if (c.id == "ANMF") anmf(b, c, found, check) else b.copyOfRange(c.dataAt, c.dataEnd))
                 }
                 "EXIF" -> {
                     // Some writers prefix the TIFF with the JPEG-style «Exif\0\0».
@@ -119,7 +121,7 @@ object Webp {
                     // Several EXIF chunks: gps and orientation come from the first, `found` merges all.
                     if (exif == null) exif = info
                 }
-                "XMP " -> { found += Found.XMP_COMMENTS; found += Xmp.flags(b, c.dataAt, c.dataEnd) }
+                "XMP " -> { found += Found.XMP_COMMENTS; found += Xmp.flags(b, c.dataAt, c.dataEnd, check) }
                 "C2PA" -> found += Found.C2PA
                 else -> found += Found.OTHER
             }
@@ -157,7 +159,7 @@ object Webp {
     }
 
     /** An ANMF payload: the 16-byte frame header and only the ALPH, VP8 and VP8L sub-chunks. */
-    private fun anmf(b: ByteArray, c: Chunk, found: MutableSet<Found>): ByteArray {
+    private fun anmf(b: ByteArray, c: Chunk, found: MutableSet<Found>, check: () -> Unit): ByteArray {
         if (c.size < ANMF_HEADER) damaged()
         val out = ByteArrayOutputStream()
         val header = b.copyOfRange(c.dataAt, c.dataAt + ANMF_HEADER)
@@ -169,6 +171,7 @@ object Webp {
         var bitstream = false
         var p = c.dataAt + ANMF_HEADER
         while (p < c.dataEnd) {
+            check()
             val s = chunkAt(b, p, c.dataEnd) ?: damaged()
             if (dirtyPad(b, s)) found += Found.OTHER
             when (s.id) {
@@ -201,7 +204,7 @@ object Webp {
      * zero) followed by only ICCP, ALPH, ANIM, VP8, VP8L and ANMF in the order [clean] writes
      * them. Padding is zero, and a frame holds nothing but ALPH, VP8 or VP8L.
      */
-    internal fun isCleanOutput(b: ByteArray): Boolean {
+    internal fun isCleanOutput(b: ByteArray, check: () -> Unit = {}): Boolean {
         val end = riffEnd(b) ?: return false
         if (end != b.size) return false
         val order = Order()
@@ -209,6 +212,7 @@ object Webp {
         var vp8xFlags = 0
         var p = 12
         while (p < end) {
+            check()
             val c = chunkAt(b, p, end) ?: return false
             if (dirtyPad(b, c)) return false
             when (c.id) {
@@ -225,7 +229,7 @@ object Webp {
                     if (c.id == "ANIM" && c.size != ANIM_SIZE) return false
                     if (c.id == "ANMF") {
                         val found = HashSet<Found>()
-                        val again = try { anmf(b, c, found) } catch (e: PhotoFailure) { return false }
+                        val again = try { anmf(b, c, found, check) } catch (e: PhotoFailure) { return false }
                         if (found.isNotEmpty() || !again.contentEquals(b.copyOfRange(c.dataAt, c.dataEnd))) return false
                     }
                 }

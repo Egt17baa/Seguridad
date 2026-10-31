@@ -59,6 +59,16 @@ const val PHOTO_THUMBNAIL = "Miniatura incrustada: puede mostrar la foto entera,
 const val PHOTO_XMP_COMMENTS = "Datos del editor (XMP), comentarios"
 const val PHOTO_ICC_KEPT = "Perfil de color: se conserva para que no cambien los colores"
 const val PHOTO_MOTION_VIDEO = "Incluye un vídeo corto (foto en movimiento): se quita"
+
+/**
+ * Not in the annex's reviewed list (Ultra HDR review, audit 1.3.0): an HDR photo's gain map (Ultra HDR XMP or ISO
+ * 21496-1) used to be called a motion photo. The copy keeps only the base image, so on an HDR screen it looks as on any.
+ */
+const val PHOTO_HDR_GAIN_MAP =
+    "Mapa de ganancia HDR: una segunda imagen que da más brillo a la foto en las pantallas HDR. Se quita, y la copia se ve sin HDR"
+
+/** Not in the annex's reviewed list (as above): MPF or a JPEG after the image, without a gain map. */
+const val PHOTO_EXTRA_IMAGE = "Otra imagen guardada dentro del archivo (por ejemplo, una vista previa): se quita"
 const val PHOTO_C2PA =
     "Credenciales de contenido (C2PA): dicen cómo se creó o editó la imagen, a veces con IA. Si la imagen está hecha o " +
         "retocada con IA y la vas a publicar, dilo tú"
@@ -76,6 +86,8 @@ val PHOTO_FOUND_TEXTS: Map<Found, String> = linkedMapOf(
     Found.XMP_COMMENTS to PHOTO_XMP_COMMENTS,
     Found.ICC_KEPT to PHOTO_ICC_KEPT,
     Found.MOTION_VIDEO to PHOTO_MOTION_VIDEO,
+    Found.HDR_GAIN_MAP to PHOTO_HDR_GAIN_MAP,
+    Found.EXTRA_IMAGE to PHOTO_EXTRA_IMAGE,
     Found.C2PA to PHOTO_C2PA,
     Found.AUTHOR_RIGHTS to PHOTO_AUTHOR_RIGHTS,
     Found.OTHER to PHOTO_OTHER,
@@ -89,6 +101,8 @@ val PHOTO_REMOVED_NAMES: Map<Found, String> = linkedMapOf(
     Found.THUMBNAIL to "miniatura incrustada",
     Found.XMP_COMMENTS to "datos del editor (XMP), comentarios",
     Found.MOTION_VIDEO to "vídeo corto (foto en movimiento)",
+    Found.HDR_GAIN_MAP to "mapa de ganancia HDR",
+    Found.EXTRA_IMAGE to "otra imagen guardada dentro del archivo",
     Found.C2PA to "credenciales de contenido (C2PA)",
     Found.AUTHOR_RIGHTS to "datos de autor y de derechos",
     Found.OTHER to "otros datos ocultos del archivo",
@@ -578,6 +592,14 @@ const val DONT_SEND_FILE_NAME = "No enviar el nombre"
 /** A16a, when opening something signed with a key that [count] contacts (more than one) keep. The design's text, with a final period. */
 fun sameKeyContactsText(count: Int): String = "Esta clave está guardada en $count contactos."
 
+/**
+ * COV1-1 (audit 1.3.0), under «Cifrar texto», «Cifrar archivos» and «¿Contraseña filtrada?»: what was typed there (the
+ * text, the password or the key) and the result go by the «PIN y códigos» rule (tools/codes/ScreenGuard.kt).
+ */
+const val TOOLS_AWAY_WIPE_NOTE =
+    "Lo que escribes aquí y el resultado se borran si vuelves atrás, si se cierra la app, si bloqueas la bóveda o si " +
+        "estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo)."
+
 /** Every text above, the parameterised ones with the annex's placeholders; ToolTextsTest checks them. */
 val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE, PHOTO_EXPLANATION, PHOTO_PICK, PHOTO_PICK_OTHER, PHOTO_FOUND_TITLE,
@@ -627,4 +649,6 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     senderContactText(verified = true, addressedToMe = true, title = "x"), senderContactText(verified = true, addressedToMe = false, title = "x"),
     senderContactText(verified = false, addressedToMe = true, title = "x"), senderContactText(verified = false, addressedToMe = false, title = "x"),
     FILE_SIGNATURE_VALID, fileSignatureUnverifiedText("x"), FILE_SIGNATURE_UNKNOWN_KEY, PASSWORD_NOT_TEXT,
+    // Audit 1.3.0, F6 (COV1-1).
+    TOOLS_AWAY_WIPE_NOTE,
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) } + ClipboardClear.entries.map { clipboardAboutText(it.seconds) }

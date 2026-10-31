@@ -119,11 +119,8 @@ class CodesSession(
     var saving: Boolean by savingCell
         private set
 
-    /** The vault was open the last time its state was told: only a change from open to not open is a lock. */
-    private var wasUnlocked = false
-
-    /** When what was drawn must go: the time away, in the other app too, and the locks ([ScreenAway]). */
-    private val away = ScreenAway(createdAt)
+    /** When what was drawn must go: the time away, in the other app too, and the locks ([ScreenGuard], [ScreenAway]). */
+    private val away = ScreenGuard(createdAt) { wipe() }
 
     /** Any tap or key on the screen (monotonic ms), for the idle lock: the screen never touches the vault. */
     fun used(now: Long) = away.used(now)
@@ -228,11 +225,7 @@ class CodesSession(
      * ON_START of the screen. True (and the screen is empty) when it was away at least the lock time ([awayTooLong]):
      * a short trip, to copy a code into a website and come back, keeps everything.
      */
-    fun started(now: Long, lockAfterMs: Long): Boolean {
-        if (!away.started(now, lockAfterMs)) return false
-        wipe()
-        return true
-    }
+    fun started(now: Long, lockAfterMs: Long): Boolean = away.started(now, lockAfterMs)
 
     /**
      * COV2-3 (M3 of the F1 review): another app took the focus while Seguridad stays visible, in split screen or a floating
@@ -241,11 +234,7 @@ class CodesSession(
     fun otherAppFocused(now: Long) = away.otherAppFocused(now)
 
     /** Back from the other app: true (and the screen is empty) when it was there at least [awayTooLong]. */
-    fun otherAppLeft(now: Long, lockAfterMs: Long): Boolean {
-        if (!away.otherAppLeft(now, lockAfterMs)) return false
-        wipe()
-        return true
-    }
+    fun otherAppLeft(now: Long, lockAfterMs: Long): Boolean = away.otherAppLeft(now, lockAfterMs)
 
     /**
      * The vault's state, each time it changes; [lock] is asked only for a change from open to locked. With the app in use
@@ -255,12 +244,7 @@ class CodesSession(
      * left to [started]: the time away decides, or copying a code into a website and coming back would lose it. The rule
      * itself is [ScreenAway.lockWipes].
      */
-    fun vaultStateIs(unlocked: Boolean, lock: () -> LockSeen) {
-        val locked = wasUnlocked && !unlocked
-        wasUnlocked = unlocked
-        if (!locked) return
-        if (away.lockWipes(lock())) wipe()
-    }
+    fun vaultStateIs(unlocked: Boolean, lock: () -> LockSeen) = away.vaultStateIs(unlocked, lock)
 
     /**
      * What was drawn goes: the PIN, the codes and the answers are drawn again, and a save waiting for the vault (it holds

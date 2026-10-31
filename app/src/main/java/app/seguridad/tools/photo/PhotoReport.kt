@@ -9,8 +9,12 @@ const val PHOTO_UNSUPPORTED = "Este formato no se admite. Usa una foto JPEG, PNG
 
 enum class PhotoFormat { JPEG, PNG, WEBP, HEIF }
 
-/** What a photo carries inside the file. ICC_KEPT is the only one the cleaned copy keeps. */
-enum class Found { GPS, DEVICE, DATE_SOFTWARE, THUMBNAIL, XMP_COMMENTS, ICC_KEPT, MOTION_VIDEO, C2PA, AUTHOR_RIGHTS, OTHER }
+/**
+ * What a photo carries inside the file. ICC_KEPT is the only one the cleaned copy keeps. MOTION_VIDEO is a short video
+ * (a motion photo: its XMP marker, or an MP4 after the image); HDR_GAIN_MAP the second image of an HDR photo (Ultra HDR
+ * or ISO 21496-1); EXTRA_IMAGE any other image inside the file (MPF, or a JPEG after the image).
+ */
+enum class Found { GPS, DEVICE, DATE_SOFTWARE, THUMBNAIL, XMP_COMMENTS, ICC_KEPT, MOTION_VIDEO, HDR_GAIN_MAP, EXTRA_IMAGE, C2PA, AUTHOR_RIGHTS, OTHER }
 
 /**
  * @property gps latitude and longitude rounded to 2 decimals, or null if absent or unreadable.

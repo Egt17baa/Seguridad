@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +34,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -75,6 +77,7 @@ import app.seguridad.tools.QR_TEXT_HIDDEN_OTP
 import app.seguridad.tools.QR_TEXT_HIDDEN_PASSWORD
 import app.seguridad.tools.QR_TOOL_TITLE
 import app.seguridad.tools.QR_TOO_BIG
+import app.seguridad.tools.codes.ScreenAway
 import app.seguridad.tools.qr.QrAction
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.tools.qr.QrTarget
@@ -96,6 +99,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
@@ -109,11 +113,21 @@ import kotlinx.coroutines.withContext
  * (a contact card, something received, a 2FA code), which get the text through [QrHandoff], never in the route.
  *
  * What is read lives only in `remember`, never in saved state (a Wi-Fi password or a 2FA key may be in it): turning the
- * phone or coming back from another screen empties it. Nothing is saved and nothing is logged.
+ * phone or coming back from another screen empties it. Nothing is saved and nothing is logged. A result with a secret
+ * also goes when the app stops, when the vault locks, and back from another app in multi-window after
+ * `max(lock time, 60 s)` there ([lockAfterMs], [awayInOtherApp]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived: () -> Unit, onAddTotp: () -> Unit, onBack: () -> Unit) {
+fun QrInspectScreen(
+    store: VaultStore,
+    lockAfterMs: () -> Long,
+    awayInOtherApp: StateFlow<Boolean>,
+    onAddContact: () -> Unit,
+    onOpenReceived: () -> Unit,
+    onAddTotp: () -> Unit,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<QrView?>(null) }
@@ -132,6 +146,21 @@ fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived:
     LaunchedEffect(store) {
         store.state.map { it is VaultState.Unlocked }.distinctUntilChanged().drop(1).collect { open ->
             if (!open && view?.carriesSecret == true) view = null
+        }
+    }
+    // In split screen or a floating window no ON_STOP comes when another app takes the focus (COV2-3): the time spent
+    // there counts as time away, by the «PIN y códigos» rule ([ScreenAway], F6 of the audit 1.3.0), so back after
+    // `max(lock time, 60 s)` in the other app, such a result goes too, even with no vault to lock.
+    val away = remember { ScreenAway(SystemClock.elapsedRealtime()) }
+    val currentLockAfter by rememberUpdatedState(lockAfterMs)
+    LaunchedEffect(awayInOtherApp) {
+        awayInOtherApp.collect { inOtherApp ->
+            val now = SystemClock.elapsedRealtime()
+            if (inOtherApp) {
+                away.otherAppFocused(now)
+            } else if (away.otherAppLeft(now, currentLockAfter()) && view?.carriesSecret == true) {
+                view = null
+            }
         }
     }
 

@@ -416,6 +416,30 @@ class QrContentTest {
     }
 
     @Test
+    fun bitcoinWithASecondWayToPayIsNotShownAsAPayment() {
+        // HERR-2 (audit 1.3.0): a unified BIP-21 QR can carry a Lightning invoice or offer, and a wallet may pay that
+        // instead of the address shown. Keys in any case, percent-encoded too.
+        for (t in listOf(
+            "bitcoin:bc1qcomercio?amount=0.001&lightning=lnbc10u1patacante",
+            "BITCOIN:BC1QCOMERCIO?amount=0.001&LIGHTNING=LNBC10U1PATACANTE",
+            "bitcoin:bc1qcomercio?Lightning=lnbc10u1patacante",
+            "bitcoin:bc1qcomercio?%6Cightning=lnbc10u1patacante",
+            "bitcoin:bc1qcomercio?lno=lno1atacante",
+            "bitcoin:bc1qcomercio?LNO=lno1atacante",
+            "bitcoin:bc1qcomercio?req-pay=x",
+            "bitcoin:bc1qcomercio?amount=1&REQ-Something=1",
+            "bitcoin:bc1qcomercio?req-",
+        )) {
+            assertEquals(t, QrKind.PlainText(t), classifyQr(t))
+        }
+        // Other keys keep it a payment.
+        assertEquals(
+            QrKind.Crypto("bitcoin", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", "1"),
+            classifyQr("bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=1&label=x&message=lightning"),
+        )
+    }
+
+    @Test
     fun emojiVariationSelectorIsNotMarkedAfterAnEmojiOrSymbol() {
         assertEquals("\u2764\uFE0F", visibleText("\u2764\uFE0F")) // ❤️
         assertEquals("\u2764\uFE0E", visibleText("\u2764\uFE0E"))

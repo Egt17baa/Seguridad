@@ -46,6 +46,37 @@ class PlatformSourcesTest {
         assertTrue("awayInOtherApp" in code("ui/AppNavHost.kt"))
     }
 
+    @Test fun `COV1-1 the text, file and leak tools follow the PIN y codigos rule, in a ViewModel`() {
+        val src = code("ui/screens/SecurityToolsScreen.kt")
+        // One ViewModel per tool, each watching the time away, the other app and the vault, and the screen's lifecycle.
+        for (vm in listOf("TextCryptoViewModel", "FileCryptoViewModel", "BreachViewModel")) assertTrue(vm, "class $vm(" in src)
+        assertEquals(3, Regex("""watchAway\(session\.guard, store, lockAfterMs, awayInOtherApp\)""").findAll(src).count())
+        assertEquals(3, Regex("""GuardEffects\(s\.guard, lockAfterMs\)""").findAll(src).count())
+        // Nothing of theirs in saved state but the decrypted copy's path (not a secret).
+        assertEquals(1, Regex("""by rememberSaveable""").findAll(src).count())
+        assertTrue("var pendingPath by rememberSaveable" in src)
+        val wiring = code("ui/screens/ScreenGuardWiring.kt")
+        assertTrue("guard.otherAppFocused(" in wiring && "guard.otherAppLeft(" in wiring && "guard.vaultStateIs(" in wiring)
+        assertTrue("Lifecycle.Event.ON_STOP" in wiring && "Lifecycle.Event.ON_START" in wiring && "onDispose" in wiring)
+        // The QR inspector hears the multi-window signal too (F1 open point).
+        val qr = code("ui/screens/QrInspectScreen.kt")
+        assertTrue("away.otherAppFocused(" in qr && "away.otherAppLeft(" in qr)
+        assertTrue(Regex("""QrInspectScreen\([^)]*awayInOtherApp""").containsMatchIn(code("ui/AppNavHost.kt")))
+    }
+
+    @Test fun `COV1-2 Huella SHA-256 cancels the run before, and its button is off while one runs`() {
+        val src = code("ui/screens/SecurityToolsScreen.kt").substringAfter("class FileHashViewModel")
+        assertTrue("job?.cancel()" in src)
+        assertTrue("session.finish(run, hash)" in src)
+        assertTrue("sha256Hex(input.buffered()) { ensureActive() }" in src)
+        assertTrue("enabled = !s.busy" in src)
+    }
+
+    @Test fun `HERR-1 Limpiar foto passes its cancellation to the readers`() {
+        val src = code("ui/screens/PhotoCleanScreen.kt")
+        assertTrue("PhotoCleaner.inspect(bytes, check)" in src && "PhotoCleaner.clean(bytes, check)" in src)
+    }
+
     @Test fun `ANDROID-1 a deleted share copy has its URI permission revoked`() {
         assertTrue("revokeUriPermission" in code("android/ImageShare.kt"))
         assertTrue("revokeSharedCopy" in code("SeguridadApp.kt"))

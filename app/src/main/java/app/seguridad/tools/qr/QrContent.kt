@@ -121,9 +121,16 @@ private fun sepa(t: String): QrKind? {
 private val CRYPTO_SCHEMES = setOf("bitcoin", "ethereum", "lightning")
 
 /**
+ * HERR-2 (audit 1.3.0): a key that brings a second way to pay (BIP-21's unified QR: a Lightning invoice in `lightning`,
+ * a BOLT 12 offer in `lno`) or one the wallet must understand to pay at all (`req-*`). A wallet may pay that and not the
+ * address shown. [key] is already lower case ([queryPairs]), so any case of it counts.
+ */
+private fun otherWayToPay(key: String): Boolean = key.trim().let { it == "lightning" || it == "lno" || it.startsWith("req-") }
+
+/**
  * A payment request. [text] is the QR as it came, for the cases where it is better not to frame it as a payment at all.
  * If `address`, `value` or `amount` appears twice, a wallet may use either one, so the one shown could be the wrong
- * one: plain text.
+ * one: plain text. The same with a second way to pay or a required key ([otherWayToPay]).
  */
 private fun crypto(t: String, text: String): QrKind? {
     val scheme = schemeOf(t)?.takeIf { it in CRYPTO_SCHEMES } ?: return null
@@ -131,6 +138,7 @@ private fun crypto(t: String, text: String): QrKind? {
     val path = percentDecode(rest.substringBefore('?')).trim()
     val pairs = queryPairs(rest.substringAfter('?', ""))
     if (listOf("address", "value", "amount").any { key -> pairs.count { it.first == key } > 1 }) return QrKind.PlainText(text)
+    if (pairs.any { otherWayToPay(it.first) }) return QrKind.PlainText(text)
     val query = pairs.reversed().toMap()
     if (scheme == "ethereum") return ethereum(path, query) ?: QrKind.PlainText(text)
     if (path.isEmpty()) return null
