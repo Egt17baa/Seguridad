@@ -23,6 +23,16 @@ class ImageFailureTest {
         assertEquals("damaged:x", text(IllegalStateException("x")))
     }
 
+    // CR-5: making the copy (Tachar) runs out of memory too: that is said as such, never as «no se ha podido crear la copia».
+    @Test fun outOfMemoryWhileMakingTheCopyHasItsOwnText() {
+        fun copy(t: Throwable) = imageCopyFailureText(t, copyFailed = "copy", other = "save")
+        assertEquals(IMAGE_NO_MEMORY, copy(OutOfMemoryError()))
+        assertEquals(IMAGE_NO_MEMORY, copy(ImageOutOfMemory()))
+        assertEquals("copy", copy(PhotoFailure(PHOTO_DAMAGED)))
+        assertEquals("save", copy(java.io.IOException("disco")))
+        assertEquals("save", copy(SecurityException()))
+    }
+
     @Test fun theTextIsChecked() {
         assertEquals("No hay memoria suficiente para abrir esta imagen en este móvil.", IMAGE_NO_MEMORY)
         assert(IMAGE_NO_MEMORY in ALL_TOOL_TEXTS)

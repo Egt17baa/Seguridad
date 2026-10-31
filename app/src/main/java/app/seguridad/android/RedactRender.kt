@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
@@ -26,7 +25,6 @@ import app.seguridad.tools.redact.declaredSizeAllowed
 import app.seguridad.tools.redact.redactSampleSize
 import app.seguridad.tools.redact.redactTargetSize
 import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 
 /**
  * An image decoded for «Tachar»: software pixels, upright, at most [MAX_REDACT_PIXELS]. [downscaled] when it had to be
@@ -86,24 +84,8 @@ fun decodeForRedaction(bytes: ByteArray): RedactSource {
  * when info.isWideGamut or the image is 16-bit, or setTargetSampleSize(n) when that alone keeps under the limit.
  */
 @RequiresApi(Build.VERSION_CODES.P)
-private fun withImageDecoder(bytes: ByteArray): Pair<Bitmap, Boolean> {
-    var downscaled = false
-    val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
-        // Software memory, so it can be drawn on a software Canvas and read back; no partial images.
-        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-        decoder.setOnPartialImageListener { false }
-        val w = info.size.width
-        val h = info.size.height
-        if (w <= 0 || h <= 0) throw PhotoFailure(PHOTO_DAMAGED)
-        // Thrown here, the decode stops before inflating anything.
-        if (!declaredSizeAllowed(w, h)) throw ImageTooLarge()
-        redactTargetSize(w, h)?.let { (tw, th) ->
-            decoder.setTargetSize(tw, th)
-            downscaled = true
-        }
-    }
-    return bitmap to downscaled
-}
+private fun withImageDecoder(bytes: ByteArray): Pair<Bitmap, Boolean> =
+    decodeBounded(bytes, invalidSize = { PhotoFailure(PHOTO_DAMAGED) }, targetSize = ::redactTargetSize).let { it.bitmap to it.downscaled }
 
 private fun withBitmapFactory(bytes: ByteArray, format: PhotoFormat): Pair<Bitmap, Boolean> {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -153,7 +135,9 @@ private fun orientationMatrix(orientation: Int): Matrix? {
  * and the result goes through PhotoCleaner.clean, which keeps only the whitelisted blocks and fails closed. The copy
  * is made from pixels, so nothing of the original file's metadata can be in it.
  *
- * Fails with [PhotoFailure] ([PHOTO_DAMAGED]), out of memory included; never returns a half-made copy.
+ * Fails with [PhotoFailure] ([PHOTO_DAMAGED]), or [ImageOutOfMemory] when the Java heap runs out while the copy is
+ * allocated, drawn, encoded or cleaned (CR-5, M-7: said as such, never as a copy that could not be made); never returns
+ * a half-made copy.
  */
 fun renderRedacted(source: Bitmap, boxes: List<Box>, format: PhotoFormat): ByteArray {
     val compressFormat = when (format) {
@@ -190,11 +174,15 @@ fun renderRedacted(source: Bitmap, boxes: List<Box>, format: PhotoFormat): ByteA
     } catch (e: PhotoFailure) {
         throw e
     } catch (e: OutOfMemoryError) {
-        throw PhotoFailure(PHOTO_DAMAGED)
+        throw ImageOutOfMemory()
     } catch (e: Exception) {
         throw PhotoFailure(PHOTO_DAMAGED)
     }
-    val clean = PhotoCleaner.clean(encoded)
+    val clean = try {
+        PhotoCleaner.clean(encoded)
+    } catch (e: OutOfMemoryError) {
+        throw ImageOutOfMemory()
+    }
     // The cleaner keeps the format; a mismatch would mean the wrong name and type on the copy.
     if (detectFormat(clean) != format) throw PhotoFailure(PHOTO_DAMAGED)
     return clean

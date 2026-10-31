@@ -105,21 +105,24 @@ fun Settings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null)
     return recording(if (stale) r.copy(copies = null, replaced = false) else r)
 }
 
-private fun Settings.recording(r: AutoBackupResult): Settings = when {
-    autoBackupUri != r.folder -> this
-    // Asked while the vault was locked: only the request is kept; what Ajustes shows about the last copy does not change.
-    r.replaceRequested -> copy(autoBackupReplacePending = true)
-    // The copy that replaced the old ones (even if some could not be deleted) is what clears the request: a failure keeps it.
-    r.writtenAt != null && r.copies != null ->
-        copy(
-            lastAutoBackupError = r.error,
-            lastAutoBackupAt = r.writtenAt,
-            autoBackupCopies = r.copies,
-            autoBackupCopiesFolder = r.folder,
-            autoBackupReplacePending = autoBackupReplacePending && !r.replaced,
-        )
-    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupReplacePending = autoBackupReplacePending && !r.replaced)
-    else -> copy(lastAutoBackupError = r.error)
+private fun Settings.recording(r: AutoBackupResult): Settings {
+    // CR-1: only a replacement with every old copy deleted (no error) is done; any failure keeps the request, to be retried.
+    val done = r.replaced && r.error == null
+    return when {
+        autoBackupUri != r.folder -> this
+        // Asked while the vault was locked: only the request is kept; what Ajustes shows about the last copy does not change.
+        r.replaceRequested -> copy(autoBackupReplacePending = true)
+        r.writtenAt != null && r.copies != null ->
+            copy(
+                lastAutoBackupError = r.error,
+                lastAutoBackupAt = r.writtenAt,
+                autoBackupCopies = r.copies,
+                autoBackupCopiesFolder = r.folder,
+                autoBackupReplacePending = autoBackupReplacePending && !done,
+            )
+        r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupReplacePending = autoBackupReplacePending && !done)
+        else -> copy(lastAutoBackupError = r.error)
+    }
 }
 
 /** How many automatic copies can be kept. */

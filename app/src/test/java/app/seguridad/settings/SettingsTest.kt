@@ -260,11 +260,12 @@ class SettingsTest {
         val failed = asked.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED))
         assertTrue(failed.autoBackupReplacePending)
         assertEquals(AUTO_BACKUP_FAILED, failed.lastAutoBackupError)
-        // The copy that replaced the old ones (even if some could not be deleted) clears it.
+        // The copy that replaced the old ones (all of them deleted) clears it.
         val done = asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("b"), replaced = true))
         assertFalse(done.autoBackupReplacePending)
         assertEquals(listOf("b"), done.autoBackupCopies)
-        assertFalse(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaced = true)).autoBackupReplacePending)
+        // CR-1: never with old copies left (AutoBackup does not say «replaced» then; and if it did, the error keeps it).
+        assertTrue(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaced = true)).autoBackupReplacePending)
         // For another folder, or with the copies off, it says nothing.
         assertEquals(on.copy(autoBackupUri = null), on.copy(autoBackupUri = null).withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true)))
         // Forgotten with the copies (new or imported vault) or when they are turned off.

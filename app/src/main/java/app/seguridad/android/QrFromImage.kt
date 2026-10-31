@@ -2,7 +2,6 @@ package app.seguridad.android
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.ImageDecoder
 import android.os.Build
 import androidx.annotation.RequiresApi
 import app.seguridad.tools.ImageOutOfMemory
@@ -19,7 +18,6 @@ import com.google.zxing.MultiFormatReader
 import com.google.zxing.ReaderException
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
-import java.nio.ByteBuffer
 
 /** The picked file is not an image Android can decode (or it ran out of memory): the screen says so, in Spanish. */
 class QrImageUnreadable : Exception()
@@ -88,17 +86,7 @@ private fun readQr(source: LuminanceSource): String? = try {
 
 @RequiresApi(Build.VERSION_CODES.P)
 private fun withImageDecoder(bytes: ByteArray): Bitmap =
-    ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
-        // Software memory, so getPixels can read it; no partial images.
-        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-        decoder.setOnPartialImageListener { false }
-        val w = info.size.width
-        val h = info.size.height
-        if (w <= 0 || h <= 0) throw QrImageUnreadable()
-        // Thrown here, the decode stops before inflating anything.
-        if (!declaredSizeAllowed(w, h)) throw ImageTooLarge()
-        qrTargetSize(w, h)?.let { (tw, th) -> decoder.setTargetSize(tw, th) }
-    }
+    decodeBounded(bytes, invalidSize = { QrImageUnreadable() }, targetSize = ::qrTargetSize).bitmap
 
 private fun withBitmapFactory(bytes: ByteArray): Bitmap {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

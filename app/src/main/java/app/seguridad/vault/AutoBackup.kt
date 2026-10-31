@@ -130,7 +130,10 @@ data class AutoBackupResult(
     val writtenAt: Long?,
     val error: String?,
     val copies: List<String>? = null,
-    /** This copy replaced the old ones ([AutoBackup.replaceOldCopies]): once recorded, the saved request is done. */
+    /**
+     * This copy replaced the old ones ([AutoBackup.replaceOldCopies]): written, and every old copy on the list deleted (CR-1).
+     * Once recorded, the saved request is done. False when any was left ([error] then says so): the request stays.
+     */
     val replaced: Boolean = false,
     /** Nothing was written: [AutoBackup.replaceOldCopies] was asked while the vault was locked, to be done after the next unlock. */
     val replaceRequested: Boolean = false,
@@ -169,7 +172,9 @@ data class AutoBackupResult(
  * caller leaving (a rotation) cannot cut it between the deletions and [onResult]. Asked while the vault is locked, the
  * request is handed to [onResult] ([AutoBackupResult.replaceRequested]) to be saved ([replacePending]); the first copy
  * after the next unlock, even after a restart, does it, and the result that records it ([AutoBackupResult.replaced])
- * clears the request. A failure keeps it. That outcome is also kept in [replaceOutcome] until the user has been told
+ * clears the request. A failure keeps it: no copy written, the rotation failing, or any listed old copy that could not
+ * be deleted (CR-1), so the next copy tries again, still only by id from the list and only while the vault is the one
+ * of the list ([VaultStore.generation]); an import or a new vault forgets the list and the request with it. That outcome is also kept in [replaceOutcome] until the user has been told
  * ([replaceOutcomeShown]), once for each different outcome: a folder that keeps failing does not open it again and again.
  *
  * A copy whose vault was replaced while it was written (an import, a new vault, [VaultStore.generation]) is left in the
@@ -341,9 +346,12 @@ class AutoBackup(
                 if (rotation.mine == null) {
                     stale(uri, at, generation, replaceAll)
                 } else {
+                    // CR-1: «replaced» (which clears the saved request) only when the rotation ran to the end and every old
+                    // copy on the list went. Otherwise the request stays, the copies left stay listed, and the next copy
+                    // (after a change, or the next unlock) tries again; the same outcome is told only once ([runOnce]).
                     AutoBackupResult(
-                        uri, at, rotation.error, rotation.mine, replaced = replaceAll, generation = generation,
-                        unlistedLeft = rotation.unlistedLeft,
+                        uri, at, rotation.error, rotation.mine, replaced = replaceAll && rotation.error == null,
+                        generation = generation, unlistedLeft = rotation.unlistedLeft,
                     )
                 }
             }
@@ -510,6 +518,10 @@ fun replaceStatus(requestedAt: Long, answered: Boolean, answerError: String?, pe
     // copy written after the request), that record is what is shown.
     answered && answerError == AUTO_BACKUP_REPLACE_WAITS && !pending && lastBackupAt != null && lastBackupAt >= requestedAt ->
         lastError?.let { ReplaceStatus.Failed(it) } ?: ReplaceStatus.Done
+    // CR-1: a copy was written after the request but its old copies were left: the request still waits to be retried,
+    // and the dialog says what happened instead of «se hará en cuanto abras la bóveda».
+    pending && lastError == AUTO_BACKUP_OLD_NOT_DELETED && lastBackupAt != null && lastBackupAt >= requestedAt ->
+        ReplaceStatus.Failed(AUTO_BACKUP_OLD_NOT_DELETED)
     answered -> when (answerError) {
         null -> ReplaceStatus.Done
         AUTO_BACKUP_REPLACE_WAITS -> ReplaceStatus.Waits

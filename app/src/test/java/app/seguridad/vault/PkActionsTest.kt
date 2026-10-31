@@ -308,10 +308,34 @@ class PkActionsTest {
         assertEquals(120, sanitizeReceivedName(long).length)
         val emoji = "\uD83D\uDE00" // 2 unidades
         val cut = sanitizeReceivedName("a".repeat(119) + emoji + "zzz")
-        assertTrue(cut.length <= 120)
+        // CR-9: 120 puntos de código (el emoji entero cabe: 121 unidades UTF-16), como safeFileName.
+        assertEquals(120, cut.codePointCount(0, cut.length))
+        assertEquals("a".repeat(119) + emoji, cut)
         // Sin ningún sustituto suelto: pasar por UTF-8 y volver da el mismo texto (un suelto se convertiría en «?»).
         assertEquals(cut, String(cut.toByteArray(Charsets.UTF_8), Charsets.UTF_8))
         assertFalse(cut.last().isHighSurrogate())
+    }
+
+    // CR-9: la misma regla que safeFileName, por puntos de código (no por unidades UTF-16), sin partir un emoji peor que él.
+    @Test fun elNombreRecibidoSeCortaPorPuntosDeCodigoComoSafeFileName() {
+        val emoji = "\uD83D\uDE00"
+        val cien = emoji.repeat(100) // 100 puntos de código, 200 unidades, 400 bytes: manda el límite de 255 bytes.
+        assertEquals(app.seguridad.crypto.safeFileName(cien), sanitizeReceivedName(cien))
+        assertEquals(63, sanitizeReceivedName(cien).codePointCount(0, sanitizeReceivedName(cien).length))
+        val sesentaYUno = emoji.repeat(61) // 122 unidades, 244 bytes: caben los 61.
+        assertEquals(sesentaYUno, sanitizeReceivedName(sesentaYUno))
+        val largo = "é".repeat(119) + emoji + "zzz" // 123 puntos de código
+        assertEquals(app.seguridad.crypto.safeFileName(largo), sanitizeReceivedName(largo))
+        assertEquals(120, sanitizeReceivedName(largo).codePointCount(0, sanitizeReceivedName(largo).length))
+        // Familias (con U+200D): nunca queda un unidor suelto al final.
+        val familia = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67"
+        for (n in listOf(20, 30, 50)) {
+            val name = familia.repeat(n)
+            val cut = sanitizeReceivedName(name)
+            assertEquals("n=$n", app.seguridad.crypto.safeFileName(name), cut)
+            assertFalse("n=$n", cut.endsWith("\u200D"))
+        }
+        assertEquals(cien.let(::sanitizeReceivedName), sanitizeReceivedName(sanitizeReceivedName(cien)))
     }
 
     @Test fun elNombreSaneadoEsIdempotente() {

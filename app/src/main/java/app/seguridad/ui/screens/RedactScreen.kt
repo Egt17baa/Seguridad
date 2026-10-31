@@ -70,6 +70,8 @@ import app.seguridad.tools.PHOTO_DONE_SHORT
 import app.seguridad.tools.PHOTO_SAVE_COPY
 import app.seguridad.tools.PHOTO_SAVE_FAILED
 import app.seguridad.tools.PHOTO_SHARE_FAILED
+import app.seguridad.tools.ImageOutOfMemory
+import app.seguridad.tools.imageCopyFailureText
 import app.seguridad.tools.imageOpenFailureText
 import app.seguridad.tools.redactCanvasDescription
 import app.seguridad.tools.REDACT_CHANGED
@@ -194,13 +196,16 @@ private fun makePicture(source: RedactSource): Picture {
     )
 }
 
-/** On Dispatchers.Default: the copy with [boxes]. Fails with PhotoFailure, never a half-made copy. */
+/**
+ * On Dispatchers.Default: the copy with [boxes]. Fails with PhotoFailure, or ImageOutOfMemory when memory ran out (CR-5:
+ * told as such, [imageCopyFailureText]); never a half-made copy.
+ */
 private suspend fun renderCopy(p: Picture, boxes: List<RedactBox>): ByteArray = withContext(Dispatchers.Default) {
     val bitmap = p.holder.borrow() ?: throw PhotoFailure(PHOTO_DAMAGED)
     try {
         renderRedacted(bitmap, boxes, p.output)
     } catch (e: OutOfMemoryError) {
-        throw PhotoFailure(PHOTO_DAMAGED)
+        throw ImageOutOfMemory()
     } finally {
         p.holder.giveBack()
     }
@@ -318,14 +323,11 @@ private class RedactViewModel(private val appContext: Context, private val share
                 withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
                 done = null
                 error = REDACT_CHANGED
-            } catch (e: PhotoFailure) {
-                withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) } // Never a half-made copy.
-                done = null
-                error = REDACT_COPY_FAILED
             } catch (e: Exception) {
+                // PhotoFailure (the copy could not be made), ImageOutOfMemory (CR-5) or writing it: never a half-made copy.
                 withContext(NonCancellable + Dispatchers.IO) { discardDocument(appContext, dest) }
                 done = null
-                error = PHOTO_SAVE_FAILED
+                error = imageCopyFailureText(e, copyFailed = REDACT_COPY_FAILED, other = PHOTO_SAVE_FAILED)
             } finally {
                 busy = null
                 releaseIfLeft()
@@ -355,12 +357,9 @@ private class RedactViewModel(private val appContext: Context, private val share
             } catch (e: BoxesChanged) {
                 done = null
                 error = REDACT_CHANGED
-            } catch (e: PhotoFailure) {
-                done = null
-                error = REDACT_COPY_FAILED
             } catch (e: Exception) {
                 done = null
-                error = PHOTO_SHARE_FAILED
+                error = imageCopyFailureText(e, copyFailed = REDACT_COPY_FAILED, other = PHOTO_SHARE_FAILED) // CR-5
             } finally {
                 // Nothing was handed over: only the file this attempt wrote goes (prepare already removed any earlier
                 // one), and it need not wait the 10 minutes.

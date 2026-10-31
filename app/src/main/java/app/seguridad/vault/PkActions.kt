@@ -4,8 +4,10 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.Dialect
 import app.seguridad.crypto.Header
 import app.seguridad.crypto.ENCRYPTED_EXTENSION
+import app.seguridad.crypto.MAX_FILE_NAME_CODE_POINTS
 import app.seguridad.crypto.MAX_SAVED_NAME_BYTES
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
+import app.seguridad.crypto.takeCodePoints
 import app.seguridad.crypto.takeUtf8Bytes
 import app.seguridad.crypto.trimWithJoiners
 import app.seguridad.crypto.withoutHiddenNameCharacters
@@ -87,7 +89,6 @@ const val DEFAULT_RECEIVED_NAME = "archivo-recibido"
 /** Carpeta, dentro de la caché privada, donde esperan los archivos descifrados (una subcarpeta por operación). */
 const val PK_OPEN_TEMP_DIR = "pk-open"
 
-private const val MAX_RECEIVED_NAME_CHARS = 120
 private const val COPY_BUFFER_BYTES = 64 * 1024
 private const val TEMP_PREFIX = "recibido"
 
@@ -194,16 +195,17 @@ fun actionErrorMessage(e: Throwable, fallback: String): String =
  * unidor de anchura cero (U+200D) solo se queda entre dos emoji (dos puntos de código que no son ASCII ni espacios) y
  * U+FE0F solo detrás de un emoji o un símbolo, o en un keycap («1️⃣»), como en `safeFileName` (`withoutLooseJoiners`,
  * `withoutLooseSelectors`), también tras los cortes; se recortan los espacios y los puntos de los extremos (así `.` y
- * `..` quedan vacíos); no pasa de 120 caracteres ni de [MAX_SAVED_NAME_BYTES] bytes en UTF-8 (es el nombre que se
- * propone para guardar) ni parte un par sustituto; y si queda vacío es [DEFAULT_RECEIVED_NAME]. Es idempotente.
+ * `..` quedan vacíos); no pasa de 120 puntos de código (`MAX_FILE_NAME_CODE_POINTS`, la regla de `safeFileName`) ni de
+ * [MAX_SAVED_NAME_BYTES] bytes en UTF-8 (es el nombre que se propone para guardar) ni parte un par sustituto; y si queda
+ * vacío es [DEFAULT_RECEIVED_NAME]. Es idempotente.
  */
 fun sanitizeReceivedName(name: String): String {
     val segments = name.split('/', '\\').map { trimWithJoiners(withoutHiddenNameCharacters(it), ::trimEnds) }
     var result = segments.lastOrNull { it.isNotEmpty() } ?: return DEFAULT_RECEIVED_NAME
-    if (result.length > MAX_RECEIVED_NAME_CHARS) {
-        result = result.take(MAX_RECEIVED_NAME_CHARS)
-        if (result.last().isHighSurrogate()) result = result.dropLast(1)
-        result = trimWithJoiners(result, ::trimEnds)
+    // CR-9: the same rule as safeFileName, by code points (never half of a surrogate pair), and the joiners and selectors
+    // a cut leaves loose go again, as there.
+    if (result.codePointCount(0, result.length) > MAX_FILE_NAME_CODE_POINTS) {
+        result = trimWithJoiners(takeCodePoints(result, MAX_FILE_NAME_CODE_POINTS), ::trimEnds)
     }
     if (result.toByteArray(Charsets.UTF_8).size > MAX_SAVED_NAME_BYTES) result = trimWithJoiners(takeUtf8Bytes(result, MAX_SAVED_NAME_BYTES), ::trimEnds)
     return result.ifEmpty { DEFAULT_RECEIVED_NAME }

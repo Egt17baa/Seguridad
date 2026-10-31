@@ -644,6 +644,27 @@ class VaultV3Test {
         assertEquals(VaultKdf(2048, 3, 1), mixed.kdf)
     }
 
+    // CR-2: no axis is ever lowered, parallelism included: 32768/2/4 under a 65536/3/1 profile becomes 65536/3/4.
+    @Test fun afterMasterUnlockNeverLowersTheParallelism() {
+        val master = "m".toCharArray()
+        val (file, dek) = VaultCrypto.create(master, 1, KdfParams(32768, 2, 4))
+        val up = VaultCrypto.afterMasterUnlock(file, dek.copyOf(), master, 2, KdfParams(65536, 3, 1))
+        assertEquals(VaultKdf(65536, 3, 4), up.kdf)
+        assertArrayEquals(dek, VaultCrypto.unlock(up, master))
+    }
+
+    // CR-2: a lower parallelism alone is not «weaker» (Argon2id's cost to an attacker is its memory and its passes; the
+    // lanes only split that work), so it is only re-sealed, never wrapped again for it; and a higher one is kept.
+    @Test fun aLowerParallelismAloneDoesNotRewrap() {
+        val master = "m".toCharArray()
+        val (file, dek) = VaultCrypto.create(master, 1, KdfParams(1024, 1, 1))
+        val same = VaultCrypto.afterMasterUnlock(file, dek.copyOf(), master, 2, KdfParams(1024, 1, 4))
+        assertEquals(file.kdf, same.kdf)
+        assertEquals(file.salt, same.salt)
+        assertEquals(file.wrappedKey, same.wrappedKey)
+        assertEquals(2L, same.masterCheckedAt)
+    }
+
     @Test fun biometricRefusalSaysWhyTheClockOrTheSevenDays() {
         val now = 1_000_000_000L
         val (file, dek) = VaultCrypto.create("m".toCharArray(), now, KdfParams(1024, 1, 1))

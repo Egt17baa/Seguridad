@@ -201,10 +201,19 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
 
 /**
  * A new entry ([id] null) or an existing one. [otpAuthText] is a 2FA text the QR inspector read (`otpauth://` or a
- * Google Authenticator export): applied once, exactly as a scan here would be.
+ * Google Authenticator export): applied once per composition, exactly as a scan here would be (so a rotation, which
+ * composes the form again, fills it again). [onOtpAuthImported] is called once a Google Authenticator batch was added,
+ * so the caller lets that text go and a rotation does not offer the same batch again (CR-4).
  */
 @Composable
-fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType, onDone: () -> Unit, otpAuthText: String? = null) {
+fun VaultEntryEditScreen(
+    store: VaultStore,
+    id: String?,
+    initialType: EntryType,
+    onDone: () -> Unit,
+    otpAuthText: String? = null,
+    onOtpAuthImported: () -> Unit = {},
+) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     val unlocked = state as? VaultState.Unlocked ?: return LockedNotice(onDone)
@@ -447,7 +456,9 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                     saving = true
                     scope.launch {
                         try {
-                            if (!store.addAll(entries)) {
+                            val added = store.addAll(entries)
+                            if (added) onOtpAuthImported()
+                            if (!added) {
                                 error = "La bóveda se bloqueó: no se ha importado nada"
                             } else if (more) {
                                 info = "Lote $batch de ${result.batchSize} importado (${entries.size}). Lote ${batch + 1} de ${result.batchSize}: escanea el siguiente"
