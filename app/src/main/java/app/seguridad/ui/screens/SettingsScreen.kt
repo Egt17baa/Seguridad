@@ -59,6 +59,7 @@ import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
+import app.seguridad.tools.ABOUT_SUMMARY
 import app.seguridad.tools.CLIPBOARD_CLEAR_HINT
 import app.seguridad.tools.LOCK_ON_EXIT_HINT
 import app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT
@@ -499,7 +500,7 @@ fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Seguridad ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.headlineSmall)
-            Hint("Contraseñas, códigos 2FA, frases semilla y cifrado, todo en tu móvil y sin cuentas.")
+            Hint(ABOUT_SUMMARY)
             Section("Avisos") {
                 Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una wallet hardware y un gestor de contraseñas auditado.")
                 Hint("• Sin recuperación: si olvidas la contraseña maestra o la de algo cifrado, nadie puede recuperar lo guardado.")

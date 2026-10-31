@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.seguridad.tools.NOTICE_INTRO
 import app.seguridad.ui.theme.SectionCard
 
 /** Shown once, before anything else, until «Entendido» saves Settings.noticeAccepted. */
@@ -28,7 +29,7 @@ fun NoticeScreen(onAccept: () -> Unit) {
             Text("🛡", style = MaterialTheme.typography.displaySmall)
             Text("Antes de empezar", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Seguridad guarda tus contraseñas, códigos 2FA y frases semilla, y cifra textos y archivos. Todo se queda en este móvil, sin cuentas.",
+                NOTICE_INTRO,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             SectionCard(Modifier.fillMaxWidth()) {

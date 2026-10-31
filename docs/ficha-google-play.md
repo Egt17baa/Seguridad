@@ -4,11 +4,11 @@ Textos para *Play Console → Presencia en la tienda → Ficha principal*. Regla
 
 ## Descripción breve (máximo 80 caracteres)
 
-Bóveda cifrada, 2FA, contactos y cifrado de archivos. Sin cuentas ni nube.
+Bóveda cifrada, 2FA, contactos y cifrado de archivos. Sin cuentas ni anuncios.
 
 ## Descripción completa
 
-Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una bóveda cifrada en tu móvil, y cifra textos y archivos. No tiene cuentas, nube, analítica ni anuncios, y es de código abierto (Apache-2.0).
+Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una bóveda cifrada en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
 
 **Bóveda**
 • Accesos, frases semilla, notas y códigos 2FA, cifrados con una clave protegida por tu contraseña maestra (Argon2id) y, si quieres, por tu huella.
@@ -38,7 +38,7 @@ Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una b
 • Huella SHA-256 de archivos y comprobación de contraseñas filtradas.
 
 **Privacidad**
-Todo se queda en tu móvil. La única conexión a Internet es opcional: cuando pulsas «¿Filtrada?» o «Comprobar filtraciones», la app consulta el servicio Pwned Passwords de Have I Been Pwned enviando solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña, nunca la contraseña. Las fotos se procesan en el móvil y la app no las envía a ningún sitio: solo sale la copia que tú compartas.
+La bóveda se queda cifrada en tu móvil. De la app sale lo que tú exportas, guardas o compartes, y la copia automática, si la activas, a la carpeta que elijas. La única conexión a Internet es opcional: cuando pulsas «¿Filtrada?» o «Comprobar filtraciones», la app consulta el servicio Pwned Passwords de Have I Been Pwned enviando solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña, nunca la contraseña. Las fotos se procesan en el móvil y la app no las envía a ningún sitio: solo sale la copia que tú compartas.
 
 **Antes de usarla, ten en cuenta**
 • Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
