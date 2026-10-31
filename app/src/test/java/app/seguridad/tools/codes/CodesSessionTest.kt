@@ -329,6 +329,60 @@ class CodesSessionTest {
         assertEquals("correo.es", s.answersSite)
     }
 
+    @Test fun aRetryAfterAFailedWriteKeepsTheIdSoItNeverAddsASecondNote() {
+        // MN (T8 of §2.5): a write that failed may still have been saved (upsert throwing after the file was written). The
+        // retry of the same note uses the same id, so it replaces that note instead of adding another.
+        val s = filled()
+        val first = s.requestSave(SaveKind.RECOVERY, unlocked = true, now = 1, id = "a")!!
+        s.beginWrite(first)
+        s.endWrite(first, saved = false)
+        val retry = s.requestSave(SaveKind.RECOVERY, unlocked = true, now = 2, id = "b")!!
+        assertEquals("a", retry.entry.id)
+        assertEquals(first.entry.notes, retry.entry.notes)
+        // Also when the retry waits for the vault to open.
+        s.beginWrite(retry)
+        s.endWrite(retry, saved = false)
+        assertNull(s.requestSave(SaveKind.RECOVERY, unlocked = false, now = 3, id = "c"))
+        assertEquals("a", s.pending!!.entry.id)
+        s.cancelSave()
+        // The other kind has its own id.
+        assertEquals("d", s.requestSave(SaveKind.ANSWERS, unlocked = true, now = 4, id = "d")!!.entry.id)
+    }
+
+    @Test fun aChangedNoteAfterAFailedWriteGetsANewId() {
+        // Other codes, another site or a wipe: what failed may be in the vault, and it must not be overwritten.
+        val s = filled()
+        fun fail(id: String): PendingSave {
+            val save = s.requestSave(SaveKind.RECOVERY, unlocked = true, now = 1, id = id)!!
+            s.beginWrite(save)
+            s.endWrite(save, saved = false)
+            return save
+        }
+        fail("a")
+        s.newCodes()
+        assertEquals("b", fail("b").entry.id)
+        s.recoverySite = "otro.es"
+        assertEquals("c", fail("c").entry.id)
+        s.wipe()
+        assertEquals("d", fail("d").entry.id)
+        s.clear()
+        s.recoverySite = "otro.es"
+        assertEquals("e", s.requestSave(SaveKind.RECOVERY, unlocked = true, now = 1, id = "e")!!.entry.id)
+    }
+
+    @Test fun aWrittenNoteIsNotReusedByTheNextSave() {
+        val s = filled()
+        val first = s.requestSave(SaveKind.ANSWERS, unlocked = true, now = 1, id = "a")!!
+        s.beginWrite(first)
+        s.endWrite(first, saved = false)
+        val retry = s.requestSave(SaveKind.ANSWERS, unlocked = true, now = 2, id = "b")!!
+        s.beginWrite(retry)
+        s.endWrite(retry, saved = true)
+        // The screen was emptied; the same site and questions again are a new note.
+        s.answersSite = "correo.es"
+        assertEquals("c", s.requestSave(SaveKind.ANSWERS, unlocked = true, now = 3, id = "c")!!.entry.id)
+    }
+
     @Test fun lockedVaultQueuesTheSaveAndCancelDropsIt() {
         val s = filled()
         assertNull(s.requestSave(SaveKind.RECOVERY, unlocked = false, now = 1, id = "a"))

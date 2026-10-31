@@ -11,6 +11,13 @@ import java.util.concurrent.CancellationException
  * that runs this, so leaving the screen or opening another photo stops the work and frees its thread. The readers call
  * it once per segment or chunk, every MiB of JPEG scan data and while an XMP packet is read. It is plain code, with no
  * coroutines in it.
+ *
+ * Accepted residual risk (MN, T1 of §2.5), in every format: what is kept is copied as it is, checked for its
+ * structure and sizes but not for what it holds (JPEG tables, SOS header, the 12 APP14 bytes and the ICC profile; the
+ * PNG chunks kept, iCCP and the image data included; WebP's VP8X canvas, ICCP, ALPH and the bitstreams). A sender can
+ * hide a few bytes there on purpose, as in the pixels themselves, but nothing a camera or an editor writes there says
+ * where, when or by whom the photo was taken (an ICC profile may name its maker: the screen says it is kept). Closing
+ * it would mean decoding and encoding the image again. See the KDoc of [Jpeg].
  */
 object PhotoCleaner {
     fun inspect(bytes: ByteArray, check: () -> Unit = {}): PhotoReport = guarded {

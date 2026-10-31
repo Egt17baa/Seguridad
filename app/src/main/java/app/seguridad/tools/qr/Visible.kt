@@ -14,7 +14,8 @@ import app.seguridad.crypto.withoutBidiControls
  * supplementary character is one mark, with five or six digits.
  *
  * Exception: U+FE0E and U+FE0F right after an emoji or symbol are its normal presentation (a «❤️» in a network name),
- * not marked; after anything else they are.
+ * not marked; so is U+FE0F inside a keycap, between 0–9, # or * and U+20E3 («1️⃣», MN, T6 of §2.5), the rule
+ * `safeFileName` keeps it by (CIFRADO-2). After anything else they are.
  */
 fun visibleText(text: String): String {
     val sb = StringBuilder(text.length + 16)
@@ -22,7 +23,7 @@ fun visibleText(text: String): String {
     var previous = -1
     while (i < text.length) {
         val cp = text.codePointAt(i)
-        if (isHiddenCodePoint(cp, previous, true)) sb.append(mark(cp)) else sb.appendCodePoint(cp)
+        if (isHiddenCodePoint(cp, previous, nextCodePoint(text, i, cp), true)) sb.append(mark(cp)) else sb.appendCodePoint(cp)
         previous = cp
         i += Character.charCount(cp)
     }
@@ -38,7 +39,7 @@ fun hasHiddenChars(text: String, allowEmojiVariation: Boolean = true): Boolean {
     var previous = -1
     while (i < text.length) {
         val cp = text.codePointAt(i)
-        if (isHiddenCodePoint(cp, previous, allowEmojiVariation)) return true
+        if (isHiddenCodePoint(cp, previous, nextCodePoint(text, i, cp), allowEmojiVariation)) return true
         previous = cp
         i += Character.charCount(cp)
     }
@@ -55,7 +56,7 @@ fun hiddenMarks(text: String): List<String> {
     var previous = -1
     while (i < text.length) {
         val cp = text.codePointAt(i)
-        if (isHiddenCodePoint(cp, previous, true)) marks += mark(cp)
+        if (isHiddenCodePoint(cp, previous, nextCodePoint(text, i, cp), true)) marks += mark(cp)
         previous = cp
         i += Character.charCount(cp)
     }
@@ -71,9 +72,20 @@ private fun mark(cp: Int) = "\u27E8U+" + String.format(java.util.Locale.ROOT, "%
 private fun isEmojiOrSymbol(cp: Int): Boolean =
     cp in 0x1F000..0x1FFFF || (cp <= 0xFFFF && Character.getType(cp) == Character.OTHER_SYMBOL.toInt())
 
-private fun isHiddenCodePoint(cp: Int, previous: Int, allowEmojiVariation: Boolean): Boolean = when {
+/** The code point after [cp] at [i] in [text], or -1 at the end. */
+private fun nextCodePoint(text: String, i: Int, cp: Int): Int {
+    val j = i + Character.charCount(cp)
+    return if (j < text.length) text.codePointAt(j) else -1
+}
+
+/** U+FE0F between 0–9, # or * and U+20E3: the keycap emoji, the same fixed rule as `safeFileName` (CIFRADO-2). */
+private fun isKeycapSelector(cp: Int, previous: Int, next: Int): Boolean =
+    cp == 0xFE0F && next == 0x20E3 && (previous in '0'.code..'9'.code || previous == '#'.code || previous == '*'.code)
+
+private fun isHiddenCodePoint(cp: Int, previous: Int, next: Int, allowEmojiVariation: Boolean): Boolean = when {
     cp == '\n'.code -> false
     (cp == 0xFE0E || cp == 0xFE0F) && allowEmojiVariation && previous >= 0 && isEmojiOrSymbol(previous) -> false
+    allowEmojiVariation && isKeycapSelector(cp, previous, next) -> false
     cp in 0x200B..0x200D || cp in 0x2060..0x2064 || cp == 0xFEFF -> true
     cp == 0x00AD || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 || cp == 0x180E -> true
     cp == 0x2028 || cp == 0x2029 -> true

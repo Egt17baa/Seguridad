@@ -119,6 +119,14 @@ class CodesSession(
     var saving: Boolean by savingCell
         private set
 
+    /**
+     * The last write of each kind that did not report success (MN, T8 of §2.5): it may still be in the vault (`upsert`
+     * throwing after the file was written), so a retry of the very same note reuses its id and replaces it instead of
+     * adding a second one. It holds secrets the screen showed, so it goes with them: new codes or answers drawn, a note
+     * that is no longer the same one, [wipe], [clear], or a note of that kind written. Not observed by the screen.
+     */
+    private val failedWrites = HashMap<SaveKind, VaultEntry>()
+
     /** When what was drawn must go: the time away, in the other app too, and the locks ([ScreenGuard], [ScreenAway]). */
     private val away = ScreenGuard(createdAt) { wipe() }
 
@@ -147,17 +155,21 @@ class CodesSession(
     }
 
     fun newCodes() {
+        failedWrites.remove(SaveKind.RECOVERY)
         codes = codesOf()
     }
 
     /** Accents cannot be put back on a plain answer: every answer is drawn again in the chosen form. */
     fun setPlainAnswers(on: Boolean) {
+        failedWrites.remove(SaveKind.ANSWERS)
         plain = on
         rowList.forEach { it.answer = answer() }
     }
 
     fun newAnswer(i: Int) {
-        if (canDrawAnswers) rowList.getOrNull(i)?.answer = answer()
+        if (!canDrawAnswers) return
+        failedWrites.remove(SaveKind.ANSWERS)
+        rowList.getOrNull(i)?.answer = answer()
     }
 
     fun addQuestion() {
@@ -179,9 +191,17 @@ class CodesSession(
      */
     fun requestSave(kind: SaveKind, unlocked: Boolean, now: Long, id: String): PendingSave? {
         if (saving || pending != null) return null
-        val save = PendingSave(kind, noteFor(kind, now, id))
+        val save = PendingSave(kind, noteFor(kind, now, retryId(kind, now) ?: id))
         if (unlocked) return save
         pending = save
+        return null
+    }
+
+    /** The id of the failed write of [kind] if the note would be the same one again (only the time differs); else null. */
+    private fun retryId(kind: SaveKind, now: Long): String? {
+        val failed = failedWrites[kind] ?: return null
+        if (noteFor(kind, now, failed.id) == failed.copy(createdAt = now, updatedAt = now)) return failed.id
+        failedWrites.remove(kind) // Another note now: what failed is not kept around.
         return null
     }
 
@@ -200,7 +220,11 @@ class CodesSession(
     fun endWrite(save: PendingSave, saved: Boolean) {
         saving = false
         pending = null
-        if (!saved) return
+        if (!saved) {
+            failedWrites[save.kind] = save.entry
+            return
+        }
+        failedWrites.remove(save.kind)
         when (save.kind) {
             SaveKind.RECOVERY -> {
                 codes = codesOf()
@@ -252,6 +276,7 @@ class CodesSession(
      */
     fun wipe() {
         pending = null
+        failedWrites.clear()
         pin = pinOf(digits)
         codes = codesOf()
         rowList.forEach { it.answer = answer() }
@@ -260,6 +285,7 @@ class CodesSession(
     /** The screen is gone for good: every reference to a secret is dropped. */
     fun clear() {
         pending = null
+        failedWrites.clear()
         pin = ""
         codes = emptyList()
         recoverySite = ""

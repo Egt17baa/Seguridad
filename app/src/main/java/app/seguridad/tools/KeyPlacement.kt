@@ -129,3 +129,19 @@ fun keyLevelLabel(level: KeyLevel): String = when (level) {
     KeyLevel.SOFTWARE -> KEY_LOCATION_SOFTWARE
     KeyLevel.UNKNOWN -> KEY_LOCATION_UNKNOWN
 }
+
+/**
+ * Hands the data [key] unwrapped by the fingerprint to [onKey], which owns it once it returns (the vault keeps it, or
+ * wipes it on every failure: `VaultStore.unlockWithKey`). If [onKey] throws, nobody else holds this copy, so it is
+ * zeroed first, whatever was thrown (MN, T9 of §2.5): an Exception then becomes [onFailed], and an Error goes on after
+ * the wipe. Not a `finally`: on success the key must stay as it is for the coroutine that opens the vault.
+ */
+fun handOverKey(key: ByteArray, onKey: (ByteArray) -> Unit, onFailed: () -> Unit) {
+    try {
+        onKey(key)
+    } catch (e: Throwable) {
+        key.fill(0)
+        if (e !is Exception) throw e
+        onFailed()
+    }
+}

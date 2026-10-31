@@ -74,8 +74,9 @@ data class QrField(val label: String, val value: String)
  * - [alerts] are «Señales de alerta (N)», one line each; when empty the screen shows «Sin avisos», neutral.
  * - [notes] are said for that kind of QR whatever it holds (a payment, a contact card).
  * - [secret] is the Wi-Fi password, hidden until tapped. [textHidden]: the full text carries a secret (that password,
- *   a 2FA key), so it is hidden until tapped too, and [carriesSecret] says the screen drops it when the app stops or
- *   the vault locks.
+ *   a 2FA key), so it is hidden until tapped too. [credentialInText]: a link with user info («usuario:contraseña@», or
+ *   a token where the user name goes), shown as it is (it is what the alert points at) but a secret all the same (MN,
+ *   T7 of §2.5). [carriesSecret] says the screen drops the result when the app stops or the vault locks.
  * - [hostLabels] is the highlighted name of a link: the one the browser connects to, in ASCII (punycode, so no
  *   look-alike letters), split into its labels; an IP whole. [hostReading] is its Unicode reading, shown below it and
  *   smaller, only when it is not the same.
@@ -96,8 +97,9 @@ data class QrView(
     val hostReading: String? = null,
     val copyNotice: String? = null,
     val secretCopyNotice: String? = null,
+    val credentialInText: Boolean = false,
 ) {
-    val carriesSecret: Boolean get() = textHidden
+    val carriesSecret: Boolean get() = textHidden || credentialInText
 }
 
 /**
@@ -231,7 +233,10 @@ private fun linkView(base: QrView, link: QrKind.Link): QrView {
         else -> host.split('.').map(::visibleText)
     }
     val reading = unicode?.takeIf { host != null && it != host }?.let(::visibleText)
-    return base.copy(title = QR_KIND_LINK, fields = fields, alerts = alerts, hostLabels = labels, hostReading = reading)
+    return base.copy(
+        title = QR_KIND_LINK, fields = fields, alerts = alerts, hostLabels = labels, hostReading = reading,
+        credentialInText = Signal.USERINFO in link.signals,
+    )
 }
 
 /**

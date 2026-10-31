@@ -141,7 +141,7 @@ private fun mapHost(decoded: String): String {
  * (a squared «🄱🄸🅃» is «bit»).
  */
 private fun mapLabel(label: String): String {
-    val folded = Normalizer.normalize(label, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+    val folded = browserLowercase(Normalizer.normalize(label, Normalizer.Form.NFKC))
     if ('\u00DF' in folded || '\u03C2' in folded) return normalizeLabel(label)
     if (folded.all { it.code < 128 }) return folded
     return (toAsciiOrNull(folded) ?: normalizeLabel(label)).lowercase(Locale.ROOT)
@@ -153,7 +153,17 @@ private fun toAsciiOrNull(label: String): String? = try {
     null
 }
 
-/** The Unicode form of [host], label by label: only an `xn--` label is decoded, so a «ß» kept as it is stays «ß». */
+/**
+ * The Unicode form of [host], label by label: only an `xn--` label is decoded, so a «ß» kept as it is stays «ß».
+ *
+ * An `xn--` label that [IDN] cannot decode stays as it is (MN, T6 of §2.5, accepted): Java's IDN is IDNA2003, whose
+ * check after decoding encodes the result again with «ß» as «ss» and «ς» as «σ», so «xn--fa-hia» (faß, the IDNA2008
+ * name a browser opens) does not come back the same and is refused. The JDK has no other Punycode decoder, and one
+ * written here would also need the IDNA2008 validity rules (or a hostile label could decode to bidi controls or
+ * look-alikes that this check now keeps out). Nothing is lost: the name shown in large is the ASCII one the browser
+ * really connects to, PUNYCODE still fires (the label starts with `xn--`), and its alert shows that same form, so no
+ * look-alike reading is ever made up.
+ */
 private fun toUnicodeHost(host: String): String = host.split('.').joinToString(".") { label ->
     if (!label.startsWith("xn--")) label else try {
         IDN.toUnicode(label, IDN.ALLOW_UNASSIGNED)
@@ -170,8 +180,15 @@ private fun normalizeLabel(label: String): String {
             cp == 0x00AD || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 || cp == 0x180E
         if (!ignorable) sb.appendCodePoint(cp)
     }
-    return sb.toString().lowercase(Locale.ROOT)
+    return browserLowercase(sb.toString())
 }
+
+/**
+ * Lower case as UTS #46 maps it: [String.lowercase] turns a «Σ» at the end of a word into the final «ς» (Final_Sigma),
+ * but a browser maps every «Σ» to «σ» (MN, T6 of §2.5: «ΑΣ.gr» is xn--mxa0b, «ασ»), so it is done first, by hand.
+ * Only «ς» written as such stays one. The root locale has no other rule that depends on the neighbours.
+ */
+private fun browserLowercase(s: String): String = s.replace('\u03A3', '\u03C3').lowercase(Locale.ROOT)
 
 /** The signals of an already read link; [uri] is the original text (hidden characters are looked for in all of it). */
 internal fun signalsOf(p: ParsedLink, uri: String): List<Signal> {

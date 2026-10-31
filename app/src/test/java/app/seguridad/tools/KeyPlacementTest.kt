@@ -4,9 +4,37 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class KeyPlacementTest {
+    @Test
+    fun theUnwrappedKeyIsWipedWhateverOnKeyThrows() {
+        // MN (T9 of §2.5): onKey owns the key once it returns; if it throws, nobody holds this copy.
+        val kept = ByteArray(32) { 7 }
+        var got: ByteArray? = null
+        var failed = 0
+        handOverKey(kept, onKey = { got = it }, onFailed = { failed++ })
+        assertTrue(got === kept)
+        assertTrue("Handed over: left as it is", kept.all { it == 7.toByte() })
+        assertEquals(0, failed)
+
+        val thrown = ByteArray(32) { 7 }
+        handOverKey(thrown, onKey = { throw IllegalStateException("x") }, onFailed = { failed++ })
+        assertTrue(thrown.all { it == 0.toByte() })
+        assertEquals(1, failed)
+
+        val error = ByteArray(32) { 7 }
+        try {
+            handOverKey(error, onKey = { throw OutOfMemoryError("x") }, onFailed = { failed++ })
+            fail("An Error goes on")
+        } catch (e: OutOfMemoryError) {
+            // Expected.
+        }
+        assertTrue("Wiped before the Error goes on", error.all { it == 0.toByte() })
+        assertEquals(1, failed)
+    }
+
     @Test
     fun strongBoxOnlyWhenPresentAndNewEnoughAndNotFailed() {
         for (has in listOf(false, true)) for (sdk in listOf(27, 28)) for (failed in listOf(false, true)) {

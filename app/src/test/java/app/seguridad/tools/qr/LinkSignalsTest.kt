@@ -356,6 +356,30 @@ class LinkSignalsTest {
     }
 
     @Test
+    fun aCapitalSigmaAtTheEndIsAPlainSigmaAsInTheBrowser() {
+        // MN (T6 of §2.5): String.lowercase turns a final «Σ» into «ς» (Final_Sigma); a browser (UTS #46) maps «Σ» to «σ»
+        // and connects to xn--mxa0b, so the name shown and the one used are the same.
+        val l = link("https://\u0391\u03A3.gr")
+        assertEquals(IDN.toASCII("\u03B1\u03C3") + ".gr", l.host)
+        assertEquals("xn--mxa0b.gr", l.host)
+        assertEquals("\u03B1\u03C3.gr", l.unicodeHost)
+        assertEquals(listOf(Signal.PUNYCODE), l.signals)
+        // The same with a full-width or mixed-case label, and a final sigma written as such stays one.
+        assertEquals("xn--mxa0b.gr", link("https://\u03B1\u03A3.gr").host)
+        assertEquals("\u03C2\u03B1.gr", link("https://\u03C2\u0391.gr").host)
+    }
+
+    @Test
+    fun anXnLabelWithSharpSStaysInItsAsciiFormAndIsPunycode() {
+        // MN (T6 of §2.5): Java's IDN (IDNA2003) cannot decode «xn--fa-hia» (faß): its check turns «ß» into «ss». The
+        // name stays as the browser connects to it, with the punycode signal; no look-alike reading is made up.
+        val l = link("https://xn--fa-hia.de/")
+        assertEquals("xn--fa-hia.de", l.host)
+        assertEquals("xn--fa-hia.de", l.unicodeHost)
+        assertEquals(listOf(Signal.PUNYCODE), l.signals)
+    }
+
+    @Test
     fun charactersNewerThanUnicode32AreFoldedBeforeEncoding() {
         // Squared letters 🄱🄸🅃 are «bit» after NFKC.
         val l = link("https://\uD83C\uDD31\uD83C\uDD38\uD83C\uDD43.ly/x")
