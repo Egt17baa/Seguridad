@@ -477,13 +477,14 @@ const val AUTO_BACKUP_REPLACE_DROPPED = "Las copias automáticas anteriores que 
 const val SETTINGS_NEED_OPEN_VAULT = "Abre la bóveda (pestaña Bóveda) para cambiar este ajuste."
 
 /**
- * COV2-3 (audit 1.3.0): under «Bloqueo» in Ajustes. Leaving locks; «Al salir» gets a 2-minute backstop without use
- * while a picker or the scanner is open for the app, and while another app has the focus in multi-window.
+ * COV2-3 (audit 1.3.0, M2 of the F1 review): under «Bloqueo» in Ajustes. Leaving locks; while a picker or the scanner
+ * is open for the app, and while another app has the focus in multi-window, the chosen time counts, and «Al salir» gets
+ * a 2-minute backstop from the moment of leaving.
  */
 const val LOCK_ON_EXIT_HINT =
-    "Al salir de la app se bloquea siempre (salvo mientras eliges un archivo o escaneas un QR para ella). Con «Al " +
-        "salir», en ese caso y mientras usas otra app en pantalla dividida o en ventana flotante, se bloquea unos 2 " +
-        "minutos después de usarla por última vez."
+    "Al salir de la app se bloquea siempre, salvo mientras eliges un archivo o escaneas un QR para ella. En ese caso, y " +
+        "mientras usas otra app en pantalla dividida o en ventana flotante, cuenta el tiempo elegido; con «Al salir», " +
+        "unos 2 minutos."
 
 /**
  * ANDROID-2 (audit 1.3.0): the picker handed back something that is not another app's document (a `file://`, or one

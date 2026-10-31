@@ -48,6 +48,28 @@ class AppContainerTest {
         assertEquals(listOf(folder), released)
     }
 
+    @Test fun `COV2-3 another app taking the focus in multi-window, with Al salir`() = runTest {
+        var elapsed = 0L
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, elapsedRealtime = { elapsed })
+        c.settings.load()
+        c.settings.update { it.copy(lockAfter = app.seguridad.settings.LockAfter.ON_EXIT) }
+        c.vault.load()
+        c.vault.create("maestra-larga".toCharArray())
+        elapsed += 10 * 60_000L // In use, but no vault screen touched.
+        c.leftForAnotherApp()
+        assertTrue(c.awayInOtherApp.value)
+        elapsed += app.seguridad.vault.AWAY_BACKSTOP_MS - 1
+        c.backFromAnotherApp()
+        assertFalse(c.awayInOtherApp.value)
+        assertTrue("Back within 2 minutes: still open", c.vault.state.value is VaultState.Unlocked)
+        c.leftForAnotherApp()
+        elapsed += app.seguridad.vault.AWAY_BACKSTOP_MS
+        assertTrue(c.vault.lockIfIdle())
+        assertEquals(VaultState.Locked, c.vault.state.value)
+        c.backFromAnotherApp()
+        assertFalse(c.awayInOtherApp.value)
+    }
+
     @Test fun newVaultWithAutoBackupOffReleasesNothing() = runTest {
         val released = mutableListOf<String>()
         val c = AppContainer(tmp.root, cache, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)

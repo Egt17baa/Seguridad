@@ -33,8 +33,15 @@ class PlatformSourcesTest {
         val src = code("MainActivity.kt")
         assertTrue("onTopResumedActivityChanged" in src)
         assertTrue("isInMultiWindowMode" in src)
-        assertTrue("VaultLock.awayInMultiWindow = true" in src)
-        assertTrue("VaultLock.awayInMultiWindow = false" in src)
+        assertTrue("container.leftForAnotherApp()" in src)
+        assertTrue("container.backFromAnotherApp()" in src)
+    }
+
+    @Test fun `COV2-3 M3 PIN y codigos hears the multi-window away signal for its whole entry`() {
+        val src = code("ui/screens/CodesScreen.kt")
+        assertTrue("session.otherAppFocused(" in src)
+        assertTrue("session.otherAppLeft(" in src)
+        assertTrue("awayInOtherApp" in code("ui/AppNavHost.kt"))
     }
 
     @Test fun `ANDROID-1 a deleted share copy has its URI permission revoked`() {

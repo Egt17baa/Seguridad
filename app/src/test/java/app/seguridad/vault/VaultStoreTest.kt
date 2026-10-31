@@ -864,6 +864,40 @@ class VaultStoreTest {
         assertEquals(VaultState.Locked, s.state.value)
     }
 
+    @Test fun `COV2-3 M1 with Al salir the backstop counts from leaving for the other app, not from the last vault touch`() = runTest {
+        var elapsed = 0L
+        var away = false
+        val s = VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            idleLockMs = { 0L }, keptOpen = { false }, awayInMultiWindow = { away }, elapsed = { elapsed },
+        ).apply { load(); create("m".toCharArray()) }
+        elapsed += 10 * 60_000L // Ten minutes in «Clave pública» (it never touches the vault).
+        s.leftForAnotherWindow()
+        away = true
+        elapsed += AWAY_BACKSTOP_MS - 1
+        assertFalse(s.lockIfIdle())
+        elapsed += 1
+        assertTrue(s.lockIfIdle())
+    }
+
+    @Test fun `COV2-3 M1 a time chosen in Ajustes keeps counting from the real last use`() = runTest {
+        var elapsed = 0L
+        val s = VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            idleLockMs = { 5 * 60_000L }, keptOpen = { false }, awayInMultiWindow = { true }, elapsed = { elapsed },
+        ).apply { load(); create("m".toCharArray()) }
+        elapsed += 4 * 60_000L
+        s.leftForAnotherWindow()
+        elapsed += 60_000L
+        assertTrue(s.lockIfIdle())
+    }
+
+    @Test fun `COV2-3 M1 the rule`() {
+        assertTrue(backstopFromLeaving(0L))
+        assertFalse(backstopFromLeaving(60_000L))
+        assertFalse(backstopFromLeaving(900_000L))
+    }
+
     @Test fun `COV2-3 the idle limit`() {
         assertEquals(0L, idleLimitMs(chosen = 0, keptOpen = false, awayInMultiWindow = false))
         assertEquals(AWAY_BACKSTOP_MS, idleLimitMs(chosen = 0, keptOpen = true, awayInMultiWindow = false))

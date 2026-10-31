@@ -232,7 +232,7 @@ fun AppNavHost(container: AppContainer) {
                         onBack = back,
                     )
                 }
-                composable("tools/codes") { CodesScreen(vault, lockAfterMs = { settingsStore.settings.value.lockAfter.ms }, onBack = back) }
+                composable("tools/codes") { CodesScreen(vault, lockAfterMs = { settingsStore.settings.value.lockAfter.ms }, awayInOtherApp = container.awayInOtherApp, onBack = back) }
                 composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
                 composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
                 composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }

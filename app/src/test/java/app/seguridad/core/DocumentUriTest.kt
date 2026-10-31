@@ -56,25 +56,62 @@ class DocumentUriTest {
     }
 
     /**
-     * The lint-like check: no picker of files or folders is registered directly; all go through rememberDocumentPicker
-     * (ui/screens/Pickers.kt), which runs the guard before the screen sees the URI.
+     * The lint-like check (M4 of the F1 review), on the whole text of each file, so a call split over lines is caught:
+     * outside ui/screens/Pickers.kt, no file or folder picker is registered or launched by any other way than
+     * rememberDocumentPicker, which runs the guard before the screen sees the URI.
      */
     @Test fun everyDocumentPickerGoesThroughTheGuard() {
-        val contracts = Regex("""ActivityResultContracts\.(OpenDocument|OpenMultipleDocuments|CreateDocument|OpenDocumentTree|GetContent|GetMultipleContents|PickVisualMedia|PickMultipleVisualMedia)\b""")
-        val direct = Regex("""(rememberLauncherForActivityResult|registerForActivityResult)\s*\(\s*ActivityResultContracts\.""")
-        val files = mainRoot().walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        val offending = mutableListOf<String>()
-        var guarded = 0
-        for (f in files) {
-            val text = f.readText()
-            if (f.name == "Pickers.kt") continue
-            text.lines().forEachIndexed { i, line ->
-                if (direct.containsMatchIn(line)) offending += "${f.name}:${i + 1}: $line"
-                if (contracts.containsMatchIn(line) && "rememberDocumentPicker(" !in line) offending += "${f.name}:${i + 1}: $line"
-                if ("rememberDocumentPicker(ActivityResultContracts." in line) guarded++
-            }
-        }
+        val files = mainRoot().walkTopDown().filter { it.isFile && it.extension == "kt" && it.name != "Pickers.kt" }.toList()
+        assertTrue("Too few sources: ${files.size}", files.size > 50)
+        val offending = files.flatMap { f -> pickerViolations(f.readText()).map { "${f.name}: $it" } }
         assertTrue("Pickers not guarded:\n" + offending.joinToString("\n"), offending.isEmpty())
+        val guarded = files.sumOf { guardedPicker.findAll(it.readText()).count() }
         assertEquals("Number of guarded pickers changed: update this test", 25, guarded)
+    }
+
+    @Test fun theCheckCatchesEveryWayAroundTheGuard() {
+        val bad = listOf(
+            // A launcher split over two lines, with a document contract or with a generic one.
+            "val pick = rememberLauncherForActivityResult(\n    ActivityResultContracts.OpenDocument()\n) { uri -> }",
+            "val pick = rememberLauncherForActivityResult(\n    ActivityResultContracts.StartActivityForResult(),\n) { r -> }",
+            "val pick = registerForActivityResult(\n  ActivityResultContracts.CreateDocument(\"text/plain\")) { }",
+            "val pick = rememberLauncherForActivityResult(MyPicker()) { }",
+            // The picker's intent built by hand, or a contract of one's own.
+            "launcher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE))",
+            "Intent(Intent.ACTION_CREATE_DOCUMENT)", "Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)",
+            "Intent(Intent.ACTION_GET_CONTENT)", "Intent(Intent.ACTION_PICK)",
+            "Intent(\"android.intent.action.OPEN_DOCUMENT\")",
+            "object Picker : ActivityResultContract<String, Uri?>() { }",
+            "val c = ActivityResultContracts.OpenDocument()",
+            "ActivityResultContracts.GetContent()", "ActivityResultContracts.PickVisualMedia()",
+        )
+        for (text in bad) assertTrue("not caught: $text", pickerViolations(text).isNotEmpty())
+        val good = listOf(
+            "val scanner = rememberLauncherForActivityResult(ScanContract()) { result -> }",
+            "val scanner = rememberLauncherForActivityResult(\n    ScanContract()\n) { result -> }",
+            "val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri -> }",
+            "val save = rememberDocumentPicker(\n    ActivityResultContracts.CreateDocument(\"image/png\"),\n    onSaveTarget,\n)",
+            "import androidx.activity.compose.rememberLauncherForActivityResult\nif (uri == null) return@rememberLauncherForActivityResult",
+        )
+        for (text in good) assertEquals(text, emptyList<String>(), pickerViolations(text))
+    }
+
+    private val guardedPicker = Regex("""rememberDocumentPicker\(\s*ActivityResultContracts\.""")
+
+    /** What in [text] (a whole source file) registers or launches a picker without rememberDocumentPicker. */
+    private fun pickerViolations(text: String): List<String> {
+        val out = mutableListOf<String>()
+        // Any launcher other than the QR scanner's.
+        for (m in Regex("""\b(rememberLauncherForActivityResult|registerForActivityResult)\s*\(""").findAll(text)) {
+            if (!Regex("""^\s*ScanContract\(\)""").containsMatchIn(text.substring(m.range.last + 1))) out += m.value
+        }
+        // A document or content contract anywhere but right inside rememberDocumentPicker(.
+        val contracts = Regex("""ActivityResultContracts\.(OpenDocument|OpenMultipleDocuments|CreateDocument|OpenDocumentTree|GetContent|GetMultipleContents|PickVisualMedia|PickMultipleVisualMedia|StartActivityForResult|StartIntentSenderForResult)\b""")
+        val guarded = guardedPicker.findAll(text).map { it.range.last - "ActivityResultContracts.".length + 1 }.toSet()
+        for (m in contracts.findAll(text)) if (m.range.first !in guarded) out += m.value
+        // Pickers built by hand: their intents, or a contract of one's own.
+        val byHand = Regex("""ACTION_OPEN_DOCUMENT|ACTION_CREATE_DOCUMENT|ACTION_GET_CONTENT|ACTION_PICK|intent\.action\.(OPEN_DOCUMENT|CREATE_DOCUMENT|GET_CONTENT|PICK)|StartActivityForResult|StartIntentSenderForResult|ActivityResultContract\s*<""")
+        for (m in byHand.findAll(text)) out += m.value
+        return out
     }
 }

@@ -107,6 +107,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -142,7 +143,12 @@ private object ComposeCells : CellFactory {
  * here, off the main thread (M-10). A save runs in [viewModelScope], so a rotation does not cut it. When the vault locks
  * the session decides what goes ([CodesSession.vaultStateIs]); when the entry is gone for good, every secret goes.
  */
-private class CodesViewModel(private val store: VaultStore, assets: AssetManager, private val lockAfterMs: () -> Long) : ViewModel() {
+private class CodesViewModel(
+    private val store: VaultStore,
+    assets: AssetManager,
+    private val lockAfterMs: () -> Long,
+    awayInOtherApp: StateFlow<Boolean>,
+) : ViewModel() {
     val session = CodesSession(ComposeCells, createdAt = SystemClock.elapsedRealtime())
 
     /** What the last save said, for the snackbar; null once shown. */
@@ -161,6 +167,14 @@ private class CodesViewModel(private val store: VaultStore, assets: AssetManager
         }
         // Collected for the entry's whole life (also while another tab is shown): why the vault locked and whether the app
         // was in use then are read from the store, as recorded at the lock itself.
+        // COV2-3 (M3 of the F1 review): another app with the focus in split screen or a floating window (no ON_STOP comes)
+        // is time away too, for the entry's whole life, like the lock below. The first value (false) does nothing.
+        viewModelScope.launch {
+            awayInOtherApp.collect { away ->
+                if (away) session.otherAppFocused(SystemClock.elapsedRealtime())
+                else session.otherAppLeft(SystemClock.elapsedRealtime(), lockAfterMs())
+            }
+        }
         viewModelScope.launch {
             store.state.collect {
                 session.vaultStateIs(it is VaultState.Unlocked) {
@@ -209,12 +223,13 @@ private class CodesViewModel(private val store: VaultStore, assets: AssetManager
  * system text menu has no Copy ([NoCopy]); it leaves through «Copiar» ([copySensitive]) or into the vault as a note.
  * Saving goes through the existing [VaultGate] when the vault is locked, and the draw waits on this screen meanwhile.
  * I-1: back after more than the vault's lock time away ([lockAfterMs], at least a minute, measured on the monotonic
- * clock from ON_STOP), or once the vault locks with the app in use (by hand; or idle, if this screen was not used for
- * that time either), the PIN, the codes and the answers are drawn again.
+ * clock from ON_STOP, or from another app taking the focus in multi-window: [awayInOtherApp]), or once the vault locks
+ * with the app in use (by hand; idle, if this screen was not used for that time either; any lock while in the other
+ * app), the PIN, the codes and the answers are drawn again.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, onBack: () -> Unit) {
+fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: StateFlow<Boolean>, onBack: () -> Unit) {
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val actions = vaultActions(store, snackbar)
@@ -222,7 +237,7 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, onBack: () -> Unit) 
     LaunchedEffect(store) { store.load() }
 
     val appAssets = context.applicationContext.assets
-    val vm = viewModel { CodesViewModel(store, appAssets, lockAfterMs) }
+    val vm = viewModel { CodesViewModel(store, appAssets, lockAfterMs, awayInOtherApp) }
     val session = vm.session
     val currentLockAfter by rememberUpdatedState(lockAfterMs)
 

@@ -65,10 +65,11 @@ class MainActivity : FragmentActivity() {
 
     /**
      * COV2-3: in split screen or a floating window, Seguridad stays visible (no onStop) while the user works in the
-     * other app. Losing the top position to it starts the same backstop as a picker ([AWAY_BACKSTOP_MS] without use,
-     * also with «Al salir»; the app-wide idle ticker checks it). The app's own dialogs and menus are windows of this
-     * activity and never change it; a picker or the scanner already has the backstop. Back on top, the time away is
-     * checked first, as in onStart. Android 10+; before, only one app is resumed, so onPause and onResume tell it.
+     * other app. Losing the top position to it starts the same backstop as a picker ([AWAY_BACKSTOP_MS], counted from
+     * this moment with «Al salir»; the app-wide idle ticker checks it), and «PIN y códigos» counts the time away. The
+     * app's own dialogs and menus are windows of this activity and never change it; a picker or the scanner already has
+     * the backstop. Back on top, the time away is checked first, as in onStart. Android 10+; before, only one app is
+     * resumed, so onPause and onResume tell it.
      */
     override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
         super.onTopResumedActivityChanged(isTopResumedActivity)
@@ -88,10 +89,9 @@ class MainActivity : FragmentActivity() {
     private fun awayInMultiWindow(away: Boolean) {
         if (away) {
             // Only in multi-window: full screen, losing the top means leaving (onStop locks then), or a system dialog.
-            if (isInMultiWindowMode && !isChangingConfigurations) VaultLock.awayInMultiWindow = true
+            if (isInMultiWindowMode && !isChangingConfigurations) container.leftForAnotherApp()
         } else {
-            container.vault.lockIfIdle()
-            VaultLock.awayInMultiWindow = false
+            container.backFromAnotherApp()
         }
     }
 
