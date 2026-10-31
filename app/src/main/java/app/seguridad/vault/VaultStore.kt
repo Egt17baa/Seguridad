@@ -107,6 +107,8 @@ class VaultStore(
     private val idleLockMs: () -> Long = { 5 * 60_000L },
     /** Whether a picker or the QR scanner we opened keeps the vault open in the background ([VaultLock.keepOpenOnce]). */
     private val keptOpen: () -> Boolean = { VaultLock.keepOpenOnce },
+    /** Whether, in split screen or a floating window, another app has the focus ([VaultLock.awayInMultiWindow], COV2-3). */
+    private val awayInMultiWindow: () -> Boolean = { VaultLock.awayInMultiWindow },
     /** Whether the app is in use (AppContainer.foreground), recorded with each lock ([lastLockInForeground]). */
     private val inForeground: () -> Boolean = { true },
     /** Encrypted attachments, in files/vault/att/ next to the vault file. */
@@ -488,13 +490,14 @@ class VaultStore(
 
     /**
      * Locks when unused for [idleLockMs]; returns true if it locked. 0 («Al salir») means no time lock while the
-     * user is in the app, but while a picker or the QR scanner keeps the vault open in the background ([keptOpen]:
-     * MainActivity.onStop does not lock then) it locks after [AWAY_BACKSTOP_MS], so Home or screen-off from there
-     * never leaves it open for hours.
+     * user is in the app, but it locks after [AWAY_BACKSTOP_MS] without use (see [idleLimitMs]) while:
+     * - a picker or the QR scanner keeps the vault open in the background ([keptOpen]: MainActivity.onStop does not
+     *   lock then), so Home or screen-off from there never leaves it open for hours;
+     * - in split screen or a floating window, another app has the focus ([awayInMultiWindow]): Seguridad is still
+     *   visible, so onStop never comes (COV2-3).
      */
     fun lockIfIdle(): Boolean {
-        val chosen = idleLockMs()
-        val limit = if (chosen > 0) chosen else if (keptOpen()) AWAY_BACKSTOP_MS else 0L
+        val limit = idleLimitMs(idleLockMs(), keptOpen(), awayInMultiWindow())
         if (limit > 0 && dek != null && elapsed() - lastUse >= limit) {
             lock(LockReason.IDLE)
             return true
@@ -938,10 +941,31 @@ internal fun isEntryId(id: String): Boolean = id.isNotEmpty() && id.length <= MA
 
 private fun attachmentUnusable(name: String) = "El adjunto «$name» falta o está dañado: quítalo de su entrada para poder hacer la copia"
 
-/** Longest the vault stays open, with «Al salir», while a picker or the QR scanner we opened is on top. */
+/**
+ * Longest the vault stays open without use, with «Al salir», while a picker or the QR scanner we opened is on top, or
+ * while another app has the focus in multi-window.
+ */
 const val AWAY_BACKSTOP_MS = 2 * 60_000L
 
-/** Set just before the vault opens a system screen (file picker, QR scanner) so leaving the app for it does not lock. */
+/**
+ * How long without use before [VaultStore.lockIfIdle] locks; 0 means never on time alone. A time chosen in Ajustes
+ * ([chosen] > 0) is used as it is; «Al salir» (0) gets [AWAY_BACKSTOP_MS] while the app is away without onStop:
+ * [keptOpen] (a picker or the scanner) or [awayInMultiWindow] (another app has the focus in multi-window).
+ */
+internal fun idleLimitMs(chosen: Long, keptOpen: Boolean, awayInMultiWindow: Boolean): Long = when {
+    chosen > 0 -> chosen
+    keptOpen || awayInMultiWindow -> AWAY_BACKSTOP_MS
+    else -> 0L
+}
+
 object VaultLock {
+    /** Set just before the vault opens a system screen (file picker, QR scanner) so leaving the app for it does not lock. */
     @Volatile var keepOpenOnce = false
+
+    /**
+     * COV2-3: in split screen or a floating window, the activity lost the focus to another app (it is still visible,
+     * so no onStop). Set and cleared by MainActivity; [VaultStore.lockIfIdle] then locks after [AWAY_BACKSTOP_MS]
+     * without use, also with «Al salir». The app's own dialogs never change it (they are windows, not activities).
+     */
+    @Volatile var awayInMultiWindow = false
 }

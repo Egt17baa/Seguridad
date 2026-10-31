@@ -1,5 +1,6 @@
 package app.seguridad.tools.share
 
+import app.seguridad.crypto.secureRandom
 import java.io.File
 import java.io.IOException
 
@@ -25,9 +26,18 @@ private val SHARE_NAMES = Regex("${PHOTO_FILE_BASE}\\.(jpg|png|webp)|imagen-tach
  * - [onReturn] deletes it once [SHARE_KEEP_MS] or more have passed since it was prepared;
  * - [wipeAll] runs at each process start (the time of the last [prepare] lives only in memory).
  *
+ * ANDROID-1 (audit 1.3.0): each copy goes in a folder of its own with a random name (128 bits), so its content:// URI
+ * is new every time: an app that got an earlier copy (and kept its URI, or a grant of it) never reads a later one sent
+ * to another app. And every copy deleted, by any of the paths above, is told to [onRemoved] first (Android revokes the
+ * read permission of its URI there), so no grant outlives the file. [onRemoved] may throw: the file goes all the same.
+ *
  * Synchronized: the screen prepares off the main thread and the return check may run on another one.
  */
-class ShareTemp(cacheDir: File, private val now: () -> Long) {
+class ShareTemp(
+    cacheDir: File,
+    private val now: () -> Long,
+    private val onRemoved: (File) -> Unit = {},
+) {
     private val dir = File(cacheDir, SHARE_DIR)
     private var preparedAt: Long? = null
 
@@ -35,7 +45,7 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
     private var preparedFile: File? = null
 
     /**
-     * Writes [bytes] as `compartir/<name>`, the only file left there, and returns it. [name] must be one of the fixed
+     * Writes [bytes] as `compartir/<random>/<name>`, the only file left there, and returns it. [name] must be one of the fixed
      * names (`copia-de-foto.jpg|png|webp`, `imagen-tachada.jpg|png`); anything else throws IllegalArgumentException.
      * On a write error nothing is left behind and the IOException goes up.
      */
@@ -44,11 +54,13 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
         require(SHARE_NAMES.matches(name)) { "Nombre de archivo no admitido" }
         clear()
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("No se ha podido preparar la carpeta")
-        val file = File(dir, name)
+        val folder = File(dir, randomFolderName())
+        if (!folder.mkdirs()) throw IOException("No se ha podido preparar la carpeta")
+        val file = File(folder, name)
         try {
             file.writeBytes(bytes)
         } catch (e: IOException) {
-            file.delete()
+            folder.deleteRecursively()
             throw e
         }
         preparedAt = now()
@@ -72,14 +84,15 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
 
     /**
      * Deletes [file] if it is the very object the last [prepare] returned (the copy of a failed or cancelled share);
-     * anything else is left alone. Compared by identity, not by path: the names are fixed, so a later prepare writes
-     * the same path, and a late discard of the earlier attempt must not delete the newer copy nor forget its time.
+     * anything else is left alone. Compared by identity, not by path: a late discard of an earlier attempt must not
+     * delete the newer copy nor forget its time. Its random folder goes with it.
      * Never throws. An earlier copy is not touched here: [prepare] already removed it.
      */
     @Synchronized
     fun discard(file: File) {
         if (file !== preparedFile) return
-        file.delete()
+        revoke(file)
+        file.parentFile?.deleteRecursively()
         preparedFile = null
         preparedAt = null
     }
@@ -96,12 +109,33 @@ class ShareTemp(cacheDir: File, private val now: () -> Long) {
         }
     }
 
-    /** Deletes every entry of `compartir/`; throws if any is left, so [prepare] never leaves two files. */
+    /**
+     * Deletes every entry of `compartir/`, each file told to [onRemoved] first (also the leftovers of an earlier process);
+     * throws if any is left, so [prepare] never leaves two files.
+     */
     private fun clear() {
         preparedAt = null
         preparedFile = null
         val entries = dir.listFiles() ?: return
-        for (entry in entries) entry.deleteRecursively()
+        for (entry in entries) {
+            entry.walkTopDown().filter { it.isFile }.forEach(::revoke)
+            entry.deleteRecursively()
+        }
         if (!dir.listFiles().isNullOrEmpty()) throw IOException("No se ha podido borrar la copia anterior")
     }
+
+    private fun revoke(file: File) {
+        try {
+            onRemoved(file)
+        } catch (e: Exception) {
+            // A grant that could not be revoked goes when the receiving activity ends or the phone restarts; the file
+            // goes now all the same.
+        }
+    }
+}
+
+/** 128 random bits in lower-case hex: the name of the folder of one shared copy. */
+private fun randomFolderName(): String {
+    val bytes = ByteArray(16).also(secureRandom::nextBytes)
+    return bytes.joinToString("") { "%02x".format(it) }
 }

@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -60,6 +59,7 @@ import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
+import app.seguridad.tools.LOCK_ON_EXIT_HINT
 import app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT
 import app.seguridad.tools.KeyLevel
 import app.seguridad.tools.PASSWORD_CHANGED_TITLE
@@ -157,7 +157,7 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
     // COV2-1: where the copies go and how many are kept change only with the vault open, or with none.
     val editable = settingsEditable(vaultState)
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+    val picker = rememberDocumentPicker(ActivityResultContracts.OpenDocumentTree()) { uri ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
         if (uri != null) scope.launch {
             // Checked again on return: the vault may have locked while the picker was open (COV2-1). No permission taken.
@@ -424,7 +424,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                     if (settingsEditable(vault.state.value)) change { it.copy(lockAfter = v) }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
-                Hint("Al salir de la app se bloquea siempre (salvo mientras eliges un archivo o escaneas un QR para ella; con «Al salir», como mucho 2 minutos).")
+                Hint(LOCK_ON_EXIT_HINT)
             }
             Section("Borrar del portapapeles lo copiado") {
                 Choices(ClipboardClear.entries, settings.clipboard, { "A los ${it.seconds} s" }, enabled = { editable }) { v ->

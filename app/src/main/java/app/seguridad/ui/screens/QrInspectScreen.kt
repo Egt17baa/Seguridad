@@ -158,8 +158,8 @@ fun QrInspectScreen(store: VaultStore, onAddContact: () -> Unit, onOpenReceived:
     }
 
     // Like «Limpiar foto»: the picker does not keep the vault open (this screen does not need it).
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberDocumentPicker
         view = null // The previous result goes before the next image is read.
         error = null
         busy = true

@@ -1,6 +1,7 @@
 package app.seguridad
 
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -16,6 +17,7 @@ import app.seguridad.ui.ClipboardHistoryNotice
 import app.seguridad.ui.NoLearningInput
 import app.seguridad.ui.theme.SeguridadTheme
 import app.seguridad.ui.theme.isDark
+import app.seguridad.vault.AWAY_BACKSTOP_MS
 import app.seguridad.vault.LockReason
 import app.seguridad.vault.VaultLock
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +61,38 @@ class MainActivity : FragmentActivity() {
         // Back from sharing an image: the copy goes once 10 minutes have passed. Off the main thread, so a share being
         // prepared at the same time (a write of up to 50 MB, under the same lock) never holds up the activity.
         container.appScope.launch(Dispatchers.IO) { container.shareTemp.onReturn() }
+    }
+
+    /**
+     * COV2-3: in split screen or a floating window, Seguridad stays visible (no onStop) while the user works in the
+     * other app. Losing the top position to it starts the same backstop as a picker ([AWAY_BACKSTOP_MS] without use,
+     * also with «Al salir»; the app-wide idle ticker checks it). The app's own dialogs and menus are windows of this
+     * activity and never change it; a picker or the scanner already has the backstop. Back on top, the time away is
+     * checked first, as in onStart. Android 10+; before, only one app is resumed, so onPause and onResume tell it.
+     */
+    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
+        super.onTopResumedActivityChanged(isTopResumedActivity)
+        awayInMultiWindow(!isTopResumedActivity)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) awayInMultiWindow(true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) awayInMultiWindow(false)
+    }
+
+    private fun awayInMultiWindow(away: Boolean) {
+        if (away) {
+            // Only in multi-window: full screen, losing the top means leaving (onStop locks then), or a system dialog.
+            if (isInMultiWindowMode && !isChangingConfigurations) VaultLock.awayInMultiWindow = true
+        } else {
+            container.vault.lockIfIdle()
+            VaultLock.awayInMultiWindow = false
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

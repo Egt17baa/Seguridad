@@ -3,6 +3,7 @@ package app.seguridad
 import android.app.Application
 import android.os.SystemClock
 import app.seguridad.android.SafBackupTarget
+import app.seguridad.android.revokeSharedCopy
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.ui.screens.DECRYPT_TMP_PREFIX
 import app.seguridad.vault.VaultState
@@ -22,6 +23,8 @@ class SeguridadApp : Application() {
             releaseFolder = { uri -> SafBackupTarget.releaseFolder(contentResolver, uri) },
             // Counts deep sleep too (System.nanoTime does not): the idle lock must see the time the screen was off.
             elapsedRealtime = SystemClock::elapsedRealtime,
+            // ANDROID-1: no app keeps reading a shared copy's URI once the copy is gone.
+            revokeShare = { file -> revokeSharedCopy(this, file) },
         )
     }
 

@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -233,13 +232,13 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
         error = null
     }
     var fileMessage by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
-    val saveTxt = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { dest ->
-        if (dest == null) return@rememberLauncherForActivityResult
+    val saveTxt = rememberDocumentPicker(ActivityResultContracts.CreateDocument("text/plain")) { dest ->
+        if (dest == null) return@rememberDocumentPicker
         val text = output ?: run {
             // The screen was rebuilt while the dialog was open (the result is never kept in saved state).
             discardDocumentLater(context, dest)
             fileMessage = false to "No se ha guardado: vuelve a cifrar el texto."
-            return@rememberLauncherForActivityResult
+            return@rememberDocumentPicker
         }
         scope.launch {
             fileMessage = try {
@@ -253,8 +252,8 @@ fun TextCryptoScreen(kdf: KdfParams, onBack: () -> Unit) {
             }
         }
     }
-    val openTxt = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    val openTxt = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberDocumentPicker
         scope.launch {
             val text = try {
                 withContext(Dispatchers.IO) {
@@ -523,8 +522,8 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
     var checkedFor by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
     val checking = !encrypt && source != null && checkedFor != (source to encrypt)
 
-    val saveEncrypted = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
-        if (dest == null) return@rememberLauncherForActivityResult
+    val saveEncrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+        if (dest == null) return@rememberDocumentPicker
         val src = source
         val clearPasswordAfterUse = !useKey
         val secret = secretOf(useKey, password, keyHex)
@@ -533,7 +532,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             secret?.wipe()
             discardDocumentLater(context, dest)
             message = false to "No se ha guardado: vuelve a elegir el archivo y la contraseña o clave."
-            return@rememberLauncherForActivityResult
+            return@rememberDocumentPicker
         }
         busy = true
         scope.launch {
@@ -554,7 +553,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             }
         }
     }
-    val saveDecrypted = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val saveDecrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         val tmp = pendingPath?.let(::File)?.takeIf { it.exists() } ?: run {
             // The decrypted copy is gone (the app was restarted meanwhile): nothing to write.
             pendingPath = null
@@ -562,7 +561,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
                 discardDocumentLater(context, dest)
                 message = false to "No se ha guardado: vuelve a descifrar el archivo."
             }
-            return@rememberLauncherForActivityResult
+            return@rememberDocumentPicker
         }
         scope.launch {
             message = try {
@@ -583,7 +582,7 @@ fun FileCryptoScreen(kdf: KdfParams, onBack: () -> Unit, onOpenReceived: () -> U
             }
         }
     }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             // Another file: «Descifrar» is off from this very frame until its check ends. The same file again keeps its
             // check (the effect below is keyed on it and does not run again).
@@ -817,8 +816,8 @@ fun FileHashScreen(onBack: () -> Unit) {
     var expected by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var pickerError by remember { mutableStateOf<String?>(null) }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberDocumentPicker
         name = displayName(context, uri)
         hash = null
         busy = true

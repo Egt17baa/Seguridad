@@ -66,6 +66,11 @@ class AppContainer(
     private val elapsedRealtime: () -> Long = { System.nanoTime() / 1_000_000 },
     /** Where the settings file is read and written (tests run it in place). */
     settingsIo: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * Revokes the read permission of a shared copy's URI before [shareTemp] deletes it (ANDROID-1; Android passes
+     * Context.revokeUriPermission through the FileProvider). May throw: the copy is deleted all the same.
+     */
+    revokeShare: (File) -> Unit = {},
 ) {
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE), settingsIo)
 
@@ -183,8 +188,11 @@ class AppContainer(
         }
     }
 
-    /** The one shared image copy (cacheDir/compartir/): wiped at start and on return after 10 minutes, never on lock. */
-    val shareTemp = ShareTemp(cacheDir, System::currentTimeMillis)
+    /**
+     * The one shared image copy (cacheDir/compartir/<random>/): wiped at start and on return after 10 minutes, never on
+     * lock; the permission of its URI is revoked whenever it goes.
+     */
+    val shareTemp = ShareTemp(cacheDir, System::currentTimeMillis, revokeShare)
 
     val pwned: PwnedPasswords by lazy { PwnedPasswords(client) }
 
