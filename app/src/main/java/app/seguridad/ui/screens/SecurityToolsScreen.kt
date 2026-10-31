@@ -42,7 +42,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +109,7 @@ import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
 import app.seguridad.tools.cipher.BreachSession
 import app.seguridad.tools.cipher.FileCryptoSession
 import app.seguridad.tools.cipher.FileHashSession
+import app.seguridad.tools.cipher.PendingCopy
 import app.seguridad.tools.cipher.TextCryptoSession
 import app.seguridad.tools.codes.ScreenGuard
 import app.seguridad.vault.VaultStore
@@ -147,15 +147,15 @@ private fun SecretInput(
     keyHex: String,
     onKeyHex: (String) -> Unit,
     allowGenerate: Boolean,
+    guard: ScreenGuard,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         SegmentedButton(selected = !useKey, onClick = { onUseKey(false) }, shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text("Contraseña") }
         SegmentedButton(selected = useKey, onClick = { onUseKey(true) }, shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text("Clave AES-256") }
     }
     if (!useKey) {
-        PasswordField(password, onPassword)
+        PasswordField(password, { guard.typed(); onPassword(it) })
         Text(
             "Se convierte en clave con Argon2id. Usa una larga: una frase de 6 palabras del Generador es ideal.",
             style = MaterialTheme.typography.bodySmall,
@@ -164,7 +164,7 @@ private fun SecretInput(
     } else {
         OutlinedTextField(
             value = keyHex,
-            onValueChange = onKeyHex,
+            onValueChange = { guard.typed(); onKeyHex(it) },
             label = { Text("Clave (64 caracteres hexadecimales)") },
             minLines = 2,
             textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
@@ -395,17 +395,17 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
             }
             OutlinedTextField(
                 value = s.input,
-                onValueChange = { s.input = if (s.seedMode) it.lowercase() else it; vm.reset() },
+                onValueChange = { s.guard.typed(); s.input = if (s.seedMode) it.lowercase() else it; vm.reset() },
                 label = { Text(if (s.seedMode) "Las 12, 18 o 24 palabras de tu wallet" else "Texto a cifrar") },
                 minLines = 4,
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (s.seedMode && bip39 != null) SeedHelper(bip39, s.input) { s.input = it }
+            if (s.seedMode && bip39 != null) SeedHelper(bip39, s.input) { s.guard.typed(); s.input = it }
         } else {
             OutlinedTextField(
                 value = s.input,
-                onValueChange = { s.input = it; vm.reset() },
+                onValueChange = { s.guard.typed(); s.input = it; vm.reset() },
                 label = { Text("Texto cifrado (empieza por $TEXT_PREFIX o $LEGACY_TEXT_PREFIX)") },
                 minLines = 4,
                 modifier = Modifier.fillMaxWidth(),
@@ -431,6 +431,7 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
         SecretInput(
             s.useKey, { s.useKey = it; vm.reset() }, s.password, { s.password = it; vm.reset() }, s.keyHex, { s.keyHex = it; vm.reset() },
             allowGenerate = s.encrypt,
+            guard = s.guard,
         )
         if (s.encrypt) {
             Text("Algoritmo", style = MaterialTheme.typography.titleSmall)
@@ -585,8 +586,15 @@ const val DECRYPT_TMP_PREFIX = "dec"
 /** Prefix of the legacy texts, still decrypted (new ones always start with [TEXT_PREFIX]). */
 private const val LEGACY_TEXT_PREFIX = "CP1:"
 
-/** A decrypted copy in the app's private cache, waiting for the save dialog (for the run [run], COV1-1). */
-private class DecryptedCopy(val path: String, val name: String, val run: Long)
+/** A decryption that ended: the name to propose in the save dialog, for the run [run] (its copy is the session's pending one). */
+private class DecryptedReady(val name: String, val run: Long)
+
+/** Deletes [path] off the main thread on the app's scope, so it finishes even if the screen goes away (as [discardDocumentLater]). */
+private fun deleteLater(context: Context, path: String) {
+    val app = context.applicationContext
+    val scope = (app as? SeguridadApp)?.container?.appScope ?: CoroutineScope(Dispatchers.IO)
+    scope.launch(NonCancellable + Dispatchers.IO) { File(path).delete() }
+}
 
 /**
  * «Cifrar archivos» for its navigation entry (COV1-1, audit 1.3.0): the mode, the algorithm, the chosen file, the
@@ -601,33 +609,53 @@ private class FileCryptoViewModel(
     lockAfterMs: () -> Long,
     awayInOtherApp: StateFlow<Boolean>,
 ) : ViewModel() {
-    val session = FileCryptoSession(ComposeCells, SystemClock.elapsedRealtime())
+    /** M2 of the F6 review: a wipe gives the decrypted copy waiting for the save dialog up, and deletes it. */
+    val session = FileCryptoSession(ComposeCells, SystemClock.elapsedRealtime(), onDiscard = { deleteLater(appContext, it) })
     var encrypt by mutableStateOf(true)
     var alg by mutableStateOf(Aead.AES_256_GCM)
     var source by mutableStateOf<Uri?>(null)
-    var sourceName by mutableStateOf("")
+
+    /** The chosen file's name from its provider; null until it is read (M7: off the main thread). */
+    var sourceName by mutableStateOf<String?>(null)
+        private set
+    private var naming = 0L
 
     /** Set when a decryption ends; the screen opens the save dialog for it and clears it. */
-    var decrypted by mutableStateOf<DecryptedCopy?>(null)
+    var decrypted by mutableStateOf<DecryptedReady?>(null)
 
     init {
         watchAway(session.guard, store, lockAfterMs, awayInOtherApp)
+    }
+
+    /**
+     * Another file (or none): its name is read from the provider on IO (a slow cloud provider must not block the main
+     * thread), for this pick only; until then «Cifrar y guardar» stays off.
+     */
+    fun choose(uri: Uri?) {
+        source = uri
+        sourceName = null
+        val pick = ++naming
+        if (uri == null) return
+        viewModelScope.launch {
+            val name = withContext(Dispatchers.IO) { runCatching { displayName(appContext, uri) }.getOrDefault("archivo") }
+            if (pick == naming) sourceName = name
+        }
     }
 
     /** Encrypts the chosen file into [dest], from the save dialog; a document not fully written is deleted. */
     fun encryptTo(dest: Uri, kdf: KdfParams) {
         val s = session
         val src = source
+        val name = sourceName
         val clearPasswordAfterUse = !s.useKey
         val secret = secretOf(s.useKey, s.password, s.keyHex)
-        if (src == null || secret == null) {
+        if (src == null || name == null || secret == null) {
             // The screen was emptied or rebuilt while the dialog was open: the file and secret are never kept in saved state.
             secret?.wipe()
             discardDocumentLater(appContext, dest)
             s.message = false to "No se ha guardado: vuelve a elegir el archivo y la contraseña o clave."
             return
         }
-        val name = sourceName
         val algNow = alg
         s.busy = true
         viewModelScope.launch {
@@ -671,7 +699,13 @@ private class FileCryptoViewModel(
                     }
                 }
                 // Emptied meanwhile (COV1-1): the decrypted data is not offered for saving.
-                if (s.isCurrent(run)) decrypted = DecryptedCopy(file.path, name, run) else file.delete()
+                if (s.isCurrent(run)) {
+                    s.pending?.let { deleteLater(appContext, it.path) } // An earlier copy never saved.
+                    s.pending = PendingCopy(file.path, run)
+                    decrypted = DecryptedReady(name, run)
+                } else {
+                    file.delete()
+                }
             } catch (e: CryptoFailure) {
                 tmp?.delete()
                 if (s.isCurrent(run)) s.message = false to (e.message ?: "Contraseña incorrecta o archivo dañado")
@@ -715,9 +749,8 @@ private class FileCryptoViewModel(
     }
 
     override fun onCleared() {
-        decrypted?.let { File(it.path).delete() }
         decrypted = null
-        session.wipe()
+        session.wipe() // Deletes a decrypted copy never saved.
     }
 }
 
@@ -741,9 +774,6 @@ fun FileCryptoScreen(
     GuardEffects(s.guard, lockAfterMs)
     val encrypt = vm.encrypt
     val source = vm.source
-    // Decrypted data waits here (app-private cache) until the user picks where to save it; deleted right after. A path
-    // only: kept across the death of the process so that the dialog's answer can say the copy is gone.
-    var pendingPath by rememberSaveable { mutableStateOf<String?>(null) }
     // The chosen file is a `.sgenc` for a contact or a `.sgsig`: it opens in Contactos → Abrir lo recibido, not here.
     var forContacts by remember { mutableStateOf(false) }
     // The file and mode the check below finished for. Until it matches the current ones the check is still running
@@ -754,32 +784,31 @@ fun FileCryptoScreen(
     val saveEncrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         if (dest != null) vm.encryptTo(dest, kdf)
     }
+    // The decrypted copy waits in the app-private cache, as the session's pending copy (in the ViewModel, never in saved
+    // state), until the user picks where to save it; deleted right after. M2 of the F6 review: the screen emptied while
+    // the dialog was open (the time away, ON_START comes before the dialog's answer), or the app restarted meanwhile:
+    // the copy was already given up, nothing is written and the document the dialog made goes.
     val saveDecrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
-        val tmp = pendingPath?.let(::File)?.takeIf { it.exists() } ?: run {
-            // The decrypted copy is gone (the app was restarted meanwhile): nothing to write.
-            pendingPath = null
+        val copy = s.takePending()
+        val tmp = copy?.let { File(it.path) }?.takeIf { it.exists() && s.isCurrent(copy.run) }
+        if (tmp == null) {
+            copy?.let { deleteLater(context, it.path) }
             if (dest != null) {
                 discardDocumentLater(context, dest)
                 s.message = false to "No se ha guardado: vuelve a descifrar el archivo."
             }
             return@rememberDocumentPicker
         }
-        pendingPath = null
         vm.writeDecrypted(tmp, dest)
     }
-    // A decryption that ended: its save dialog, unless the screen was emptied meanwhile (then the copy goes).
+    // A decryption that ended: its save dialog, unless the screen was emptied meanwhile (then the copy is already gone).
     val ready = vm.decrypted
     LaunchedEffect(ready) {
         val r = ready ?: return@LaunchedEffect
         vm.decrypted = null
-        if (!s.isCurrent(r.run)) {
-            withContext(Dispatchers.IO) { File(r.path).delete() }
-            return@LaunchedEffect
-        }
-        pendingPath = r.path
+        if (!s.isCurrent(r.run) || s.pending?.run != r.run) return@LaunchedEffect
         saveDecrypted.launchOrError(safeFileName(r.name))?.let { failure ->
-            pendingPath = null
-            withContext(Dispatchers.IO) { File(r.path).delete() } // Never leave decrypted data behind in the cache.
+            s.takePending()?.let { deleteLater(context, it.path) } // Never leave decrypted data behind in the cache.
             s.message = false to failure
         }
     }
@@ -788,8 +817,7 @@ fun FileCryptoScreen(
             // Another file: «Descifrar» is off from this very frame until its check ends. The same file again keeps its
             // check (the effect below is keyed on it and does not run again).
             if (uri != vm.source) checkedFor = null
-            vm.source = uri
-            vm.sourceName = displayName(context, uri)
+            vm.choose(uri)
             s.message = null
         }
     }
@@ -817,12 +845,19 @@ fun FileCryptoScreen(
     ToolColumn("Cifrar archivos", onBack, s.guard) {
         ModePicker(encrypt) {
             vm.encrypt = it
-            vm.source = null
+            vm.choose(null)
             forContacts = false
             s.message = null
         }
         OutlinedButton(onClick = { pick.launchOrError(arrayOf("*/*"))?.let { s.message = false to it } }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (source == null) (if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION o $LEGACY_ENCRYPTED_EXTENSION") else sanitizeReceivedName(vm.sourceName))
+            val name = vm.sourceName
+            Text(
+                if (source == null || name == null) {
+                    if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION o $LEGACY_ENCRYPTED_EXTENSION"
+                } else {
+                    sanitizeReceivedName(name)
+                },
+            )
         }
         if (forContacts) {
             Text("Esto es para Contactos → Abrir lo recibido", color = CautionColor, style = MaterialTheme.typography.titleSmall)
@@ -837,16 +872,18 @@ fun FileCryptoScreen(
         SecretInput(
             s.useKey, { s.useKey = it; s.message = null }, s.password, { s.password = it; s.message = null }, s.keyHex, { s.keyHex = it; s.message = null },
             allowGenerate = encrypt,
+            guard = s.guard,
         )
         if (encrypt) {
             Text("Algoritmo", style = MaterialTheme.typography.titleSmall)
             AlgorithmPicker(vm.alg) { vm.alg = it }
         }
         Button(
-            enabled = !s.busy && ready == null && source != null && !checking && !(forContacts && !encrypt) && hasSecret(s.useKey, s.password, s.keyHex),
+            enabled = !s.busy && ready == null && source != null && vm.sourceName != null && !checking && !(forContacts && !encrypt) && hasSecret(s.useKey, s.password, s.keyHex),
             onClick = {
                 if (encrypt) {
-                    saveEncrypted.launchOrError(encryptedFileName(vm.sourceName))?.let { s.message = false to it } // At most 255 bytes with «.sgenc».
+                    val name = vm.sourceName ?: return@Button
+                    saveEncrypted.launchOrError(encryptedFileName(name))?.let { s.message = false to it } // At most 255 bytes with «.sgenc».
                 } else {
                     vm.decrypt()
                 }
@@ -999,7 +1036,7 @@ fun BreachScreen(pwned: PwnedPasswords, store: VaultStore, lockAfterMs: () -> Lo
                 "del móvil: calculamos su huella SHA-1 aquí y solo enviamos sus 5 primeros caracteres; la comparación final se hace en tu móvil.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        PasswordField(s.password, { s.password = it; s.result = null })
+        PasswordField(s.password, { s.guard.typed(); s.password = it; s.result = null })
         Button(
             enabled = !s.busy && s.password.isNotEmpty(),
             onClick = vm::check,
@@ -1065,6 +1102,8 @@ fun FileHashScreen(onBack: () -> Unit) {
         ) { Text(s.name ?: "Elegir archivo") }
         pickerError?.let { Text(it, color = NegativeColor) }
         if (s.busy) Busy("Calculando…")
+        // M8 of the F6 review: an unreadable file is said, not left as a silent nothing.
+        if (s.failed) Text("No se pudo leer el archivo.", color = NegativeColor)
         s.hash?.let { h ->
             SectionCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

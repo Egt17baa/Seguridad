@@ -39,6 +39,25 @@ class XmpTest {
         TestImages.riffChunk("XMP ", ascii(xmp)),
     )
 
+    /**
+     * M8 of the F6 review: a generous wall-clock bound, for a slow CI runner (the desktop measures tens of ms; before
+     * the fix these took tens of seconds). The shape of the cost is checked apart, relatively ([growsLinearly]).
+     */
+    private val SLOW_CI_MS = 5_000L
+
+    /**
+     * M6 of the F6 review: the worst text for a regex-based reader, 45 MB that never match a declaration (a name of the
+     * longest length and the most spaces, then no «=»), with one real Dublin Core declaration so that no shortcut
+     * skips the search.
+     */
+    private fun worstXmp(bytes: Int): ByteArray {
+        val filler = "xmlns:" + "a".repeat(63) + " ".repeat(16) + "X"
+        val sb = StringBuilder(bytes + 128)
+        sb.append("xmlns:dc=\"$dcNs\" ")
+        while (sb.length < bytes) sb.append(filler)
+        return ascii(sb.toString())
+    }
+
     private fun ms(block: () -> Unit): Long {
         val t = System.nanoTime()
         block()
@@ -53,7 +72,7 @@ class XmpTest {
             assertFalse(Found.AUTHOR_RIGHTS in r.found) // one prefix, and nothing under it
             PhotoCleaner.clean(png)
         }
-        assertTrue("inspect and clean took $t ms", t < 1_000)
+        assertTrue("inspect and clean took $t ms", t < SLOW_CI_MS)
     }
 
     @Test fun thirtyTwoThousandDistinctPrefixesTakeLessThanASecondAndCountAsAuthorData() {
@@ -61,7 +80,7 @@ class XmpTest {
         for (image in listOf(pngXmp(xmp), webpXmp(xmp))) {
             var r: PhotoReport? = null
             val t = ms { r = PhotoCleaner.inspect(image) }
-            assertTrue("inspect took $t ms", t < 1_000)
+            assertTrue("inspect took $t ms", t < SLOW_CI_MS)
             // Past the cap nothing is known about the rest: fail safe, the screen says author data goes.
             assertTrue(Found.AUTHOR_RIGHTS in r!!.found)
         }
@@ -69,10 +88,77 @@ class XmpTest {
 
     @Test fun webpAndManyJpegSegmentsAreLinearToo() {
         val webp = webpXmp(unit.repeat(32_000))
-        assertTrue("WebP", ms { PhotoCleaner.inspect(webp) } < 1_000)
+        assertTrue("WebP", ms { PhotoCleaner.inspect(webp) } < SLOW_CI_MS)
         val segment = TestImages.xmp(unit.repeat(1_500)) // about 64 KB, the most one APP1 holds
         val jpeg = concat(SOI, *Array(64) { segment }, baseline.body(), EOI)
-        assertTrue("JPEG", ms { PhotoCleaner.inspect(jpeg) } < 1_000)
+        assertTrue("JPEG", ms { PhotoCleaner.inspect(jpeg) } < SLOW_CI_MS)
+    }
+
+    @Test fun theWorstFortyFiveMegabytePacketIsReadInLinearTime() {
+        val worst = worstXmp(45_000_000)
+        var r: Set<Found>? = null
+        val t = ms { r = Xmp.flags(worst, 0, worst.size) }
+        assertTrue("45 MB took $t ms", t < SLOW_CI_MS)
+        assertFalse(Found.AUTHOR_RIGHTS in r!!) // «dc» is bound, nothing is under it
+        // The same with the declaration repeated (one prefix, 45 MB).
+        val dup = ascii(unit.repeat(45_000_000 / unit.length))
+        assertTrue("45 MB of one declaration", ms { Xmp.flags(dup, 0, dup.size) } < SLOW_CI_MS)
+    }
+
+    @Test fun growsLinearly() {
+        // Four times the text costs about four times the time (the quadratic reader cost sixteen); best of three runs.
+        fun best(b: ByteArray) = (1..3).minOf { ms { Xmp.flags(b, 0, b.size) } }
+        val small = worstXmp(4_000_000)
+        val big = worstXmp(16_000_000)
+        best(small) // warm-up
+        val ts = best(small)
+        val tb = best(big)
+        assertTrue("4 MB: $ts ms, 16 MB: $tb ms", tb < 10 * ts + 200)
+    }
+
+    @Test fun aLongPacketIsCancelledWithinOneWindow() {
+        val worst = worstXmp(45_000_000)
+        val c = Canceller(at = 2)
+        val t = ms {
+            try {
+                Xmp.flags(worst, 0, worst.size, c)
+                fail("not cancelled")
+            } catch (e: CancellationException) {
+                assertEquals(2, c.calls)
+            }
+        }
+        assertTrue("cancelled after $t ms", t < SLOW_CI_MS)
+        // A checkpoint for every MiB, about: 45 MB is read in tens of windows, each one checked.
+        var calls = 0
+        Xmp.flags(worst, 0, worst.size) { calls++ }
+        assertTrue("$calls checkpoints", calls >= 43)
+    }
+
+    @Test fun whatSpansTwoWindowsIsStillFound() {
+        // The windows overlap by more than the longest declaration, so nothing is lost at a boundary.
+        for (at in listOf(Xmp.WINDOW - 40, Xmp.WINDOW - 5, Xmp.WINDOW, 2 * Xmp.WINDOW - 60)) {
+            val head = " ".repeat(at)
+            for (tail in listOf(
+                "xmlns:zz=\"$dcNs\" zz:creator=\"x\"",
+                "<rdf:Description exif:GPSLatitude=\"40\"/>",
+            )) {
+                val b = ascii(head + tail + " ".repeat(100))
+                val f = Xmp.flags(b, 0, b.size)
+                assertTrue("$at $tail", Found.AUTHOR_RIGHTS in f || Found.GPS in f)
+            }
+            // The declaration in one window, its use far away in another.
+            val split = ascii("xmlns:far=\"$dcNs\"" + head + " far:rights=\"y\"")
+            assertTrue("$at far", Found.AUTHOR_RIGHTS in Xmp.flags(split, 0, split.size))
+        }
+        // A prefix used as the end of a longer name still counts, as «zz:creator» in «xzz:creator» did before.
+        val inside = ascii("xmlns:zz=\"$dcNs\" xzz:creator=\"x\"")
+        assertTrue(Found.AUTHOR_RIGHTS in Xmp.flags(inside, 0, inside.size))
+        // A declaration that is not one: no «=», a name of 65 characters, 17 spaces.
+        for (bad in listOf("xmlns:zz \"$dcNs\" zz:creator", "xmlns:${"z".repeat(65)}=\"$dcNs\" ${"z".repeat(65)}:creator",
+            "xmlns:zz${" ".repeat(17)}=\"$dcNs\" zz:creator")) {
+            val b = ascii(bad)
+            assertFalse(bad, Found.AUTHOR_RIGHTS in Xmp.flags(b, 0, b.size))
+        }
     }
 
     @Test fun creatorUnderAnyPrefixIsStillFound() {
@@ -142,7 +228,7 @@ class XmpTest {
         val t = ms { runBlocking { job.join() } }
         assertTrue(job.isCancelled)
         assertFalse("the work went on to the end", finished)
-        assertTrue("join took $t ms", t < 1_000)
+        assertTrue("join took $t ms", t < SLOW_CI_MS)
     }
 
     @Test fun withoutCancellationTheResultIsTheSame() {

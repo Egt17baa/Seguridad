@@ -42,6 +42,12 @@ object Jpeg {
 
     private class Parsed(val report: PhotoReport, val pieces: List<Piece>)
 
+    /**
+     * What the segments say of the images after EOI, decided once those are seen ([parse]): an MPF index, gain map
+     * metadata (Ultra HDR XMP or ISO 21496-1), and the ISO block itself (other data when there is no gain map).
+     */
+    private enum class Mark { MPF, GAIN_MAP, ISO_GAIN_MAP }
+
     private fun damaged(): Nothing = throw PhotoFailure(PHOTO_DAMAGED)
 
     private fun parse(b: ByteArray, check: () -> Unit): Parsed {
@@ -50,6 +56,7 @@ object Jpeg {
         if (n < 4 || u8(0) != 0xFF || u8(1) != 0xD8) damaged()
 
         val found = HashSet<Found>()
+        val marks = HashSet<Mark>()
         val pieces = ArrayList<Piece>()
         var exif: ExifInfo? = null
         var sawSof = false
@@ -88,7 +95,7 @@ object Jpeg {
                 }
                 0xFE -> found += Found.XMP_COMMENTS
                 in 0xE0..0xEF -> {
-                    val keep = app(b, m, payload, segEnd, found, check)
+                    val keep = app(b, m, payload, segEnd, found, marks, check)
                     if (keep != null) pieces += keep
                     if (m == 0xE1 && Bytes.startsWith(b, payload, segEnd, EXIF)) {
                         // Every EXIF segment is reported; the first one gives orientation and GPS.
@@ -102,9 +109,18 @@ object Jpeg {
         }
         if (!sawSos) damaged()
 
-        trailing(b, imageEnd)?.let { found += it }
-        // The other image of an HDR photo is its gain map: named once, as that.
-        if (Found.HDR_GAIN_MAP in found) found -= Found.EXTRA_IMAGE
+        val after = trailing(b, imageEnd, check)
+        // M5 of the F6 review: a gain map is named only when its image is there (an editor may keep the XMP and drop
+        // it); that image is then named once, as the gain map. MPF without anything after EOI, or a lone ISO 21496-1
+        // block, are only other data.
+        if (Mark.GAIN_MAP in marks && Found.EXTRA_IMAGE in after) {
+            found += Found.HDR_GAIN_MAP
+            found += after - Found.EXTRA_IMAGE
+        } else {
+            found += after
+            if (Mark.MPF in marks) found += if (after.isEmpty()) Found.OTHER else Found.EXTRA_IMAGE
+            if (Mark.ISO_GAIN_MAP in marks) found += Found.OTHER
+        }
         val report = PhotoReport(PhotoFormat.JPEG, found.toSet(), exif?.gps, exif?.orientation ?: 1)
         return Parsed(report, pieces)
     }
@@ -131,26 +147,49 @@ object Jpeg {
     }
 
     /**
-     * What comes after EOI, past any zero or FF padding, or null when nothing does (Ultra HDR review, audit 1.3.0: it
-     * used to be called a video whatever it was):
-     * - another JPEG (FF D8 FF), such as the gain map of an Ultra HDR photo or an MPF image: [Found.EXTRA_IMAGE];
-     * - an MP4 (its `ftyp` box) or Samsung's «MotionPhoto_Data»: [Found.MOTION_VIDEO];
-     * - anything else: [Found.OTHER]. All of it is dropped either way.
+     * What comes after EOI, past any zero or FF padding; empty when nothing does (Ultra HDR review, audit 1.3.0: it used
+     * to be called a video whatever it was). All of it is dropped either way.
+     * - another JPEG (FF D8 FF) first, such as the gain map of an Ultra HDR photo or an MPF image: [Found.EXTRA_IMAGE];
+     * - an MP4 anywhere in it (an `ftyp` box of a video brand) or Samsung's «MotionPhoto_Data»: [Found.MOTION_VIDEO],
+     *   also after such an image (M4 of the F6 review: an Ultra HDR motion photo with no XMP marker);
+     * - anything else: [Found.OTHER].
      */
-    private fun trailing(b: ByteArray, from: Int): Found? {
+    private fun trailing(b: ByteArray, from: Int, check: () -> Unit): Set<Found> {
         val n = b.size
         var k = from
         while (k < n && (b[k] == 0.toByte() || b[k] == 0xFF.toByte())) k++
-        if (k >= n) return null
-        if (k > from && b[k] == 0xD8.toByte() && b[k - 1] == 0xFF.toByte() && k + 1 < n && b[k + 1] == 0xFF.toByte()) return Found.EXTRA_IMAGE
+        if (k >= n) return emptySet()
+        val out = HashSet<Found>()
+        if (k > from && b[k] == 0xD8.toByte() && b[k - 1] == 0xFF.toByte() && k + 1 < n && b[k + 1] == 0xFF.toByte()) out += Found.EXTRA_IMAGE
         // The box size before `ftyp` starts with zero bytes, which the loop above went past.
-        if (Bytes.contains(b, maxOf(from, k - 3), minOf(n, k + 12), FTYP)) return Found.MOTION_VIDEO
-        if (Bytes.contains(b, k, minOf(n, k + TRAILER_SEARCH), SAMSUNG_MOTION)) return Found.MOTION_VIDEO
-        return Found.OTHER
+        if (hasVideo(b, from, maxOf(from, k - 3), check)) out += Found.MOTION_VIDEO
+        if (out.isEmpty()) out += Found.OTHER
+        return out
+    }
+
+    /**
+     * An MP4 box `ftyp` with a small size and a video brand, or «MotionPhoto_Data», at or after [start] (a box size is
+     * read only from [from] on). One pass, with [check] every 2^20 bytes.
+     */
+    private fun hasVideo(b: ByteArray, from: Int, start: Int, check: () -> Unit): Boolean {
+        val n = b.size
+        val f = 'f'.code.toByte()
+        val mm = 'M'.code.toByte()
+        for (i in start until n) {
+            if ((i - start) and SCAN_CHECK_MASK == 0) check()
+            val c = b[i]
+            if (c == f && i - 4 >= from && i + 8 <= n && Bytes.startsWith(b, i, i + 4, FTYP)) {
+                val size = Bytes.u32be(b, i - 4)
+                if (size in 16..4096 && String(b, i + 4, 4, Charsets.ISO_8859_1) in VIDEO_BRANDS) return true
+            } else if (c == mm && Bytes.startsWith(b, i, n, SAMSUNG_MOTION)) {
+                return true
+            }
+        }
+        return false
     }
 
     /** Reports an APPn segment and returns the piece to keep, if it is one of the two kept. */
-    private fun app(b: ByteArray, m: Int, payload: Int, end: Int, found: MutableSet<Found>, check: () -> Unit): Piece? {
+    private fun app(b: ByteArray, m: Int, payload: Int, end: Int, found: MutableSet<Found>, marks: MutableSet<Mark>, check: () -> Unit): Piece? {
         fun has(prefix: ByteArray) = Bytes.startsWith(b, payload, end, prefix)
         when (m) {
             0xE0 -> when {
@@ -169,16 +208,16 @@ object Jpeg {
                     found += Found.XMP_COMMENTS
                     found += Xmp.flags(b, payload, end, check)
                     // The primary image of an Ultra HDR photo describes its gain map here (Adobe's namespace).
-                    if (Bytes.contains(b, payload, end, HDR_GAIN_MAP_NS) || Bytes.contains(b, payload, end, HDRGM)) found += Found.HDR_GAIN_MAP
+                    if (Bytes.contains(b, payload, end, HDR_GAIN_MAP_NS) || Bytes.contains(b, payload, end, HDRGM)) marks += Mark.GAIN_MAP
                 }
                 else -> found += Found.OTHER
             }
             0xE2 -> when {
                 has(ICC) -> { found += Found.ICC_KEPT; return Piece(payload - 4, end) }
                 // MPF lists other images of the file (an Ultra HDR gain map, a preview…), stored after EOI.
-                has(MPF) -> found += Found.EXTRA_IMAGE
+                has(MPF) -> marks += Mark.MPF
                 // ISO 21496-1 gain map metadata (Android 15+), with or without the XMP above.
-                has(ISO_GAIN_MAP) -> found += Found.HDR_GAIN_MAP
+                has(ISO_GAIN_MAP) -> { marks += Mark.GAIN_MAP; marks += Mark.ISO_GAIN_MAP }
                 else -> found += Found.OTHER
             }
             0xEB -> found += if (has(JP) && Bytes.contains(b, payload, minOf(end, payload + 32), JUMB)) Found.C2PA else Found.OTHER
@@ -276,8 +315,10 @@ object Jpeg {
     private val FTYP = ascii("ftyp")
     private val SAMSUNG_MOTION = ascii("MotionPhoto_Data")
 
-    /** How far into what follows EOI Samsung's marker is looked for (it comes first). */
-    private const val TRAILER_SEARCH = 4096
+    /** The `ftyp` brands of a video (MP4, QuickTime, 3GP): «heic» and «avif», still images, are not among them. */
+    private val VIDEO_BRANDS = setOf(
+        "mp41", "mp42", "isom", "iso2", "iso4", "iso5", "iso6", "avc1", "qt  ", "3gp4", "3gp5", "3gp6", "3g2a", "M4V ", "mmp4", "MSNV", "dash",
+    )
 
     /** The scan data loop calls the checkpoint once per 2^20 steps (about a MiB). */
     private const val SCAN_CHECK_MASK = 0xFFFFF

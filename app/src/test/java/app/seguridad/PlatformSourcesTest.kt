@@ -52,9 +52,8 @@ class PlatformSourcesTest {
         for (vm in listOf("TextCryptoViewModel", "FileCryptoViewModel", "BreachViewModel")) assertTrue(vm, "class $vm(" in src)
         assertEquals(3, Regex("""watchAway\(session\.guard, store, lockAfterMs, awayInOtherApp\)""").findAll(src).count())
         assertEquals(3, Regex("""GuardEffects\(s\.guard, lockAfterMs\)""").findAll(src).count())
-        // Nothing of theirs in saved state but the decrypted copy's path (not a secret).
-        assertEquals(1, Regex("""by rememberSaveable""").findAll(src).count())
-        assertTrue("var pendingPath by rememberSaveable" in src)
+        // Nothing of theirs in saved state (F6 round 1, M2: not even the decrypted copy's path any more).
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
         val wiring = code("ui/screens/ScreenGuardWiring.kt")
         assertTrue("guard.otherAppFocused(" in wiring && "guard.otherAppLeft(" in wiring && "guard.vaultStateIs(" in wiring)
         assertTrue("Lifecycle.Event.ON_STOP" in wiring && "Lifecycle.Event.ON_START" in wiring && "onDispose" in wiring)
@@ -64,12 +63,48 @@ class PlatformSourcesTest {
         assertTrue(Regex("""QrInspectScreen\([^)]*awayInOtherApp""").containsMatchIn(code("ui/AppNavHost.kt")))
     }
 
+    @Test fun `F6 M1 every text field of the three tools counts as use of the screen`() {
+        val src = code("ui/screens/SecurityToolsScreen.kt")
+        val parts = listOf(
+            src.substringAfter("private fun SecretInput(").substringBefore("private fun hasSecret("),
+            src.substringAfter("fun TextCryptoScreen(").substringBefore("private fun AwayNote("),
+            src.substringAfter("fun BreachScreen(").substringBefore("class FileHashViewModel"),
+        )
+        var fields = 0
+        for (part in parts) {
+            for (m in Regex("""onValueChange = \{[^\n]*""").findAll(part)) {
+                fields++
+                assertTrue(m.value, "guard.typed()" in m.value)
+            }
+            for (m in Regex("""PasswordField\([^\n]*""").findAll(part)) {
+                fields++
+                assertTrue(m.value, "guard.typed()" in m.value)
+            }
+            for (m in Regex("""SeedHelper\(bip39[^\n]*""").findAll(part)) assertTrue(m.value, "guard.typed()" in m.value)
+        }
+        assertEquals("input ×2, password, key, and «¿Filtrada?»", 5, fields)
+        assertEquals(2, Regex("""guard = s\.guard""").findAll(src).count()) // SecretInput in «Cifrar texto» and «Cifrar archivos»
+        assertTrue("used(SystemClock.elapsedRealtime())" in code("ui/screens/ScreenGuardWiring.kt"))
+    }
+
+    @Test fun `F6 M2 and M7 the decrypted copy is the session's, and the file's name is read on IO`() {
+        val src = code("ui/screens/SecurityToolsScreen.kt")
+        val screen = src.substringAfter("fun FileCryptoScreen(").substringBefore("@Composable\nprivate fun StrengthBar")
+        val callback = screen.substringAfter("val saveDecrypted = ").substringBefore("val ready = vm.decrypted")
+        assertTrue("s.takePending()" in callback && "s.isCurrent(copy.run)" in callback)
+        assertTrue("No se ha guardado: vuelve a descifrar el archivo." in main("ui/screens/SecurityToolsScreen.kt"))
+        assertTrue("onDiscard = { deleteLater(appContext, it) }" in src)
+        assertFalse("displayName(" in screen)
+        assertTrue(Regex("""withContext\(Dispatchers\.IO\) \{ runCatching \{ displayName\(appContext, uri\) \}""").findAll(src).count() >= 2)
+    }
+
     @Test fun `COV1-2 Huella SHA-256 cancels the run before, and its button is off while one runs`() {
         val src = code("ui/screens/SecurityToolsScreen.kt").substringAfter("class FileHashViewModel")
         assertTrue("job?.cancel()" in src)
         assertTrue("session.finish(run, hash)" in src)
         assertTrue("sha256Hex(input.buffered()) { ensureActive() }" in src)
         assertTrue("enabled = !s.busy" in src)
+        assertTrue("if (s.failed) Text(\"No se pudo leer el archivo.\"" in main("ui/screens/SecurityToolsScreen.kt"))
     }
 
     @Test fun `HERR-1 Limpiar foto passes its cancellation to the readers`() {

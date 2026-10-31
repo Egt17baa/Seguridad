@@ -135,6 +135,45 @@ class JpegTest {
         assertArrayEquals(TestImages.plainJpeg(), PhotoCleaner.clean(both))
     }
 
+    @Test fun aVideoAfterTheGainMapIsStillAVideo() {
+        // M4 of the F6 review: an Ultra HDR motion photo whose XMP has no motion marker, the video after the gain map.
+        val mp4 = concat(bytes(0, 0, 0, 0x18), ascii("ftypmp42"), ByteArray(16) { 1 })
+        val head = concat(SOI, ultraHdrXmp, TestImages.mpf(), baseline.body(), EOI)
+        for (tail in listOf(
+            concat(TestImages.plainJpeg(), mp4),
+            concat(TestImages.plainJpeg(), ascii("MotionPhoto_Data"), mp4, ascii("SEFH")),
+            // Deep in the trailer, past a large gain map.
+            concat(TestImages.plainJpeg(), ByteArray(300_000) { 7 }, ascii("MotionPhoto_Data"), mp4),
+        )) {
+            val input = concat(head, tail)
+            assertEquals(setOf(XMP_COMMENTS, HDR_GAIN_MAP, MOTION_VIDEO), Jpeg.inspect(input).found)
+            assertArrayEquals(TestImages.plainJpeg(), PhotoCleaner.clean(input))
+        }
+        // Without a gain map: another image, then the video.
+        assertEquals(setOf(EXTRA_IMAGE, MOTION_VIDEO), Jpeg.inspect(concat(TestImages.plainJpeg(), TestImages.plainJpeg(), mp4)).found)
+        // «ftyp» with a brand that is not a video (HEIC) is not a video.
+        val heic = concat(bytes(0, 0, 0, 0x18), ascii("ftypheic"), ByteArray(16) { 1 })
+        assertEquals(setOf(EXTRA_IMAGE), Jpeg.inspect(concat(TestImages.plainJpeg(), TestImages.plainJpeg(), heic)).found)
+    }
+
+    @Test fun aGainMapIsNamedOnlyWhenTheSecondImageIsThere() {
+        // M5 of the F6 review: an editor kept the Ultra HDR XMP and dropped the gain map. No «second image» is claimed.
+        assertEquals(setOf(XMP_COMMENTS), Jpeg.inspect(concat(SOI, ultraHdrXmp, baseline.body(), EOI)).found)
+        // The same with MPF still there, and nothing after EOI: MPF names an image that is not in the file.
+        assertEquals(setOf(XMP_COMMENTS, OTHER), Jpeg.inspect(concat(SOI, ultraHdrXmp, TestImages.mpf(), baseline.body(), EOI)).found)
+        // A lone MPF, a lone ISO 21496-1 block: other data, dropped.
+        assertEquals(setOf(OTHER), Jpeg.inspect(concat(SOI, TestImages.mpf(), baseline.body(), EOI)).found)
+        val iso = TestImages.seg(0xE2, concat(ascii("urn:iso:std:iso:ts:21496:-1"), bytes(0, 0, 0, 0, 0)))
+        assertEquals(setOf(OTHER), Jpeg.inspect(concat(SOI, iso, baseline.body(), EOI)).found)
+        // Gain map metadata and something after EOI that is not an image: no gain map either.
+        assertEquals(
+            setOf(XMP_COMMENTS, EXTRA_IMAGE, OTHER),
+            Jpeg.inspect(concat(SOI, ultraHdrXmp, TestImages.mpf(), baseline.body(), EOI, ascii("datos tras el final"))).found,
+        )
+        // The copy is the base image in every case.
+        assertArrayEquals(TestImages.plainJpeg(), PhotoCleaner.clean(concat(SOI, ultraHdrXmp, iso, TestImages.mpf(), baseline.body(), EOI)))
+    }
+
     @Test fun otherDataAfterEoiIsNamedNeutrally() {
         val r = Jpeg.inspect(concat(TestImages.plainJpeg(), ascii("datos tras el final")))
         assertEquals(setOf(OTHER), r.found)
