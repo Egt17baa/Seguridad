@@ -147,8 +147,9 @@ object Webp {
     }
 
     /**
-     * The VP8X payload with what can never stay cleared: the EXIF and XMP bits, the reserved bits and the three reserved
-     * bytes (a set one is reported as OTHER); the canvas size stays. The ICC, alpha and animation bits are not decided
+     * The VP8X payload with the EXIF and XMP bits, the reserved bits and the three reserved bytes always cleared; only a
+     * set reserved bit or byte is reported as OTHER here (the EXIF and XMP chunks themselves are reported where they are
+     * dropped). The canvas size stays. The ICC, alpha and animation bits are not decided
      * here: [parse] sets them again from the chunks it kept ([Order.flags]), and [isCleanOutput] checks they match.
      */
     private fun vp8x(b: ByteArray, c: Chunk, found: MutableSet<Found>): ByteArray {

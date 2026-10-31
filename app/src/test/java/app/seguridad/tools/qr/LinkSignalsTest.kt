@@ -364,8 +364,9 @@ class LinkSignalsTest {
         assertEquals("xn--mxa0b.gr", l.host)
         assertEquals("\u03B1\u03C3.gr", l.unicodeHost)
         assertEquals(listOf(Signal.PUNYCODE), l.signals)
-        // The same with a full-width or mixed-case label, and a final sigma written as such stays one.
+        // The same with a mixed-case label or an ideographic full stop, and a final sigma written as such stays one.
         assertEquals("xn--mxa0b.gr", link("https://\u03B1\u03A3.gr").host)
+        assertEquals("xn--mxa0b.gr", link("https://\u0391\u03A3\u3002gr").host)
         assertEquals("\u03C2\u03B1.gr", link("https://\u03C2\u0391.gr").host)
     }
 

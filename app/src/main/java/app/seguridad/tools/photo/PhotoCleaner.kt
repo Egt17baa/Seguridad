@@ -16,7 +16,9 @@ import java.util.concurrent.CancellationException
  * structure and sizes but not for what it holds (JPEG tables, SOS header, the 12 APP14 bytes and the ICC profile; the
  * PNG chunks kept, iCCP and the image data included; WebP's VP8X canvas, ICCP, ALPH and the bitstreams). A sender can
  * hide a few bytes there on purpose, as in the pixels themselves, but nothing a camera or an editor writes there says
- * where, when or by whom the photo was taken (an ICC profile may name its maker: the screen says it is kept). Closing
+ * where, when or by whom the photo was taken (an ICC profile may name its maker: the screen says it is kept). The
+ * compression tables and the profile can still hint at the camera brand or the app that saved it, as a fingerprint of
+ * the encoder, though the EXIF fields naming the brand and model are removed. Closing
  * it would mean decoding and encoding the image again. See the KDoc of [Jpeg].
  */
 object PhotoCleaner {

@@ -16,7 +16,9 @@ package app.seguridad.tools.photo
  * (whose `desc` and `cprt` tags are free text, such as the maker's name) and the scan data itself can carry a few bytes
  * of anything. That is a small hidden channel a sender can fill on purpose, not metadata a camera or a viewer writes or
  * reads: checking every table would not close it (the pixels can hide data too), and rewriting them would mean decoding
- * and encoding the image, which «Limpiar foto» does not do. The screen says the colour profile is kept.
+ * and encoding the image, which «Limpiar foto» does not do. The screen says the colour profile is kept. The tables and
+ * the profile, kept as they are, can also hint at the camera brand or the app that saved the photo (a fingerprint of
+ * the encoder, like the pixels themselves), although the EXIF fields that name the brand and model are removed.
  */
 object Jpeg {
     /** [check]: the caller's cancellation checkpoint, called once per segment and every MiB of scan data (HERR-1). */
