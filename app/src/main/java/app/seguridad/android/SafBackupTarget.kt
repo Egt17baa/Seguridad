@@ -9,6 +9,8 @@ import androidx.core.net.toUri
 import app.seguridad.vault.BackupEntry
 import app.seguridad.vault.BackupFile
 import app.seguridad.vault.BackupTarget
+import app.seguridad.vault.FolderGrant
+import app.seguridad.vault.hasFolderGrant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
@@ -111,6 +113,19 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
             } catch (e: Exception) {
                 // Already gone (revoked or the app's data cleared).
             }
+        }
+
+        /**
+         * The folder of the settings to write the copies to, only if the app holds a persisted read and write permission
+         * for it, which only the system picker gives ([takeFolder]). The settings file is not authenticated: a folder
+         * put there by anything else (CADENAS-1) throws SecurityException, which AutoBackup reports as
+         * AUTO_BACKUP_NO_PERMISSION («Vuelve a elegirla»), and no copy is made. Compared by authority and tree document
+         * id ([hasFolderGrant]), so a folder saved by 1.2.2 with another spelling of the same URI still matches.
+         */
+        fun open(resolver: ContentResolver, tree: String): SafBackupTarget {
+            val grants = resolver.persistedUriPermissions.map { FolderGrant(it.uri.toString(), it.isReadPermission, it.isWritePermission) }
+            if (!hasFolderGrant(tree, grants)) throw SecurityException("No persisted permission for the backup folder")
+            return SafBackupTarget(resolver, tree.toUri())
         }
 
         /** What to show for the folder: the provider's id of it (such as «primary:Copias»), never more. */

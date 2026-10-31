@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +17,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -32,9 +34,12 @@ import app.seguridad.android.scanQrOptions
 import app.seguridad.crypto.pk.Card
 import app.seguridad.crypto.pk.MAX_CARD_BYTES
 import app.seguridad.crypto.pk.cardAndBytesFromAnyText
+import app.seguridad.tools.qr.QrHandoff
+import app.seguridad.tools.qr.QrTarget
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.ui.theme.ScanQrLabel
 import app.seguridad.vault.CardCheck
 import app.seguridad.vault.ContactName
 import app.seguridad.vault.EntryType
@@ -52,6 +57,7 @@ import app.seguridad.vault.newContactEntry
 import app.seguridad.vault.saveFailureMessage
 import app.seguridad.vault.savedFingerprint
 import app.seguridad.vault.suggestedContactName
+import app.seguridad.vault.imitatedCardNameText
 import com.google.zxing.client.android.Intents
 import com.journeyapps.barcodescanner.ScanContract
 import kotlinx.coroutines.CancellationException
@@ -95,6 +101,10 @@ fun ContactAddScreen(store: VaultStore, onBack: () -> Unit) {
         }
     }
 
+    // From the QR inspector: read as pasted, never as scanned. Reaching it through the inspector is not scanning in front
+    // of the person, so the contact is saved unverified. Taking it also drops any text left for another screen.
+    LaunchedEffect(Unit) { QrHandoff.take(QrTarget.CARD)?.let { accept(it, qr = false) } }
+
     // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
@@ -109,7 +119,7 @@ fun ContactAddScreen(store: VaultStore, onBack: () -> Unit) {
 
     ContactsFrame(store, "Añadir contacto", onBack) { entries, snackbar ->
         Column(
-            Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), // M-9: fields above the keyboard.
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
@@ -126,7 +136,7 @@ fun ContactAddScreen(store: VaultStore, onBack: () -> Unit) {
                         VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                         error = "No se pudo abrir el escáner: pega la tarjeta como texto"
                     }
-                }) { Text("📷 Escanear QR") }
+                }) { ScanQrLabel() }
                 OutlinedButton(onClick = {
                     val clip = readClipboardText(context)
                     if (clip.isNullOrBlank()) error = "El portapapeles está vacío" else accept(clip, qr = false)
@@ -176,6 +186,7 @@ private fun ReadyCard(store: VaultStore, ready: Incoming.Ready, text: String, vi
     val scope = rememberCoroutineScope()
     val notice = remember(ready.check, viaQr) { incomingCardNotice(ready.check, viaQr) }
     val fingerprint = remember(ready.card) { cardFingerprint(ready.card) }
+    val imitatedName = remember(ready.check) { imitatedCardNameText(ready.check) }
     // Filled from the card (the name another person chose) and editable: the saved name is the user's own.
     var name by rememberSaveable(text) { mutableStateOf(suggestedContactName(ready.check)) }
     val nameCheck = checkContactName(name)
@@ -201,6 +212,8 @@ private fun ReadyCard(store: VaultStore, ready: Incoming.Ready, text: String, vi
             }
             if (notice.footer.isNotEmpty()) Text(notice.footer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (notice.saveLabel != null) {
+                // CADENAS-4: a card name that imitates the verification mark is not proposed; it is shown apart, in «».
+                imitatedName?.let { Text(it, color = CautionColor) }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },

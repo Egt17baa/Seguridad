@@ -1,6 +1,6 @@
-BIP-39 English wordlist (bitcoin/bips, bip-0039/english.txt). "This BIP falls under the MIT License."
+BIP-39 English and Spanish wordlists (bitcoin/bips, bip-0039/english.txt and bip-0039/spanish.txt). "This BIP falls under the MIT License."
 
-Copyright (c) the BIP-39 authors (Marek Palatinus, Pavol Rusnak, Aaron Voisine, Sean Bowe)
+Copyright (c) the BIP-39 authors (Marek Palatinus, Pavol Rusnak, Aaron Voisine, Sean Bowe) and the wordlist contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 documentation files (the "Software"), to deal in the Software without restriction, including without limitation

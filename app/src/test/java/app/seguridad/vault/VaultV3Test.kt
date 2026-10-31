@@ -313,6 +313,31 @@ class VaultV3Test {
         assertEquals(1, s.entries().count { it.type == EntryType.IDENTITY })
     }
 
+    @Test fun renovarLaIdentidadLaSustituyeYNoCuentaComoUnaSegunda() = runTest {
+        val dir = phone("renovar")
+        val s = store(dir).apply { load(); create("otra".toCharArray()) }
+        val first = identityEntry().copy(username = "Yo")
+        s.upsert(first)
+        val before = s.entries().identity()!!.openIdentity().use { it.edPublic to it.kemPublic }
+        clock += 1_000
+        // No lo rechaza ONLY_ONE_IDENTITY: es el mismo id.
+        s.upsert(renewedIdentityEntry(s.entries().identity()!!, clock))
+        assertEquals(1, s.entries().count { it.type == EntryType.IDENTITY })
+        val renewed = s.entries().identity()!!
+        assertEquals(first.id, renewed.id)
+        assertEquals(first.createdAt, renewed.createdAt)
+        assertEquals(clock, renewed.updatedAt)
+        assertEquals("Yo", renewed.username)
+        val after = renewed.openIdentity().use { it.edPublic to it.kemPublic }
+        assertFalse(before.first.contentEquals(after.first))
+        assertFalse(before.second.contentEquals(after.second))
+        // Y queda guardada en disco: al cerrar y abrir sigue siendo la nueva, y sigue siendo una sola.
+        s.lock()
+        s.unlock("otra".toCharArray())
+        assertEquals(1, s.entries().count { it.type == EntryType.IDENTITY })
+        assertArrayEquals(after.first, s.entries().identity()!!.openIdentity().use { it.edPublic })
+    }
+
     @Test fun unaIdentidadNoLlevaAdjuntos() = runTest {
         val dir = phone("adjuntos")
         val s = store(dir).apply { load(); create("otra".toCharArray()) }
@@ -589,4 +614,76 @@ class VaultV3Test {
         } catch (e: Throwable) {
             if (e is T) e else throw e
         }
+
+    // A11 (1.3.0): the pure gate. A clock set back more than 5 minutes behind the highest time seen asks for the master.
+    @Test fun clockSetBackBlocksBiometrics() {
+        val now = 1_000_000_000L
+        val (file, dek) = VaultCrypto.create("m".toCharArray(), now, KdfParams(1024, 1, 1))
+        dek.fill(0)
+        assertFalse(VaultCrypto.biometricAllowed(file, now, highWater = now + 6 * 60_000))
+        assertTrue(VaultCrypto.biometricAllowed(file, now, highWater = now + 4 * 60_000))
+        assertTrue(VaultCrypto.biometricAllowed(file, now, highWater = now + CLOCK_SLACK_MS))
+        assertTrue(VaultCrypto.biometricAllowed(file, now)) // No mark yet.
+    }
+
+    // A8 (1.3.0): afterMasterUnlock re-wraps a v3 file whose Argon2id is cheaper than asked, keeping the data key.
+    @Test fun afterMasterUnlockRewrapsOnlyAWeakerKdf() {
+        val master = "m".toCharArray()
+        val (weak, dek) = VaultCrypto.create(master, 1, KdfParams(1024, 1, 1))
+        val asked = KdfParams(2048, 2, 1)
+        val up = VaultCrypto.afterMasterUnlock(weak, dek.copyOf(), master, 2, asked)
+        assertEquals(VaultKdf(2048, 2, 1), up.kdf)
+        assertEquals(weak.revision + 1, up.revision)
+        assertEquals(weak.version, up.version)
+        assertArrayEquals(dek, VaultCrypto.unlock(up, master)) // Same data key.
+        val same = VaultCrypto.afterMasterUnlock(up, dek.copyOf(), master, 3, KdfParams(1024, 1, 1))
+        assertEquals(up.kdf, same.kdf) // Cheaper ask: never lowered.
+        assertEquals(up.salt, same.salt)
+        // One axis weaker is enough, and the stronger axis is not lowered.
+        val mixed = VaultCrypto.afterMasterUnlock(up, dek.copyOf(), master, 4, KdfParams(1024, 3, 1))
+        assertEquals(VaultKdf(2048, 3, 1), mixed.kdf)
+    }
+
+    // CR-2: no axis is ever lowered, parallelism included: 32768/2/4 under a 65536/3/1 profile becomes 65536/3/4.
+    @Test fun afterMasterUnlockNeverLowersTheParallelism() {
+        val master = "m".toCharArray()
+        val (file, dek) = VaultCrypto.create(master, 1, KdfParams(32768, 2, 4))
+        val up = VaultCrypto.afterMasterUnlock(file, dek.copyOf(), master, 2, KdfParams(65536, 3, 1))
+        assertEquals(VaultKdf(65536, 3, 4), up.kdf)
+        assertArrayEquals(dek, VaultCrypto.unlock(up, master))
+    }
+
+    // CR-2: a lower parallelism alone is not «weaker» (Argon2id's cost to an attacker is its memory and its passes; the
+    // lanes only split that work), so it is only re-sealed, never wrapped again for it; and a higher one is kept.
+    @Test fun aLowerParallelismAloneDoesNotRewrap() {
+        val master = "m".toCharArray()
+        val (file, dek) = VaultCrypto.create(master, 1, KdfParams(1024, 1, 1))
+        val same = VaultCrypto.afterMasterUnlock(file, dek.copyOf(), master, 2, KdfParams(1024, 1, 4))
+        assertEquals(file.kdf, same.kdf)
+        assertEquals(file.salt, same.salt)
+        assertEquals(file.wrappedKey, same.wrappedKey)
+        assertEquals(2L, same.masterCheckedAt)
+    }
+
+    @Test fun biometricRefusalSaysWhyTheClockOrTheSevenDays() {
+        val now = 1_000_000_000L
+        val (file, dek) = VaultCrypto.create("m".toCharArray(), now, KdfParams(1024, 1, 1))
+        dek.fill(0)
+        assertNull(VaultCrypto.biometricRefusal(file, now, now))
+        assertEquals(BiometricRefusal.CLOCK, VaultCrypto.biometricRefusal(file, now, now + 6 * 60_000))
+        assertEquals(BiometricRefusal.CLOCK, VaultCrypto.biometricRefusal(file, now - 1)) // Before the last check.
+        assertEquals(BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file, now + MASTER_RECHECK_MS))
+        assertEquals(BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file.copy(version = 1), now))
+    }
+
+    // Fix round 1: converting an old file never lowers its cost either (real 1.1 file: 1024 KiB, 1 pass).
+    @Test fun conversionOfAStrongerOldFileKeepsItsCost() {
+        val v2 = v2Fixture()
+        val up = VaultCrypto.afterMasterUnlock(v2, fixtureDek(), master.toCharArray(), clock, KdfParams(512, 3, 1))
+        assertEquals(VaultKdf(1024, 3, 1), up.kdf)
+        assertEquals(3, up.version)
+        val keep = VaultCrypto.afterMasterUnlock(v2, fixtureDek(), master.toCharArray(), clock, KdfParams(256, 1, 1))
+        assertEquals(v2.kdf, keep.kdf)
+        assertArrayEquals(fixtureDek(), VaultCrypto.unlock(up, master.toCharArray()))
+    }
 }

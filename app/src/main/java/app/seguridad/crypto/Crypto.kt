@@ -89,6 +89,109 @@ internal inline fun <T> outOfMemoryAsFailure(block: () -> T): T = try {
     throw CryptoFailure(KDF_OUT_OF_MEMORY)
 }
 
+/**
+ * CIFRADO-1 (audit 1.3.0): a new password with a lone surrogate (half of an emoji, only possible when pasted from
+ * another app) is not text, so nothing new is protected with it ([PasswordUse.NEW]). Data made earlier under one still
+ * opens ([PasswordUse.EXISTING]): Seguridad 1.0.x and 1.1.x (Bouncy Castle 1.80) derived a key for some of them.
+ */
+const val PASSWORD_NOT_TEXT = "La contraseña tiene un carácter que no es texto válido: escríbela de nuevo."
+
+/**
+ * What a password is for, which decides how one that is not valid UTF-16 is encoded (review F5, M1). Valid text is
+ * encoded the same way in both cases, byte for byte as every version of the app did.
+ */
+enum class PasswordUse {
+    /**
+     * It protects something new: a new vault, a new master password, a new text or file. A lone surrogate is refused
+     * with [PASSWORD_NOT_TEXT], as Bouncy Castle 1.82 and later do.
+     */
+    NEW,
+
+    /**
+     * It opens something made earlier (unlocking the vault, importing a copy, decrypting an `SG1:`/`CP1:` text or a
+     * `.sgenc`/`.cpenc` file), or wraps it again under the same password it already had. Encoded exactly as Bouncy
+     * Castle 1.80 did (Seguridad 1.0.x and 1.1.x): a high surrogate takes **whatever unit follows** as its pair,
+     * `(((hi and 0x3FF) shl 10) or (next and 0x3FF)) + 0x10000` in 4 bytes, even when that unit is not a low surrogate
+     * (from 1.2.0, Bouncy Castle 1.86 refused those, so no other key can exist for them). A lone low surrogate and a high
+     * one at the end are refused, as every version did.
+     */
+    EXISTING,
+}
+
+/** How [utf8Of] treats a password that is not valid UTF-16. */
+private enum class LoneSurrogates { REFUSE, BC_1_80, QUESTION_MARK }
+
+/**
+ * CIFRADO-1 (audit 1.3.0): [chars] in UTF-8, in a new array of exactly that size that the caller wipes. For valid text it
+ * is byte for byte what Bouncy Castle's `PasswordConverter.UTF8` gives (1.80 and 1.86: `PKCS5PasswordToUTF8Bytes`), and
+ * so every Argon2id key stays the same; but it leaves no copy behind (Bouncy Castle encodes through a buffer of its own
+ * and a `ByteArrayOutputStream`, and wipes neither). What is not valid UTF-16 follows [malformed]; a refusal throws
+ * [CryptoFailure] ([PASSWORD_NOT_TEXT]) in the measuring pass, before anything is allocated. Plain arithmetic: no
+ * `String`, no `CharsetEncoder` (whose buffers are not ours to wipe).
+ */
+private fun utf8Of(chars: CharArray, malformed: LoneSurrogates): ByteArray {
+    // A pair: a high surrogate and a low one; with BC_1_80, a high surrogate and any unit after it.
+    fun pairAt(i: Int) = chars[i].isHighSurrogate() && i + 1 < chars.size &&
+        (chars[i + 1].isLowSurrogate() || malformed == LoneSurrogates.BC_1_80)
+    var size = 0
+    var i = 0
+    while (i < chars.size) {
+        val c = chars[i].code
+        size += when {
+            c < 0x80 -> 1
+            c < 0x800 -> 2
+            pairAt(i) -> 4.also { i++ }
+            chars[i].isSurrogate() -> if (malformed == LoneSurrogates.QUESTION_MARK) 1 else throw CryptoFailure(PASSWORD_NOT_TEXT)
+            else -> 3
+        }
+        i++
+    }
+    val out = ByteArray(size)
+    var o = 0
+    i = 0
+    while (i < chars.size) {
+        val c = chars[i].code
+        when {
+            c < 0x80 -> out[o++] = c.toByte()
+            c < 0x800 -> {
+                out[o++] = (0xC0 or (c shr 6)).toByte()
+                out[o++] = (0x80 or (c and 0x3F)).toByte()
+            }
+            pairAt(i) -> {
+                // For a real pair this is Character.toCodePoint; for BC_1_80 it is Bouncy Castle 1.80's arithmetic.
+                val cp = (((c and 0x3FF) shl 10) or (chars[i + 1].code and 0x3FF)) + 0x10000
+                out[o++] = (0xF0 or (cp shr 18)).toByte()
+                out[o++] = (0x80 or ((cp shr 12) and 0x3F)).toByte()
+                out[o++] = (0x80 or ((cp shr 6) and 0x3F)).toByte()
+                out[o++] = (0x80 or (cp and 0x3F)).toByte()
+                i++
+            }
+            chars[i].isSurrogate() -> out[o++] = '?'.code.toByte() // Only QUESTION_MARK gets here.
+            else -> {
+                out[o++] = (0xE0 or (c shr 12)).toByte()
+                out[o++] = (0x80 or ((c shr 6) and 0x3F)).toByte()
+                out[o++] = (0x80 or (c and 0x3F)).toByte()
+            }
+        }
+        i++
+    }
+    return out
+}
+
+/** [chars] in UTF-8 as Argon2id hashes it for [use] ([utf8Of], [PasswordUse]); [CryptoFailure] if it is refused. The caller wipes it. */
+internal fun passwordUtf8(chars: CharArray, use: PasswordUse): ByteArray =
+    utf8Of(chars, if (use == PasswordUse.NEW) LoneSurrogates.REFUSE else LoneSurrogates.BC_1_80)
+
+/** [chars] in UTF-8 with each lone surrogate as «?», exactly as `String(chars).toByteArray(UTF_8)` ([utf8Of]). The caller wipes it. */
+internal fun utf8Replacing(chars: CharArray): ByteArray = utf8Of(chars, LoneSurrogates.QUESTION_MARK)
+
+/**
+ * What to say when protecting something with a new password failed: the [CryptoFailure] texts meant for that
+ * ([PASSWORD_NOT_TEXT], [KDF_OUT_OF_MEMORY]), or [fallback] for anything else (never a raw exception). Review F5, M2.
+ */
+fun newPasswordFailureMessage(e: Throwable, fallback: String): String =
+    (e as? CryptoFailure)?.message?.takeIf { it == PASSWORD_NOT_TEXT || it == KDF_OUT_OF_MEMORY } ?: fallback
+
 /** Wrong password, damaged or tampered data: deliberately one message, so it leaks nothing about which. */
 class CryptoFailure(message: String = "Contraseña incorrecta o datos dañados") : Exception(message)
 
@@ -106,11 +209,14 @@ val secureRandom: SecureRandom by lazy { SecureRandom() }
 fun randomBytes(n: Int, random: SecureRandom = secureRandom): ByteArray = ByteArray(n).also(random::nextBytes)
 
 /**
- * Argon2id (RFC 9106, version 0x13) of [password]; the caller wipes the result when done. Throws [CryptoFailure]
- * ([KDF_OUT_OF_MEMORY]) when the phone has no heap for [p]'s memory, so opening «Alto» data on a small phone fails
- * with a clear message rather than crashing the app.
+ * Argon2id (RFC 9106, version 0x13) of [password] in UTF-8, encoded for [use] ([PasswordUse]: what protects something new
+ * and what opens something made earlier differ only for a password that is not valid text); the caller wipes the result
+ * when done. Throws [CryptoFailure] ([KDF_OUT_OF_MEMORY]) when the phone has no heap for [p]'s memory, so opening «Alto»
+ * data on a small phone fails with a clear message rather than crashing the app, and ([PASSWORD_NOT_TEXT]) for a
+ * password [use] refuses. [use] has no default on purpose (review F5, m1): a new path that opens data must say
+ * [PasswordUse.EXISTING], or 1.0.x/1.1.x data would stop opening without any test noticing.
  */
-fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = KEY_BYTES): ByteArray {
+fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = KEY_BYTES, use: PasswordUse): ByteArray {
     // Keep this public entry point safe too: callers must not be able to bypass header validation.
     require(salt.size == SALT_BYTES) { "Argon2id salt must be 16 bytes" }
     require(length in 4..1024) { "Argon2id output length is out of bounds" }
@@ -122,9 +228,15 @@ fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = K
         .withIterations(p.iterations)
         .withParallelism(p.parallelism)
         .build()
-    val out = ByteArray(length)
-    outOfMemoryAsFailure { Argon2BytesGenerator().apply { init(params) }.generateBytes(password, out) }
-    return out
+    // CIFRADO-1: our own UTF-8 copy (the same bytes Bouncy Castle's char[] overload hashed), wiped when done.
+    val pw = passwordUtf8(password, use)
+    try {
+        val out = ByteArray(length)
+        outOfMemoryAsFailure { Argon2BytesGenerator().apply { init(params) }.generateBytes(pw, out) }
+        return out
+    } finally {
+        pw.fill(0)
+    }
 }
 
 /** Raw Argon2id with secret and associated data, only for the RFC 9106 test vector. */
@@ -250,11 +362,14 @@ fun parseRawKey(text: String): ByteArray? {
     return ByteArray(KEY_BYTES) { clean.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 }
 
-/** The encryption key for [secret]; for a raw key, a copy (the caller wipes it). */
-internal fun keyForHeader(secret: Secret, header: Header): ByteArray = when (secret) {
+/**
+ * The encryption key for [secret]; for a raw key, a copy (the caller wipes it). A password is encoded for [use]: [PasswordUse.NEW]
+ * when encrypting, [PasswordUse.EXISTING] when decrypting (review F5, M1); no default, as in [argon2id].
+ */
+internal fun keyForHeader(secret: Secret, header: Header, use: PasswordUse): ByteArray = when (secret) {
     is Secret.Password -> {
         if (header.kdfId != Header.KDF_ARGON2ID) throw CryptoFailure("Esto se cifró con una clave, no con una contraseña")
-        argon2id(secret.chars, header.salt, header.kdf)
+        argon2id(secret.chars, header.salt, header.kdf, use = use)
     }
     is Secret.RawKey -> when (header.kdfId) {
         // A fresh key per message from the random salt, so one raw key can protect any number of texts and files.
@@ -395,7 +510,7 @@ fun encryptText(plain: String, password: CharArray, alg: Aead = Aead.AES_256_GCM
 fun encryptText(plain: String, secret: Secret, alg: Aead = Aead.AES_256_GCM, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): String {
     val header = newHeader(Header.KIND_TEXT, alg, secret, kdf, random)
     val aad = header.bytes()
-    val key = keyForHeader(secret, header)
+    val key = keyForHeader(secret, header, PasswordUse.NEW)
     val plainBytes = plain.toByteArray(Charsets.UTF_8)
     try {
         val sealed = aead(alg, true, key, header.nonce, aad, plainBytes, header.dialect)
@@ -443,7 +558,7 @@ fun decryptText(token: String, secret: Secret, heapKiB: Long = appHeapKiB()): St
     val aad = raw.copyOfRange(0, raw.size - buf.remaining())
     val sealed = raw.copyOfRange(aad.size, raw.size)
     if (sealed.size < header.alg.overhead) throw CryptoFailure()
-    val key = keyForHeader(secret, header)
+    val key = keyForHeader(secret, header, PasswordUse.EXISTING)
     try {
         val plain = aead(header.alg, false, key, header.nonce, aad, sealed, header.dialect)
         try {

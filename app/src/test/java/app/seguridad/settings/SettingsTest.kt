@@ -3,6 +3,7 @@ package app.seguridad.settings
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED
 import app.seguridad.vault.AUTO_BACKUP_FAILED
+import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KDF_OUT_OF_MEMORY
 import app.seguridad.crypto.KdfParams
@@ -18,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -51,6 +53,49 @@ class SettingsTest {
         assertEquals(ThemeMode.SYSTEM, again.settings.value.theme)
         assertEquals(KdfProfile.HIGH, again.settings.value.kdf)
         assertTrue(again.settings.value.noticeAccepted)
+    }
+
+    @Test fun clipboardHistoryNoticeIsNotAcceptedByDefault() {
+        assertFalse(Settings().clipboardHistoryNoticeAccepted)
+    }
+
+    /** A settings.json as 1.2.2 wrote it (only the values that are not the default), before the A14 notice existed. */
+    @Test fun a122FileWithoutTheNoticeFieldStillLoads() = runTest {
+        file().writeText(
+            """{"lockAfter":"MIN_1","clipboard":"S15","theme":"SYSTEM","noticeAccepted":true,""" +
+                """"autoBackupUri":"content://com.android.externalstorage.documents/tree/primary%3ACopias",""" +
+                """"lastAutoBackupAt":1761500000000,"autoBackupCopies":["doc:1","doc:2"],""" +
+                """"autoBackupCopiesFolder":"content://com.android.externalstorage.documents/tree/primary%3ACopias"}""",
+        )
+        val s = store().apply { load() }.settings.value
+        // Read, not fallen back to the defaults: the user's values are there.
+        assertEquals(LockAfter.MIN_1, s.lockAfter)
+        assertEquals(ClipboardClear.S15, s.clipboard)
+        assertTrue(s.noticeAccepted)
+        assertEquals(listOf("doc:1", "doc:2"), s.autoBackupCopies)
+        assertFalse(s.clipboardHistoryNoticeAccepted)
+    }
+
+    // M2, M4: a request saved by 1.2.x has neither targets nor what was told: it still reads, as a request without targets.
+    @Test fun aPendingRequestFrom122ReadsWithoutTargetsOrTold() = runTest {
+        file().writeText(
+            """{"autoBackupUri":"content://x/tree/primary%3ACopias","autoBackupReplacePending":true,""" +
+                """"autoBackupCopies":["doc:1"],"autoBackupCopiesFolder":"content://x/tree/primary%3ACopias"}""",
+        )
+        val s = store().apply { load() }.settings.value
+        assertTrue(s.autoBackupReplacePending)
+        assertEquals(null, s.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), s.autoBackupReplaceTold)
+        // And what 1.3.0 saves reads back.
+        store().apply { load(); update { it.copy(autoBackupReplaceTargets = listOf("doc:1"), autoBackupReplaceTold = listOf("x")) } }
+        val back = store().apply { load() }.settings.value
+        assertEquals(listOf("doc:1"), back.autoBackupReplaceTargets)
+        assertEquals(listOf("x"), back.autoBackupReplaceTold)
+    }
+
+    @Test fun clipboardHistoryNoticeAcceptancePersists() = runTest {
+        store().apply { load(); update { it.copy(clipboardHistoryNoticeAccepted = true) } }
+        assertTrue(store().apply { load() }.settings.value.clipboardHistoryNoticeAccepted)
     }
 
     @Test fun corruptFileFallsBackToDefaults() = runTest {
@@ -130,7 +175,7 @@ class SettingsTest {
         var clock = 1_000L
         val settings = store().apply { load(); update { it.copy(lockAfter = LockAfter.MIN_15) } }
         val vault = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
-            idleLockMs = { settings.settings.value.lockAfter.ms })
+            idleLockMs = { settings.settings.value.lockAfter.ms }, elapsed = { clock })
         vault.load(); vault.create("m".toCharArray())
         settings.update { it.copy(lockAfter = LockAfter.MIN_1) }
         clock += 59_000
@@ -213,6 +258,82 @@ class SettingsTest {
         assertEquals(emptyList<String>(), written.forgettingAutoBackupCopies().currentAutoBackupCopies)
     }
 
+    @Test fun theReplacementRequestIsPersistedAndOlderFilesStillLoad() = runTest {
+        // A settings.json from before the field existed.
+        file().writeText("""{"autoBackupKeep":10}""")
+        assertFalse(store().apply { load() }.settings.value.autoBackupReplacePending)
+        val s = store().apply { load() }
+        s.update { it.copy(autoBackupReplacePending = true) }
+        assertTrue(store().apply { load() }.settings.value.autoBackupReplacePending)
+    }
+
+    @Test fun theReplacementRequestIsSetByTheWaitingResultAndClearedByTheCopyThatReplaced() {
+        val on = Settings(autoBackupUri = folder, lastAutoBackupError = "antes")
+        // Asked while locked: only the flag; the error shown in Ajustes and the last copy do not change.
+        val asked = on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true))
+        assertEquals(on.copy(autoBackupReplacePending = true), asked)
+        // A normal copy meanwhile does not clear it.
+        assertTrue(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a"))).autoBackupReplacePending)
+        // A failed replacement keeps it, with the error.
+        val failed = asked.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED))
+        assertTrue(failed.autoBackupReplacePending)
+        assertEquals(AUTO_BACKUP_FAILED, failed.lastAutoBackupError)
+        // The copy that replaced the old ones (all of them deleted) clears it.
+        val done = asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("b"), replaced = true))
+        assertFalse(done.autoBackupReplacePending)
+        assertEquals(listOf("b"), done.autoBackupCopies)
+        // CR-1, m2: AutoBackup says «replaced» only when every target and leftover temporary copy went (M3, M4), and then
+        // with no error, even if a copy beyond «Copias que guardar» could not be deleted (that one is just tried again).
+        // Not replaced: kept, with the targets left and the failure told (M2, M4).
+        val left = asked.withAutoBackupResult(
+            AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaceTargets = listOf("a"), toldKey = AUTO_BACKUP_OLD_NOT_DELETED),
+        )
+        assertTrue(left.autoBackupReplacePending)
+        assertEquals(listOf("a"), left.autoBackupReplaceTargets)
+        assertEquals(listOf(AUTO_BACKUP_OLD_NOT_DELETED), left.autoBackupReplaceTold)
+        // A failure with nothing written is told and kept too; asked again with the vault open, what was told starts again.
+        val offline = left.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED, toldKey = AUTO_BACKUP_FAILED))
+        assertEquals(listOf(AUTO_BACKUP_OLD_NOT_DELETED, AUTO_BACKUP_FAILED), offline.autoBackupReplaceTold)
+        assertEquals(listOf("a"), offline.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), offline.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED, newRequest = true)).autoBackupReplaceTold)
+        // Every way the request goes takes its targets and what it told with it.
+        for (gone in listOf(left.forgettingAutoBackupCopies(), left.withAutoBackupTurnedOff(), left.withFolderChosen("content://y/tree/otra"))) {
+            assertFalse(gone.autoBackupReplacePending)
+            assertNull(gone.autoBackupReplaceTargets)
+            assertEquals(emptyList<String>(), gone.autoBackupReplaceTold)
+        }
+        // A new request while locked: its own targets, nothing told yet.
+        val again = left.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = listOf("a", "b")))
+        assertEquals(listOf("a", "b"), again.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), again.autoBackupReplaceTold)
+        // For another folder, or with the copies off, it says nothing.
+        assertEquals(on.copy(autoBackupUri = null), on.copy(autoBackupUri = null).withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true)))
+        // Forgotten with the copies (new or imported vault) or when they are turned off.
+        assertFalse(asked.forgettingAutoBackupCopies().autoBackupReplacePending)
+    }
+
+    @Test fun theSameFolderChosenAgainKeepsTheRequestAndAnotherOrOffDropsIt() {
+        val asked = Settings(autoBackupUri = folder, autoBackupReplacePending = true, autoBackupOffForNewVault = true)
+        val same = asked.withFolderChosen(folder)
+        assertTrue(same.autoBackupReplacePending)
+        assertFalse(same.autoBackupOffForNewVault)
+        assertEquals(null, same.lastAutoBackupAt)
+        assertFalse(asked.withFolderChosen("content://y/tree/otra").autoBackupReplacePending)
+        assertEquals("content://y/tree/otra", asked.withFolderChosen("content://y/tree/otra").autoBackupUri)
+        // From none (copies off): there is nothing to replace.
+        assertFalse(Settings(autoBackupReplacePending = true).withFolderChosen(folder).autoBackupReplacePending)
+        val off = asked.withAutoBackupTurnedOff()
+        assertEquals(null, off.autoBackupUri)
+        assertFalse(off.autoBackupReplacePending)
+    }
+
+    @Test fun newVaultClearsTheReplacementRequest() = runTest {
+        val s = store().apply { load() }
+        s.update { it.copy(autoBackupUri = folder, autoBackupReplacePending = true) }
+        s.turnOffAutoBackupForNewVault()
+        assertFalse(s.settings.value.autoBackupReplacePending)
+    }
+
     @Test fun newVaultTurnsAutoBackupOff() = runTest {
         val s = store().apply { load() }
         s.update { it.copy(autoBackupUri = folder, autoBackupKeep = 10, lastAutoBackupAt = 5L, lastAutoBackupError = "Falló", autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder) }
@@ -232,10 +353,45 @@ class SettingsTest {
         assertEquals(off, s.settings.value)
     }
 
+    // I1 (CR re-review): with the copies off, a new vault still forgets the old vault's list (and any request), so choosing
+    // the same folder again never rotates the previous vault's copies away; nothing is given back (nothing was held).
+    @Test fun newVaultWithTheCopiesOffStillForgetsTheOldList() = runTest {
+        val s = store().apply { load() }
+        s.update {
+            it.copy(
+                autoBackupUri = folder, autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder,
+                autoBackupReplacePending = true, autoBackupReplaceTargets = listOf("v1-a"), autoBackupReplaceTold = listOf("x"),
+            )
+        }
+        s.turnOffAutoBackup() // «Desactivar»: the list stays on purpose (the same folder chosen again goes on rotating it).
+        s.update { it.copy(autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder) }
+        assertEquals(null, s.turnOffAutoBackupForNewVault()) // The new vault.
+        val after = s.settings.value
+        assertEquals(emptyList<String>(), after.autoBackupCopies)
+        assertEquals(null, after.autoBackupCopiesFolder)
+        assertFalse(after.autoBackupReplacePending)
+        assertNull(after.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), after.autoBackupReplaceTold)
+        assertEquals(emptyList<String>(), store().apply { load() }.settings.value.autoBackupCopies) // Saved.
+        // The same folder chosen again: no copy of the old vault is listed as this one's.
+        assertEquals(emptyList<String>(), after.withFolderChosen(folder).currentAutoBackupCopies)
+    }
+
     @Test fun newVaultWithAutoBackupOffChangesNothing() = runTest {
         val s = store().apply { load() }
         assertEquals(null, s.turnOffAutoBackupForNewVault())
         assertFalse(s.settings.value.autoBackupOffForNewVault)
         assertFalse(file().exists())
+    }
+
+    @Test fun turningTheCopiesOffSaysIfItDroppedAWaitingReplacement() = runTest {
+        val s = store().apply { load() }
+        s.update { it.copy(autoBackupUri = "content://carpeta", autoBackupReplacePending = true) }
+        assertTrue("Decided from the very write that turned them off (T11-c)", s.turnOffAutoBackup())
+        assertEquals(null, s.settings.value.autoBackupUri)
+        assertFalse(s.settings.value.autoBackupReplacePending)
+        s.update { it.copy(autoBackupUri = "content://carpeta") }
+        assertFalse(s.turnOffAutoBackup())
+        assertFalse("Already off: nothing dropped", s.turnOffAutoBackup())
     }
 }

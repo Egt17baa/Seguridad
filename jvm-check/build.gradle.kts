@@ -18,6 +18,8 @@ sourceSets {
     }
     test {
         kotlin.srcDir("../app/src/test/java")
+        // Tests of Compose code (for example NoCopyMenuTest) need the Android build: :app:testDebugUnitTest runs them.
+        kotlin.exclude("**/ui/**")
         resources.srcDir("../app/src/test/resources")
     }
 }

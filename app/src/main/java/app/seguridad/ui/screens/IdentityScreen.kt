@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -37,6 +38,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.FilterObscuredTouches
+import app.seguridad.tools.RENEW_IDENTITY
+import app.seguridad.tools.RENEW_IDENTITY_DONE
+import app.seguridad.tools.RENEW_IDENTITY_WARNING
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.vault.ContactName
 import app.seguridad.vault.DELETE_IDENTITY_CONFIRMATION
@@ -50,6 +54,7 @@ import app.seguridad.vault.checkOwnName
 import app.seguridad.vault.identity
 import app.seguridad.vault.myCard
 import app.seguridad.vault.newIdentityEntry
+import app.seguridad.vault.renewedIdentityEntry
 import app.seguridad.vault.saveFailureMessage
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -107,7 +112,7 @@ private fun IdentityBody(store: VaultStore, identity: VaultEntry?, snackbar: Sna
     }
 
     Column(
-        Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), // M-9: fields above the keyboard.
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -144,6 +149,7 @@ private fun IdentityBody(store: VaultStore, identity: VaultEntry?, snackbar: Sna
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Guardar nombre") }
         Text(IDENTITY_RISK, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
+        RenewIdentity(store, identity, snackbar, enabled = !busy)
         DeleteIdentity(store, identity, snackbar, enabled = !busy)
     }
 }
@@ -167,7 +173,7 @@ private fun MyCardSection(identity: VaultEntry, snackbar: SnackbarHostState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // The identity itself is opened inside `myCard()` and closed there: only the public card is kept.
-    val state by produceState<MyCardState>(MyCardState.Loading, identity.id, identity.username) {
+    val state by produceState<MyCardState>(MyCardState.Loading, identity.id, identity.username, identity.updatedAt) {
         value = withContext(Dispatchers.Default) {
             try {
                 val card = identity.myCard()
@@ -229,6 +235,45 @@ private fun MyCardSection(identity: VaultEntry, snackbar: SnackbarHostState) {
     }
 }
 
+/**
+ * «Renovar identidad»: a fresh seed for the same entry, after the strong warning. The confirmation fires once (it is
+ * disabled, and the dialog cannot be dismissed, while the work runs); the entry is only replaced after confirming.
+ */
+@Composable
+private fun RenewIdentity(store: VaultStore, identity: VaultEntry, snackbar: SnackbarHostState, enabled: Boolean) {
+    val scope = rememberCoroutineScope()
+    var asking by remember { mutableStateOf(false) }
+    var working by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { asking = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text(RENEW_IDENTITY) }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { if (!working) asking = false },
+            title = { Text(RENEW_IDENTITY) },
+            text = {
+                FilterObscuredTouches()
+                Text(RENEW_IDENTITY_WARNING)
+            },
+            confirmButton = {
+                Button(
+                    enabled = !working,
+                    onClick = {
+                        if (working) return@Button
+                        working = true
+                        scope.launch {
+                            val result = attempt { store.upsert(renewedIdentityEntry(identity, System.currentTimeMillis())) }
+                            working = false
+                            asking = false
+                            snackbar.showSnackbar(saveFailureMessage(result) ?: RENEW_IDENTITY_DONE)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NegativeColor, contentColor = MaterialTheme.colorScheme.surface),
+                ) { Text(RENEW_IDENTITY) }
+            },
+            dismissButton = { TextButton(enabled = !working, onClick = { asking = false }) { Text("Cancelar") } },
+        )
+    }
+}
+
 /** «Borrar mi identidad»: the warning of the design, then a second confirmation with a red button. */
 @Composable
 private fun DeleteIdentity(store: VaultStore, identity: VaultEntry, snackbar: SnackbarHostState, enabled: Boolean) {
@@ -252,7 +297,7 @@ private fun DeleteIdentity(store: VaultStore, identity: VaultEntry, snackbar: Sn
     if (step == 2) {
         AlertDialog(
             onDismissRequest = { step = 0 },
-            title = { Text("¿Borrarla de verdad?") },
+            title = { Text("¿Borrar tu identidad?") },
             text = {
                 FilterObscuredTouches()
                 Text(DELETE_IDENTITY_CONFIRMATION)

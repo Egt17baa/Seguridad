@@ -1,6 +1,7 @@
 package app.seguridad
 
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -12,9 +13,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.clearStaleCopy
 import app.seguridad.android.secureWindow
 import app.seguridad.ui.AppNavHost
+import app.seguridad.ui.ClipboardHistoryNotice
+import app.seguridad.ui.NoLearningInput
 import app.seguridad.ui.theme.SeguridadTheme
 import app.seguridad.ui.theme.isDark
+import app.seguridad.vault.AWAY_BACKSTOP_MS
+import app.seguridad.vault.LockReason
 import app.seguridad.vault.VaultLock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /** A FragmentActivity because the biometric prompt needs one. The app has no other entry point and takes no extras. */
 class MainActivity : FragmentActivity() {
@@ -33,7 +40,13 @@ class MainActivity : FragmentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            SeguridadTheme(settings.theme) { AppNavHost(container) }
+            SeguridadTheme(settings.theme) {
+                // A7: no keyboard learns from any field, dialogs included. A14: the clipboard notice, for every screen.
+                NoLearningInput {
+                    AppNavHost(container)
+                    ClipboardHistoryNotice(container)
+                }
+            }
         }
     }
 
@@ -42,7 +55,44 @@ class MainActivity : FragmentActivity() {
         // Back from a picker or the QR scanner: if the vault was kept open longer than allowed (the idle ticker may
         // not have run while the app was in the background), it locks before anything is shown.
         container.vault.lockIfIdle()
+        // After lockIfIdle: a lock for the time spent away is left to each screen's own rule for time away, as leaving is.
+        container.foreground = true
         VaultLock.keepOpenOnce = false
+        // Back from sharing an image: the copy goes once 10 minutes have passed. Off the main thread, so a share being
+        // prepared at the same time (a write of up to 50 MB, under the same lock) never holds up the activity.
+        container.appScope.launch(Dispatchers.IO) { container.shareTemp.onReturn() }
+    }
+
+    /**
+     * COV2-3: in split screen or a floating window, Seguridad stays visible (no onStop) while the user works in the
+     * other app. Losing the top position to it starts the same backstop as a picker ([AWAY_BACKSTOP_MS], counted from
+     * this moment with «Al salir»; the app-wide idle ticker checks it), and «PIN y códigos» counts the time away. The
+     * app's own dialogs and menus are windows of this activity and never change it; a picker or the scanner already has
+     * the backstop. Back on top, the time away is checked first, as in onStart. Android 10+; before, only one app is
+     * resumed, so onPause and onResume tell it.
+     */
+    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
+        super.onTopResumedActivityChanged(isTopResumedActivity)
+        awayInMultiWindow(!isTopResumedActivity)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) awayInMultiWindow(true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) awayInMultiWindow(false)
+    }
+
+    private fun awayInMultiWindow(away: Boolean) {
+        if (away) {
+            // Only in multi-window: full screen, losing the top means leaving (onStop locks then), or a system dialog.
+            if (isInMultiWindowMode && !isChangingConfigurations) container.leftForAnotherApp()
+        } else {
+            container.backFromAnotherApp()
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -54,6 +104,12 @@ class MainActivity : FragmentActivity() {
         super.onStop()
         // Leaving the app locks the vault, except while a picker or the QR scanner we opened is on top.
         // Rotating, folding or resizing recreates the activity without leaving the app: no lock then.
-        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.vault.lock()
+        // Before the lock: a screen that sees it (as «PIN y códigos») must know it came from leaving the app. A rotation,
+        // a fold or a resize re-creates the activity without leaving the app: it stays in the foreground (there is no
+        // lock then either, and onStart sets it to true again right after).
+        if (!isChangingConfigurations) container.foreground = false
+        // A14: a copy waiting for the notice is dropped on leaving the app, whether or not the vault was open.
+        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.clipboardNotice.drop()
+        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.vault.lock(LockReason.LEFT_APP)
     }
 }

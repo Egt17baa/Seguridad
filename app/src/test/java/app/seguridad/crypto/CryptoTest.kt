@@ -102,13 +102,13 @@ class CryptoTest {
         val salt = ByteArray(SALT_BYTES)
         try {
             try {
-                argon2id(password, salt, KdfParams(memoryKiB = MAX_KDF_MEMORY_KIB + 1, iterations = 1))
+                argon2id(password, salt, KdfParams(memoryKiB = MAX_KDF_MEMORY_KIB + 1, iterations = 1), use = PasswordUse.NEW)
                 fail("expected CryptoFailure for excessive memory")
             } catch (e: CryptoFailure) {
                 // Rejected before the expensive KDF allocation.
             }
             try {
-                argon2id(password, salt, KdfParams(memoryKiB = 1024, iterations = 0))
+                argon2id(password, salt, KdfParams(memoryKiB = 1024, iterations = 0), use = PasswordUse.NEW)
                 fail("expected CryptoFailure for invalid iterations")
             } catch (e: CryptoFailure) {
                 // Rejected before the expensive KDF allocation.
@@ -120,13 +120,13 @@ class CryptoTest {
 
     @Test fun `argon2id public API rejects malformed salt and output length`() {
         try {
-            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES - 1), FAST)
+            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES - 1), FAST, use = PasswordUse.NEW)
             fail("expected IllegalArgumentException for malformed salt")
         } catch (e: IllegalArgumentException) {
             // expected
         }
         try {
-            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES), FAST, 1025)
+            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES), FAST, 1025, PasswordUse.NEW)
             fail("expected IllegalArgumentException for unbounded output")
         } catch (e: IllegalArgumentException) {
             // expected
@@ -185,5 +185,216 @@ class CryptoTest {
         // RLO would show «factura\u202Efdp.exe» as «facturaexe.pdf»; isolates and marks go too.
         assertEquals("facturafdp.exe", safeFileName("factura\u202Efdp.exe"))
         assertEquals("a.txt", safeFileName("\u2066a\u200F.txt\u2069"))
+    }
+
+    @Test fun safeFileNameKeepsWholeCodePoints() {
+        // A16b: cut by code points (at most 120) and then to at most 255 UTF-8 bytes, never between the two halves of a
+        // surrogate pair nor inside a UTF-8 character.
+        val emoji = "\uD83D\uDE00" // 😀, outside the BMP: two UTF-16 units, 4 UTF-8 bytes.
+        val cut = safeFileName("a".repeat(119) + emoji + "x")
+        assertEquals("a".repeat(119) + emoji, cut) // 123 bytes: only the code-point limit applies.
+        assertTrue(cut.endsWith(emoji))
+        assertEquals(120, cut.codePointCount(0, cut.length))
+        // 200 CJK characters (3 bytes each): 120 code points would be 360 bytes, so the byte limit keeps 85 (255 bytes).
+        val cjk = safeFileName("文".repeat(200))
+        assertEquals("文".repeat(85), cjk)
+        assertTrue(cjk.toByteArray(Charsets.UTF_8).size <= MAX_SAVED_NAME_BYTES)
+        // 120 emoji (480 bytes): 63 whole ones (252 bytes), ending on a whole emoji.
+        for (n in listOf(120, 200)) {
+            val emojis = safeFileName(emoji.repeat(n))
+            assertEquals(emoji.repeat(63), emojis)
+            assertTrue(emojis.toByteArray(Charsets.UTF_8).size <= 255)
+            assertTrue(emojis.endsWith(emoji))
+            assertTrue(!emojis.last().isHighSurrogate())
+        }
+        // With a suffix the caller appends («.sgenc», 6 bytes), the name plus the suffix stay within 255 bytes.
+        for (name in listOf("文".repeat(200), emoji.repeat(120), "a".repeat(300))) {
+            val withSuffix = safeFileName(name, ENCRYPTED_EXTENSION.length) + ENCRYPTED_EXTENSION
+            assertTrue(withSuffix, withSuffix.toByteArray(Charsets.UTF_8).size <= 255)
+        }
+        assertEquals("文".repeat(83), safeFileName("文".repeat(200), 6)) // 249 bytes + 6.
+        // Short names do not change.
+        assertEquals("foto.jpg", safeFileName("foto.jpg"))
+        assertEquals(emoji + ".png", safeFileName(emoji + ".png"))
+        assertEquals(255, MAX_SAVED_NAME_BYTES)
+        assertEquals(1024, MAX_FILE_NAME_BYTES) // The read limit does not change.
+    }
+
+    @Test fun safeFileNameNeverGivesDotsControlsOrLooseEnds() {
+        // Never «.» or «..», nor empty.
+        for (name in listOf(".", "..", " . ", "...", "/..", "a/.", "\u0085", "\u2028")) assertEquals("name=<$name>", "archivo", safeFileName(name))
+        // Dots and spaces at either end go, also the no-break space.
+        assertEquals("bashrc", safeFileName("..bashrc"))
+        assertEquals("informe.pdf", safeFileName("  informe.pdf. . "))
+        assertEquals("x", safeFileName("\u00A0x\u00A0"))
+        // DEL, C1 controls and the line and paragraph separators are taken out, like C0.
+        assertEquals("ab.txt", safeFileName("a\u007Fb.txt"))
+        for (c in 0x80..0x9F) assertEquals("c=${c.toString(16)}", "ab.txt", safeFileName("a${c.toChar()}b.txt"))
+        assertEquals("ab.txt", safeFileName("a\u2028b\u2029.txt"))
+        assertEquals("ab.txt", safeFileName("a\nb\r.txt"))
+        // After the cut, no space or dot is left at the end.
+        assertEquals("a".repeat(119), safeFileName("a".repeat(119) + " b"))
+        assertEquals("a".repeat(119), safeFileName("a".repeat(119) + ".pdf"))
+        assertEquals("文".repeat(84), safeFileName("文".repeat(84) + " " + "文".repeat(50))) // 252 bytes + space, cut at 255.
+        // Idempotent.
+        for (n in listOf("..bashrc", "文".repeat(200), "a".repeat(119) + " b", " . ")) assertEquals(safeFileName(n), safeFileName(safeFileName(n)))
+    }
+
+    /** A `.sgenc` written by hand like [encryptStream] does, but with the raw [name] (no safeFileName): as an older build or another app could. */
+    private fun oldStyleFile(name: String, password: String, plain: ByteArray): ByteArray {
+        val secret = Secret.Password(password.toCharArray())
+        val header = newHeader(Header.KIND_FILE, Aead.AES_256_GCM, secret, FAST, secureRandom)
+        val aad = header.bytes()
+        val key = keyForHeader(secret, header, PasswordUse.NEW)
+        val out = ByteArrayOutputStream()
+        out.write(aad)
+        val sealedName = aead(Aead.AES_256_GCM, true, key, streamNonce(header.nonce, 0, false), aad, name.toByteArray(Charsets.UTF_8))
+        out.write(byteArrayOf((sealedName.size shr 8).toByte(), sealedName.size.toByte()))
+        out.write(sealedName)
+        out.write(aead(Aead.AES_256_GCM, true, key, streamNonce(header.nonce, 1, true), aad, plain))
+        return out.toByteArray()
+    }
+
+    @Test fun anOldFileWithANameLongerThan120CodePointsStillDecrypts() {
+        val longName = "\u00F1".repeat(300) + ".txt" // 304 code points, 604 bytes.
+        val plain = ByteArrayOutputStream()
+        // Reading never cuts nor rejects it: the whole name comes back.
+        val name = decryptStream(ByteArrayInputStream(oldStyleFile(longName, "clave", "hola".toByteArray())), plain, "clave".toCharArray())
+        assertEquals(longName, name)
+        assertEquals("hola", plain.toString(Charsets.UTF_8.name()))
+        // Only the name to save under is shortened, by whole code points (120 «ñ» are 240 bytes).
+        assertEquals("\u00F1".repeat(120), safeFileName(name))
+    }
+
+    @Test fun aNameOfExactly1024BytesStillDecryptsAnd1025DoesNot() {
+        val name1024 = "\u00E9".repeat(512) // 1024 bytes: the format's limit, MAX_FILE_NAME_BYTES.
+        assertEquals(MAX_FILE_NAME_BYTES, name1024.toByteArray(Charsets.UTF_8).size)
+        val plain = ByteArrayOutputStream()
+        assertEquals(name1024, decryptStream(ByteArrayInputStream(oldStyleFile(name1024, "clave", "x".toByteArray())), plain, "clave".toCharArray()))
+        assertEquals("x", plain.toString(Charsets.UTF_8.name()))
+        val saved = safeFileName(name1024)
+        assertTrue(saved.toByteArray(Charsets.UTF_8).size <= MAX_SAVED_NAME_BYTES)
+        // One byte more is not this format.
+        assertFails { decryptStream(ByteArrayInputStream(oldStyleFile(name1024 + "a", "clave", "x".toByteArray())), ByteArrayOutputStream(), "clave".toCharArray()) }
+    }
+
+    @Test fun safeFileNameDropsZeroWidthAndFormatCharacters() {
+        // Invisible characters that could make one name look like another (category Cf), one by one.
+        val listed = (0x200B..0x200F) + (0x202A..0x202E) + (0x2060..0x2064) + (0x2066..0x2069) + listOf(0xFEFF, 0x00AD, 0x061C)
+        for (cp in listed - 0x200D) {
+            val c = String(Character.toChars(cp))
+            assertEquals("cp=${cp.toString(16)}", "factura.pdf", safeFileName("fac${c}tura.p${c}df"))
+            assertEquals("cp=${cp.toString(16)}", "archivo", safeFileName(c)) // only invisible: the fallback
+        }
+        // Every other Cf too, also outside the BMP: the tag characters (U+E0001, U+E0020–U+E007F).
+        val tagA = String(Character.toChars(0xE0041))
+        assertEquals("ab.txt", safeFileName("a${tagA}b${String(Character.toChars(0xE0001))}.txt"))
+        // The zero-width joiner stays only inside an emoji sequence (see safeFileNameKeepsTheJoinerOnlyBetweenEmoji).
+        val family = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67" // 👨‍👩‍👧
+        assertEquals("$family.png", safeFileName("$family.png"))
+        assertEquals("ab.txt", safeFileName("a\u200Db.txt"))
+        // Variation selectors (not Cf) and accents stay.
+        assertEquals("\u2764\uFE0F.jpg", safeFileName("\u2764\uFE0F.jpg"))
+        assertEquals("Ñandú.txt", safeFileName("Ñandú.txt"))
+        // Idempotent, and the format characters do not count towards the limits.
+        val zw = "\u200B"
+        for (n in listOf("fac${zw}tura.pdf", zw, "$family.png", "a".repeat(119) + zw.repeat(50) + "b")) assertEquals(safeFileName(n), safeFileName(safeFileName(n)))
+        assertEquals("a".repeat(119) + "b", safeFileName("a".repeat(119) + zw.repeat(50) + "b"))
+    }
+
+    @Test fun safeFileNameDropsTheBlankAndInvisibleCharactersOfTheNameList() {
+        // CIFRADO-2 (audit 1.3.0): the Hangul fillers, CGJ, the Khmer inherent vowels, U+FE00–FE0E, the supplementary
+        // selectors, private use, noncharacters and the plane-14 tags go, as in sanitizeReceivedName.
+        val hidden = listOf(0x3164, 0x115F, 0x1160, 0xFFA0, 0x034F, 0x17B4, 0x17B5, 0xFE00, 0xFE0E, 0xE0100, 0xE01EF,
+            0xE000, 0xF8FF, 0xF0000, 0x10FFFD, 0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, 0x1FFFE, 0x10FFFF, 0xE0000, 0xE0080, 0x180E, 0x2065)
+        for (cp in hidden) {
+            val c = String(Character.toChars(cp))
+            assertEquals("cp=${cp.toString(16)}", "factura.pdf", safeFileName("fac${c}tura$c$c.pdf"))
+            assertEquals("cp=${cp.toString(16)}", "archivo", safeFileName(c)) // nothing visible left
+            assertEquals("cp=${cp.toString(16)}", "archivo", safeFileName("$c $c.$c"))
+        }
+        assertEquals("factura.pdf", safeFileName("factura\u3164\u3164.pdf"))
+        assertEquals("factura.pdf", safeFileName("fac\u3164tura.pdf"))
+        assertEquals("archivo", safeFileName("\u3164"))
+        // A cut that drops the U+20E3 of a keycap drops its selector too (119 «a» + «1» is the 120-code-point limit).
+        assertEquals("a".repeat(119) + "1", safeFileName("a".repeat(119) + "1\uFE0F\u20E3"))
+        assertEquals("a".repeat(118) + "1", safeFileName("a".repeat(118) + "1\uFE0F\u20E3"))
+        assertEquals("a".repeat(117) + "1\uFE0F\u20E3", safeFileName("a".repeat(117) + "1\uFE0F\u20E3")) // 120: whole.
+        // U+FE0F (the emoji presentation selector) stays after an emoji, a symbol or a keycap base…
+        assertEquals("\u2764\uFE0F.txt", safeFileName("\u2764\uFE0F.txt"))
+        assertEquals("1\uFE0F\u20E3 foto.jpg", safeFileName("1\uFE0F\u20E3 foto.jpg"))
+        assertEquals("\u2764\uFE0F\u200D\uD83D\uDD25.png", safeFileName("\u2764\uFE0F\u200D\uD83D\uDD25.png")) // ❤️‍🔥
+        // …but not where it shows nothing: after an ASCII letter, a space, a joiner, another selector or at the start.
+        assertEquals("factura.pdf", safeFileName("fac\uFE0Ftura.pdf"))
+        assertEquals("a b", safeFileName("a \uFE0Fb"))
+        assertEquals("\u2764\uFE0F", safeFileName("\u2764\uFE0F\uFE0F"))
+        assertEquals("archivo", safeFileName("\uFE0F"))
+        assertEquals("x", safeFileName("\uFE0Fx"))
+        // Review F5, M4: after 0–9, # or * it only stays in a keycap, with U+20E3 after it.
+        assertEquals("factura1.pdf", safeFileName("factura1\uFE0F.pdf"))
+        assertEquals("#foto", safeFileName("#\uFE0Ffoto"))
+        assertEquals("*.txt", safeFileName("*\uFE0F.txt"))
+        assertEquals("#\uFE0F\u20E3 y *\uFE0F\u20E3", safeFileName("#\uFE0F\u20E3 y *\uFE0F\u20E3"))
+        assertEquals("1\uFE0F\u20E3", safeFileName("1\uFE0F\uFE0F\u20E3"))
+        // Idempotent.
+        for (n in listOf(
+            "fac\u3164tura.pdf", "\u2764\uFE0F\uFE0F", "a\uFE0F\u200D\uD83D\uDE00", "\u00A0\uFE0F\uD83D\uDE00\u200D\uFE0F",
+            "factura1\uFE0F.pdf", "1\uFE0F\uFE0F\u20E3", "a".repeat(118) + "1\uFE0F\u20E3", "a".repeat(119) + "1\uFE0F\u20E3",
+        )) {
+            assertEquals("name=<$n>", safeFileName(n), safeFileName(safeFileName(n)))
+        }
+    }
+
+    @Test fun safeFileNameWritesALoneSurrogateAsAQuestionMark() {
+        // Not text, and not hidden either: the «?» that UTF-8 has always written for it inside a file.
+        assertEquals("a?b.txt", safeFileName("a\uD800b.txt"))
+        assertEquals("a?b", safeFileName("a\uDC00b"))
+        assertEquals("?", safeFileName("\uD800"))
+    }
+
+    @Test fun nothingTheCardNameListForbidsSurvivesSafeFileName() {
+        // The whole of Unicode, one code point at a time between two letters: whatever the fixed list of card names
+        // forbids, and every format character but the joiner, never reaches a file name.
+        val survivors = mutableListOf<Int>()
+        for (cp in 0..0x10FFFF) {
+            // A lone surrogate is visible («�») and becomes «?», as UTF-8 writes it (safeFileNameWritesALoneSurrogateAsAQuestionMark).
+            if (cp == 0x200D || cp == '/'.code || cp == '\\'.code || cp in 0xD800..0xDFFF) continue
+            val listed = app.seguridad.crypto.pk.hasForbiddenNameCharacter(String(Character.toChars(cp)))
+            val format = Character.getType(cp) == Character.FORMAT.toInt()
+            val selector = cp in 0xFE00..0xFE0E || cp in 0xE0100..0xE01EF
+            val nonchar = cp in 0xFDD0..0xFDEF || (cp and 0xFFFE) == 0xFFFE
+            if ((listed || format || selector || nonchar) && safeFileName("a${String(Character.toChars(cp))}b") != "ab") survivors += cp
+        }
+        assertTrue("survivors: " + survivors.take(20).joinToString { it.toString(16) }, survivors.isEmpty())
+    }
+
+    @Test fun safeFileNameKeepsTheJoinerOnlyBetweenEmoji() {
+        val zwj = "\u200D"
+        val man = "\uD83D\uDC68"
+        val woman = "\uD83D\uDC69"
+        val girl = "\uD83D\uDC67"
+        val family = "$man$zwj$woman$zwj$girl" // 👨‍👩‍👧
+        // The emoji sequence is kept whole.
+        assertEquals("$family.png", safeFileName("$family.png"))
+        assertEquals("foto $family", safeFileName("foto $family"))
+        // Next to ASCII, at either end, next to a space or next to another joiner: it goes.
+        assertEquals("factura.pdf", safeFileName("fac${zwj}tura.pdf"))
+        assertEquals("$man.png", safeFileName("$zwj$man$zwj.png"))
+        assertEquals("$man $woman", safeFileName("$man$zwj $woman"))
+        assertEquals("$man$woman", safeFileName("$man$zwj$zwj$woman"))
+        assertEquals("ñandú", safeFileName("${zwj}ñandú$zwj"))
+        // Nothing visible left: «archivo».
+        for (n in listOf(zwj, zwj.repeat(5), "$zwj . $zwj", "..$zwj..", " $zwj ")) assertEquals("name=<$n>", "archivo", safeFileName(n))
+        // A joiner the byte cut leaves at the end goes: 82 «文» (246 bytes) + 😀 (250) + joiner (253) + 😀 (257).
+        val smile = "\uD83D\uDE00"
+        assertEquals("文".repeat(82) + smile, safeFileName("文".repeat(82) + smile + zwj + smile))
+        // And one the code-point cut leaves at the end: 118 «a» + «é» + joiner is 120 code points.
+        assertEquals("a".repeat(118) + "é", safeFileName("a".repeat(118) + "é" + zwj + "é"))
+        // A trim that leaves a joiner at an end: it goes too.
+        assertEquals(man, safeFileName("$man$zwj\u00A0"))
+        // Idempotent.
+        for (n in listOf("$family.png", "fac${zwj}tura", zwj, "文".repeat(82) + smile + zwj + smile, "$man$zwj\u00A0", "$man$zwj$zwj$woman")) {
+            assertEquals("name=<$n>", safeFileName(n), safeFileName(safeFileName(n)))
+        }
     }
 }

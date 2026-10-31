@@ -254,6 +254,85 @@ class ContactsViewTest {
         assertEquals("Contacto nuevo", suggestedContactName(CardCheck.KeysChanged(saved, cardOf(person(), ""))))
     }
 
+    // ---- CADENAS-4 y CLAVE-PUBLICA-1: un nombre no puede imitar la marca de verificación ----
+
+    private val imitations = listOf(
+        "Ana (verificado)", "Ana (Verificado)", "Ana ✓ verificado con QR", "Ana (verificada)", "Ana, sin verificar",
+        "Ana VERIFICADO", "Ana (verificádo)", "Ana ✓", "Ana ✔️", "Ana ☑", "Ana ✅", "ti", "Ti", "tú", "TÚ", "tu", "Ana (tú)",
+        "Ana (tu)", "Ana v e r i f i c a d o", "Ana ｖｅｒｉｆｉｃａｄｏ", "Ana verified",
+        // Review F5, M3: Latin look-alikes NFKD does not fold, ⍻, and other brackets.
+        "Ana \u1D20\u1D07\u0280\u026A\uA730\u026A\u1D04\u1D00\u1D05\u1D0F", // ᴠᴇʀɪꜰɪᴄᴀᴅᴏ
+        "Ana \u1D20\u1D07\u0280\u026A\uA730\u026A\u1D04\u1D00\u1D05\u1D0F \u1D04\u1D0F\u0274 \u01EB\u0280", // … ᴄᴏɴ ǫʀ
+        "Ana ver\u0131f\u0131cado", "Ana \u028Berificado", "Ana \u237B", "Ana [tú]", "Ana {tu}", "Ana «tú»", "Ana ‹ti›",
+        "Ana 【tú】", "Ana (ti)", "\u1D1B\u026A",
+        // Review F5, m2: every Ps/Pe/Pi/Pf bracket, ⌈⌉ (Sm), and digits or signs read as «i» or «o».
+        "Ana ⸨tú⸩", "Ana ❨tú❩", "Ana ⦇tú⦈", "Ana ⟦tú⟧", "Ana 〘tú〙", "Ana ⌈tú⌉", "Ana ⌊ti⌋", "Ana »tú«", "Ana “tú”",
+        "Ana ver1ficado", "Ana verif1cado", "Ana ver!ficado", "Ana verif|cado", "Ana ver¡ficado", "Ana verif\u01C0cado",
+        "Ana VER1F1CAD0",
+    )
+
+    @Test fun unNombreQueImitaLaMarcaDeVerificacionSeRechaza() {
+        for (raw in imitations) {
+            val r = checkContactName(raw)
+            assertTrue("«$raw» debería rechazarse", r is ContactName.Invalid)
+            assertEquals(NAME_IMITATES_MARK, (r as ContactName.Invalid).message)
+            assertTrue(raw, imitatesTrustMark(raw))
+        }
+        // Mi propio nombre, que va en mi tarjeta, tampoco.
+        assertTrue(checkOwnName("Ana (verificado)") is ContactName.Invalid)
+        // Los nombres normales siguen valiendo, también los que llevan «ti» o «tu» dentro de otra palabra.
+        for (ok in listOf(
+            "Ana", "Tito", "Tuya", "Martín", "Ana Tú Pérez", "Verónica", "Vera", "Fico", "❤️", "Ana (casa)", "Ti Ana",
+            "Ana [trabajo]", "Ana «Tita»", "Iñaki", "Ana \u1D04\u1D00\u0280\u1D0D\u1D07\u0274", // ᴄᴀʀᴍᴇɴ
+            "Ana (Tita)", "Lucía 10", "Ana 1ª", "Ana 2024", "Verona (trabajo)", "Ver (fiesta)", "Ana (ti amo)", "Tuti",
+            "Ana | trabajo", "Pepe 01",
+        )) {
+            assertTrue("«$ok» debería valer", checkContactName(ok) is ContactName.Valid)
+            assertFalse(ok, imitatesTrustMark(ok))
+        }
+        assertEquals(
+            "El nombre no puede parecerse a la marca de verificación («verificado», «sin verificar», ✓) ni a tu propia firma («ti», «tú»)",
+            NAME_IMITATES_MARK,
+        )
+    }
+
+    @Test fun elNombreSugeridoNuncaEsUnoQueImitaLaMarca() {
+        val saved = contactOf(person(), "Ana")
+        for (fake in listOf("Ana (verificado)", "Ana ✓ verificado con QR", "ti")) {
+            val card = cardOf(person(), fake) // la tarjeta se sigue leyendo (parseCard no cambia: Card.kt, regla de la 1.2.0)
+            assertEquals(fake, card.name)
+            assertEquals("", suggestedContactName(CardCheck.New(card)))
+            assertEquals("", suggestedContactName(CardCheck.KeysChanged(saved, card)))
+            // Y se enseña aparte, entre «», con un aviso.
+            assertEquals(cardNameImitatesText(fake), imitatedCardNameText(CardCheck.New(card)))
+            assertEquals(cardNameImitatesText(fake), imitatedCardNameText(CardCheck.KeysChanged(saved, card)))
+        }
+        assertNull(imitatedCardNameText(CardCheck.New(cardOf(person(), "Ana"))))
+        assertNull(imitatedCardNameText(CardCheck.Same(saved)))
+        assertEquals(
+            "La tarjeta trae el nombre «x», que se puede confundir con la marca de verificación o con tu propia firma: " +
+                "escribe tú el nombre del contacto.",
+            cardNameImitatesText("x"),
+        )
+    }
+
+    @Test fun unContactoYaGuardadoConUnNombreAsiSeSigueLeyendoYSeEnseniaEntreComillas() {
+        // Decisión (CADENAS-4): la regla nueva solo se aplica a lo que se escribe o llega ahora. Un contacto guardado antes
+        // (o que viene en una copia) con un nombre así se sigue leyendo, listando, verificando y borrando; se enseña entre
+        // «» para que no pase por la marca; y solo al cambiarle el nombre hay que poner otro.
+        val legacy = contactOf(person(), "Ana", title = "Ana (verificado)")
+        val (file, dek) = app.seguridad.vault.VaultCrypto.create("maestra".toCharArray(), now, app.seguridad.crypto.KdfParams(1024, 1, 1))
+        val read = VaultCrypto.read(VaultCrypto.write(file, dek, listOf(legacy)), dek)
+        assertEquals(listOf(legacy), read)
+        assertEquals(listOf(legacy), contactsList(read, "verificado"))
+        assertEquals("«Ana (verificado)»", shownContactTitle(legacy.title))
+        assertEquals("Ana", shownContactTitle("Ana"))
+        assertTrue(markVerified(legacy, now + 1).verified)
+        assertEquals("Ya lo tienes: «Ana (verificado)»", incomingCardNotice(CardCheck.Same(legacy), viaQr = false).title)
+        assertTrue(checkContactName(legacy.title) is ContactName.Invalid)
+        assertEquals("Ana García", renamedContact(legacy, "Ana García", now + 1).title)
+    }
+
     // ---- La huella ----
 
     @Test fun laHuellaDeUnaTarjetaEsLaDeSusClaves() {

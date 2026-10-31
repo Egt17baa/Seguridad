@@ -121,9 +121,24 @@ internal fun encryptFileFor(
     ikmE: ByteArray,
     streamPrefix: ByteArray,
 ) {
-    if (ikmE.size != IKM_E_BYTES || streamPrefix.size != STREAM_PREFIX_BYTES) throw CryptoFailure(CANNOT_ENCRYPT_FILE)
-    val nameBytes = safeFileName(name).toByteArray(Charsets.UTF_8)
+    encryptFileForNameBytes(input, output, safeFileName(name).toByteArray(Charsets.UTF_8), recipient, sender, ikmE, streamPrefix)
+}
+
+/**
+ * [encryptFileFor] with the name already as UTF-8 [nameBytes] (wiped at the end), without [safeFileName]: only so the tests
+ * can write a file like one from an older build or another app, with a name up to [MAX_FILE_NAME_BYTES]. Same format.
+ */
+internal fun encryptFileForNameBytes(
+    input: InputStream,
+    output: OutputStream,
+    nameBytes: ByteArray,
+    recipient: Card,
+    sender: Identity?,
+    ikmE: ByteArray,
+    streamPrefix: ByteArray,
+) {
     try {
+        if (ikmE.size != IKM_E_BYTES || streamPrefix.size != STREAM_PREFIX_BYTES) throw CryptoFailure(CANNOT_ENCRYPT_FILE)
         if (nameBytes.size > MAX_FILE_NAME_BYTES) throw CryptoFailure(CANNOT_ENCRYPT_FILE)
         val context = bouncy(CANNOT_ENCRYPT_FILE) {
             val suite = hpkeSuite()

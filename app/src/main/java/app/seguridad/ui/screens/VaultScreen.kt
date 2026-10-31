@@ -64,21 +64,27 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.newPasswordFailureMessage
 import app.seguridad.crypto.totpCode
+import app.seguridad.tools.RESET_WIPES_DAMAGED
+import app.seguridad.tools.VAULT_CREATE_INTRO
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
+import app.seguridad.vault.BiometricRefusal
+import app.seguridad.vault.CLOCK_CHANGED_TEXT
 import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.launchUnlockWithKey
 import app.seguridad.vault.query
 import app.seguridad.vault.seedWordCount
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private tailrec fun Context.fragmentActivity(): FragmentActivity? = when (this) {
+internal tailrec fun Context.fragmentActivity(): FragmentActivity? = when (this) {
     is FragmentActivity -> this
     is ContextWrapper -> baseContext.fragmentActivity()
     else -> null
@@ -126,6 +132,14 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val actions = vaultActions(store, snackbar)
+    // M-4: «Activar huella» cut short by a re-creation of the activity is said here, by the new one, once.
+    val interrupted by BiometricVault.interrupted.collectAsStateWithLifecycle()
+    interrupted?.let { message ->
+        LaunchedEffect(message) {
+            BiometricVault.interruptionShown(message)
+            snackbar.showSnackbar(message)
+        }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -215,13 +229,13 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     var b by remember { mutableStateOf("") }
     var understood by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var failed by remember { mutableStateOf(false) }
+    // Review F5, M2: a password that is not valid text, or no memory for Argon2id, says so; anything else, «Inténtalo de nuevo».
+    var failed by remember { mutableStateOf<String?>(null) }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Crea tu bóveda", style = MaterialTheme.typography.headlineSmall)
-        if (failed) Text("No se pudo crear la bóveda. Inténtalo de nuevo.", color = NegativeColor)
+        failed?.let { Text(it, color = NegativeColor) }
         Text(
-            "Guarda contraseñas, frases semilla de tus wallets, notas y códigos 2FA, cifrados con AES-256-GCM y una clave derivada de tu " +
-                "contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de Google); puedes exportar una copia cifrada.",
+            VAULT_CREATE_INTRO,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         PasswordField(a, { a = it }, label = "Contraseña maestra (mínimo $MIN_MASTER caracteres)")
@@ -240,6 +254,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
             enabled = !busy && a.length >= MIN_MASTER && a == b && understood,
             onClick = {
                 busy = true
+                failed = null
                 val pw = a.toCharArray()
                 scope.launch {
                     try {
@@ -247,7 +262,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
                         BiometricVault.disable(context)
                         store.create(pw)
                     } catch (e: Exception) {
-                        failed = true
+                        failed = newPasswordFailureMessage(e, "No se pudo crear la bóveda. Inténtalo de nuevo.")
                     } finally {
                         pw.fill('\u0000')
                         busy = false
@@ -277,14 +292,10 @@ private fun UnlockVault(store: VaultStore) {
     val bio = BiometricVault.enabled(context) && store.biometricAllowed
     fun withFingerprint() {
         val activity = context.fragmentActivity() ?: return
+        // The key is handed over even if this screen's scope is gone (a rotation): opened or wiped, never dropped (BOV-3);
+        // only the store's own texts are shown, never a raw exception (LIBRE-4).
         BiometricVault.unlock(activity, onKey = { key ->
-            scope.launch {
-                try {
-                    store.unlockWithKey(key)
-                } catch (e: Exception) {
-                    error = e.message
-                }
-            }
+            scope.launchUnlockWithKey(store, key) { error = it }
         }, onError = { error = it })
     }
     LaunchedEffect(Unit) { if (bio) withFingerprint() }
@@ -314,8 +325,13 @@ private fun UnlockVault(store: VaultStore) {
         ) { Text("Desbloquear") }
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
         if (bio) OutlinedButton(onClick = ::withFingerprint, modifier = Modifier.fillMaxWidth()) { Text("Usar huella") }
-        if (BiometricVault.enabled(context) && !store.biometricAllowed) {
-            Text("Por seguridad, cada 7 días hay que escribir la contraseña maestra.", style = MaterialTheme.typography.bodySmall)
+        if (BiometricVault.enabled(context)) {
+            when (store.biometricRefusal) {
+                BiometricRefusal.CLOCK -> Text(CLOCK_CHANGED_TEXT, style = MaterialTheme.typography.bodySmall)
+                BiometricRefusal.MASTER_DUE ->
+                    Text("Por seguridad, cada 7 días hay que escribir la contraseña maestra.", style = MaterialTheme.typography.bodySmall)
+                null -> Unit
+            }
         }
         error?.let { Text(it, color = NegativeColor) }
         TextButton(onClick = { confirmDestroy = true }) { Text("He olvidado la contraseña maestra") }
@@ -326,7 +342,7 @@ private fun UnlockVault(store: VaultStore) {
             title = { Text("Sin la contraseña no hay recuperación") },
             text = {
                 FilterObscuredTouches()
-                Text("Lo guardado no se puede descifrar. Puedes borrar la bóveda y crear una nueva vacía. Esto no se puede deshacer.")
+                Text(RESET_WIPES_DAMAGED)
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -361,8 +377,8 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
     LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         item {
             OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Buscar") }, singleLine = true,
-                // No corrections or suggestions. The keyboard may still learn the words (Compose has no
-                // IME_FLAG_NO_PERSONALIZED_LEARNING): only titles and names go here, never a secret.
+                // No corrections or suggestions. autoCorrectEnabled = false does not stop the keyboard from learning: that
+                // is NoLearningInput (IME_FLAG_NO_PERSONALIZED_LEARNING, for every field of the app).
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                 modifier = Modifier.fillMaxWidth())
         }

@@ -11,6 +11,7 @@ import app.seguridad.crypto.pk.hasForbiddenNameCharacter
 import app.seguridad.crypto.pk.strictUtf8
 import java.nio.charset.CharacterCodingException
 import java.text.Normalizer
+import java.util.Locale
 
 /*
  * La lógica de la pestaña «Contactos» que no es de pantalla (así se prueba en jvm-check): el aviso de cada tarjeta que
@@ -75,6 +76,12 @@ private const val NOT_SAVED_STATE = "No se pudo guardar: hace falta la contrase�
 private const val NAME_EMPTY = "Escribe un nombre"
 private const val NAME_NOT_TEXT = "El nombre no es texto válido"
 private const val NAME_FORBIDDEN = "El nombre tiene caracteres de control, de dirección del texto, invisibles o no permitidos"
+/**
+ * CADENAS-4 (auditoría 1.3.0): un nombre que se parece a lo que la app escribe junto a un contacto («verificado», «sin
+ * verificar», la ✓) o a la línea de mi propia firma («Firmado por ti»). Ver [imitatesTrustMark].
+ */
+const val NAME_IMITATES_MARK =
+    "El nombre no puede parecerse a la marca de verificación («verificado», «sin verificar», ✓) ni a tu propia firma («ti», «tú»)"
 private const val NEW_CONTACT_NAME = "Contacto nuevo"
 private const val NEW_SUFFIX = " (nuevo)"
 
@@ -132,7 +139,7 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
         if (check.entry.type == EntryType.IDENTITY) {
             CardNotice(NoticeLevel.INFO, "Es tu propia tarjeta", "No hace falta añadirla: es la de tu identidad.", null)
         } else {
-            CardNotice(NoticeLevel.INFO, "Ya lo tienes: ${check.entry.title}", "Esta tarjeta tiene las mismas claves que ese contacto.", null)
+            CardNotice(NoticeLevel.INFO, "Ya lo tienes: ${shownContactTitle(check.entry.title)}", "Esta tarjeta tiene las mismas claves que ese contacto.", null)
         }
     is CardCheck.SharedKem -> CardNotice(
         NoticeLevel.DANGER,
@@ -141,7 +148,7 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
             // La X-Wing es mía y solo yo tengo su clave privada: no hay duda de cuál es la copia.
             "Esta tarjeta usa la clave de cifrado de tu identidad con otra firma: es una copia falsa de tu clave. No se guarda."
         } else {
-            "Esta tarjeta usa la misma clave de cifrado que ${check.entry.title}, con otra firma. Una de las dos es falsa: " +
+            "Esta tarjeta usa la misma clave de cifrado que ${shownContactTitle(check.entry.title)}, con otra firma. Una de las dos es falsa: " +
                 "compara la huella con las dos personas, en persona o por llamada. No se guarda."
         },
         null,
@@ -182,16 +189,41 @@ fun savedFingerprint(check: CardCheck): String? = try {
 /**
  * El nombre con el que se rellena el campo al guardar [check]: el de la tarjeta si es nueva; con las claves cambiadas, el
  * de la tarjeta más « (nuevo)» (para no tener dos contactos con el mismo nombre), si cabe en el límite. Con cualquier
- * otro resultado (que no se guarda), vacío.
+ * otro resultado (que no se guarda), vacío. También vacío si el nombre de la tarjeta imita la marca de verificación
+ * ([imitatesTrustMark], CADENAS-4): la tarjeta se sigue leyendo, pero ese nombre no se propone.
  */
 fun suggestedContactName(check: CardCheck): String = when (check) {
-    is CardCheck.New -> check.card.name
+    // CADENAS-4: un nombre que imita la marca no se propone (el campo queda vacío y [imitatedCardNameText] lo enseña aparte).
+    is CardCheck.New -> if (imitatesTrustMark(check.card.name)) "" else check.card.name
     is CardCheck.KeysChanged -> {
         val candidate = if (check.card.name.isBlank()) NEW_CONTACT_NAME else check.card.name + NEW_SUFFIX
-        if (checkContactName(candidate) is ContactName.Valid) candidate else check.card.name
+        when {
+            imitatesTrustMark(check.card.name) -> ""
+            checkContactName(candidate) is ContactName.Valid -> candidate
+            else -> check.card.name
+        }
     }
     is CardCheck.Same, is CardCheck.SharedKem -> ""
 }
+
+/**
+ * CADENAS-4: lo que se dice, encima del campo del nombre, de una tarjeta que se puede guardar ([CardCheck.New] o
+ * [CardCheck.KeysChanged]) cuyo nombre imita la marca ([imitatesTrustMark]): el nombre va entero entre «», aparte, y el
+ * campo queda vacío ([suggestedContactName]). `null` con cualquier otro nombre o resultado.
+ */
+fun imitatedCardNameText(check: CardCheck): String? {
+    val card = when (check) {
+        is CardCheck.New -> check.card
+        is CardCheck.KeysChanged -> check.card
+        is CardCheck.Same, is CardCheck.SharedKem -> return null
+    }
+    return if (imitatesTrustMark(card.name)) cardNameImitatesText(card.name) else null
+}
+
+/** El texto de [imitatedCardNameText] con el nombre [name] de la tarjeta. */
+fun cardNameImitatesText(name: String): String =
+    "La tarjeta trae el nombre «$name», que se puede confundir con la marca de verificación o con tu propia firma: " +
+        "escribe tú el nombre del contacto."
 
 // ---- El nombre de un contacto ----
 
@@ -207,7 +239,10 @@ sealed interface ContactName {
  * tener ningún carácter de la lista fija prohibida de las tarjetas (`hasForbiddenNameCharacter`, también en los extremos);
  * después se recortan los espacios de los extremos y tiene que quedar algo, de como mucho [MAX_NAME_BYTES] bytes en UTF-8
  * (bytes, no caracteres).
- * Es la misma regla que se aplica al nombre de una tarjeta al leerla.
+ * Es la misma regla que se aplica al nombre de una tarjeta al leerla, más una (CADENAS-4): el nombre no puede imitar la
+ * marca de verificación ([imitatesTrustMark]). Esa solo vale para lo que se escribe ahora (al guardar un contacto nuevo,
+ * al cambiar un nombre y en mi propio nombre): las tarjetas se siguen leyendo igual y un contacto ya guardado con un
+ * nombre así se sigue leyendo; solo al cambiarle el nombre hay que poner otro.
  */
 fun checkContactName(raw: String): ContactName {
     val normalized = Normalizer.normalize(raw, Normalizer.Form.NFC)
@@ -224,8 +259,104 @@ fun checkContactName(raw: String): ContactName {
     if (size > MAX_NAME_BYTES) {
         return ContactName.Invalid("El nombre es demasiado largo: como máximo $MAX_NAME_BYTES bytes en UTF-8 (tiene $size)")
     }
+    if (imitatesTrustMark(name)) return ContactName.Invalid(NAME_IMITATES_MARK)
     return ContactName.Valid(name)
 }
+
+/** Las marcas de verificación (✓ ✔ ☑ ✅ √ ⍻ 🗸 🗹 y la de Egeo): ninguna puede ir en un nombre. */
+private val CHECK_MARKS = setOf(0x2713, 0x2714, 0x2611, 0x2705, 0x221A, 0x237B, 0x1F5F8, 0x1F5F9, 0x10102)
+
+private val COMBINING_MARKS = Regex("\\p{M}+")
+
+/**
+ * Letras latinas que se leen como otra y que NFKD no pliega (revisión F5, M3): las versalitas («ᴠᴇʀɪꜰɪᴄᴀᴅᴏ ᴄᴏɴ ǫʀ»),
+ * la i sin punto (ı), la ʋ y la ȷ, con la letra que parecen.
+ */
+private val LATIN_LOOK_ALIKES: Map<Char, Char> = mapOf(
+    '\u1D00' to 'a', '\u0299' to 'b', '\u1D04' to 'c', '\u1D05' to 'd', '\u1D07' to 'e', '\uA730' to 'f',
+    '\u0262' to 'g', '\u029C' to 'h', '\u026A' to 'i', '\u1D09' to 'i', '\u1D0A' to 'j', '\u1D0B' to 'k',
+    '\u029F' to 'l', '\u1D0C' to 'l', '\u1D0D' to 'm', '\u0274' to 'n', '\u1D0E' to 'n', '\u1D0F' to 'o',
+    '\u1D10' to 'o', '\u1D11' to 'o', '\u1D12' to 'o', '\u1D13' to 'o', '\u01EB' to 'o', '\u1D18' to 'p',
+    '\uA7AF' to 'q', '\u0280' to 'r', '\u1D19' to 'r', '\u1D1A' to 'r', '\uA731' to 's', '\u1D1B' to 't',
+    '\u1D1C' to 'u', '\u1D20' to 'v', '\u028B' to 'v', '\u1D21' to 'w', '\u028F' to 'y', '\u1D22' to 'z',
+    '\u0131' to 'i', '\u0237' to 'j',
+)
+
+/**
+ * Si [c] encierra una palabra como en «(tú)»: toda la puntuación de apertura y de cierre de Unicode y las comillas de
+ * apertura y de cierre (categorías Ps, Pe, Pi y Pf: «( [ { « ‹ ⟨ ⟦ ⦇ ⸨ ❨ 〘 【 「…»), más «<», «>» y los techos y suelos
+ * «⌈ ⌉ ⌊ ⌋», que Unicode da como símbolos matemáticos (Sm). Revisión F5, m2.
+ */
+private fun isBracket(c: Char): Boolean = when (Character.getType(c).toByte()) {
+    Character.START_PUNCTUATION, Character.END_PUNCTUATION,
+    Character.INITIAL_QUOTE_PUNCTUATION, Character.FINAL_QUOTE_PUNCTUATION,
+    -> true
+    else -> c in "<>\u2308\u2309\u230A\u230B"
+}
+
+/**
+ * Lo que sustituye a un signo de [isBracket] en el nombre plegado: un carácter de uso privado, que no es una letra y que
+ * ningún nombre guardado puede llevar (la lista fija de las tarjetas lo prohíbe), así que no se confunde con nada.
+ */
+private const val BRACKET_MARK = '\uE000'
+
+/** «tu» o «ti» entre dos signos de [isBracket] (ya cambiados por [BRACKET_MARK]), en cualquier sentido: «(tú)», «»tú«», «[ti]»… */
+private val BRACKETED_YOU = Regex("\uE000t[iu]\uE000")
+
+/** Lo que se lee como una «i» o una «o» en «ver1ficado», «ver!ficado», «verif|cado» o «verificad0»: solo para buscar «verifi». */
+private fun digitOrSignAsLetter(c: Char): Char = when (c) {
+    '1', '!', '|', '\u00A1', '\u01C0' -> 'i'
+    '0' -> 'o'
+    else -> c
+}
+
+/**
+ * CADENAS-4 y CLAVE-PUBLICA-1 (auditoría 1.3.0): si [name] se puede confundir con lo que la app escribe junto al nombre
+ * de un contacto («verificado», «sin verificar», la ✓) o con mi propia firma («Firmado por ti»).
+ *
+ * **Lo que detecta.** El nombre se pasa a NFKD, se le quitan las marcas combinantes (los acentos) y se pone en minúsculas;
+ * las letras latinas de [LATIN_LOOK_ALIKES] se cambian por la que parecen. Entonces, sí, si:
+ *  - lleva una marca de verificación ([CHECK_MARKS]: ✓ ✔ ☑ ✅ √ ⍻ 🗸 🗹 y la de Egeo);
+ *  - con «1», «!», «|», «¡» y «ǀ» como «i» y «0» como «o», y quedándose solo con las letras, contiene «verifi».
+ *    Así caen «verificado», «verificada», «sin verificar», «Verificado», «verificádo», «verified», «v e r i f i c a d o»,
+ *    «ｖｅｒｉｆｉｃａｄｏ», «ᴠᴇʀɪꜰɪᴄᴀᴅᴏ», «verıfıcado», «ʋerificado», «ver1ficado», «verif1cado» y «ver!ficado». Las cifras
+ *    solo cuentan como letras para esta búsqueda: «Lucía 10» vale;
+ *  - solo con sus letras es «ti» o «tu» («tú», «Tú», «ᴛɪ»…);
+ *  - lleva «tu» o «ti» entre dos signos de [isBracket], en cualquier sentido y con espacios o no: «(tú)», «[tú]»,
+ *    «{ti}», ««tú»», «‹ti›», «⸨tú⸩», «❨tú❩», «⦇tú⦈», «⟦tú⟧», «〘tú〙», «⌈tú⌉», «<tú>».
+ *
+ * **Lo que no detecta** (se acepta: la línea del remitente pone el estado real delante y el nombre entre «», y en las
+ * listas la marca real va debajo del nombre):
+ *  - letras de otros alfabetos que se parecen a las latinas («vеrificado» con una е cirílica, «νerificado» con una ν
+ *    griega, «ᴠᴇʀɪғɪᴄᴀᴅᴏ» con una ғ cirílica);
+ *  - letras latinas que no están en [LATIN_LOOK_ALIKES] («ꝟerificado», «veꞃificado») y otras letras en lugar de la «i»
+ *    («verlficado» con una ele);
+ *  - «tu» o «ti» separados con otros signos («Ana - tú», «Ana: tú») y los emoji que no son una marca de verificación (👍).
+ *
+ * Es una regla para lo que se escribe o llega ahora ([checkContactName] y [suggestedContactName]); un contacto ya
+ * guardado así se sigue leyendo y se enseña entre «» ([shownContactTitle]).
+ */
+fun imitatesTrustMark(name: String): Boolean {
+    if (name.codePoints().anyMatch { it in CHECK_MARKS }) return true
+    val decomposed = COMBINING_MARKS.replace(Normalizer.normalize(name, Normalizer.Form.NFKD), "")
+    val folded = buildString(decomposed.length) {
+        for (c in decomposed) {
+            val lower = c.lowercaseChar()
+            append(LATIN_LOOK_ALIKES[lower] ?: LATIN_LOOK_ALIKES[c] ?: if (isBracket(c)) BRACKET_MARK else lower)
+        }
+    }
+    val letters = folded.filter { it.isLetter() }
+    if ("verifi" in folded.map(::digitOrSignAsLetter).filter { it.isLetter() }.joinToString("")) return true
+    if (letters == "ti" || letters == "tu") return true
+    return BRACKETED_YOU.containsMatchIn(folded.filterNot { it.isWhitespace() })
+}
+
+/**
+ * El nombre guardado [title] tal como se enseña en las listas, el detalle y los avisos: entre «» si imita la marca
+ * ([imitatesTrustMark]; solo un contacto guardado antes de la 1.3.0 o que viene en una copia), para que no pase por la
+ * marca real, que va aparte. Cualquier otro, tal cual.
+ */
+fun shownContactTitle(title: String): String = if (imitatesTrustMark(title)) "«$title»" else title
 
 /** [checkContactName], pero un nombre en blanco vale (y es `""`): mi tarjeta puede ir sin nombre, y quien la recibe pone el suyo. */
 fun checkOwnName(raw: String): ContactName = if (raw.isBlank()) ContactName.Valid("") else checkContactName(raw)

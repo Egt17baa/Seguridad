@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.seguridad.tools.NOTICE_INTRO
 import app.seguridad.ui.theme.SectionCard
 
 /** Shown once, before anything else, until «Entendido» saves Settings.noticeAccepted. */
@@ -28,7 +29,7 @@ fun NoticeScreen(onAccept: () -> Unit) {
             Text("🛡", style = MaterialTheme.typography.displaySmall)
             Text("Antes de empezar", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Seguridad guarda tus contraseñas, códigos 2FA y frases semilla, y cifra textos y archivos. Todo se queda en este móvil, sin cuentas.",
+                NOTICE_INTRO,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             SectionCard(Modifier.fillMaxWidth()) {
@@ -36,7 +37,7 @@ fun NoticeScreen(onAccept: () -> Unit) {
                     Text("Sin recuperación de la contraseña maestra", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "Si olvidas la contraseña maestra de la bóveda, o la de algo que cifres, nadie puede recuperar lo guardado: ni tú, ni nosotros. " +
-                            "Apúntala en un lugar seguro y exporta de vez en cuando una copia cifrada.",
+                            "Apúntala y guárdala donde solo tú puedas verla, y exporta de vez en cuando una copia cifrada.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -47,7 +48,7 @@ fun NoticeScreen(onAccept: () -> Unit) {
                     Text("Sin auditoría independiente", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "La app usa algoritmos estándar y bibliotecas conocidas, pero no ha pasado una auditoría de seguridad independiente. " +
-                            "Para fondos importantes usa una wallet hardware y un gestor de contraseñas auditado.",
+                            "Para fondos importantes usa una cartera física de criptomonedas y un gestor de contraseñas auditado.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
