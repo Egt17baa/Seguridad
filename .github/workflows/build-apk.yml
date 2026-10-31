@@ -122,7 +122,7 @@ jobs:
         run: bash scripts/check-manifest.sh --release app/build/outputs/apk/release/app-release.apk
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk Seguridad.apk
+        run: cp app/build/outputs/apk/release/app-release.apk Clavero.apk
 
       # Prints the signing certificate's SHA-256 in the job summary, to compare with docs/PUBLICAR.md. In every job but
       # build (that is, build-firma), anything other than the upload key (UPLOAD_CERT_SHA256) fails, so release-apk never
@@ -135,7 +135,7 @@ jobs:
           if [ ! -x "$APKSIGNER" ]; then
             APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)apksigner"
           fi
-          "$APKSIGNER" verify --print-certs Seguridad.apk | tee certs.txt
+          "$APKSIGNER" verify --print-certs Clavero.apk | tee certs.txt
           FP=$( { grep -m 1 'certificate SHA-256 digest' certs.txt || true; } | awk '{print toupper($NF)}')
           if [ -z "$FP" ]; then
             echo "::error::apksigner no ha dado la huella SHA-256 del certificado"
@@ -158,8 +158,8 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Seguridad-apk
-          path: Seguridad.apk
+          name: Clavero-apk
+          path: Clavero.apk
 
   # Trusted builds (a pushed v* tag, or a manual run from main): signed with the upload key from the environment
   # "firma". Without the key the step fails instead of building a distributable APK with the test key. A push to main
@@ -258,20 +258,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: Seguridad-apk
+          name: Clavero-apk
 
       - name: Name the APK after the version and write its SHA-256
         run: |
-          mv Seguridad.apk "Seguridad-$GITHUB_REF_NAME.apk"
-          sha256sum "Seguridad-$GITHUB_REF_NAME.apk" > "Seguridad-$GITHUB_REF_NAME.apk.sha256"
+          mv Clavero.apk "Clavero-$GITHUB_REF_NAME.apk"
+          sha256sum "Clavero-$GITHUB_REF_NAME.apk" > "Clavero-$GITHUB_REF_NAME.apk.sha256"
 
       - name: Attach to the release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           files: |
-            Seguridad-${{ github.ref_name }}.apk
-            Seguridad-${{ github.ref_name }}.apk.sha256
+            Clavero-${{ github.ref_name }}.apk
+            Clavero-${{ github.ref_name }}.apk.sha256
 
   # Google Play bundle, signed with the upload key. Runs on tags v* or manually from main, and only once build-firma
   # (tests, lint, licences, assets and the manifest, on the same commit) and jvm-check have passed (audit 1.3.0, RED-2).
@@ -351,5 +351,5 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Seguridad-google-play-aab
+          name: Clavero-google-play-aab
           path: app/build/outputs/bundle/release/app-release.aab

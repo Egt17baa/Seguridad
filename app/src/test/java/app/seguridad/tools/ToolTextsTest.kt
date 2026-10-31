@@ -118,7 +118,7 @@ class ToolTextsTest {
     @Test
     fun clipboardHistoryNoticeIsTheReviewedTextWithTheRealSeconds() {
         assertEquals(
-            "En este Android, el teclado puede guardar lo copiado en su historial. Seguridad lo borra del portapapeles " +
+            "En este Android, el teclado puede guardar lo copiado en su historial. Clavero lo borra del portapapeles " +
                 "a los 45 s (si Android cierra la app antes, al volver a abrirla), pero no del historial del teclado.",
             clipboardHistoryNoticeText(45),
         )

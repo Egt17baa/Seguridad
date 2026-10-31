@@ -122,7 +122,7 @@ const val PHOTO_DONE_SHORT = "Copia lista."
 /** Anexo: «Si no hay nada que quitar». */
 const val PHOTO_NOTHING_FOUND =
     "No hemos encontrado datos que quitar en el archivo que nos ha dado Android. Android puede ocultar la ubicación a " +
-        "las apps, así que el original de tu galería podría tenerla: comparte la copia de Seguridad, no el original."
+        "las apps, así que el original de tu galería podría tenerla: comparte la copia que hace Clavero, no el original."
 
 /** Anexo: «HEIC, HEIF y AVIF». */
 const val PHOTO_HEIF_NOTICE =
@@ -258,7 +258,7 @@ const val IMAGE_NO_MEMORY = "No hay memoria suficiente para abrir esta imagen en
 /** Anexo: «Explicación». */
 const val QR_EXPLANATION =
     "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes Wi-Fi, ni pagos. Puedes copiarlo y, si es una " +
-        "tarjeta o un mensaje de Seguridad o un código 2FA, pasarlo a su pantalla. La imagen se analiza en tu móvil y " +
+        "tarjeta o un mensaje de Clavero o un código 2FA, pasarlo a su pantalla. La imagen se analiza en tu móvil y " +
         "no se guarda."
 
 /** Anexo: «Sin avisos», shown in a neutral colour, without ✓. */
@@ -298,11 +298,11 @@ fun qrBidi(marks: String) =
 const val QR_WIFI_OPEN = "Red abierta: lo que hagas en ella lo puede ver cualquiera que esté conectado."
 const val QR_WIFI_WEP = "WEP es un cifrado antiguo que se rompe en minutos."
 const val QR_SEPA =
-    "Comprueba a quién pagas antes de hacerlo: pegar un QR falso encima del bueno es un fraude habitual. Seguridad no " +
+    "Comprueba a quién pagas antes de hacerlo: pegar un QR falso encima del bueno es un fraude habitual. Clavero no " +
         "comprueba el beneficiario ni hace pagos."
 const val QR_CRYPTO =
     "Comprueba la dirección completa con quien te la dio, por otro medio. Un pago en criptomonedas normalmente no se " +
-        "puede deshacer. Seguridad no hace pagos."
+        "puede deshacer. Clavero no hace pagos."
 const val QR_SMS = "Un SMS a un número corto puede tener coste."
 
 /** Not in the annex: the text is over [app.seguridad.tools.qr.MAX_QR_TEXT_BYTES]; nothing is analysed. */
@@ -360,8 +360,8 @@ const val QR_KIND_SMS = "SMS"
 const val QR_KIND_PHONE = "Llamada"
 const val QR_KIND_EMAIL = "Correo"
 const val QR_KIND_GEO = "Ubicación"
-const val QR_KIND_CARD = "Tarjeta de contacto de Seguridad"
-const val QR_KIND_RECEIVED = "Mensaje cifrado o texto firmado de Seguridad"
+const val QR_KIND_CARD = "Tarjeta de contacto de Clavero"
+const val QR_KIND_RECEIVED = "Mensaje cifrado o texto firmado de Clavero"
 const val QR_KIND_OTP = "Código 2FA"
 const val QR_KIND_TEXT = "Texto"
 
@@ -542,7 +542,7 @@ const val FINGERPRINT_ENABLE_INTERRUPTED =
 
 /** A14: the notice before the first copy of a secret on Android 8 to 12; [seconds] is the time chosen in Ajustes. */
 fun clipboardHistoryNoticeText(seconds: Int): String =
-    "En este Android, el teclado puede guardar lo copiado en su historial. Seguridad lo borra del portapapeles a los " +
+    "En este Android, el teclado puede guardar lo copiado en su historial. Clavero lo borra del portapapeles a los " +
         "$seconds s (si Android cierra la app antes, al volver a abrirla), pero no del historial del teclado."
 
 /** A14: copies (and records the notice as accepted). */
@@ -604,7 +604,7 @@ const val TOOLS_AWAY_WIPE_NOTE =
 
 /** Start notice («Antes de empezar»), the first paragraph. LIBRE-2 + COV1-3 (audit 1.3.0): what leaves the phone. */
 const val NOTICE_INTRO =
-    "Seguridad guarda tus contraseñas, códigos 2FA y frases semilla, y cifra textos y archivos, sin cuentas. La bóveda se " +
+    "Clavero guarda tus contraseñas, códigos 2FA y frases semilla, y cifra textos y archivos, sin cuentas. La bóveda se " +
         "queda cifrada en este móvil. De la app solo sale lo que tú exportas, guardas, copias al portapapeles o " +
         "compartes, la copia automática (a la carpeta que elijas) y, si compruebas si una contraseña está filtrada, los " +
         "5 primeros caracteres de su huella SHA-1."

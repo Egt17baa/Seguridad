@@ -499,7 +499,7 @@ fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Seguridad ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.headlineSmall)
+            Text("Clavero ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.headlineSmall)
             Hint(ABOUT_SUMMARY)
             Section("Avisos") {
                 Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una wallet hardware y un gestor de contraseñas auditado.")
