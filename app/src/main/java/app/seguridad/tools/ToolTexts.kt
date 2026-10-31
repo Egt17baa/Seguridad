@@ -12,6 +12,13 @@ import app.seguridad.vault.IMPORT_SETTINGS_FAILED
 import app.seguridad.vault.autoBackupUnlistedText
 import app.seguridad.vault.BIOMETRIC_UNLOCK_FAILED
 import app.seguridad.vault.CLOCK_CHANGED_TEXT
+import app.seguridad.crypto.PASSWORD_NOT_TEXT
+import app.seguridad.vault.FILE_SIGNATURE_UNKNOWN_KEY
+import app.seguridad.vault.FILE_SIGNATURE_VALID
+import app.seguridad.vault.NAME_IMITATES_MARK
+import app.seguridad.vault.cardNameImitatesText
+import app.seguridad.vault.fileSignatureUnverifiedText
+import app.seguridad.vault.senderContactText
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.round
@@ -614,4 +621,9 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PICKER_REJECTED_OK,
     CLIPBOARD_HISTORY_ACCEPT, CLIPBOARD_HISTORY_CANCEL, CLIPBOARD_COPY_FAILED, CLIPBOARD_COPY_FAILED_OK,
     fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2), CLIPBOARD_CLEAR_HINT,
+    // Audit 1.3.0, F5 (CADENAS-4, CADENAS-5, CIFRADO-1); «x» is the saved or received name.
+    NAME_IMITATES_MARK, cardNameImitatesText("x"),
+    senderContactText(verified = true, addressedToMe = true, title = "x"), senderContactText(verified = true, addressedToMe = false, title = "x"),
+    senderContactText(verified = false, addressedToMe = true, title = "x"), senderContactText(verified = false, addressedToMe = false, title = "x"),
+    FILE_SIGNATURE_VALID, fileSignatureUnverifiedText("x"), FILE_SIGNATURE_UNKNOWN_KEY, PASSWORD_NOT_TEXT,
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) } + ClipboardClear.entries.map { clipboardAboutText(it.seconds) }

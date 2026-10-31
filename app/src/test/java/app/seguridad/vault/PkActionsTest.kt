@@ -83,11 +83,11 @@ class PkActionsTest {
     @Test fun elRemitenteSeDiceConLosTextosDelDiseno() {
         assertEquals(SenderLine("Firmado por ti", TrustLevel.GOOD), senderLine(Sender.Me, addressedToMe = true))
         assertEquals(
-            SenderLine("De Ana (verificado)", TrustLevel.GOOD),
+            SenderLine("Verificado · De «Ana»", TrustLevel.GOOD),
             senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = true)), addressedToMe = true),
         )
         assertEquals(
-            SenderLine("De Ana, sin verificar: compara la huella", TrustLevel.CAUTION),
+            SenderLine("Sin verificar · De «Ana»: compara la huella", TrustLevel.CAUTION),
             senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = false)), addressedToMe = true),
         )
         assertEquals(
@@ -100,14 +100,14 @@ class PkActionsTest {
     /** T13-2: una firma pública (SGS1:, .sgsig) no nombra destinatario: nunca «De …», y siempre la nota de reenvío. */
     @Test fun unaFirmaDeUnContactoVerificadoDiceFirmadoPorYNuncaDe() {
         val line = senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = true)), addressedToMe = false)
-        assertEquals(SenderLine("Firmado por Ana (verificado)", TrustLevel.GOOD, SIGNATURE_FORWARD_NOTE), line)
+        assertEquals(SenderLine("Verificado · Firmado por «Ana»", TrustLevel.GOOD, SIGNATURE_FORWARD_NOTE), line)
         assertEquals("Una firma dice quién lo firmó, no a quién iba dirigido.", line.note)
         assertFalse(line.text.startsWith("De "))
     }
 
     @Test fun unaFirmaDeUnContactoSinVerificarDiceFirmadoPorSinVerificar() {
         val line = senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = false)), addressedToMe = false)
-        assertEquals(SenderLine("Firmado por Ana, sin verificar: compara la huella", TrustLevel.CAUTION, SIGNATURE_FORWARD_NOTE), line)
+        assertEquals(SenderLine("Sin verificar · Firmado por «Ana»: compara la huella", TrustLevel.CAUTION, SIGNATURE_FORWARD_NOTE), line)
         assertFalse(line.text.startsWith("De "))
     }
 
@@ -122,7 +122,7 @@ class PkActionsTest {
 
     @Test fun losMensajesYArchivosCifradosSiguenConDeYSinNota() {
         val line = senderLine(Sender.Contact(contactOf(ana(), "Ana", verified = true)), addressedToMe = true)
-        assertEquals("De Ana (verificado)", line.text)
+        assertEquals("Verificado · De «Ana»", line.text)
         assertNull(line.note)
     }
 
@@ -135,6 +135,79 @@ class PkActionsTest {
             // Un mensaje de un extraño no pone ningún nombre.
             assertFalse(senderLine(Sender.UnknownKey, addressedToMe = addressed).text.contains("Ana"))
         }
+    }
+
+    // ---- CADENAS-4 y CLAVE-PUBLICA-1: el estado va delante y el nombre guardado entre «» ----
+
+    @Test fun elEstadoVaDelanteYElNombreGuardadoEntreComillas() {
+        // Un contacto ya guardado (de antes de la 1.3.0, o de una copia) cuyo nombre imita la marca: la línea empieza
+        // por el estado real y el nombre va entero dentro de «», detrás.
+        for (fake in listOf("Ana (verificado)", "Ana ✓ verificado con QR", "ti")) {
+            for (addressed in listOf(true, false)) {
+                val unverified = senderLine(Sender.Contact(contactOf(stranger(), "x", title = fake)), addressedToMe = addressed)
+                assertTrue(unverified.text, unverified.text.startsWith("Sin verificar · "))
+                assertTrue(unverified.text, unverified.text.contains("«$fake»"))
+                assertEquals(TrustLevel.CAUTION, unverified.level)
+                val verified = senderLine(Sender.Contact(contactOf(stranger(), "x", title = fake, verified = true)), addressedToMe = addressed)
+                assertTrue(verified.text, verified.text.startsWith("Verificado · "))
+                assertTrue(verified.text.contains("«$fake»"))
+            }
+        }
+        // «Firmado por ti» (mi propia firma) ya no se puede imitar con un contacto llamado «ti».
+        val ti = senderLine(Sender.Contact(contactOf(stranger(), "x", title = "ti")), addressedToMe = false)
+        assertEquals("Sin verificar · Firmado por «ti»: compara la huella", ti.text)
+        assertNotEquals(senderLine(Sender.Me, addressedToMe = false).text, ti.text)
+    }
+
+    @Test fun losTextosDelRemitenteConElNombreDeEjemplo() {
+        assertEquals("Verificado · De «x»", senderContactText(verified = true, addressedToMe = true, title = "x"))
+        assertEquals("Verificado · Firmado por «x»", senderContactText(verified = true, addressedToMe = false, title = "x"))
+        assertEquals("Sin verificar · De «x»: compara la huella", senderContactText(verified = false, addressedToMe = true, title = "x"))
+        assertEquals(
+            "Sin verificar · Firmado por «x»: compara la huella",
+            senderContactText(verified = false, addressedToMe = false, title = "x"),
+        )
+    }
+
+    // ---- CADENAS-5: «La firma es válida» en verde solo con un remitente de confianza ----
+
+    @Test fun laFirmaDeUnArchivoSoloEsVerdeConMiFirmaOUnContactoVerificado() {
+        assertEquals(VerifyVerdict(FILE_SIGNATURE_VALID, TrustLevel.GOOD), fileVerifyVerdict(Sender.Me))
+        assertEquals(VerifyVerdict(FILE_SIGNATURE_VALID, TrustLevel.GOOD), fileVerifyVerdict(Sender.Contact(anaContact)))
+        assertEquals("La firma es válida: el archivo no ha cambiado.", FILE_SIGNATURE_VALID)
+    }
+
+    @Test fun conUnaClaveDesconocidaLaFirmaNoSeDiceValidaNiEnVerde() {
+        val v = fileVerifyVerdict(Sender.UnknownKey)
+        assertEquals(TrustLevel.WARNING, v.level)
+        assertFalse(v.text.startsWith("La firma es válida"))
+        assertEquals(
+            "El archivo no ha cambiado desde que se firmó, pero la clave que lo firmó no está en tus contactos: no se sabe quién es.",
+            v.text,
+        )
+        // Sin firma no puede llegar aquí (un .sgsig siempre lleva clave), pero nunca sería verde.
+        assertEquals(TrustLevel.WARNING, fileVerifyVerdict(Sender.Unsigned).level)
+    }
+
+    @Test fun conUnContactoSinVerificarDiceQuienLoFirmoYPideLaHuella() {
+        val mallory = contactOf(stranger(), "x", title = "Ana (verificado)")
+        val v = fileVerifyVerdict(Sender.Contact(mallory))
+        assertEquals(TrustLevel.CAUTION, v.level)
+        assertFalse(v.text.startsWith("La firma es válida"))
+        assertEquals(
+            "El archivo no ha cambiado desde que lo firmó «Ana (verificado)», pero ese contacto está sin verificar: compara la huella.",
+            v.text,
+        )
+        assertEquals(fileSignatureUnverifiedText("Ana (verificado)"), v.text)
+    }
+
+    @Test fun deUnaFirmaRealDeUnExtranoAlVeredicto() {
+        // CADENAS-5 de punta a punta: Mallory firma con su clave; la bóveda solo tiene a Ana, verificada.
+        val plain = data(1000)
+        val sig = stranger().use { signFile(ByteArrayInputStream(plain), it) }
+        val sender = verifyFileAgainst(ByteArrayInputStream(plain), sig, entries)
+        assertEquals(Sender.UnknownKey, sender)
+        assertNotEquals(TrustLevel.GOOD, fileVerifyVerdict(sender).level)
     }
 
     // ---- Errores en español ----
@@ -185,7 +258,27 @@ class PkActionsTest {
 
     @Test fun seMantienenLosCaracteresQueLaListaAdmiteExpresamente() {
         assertEquals("ab.txt", sanitizeReceivedName("a\u200Db.txt")) // el unidor solo se queda entre emoji (ver abajo)
-        assertEquals("a\uFE0Fb", sanitizeReceivedName("a\uFE0Fb"))
+        // U+FE0F se queda tras un emoji o un símbolo (CIFRADO-2: tras una letra ASCII no se ve y se quita).
+        assertEquals("\u2764\uFE0F.txt", sanitizeReceivedName("\u2764\uFE0F.txt"))
+        assertEquals("ab", sanitizeReceivedName("a\uFE0Fb"))
+    }
+
+    @Test fun elNombreRecibidoQuitaLoMismoQueSafeFileName() {
+        // CIFRADO-2: una sola lista. Lo que safeFileName quita, sanitizeReceivedName también (y al revés).
+        for (cp in listOf(0x3164, 0x115F, 0x1160, 0xFFA0, 0x034F, 0x17B4, 0x17B5, 0xFE00, 0xFE0E, 0xE0100, 0xE000, 0xFDD0,
+            0xFFFE, 0x1FFFE, 0xE0001, 0x200C, 0x0600, 0x180E)) {
+            val c = String(Character.toChars(cp))
+            assertEquals("cp=${cp.toString(16)}", "ab.txt", sanitizeReceivedName("a${c}b$c.txt"))
+            assertEquals("cp=${cp.toString(16)}", "archivo-recibido", sanitizeReceivedName(c))
+        }
+        for (cp in 0..0x10FFFF) {
+            // A lone surrogate: safeFileName writes «?» (as UTF-8 always did), sanitizeReceivedName drops it.
+            if (cp == '/'.code || cp == '\\'.code || cp == '.'.code || cp in 0xD800..0xDFFF) continue
+            val c = String(Character.toChars(cp))
+            val name = "a${c}b"
+            assertEquals("cp=${cp.toString(16)}", app.seguridad.crypto.safeFileName(name), sanitizeReceivedName(name))
+        }
+        assertEquals("ab.txt", sanitizeReceivedName("a\uD800b.txt"))
     }
 
     @Test fun unNombreNuncaEsUnaRuta() {
@@ -270,7 +363,7 @@ class PkActionsTest {
         outcome as ReceivedOutcome.Opened
         assertEquals("hola Yo", outcome.text)
         assertEquals(Sender.Contact(anaContact), outcome.sender)
-        assertEquals("De Ana (verificado)", outcome.line.text)
+        assertEquals("Verificado · De «Ana»", outcome.line.text)
     }
 
     @Test fun unMensajeSinFirmarDiceQueNoEstaFirmado() {
@@ -288,7 +381,7 @@ class PkActionsTest {
     @Test fun unContactoSinVerificarSeDiceSinVerificar() {
         val unverified = contactOf(ana(), "Ana", verified = false)
         val outcome = openReceivedText(encryptMessage("hola", myCard(), ana()), listOf(meEntry, unverified)) as ReceivedOutcome.Opened
-        assertEquals("De Ana, sin verificar: compara la huella", outcome.line.text)
+        assertEquals("Sin verificar · De «Ana»: compara la huella", outcome.line.text)
         assertEquals(TrustLevel.CAUTION, outcome.line.level)
     }
 
@@ -310,7 +403,7 @@ class PkActionsTest {
         val signed = ana().use { signText("Mi cuenta nueva", it) }
         val outcome = openReceivedText(signed, listOf(anaContact)) as ReceivedOutcome.Opened // sin identidad también vale
         assertEquals("Mi cuenta nueva", outcome.text)
-        assertEquals("Firmado por Ana (verificado)", outcome.line.text)
+        assertEquals("Verificado · Firmado por «Ana»", outcome.line.text)
         assertEquals(SIGNATURE_FORWARD_NOTE, outcome.line.note)
     }
 
@@ -965,7 +1058,7 @@ class PkActionsTest {
     @Test fun senderLineWarnsWhenTheKeyIsInSeveralContacts() {
         val ana = contactOf(ana(), "Ana", verified = true)
         val line = senderLine(Sender.Contact(ana, sameKeyCount = 2), addressedToMe = true)
-        assertEquals("De Ana (verificado)", line.text)
+        assertEquals("Verificado · De «Ana»", line.text)
         assertEquals("Esta clave está guardada en 2 contactos.", line.sameKey)
         assertEquals("Esta clave está guardada en 3 contactos.", senderLine(Sender.Contact(ana, sameKeyCount = 3), addressedToMe = false).sameKey)
         // One contact: no warning.

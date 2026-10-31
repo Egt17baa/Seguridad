@@ -42,6 +42,7 @@ import app.seguridad.vault.checkContactName
 import app.seguridad.vault.contactCard
 import app.seguridad.vault.markVerified
 import app.seguridad.vault.renamedContact
+import app.seguridad.vault.shownContactTitle
 import app.seguridad.vault.saveFailureMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -102,7 +103,7 @@ private fun ContactDetail(store: VaultStore, entry: VaultEntry, snackbar: Snackb
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Plain Text: whatever the name holds is shown as it is, never as a link or markdown.
-        Text(entry.title, style = MaterialTheme.typography.headlineSmall)
+        Text(shownContactTitle(entry.title), style = MaterialTheme.typography.headlineSmall)
         VerificationMark(entry)
         when (val f = fingerprint) {
             SavedFingerprint.Loading -> Unit

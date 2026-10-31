@@ -63,6 +63,7 @@ import app.seguridad.vault.fingerprintRows
 import app.seguridad.vault.identity
 import app.seguridad.vault.masterFailureMessage
 import app.seguridad.vault.verificationMark
+import app.seguridad.vault.shownContactTitle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -253,7 +254,7 @@ private fun ContactsList(entries: List<VaultEntry>, onIdentity: () -> Unit, onCo
             ) {
                 Text(typeIcon(EntryType.CONTACT), style = MaterialTheme.typography.titleLarge)
                 Column(Modifier.weight(1f)) {
-                    Text(e.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(shownContactTitle(e.title), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     VerificationMark(e)
                 }
             }

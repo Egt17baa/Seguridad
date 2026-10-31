@@ -79,6 +79,7 @@ import app.seguridad.vault.SIGN_HELP
 import app.seguridad.vault.SYMMETRIC_FILE_NOTICE
 import app.seguridad.vault.SenderLine
 import app.seguridad.vault.TrustLevel
+import app.seguridad.vault.VerifyVerdict
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
@@ -103,6 +104,8 @@ import app.seguridad.vault.classifyPicked
 import app.seguridad.vault.sanitizeReceivedName
 import app.seguridad.vault.saveReceivedFile
 import app.seguridad.vault.senderLine
+import app.seguridad.vault.shownContactTitle
+import app.seguridad.vault.fileVerifyVerdict
 import app.seguridad.vault.signFileAs
 import app.seguridad.vault.signTextAs
 import app.seguridad.vault.signatureFileName
@@ -191,14 +194,17 @@ private fun ResultMessage(message: Pair<Boolean, String>?) {
 }
 
 @Composable
+private fun trustColor(level: TrustLevel) = when (level) {
+    TrustLevel.GOOD -> PositiveColor
+    TrustLevel.CAUTION -> CautionColor
+    TrustLevel.WARNING -> NegativeColor
+}
+
+@Composable
 private fun SenderText(line: SenderLine) {
-    val color = when (line.level) {
-        TrustLevel.GOOD -> PositiveColor
-        TrustLevel.CAUTION -> CautionColor
-        TrustLevel.WARNING -> NegativeColor
-    }
-    // Plain Text: a name is never read as a link or markdown.
-    Text(line.text, color = color, style = MaterialTheme.typography.titleMedium)
+    // Plain Text: a name is never read as a link or markdown. The state comes first in the text itself (CADENAS-4), so
+    // it does not depend on the colour.
+    Text(line.text, color = trustColor(line.level), style = MaterialTheme.typography.titleMedium)
     line.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     // A16a: the same signing key is kept in several contacts (the one shown is the verified, or else the newest).
     line.sameKey?.let { Text(it, color = CautionColor) }
@@ -362,7 +368,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
             ) {
                 RadioButton(selected = c.id == contactId, onClick = { contactId = c.id; result = null })
                 Column {
-                    Text(c.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(shownContactTitle(c.title), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         verificationMark(c),
                         style = MaterialTheme.typography.bodySmall,
@@ -601,6 +607,8 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
     var textName by rememberSaveable { mutableStateOf("") }
     var pending by remember { mutableStateOf<ReceivedFile?>(null) }
     var fileLine by remember { mutableStateOf<SenderLine?>(null) }
+    // CADENAS-5: what «Comprobar firma» says, coloured by who signed (green only for me or a verified contact).
+    var verdict by remember { mutableStateOf<VerifyVerdict?>(null) }
     var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     var prompt by rememberSaveable { mutableStateOf<String?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
@@ -683,6 +691,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         if (uri == null) return@rememberDocumentPicker
         message = null
         fileLine = null
+        verdict = null
         job = scope.launchBusy({ busy = it }) {
             try {
                 // At most MAX_TEXT_FILE_BYTES + 1 bytes are read: a text file is read like a pasted text, anything else
@@ -712,6 +721,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 if (picked is PickedFile.Text) {
                     pasted = picked.text
                     fileLine = null
+                    verdict = null
                     textResult = null
                     val from = PkInputs(null, picked.text, null)
                     val outcome = withContext(Dispatchers.Default) { openReceivedText(picked.text, entries) }
@@ -776,6 +786,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                     val text = pasted
                     message = null
                     fileLine = null
+                    verdict = null
                     textResult = null
                     job = scope.launchBusy({ busy = it }) {
                         val outcome = try {
@@ -834,6 +845,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                     val src = encUri ?: return@Button
                     message = null
                     fileLine = null
+                    verdict = null
                     job = scope.launchBusy({ busy = it }) {
                         try {
                             // `pending` is set inside, so a cancellation right after it still finds the subfolder to delete.
@@ -873,6 +885,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 onClick = {
                     message = null
                     fileLine = null
+                    verdict = null
                     textResult = null
                     job = scope.launchBusy({ busy = it }) {
                         try {
@@ -881,7 +894,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                                 context.contentResolver.openInputStream(signed)!!.use { verifyFileAgainst(it.buffered(), sig, entries, check) }
                             }
                             fileLine = senderLine(sender, addressedToMe = false)
-                            message = true to "La firma es válida: el archivo no ha cambiado."
+                            verdict = fileVerifyVerdict(sender)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -893,10 +906,11 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
             ) { Text("Comprobar firma") }
         }
         if (encUri != null || sigBytes != null || signedUri != null) {
-            TextButton(enabled = !busy, onClick = { resetFiles(); message = null; fileLine = null }) { Text("Quitar los archivos elegidos") }
+            TextButton(enabled = !busy, onClick = { resetFiles(); message = null; fileLine = null; verdict = null }) { Text("Quitar los archivos elegidos") }
         }
         if (busy) Busy("Trabajando…") { job?.cancel(); message = false to "Cancelado." }
         ResultMessage(message)
+        verdict?.let { Text(it.text, color = trustColor(it.level)) }
         fileLine?.let { SenderText(it) }
     }
 }

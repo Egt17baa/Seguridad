@@ -1,5 +1,6 @@
 package app.seguridad.crypto
 
+import app.seguridad.crypto.pk.isForbiddenNameCodePoint
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
@@ -144,20 +145,75 @@ internal const val MAX_FILE_NAME_CODE_POINTS = 120
 const val MAX_SAVED_NAME_BYTES = 255
 
 /**
- * Taken out of a name: C0, DEL, C1, the line and paragraph separators (U+2028, U+2029), and every format character
- * (category Cf: zero-width spaces and marks U+200B–U+200F, bidi controls U+202A–U+202E and U+2066–U+2069, U+2060–U+2064,
- * U+FEFF, the soft hyphen U+00AD, U+061C, the tag characters U+E0000–U+E007F…), which are invisible and can make a name
- * look like another. The zero-width joiner (U+200D) is left to [withoutLooseJoiners].
+ * CIFRADO-2 (audit 1.3.0): a code point no name that is shown or saved keeps, the one list of [safeFileName] and
+ * `sanitizeReceivedName` (they used to differ). Taken out:
+ *  - everything the fixed list of card names forbids (`isForbiddenNameCodePoint`, `crypto/pk/Card.kt`): C0, DEL, C1,
+ *    U+2028/2029, the soft hyphen, CGJ U+034F, the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the Khmer inherent
+ *    vowels U+17B4/17B5, U+180E, zero width, LRM/RLM and the bidi controls, U+2060–206F, U+FEFF, U+FFF0–FFFB, U+FFFE/FFFF,
+ *    lone surrogates, private use, and U+E0000–E0FFF (the tags and the supplementary variation selectors);
+ *  - every other format character (category Cf, such as U+200C or U+0600–0605), except the zero-width joiner, which is
+ *    left to [withoutLooseJoiners];
+ *  - the variation selectors U+FE00–FE0E (U+FE0F, the emoji one, is left to [withoutLooseSelectors]);
+ *  - the noncharacters U+FDD0–FDEF and the last two code points of every plane.
+ * The card list is fixed (it is also the read rule of a card); here it is only shown or saved, so it may take more.
  */
-private val NAME_CONTROLS = Regex("[\\x00-\\x1F\\x7F-\\x9F\\u2028\\u2029\\p{Cf}&&[^\\u200D]]")
+internal fun isHiddenInName(cp: Int): Boolean = cp != ZWJ && (
+    isForbiddenNameCodePoint(cp) ||
+        Character.getType(cp) == Character.FORMAT.toInt() ||
+        cp in 0xFE00..0xFE0E ||
+        cp in 0xFDD0..0xFDEF || (cp and 0xFFFE) == 0xFFFE
+    )
+
+/**
+ * [s] without the code points of [isHiddenInName]. A lone surrogate (half of a pair: not text, but visible as «�») is
+ * [loneSurrogate] if given, or goes: [safeFileName] keeps the «?» that UTF-8 has always written for it inside a file
+ * (`FileMessageTest`), and `sanitizeReceivedName` drops it.
+ */
+internal fun withoutHiddenNameCharacters(s: String, loneSurrogate: Char? = null): String {
+    val out = StringBuilder(s.length)
+    s.codePoints().forEach { cp ->
+        when {
+            cp in 0xD800..0xDFFF -> loneSurrogate?.let { out.append(it) }
+            !isHiddenInName(cp) -> out.appendCodePoint(cp)
+        }
+    }
+    return out.toString()
+}
 
 private const val ZWJ = 0x200D
+private const val EMOJI_SELECTOR = 0xFE0F
 
 /** What [safeFileName] trims from both ends: dots and spaces (also the no-break ones), as `sanitizeReceivedName` does. */
 private fun isNameTrimmable(c: Char) = c == '.' || c.isWhitespace() || Character.isSpaceChar(c)
 
 /** A code point a kept zero-width joiner may touch: not ASCII, not a space, not another joiner (an emoji, in practice). */
 private fun canJoin(cp: Int) = cp >= 0x80 && cp != ZWJ && !Character.isWhitespace(cp) && !Character.isSpaceChar(cp)
+
+/**
+ * A code point U+FE0F may follow: one that [canJoin] (an emoji or symbol, in practice) and is not another U+FE0F, or the
+ * base of a keycap emoji («1️⃣»: 0–9, # and *). A fixed rule, like the joiner's: no Unicode tables that change with the
+ * JDK.
+ */
+private fun canTakeEmojiSelector(cp: Int) =
+    (canJoin(cp) && cp != EMOJI_SELECTOR) || cp in '0'.code..'9'.code || cp == '#'.code || cp == '*'.code
+
+/**
+ * [s] without the emoji presentation selectors (U+FE0F) that show nothing: one at the start or after a code point that
+ * cannot take it ([canTakeEmojiSelector]: ASCII other than a keycap base, a space, a joiner or another selector) goes
+ * («fac\uFE0Ftura» is «factura»). One after an emoji or a symbol («❤️») stays. Idempotent: what a kept selector follows
+ * is never removed by this, by [withoutLooseJoiners] or by a trim.
+ */
+internal fun withoutLooseSelectors(s: String): String {
+    if (s.indexOf('\uFE0F') < 0) return s
+    val out = StringBuilder(s.length)
+    var previous = -1
+    s.codePoints().forEach { cp ->
+        if (cp == EMOJI_SELECTOR && !(previous >= 0 && canTakeEmojiSelector(previous))) return@forEach
+        out.appendCodePoint(cp)
+        previous = cp
+    }
+    return out.toString()
+}
 
 /**
  * [s] without the zero-width joiners (U+200D) that do not sit between two code points that [canJoin]: one at either end,
@@ -176,11 +232,14 @@ internal fun withoutLooseJoiners(s: String): String {
     return out.toString()
 }
 
-/** [withoutLooseJoiners] and trimming with [trim], until neither changes anything (a trim can leave a joiner at an end). */
+/**
+ * [withoutLooseSelectors], [withoutLooseJoiners] and trimming with [trim], until none changes anything (a trim can leave
+ * a joiner or a selector at an end).
+ */
 internal fun trimWithJoiners(s: String, trim: (String) -> String): String {
     var current = s
     while (true) {
-        val next = trim(withoutLooseJoiners(current))
+        val next = trim(withoutLooseJoiners(withoutLooseSelectors(current)))
         if (next == current) return current
         current = next
     }
@@ -188,22 +247,25 @@ internal fun trimWithJoiners(s: String, trim: (String) -> String): String {
 
 /**
  * Name to save a decrypted file under, and the one written inside a new file: the stored one, never a path, nor turned
- * around («factura\u202Efdp.exe»). Taken out: the controls (C0, DEL, C1, U+2028, U+2029) and every invisible format
- * character (category Cf: zero-width spaces and marks, bidi controls, U+2060–U+2064, U+FEFF, the soft hyphen, the tag
- * characters), so that no name can look like another. The zero-width joiner (U+200D, also Cf) stays only between two
- * non-ASCII code points that are not spaces (an emoji sequence such as «👨‍👩‍👧»); at either end, next to ASCII, a space
- * or another joiner it goes ([withoutLooseJoiners]), also after the cuts. No dots or spaces at either end (so never «.»
- * nor «..»); with nothing visible left (only joiners, dots or spaces), it is «archivo».
+ * around («factura\u202Efdp.exe»). Taken out: every code point of [isHiddenInName] (CIFRADO-2: the controls, the format
+ * characters, the bidi controls, the Hangul fillers and the other blanks and invisibles of the card list, U+FE00–FE0E,
+ * private use and the noncharacters), the same list as `sanitizeReceivedName`; a lone surrogate becomes «?», the byte
+ * that is written for it anyway. That covers the invisible characters known to make one name look like another (Unicode
+ * TR #36), not every look-alike: letters of other scripts that look the same stay. The zero-width joiner (U+200D) stays only between two non-ASCII code points that are not spaces (an
+ * emoji sequence such as «👨‍👩‍👧»), and U+FE0F only after an emoji, a symbol or a keycap base («❤️», «1️⃣»): elsewhere
+ * they go ([withoutLooseJoiners], [withoutLooseSelectors]), also after the cuts. No dots or spaces at either end (so
+ * never «.» nor «..»); with nothing visible left (only joiners, fillers, dots or spaces), it is «archivo».
  *
  * At most [MAX_FILE_NAME_CODE_POINTS] code points and [MAX_SAVED_NAME_BYTES] UTF-8 bytes minus [reservedBytes] (the
  * bytes of a suffix the caller appends, such as «.sgenc»), always cut between whole code points (A16b: never half of a
  * surrogate pair, never inside a UTF-8 character). Idempotent. It only shortens, never rejects: a file written with a
- * longer name (up to [MAX_FILE_NAME_BYTES]) still decrypts.
+ * longer name (up to [MAX_FILE_NAME_BYTES]) still decrypts, and the name inside an old file is read as it is; only the
+ * name proposed or shown changes.
  */
 fun safeFileName(name: String, reservedBytes: Int = 0): String {
     val maxBytes = (MAX_SAVED_NAME_BYTES - reservedBytes).coerceAtLeast(1)
     val trim = { t: String -> t.trim(::isNameTrimmable) }
-    val clean = trimWithJoiners(withoutBidiControls(name.substringAfterLast('/').substringAfterLast('\\').replace(NAME_CONTROLS, "")), trim)
+    val clean = trimWithJoiners(withoutHiddenNameCharacters(name.substringAfterLast('/').substringAfterLast('\\'), loneSurrogate = '?'), trim)
     val cut = trimWithJoiners(takeUtf8Bytes(takeCodePoints(clean, MAX_FILE_NAME_CODE_POINTS), maxBytes), trim)
     return if (cut.isEmpty() || cut == "." || cut == "..") "archivo" else cut
 }

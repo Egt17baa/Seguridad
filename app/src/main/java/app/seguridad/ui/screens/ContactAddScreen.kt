@@ -56,6 +56,7 @@ import app.seguridad.vault.newContactEntry
 import app.seguridad.vault.saveFailureMessage
 import app.seguridad.vault.savedFingerprint
 import app.seguridad.vault.suggestedContactName
+import app.seguridad.vault.imitatedCardNameText
 import com.google.zxing.client.android.Intents
 import com.journeyapps.barcodescanner.ScanContract
 import kotlinx.coroutines.CancellationException
@@ -184,6 +185,7 @@ private fun ReadyCard(store: VaultStore, ready: Incoming.Ready, text: String, vi
     val scope = rememberCoroutineScope()
     val notice = remember(ready.check, viaQr) { incomingCardNotice(ready.check, viaQr) }
     val fingerprint = remember(ready.card) { cardFingerprint(ready.card) }
+    val imitatedName = remember(ready.check) { imitatedCardNameText(ready.check) }
     // Filled from the card (the name another person chose) and editable: the saved name is the user's own.
     var name by rememberSaveable(text) { mutableStateOf(suggestedContactName(ready.check)) }
     val nameCheck = checkContactName(name)
@@ -209,6 +211,8 @@ private fun ReadyCard(store: VaultStore, ready: Incoming.Ready, text: String, vi
             }
             if (notice.footer.isNotEmpty()) Text(notice.footer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (notice.saveLabel != null) {
+                // CADENAS-4: a card name that imitates the verification mark is not proposed; it is shown apart, in «».
+                imitatedName?.let { Text(it, color = CautionColor) }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
