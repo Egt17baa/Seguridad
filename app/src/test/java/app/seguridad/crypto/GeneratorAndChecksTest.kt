@@ -41,10 +41,12 @@ class GeneratorAndChecksTest {
     // The HTTP side (only the 5-character prefix is sent) is tested with the network client.
     @Test fun `sha1 of a password and range counts, ignoring padding`() {
         // SHA-1("password") = 5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8
-        val hash = sha1Hex("password".toCharArray())
-        assertEquals("5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8", hash)
+        val hash = sha1HexChars("password".toCharArray())
+        assertEquals("5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8", String(hash))
         val body = "0018A45C4D1DEF81644B54AB7F969B88D65:0\r\n1E4C9B93F3F0682250B6CF8331B7EE68FD8:9659365\r\n"
-        assertEquals(9659365, pwnedCount(body, hash.drop(5)))
+        // The suffix as a view of the CharArray (CIFRADO-1: no String of the hash), and as a String.
+        assertEquals(9659365, pwnedCount(body, java.nio.CharBuffer.wrap(hash, 5, hash.size - 5)))
+        assertEquals(9659365, pwnedCount(body, String(hash).drop(5).lowercase()))
         assertEquals(0, pwnedCount("0018A45C4D1DEF81644B54AB7F969B88D65:0", "0018A45C4D1DEF81644B54AB7F969B88D65"))
     }
 

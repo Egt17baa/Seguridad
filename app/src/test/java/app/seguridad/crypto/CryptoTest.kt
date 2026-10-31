@@ -302,6 +302,59 @@ class CryptoTest {
         assertEquals("a".repeat(119) + "b", safeFileName("a".repeat(119) + zw.repeat(50) + "b"))
     }
 
+    @Test fun safeFileNameDropsTheBlankAndInvisibleCharactersOfTheNameList() {
+        // CIFRADO-2 (audit 1.3.0): the Hangul fillers, CGJ, the Khmer inherent vowels, U+FE00–FE0E, the supplementary
+        // selectors, private use, noncharacters and the plane-14 tags go, as in sanitizeReceivedName.
+        val hidden = listOf(0x3164, 0x115F, 0x1160, 0xFFA0, 0x034F, 0x17B4, 0x17B5, 0xFE00, 0xFE0E, 0xE0100, 0xE01EF,
+            0xE000, 0xF8FF, 0xF0000, 0x10FFFD, 0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, 0x1FFFE, 0x10FFFF, 0xE0000, 0xE0080, 0x180E, 0x2065)
+        for (cp in hidden) {
+            val c = String(Character.toChars(cp))
+            assertEquals("cp=${cp.toString(16)}", "factura.pdf", safeFileName("fac${c}tura$c$c.pdf"))
+            assertEquals("cp=${cp.toString(16)}", "archivo", safeFileName(c)) // nothing visible left
+            assertEquals("cp=${cp.toString(16)}", "archivo", safeFileName("$c $c.$c"))
+        }
+        assertEquals("factura.pdf", safeFileName("factura\u3164\u3164.pdf"))
+        assertEquals("factura.pdf", safeFileName("fac\u3164tura.pdf"))
+        assertEquals("archivo", safeFileName("\u3164"))
+        // U+FE0F (the emoji presentation selector) stays after an emoji, a symbol or a keycap base…
+        assertEquals("\u2764\uFE0F.txt", safeFileName("\u2764\uFE0F.txt"))
+        assertEquals("1\uFE0F\u20E3 foto.jpg", safeFileName("1\uFE0F\u20E3 foto.jpg"))
+        assertEquals("\u2764\uFE0F\u200D\uD83D\uDD25.png", safeFileName("\u2764\uFE0F\u200D\uD83D\uDD25.png")) // ❤️‍🔥
+        // …but not where it shows nothing: after an ASCII letter, a space, a joiner, another selector or at the start.
+        assertEquals("factura.pdf", safeFileName("fac\uFE0Ftura.pdf"))
+        assertEquals("a b", safeFileName("a \uFE0Fb"))
+        assertEquals("\u2764\uFE0F", safeFileName("\u2764\uFE0F\uFE0F"))
+        assertEquals("archivo", safeFileName("\uFE0F"))
+        assertEquals("x", safeFileName("\uFE0Fx"))
+        // Idempotent.
+        for (n in listOf("fac\u3164tura.pdf", "\u2764\uFE0F\uFE0F", "a\uFE0F\u200D\uD83D\uDE00", "\u00A0\uFE0F\uD83D\uDE00\u200D\uFE0F")) {
+            assertEquals("name=<$n>", safeFileName(n), safeFileName(safeFileName(n)))
+        }
+    }
+
+    @Test fun safeFileNameWritesALoneSurrogateAsAQuestionMark() {
+        // Not text, and not hidden either: the «?» that UTF-8 has always written for it inside a file.
+        assertEquals("a?b.txt", safeFileName("a\uD800b.txt"))
+        assertEquals("a?b", safeFileName("a\uDC00b"))
+        assertEquals("?", safeFileName("\uD800"))
+    }
+
+    @Test fun nothingTheCardNameListForbidsSurvivesSafeFileName() {
+        // The whole of Unicode, one code point at a time between two letters: whatever the fixed list of card names
+        // forbids, and every format character but the joiner, never reaches a file name.
+        val survivors = mutableListOf<Int>()
+        for (cp in 0..0x10FFFF) {
+            // A lone surrogate is visible («�») and becomes «?», as UTF-8 writes it (safeFileNameWritesALoneSurrogateAsAQuestionMark).
+            if (cp == 0x200D || cp == '/'.code || cp == '\\'.code || cp in 0xD800..0xDFFF) continue
+            val listed = app.seguridad.crypto.pk.hasForbiddenNameCharacter(String(Character.toChars(cp)))
+            val format = Character.getType(cp) == Character.FORMAT.toInt()
+            val selector = cp in 0xFE00..0xFE0E || cp in 0xE0100..0xE01EF
+            val nonchar = cp in 0xFDD0..0xFDEF || (cp and 0xFFFE) == 0xFFFE
+            if ((listed || format || selector || nonchar) && safeFileName("a${String(Character.toChars(cp))}b") != "ab") survivors += cp
+        }
+        assertTrue("survivors: " + survivors.take(20).joinToString { it.toString(16) }, survivors.isEmpty())
+    }
+
     @Test fun safeFileNameKeepsTheJoinerOnlyBetweenEmoji() {
         val zwj = "\u200D"
         val man = "\uD83D\uDC68"

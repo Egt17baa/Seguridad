@@ -254,6 +254,71 @@ class ContactsViewTest {
         assertEquals("Contacto nuevo", suggestedContactName(CardCheck.KeysChanged(saved, cardOf(person(), ""))))
     }
 
+    // ---- CADENAS-4 y CLAVE-PUBLICA-1: un nombre no puede imitar la marca de verificación ----
+
+    private val imitations = listOf(
+        "Ana (verificado)", "Ana (Verificado)", "Ana ✓ verificado con QR", "Ana (verificada)", "Ana, sin verificar",
+        "Ana VERIFICADO", "Ana (verificádo)", "Ana ✓", "Ana ✔️", "Ana ☑", "Ana ✅", "ti", "Ti", "tú", "TÚ", "tu", "Ana (tú)",
+        "Ana (tu)", "Ana v e r i f i c a d o", "Ana ｖｅｒｉｆｉｃａｄｏ", "Ana verified",
+    )
+
+    @Test fun unNombreQueImitaLaMarcaDeVerificacionSeRechaza() {
+        for (raw in imitations) {
+            val r = checkContactName(raw)
+            assertTrue("«$raw» debería rechazarse", r is ContactName.Invalid)
+            assertEquals(NAME_IMITATES_MARK, (r as ContactName.Invalid).message)
+            assertTrue(raw, imitatesTrustMark(raw))
+        }
+        // Mi propio nombre, que va en mi tarjeta, tampoco.
+        assertTrue(checkOwnName("Ana (verificado)") is ContactName.Invalid)
+        // Los nombres normales siguen valiendo, también los que llevan «ti» o «tu» dentro de otra palabra.
+        for (ok in listOf("Ana", "Tito", "Tuya", "Martín", "Ana Tú Pérez", "Verónica", "Vera", "Fico", "❤️", "Ana (casa)", "Ti Ana")) {
+            assertTrue("«$ok» debería valer", checkContactName(ok) is ContactName.Valid)
+            assertFalse(ok, imitatesTrustMark(ok))
+        }
+        assertEquals(
+            "El nombre no puede parecerse a la marca de verificación («verificado», «sin verificar», ✓) ni ser «ti» o «tú»",
+            NAME_IMITATES_MARK,
+        )
+    }
+
+    @Test fun elNombreSugeridoNuncaEsUnoQueImitaLaMarca() {
+        val saved = contactOf(person(), "Ana")
+        for (fake in listOf("Ana (verificado)", "Ana ✓ verificado con QR", "ti")) {
+            val card = cardOf(person(), fake) // la tarjeta se sigue leyendo (parseCard no cambia: Card.kt, regla de la 1.2.0)
+            assertEquals(fake, card.name)
+            assertEquals("", suggestedContactName(CardCheck.New(card)))
+            assertEquals("", suggestedContactName(CardCheck.KeysChanged(saved, card)))
+            // Y se enseña aparte, entre «», con un aviso.
+            assertEquals(cardNameImitatesText(fake), imitatedCardNameText(CardCheck.New(card)))
+            assertEquals(cardNameImitatesText(fake), imitatedCardNameText(CardCheck.KeysChanged(saved, card)))
+        }
+        assertNull(imitatedCardNameText(CardCheck.New(cardOf(person(), "Ana"))))
+        assertNull(imitatedCardNameText(CardCheck.Same(saved)))
+        assertEquals(
+            "La tarjeta trae el nombre «x», que se puede confundir con la marca de verificación o con tu propia firma: " +
+                "escribe tú el nombre del contacto.",
+            cardNameImitatesText("x"),
+        )
+    }
+
+    @Test fun unContactoYaGuardadoConUnNombreAsiSeSigueLeyendoYSeEnseniaEntreComillas() {
+        // Decisión (CADENAS-4): la regla nueva solo se aplica a lo que se escribe o llega ahora. Un contacto guardado antes
+        // (o que viene en una copia) con un nombre así se sigue leyendo, listando, verificando y borrando; se enseña entre
+        // «» para que no pase por la marca; y solo al cambiarle el nombre hay que poner otro.
+        val legacy = contactOf(person(), "Ana", title = "Ana (verificado)")
+        val (file, dek) = app.seguridad.vault.VaultCrypto.create("maestra".toCharArray(), now, app.seguridad.crypto.KdfParams(1024, 1, 1))
+        val read = VaultCrypto.read(VaultCrypto.write(file, dek, listOf(legacy)), dek)
+        assertEquals(listOf(legacy), read)
+        assertEquals(listOf(legacy), contactsList(read, "verificado"))
+        assertEquals("«Ana (verificado)»", shownContactTitle(legacy.title))
+        assertEquals("Ana", shownContactTitle("Ana"))
+        assertTrue(markVerified(legacy, now + 1).verified)
+        assertEquals("Ya lo tienes: «Ana (verificado)»", incomingCardNotice(CardCheck.Same(legacy), viaQr = false).title)
+        assertTrue(checkContactName(legacy.title) is ContactName.Invalid)
+        assertEquals("Ana García", renamedContact(legacy, "Ana García", now + 1).title)
+    }
+
     // ---- La huella ----
 
     @Test fun laHuellaDeUnaTarjetaEsLaDeSusClaves() {

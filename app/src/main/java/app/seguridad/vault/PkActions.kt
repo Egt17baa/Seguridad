@@ -8,6 +8,7 @@ import app.seguridad.crypto.MAX_SAVED_NAME_BYTES
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.takeUtf8Bytes
 import app.seguridad.crypto.trimWithJoiners
+import app.seguridad.crypto.withoutHiddenNameCharacters
 import app.seguridad.crypto.pk.Card
 import app.seguridad.crypto.pk.PkKind
 import app.seguridad.crypto.pk.Received
@@ -19,7 +20,6 @@ import app.seguridad.crypto.pk.decodeStrictUtf8
 import app.seguridad.crypto.pk.detectReceivedWithBytes
 import app.seguridad.crypto.pk.encryptFileFor
 import app.seguridad.crypto.pk.encryptMessage
-import app.seguridad.crypto.pk.hasForbiddenNameCharacter
 import app.seguridad.crypto.pk.pkKindOfFile
 import app.seguridad.crypto.pk.signFile
 import app.seguridad.crypto.pk.signText
@@ -112,18 +112,60 @@ const val SIGNATURE_FORWARD_NOTE = "Una firma dice quién lo firmó, no a quién
  * [addressedToMe] es `true` para lo cifrado (`SGM1:`, `.sgenc` de tipo 3), cuya firma cubre mi identidad: «De Ana». Es `false`
  * para una firma pública (`SGS1:`, `.sgsig`), que no nombra destinatario y puede reenviarla cualquiera: «Firmado por Ana» y,
  * debajo, [SIGNATURE_FORWARD_NOTE]. «Firmado por ti», la clave desconocida y «Sin firmar» son iguales en los dos casos.
+ * Con un contacto, el texto es el de [senderContactText]: el estado delante y el nombre entre «».
  */
 fun senderLine(sender: Sender, addressedToMe: Boolean): SenderLine = when (sender) {
     Sender.Me -> SenderLine("Firmado por ti", TrustLevel.GOOD)
     is Sender.Contact -> {
-        val from = if (addressedToMe) "De" else "Firmado por"
         val note = if (addressedToMe) null else SIGNATURE_FORWARD_NOTE
         val sameKey = if (sender.sameKeyCount > 1) sameKeyContactsText(sender.sameKeyCount) else null
-        if (sender.entry.verified) SenderLine("$from ${sender.entry.title} (verificado)", TrustLevel.GOOD, note, sameKey)
-        else SenderLine("$from ${sender.entry.title}, sin verificar: compara la huella", TrustLevel.CAUTION, note, sameKey)
+        val text = senderContactText(sender.entry.verified, addressedToMe, sender.entry.title)
+        SenderLine(text, if (sender.entry.verified) TrustLevel.GOOD else TrustLevel.CAUTION, note, sameKey)
     }
     Sender.UnknownKey -> SenderLine("Firmado por una clave que no está en tus contactos", TrustLevel.WARNING)
     Sender.Unsigned -> SenderLine("Sin firmar: cualquiera pudo enviarlo", TrustLevel.WARNING)
+}
+
+/**
+ * La línea de un contacto con el nombre guardado [title]. CADENAS-4 y CLAVE-PUBLICA-1 (auditoría 1.3.0): el estado real va
+ * **delante** («Verificado · » o «Sin verificar · ») y el nombre, entre «», detrás. Antes era «De Ana (verificado)» y un
+ * nombre como «Ana (verificado)» o «ti» hacía que la parte en la que uno se fía la escribiera quien mandó la tarjeta.
+ */
+fun senderContactText(verified: Boolean, addressedToMe: Boolean, title: String): String {
+    val from = if (addressedToMe) "De" else "Firmado por"
+    return if (verified) "Verificado · $from «$title»" else "Sin verificar · $from «$title»: compara la huella"
+}
+
+// ---- Comprobar la firma de un archivo (CADENAS-5) ----
+
+/** Lo que se dice al comprobar la firma de un archivo, y cuánto hay que fiarse (la pantalla elige el color). */
+data class VerifyVerdict(val text: String, val level: TrustLevel)
+
+/** La firma de un archivo cuadra y es mía o de un contacto verificado (el texto de antes, el único en verde). */
+const val FILE_SIGNATURE_VALID = "La firma es válida: el archivo no ha cambiado."
+
+/** La firma cuadra, pero la clave no es mía ni de ningún contacto: no se puede decir quién lo firmó. */
+const val FILE_SIGNATURE_UNKNOWN_KEY =
+    "El archivo no ha cambiado desde que se firmó, pero la clave que lo firmó no está en tus contactos: no se sabe quién es."
+
+/** La firma cuadra y es del contacto [title] (el nombre guardado), que está sin verificar. */
+fun fileSignatureUnverifiedText(title: String): String =
+    "El archivo no ha cambiado desde que lo firmó «$title», pero ese contacto está sin verificar: compara la huella."
+
+/**
+ * CADENAS-5 (auditoría 1.3.0): lo que se dice al comprobar un `.sgsig` cuya firma cuadra, según quién firmó ([sender], el
+ * de `verifyFileAgainst`). En verde ([TrustLevel.GOOD]) solo si es mía o de un contacto verificado. Con un contacto sin
+ * verificar, ámbar y su nombre guardado; con una clave desconocida, rojo, sin decir «La firma es válida» (antes salía
+ * siempre en verde, encima de la línea roja). La huella de una clave desconocida no se puede enseñar: un `.sgsig` solo
+ * lleva la clave de firma, y la huella de una tarjeta es de las dos claves. Sin firma no se llega aquí.
+ */
+fun fileVerifyVerdict(sender: Sender): VerifyVerdict = when (sender) {
+    Sender.Me -> VerifyVerdict(FILE_SIGNATURE_VALID, TrustLevel.GOOD)
+    is Sender.Contact ->
+        if (sender.entry.verified) VerifyVerdict(FILE_SIGNATURE_VALID, TrustLevel.GOOD)
+        else VerifyVerdict(fileSignatureUnverifiedText(sender.entry.title), TrustLevel.CAUTION)
+    Sender.UnknownKey -> VerifyVerdict(FILE_SIGNATURE_UNKNOWN_KEY, TrustLevel.WARNING)
+    Sender.Unsigned -> VerifyVerdict(senderLine(Sender.Unsigned, addressedToMe = false).text, TrustLevel.WARNING)
 }
 
 /** El aviso de cifrar para [contact], o `null` si está verificado. */
@@ -145,16 +187,18 @@ fun actionErrorMessage(e: Throwable, fallback: String): String =
 
 /**
  * El nombre con el que proponer guardar un archivo descifrado. El que lleva dentro lo eligió otra persona, así que se
- * sanea: se queda con el último trozo no vacío tras separar por `/` y `\` (nunca una ruta); se quitan los controles
- * (Cc: C0, DEL y C1), los de dirección del texto y todo lo de la lista fija de nombres de tarjeta
- * (`hasForbiddenNameCharacter`); el unidor de anchura cero (U+200D) solo se queda entre dos emoji (dos puntos de código
- * que no son ASCII ni espacios), como en `safeFileName` (`withoutLooseJoiners`), también tras los cortes; se recortan los
- * espacios y los puntos de los extremos (así `.` y `..` quedan vacíos); no
- * pasa de 120 caracteres ni de [MAX_SAVED_NAME_BYTES] bytes en UTF-8 (es el nombre que se propone para guardar) ni parte
- * un par sustituto; y si queda vacío es [DEFAULT_RECEIVED_NAME]. Es idempotente.
+ * sanea: se queda con el último trozo no vacío tras separar por `/` y `\` (nunca una ruta); se quita todo lo de la
+ * lista de `safeFileName` (`withoutHiddenNameCharacters`, CIFRADO-2: una sola lista para los dos), es decir, los
+ * controles (Cc: C0, DEL y C1), los de formato y de dirección del texto, la lista fija de nombres de tarjeta
+ * (`hasForbiddenNameCharacter`: rellenos de Hangul, uso privado, etiquetas…), U+FE00–FE0E y los no caracteres; el
+ * unidor de anchura cero (U+200D) solo se queda entre dos emoji (dos puntos de código que no son ASCII ni espacios) y
+ * U+FE0F solo detrás de un emoji, un símbolo o la base de un keycap, como en `safeFileName` (`withoutLooseJoiners`,
+ * `withoutLooseSelectors`), también tras los cortes; se recortan los espacios y los puntos de los extremos (así `.` y
+ * `..` quedan vacíos); no pasa de 120 caracteres ni de [MAX_SAVED_NAME_BYTES] bytes en UTF-8 (es el nombre que se
+ * propone para guardar) ni parte un par sustituto; y si queda vacío es [DEFAULT_RECEIVED_NAME]. Es idempotente.
  */
 fun sanitizeReceivedName(name: String): String {
-    val segments = name.split('/', '\\').map { trimWithJoiners(withoutForbidden(it), ::trimEnds) }
+    val segments = name.split('/', '\\').map { trimWithJoiners(withoutHiddenNameCharacters(it), ::trimEnds) }
     var result = segments.lastOrNull { it.isNotEmpty() } ?: return DEFAULT_RECEIVED_NAME
     if (result.length > MAX_RECEIVED_NAME_CHARS) {
         result = result.take(MAX_RECEIVED_NAME_CHARS)
@@ -163,15 +207,6 @@ fun sanitizeReceivedName(name: String): String {
     }
     if (result.toByteArray(Charsets.UTF_8).size > MAX_SAVED_NAME_BYTES) result = trimWithJoiners(takeUtf8Bytes(result, MAX_SAVED_NAME_BYTES), ::trimEnds)
     return result.ifEmpty { DEFAULT_RECEIVED_NAME }
-}
-
-private fun withoutForbidden(s: String): String {
-    val out = StringBuilder(s.length)
-    s.codePoints().forEach { cp ->
-        val one = String(Character.toChars(cp))
-        if (!hasForbiddenNameCharacter(one)) out.append(one)
-    }
-    return out.toString()
 }
 
 private fun isTrimmable(c: Char) = c == '.' || c.isWhitespace() || Character.isSpaceChar(c)

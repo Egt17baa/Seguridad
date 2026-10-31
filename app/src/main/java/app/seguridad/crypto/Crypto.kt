@@ -89,6 +89,73 @@ internal inline fun <T> outOfMemoryAsFailure(block: () -> T): T = try {
     throw CryptoFailure(KDF_OUT_OF_MEMORY)
 }
 
+/**
+ * CIFRADO-1 (audit 1.3.0): a password with a lone surrogate (half of an emoji, only possible when pasted from another
+ * app) is not text, so no key is derived from it. Bouncy Castle already refused it (with an `IllegalStateException`,
+ * which «Cifrar texto» did not catch), so no data can exist under such a password.
+ */
+const val PASSWORD_NOT_TEXT = "La contraseña tiene un carácter que no es texto válido: escríbela de nuevo."
+
+/**
+ * CIFRADO-1 (audit 1.3.0): [chars] in UTF-8, in a new array of exactly that size that the caller wipes. For text it is
+ * byte for byte what Bouncy Castle's `PasswordConverter.UTF8` gives (`PBEParametersGenerator.PKCS5PasswordToUTF8Bytes`),
+ * and so every Argon2id key stays the same; but it leaves no copy behind (Bouncy Castle encodes through a buffer of its
+ * own and a `ByteArrayOutputStream`, and wipes neither). A lone surrogate is written as [replacement], or with `null`
+ * throws [CryptoFailure] ([PASSWORD_NOT_TEXT]) before anything is allocated. Plain arithmetic: no `String`, no
+ * `CharsetEncoder` (whose buffers are not ours to wipe).
+ */
+private fun utf8Of(chars: CharArray, replacement: Byte?): ByteArray {
+    fun pairAt(i: Int) = chars[i].isHighSurrogate() && i + 1 < chars.size && chars[i + 1].isLowSurrogate()
+    var size = 0
+    var i = 0
+    while (i < chars.size) {
+        val c = chars[i].code
+        size += when {
+            c < 0x80 -> 1
+            c < 0x800 -> 2
+            pairAt(i) -> 4.also { i++ }
+            chars[i].isSurrogate() -> if (replacement == null) throw CryptoFailure(PASSWORD_NOT_TEXT) else 1
+            else -> 3
+        }
+        i++
+    }
+    val out = ByteArray(size)
+    var o = 0
+    i = 0
+    while (i < chars.size) {
+        val c = chars[i].code
+        when {
+            c < 0x80 -> out[o++] = c.toByte()
+            c < 0x800 -> {
+                out[o++] = (0xC0 or (c shr 6)).toByte()
+                out[o++] = (0x80 or (c and 0x3F)).toByte()
+            }
+            pairAt(i) -> {
+                val cp = Character.toCodePoint(chars[i], chars[i + 1])
+                out[o++] = (0xF0 or (cp shr 18)).toByte()
+                out[o++] = (0x80 or ((cp shr 12) and 0x3F)).toByte()
+                out[o++] = (0x80 or ((cp shr 6) and 0x3F)).toByte()
+                out[o++] = (0x80 or (cp and 0x3F)).toByte()
+                i++
+            }
+            chars[i].isSurrogate() -> out[o++] = replacement!!
+            else -> {
+                out[o++] = (0xE0 or (c shr 12)).toByte()
+                out[o++] = (0x80 or ((c shr 6) and 0x3F)).toByte()
+                out[o++] = (0x80 or (c and 0x3F)).toByte()
+            }
+        }
+        i++
+    }
+    return out
+}
+
+/** [chars] in UTF-8 as Argon2id has always hashed it ([utf8Of]); [CryptoFailure] for a lone surrogate. The caller wipes it. */
+internal fun passwordUtf8(chars: CharArray): ByteArray = utf8Of(chars, null)
+
+/** [chars] in UTF-8 with each lone surrogate as «?», exactly as `String(chars).toByteArray(UTF_8)` ([utf8Of]). The caller wipes it. */
+internal fun utf8Replacing(chars: CharArray): ByteArray = utf8Of(chars, '?'.code.toByte())
+
 /** Wrong password, damaged or tampered data: deliberately one message, so it leaks nothing about which. */
 class CryptoFailure(message: String = "Contraseña incorrecta o datos dañados") : Exception(message)
 
@@ -106,9 +173,9 @@ val secureRandom: SecureRandom by lazy { SecureRandom() }
 fun randomBytes(n: Int, random: SecureRandom = secureRandom): ByteArray = ByteArray(n).also(random::nextBytes)
 
 /**
- * Argon2id (RFC 9106, version 0x13) of [password]; the caller wipes the result when done. Throws [CryptoFailure]
+ * Argon2id (RFC 9106, version 0x13) of [password] in UTF-8; the caller wipes the result when done. Throws [CryptoFailure]
  * ([KDF_OUT_OF_MEMORY]) when the phone has no heap for [p]'s memory, so opening «Alto» data on a small phone fails
- * with a clear message rather than crashing the app.
+ * with a clear message rather than crashing the app, and ([PASSWORD_NOT_TEXT]) for a password with a lone surrogate.
  */
 fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = KEY_BYTES): ByteArray {
     // Keep this public entry point safe too: callers must not be able to bypass header validation.
@@ -122,9 +189,15 @@ fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = K
         .withIterations(p.iterations)
         .withParallelism(p.parallelism)
         .build()
-    val out = ByteArray(length)
-    outOfMemoryAsFailure { Argon2BytesGenerator().apply { init(params) }.generateBytes(password, out) }
-    return out
+    // CIFRADO-1: our own UTF-8 copy (the same bytes Bouncy Castle's char[] overload hashed), wiped when done.
+    val pw = passwordUtf8(password)
+    try {
+        val out = ByteArray(length)
+        outOfMemoryAsFailure { Argon2BytesGenerator().apply { init(params) }.generateBytes(pw, out) }
+        return out
+    } finally {
+        pw.fill(0)
+    }
 }
 
 /** Raw Argon2id with secret and associated data, only for the RFC 9106 test vector. */
