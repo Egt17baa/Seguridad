@@ -69,6 +69,7 @@ import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
 import app.seguridad.tools.PASSWORD_CHANGE_COPIES
 import app.seguridad.tools.PASSWORD_CHANGE_OLD_BACKUPS
 import app.seguridad.tools.PASSWORD_CHANGE_RENEW_HINT
+import app.seguridad.tools.PASSWORD_CHANGE_SECRETS_HINT
 import app.seguridad.tools.PASSWORD_CHANGE_REPLACE_COPIES
 import app.seguridad.tools.PASSWORD_CHANGE_WORKING
 import app.seguridad.tools.RENEW_IDENTITY
@@ -336,8 +337,13 @@ fun MasterChangedDialog(
                         else -> Unit
                     }
                 }
-                Text(PASSWORD_CHANGE_RENEW_HINT)
-                OutlinedButton(enabled = !working, onClick = onRenew, modifier = Modifier.fillMaxWidth()) { Text(RENEW_IDENTITY) }
+                // R-5 of the earlier dictamen: «Renovar identidad» only when the vault had one; the advice on passwords stays.
+                if (state.hasIdentity) {
+                    Text(PASSWORD_CHANGE_RENEW_HINT)
+                    OutlinedButton(enabled = !working, onClick = onRenew, modifier = Modifier.fillMaxWidth()) { Text(RENEW_IDENTITY) }
+                } else {
+                    Text(PASSWORD_CHANGE_SECRETS_HINT)
+                }
             }
         },
         confirmButton = { TextButton(enabled = !working, onClick = onClose) { Text(PASSWORD_CHANGE_CLOSE) } },

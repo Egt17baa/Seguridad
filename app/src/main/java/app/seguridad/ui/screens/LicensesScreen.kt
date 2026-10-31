@@ -26,10 +26,12 @@ private class Component(val name: String, val license: String, val url: String, 
 
 private val components = listOf(
     Component("Kotlin, kotlinx.serialization y kotlinx.coroutines", "Apache-2.0", "https://kotlinlang.org", "apache-2.0.txt"),
-    Component("AndroidX (Core, Activity, Lifecycle, Navigation, Biometric)", "Apache-2.0", "https://developer.android.com/jetpack/androidx", "apache-2.0.txt"),
+    Component("AndroidX (Core, Activity, Fragment, Lifecycle, Navigation, Biometric y otras bibliotecas de AndroidX)", "Apache-2.0", "https://developer.android.com/jetpack/androidx", "apache-2.0.txt"),
+    // R-8 (final review of the Abogado Digital): in the release runtime classpath, through AndroidX and Kotlin.
+    Component("Guava ListenableFuture, JetBrains Annotations y JSpecify", "Apache-2.0", "https://github.com/google/guava, https://github.com/JetBrains/java-annotations y https://jspecify.dev", "apache-2.0.txt"),
     Component("Jetpack Compose y Material 3", "Apache-2.0", "https://developer.android.com/jetpack/compose", "apache-2.0.txt"),
     Component("OkHttp y Okio", "Apache-2.0", "https://square.github.io/okhttp/", "apache-2.0.txt"),
-    Component("ZXing y ZXing Android Embedded", "Apache-2.0", "https://github.com/journeyapps/zxing-android-embedded", "apache-2.0.txt", "Lectura de códigos QR con la cámara."),
+    Component("ZXing y ZXing Android Embedded", "Apache-2.0", "https://github.com/journeyapps/zxing-android-embedded", "apache-2.0.txt", "Lectura de códigos QR con la cámara. Incluye código de Barcode4J: Copyright 2002-2010 Jeremias Märki, Copyright 2005-2006 Dietmar Bürkle."),
     Component("Bouncy Castle", "MIT", "https://www.bouncycastle.org/", "bouncycastle.txt", "Algoritmos criptográficos: Argon2id, ChaCha20-Poly1305, Twofish, Serpent, Camellia, Ed25519, HPKE y el cifrado híbrido X-Wing."),
     Component("Lista de palabras BIP-39", "MIT", "https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md", "bip39.txt", "Las 2.048 palabras en inglés y las 2.048 en español, sin cambios."),
     Component("Lista de palabras larga de la EFF", "CC BY 3.0 US", "https://www.eff.org/dice", "cc-by-3.0.txt", "De la Electronic Frontier Foundation. El Generador usa las mismas palabras, en el mismo orden; solo se ha quitado la columna de los números de dado. Licencia: https://creativecommons.org/licenses/by/3.0/us/"),

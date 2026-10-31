@@ -84,7 +84,7 @@ class ToolTextsTest {
         // The number of texts of each section, exactly: a text that loses its «» would no longer be checked.
         val expected = linkedMapOf(
             "Limpiar foto" to 17, "Tachar en imagen" to 3, "Inspector de QR" to 19, "PIN y códigos" to 2,
-            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 61,
+            "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 66,
             "Textos de la app que no estaban en el dictamen" to 130,
         )
         val sections = annexSections()
@@ -194,6 +194,26 @@ class ToolTextsTest {
         // GPS in XMP without readable coordinates: no numbers.
         assertEquals(listOf(PHOTO_GPS_NO_COORDS), photoFoundLines(PhotoReport(PhotoFormat.JPEG, setOf(Found.GPS), null)))
         assertTrue(photoFoundLines(PhotoReport(PhotoFormat.WEBP, emptySet(), null)).isEmpty())
+    }
+
+    // R-2 of the earlier dictamen (abogado-textos-1-11.md): Android may hide the location from the app, so whenever the
+    // card shows no GPS line it says so; with nothing at all to remove, the whole «No hemos encontrado…» as before.
+    @Test
+    fun theHiddenLocationIsSaidWheneverNoGpsLineShows() {
+        assertTrue(PHOTO_NOTHING_FOUND.endsWith(" $PHOTO_LOCATION_MAYBE_HIDDEN"))
+        assertEquals(
+            "Android puede ocultar la ubicación a las apps, así que el original de tu galería podría tenerla: comparte la " +
+                "copia que hace Clavero, no el original.",
+            PHOTO_LOCATION_MAYBE_HIDDEN,
+        )
+        assertEquals(PHOTO_NOTHING_FOUND, photoLocationNote(PhotoReport(PhotoFormat.JPEG, emptySet(), null), converted = false))
+        assertEquals(PHOTO_NOTHING_FOUND, photoLocationNote(PhotoReport(PhotoFormat.PNG, setOf(Found.ICC_KEPT), null), converted = false))
+        assertEquals(PHOTO_LOCATION_MAYBE_HIDDEN, photoLocationNote(PhotoReport(PhotoFormat.JPEG, setOf(Found.DEVICE), null), converted = false))
+        assertEquals(null, photoLocationNote(PhotoReport(PhotoFormat.JPEG, setOf(Found.GPS, Found.DEVICE), 1.0 to 2.0), converted = false))
+        assertEquals(null, photoLocationNote(PhotoReport(PhotoFormat.JPEG, setOf(Found.GPS), null), converted = false))
+        // A converted HEIC: the card describes the new JPEG, not the original (as before).
+        assertEquals(null, photoLocationNote(PhotoReport(PhotoFormat.JPEG, emptySet(), null), converted = true))
+        assertTrue(PHOTO_LOCATION_MAYBE_HIDDEN in ALL_TOOL_TEXTS)
     }
 
     @Test

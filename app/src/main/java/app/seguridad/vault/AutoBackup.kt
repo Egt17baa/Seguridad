@@ -94,13 +94,27 @@ const val AUTO_BACKUP_WRITE_FAILED = "No se pudo escribir la copia automática e
 const val AUTO_BACKUP_VAULT_PROBLEM = "No se pudo hacer la copia automática: un adjunto falta o está dañado, o la bóveda no cabe en una copia. " +
     "Exporta la bóveda a mano para ver el motivo."
 const val AUTO_BACKUP_FAILED = "No se pudo hacer la copia automática."
-const val AUTO_BACKUP_OLD_NOT_DELETED = "La copia automática se hizo, pero no se pudieron borrar las antiguas."
+
+/**
+ * R-6 (final review of the Abogado Digital): the next copy does try again, as the copies not deleted stay on the list (a
+ * normal rotation) or as targets of the saved request (a replacement whose request is saved; it stays until every target
+ * went). Only where that holds: otherwise [AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY].
+ */
+const val AUTO_BACKUP_OLD_NOT_DELETED =
+    "La copia automática se hizo, pero no se pudieron borrar las antiguas. Se volverá a intentar en la próxima copia."
+
+/**
+ * A replacement with no request saved behind it (an import dropped it while the copy was written, or it could not be
+ * saved): nothing tries those copies again, so no promise that it will.
+ */
+const val AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY = "La copia automática se hizo, pero no se pudieron borrar las antiguas."
 
 // «Borrar las copias automáticas anteriores y hacer una nueva» (tras cambiar la contraseña maestra).
-// Only what is true whatever the folder holds: the copies deleted are those the app had listed (COPIAS-2).
+// Only what is true whatever the folder holds: the copies deleted are those the app had listed (COPIAS-2). O-2 (final
+// review of the Abogado Digital): the colon keeps «que la app tenía apuntadas» from being read as said of «contraseña».
 const val AUTO_BACKUP_REPLACED =
-    "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña que la app tenía " +
-        "apuntadas en esta carpeta. " +
+    "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña: las que la app " +
+        "tenía apuntadas en esta carpeta. " +
         "Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
 
 /** COPIAS-2: added to [AUTO_BACKUP_REPLACED] when [n] files with a copy's name, not on the app's list, are left in the folder. */
@@ -401,8 +415,15 @@ class AutoBackup(
             // Never closes the app: even an Error here only means there is no copy this time.
             AutoBackupResult(uri, null, messageFor(e), newRequest = replace?.newRequest == true)
         }
-        val told = result.error?.takeIf { replace != null && replace.announce && !result.replaced && it !in replaceTold() }
-        val recorded = if (told != null) result.copy(toldKey = told) else result
+        // R-6: a replacement promises the retry only while its request is saved (read now, after an import that may have
+        // dropped it; one that failed puts it back, and then it is tried again).
+        val said = if (replace != null && result.error == AUTO_BACKUP_OLD_NOT_DELETED && !replacePending()) {
+            result.copy(error = AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY)
+        } else {
+            result
+        }
+        val told = said.error?.takeIf { replace != null && replace.announce && !said.replaced && it !in replaceTold() }
+        val recorded = if (told != null) said.copy(toldKey = told) else said
         onResult(recorded)
         return recorded
     }

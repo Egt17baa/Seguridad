@@ -26,6 +26,11 @@ class MasterChanged(
         val open: Boolean = false,
         /** The password changed but the fingerprint could not be turned off (PASSWORD_CHANGED_FINGERPRINT_FAILED). */
         val fingerprintFailed: Boolean = false,
+        /**
+         * R-5 of the earlier dictamen: whether the vault had an identity when the password changed (read then, as the vault
+         * locks right after), so «Renovar identidad» is offered only when there is one. True when unknown.
+         */
+        val hasIdentity: Boolean = true,
         /** When «Borrar las copias automáticas anteriores» was pressed; 0 if not yet. */
         val requestedAt: Long = 0L,
         val answered: Boolean = false,
@@ -46,8 +51,8 @@ class MasterChanged(
     val state: StateFlow<State> = _state.asStateFlow()
 
     /** Called once the new password is saved (the vault is then locked), from whichever screen changed it. */
-    fun changed(fingerprintFailed: Boolean) {
-        _state.value = State(open = true, fingerprintFailed = fingerprintFailed, oldCopies = oldCopies())
+    fun changed(fingerprintFailed: Boolean, hasIdentity: Boolean = true) {
+        _state.value = State(open = true, fingerprintFailed = fingerprintFailed, hasIdentity = hasIdentity, oldCopies = oldCopies())
     }
 
     fun close() {

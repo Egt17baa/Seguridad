@@ -6,6 +6,8 @@ import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoReport
 import app.seguridad.tools.share.PHOTO_FILE_BASE
+import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED
+import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY
 import app.seguridad.vault.AUTO_BACKUP_REPLACED
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.vault.IMPORT_SETTINGS_FAILED
@@ -119,10 +121,17 @@ const val PHOTO_DONE_CONVERTED =
 /** Not in the annex: once saved or shared when there was nothing to remove (the card already says so). */
 const val PHOTO_DONE_SHORT = "Copia lista."
 
+/**
+ * R-2 of the earlier dictamen (abogado-textos-1-11.md): the second sentence of [PHOTO_NOTHING_FOUND], shown on its own
+ * whenever the card has things to remove but no GPS line ([photoLocationNote]).
+ */
+const val PHOTO_LOCATION_MAYBE_HIDDEN =
+    "Android puede ocultar la ubicación a las apps, así que el original de tu galería podría tenerla: comparte la copia " +
+        "que hace Clavero, no el original."
+
 /** Anexo: «Si no hay nada que quitar». */
 const val PHOTO_NOTHING_FOUND =
-    "No hemos encontrado datos que quitar en el archivo que nos ha dado Android. Android puede ocultar la ubicación a " +
-        "las apps, así que el original de tu galería podría tenerla: comparte la copia que hace Clavero, no el original."
+    "No hemos encontrado datos que quitar en el archivo que nos ha dado Android. $PHOTO_LOCATION_MAYBE_HIDDEN"
 
 /** Anexo: «HEIC, HEIF y AVIF». */
 const val PHOTO_HEIF_NOTICE =
@@ -183,6 +192,19 @@ fun photoFoundLines(report: PhotoReport): List<String> = PHOTO_FOUND_TEXTS.mapNo
 
 /** False when the only thing found is the colour profile, which the copy keeps. */
 fun photoHasSomethingToRemove(report: PhotoReport) = (report.found - Found.ICC_KEPT).isNotEmpty()
+
+/**
+ * What «Lo que trae la foto» says under its lines about the location: [PHOTO_NOTHING_FOUND] when there is nothing to
+ * remove, [PHOTO_LOCATION_MAYBE_HIDDEN] when no GPS line shows (Android may have hidden it from the app, so the original
+ * could have it; R-2 of the earlier dictamen), nothing when the GPS was found. A [converted] HEIC describes its new JPEG,
+ * not the original: nothing, as before.
+ */
+fun photoLocationNote(report: PhotoReport, converted: Boolean): String? = when {
+    converted -> null
+    !photoHasSomethingToRemove(report) -> PHOTO_NOTHING_FOUND
+    Found.GPS !in report.found -> PHOTO_LOCATION_MAYBE_HIDDEN
+    else -> null
+}
 
 /**
  * The message once the copy is saved or shared: «Copia lista…» with what was removed, or [PHOTO_DONE_SHORT] when there
@@ -324,7 +346,7 @@ const val QR_HIDDEN_ELSEWHERE =
         "ejemplo, codificados con «%», junto a un emoji del nombre o como saltos de línea). Pueden hacer que el texto parezca otro."
 
 /** Not in the annex: buttons, progress, the hidden full text and plain failure messages, without internal details. */
-const val QR_SCAN = "📷 Escanear QR"
+const val QR_SCAN = "Escanear QR"
 const val QR_PICK_IMAGE = "Elegir imagen"
 const val QR_READING_IMAGE = "Buscando el código en la imagen…"
 const val QR_FULL_TEXT = "Texto completo"
@@ -486,6 +508,11 @@ const val PASSWORD_CHANGE_REPLACE_COPIES = "Hacer una copia nueva y borrar las a
 const val PASSWORD_CHANGE_RENEW_HINT =
     "Si temes que alguien tenga la contraseña anterior y una copia, con las dos puede ver todo lo que guardabas al " +
         "hacerla: cambia las contraseñas y los códigos 2FA que más te importen, y renueva tu identidad."
+
+/** R-5 of the earlier dictamen: [PASSWORD_CHANGE_RENEW_HINT] when the vault had no identity to renew. */
+const val PASSWORD_CHANGE_SECRETS_HINT =
+    "Si temes que alguien tenga la contraseña anterior y una copia, con las dos puede ver todo lo que guardabas al " +
+        "hacerla: cambia las contraseñas y los códigos 2FA que más te importen."
 const val PASSWORD_CHANGE_WORKING = "Haciendo la copia nueva…"
 const val PASSWORD_CHANGE_CLOSE = "Entendido"
 const val AUTO_BACKUP_OUTCOME_TITLE = "Copias automáticas"
@@ -616,8 +643,8 @@ const val ABOUT_SUMMARY =
 
 /** «Crea tu bóveda», the paragraph under the title. LIBRE-2 + COV1-3 (audit 1.3.0): the automatic copy is named. */
 const val VAULT_CREATE_INTRO =
-    "Guarda contraseñas, frases semilla de tus wallets, notas y códigos 2FA, cifrados con AES-256-GCM y una clave derivada de tu " +
-        "contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de Google); puedes exportar una copia cifrada " +
+    "Guarda contraseñas, frases semilla de tus carteras de criptomonedas, notas y códigos 2FA, cifrados con AES-256-GCM y " +
+        "una clave derivada de tu contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de Google); puedes exportar una copia cifrada " +
         "o activar la copia automática en una carpeta que elijas."
 
 /**
@@ -682,4 +709,6 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     NOTICE_INTRO, ABOUT_SUMMARY, VAULT_CREATE_INTRO,
     // Owner's decision, 31-10-2026: the notice of the new name.
     APP_RENAMED_TITLE, APP_RENAMED_TEXT,
+    // Final review of the Abogado Digital (R-6), and R-2 and R-5 of the earlier dictamen.
+    AUTO_BACKUP_OLD_NOT_DELETED, AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, PHOTO_LOCATION_MAYBE_HIDDEN, PASSWORD_CHANGE_SECRETS_HINT,
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) } + ClipboardClear.entries.map { clipboardAboutText(it.seconds) }

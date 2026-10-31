@@ -78,9 +78,9 @@ fun ToolsScreen(settings: Settings, onTool: (String) -> Unit) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Cómo protegemos tus datos", style = MaterialTheme.typography.titleSmall)
                         listOf(
-                            "Todo se hace en tu móvil. Solo «¿Filtrada?» y «Comprobar filtraciones» usan internet, cuando las pulsas, y solo envían 5 caracteres de la huella de cada contraseña.",
-                            "Cifrado autenticado (AES-256-GCM, ChaCha20-Poly1305 y otros): cualquier cambio en lo cifrado se detecta.",
-                            "Tu contraseña se convierte en clave con Argon2id (${settings.kdf.label}), muy costoso de atacar por fuerza bruta.",
+                            "El cifrado y el análisis de las imágenes se hacen en tu móvil. Solo «¿Filtrada?» y «Comprobar filtraciones» usan internet, cuando las pulsas, y solo envían 5 caracteres de la huella de cada contraseña.",
+                            "Cifrado autenticado (AES-256-GCM, ChaCha20-Poly1305 y otros): si lo cifrado se cambia, se detecta al descifrarlo.",
+                            "Tu contraseña se convierte en clave con Argon2id (${settings.kdf.label}), que hace muy lento cada intento de adivinarla por fuerza bruta. Una contraseña corta sigue siendo débil.",
                             IMAGE_TOOLS_LIMIT,
                             clipboardAboutText(settings.clipboard.seconds),
                             "Si olvidas la contraseña de algo cifrado, no hay forma de recuperarlo.",

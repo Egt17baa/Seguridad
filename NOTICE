@@ -12,3 +12,6 @@ It includes third-party components under their own licenses, listed in the app
   unchanged;
 - the BIP-39 English and Spanish wordlists (MIT);
 - Bouncy Castle (MIT).
+- ZXing (Apache-2.0). Its NOTICE file includes: "Barcode4J Copyright 2002-2010
+  Jeremias Märki, Copyright 2005-2006 Dietmar Bürkle. Portions of this software
+  were contributed under section 5 of the Apache License."

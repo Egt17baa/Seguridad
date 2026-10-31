@@ -813,10 +813,11 @@ class AutoBackupTest {
         target.failDelete = IOException("sin permiso")
         clock += 60_000
         val result = a.replaceOldCopies()
-        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, result.error)
+        // R-6: asked with the vault open and no request saved, nothing tries them again as a replacement: no promise.
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, result.error)
         assertEquals(clock, result.writtenAt) // The new copy is there all the same.
         assertEquals(own + "seguridad-auto-20261026-100400.sgbak", target.files.keys.toSet())
-        assertEquals(4, copies.size) // The old ones are still ours: tried again next time.
+        assertEquals(4, copies.size) // The old ones are still ours (listed), never forgotten.
         assertFalse("CR-1: not a replacement while old copies are left", result.replaced)
     }
 

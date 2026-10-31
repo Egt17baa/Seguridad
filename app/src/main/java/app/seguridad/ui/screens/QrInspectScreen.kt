@@ -74,7 +74,6 @@ import app.seguridad.tools.QR_NO_CAMERA_PERMISSION
 import app.seguridad.tools.QR_OPEN_RECEIVED
 import app.seguridad.tools.QR_PICK_IMAGE
 import app.seguridad.tools.QR_READING_IMAGE
-import app.seguridad.tools.QR_SCAN
 import app.seguridad.tools.QR_SHOW
 import app.seguridad.tools.QR_TEXT_HIDDEN_OTP
 import app.seguridad.tools.QR_TEXT_HIDDEN_PASSWORD
@@ -94,6 +93,7 @@ import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.ui.theme.ScanQrLabel
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
@@ -251,7 +251,7 @@ fun QrInspectScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(QR_SCAN) }
+                ) { ScanQrLabel() }
                 OutlinedButton(
                     enabled = !busy,
                     onClick = { pick.launchOrError(arrayOf("image/*"))?.let { error = it } },

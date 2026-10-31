@@ -2,6 +2,8 @@
 
 Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal», «anónimo», «garantiza» salvo «no garantiza», «limpio», «sospechoso»), sin la palabra «wallet», y con los avisos de «sin recuperación» y «sin auditoría independiente». La app se llamaba «Seguridad» hasta la 1.2.2; desde la 1.3.0 su nombre visible es «Clavero» (decisión del dueño del 31-10-2026; el identificador `io.github.egt17baa.seguridad` no cambia).
 
+Al publicarla (decisiones del dueño del 31-10-2026, con la revisión final del Abogado Digital; detalle en [`PUBLICAR.md`](PUBLICAR.md), apartados 3.5 a 3.7): en todos los países menos Francia (con sus departamentos y territorios de ultramar, si Play los lista aparte), Rusia y Bielorrusia; Seguridad de los datos, «No recoge ni comparte datos»; desarrollador «Egt17baa», no comerciante. Las capturas de pantalla no muestran «wallet» ni datos reales.
+
 ## Nombre de la app (máximo 30 caracteres)
 
 Clavero: bóveda cifrada
@@ -32,7 +34,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 
 **Contactos**
 • Tu identidad y tus contactos viven en la bóveda cifrada de tu móvil. Añade a un contacto escaneando su QR o pegando su tarjeta y comparando la huella.
-• Cifra un texto o un archivo para un contacto y envíalo por el canal que quieras (WhatsApp, Telegram, correo). Solo quien tenga la identidad de ese contacto podrá abrirlo; comprueba su huella para confirmar que es suya.
+• Cifra un texto o un archivo para un contacto y envíalo por el canal que quieras (una app de mensajería o el correo). Solo quien tenga la identidad de ese contacto podrá abrirlo; comprueba su huella para confirmar que es suya.
 • Firma un texto o un archivo: demuestra a tus contactos que es tuyo y que no ha cambiado.
 • El cifrado entre contactos está diseñado para resistir también a ordenadores cuánticos futuros (cifrado híbrido X-Wing, en proceso de estandarización). Las firmas no: usan Ed25519.
 
