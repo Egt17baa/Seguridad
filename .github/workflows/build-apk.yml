@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, "claude/**"]
     tags: ["v*"]
-  # PRs, pushes to any branch (main included) and manual runs off main build without signing secrets. Never use
+  # PRs, pushes to main or claude/** and manual runs off main build without signing secrets. Never use
   # pull_request_target: it could expose them to untrusted code. Only a pushed v* tag and a manual run from main sign
   # (the owner's ruling of 31-10-2026, «firmar solo al publicar»): a merge into main asks for no approval.
   pull_request:
@@ -34,30 +34,32 @@ env:
   UPLOAD_CERT_SHA256: 746398EA37065CF0F3B2ACA223FB8CDB79167CB4C53B8D21EFE3C0711793DF9E
 
 jobs:
-  # Untrusted builds (pull requests, pushes to any branch, main included, and manual runs not from main): the same
-  # steps as build-firma, with no environment. Their secret expressions below evaluate to '' here, so they never get the key
-  # and the release APK is signed with the public test key (-PfirmaDePrueba=true): not for distribution. The checks
-  # that the commit is on main and that the APK has the upload key's fingerprint run only in build-firma.
+  # Untrusted builds (pull requests, pushes to main or claude/**, manual runs off main or on a tag): the same steps
+  # as build-firma, with no environment. Their secret expressions below evaluate to '' here, so they never get the
+  # key and the release APK is signed with the public test key (-PfirmaDePrueba=true): not for distribution. The
+  # checks that the commit is on main, that a trusted run has the key and that the APK has the upload key's
+  # fingerprint run in every job but this one, keyed on the job id "build": renaming build-firma can only make them
+  # run, never skip them (renaming build would make them fail loudly in PRs).
   build:
     if: ${{ !((startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) }}
     runs-on: ubuntu-latest
     # The same list is reused by build-firma (YAML alias; GitHub Actions supports anchors and aliases, not merge keys).
     steps: &build-steps
-      # build-firma (and play-bundle) need the whole history for the check that the commit is on main; build does not.
+      # Every job but build (build-firma, play-bundle) needs the whole history for the check that the commit is on main.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-          fetch-depth: ${{ github.job == 'build-firma' && '0' || '1' }}
+          fetch-depth: ${{ github.job == 'build' && '1' || '0' }}
 
       # Signing only from main (audit 1.3.0, CADENAS-6): a v* tag or a manual run must point at a commit that is already
       # on main, so an honest mistake (a tag on another branch) never gets the upload key. It does not stop a tag on an
       # old commit of main (docs/PUBLICAR.md, "No bajar de versión"), nor someone who can rewrite this file on main or
-      # merge into main: that is up to the GitHub settings (README, "Entorno de firma"). Gated on $GITHUB_JOB, which
-      # the runner always sets, inside the script: if anything were off, it fails closed (no origin/main) rather than
-      # skipping the check.
+      # merge into main: that is up to the GitHub settings (README, "Entorno de firma"). Gated inside the script on
+      # $GITHUB_JOB, which the runner always sets, and skipped only in the untrusted job "build": any other job id runs
+      # it, and with no origin/main it fails closed.
       - name: Check that the commit is on main
         run: |
-          if [ "$GITHUB_JOB" = "build-firma" ] && ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          if [ "$GITHUB_JOB" != "build" ] && ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::El commit $GITHUB_SHA no está en main: solo se firma lo que ya está en main."
             exit 1
           fi
@@ -88,11 +90,9 @@ jobs:
           SEGURIDAD_KEY_ALIAS: ${{ ((startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) && secrets.SEGURIDAD_KEY_ALIAS || '' }}
           SEGURIDAD_KEY_PASSWORD: ${{ ((startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) && secrets.SEGURIDAD_KEY_PASSWORD || '' }}
         run: |
-          # The checks above have passed: a distributable build without the production signing key is refused here.
-          if [ -z "$KEYSTORE_BASE64" ] && {
-            { [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; } ||
-            { [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; }
-          }; then
+          # The checks above have passed: a distributable build without the production signing key is refused here. Keyed
+          # on the job, not on a bash copy of the trust condition: build runs exactly when that condition is false.
+          if [ -z "$KEYSTORE_BASE64" ] && [ "$GITHUB_JOB" != "build" ]; then
             echo "::error::No se genera una release distribuible sin clave de firma de producción. Configura SEGURIDAD_* en Actions."
             exit 1
           fi
@@ -124,8 +124,10 @@ jobs:
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk Seguridad.apk
 
-      # Prints the signing certificate's SHA-256 in the job summary, to compare with docs/PUBLICAR.md. In build-firma,
-      # anything other than the upload key (UPLOAD_CERT_SHA256) fails, so release-apk never publishes another key's APK.
+      # Prints the signing certificate's SHA-256 in the job summary, to compare with docs/PUBLICAR.md. In every job but
+      # build (that is, build-firma), anything other than the upload key (UPLOAD_CERT_SHA256) fails, so release-apk never
+      # publishes another key's APK. With pipefail a failing tool fails the step; "|| true" on grep keeps the "no
+      # fingerprint" error below reachable (an empty FP still fails).
       - name: Signing certificate fingerprint
         run: |
           set -o pipefail # A failing apksigner fails the step, not only an empty fingerprint.
@@ -134,7 +136,7 @@ jobs:
             APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)apksigner"
           fi
           "$APKSIGNER" verify --print-certs Seguridad.apk | tee certs.txt
-          FP=$(grep -m 1 'certificate SHA-256 digest' certs.txt | awk '{print toupper($NF)}')
+          FP=$( { grep -m 1 'certificate SHA-256 digest' certs.txt || true; } | awk '{print toupper($NF)}')
           if [ -z "$FP" ]; then
             echo "::error::apksigner no ha dado la huella SHA-256 del certificado"
             exit 1
@@ -149,7 +151,7 @@ jobs:
             echo "::warning::El APK está firmado con la clave de prueba pública (C0014DF6…). No es una versión para distribuir."
             echo "**Clave de prueba pública:** no distribuyas este APK." >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ "$GITHUB_JOB" = "build-firma" ] && [ "$FP" != "$UPLOAD_CERT_SHA256" ]; then
+          if [ "$GITHUB_JOB" != "build" ] && [ "$FP" != "$UPLOAD_CERT_SHA256" ]; then
             echo "::error::El APK no está firmado con la clave de subida (docs/PUBLICAR.md, apartado 1): no se publica."
             exit 1
           fi
@@ -331,7 +333,7 @@ jobs:
         run: |
           set -o pipefail # A failing keytool fails the step, not only an empty fingerprint.
           keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab | tee certs.txt
-          FP=$(grep -m 1 'SHA256:' certs.txt | awk '{print toupper($NF)}' | tr -d ':')
+          FP=$( { grep -m 1 'SHA256:' certs.txt || true; } | awk '{print toupper($NF)}' | tr -d ':')
           if [ -z "$FP" ]; then
             echo "::error::keytool no ha dado la huella SHA-256 del certificado del AAB"
             exit 1

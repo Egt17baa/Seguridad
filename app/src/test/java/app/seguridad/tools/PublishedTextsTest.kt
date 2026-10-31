@@ -52,9 +52,9 @@ class PublishedTextsTest {
 
     @Test
     fun theScreensSayWhatLeavesThePhone() {
-        // Start notice: the vault stays encrypted here; the exports, shares, the automatic copy and 5 SHA-1 characters
-        // leave it.
-        for (fact in listOf("cifrada en este móvil", "exportas, guardas, copias o compartes", "copia automática", "carpeta que elijas", "5 primeros caracteres")) {
+        // Start notice: the vault stays encrypted here; the exports, saves, copies to the clipboard, shares, the
+        // automatic copy and 5 SHA-1 characters leave it.
+        for (fact in listOf("cifrada en este móvil", "exportas, guardas, copias al portapapeles o compartes", "copia automática", "carpeta que elijas", "5 primeros caracteres")) {
             assertTrue("NOTICE_INTRO: $fact", fact in NOTICE_INTRO)
         }
         for (fact in listOf("cifrada en este móvil", "copia automática", "carpeta que elijas")) {
@@ -73,11 +73,11 @@ class PublishedTextsTest {
     @Test
     fun thePolicyNamesTheTemporaryCopiesTheFolderAndTheHashPrefix() {
         val policy = ForbiddenWords.normalise(htmlText(read("docs/privacidad.html")))
-        for (fact in listOf("copia temporal sin cifrar", "almacenamiento privado", "carpeta que elijas", "5 primeros caracteres")) {
+        for (fact in listOf("copia temporal sin cifrar", "almacenamiento privado", "carpeta que elijas", "5 primeros caracteres", "portapapeles del sistema", "solo en este móvil")) {
             assertTrue("privacidad.html: $fact", fact in policy)
         }
         val listing = ForbiddenWords.normalise(read("docs/ficha-google-play.md"))
-        for (fact in listOf("carpeta que elijas", "5 primeros caracteres")) assertTrue("ficha: $fact", fact in listing)
+        for (fact in listOf("carpeta que elijas", "5 primeros caracteres", "copias al portapapeles")) assertTrue("ficha: $fact", fact in listing)
     }
 
     @Test
