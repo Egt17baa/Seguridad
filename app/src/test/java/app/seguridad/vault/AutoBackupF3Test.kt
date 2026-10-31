@@ -292,7 +292,8 @@ class AutoBackupF3Test {
         assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
         // The JSON path and the .sgbak path abort alike.
         val copy = ByteArrayOutputStream().also { s.exportBackup(it) }.toByteArray()
-        assertTrue(runCatching { s.importReplace(copy.inputStream(), "maestra-a".toCharArray()) }.exceptionOrNull() is app.seguridad.crypto.CryptoFailure)
+        val e2 = runCatching { s.importReplace(copy.inputStream(), "maestra-a".toCharArray()) }.exceptionOrNull()
+        assertTrue("$e2", e2 is app.seguridad.crypto.CryptoFailure && e2.message == IMPORT_SETTINGS_FAILED)
         assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
     }
 
@@ -316,12 +317,76 @@ class AutoBackupF3Test {
         settings = reloaded().apply { load() }
         val s2 = vaultStore(File(tmp.root, "a")).apply { load() }
         val a2 = auto(s2, t)
-        s2.unlock("maestra-a".toCharArray())
+        // Opened with the password of whichever vault is on disk, so the A6 check below always runs (whatever the order).
+        unlockWhicheverIsThere(s2)
         runCurrent()
-        assertTrue("the old vault is still the one", (s2.state.value as VaultState.Unlocked).entries.none { it.id == "B" })
         clock += 60_000
         a2.replaceOldCopies()
         assertTrue("nothing of the vault on disk is deleted by a list it never had: ${t.deleted}", t.deleted.none { it in old })
+        assertTrue("the old vault is still the one", (s2.state.value as VaultState.Unlocked).entries.none { it.id == "B" })
+    }
+
+    private suspend fun unlockWhicheverIsThere(s: VaultStore) {
+        try {
+            s.unlock("maestra-a".toCharArray())
+        } catch (e: app.seguridad.crypto.CryptoFailure) {
+            s.unlock("maestra-b".toCharArray())
+        }
+    }
+
+    /** The scenario M1 was about: the process dies right after the imported vault is saved. */
+    @Test fun `M1 a process death right after the save never lets A6 delete the old vault's copies`() = runTest {
+        val (s, t, text) = setup()
+        auto(s, t)
+        val old = threeCopies(s, t)
+        settings.update { it.copy(autoBackupReplacePending = true) }
+        var sawOldVaultOnDisk = false
+        val importing = VaultStore(
+            File(tmp.root, "a/vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            beforeReplace = {
+                // When the settings forget the list, vault.bin is still the old vault.
+                val onDisk = VaultStore(File(tmp.root, "a/vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, kdf = { KdfParams(1024, 1, 1) })
+                onDisk.load(); onDisk.unlock("maestra-a".toCharArray())
+                sawOldVaultOnDisk = (onDisk.state.value as VaultState.Unlocked).entries.none { it.id == "B" }
+                settings.forgetAutoBackupCopiesForImport()
+            },
+        ).apply { load(); unlock("maestra-a".toCharArray()) }
+        importing.importReplace(text, "maestra-b".toCharArray())
+        assertTrue(sawOldVaultOnDisk)
+        // The process dies here: nothing else runs. Restart from disk, open the imported vault and run A6.
+        settings = reloaded().apply { load() }
+        assertTrue("the forget was on disk", settings.settings.value.currentAutoBackupCopies.isEmpty())
+        val s2 = vaultStore(File(tmp.root, "a")).apply { load() }
+        val a2 = auto(s2, t)
+        s2.unlock("maestra-b".toCharArray())
+        runCurrent()
+        assertTrue((s2.state.value as VaultState.Unlocked).entries.any { it.id == "B" })
+        clock += 60_000
+        a2.replaceOldCopies()
+        assertTrue("A6 deletes none of the old vault's copies: ${t.deleted}", t.deleted.none { it in old })
+        assertTrue(old.all { it in t.idOfName.values })
+    }
+
+    @Test fun `M1 a failed save of a sgbak copy puts its attachments and the settings back`() = runTest {
+        val (s, t, _) = setup()
+        auto(s, t)
+        threeCopies(s, t)
+        settings.update { it.copy(autoBackupReplacePending = true) }
+        val listBefore = settings.settings.value.currentAutoBackupCopies
+        // A copy of another vault with an attachment, so moveIn has something to move and putBack something to undo.
+        val other = VaultStore(File(tmp.newFolder("c"), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, kdf = { KdfParams(1024, 1, 1) })
+            .apply { load(); create("maestra-c".toCharArray()); upsert(note("C")); assertTrue(addAttachment("C", java.io.ByteArrayInputStream(ByteArray(500) { it.toByte() }), "a.bin")) }
+        val copy = ByteArrayOutputStream().also { assertTrue(other.exportBackup(it)) }.toByteArray()
+        val att = File(tmp.root, "a/att")
+        val attBefore = att.list()?.sorted() ?: emptyList()
+        File(tmp.root, "a/vault.bin.tmp").apply { mkdirs(); File(this, "x").writeText("x") }
+        assertTrue(runCatching { s.importReplace(copy.inputStream(), "maestra-c".toCharArray()) }.isFailure)
+        assertEquals("the attachments are as they were", attBefore, att.list()?.sorted() ?: emptyList<String>())
+        assertTrue("still the old vault", (s.state.value as VaultState.Unlocked).entries.none { it.id == "C" })
+        val disk = reloaded().apply { load() }.settings.value
+        assertTrue(disk.autoBackupReplacePending)
+        assertEquals(listBefore, disk.currentAutoBackupCopies)
+        assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
     }
 
     @Test fun `M3 the unlisted text does not claim the old password opens them`() {

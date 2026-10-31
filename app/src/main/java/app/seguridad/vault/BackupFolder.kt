@@ -23,12 +23,15 @@ fun hasFolderGrant(folder: String, grants: List<FolderGrant>): Boolean {
     return grants.any { it.read && it.write && treeKey(it.uri) == key }
 }
 
-private val TREE = Regex("content://(?:\\d+@)?([^/?#@]+)/tree/([^/?#]+)(?:/[^?#]*)?", RegexOption.IGNORE_CASE)
+// Case-sensitive, like Android: ContentResolver only resolves the scheme `content`, and DocumentsContract.isTreeUri and
+// getTreeDocumentId only take the path segment `tree`.
+private val TREE = Regex("content://(?:\\d+@)?([^/?#@]+)/tree/([^/?#]+)(?:/[^?#]*)?")
 
 /**
- * The authority (without a leading `<user>@`) and the decoded tree document id of a SAF tree URI (as
- * DocumentsContract.getTreeDocumentId gives it); null for anything else, or for an id that is not valid percent-encoded
- * UTF-8.
+ * The authority (without a leading `<user>@`) and the decoded tree document id of a SAF tree URI: the id is what
+ * DocumentsContract.getTreeDocumentId gives for the same URI. Null for anything Android would not take as a tree URI
+ * (another scheme, `/TREE/`, no tree segment), and for an id that is not valid percent-encoded UTF-8 with ASCII hex
+ * digits, as Android's own decoder requires.
  */
 fun treeKey(uri: String): Pair<String, String>? {
     val m = TREE.matchEntire(uri) ?: return null
@@ -44,8 +47,8 @@ private fun percentDecoded(s: String): String? {
         val c = s[i]
         if (c == '%') {
             if (i + 2 >= s.length) return null
-            val hi = Character.digit(s[i + 1], 16)
-            val lo = Character.digit(s[i + 2], 16)
+            val hi = asciiHex(s[i + 1])
+            val lo = asciiHex(s[i + 2])
             if (hi < 0 || lo < 0) return null
             out.write(hi * 16 + lo)
             i += 3
@@ -65,4 +68,12 @@ private fun percentDecoded(s: String): String? {
     } catch (e: CharacterCodingException) {
         null
     }
+}
+
+/** The value of an ASCII hex digit; -1 for anything else (Character.digit would also take fullwidth or Arabic-Indic digits). */
+private fun asciiHex(c: Char): Int = when (c) {
+    in '0'..'9' -> c - '0'
+    in 'a'..'f' -> c - 'a' + 10
+    in 'A'..'F' -> c - 'A' + 10
+    else -> -1
 }

@@ -40,6 +40,10 @@ class SettingsEditableTest {
         assertFalse("another authority", hasFolderGrant("content://com.prueba.evil/tree/primary%3ACopias", grant))
         assertFalse("not a tree", hasFolderGrant("content://com.android.externalstorage.documents/document/primary%3ACopias", grant))
         assertFalse("a malformed escape", hasFolderGrant("content://com.android.externalstorage.documents/tree/primary%3", grant))
+        assertFalse("upper-case scheme, as Android", hasFolderGrant("CONTENT://com.android.externalstorage.documents/tree/primary%3ACopias", grant))
+        assertFalse("upper-case tree segment, as Android", hasFolderGrant("content://com.android.externalstorage.documents/TREE/primary%3ACopias", grant))
+        assertFalse("fullwidth hex digits", hasFolderGrant("content://com.android.externalstorage.documents/tree/primary%\uFF13\uFF21Copias", grant))
+        assertFalse("Arabic-Indic hex digit", hasFolderGrant("content://com.android.externalstorage.documents/tree/primary%\u0663ACopias", grant))
         assertFalse("read only", hasFolderGrant("content://10@com.android.externalstorage.documents/tree/primary%3aCopias", listOf(FolderGrant(tree, read = true, write = false))))
     }
 }
