@@ -438,7 +438,9 @@ class VaultStore(
      * the open vault. Returns false, having checked nothing, when there is no vault or it is locked ([unlock] is the
      * way in; the caller must not go on to save), and true when the password is right (checked or migrated). Like
      * [unlock], it leaves [master] to the caller to wipe, and a full disk does not matter here (see [commit]): the
-     * next save writes the upgrade.
+     * next save writes the upgrade. A version-3 vault whose Argon2id is cheaper than the profile chosen in Ajustes is not
+     * wrapped again here (CR-3): that second Argon2id would delay the save the user is waiting for, and the next
+     * [unlock] with the master password does it ([VaultCrypto.afterMasterUnlock]).
      */
     suspend fun confirmMaster(master: CharArray): Boolean = mutex.withLock { withContext(NonCancellable) { confirmMasterLocked(master) } }
 

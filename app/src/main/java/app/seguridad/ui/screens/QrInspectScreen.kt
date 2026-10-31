@@ -46,7 +46,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.QrImageUnreadable
 import app.seguridad.android.copySensitive
 import app.seguridad.android.decodeQrFromImage
@@ -80,6 +83,7 @@ import app.seguridad.tools.QR_TOO_BIG
 import app.seguridad.tools.codes.ScreenAway
 import app.seguridad.tools.qr.QrAction
 import app.seguridad.tools.qr.QrHandoff
+import app.seguridad.tools.qr.QrPendingText
 import app.seguridad.tools.qr.QrTarget
 import app.seguridad.tools.qr.QrView
 import app.seguridad.tools.qr.qrView
@@ -363,9 +367,28 @@ private fun QrResult(v: QrView, onCopied: (String) -> Unit, onAction: () -> Unit
 }
 
 /**
+ * Holds the 2FA text the inspector handed over ([QrPendingText]) for the navigation entry of `tools/qr/totp` (CR-4): a
+ * rotation before saving keeps it, so the form fills again; the death of the process does not (never in saved state).
+ * It goes when the vault locks after having been open, on save or back, when the screen is left without a configuration
+ * change, and when the entry is gone for good.
+ */
+private class QrTotpImportViewModel(store: VaultStore) : ViewModel() {
+    val pending = QrPendingText(QrTarget.OTP)
+
+    init {
+        viewModelScope.launch { store.state.collect { pending.vaultStateIs(it is VaultState.Unlocked) } }
+    }
+
+    override fun onCleared() {
+        pending.clear()
+    }
+}
+
+/**
  * «Añadir a la bóveda» from the inspector (`tools/qr/totp`): the vault's own 2FA form and Google Authenticator import
- * ([VaultEntryEditScreen] with the scanned text), behind the vault gate. The text is taken from [QrHandoff] only once
- * the vault is open; if it locks afterwards, back to the inspector, as the form does on its own.
+ * ([VaultEntryEditScreen] with the scanned text), behind the vault gate. The text is taken from [QrHandoff] into the
+ * entry's ViewModel at once and handed to the form only once the vault is open; if it locks afterwards, back to the
+ * inspector, as the form does on its own.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -373,18 +396,28 @@ fun QrTotpImportScreen(store: VaultStore, onDone: () -> Unit) {
     val state by store.state.collectAsStateWithLifecycle()
     // The Bóveda tab loads it too; this screen can be reached first.
     LaunchedEffect(store) { store.load() }
-    // Left at the gate without opening the vault (back, another tab): the 2FA key it was handed goes with the screen,
-    // instead of waiting in memory for the next lock. Once taken, there is nothing left to clear.
-    DisposableEffect(Unit) { onDispose { QrHandoff.clear() } }
-    var wasOpen by remember { mutableStateOf(false) }
+    val vm = viewModel { QrTotpImportViewModel(store) }
+    val activity = LocalContext.current.fragmentActivity()
+    // Only a rotation (or another configuration change) keeps the text: leaving otherwise (back, another tab) lets the
+    // 2FA key go now, instead of waiting in memory for the next lock.
+    DisposableEffect(vm) {
+        onDispose { if (activity?.isChangingConfigurations != true) vm.pending.clear() }
+    }
+    val done = {
+        vm.pending.clear() // Saved or abandoned: the text is not needed any more.
+        onDone()
+    }
     if (state is VaultState.Unlocked) {
-        SideEffect { wasOpen = true }
-        val text = remember { QrHandoff.take(QrTarget.OTP) }
-        VaultEntryEditScreen(store, id = null, initialType = EntryType.TOTP, onDone = onDone, otpAuthText = text)
+        // Also here, once composed: a lock that comes before the ViewModel's collector has seen the unlock still ends the flow.
+        SideEffect { vm.pending.vaultStateIs(unlocked = true) }
+        VaultEntryEditScreen(
+            store, id = null, initialType = EntryType.TOTP, onDone = done, otpAuthText = vm.pending.text,
+            onOtpAuthImported = vm.pending::clear,
+        )
         return
     }
-    if (wasOpen) {
-        LaunchedEffect(Unit) { onDone() }
+    if (vm.pending.wasOpen) {
+        LaunchedEffect(Unit) { done() }
         return
     }
     val snackbar = remember { SnackbarHostState() }

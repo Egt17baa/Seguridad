@@ -343,15 +343,30 @@ object VaultCrypto {
      * legacy file (any version), a version-1 file or a version-2 file into [VaultFile.FORMAT] version 3, which needs
      * the master password once more to wrap the key with the new binding. The data key stays the same (a fingerprint
      * set up with it keeps working) and the revision goes up by one. A version-3 file is only re-sealed, unless its
-     * Argon2id is cheaper than [kdf] in memory or passes (an imported copy): then the key is wrapped again with the
-     * cost asked, never lower than the file's on either axis, same data key, revision + 1.
+     * Argon2id is cheaper than [kdf] in memory or passes: then the key is wrapped again with the cost asked, same data
+     * key, revision + 1. That happens at any unlock with the master password, on purpose: after an import of a copy made
+     * with a lower cost (A8), and also after a higher cost was chosen in Ajustes, which takes effect at the next unlock
+     * with the master password (that unlock then runs Argon2id twice: once to open with the old cost, once to wrap with
+     * the new one). If saving that fails ([VaultStore] opens anyway), the vault in memory already has the new cost and any
+     * later save writes it; only if no save ever succeeds does the next start do it again, never silently lowering
+     * anything. [VaultStore.confirmMaster] (a check inside an open session) does not do it: it only checks a version-3
+     * file, so a save the user is waiting for is not delayed by a second Argon2id; the next unlock does it.
+     *
+     * Whatever is wrapped again never costs less than the file did on any axis (CR-2): memory, passes and parallelism
+     * are each the higher of the file's and [kdf]'s. A lower parallelism alone is not «cheaper»: Argon2id's cost to an
+     * attacker is its memory and its passes (the lanes split that work across threads, RFC 9106 §4), so it is not a reason to
+     * wrap again, but it is never lowered when wrapping for another reason.
      */
     fun afterMasterUnlock(file: VaultFile, dek: ByteArray, master: CharArray, now: Long, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): VaultFile {
         val known = resolve(file, dek)
         val entries = read(known, dek)
         val weaker = known.kdf.memoryKiB < kdf.memoryKiB || known.kdf.iterations < kdf.iterations
-        // Whatever is wrapped again never costs less than the file did on either axis (a stronger old file keeps its strength).
-        val cost = KdfParams(maxOf(known.kdf.memoryKiB, kdf.memoryKiB), maxOf(known.kdf.iterations, kdf.iterations), kdf.parallelism)
+        // Whatever is wrapped again never costs less than the file did on any axis (a stronger old file keeps its strength).
+        val cost = KdfParams(
+            maxOf(known.kdf.memoryKiB, kdf.memoryKiB),
+            maxOf(known.kdf.iterations, kdf.iterations),
+            maxOf(known.kdf.parallelism, kdf.parallelism),
+        )
         return if (known.format != VaultFile.FORMAT || known.version != VaultFile.VERSION || weaker) {
             wrap(dek, entries, master, PasswordUse.EXISTING, now, cost, random, known.revision + 1)
         } else {

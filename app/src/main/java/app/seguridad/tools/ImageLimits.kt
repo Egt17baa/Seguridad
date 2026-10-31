@@ -1,5 +1,7 @@
 package app.seguridad.tools
 
+import app.seguridad.tools.photo.PhotoFailure
+
 /** Largest image file read by «Limpiar fotos» and «Tachar»; checked before reading (untrusted input). */
 const val MAX_IMAGE_BYTES = 50 * 1024 * 1024
 
@@ -37,4 +39,15 @@ fun imageOpenFailureText(t: Throwable, tooBig: String, tooLarge: String, other: 
     is ImageTooLarge -> tooLarge
     is ImageOutOfMemory, is OutOfMemoryError -> IMAGE_NO_MEMORY
     else -> other(t)
+}
+
+/**
+ * What a screen says when making a copy of an image already open failed with [t] (CR-5): [IMAGE_NO_MEMORY] when memory
+ * ran out (allocating the copy's bitmap, encoding it, cleaning it; M-7: never «no se ha podido crear la copia»),
+ * [copyFailed] for a copy that could not be made ([PhotoFailure]), and [other] for anything else (writing or sharing it).
+ */
+fun imageCopyFailureText(t: Throwable, copyFailed: String, other: String): String = when (t) {
+    is ImageOutOfMemory, is OutOfMemoryError -> IMAGE_NO_MEMORY
+    is PhotoFailure -> copyFailed
+    else -> other
 }

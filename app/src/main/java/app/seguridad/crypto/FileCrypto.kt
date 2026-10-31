@@ -134,7 +134,7 @@ fun decryptStream(input: InputStream, output: OutputStream, secret: Secret): Str
     }
 }
 
-/** The most code points [safeFileName] keeps (before the byte limit, [MAX_SAVED_NAME_BYTES]). */
+/** The most code points [safeFileName] and `sanitizeReceivedName` keep (before the byte limit, [MAX_SAVED_NAME_BYTES]; CR-9: one rule). */
 internal const val MAX_FILE_NAME_CODE_POINTS = 120
 
 /**

@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -504,6 +505,31 @@ class VaultStoreTest {
         val saved = VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText())
         assertEquals(VaultKdf(strong.memoryKiB, strong.iterations, strong.parallelism), saved.kdf)
         assertEquals(1, (s.state.value as VaultState.Unlocked).entries.size)
+    }
+
+    // CR-3: a cost raised in Ajustes takes effect at the next unlock with the master password (not only after an import),
+    // with the same data key; a confirmation of the master inside an open session (confirmMaster) does not wrap again.
+    @Test fun aCostRaisedInSettingsIsAppliedAtTheNextMasterUnlockOnly() = runTest {
+        var profile = KdfParams(1024, 1, 1)
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { profile })
+        s.load()
+        s.create("m".toCharArray())
+        s.upsert(entry("1", "Wallet"))
+        fun saved() = VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText())
+        val key = s.dataKeyCopy()!!
+        profile = KdfParams(2048, 2, 1) // «Alto» chosen in Ajustes.
+        assertTrue(s.confirmMaster("m".toCharArray()))
+        assertEquals("confirmMaster only checks a version-3 vault", VaultKdf(1024, 1, 1), saved().kdf)
+        s.lock()
+        s.unlock("m".toCharArray())
+        assertEquals(VaultKdf(2048, 2, 1), saved().kdf)
+        assertArrayEquals("Same data key: a fingerprint set up with it keeps working", key, s.dataKeyCopy())
+        assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
+        // Once wrapped with it, the next unlock only re-seals.
+        val salt = saved().salt
+        s.lock()
+        s.unlock("m".toCharArray())
+        assertEquals(salt, saved().salt)
     }
 
     // A11 (1.3.0): the store reports the clock it sees and refuses the fingerprint after the clock was set back.

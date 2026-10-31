@@ -2,6 +2,7 @@ package app.seguridad.core
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.InputStream
@@ -70,5 +71,45 @@ class StreamsTest {
         } catch (e: java.io.IOException) {
             // expected: the caller shows its own fixed text
         }
+    }
+
+    /** A [Trickle] that also remembers the largest array it was asked to fill: what [readAtMost] allocated. */
+    private class Watching(data: ByteArray, chunk: Int) : InputStream() {
+        private val inner = Trickle(data, chunk)
+        var largest = 0
+        override fun read(): Int = inner.read()
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            largest = maxOf(largest, b.size)
+            return inner.read(b, off, len)
+        }
+    }
+
+    // CR-8: a stale or lying size does not decide the first allocation: 50 MB reported for 10 KB never allocates 50 MB.
+    @Test fun aReportedSizeLargerThanTheStreamIsNotAllocatedUpFront() {
+        val limit = 50 * 1024 * 1024
+        val data = bytes(10 * 1024)
+        val s = Watching(data, 4096)
+        assertArrayEquals(data, s.readAtMost(limit, expected = limit.toLong()))
+        assertTrue("allocated ${s.largest}", s.largest <= 1024 * 1024)
+    }
+
+    @Test fun aReportedSizeSmallerThanTheStreamGrowsUpToTheLimitOnly() {
+        val data = bytes(3 * 1024 * 1024 + 17)
+        val s = Watching(data, 64 * 1024)
+        assertArrayEquals(data, s.readAtMost(8 * 1024 * 1024, expected = 10 * 1024))
+        assertTrue("allocated ${s.largest}", s.largest <= 8 * 1024 * 1024)
+        // Over the limit: one byte over, never more, whatever was reported.
+        val over = Watching(bytes(5 * 1024 * 1024), 64 * 1024)
+        val got = over.readAtMost(2 * 1024 * 1024 + 1, expected = 1000)
+        assertEquals(2 * 1024 * 1024 + 1, got.size)
+        assertTrue("allocated ${over.largest}", over.largest <= 2 * 1024 * 1024 + 1)
+    }
+
+    @Test fun aTruthfulLargeSizeEndsInOneArrayOfThatSize() {
+        // Past the first megabyte the report is used as a hint for the next step: no buffer bigger than the file.
+        val data = bytes(3 * 1024 * 1024 + 5)
+        val s = Watching(data, 64 * 1024)
+        assertArrayEquals(data, s.readAtMost(50 * 1024 * 1024, expected = data.size.toLong()))
+        assertEquals(data.size, s.largest)
     }
 }

@@ -1,7 +1,6 @@
 package app.seguridad.android
 
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
 import android.os.Build
 import app.seguridad.tools.ImageOutOfMemory
 import app.seguridad.tools.ImageTooLarge
@@ -11,10 +10,8 @@ import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoCleaner
 import app.seguridad.tools.photo.PhotoFailure
 import app.seguridad.tools.photo.isAvif
-import app.seguridad.tools.redact.declaredSizeAllowed
+import app.seguridad.tools.redact.redactTargetSize
 import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
-import kotlin.math.sqrt
 
 /**
  * HEIC/HEIF has no metadata cleaner of ours: it is decoded and re-encoded as JPEG (quality 95), which carries none of
@@ -29,20 +26,8 @@ fun heifToJpeg(bytes: ByteArray): ByteArray {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) throw PhotoFailure(PHOTO_UNSUPPORTED)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && isAvif(bytes)) throw PhotoFailure(PHOTO_UNSUPPORTED)
     val jpeg = try {
-        val source = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
-        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-            // Software memory, so compress() can read it; no partial images.
-            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-            decoder.setOnPartialImageListener { false }
-            val w = info.size.width.toLong()
-            val h = info.size.height.toLong()
-            if (w <= 0 || h <= 0) throw PhotoFailure(PHOTO_DAMAGED)
-            if (!declaredSizeAllowed(info.size.width, info.size.height)) throw ImageTooLarge()
-            if (w * h > MAX_REDACT_PIXELS) {
-                val scale = sqrt(MAX_REDACT_PIXELS.toDouble() / (w * h))
-                decoder.setTargetSize((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1))
-            }
-        }
+        // Software memory, so compress() can read it; the same target size as «Tachar» (CR-6), never over the limit.
+        val bitmap = decodeBounded(bytes, invalidSize = { PhotoFailure(PHOTO_DAMAGED) }, targetSize = ::redactTargetSize).bitmap
         try {
             ByteArrayOutputStream().use { out ->
                 if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw PhotoFailure(PHOTO_DAMAGED)

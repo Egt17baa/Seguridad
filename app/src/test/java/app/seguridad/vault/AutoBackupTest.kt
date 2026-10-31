@@ -45,6 +45,9 @@ private class MemoryTarget : BackupTarget {
     var failRename: Exception? = null
     var failList: Exception? = null
     var failDelete: Exception? = null
+    /** How many times [list] was called; at the call whose index is [failListAt], it throws (a folder gone mid-copy). */
+    var listCount = 0
+    var failListAt: Int? = null
     /** What each file's flags say: a provider without FLAG_SUPPORTS_RENAME. */
     var renames = true
     var writes = 0
@@ -100,6 +103,7 @@ private class MemoryTarget : BackupTarget {
 
     override fun list(prefix: String): List<BackupEntry> {
         failList?.let { throw it }
+        if (listCount++ == failListAt) throw IOException("carpeta desaparecida")
         return files.keys.filter { it.startsWith(prefix) }.map { BackupEntry(idOf(it), it) }
     }
 
@@ -801,6 +805,7 @@ class AutoBackupTest {
         assertEquals(clock, result.writtenAt) // The new copy is there all the same.
         assertEquals(own + "seguridad-auto-20261026-100400.sgbak", target.files.keys.toSet())
         assertEquals(4, copies.size) // The old ones are still ours: tried again next time.
+        assertFalse("CR-1: not a replacement while old copies are left", result.replaced)
     }
 
     @Test fun replaceOldCopiesWhileLockedWaitsForTheNextUnlock() = runTest {
@@ -920,6 +925,88 @@ class AutoBackupTest {
         assertFalse(settings.settings.value.autoBackupReplacePending)
         assertNull(settings.settings.value.lastAutoBackupError)
         assertNull(a.replaceOutcome.value!!.error)
+    }
+
+    // CR-1: a replacement whose old copies could not all be deleted is not done: the request stays and the next copy retries.
+    @Test fun aReplacementThatCouldNotDeleteTheOldCopiesStaysAskedAndIsRetried() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
+            load()
+            update { it.copy(autoBackupUri = FOLDER) }
+        }
+        val a = persistent(s, settings, target)
+        val own = threeCopiesInto(s, settings, target)
+        s.lock() // As after «Cambiar contraseña maestra».
+        runCurrent()
+        a.replaceOldCopies()
+        assertTrue(settings.settings.value.autoBackupReplacePending)
+
+        // The unlock writes the new copy, but the provider refuses every deletion.
+        target.failDelete = IOException("sin permiso")
+        clock += 60_000
+        s.unlock(master.toCharArray())
+        runCurrent()
+        val first = "seguridad-auto-20261026-100400.sgbak"
+        assertEquals(own + first, target.files.keys.toSet())
+        assertTrue("The request stays: the old copies (old password) are still there", settings.settings.value.autoBackupReplacePending)
+        assertTrue("And it survives a restart", SettingsStore(settingsFile(), Dispatchers.Unconfined).apply { load() }.settings.value.autoBackupReplacePending)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, settings.settings.value.lastAutoBackupError)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, a.replaceOutcome.value!!.error) // Told.
+        assertFalse(a.replaceOutcome.value!!.replaced)
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
+
+        // A provider that keeps refusing: each copy retries, none is told again (one notice for the same outcome).
+        repeat(2) { i ->
+            clock += 60_000
+            s.upsert(note("r$i"))
+            settle()
+            assertNull(a.replaceOutcome.value)
+            assertTrue(settings.settings.value.autoBackupReplacePending)
+        }
+
+        // The provider lets it delete again: the next copy replaces them all, and only then is the request done.
+        target.failDelete = null
+        clock += 60_000
+        s.upsert(note("ok"))
+        settle()
+        assertEquals(setOf("seguridad-auto-20261026-100700.sgbak"), target.files.keys.toSet())
+        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertNull(settings.settings.value.lastAutoBackupError)
+        assertEquals(1, settings.settings.value.currentAutoBackupCopies.size)
+        assertNull(a.replaceOutcome.value!!.error)
+        assertTrue(a.replaceOutcome.value!!.replaced)
+    }
+
+    // CR-1: the rotation itself failing (the folder could not be listed after the copy) does not count as replaced either.
+    @Test fun aReplacementWhoseRotationThrowsStaysAsked() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
+            load()
+            update { it.copy(autoBackupUri = FOLDER) }
+        }
+        val a = persistent(s, settings, target)
+        val own = threeCopiesInto(s, settings, target)
+        s.lock()
+        runCurrent()
+        a.replaceOldCopies()
+        // copyTo lists once (the free name), rotate once more: that second list throws.
+        target.failListAt = target.listCount + 1
+        clock += 60_000
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(own + "seguridad-auto-20261026-100400.sgbak", target.files.keys.toSet())
+        assertTrue(settings.settings.value.autoBackupReplacePending)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, a.replaceOutcome.value!!.error)
+        // Retried at the next unlock, and done.
+        s.lock()
+        runCurrent()
+        clock += 60_000
+        s.unlock(master.toCharArray())
+        runCurrent()
+        assertEquals(setOf("seguridad-auto-20261026-100500.sgbak"), target.files.keys.toSet())
+        assertFalse(settings.settings.value.autoBackupReplacePending)
     }
 
     @Test fun aFolderThatKeepsFailingDoesNotOpenTheOutcomeAgainAndTheSuccessIsToldOnce() = runTest {
@@ -1068,6 +1155,11 @@ class AutoBackupTest {
         // Still waiting, or nothing written after the request: it still waits.
         assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, true, AUTO_BACKUP_WRITE_FAILED, 150))
         assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, false, null, 99))
+        // CR-1: the copy after the request was written but its old copies are left: that is said, though it is retried.
+        assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_OLD_NOT_DELETED), replaceStatus(100, true, waits, true, AUTO_BACKUP_OLD_NOT_DELETED, 150))
+        assertEquals(ReplaceStatus.Failed(AUTO_BACKUP_OLD_NOT_DELETED), replaceStatus(100, false, null, true, AUTO_BACKUP_OLD_NOT_DELETED, 150))
+        // An older copy's error (before the request) still waits.
+        assertEquals(ReplaceStatus.Waits, replaceStatus(100, true, waits, true, AUTO_BACKUP_OLD_NOT_DELETED, 99))
     }
 
     @Test fun cancellingTheCallerDoesNotCutTheReplacement() = runTest {
