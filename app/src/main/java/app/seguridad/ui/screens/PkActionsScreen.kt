@@ -2,7 +2,6 @@ package app.seguridad.ui.screens
 
 import android.content.Context
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -274,15 +273,15 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
     // The name that goes inside the file (encryptFileFor passes it through safeFileName too).
     val nameInside = if (hideName) anonymousFileName(sourceName) else safeFileName(sourceName)
 
-    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val save = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
-        if (dest == null) return@rememberLauncherForActivityResult
+        if (dest == null) return@rememberDocumentPicker
         val src = source
         val to = contact
         if (src == null || to == null) {
             discardDocumentLater(context, dest)
             tagged = PkMessage(inputsNow, false, "No se ha guardado: vuelve a elegir el archivo y el contacto.")
-            return@rememberLauncherForActivityResult
+            return@rememberDocumentPicker
         }
         val sender = signNow
         val name = if (hideName) anonymousFileName(sourceName) else sourceName
@@ -308,7 +307,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
             }
         }
     }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
         VaultLock.keepOpenOnce = false
         if (uri != null) {
             source = uri
@@ -453,14 +452,14 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
     val inputsNow = PkInputs(null, text.takeIf { !isFile }, source?.toString()?.takeIf { isFile })
     val output = resultFor(inputsNow, result)
 
-    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val save = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         VaultLock.keepOpenOnce = false
-        if (dest == null) return@rememberLauncherForActivityResult
+        if (dest == null) return@rememberDocumentPicker
         val src = source
         if (src == null) {
             discardDocumentLater(context, dest)
             tagged = PkMessage(inputsNow, false, "No se ha guardado: vuelve a elegir el archivo.")
-            return@rememberLauncherForActivityResult
+            return@rememberDocumentPicker
         }
         val jobInputs = PkInputs(null, null, src.toString())
         tagged = null
@@ -481,7 +480,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
             }
         }
     }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
         VaultLock.keepOpenOnce = false
         if (uri != null) {
             source = uri
@@ -633,7 +632,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         symmetric = false
     }
 
-    val saveDecrypted = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val saveDecrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         VaultLock.keepOpenOnce = false
         val received = pending
         if (received == null || !received.file.exists()) {
@@ -643,13 +642,13 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
                 discardDocumentLater(context, dest)
                 message = false to "No se ha guardado: vuelve a descifrar el archivo."
             }
-            return@rememberLauncherForActivityResult
+            return@rememberDocumentPicker
         }
         if (dest == null) {
             discardInBackground(context, received)
             pending = null
             message = false to "No se ha guardado nada."
-            return@rememberLauncherForActivityResult
+            return@rememberDocumentPicker
         }
         job = scope.launchBusy({ busy = it }) {
             try {
@@ -672,9 +671,9 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
             }
         }
     }
-    val pickReceived = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val pickReceived = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
         VaultLock.keepOpenOnce = false
-        if (uri == null) return@rememberLauncherForActivityResult
+        if (uri == null) return@rememberDocumentPicker
         message = null
         fileLine = null
         job = scope.launchBusy({ busy = it }) {

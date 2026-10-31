@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -59,8 +58,8 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
     // Only the random id of the attachment being saved, never its content.
     var pendingSave by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberDocumentPicker
         busy = true
         scope.launch {
             message = try {
@@ -79,10 +78,10 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
         }
     }
 
-    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val save = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
         val id = pendingSave
         pendingSave = null
-        if (dest == null || id == null) return@rememberLauncherForActivityResult
+        if (dest == null || id == null) return@rememberDocumentPicker
         busy = true
         scope.launch {
             message = try {

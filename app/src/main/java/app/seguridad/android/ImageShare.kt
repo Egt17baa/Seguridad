@@ -11,7 +11,7 @@ import java.io.File
 private fun shareAuthority(context: Context) = "${context.packageName}.compartir"
 
 /**
- * Hands [file] (prepared by ShareTemp in cacheDir/compartir/) to the app the user picks. The provider is not exported:
+ * Hands [file] (prepared by ShareTemp in cacheDir/compartir/<random>/, a new URI each time) to the app the user picks. The provider is not exported:
  * only the chosen app gets read access, to this one URI, through FLAG_GRANT_READ_URI_PERMISSION (the ClipData carries
  * the grant through the chooser). Like shareText, never sets VaultLock.keepOpenOnce: leaving for the other app locks
  * the vault as usual. Exceptions (no app can receive it, a file outside the provider's folder) go to the caller.
@@ -27,4 +27,14 @@ fun shareImage(context: Context, file: File, mime: String) {
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     send.clipData = ClipData.newRawUri(null, uri)
     context.startActivity(Intent.createChooser(send, SHARE))
+}
+
+/**
+ * ANDROID-1: takes back every read permission given on [file]'s URI (to the app it was shared with, and any grant that
+ * app passed on), just before ShareTemp deletes the copy. A URI no one holds is a no-op. Throws if [file] is outside
+ * the provider's folder (ShareTemp ignores it).
+ */
+fun revokeSharedCopy(context: Context, file: File) {
+    val uri = FileProvider.getUriForFile(context, shareAuthority(context), file)
+    context.revokeUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
 }

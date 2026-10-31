@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -338,11 +337,11 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     }
 
     val onSaveTarget: (Uri?) -> Unit = { dest -> if (dest != null) vm.save(dest) }
-    val saveJpg = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg"), onSaveTarget)
-    val savePng = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png"), onSaveTarget)
-    val saveWebp = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/webp"), onSaveTarget)
+    val saveJpg = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/jpeg"), onSaveTarget)
+    val savePng = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/png"), onSaveTarget)
+    val saveWebp = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/webp"), onSaveTarget)
 
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.open(uri)
     }
 

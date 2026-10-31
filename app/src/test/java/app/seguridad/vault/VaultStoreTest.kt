@@ -844,6 +844,35 @@ class VaultStoreTest {
         assertTrue(s.lockIfIdle())
     }
 
+    @Test fun `COV2-3 Al salir locks 2 minutes after the last use while another app has the focus in multi-window`() = runTest {
+        var elapsed = 0L
+        var away = false
+        val s = VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            idleLockMs = { 0L }, keptOpen = { false }, awayInMultiWindow = { away }, elapsed = { elapsed },
+        ).apply { load(); create("m".toCharArray()) }
+        // Seguridad on screen and in use (split screen or not): «Al salir» never locks on time.
+        elapsed += 10 * AWAY_BACKSTOP_MS
+        assertFalse(s.lockIfIdle())
+        s.touch()
+        // The user moves to the other app of the split screen: Seguridad is still visible, onStop never comes.
+        away = true
+        elapsed += AWAY_BACKSTOP_MS - 1
+        assertFalse(s.lockIfIdle())
+        elapsed += 1
+        assertTrue(s.lockIfIdle())
+        assertEquals(VaultState.Locked, s.state.value)
+    }
+
+    @Test fun `COV2-3 the idle limit`() {
+        assertEquals(0L, idleLimitMs(chosen = 0, keptOpen = false, awayInMultiWindow = false))
+        assertEquals(AWAY_BACKSTOP_MS, idleLimitMs(chosen = 0, keptOpen = true, awayInMultiWindow = false))
+        assertEquals(AWAY_BACKSTOP_MS, idleLimitMs(chosen = 0, keptOpen = false, awayInMultiWindow = true))
+        // A time chosen in Ajustes stays as it is, in or out of multi-window (it already counts the time without use).
+        assertEquals(15 * 60_000L, idleLimitMs(chosen = 15 * 60_000L, keptOpen = false, awayInMultiWindow = true))
+        assertEquals(60_000L, idleLimitMs(chosen = 60_000L, keptOpen = true, awayInMultiWindow = true))
+    }
+
     @Test fun `LIBRE-4 a fingerprint unlock shows only its own messages`() {
         assertEquals("Contraseña incorrecta o datos dañados", biometricUnlockError(CryptoFailure()))
         assertEquals(CLOCK_CHANGED_TEXT, biometricUnlockError(MasterRequired(BiometricRefusal.CLOCK)))

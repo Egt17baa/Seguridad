@@ -474,6 +474,26 @@ const val AUTO_BACKUP_REPLACE_DROPPED = "Las copias automáticas anteriores que 
  * the vault is locked, and in a snackbar if it locked while the folder picker was open.
  */
 const val SETTINGS_NEED_OPEN_VAULT = "Abre la bóveda (pestaña Bóveda) para cambiar este ajuste."
+
+/**
+ * COV2-3 (audit 1.3.0): under «Bloqueo» in Ajustes. Leaving locks; «Al salir» gets a 2-minute backstop without use
+ * while a picker or the scanner is open for the app, and while another app has the focus in multi-window.
+ */
+const val LOCK_ON_EXIT_HINT =
+    "Al salir de la app se bloquea siempre (salvo mientras eliges un archivo o escaneas un QR para ella). Con «Al " +
+        "salir», en ese caso y mientras usas otra app en pantalla dividida o en ventana flotante, se bloquea unos 2 " +
+        "minutos después de usarla por última vez."
+
+/**
+ * ANDROID-2 (audit 1.3.0): the picker handed back something that is not another app's document (a `file://`, or one
+ * of Seguridad's own files); nothing was read or written.
+ */
+const val PICKER_REJECTED =
+    "No se puede usar lo que ha devuelto el selector: no es un archivo ni una carpeta de otra app. Vuelve a elegirlo " +
+        "con el selector de archivos del sistema."
+
+/** Closes [PICKER_REJECTED]. */
+const val PICKER_REJECTED_OK = "Entendido"
 const val PASSWORD_CHANGED_FINGERPRINT_FAILED =
     "Contraseña maestra cambiada. La huella ya no abre la bóveda, pero no se pudo desactivar: abre la bóveda con la " +
         "contraseña nueva, desactiva la huella y vuelve a activarla."
@@ -566,7 +586,8 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     PASSWORD_CHANGED_TITLE, PASSWORD_CHANGE_OLD_BACKUPS, PASSWORD_CHANGE_REPLACE_COPIES, PASSWORD_CHANGE_RENEW_HINT,
     PASSWORD_CHANGE_WORKING, PASSWORD_CHANGE_CLOSE, AUTO_BACKUP_OUTCOME_TITLE, AUTO_BACKUP_REPLACE_DROPPED, PASSWORD_CHANGED_FINGERPRINT_FAILED, RENEW_IDENTITY, RENEW_IDENTITY_WARNING, RENEW_IDENTITY_DONE,
     AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACE_WAITS, CLOCK_CHANGED_TEXT, BIOMETRIC_UNLOCK_FAILED,
-    autoBackupUnlistedText(1), autoBackupUnlistedText(2), SETTINGS_NEED_OPEN_VAULT,
+    autoBackupUnlistedText(1), autoBackupUnlistedText(2), SETTINGS_NEED_OPEN_VAULT, LOCK_ON_EXIT_HINT, PICKER_REJECTED,
+    PICKER_REJECTED_OK,
     CLIPBOARD_HISTORY_ACCEPT, CLIPBOARD_HISTORY_CANCEL, CLIPBOARD_COPY_FAILED, CLIPBOARD_COPY_FAILED_OK,
     fileNameInsideText("x"), DONT_SEND_FILE_NAME, sameKeyContactsText(2),
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) }

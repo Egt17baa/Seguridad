@@ -1,7 +1,6 @@
 package app.seguridad.ui.screens
 
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -65,7 +64,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
     val onMasterChanged by rememberUpdatedState(LocalOnMasterChanged.current)
 
     // A copy (.sgbak) is a ZIP, but saved as plain bytes so no app treats it as one to open or rename.
-    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+    val exporter = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) scope.launch {
             // Written as a stream straight into the chosen document: never a copy in memory or in the cache.
             val result = runCatching {
@@ -83,7 +82,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
     }
     // Only the document's address is kept until the password is typed; the file is read as a stream then.
     var importUri by remember { mutableStateOf<Uri?>(null) }
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val importer = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             // Its first bytes, to say now (not after the password) if it cannot be read.
             val readable = runCatching {
