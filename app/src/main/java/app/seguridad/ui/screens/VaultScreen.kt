@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.crypto.newPasswordFailureMessage
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.clickable
@@ -227,10 +228,11 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     var b by remember { mutableStateOf("") }
     var understood by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var failed by remember { mutableStateOf(false) }
+    // Review F5, M2: a password that is not valid text, or no memory for Argon2id, says so; anything else, «Inténtalo de nuevo».
+    var failed by remember { mutableStateOf<String?>(null) }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Crea tu bóveda", style = MaterialTheme.typography.headlineSmall)
-        if (failed) Text("No se pudo crear la bóveda. Inténtalo de nuevo.", color = NegativeColor)
+        failed?.let { Text(it, color = NegativeColor) }
         Text(
             "Guarda contraseñas, frases semilla de tus wallets, notas y códigos 2FA, cifrados con AES-256-GCM y una clave derivada de tu " +
                 "contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de Google); puedes exportar una copia cifrada.",
@@ -252,6 +254,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
             enabled = !busy && a.length >= MIN_MASTER && a == b && understood,
             onClick = {
                 busy = true
+                failed = null
                 val pw = a.toCharArray()
                 scope.launch {
                     try {
@@ -259,7 +262,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
                         BiometricVault.disable(context)
                         store.create(pw)
                     } catch (e: Exception) {
-                        failed = true
+                        failed = newPasswordFailureMessage(e, "No se pudo crear la bóveda. Inténtalo de nuevo.")
                     } finally {
                         pw.fill('\u0000')
                         busy = false

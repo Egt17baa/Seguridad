@@ -58,7 +58,7 @@ fun encryptStream(
 ) {
     val header = newHeader(Header.KIND_FILE, alg, secret, kdf, random)
     val aad = header.bytes()
-    val key = keyForHeader(secret, header)
+    val key = keyForHeader(secret, header, PasswordUse.NEW)
     try {
         output.write(aad)
         // safeFileName keeps it within MAX_SAVED_NAME_BYTES (255); a longer one would be a bug, never cut (it could split a
@@ -100,7 +100,7 @@ fun decryptStream(input: InputStream, output: OutputStream, secret: Secret): Str
     if (pin.readFully(fixed) != fixed.size) throw CryptoFailure("No es un archivo cifrado compatible")
     val header = Header.parse(ByteBuffer.wrap(fixed), Header.KIND_FILE)
     val aad = fixed
-    val key = keyForHeader(secret, header)
+    val key = keyForHeader(secret, header, PasswordUse.EXISTING)
     try {
         val lenBytes = ByteArray(2)
         if (pin.readFully(lenBytes) != 2) throw CryptoFailure()
@@ -189,26 +189,33 @@ private fun isNameTrimmable(c: Char) = c == '.' || c.isWhitespace() || Character
 /** A code point a kept zero-width joiner may touch: not ASCII, not a space, not another joiner (an emoji, in practice). */
 private fun canJoin(cp: Int) = cp >= 0x80 && cp != ZWJ && !Character.isWhitespace(cp) && !Character.isSpaceChar(cp)
 
-/**
- * A code point U+FE0F may follow: one that [canJoin] (an emoji or symbol, in practice) and is not another U+FE0F, or the
- * base of a keycap emoji («1️⃣»: 0–9, # and *). A fixed rule, like the joiner's: no Unicode tables that change with the
- * JDK.
- */
-private fun canTakeEmojiSelector(cp: Int) =
-    (canJoin(cp) && cp != EMOJI_SELECTOR) || cp in '0'.code..'9'.code || cp == '#'.code || cp == '*'.code
+private const val KEYCAP = 0x20E3
 
 /**
- * [s] without the emoji presentation selectors (U+FE0F) that show nothing: one at the start or after a code point that
- * cannot take it ([canTakeEmojiSelector]: ASCII other than a keycap base, a space, a joiner or another selector) goes
- * («fac\uFE0Ftura» is «factura»). One after an emoji or a symbol («❤️») stays. Idempotent: what a kept selector follows
- * is never removed by this, by [withoutLooseJoiners] or by a trim.
+ * Whether a U+FE0F after [previous] and before [next] (-1 at either end) can be seen: after a code point that [canJoin]
+ * and is not another U+FE0F (an emoji or a symbol in practice, but also any other non-ASCII one, such as «é», the same
+ * tolerance as the joiner's rule), or after 0–9, # or * when U+20E3 follows (a keycap emoji, «1️⃣»). A fixed rule, like
+ * the joiner's: no Unicode tables that change with the JDK.
+ */
+private fun canTakeEmojiSelector(previous: Int, next: Int) =
+    (previous >= 0 && canJoin(previous) && previous != EMOJI_SELECTOR) ||
+        ((previous in '0'.code..'9'.code || previous == '#'.code || previous == '*'.code) && next == KEYCAP)
+
+/**
+ * [s] without the emoji presentation selectors (U+FE0F) that show nothing ([canTakeEmojiSelector]): one at the start,
+ * after ASCII (a digit, # or * only stays with U+20E3 after it), after a space, a joiner or another selector goes
+ * («fac\uFE0Ftura» and «factura1\uFE0F.pdf» are «factura» and «factura1.pdf»). One after an emoji or a symbol («❤️»),
+ * or in a keycap («1️⃣»), stays. [trimWithJoiners] repeats it until nothing changes, so a cut that drops the U+20E3 of a
+ * keycap also drops its selector.
  */
 internal fun withoutLooseSelectors(s: String): String {
     if (s.indexOf('\uFE0F') < 0) return s
+    val cps = s.codePoints().toArray()
     val out = StringBuilder(s.length)
     var previous = -1
-    s.codePoints().forEach { cp ->
-        if (cp == EMOJI_SELECTOR && !(previous >= 0 && canTakeEmojiSelector(previous))) return@forEach
+    for (i in cps.indices) {
+        val cp = cps[i]
+        if (cp == EMOJI_SELECTOR && !canTakeEmojiSelector(previous, cps.getOrElse(i + 1) { -1 })) continue
         out.appendCodePoint(cp)
         previous = cp
     }
@@ -252,7 +259,7 @@ internal fun trimWithJoiners(s: String, trim: (String) -> String): String {
  * private use and the noncharacters), the same list as `sanitizeReceivedName`; a lone surrogate becomes «?», the byte
  * that is written for it anyway. That covers the invisible characters known to make one name look like another (Unicode
  * TR #36), not every look-alike: letters of other scripts that look the same stay. The zero-width joiner (U+200D) stays only between two non-ASCII code points that are not spaces (an
- * emoji sequence such as «👨‍👩‍👧»), and U+FE0F only after an emoji, a symbol or a keycap base («❤️», «1️⃣»): elsewhere
+ * emoji sequence such as «👨‍👩‍👧»), and U+FE0F only after an emoji or a symbol, or in a keycap («❤️», «1️⃣»): elsewhere
  * they go ([withoutLooseJoiners], [withoutLooseSelectors]), also after the cuts. No dots or spaces at either end (so
  * never «.» nor «..»); with nothing visible left (only joiners, fillers, dots or spaces), it is «archivo».
  *

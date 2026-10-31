@@ -316,6 +316,10 @@ class CryptoTest {
         assertEquals("factura.pdf", safeFileName("factura\u3164\u3164.pdf"))
         assertEquals("factura.pdf", safeFileName("fac\u3164tura.pdf"))
         assertEquals("archivo", safeFileName("\u3164"))
+        // A cut that drops the U+20E3 of a keycap drops its selector too (119 «a» + «1» is the 120-code-point limit).
+        assertEquals("a".repeat(119) + "1", safeFileName("a".repeat(119) + "1\uFE0F\u20E3"))
+        assertEquals("a".repeat(118) + "1", safeFileName("a".repeat(118) + "1\uFE0F\u20E3"))
+        assertEquals("a".repeat(117) + "1\uFE0F\u20E3", safeFileName("a".repeat(117) + "1\uFE0F\u20E3")) // 120: whole.
         // U+FE0F (the emoji presentation selector) stays after an emoji, a symbol or a keycap base…
         assertEquals("\u2764\uFE0F.txt", safeFileName("\u2764\uFE0F.txt"))
         assertEquals("1\uFE0F\u20E3 foto.jpg", safeFileName("1\uFE0F\u20E3 foto.jpg"))
@@ -326,8 +330,17 @@ class CryptoTest {
         assertEquals("\u2764\uFE0F", safeFileName("\u2764\uFE0F\uFE0F"))
         assertEquals("archivo", safeFileName("\uFE0F"))
         assertEquals("x", safeFileName("\uFE0Fx"))
+        // Review F5, M4: after 0–9, # or * it only stays in a keycap, with U+20E3 after it.
+        assertEquals("factura1.pdf", safeFileName("factura1\uFE0F.pdf"))
+        assertEquals("#foto", safeFileName("#\uFE0Ffoto"))
+        assertEquals("*.txt", safeFileName("*\uFE0F.txt"))
+        assertEquals("#\uFE0F\u20E3 y *\uFE0F\u20E3", safeFileName("#\uFE0F\u20E3 y *\uFE0F\u20E3"))
+        assertEquals("1\uFE0F\u20E3", safeFileName("1\uFE0F\uFE0F\u20E3"))
         // Idempotent.
-        for (n in listOf("fac\u3164tura.pdf", "\u2764\uFE0F\uFE0F", "a\uFE0F\u200D\uD83D\uDE00", "\u00A0\uFE0F\uD83D\uDE00\u200D\uFE0F")) {
+        for (n in listOf(
+            "fac\u3164tura.pdf", "\u2764\uFE0F\uFE0F", "a\uFE0F\u200D\uD83D\uDE00", "\u00A0\uFE0F\uD83D\uDE00\u200D\uFE0F",
+            "factura1\uFE0F.pdf", "1\uFE0F\uFE0F\u20E3", "a".repeat(118) + "1\uFE0F\u20E3", "a".repeat(119) + "1\uFE0F\u20E3",
+        )) {
             assertEquals("name=<$n>", safeFileName(n), safeFileName(safeFileName(n)))
         }
     }

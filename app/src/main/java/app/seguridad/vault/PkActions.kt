@@ -192,7 +192,7 @@ fun actionErrorMessage(e: Throwable, fallback: String): String =
  * controles (Cc: C0, DEL y C1), los de formato y de dirección del texto, la lista fija de nombres de tarjeta
  * (`hasForbiddenNameCharacter`: rellenos de Hangul, uso privado, etiquetas…), U+FE00–FE0E y los no caracteres; el
  * unidor de anchura cero (U+200D) solo se queda entre dos emoji (dos puntos de código que no son ASCII ni espacios) y
- * U+FE0F solo detrás de un emoji, un símbolo o la base de un keycap, como en `safeFileName` (`withoutLooseJoiners`,
+ * U+FE0F solo detrás de un emoji o un símbolo, o en un keycap («1️⃣»), como en `safeFileName` (`withoutLooseJoiners`,
  * `withoutLooseSelectors`), también tras los cortes; se recortan los espacios y los puntos de los extremos (así `.` y
  * `..` quedan vacíos); no pasa de 120 caracteres ni de [MAX_SAVED_NAME_BYTES] bytes en UTF-8 (es el nombre que se
  * propone para guardar) ni parte un par sustituto; y si queda vacío es [DEFAULT_RECEIVED_NAME]. Es idempotente.
