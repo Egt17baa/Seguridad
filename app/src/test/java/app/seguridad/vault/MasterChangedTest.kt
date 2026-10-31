@@ -91,4 +91,16 @@ class MasterChangedTest {
         m.replace() // A second request starts from nothing.
         assertEquals(0, m.state.value.answerUnlisted)
     }
+
+    // R-5 of the earlier dictamen (abogado-textos-1-11.md): «Renovar identidad» only when there is an identity to renew,
+    // read when the password changed (the vault is locked right after). Unknown: shown, as before.
+    @Test fun theDialogKnowsWhetherThereWasAnIdentity() = runTest {
+        val m = MasterChanged(backgroundScope, replace = { error("not asked") }, now = { 0 })
+        m.changed(fingerprintFailed = false, hasIdentity = false)
+        assertFalse(m.state.value.hasIdentity)
+        m.close()
+        m.changed(fingerprintFailed = false)
+        assertTrue(m.state.value.hasIdentity)
+        assertTrue(MasterChanged.State().hasIdentity)
+    }
 }

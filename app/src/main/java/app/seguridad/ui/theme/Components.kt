@@ -5,8 +5,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuComponent
@@ -32,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -43,7 +47,9 @@ import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import app.seguridad.tools.QR_SCAN
 
 val SectionShape = RoundedCornerShape(16.dp)
 
@@ -183,5 +189,18 @@ fun PasswordField(value: String, onChange: (String) -> Unit, modifier: Modifier 
             trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) "Ocultar" else "Ver", style = MaterialTheme.typography.labelMedium) } },
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+/**
+ * The label of every «Escanear QR» button. R-13 (final review of the Abogado Digital): the camera is decoration, so
+ * TalkBack reads «Escanear QR», not «cámara, Escanear QR» (as the tools' icons, M-11).
+ */
+@Composable
+fun ScanQrLabel() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("📷", Modifier.clearAndSetSemantics { })
+        Spacer(Modifier.width(6.dp))
+        Text(QR_SCAN)
     }
 }

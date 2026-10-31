@@ -6,7 +6,9 @@ App Android de seguridad y criptografía, sin cuentas, sin nube propia y sin anu
 
 **Licencia: [Apache-2.0](LICENSE).** Se permite usar, estudiar, modificar y redistribuir el código conforme a esa licencia. Las dependencias conservan sus propias licencias. Copyright 2026 Egt17baa ([NOTICE](NOTICE)).
 
-**Gratuita y sin monetizar, por compromiso.** La app no tendrá nunca precio, anuncios, compras integradas, versión de pago, donaciones que condicionen funciones ni uso de datos con fines comerciales. No es solo una preferencia: la publicación se plantea como la de un particular sin actividad económica, y cualquier cambio de modelo obligaría a revisar sus obligaciones legales (consumo, Cyber Resilience Act, responsabilidad por productos).
+**Nombre.** La licencia Apache-2.0 no da permiso para usar el nombre «Clavero» ni el icono (§6). Si publicas una versión modificada, usa otro nombre y otro icono, para que nadie la confunda con esta.
+
+**Gratuita y sin monetizar, por compromiso.** La app no tendrá nunca precio, anuncios, compras integradas, versión de pago, donaciones ni uso de datos con fines comerciales. No es solo una preferencia: la publicación se plantea como la de un particular sin actividad económica, y cualquier cambio de modelo obligaría a revisar sus obligaciones legales (consumo, Cyber Resilience Act, responsabilidad por productos).
 
 **Privacidad:** la app no recoge datos. [Política de privacidad](https://egt17baa.github.io/Seguridad/privacidad.html) (fuente: [`docs/privacidad.html`](docs/privacidad.html)).
 
@@ -153,7 +155,7 @@ Para actualizar la lista:
 
 Una biblioteca puede traer datos con otra licencia que la suya. Por eso `:app:checkAssets` (en `check` y en la CI) falla si en `assets/` del APK hay algún archivo que no venga de `app/src/main/assets`. Así quedó fuera la Public Suffix List (MPL-2.0) que trae OkHttp 5, que la app no usa porque no guarda cookies. Si la tarea falla, revisa la licencia de ese archivo y, si la app no lo necesita, exclúyelo en `androidResources.ignoreAssetsPatterns` (`app/build.gradle.kts`).
 
-**Lista de la EFF.** `app/src/main/assets/eff_large_wordlist.txt` es la lista larga de la EFF sin la columna de los números de dado: las mismas 7.776 palabras, en el mismo orden (CC BY 3.0 US; la app, `NOTICE` y `assets/licenses/cc-by-3.0.txt` lo dicen así). Comprobación del dueño, una vez y con red: `curl -s https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt | sha256sum` debe dar `addd35536511597a02fa0a9ff1e5284677b8883b83e986e43f15a3db996b903e`, y `curl -s https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt | cut -f2 | cmp - app/src/main/assets/eff_large_wordlist.txt` no debe escribir nada.
+**Lista de la EFF.** `app/src/main/assets/eff_large_wordlist.txt` es la lista larga de la EFF sin la columna de los números de dado: las mismas 7.776 palabras, en el mismo orden (CC BY 3.0 US; la app, `NOTICE` y `assets/licenses/cc-by-3.0.txt` lo dicen así). Comprobación del dueño, una vez y con red: `curl -s https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt | sha256sum` debe dar `addd35536511597a02fa0a9ff1e5284677b8883b83e986e43f15a3db996b903e`, y `curl -s https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt | cut -f2 | cmp - app/src/main/assets/eff_large_wordlist.txt` no debe escribir nada. Comprobado el 31-10-2026 en la revisión final del Abogado Digital: el SHA-256 coincide y `cmp` no escribe nada.
 
 ## Firma
 

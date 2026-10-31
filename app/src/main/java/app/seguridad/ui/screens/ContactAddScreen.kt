@@ -39,6 +39,7 @@ import app.seguridad.tools.qr.QrTarget
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.ui.theme.ScanQrLabel
 import app.seguridad.vault.CardCheck
 import app.seguridad.vault.ContactName
 import app.seguridad.vault.EntryType
@@ -135,7 +136,7 @@ fun ContactAddScreen(store: VaultStore, onBack: () -> Unit) {
                         VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                         error = "No se pudo abrir el escáner: pega la tarjeta como texto"
                     }
-                }) { Text("📷 Escanear QR") }
+                }) { ScanQrLabel() }
                 OutlinedButton(onClick = {
                     val clip = readClipboardText(context)
                     if (clip.isNullOrBlank()) error = "El portapapeles está vacío" else accept(clip, qr = false)

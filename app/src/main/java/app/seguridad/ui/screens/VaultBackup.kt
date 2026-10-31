@@ -33,6 +33,7 @@ import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.backupFileName
+import app.seguridad.vault.identity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -43,11 +44,11 @@ const val MIN_MASTER = 10
 
 /**
  * What to do once the master password was changed (the vault is then locked), with whether the fingerprint could not be
- * turned off: the app root shows the dialog about the old copies and the identity ([MasterChangedDialog]). One place for
- * every screen that can change it; the default does nothing. The app root provides AppContainer.masterChanged, which
+ * turned off and whether the vault had an identity (R-5 of the earlier dictamen): the app root shows the dialog about
+ * the old copies and the identity ([MasterChangedDialog]). One place for every screen that can change it; the default does nothing. The app root provides AppContainer.masterChanged, which
  * outlives the activity: a lambda captured before a rotation still reaches the dialog of the new one (M-3).
  */
-val LocalOnMasterChanged = staticCompositionLocalOf<(fingerprintFailed: Boolean) -> Unit> { {} }
+val LocalOnMasterChanged = staticCompositionLocalOf<(fingerprintFailed: Boolean, hasIdentity: Boolean) -> Unit> { { _, _ -> } }
 
 /** What the vault menu and Ajustes can do with the vault file; each one shows its own dialog or picker. */
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
@@ -108,6 +109,9 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             scope.launch {
                 // Not cut short by leaving the screen: the fingerprint must be dropped together with the old key.
                 val msg = withContext(NonCancellable) {
+                    // Read before the change, which locks the vault: whether there is an identity to renew (unknown: yes).
+                    val open = store.state.value as? VaultState.Unlocked
+                    val hadIdentity = open == null || open.entries.identity() != null
                     try {
                         if (store.changeMaster(pw)) {
                             // From here the password did change: nothing below may say it did not.
@@ -119,7 +123,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                             }
                             // Inside this block: leaving the screen or rotating during the key derivation must not
                             // lose the dialog (it is kept outside the activity).
-                            onMasterChanged(!fingerprintOff)
+                            onMasterChanged(!fingerprintOff, hadIdentity)
                             // changeMaster has locked the vault: it opens with the new password from now on.
                             if (fingerprintOff) {
                                 "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."

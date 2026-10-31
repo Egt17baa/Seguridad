@@ -45,7 +45,6 @@ import app.seguridad.tools.PHOTO_FILE_NAME_NOTE
 import app.seguridad.tools.PHOTO_FOUND_TITLE
 import app.seguridad.tools.PHOTO_HEIF_NOTICE
 import app.seguridad.tools.PHOTO_LOST
-import app.seguridad.tools.PHOTO_NOTHING_FOUND
 import app.seguridad.tools.PHOTO_PICK
 import app.seguridad.tools.PHOTO_PICK_OTHER
 import app.seguridad.tools.PHOTO_SAVE_COPY
@@ -65,7 +64,7 @@ import app.seguridad.tools.photo.PhotoReport
 import app.seguridad.tools.photo.detectFormat
 import app.seguridad.tools.photoDoneMessage
 import app.seguridad.tools.photoFoundLines
-import app.seguridad.tools.photoHasSomethingToRemove
+import app.seguridad.tools.photoLocationNote
 import app.seguridad.tools.share.PHOTO_FILE_BASE
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.ui.theme.BackScaffold
@@ -404,9 +403,8 @@ private fun CopyCard(c: CleanCopy) {
                 if (!c.converted) Text(PHOTO_FOUND_TITLE, style = MaterialTheme.typography.titleSmall)
                 lines.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
             }
-            if (!c.converted && !photoHasSomethingToRemove(c.report)) {
-                Text(PHOTO_NOTHING_FOUND, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            // R-2 of the earlier dictamen: whenever no GPS line shows, Android may have hidden the location from the app.
+            photoLocationNote(c.report, c.converted)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }

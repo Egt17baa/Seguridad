@@ -52,6 +52,7 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.ui.theme.ScanQrLabel
 import app.seguridad.tools.codes.getValue
 import app.seguridad.tools.codes.setValue
 import app.seguridad.vault.EntryEditSession
@@ -425,7 +426,7 @@ fun VaultEntryEditScreen(
                                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                                     error = "No se pudo abrir el escáner: pega el enlace otpauth:// o escribe la clave"
                                 }
-                            }) { Text("📷 Escanear QR") }
+                            }) { ScanQrLabel() }
                             OutlinedButton(onClick = {
                                 // M3 (audit 1.3.0, teclado): never throws, like every other «Pegar».
                                 readClipboardText(context)?.let(vm::applyOtpAuth) ?: run { error = "El portapapeles está vacío" }

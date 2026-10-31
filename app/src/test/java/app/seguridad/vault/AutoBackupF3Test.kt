@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.io.OutputStream
 import java.time.ZoneOffset
 
@@ -36,6 +37,9 @@ private class GatedTarget : BackupTarget {
     var gate: CompletableDeferred<Unit>? = null
     var lists = 0
     var onList: ((Int) -> Unit)? = null
+
+    /** Ids whose deletion the provider refuses (R-6). */
+    var failDelete: Set<String> = emptySet()
 
     override suspend fun create(name: String): BackupFile {
         files[name] = ByteArray(0)
@@ -67,6 +71,7 @@ private class GatedTarget : BackupTarget {
     }
 
     override fun delete(id: String) {
+        if (id in failDelete) throw IOException("refused")
         deleted += id
         val n = idOfName.entries.firstOrNull { it.value == id }?.key ?: return
         files.remove(n); idOfName.remove(n)
@@ -151,13 +156,65 @@ class AutoBackupF3Test {
         assertEquals(5, settings.settings.value.currentAutoBackupCopies.size) // The new vault's own rotation still works.
     }
 
-    // m1 (CR re-review): the success text says which copies went: those from before the change of password.
+    // m1 (CR re-review): the success text says which copies went: those from before the change of password. O-2 (final
+    // review of the Abogado Digital): a colon, so «que la app tenía apuntadas» is not read as said of «contraseña».
     @Test fun `m1 the replacement's text names the copies from before the change`() {
         assertEquals(
-            "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña que la app tenía " +
-                "apuntadas en esta carpeta. Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran.",
+            "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña: las que la app " +
+                "tenía apuntadas en esta carpeta. Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) " +
+                "no se borran.",
             AUTO_BACKUP_REPLACED,
         )
+    }
+
+    // ---- R-6 (final review of the Abogado Digital): «Se volverá a intentar en la próxima copia» only where it does ----
+
+    @Test fun `R-6 a pending replacement that could not delete a target says so, and the next copy deletes it`() = runTest {
+        val (s, t, _) = setup()
+        auto(s, t)
+        val old = threeCopies(s, t).toList()
+        settings.update { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        t.failDelete = setOf(old.first())
+        clock += 60_000; s.upsert(note("x")); settle()
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, settings.settings.value.lastAutoBackupError)
+        assertTrue("the request stays", settings.settings.value.autoBackupReplacePending)
+        assertEquals(listOf(old.first()), settings.settings.value.autoBackupReplaceTargets)
+        t.failDelete = emptySet()
+        clock += 60_000; s.upsert(note("y")); settle()
+        assertNull(settings.settings.value.lastAutoBackupError)
+        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertTrue("tried again and deleted", old.first() in t.deleted && old.first() !in t.idOfName.values)
+    }
+
+    @Test fun `R-6 a replacement whose request an import dropped never promises to try again`() = runTest {
+        val (s, t, text) = setup()
+        val a = auto(s, t)
+        val old = threeCopies(s, t).toList()
+        settings.update { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        val gate = CompletableDeferred<Unit>()
+        t.gate = gate
+        clock += 60_000
+        s.upsert(note("old-last"))
+        settle() // the pending replacement starts: snapshot of the old vault, upload held
+        assertFalse(gate.isCompleted)
+        assertTrue("the import dropped the request", s.importReplace(text, "maestra-b".toCharArray()))
+        gate.complete(Unit); runCurrent()
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, settings.settings.value.lastAutoBackupError)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, a.replaceOutcome.value?.error)
+        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertTrue("nothing of the old vault deleted", t.deleted.none { it in old })
+    }
+
+    @Test fun `R-6 a replacement with no request saved never promises to try again`() = runTest {
+        val (s, t, _) = setup()
+        val a = auto(s, t)
+        val old = threeCopies(s, t).toList()
+        t.failDelete = setOf(old.first())
+        clock += 60_000
+        val r = a.replaceOldCopies(old)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, r.error)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, settings.settings.value.lastAutoBackupError)
+        assertFalse(settings.settings.value.autoBackupReplacePending)
     }
 
     @Test fun `generation goes up with create, import and destroy, not with a failed import`() = runTest {
