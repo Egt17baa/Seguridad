@@ -412,7 +412,8 @@ fun QrTotpImportScreen(store: VaultStore, onDone: () -> Unit) {
         SideEffect { vm.pending.vaultStateIs(unlocked = true) }
         VaultEntryEditScreen(
             store, id = null, initialType = EntryType.TOTP, onDone = done, otpAuthText = vm.pending.text,
-            onOtpAuthImported = vm.pending::clear,
+            // Handed over once to the form's own ViewModel, which keeps it from here (a rotation included).
+            onOtpAuthTaken = vm.pending::clear,
         )
         return
     }

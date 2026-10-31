@@ -8,7 +8,8 @@ package app.seguridad.tools.qr
  * - when the vault locks after having been open in this flow ([vaultStateIs]), as the app empties [QrHandoff] when the
  *   vault is not open; waiting at the locked gate before the first unlock keeps it, as the handoff did;
  * - on [clear]: saving, going back, leaving the screen without a configuration change, or the ViewModel being cleared.
- * Once gone it never comes back.
+ * Once the vault is open it is handed over, once, to the entry form's own ViewModel (EntryEditSession.takeHandOver),
+ * which keeps it from there (a rotation included), and cleared here. Once gone it never comes back.
  */
 class QrPendingText(target: QrTarget) {
     @Volatile var text: String? = QrHandoff.take(target)

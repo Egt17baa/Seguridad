@@ -251,7 +251,7 @@ fun redactCanvasDescription(blocks: Int) =
 const val IMAGE_TOOLS_LIMIT = "Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia."
 
 /** M-7: memory ran out reading or decoding a picked image («Limpiar foto», «Tachar» and the QR inspector). */
-const val IMAGE_NO_MEMORY = "No hay memoria suficiente para abrir esta imagen en este móvil."
+const val IMAGE_NO_MEMORY = "No hay memoria suficiente para trabajar con esta imagen en este móvil."
 
 // ---- Inspector de QR ----
 
@@ -620,6 +620,13 @@ const val VAULT_CREATE_INTRO =
         "contraseña maestra con Argon2id. Solo se guarda en este móvil (no va a la copia de Google); puedes exportar una copia cifrada " +
         "o activar la copia automática en una carpeta que elijas."
 
+/**
+ * Owner's decision (31-10-2026): shown once, only to those who update from an earlier version, after the app's visible
+ * name changed. The one text that may name the app «Seguridad» (AppNameTest's named exception): keep it one literal.
+ */
+const val APP_RENAMED_TITLE = "Nuevo nombre"
+const val APP_RENAMED_TEXT = "Seguridad ahora se llama Clavero. Es la misma app: tus datos, copias y archivos cifrados siguen igual."
+
 /** Every text above, the parameterised ones with the annex's placeholders; ToolTextsTest checks them. */
 val ALL_TOOL_TEXTS: List<String> = listOf(
     PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE, PHOTO_EXPLANATION, PHOTO_PICK, PHOTO_PICK_OTHER, PHOTO_FOUND_TITLE,
@@ -673,4 +680,6 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     TOOLS_AWAY_WIPE_NOTE,
     // Audit 1.3.0, F7 (LIBRE-2 + COV1-3).
     NOTICE_INTRO, ABOUT_SUMMARY, VAULT_CREATE_INTRO,
+    // Owner's decision, 31-10-2026: the notice of the new name.
+    APP_RENAMED_TITLE, APP_RENAMED_TEXT,
 ) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) } + ClipboardClear.entries.map { clipboardAboutText(it.seconds) }

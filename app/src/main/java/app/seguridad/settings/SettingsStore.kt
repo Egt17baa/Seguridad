@@ -22,9 +22,13 @@ class SettingsStore(
     val settings: StateFlow<Settings> = _settings.asStateFlow()
     private val mutex = Mutex()
 
+    /** Whether the file was there when [load] read it (also a damaged one): data from an earlier version. */
+    @Volatile private var fileExistedAtLoad = false
+
     /** Reads the saved settings; a missing, damaged or unreadable file just leaves the defaults. */
     suspend fun load() = mutex.withLock {
         val loaded = withContext(io) {
+            fileExistedAtLoad = file.exists()
             try {
                 if (file.exists()) appJson.decodeFromString<Settings>(file.readText()) else Settings()
             } catch (e: Exception) {
@@ -35,6 +39,23 @@ class SettingsStore(
     }
 
     suspend fun update(change: (Settings) -> Settings) = mutex.withLock { write(change(_settings.value)) }
+
+    /**
+     * Right after [load], at the start of the app: decides once whether the notice of the new name is due
+     * ([Settings.renameNoticePending]): only when data from an earlier version was there, this settings file (read by
+     * [load], even if damaged) or the vault ([vaultExists]). Once decided it never changes here. If it cannot be saved,
+     * it holds for this run only and the next start decides again.
+     */
+    suspend fun decideRenameNotice(vaultExists: Boolean) = mutex.withLock {
+        val s = _settings.value
+        if (s.renameNoticePending != null) return@withLock
+        val next = s.copy(renameNoticePending = fileExistedAtLoad || vaultExists)
+        try {
+            write(next)
+        } catch (e: Exception) {
+            _settings.value = next
+        }
+    }
 
     /**
      * A new vault is about to be created: turns the automatic copies off, as their rotation would delete the copies of
@@ -64,7 +85,7 @@ class SettingsStore(
      * An import is about to replace the vault: its automatic copies are no longer listed as ours, so none is ever rotated
      * away by the imported vault, and a request to replace them (A6) goes. Written to disk before the vault is saved:
      * throws if it cannot be (the import is then refused). The result says whether a request was dropped and can put
-     * the three fields back ([ReplacePrepared.undo]) if the vault is not saved after all.
+     * the request fields back ([ReplacePrepared.undo]) if the vault is not saved after all.
      */
     suspend fun forgetAutoBackupCopiesForImport(): ReplacePrepared = mutex.withLock {
         val before = _settings.value
@@ -75,6 +96,8 @@ class SettingsStore(
                     autoBackupCopies = before.autoBackupCopies,
                     autoBackupCopiesFolder = before.autoBackupCopiesFolder,
                     autoBackupReplacePending = before.autoBackupReplacePending,
+                    autoBackupReplaceTargets = before.autoBackupReplaceTargets,
+                    autoBackupReplaceTold = before.autoBackupReplaceTold,
                 )
             }
         }

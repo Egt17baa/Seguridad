@@ -165,6 +165,18 @@ class RedactionTest {
         }
     }
 
+    // M5: what a decoder gave back is checked too, for every caller (QR, Tachar, HEIC): one that ignored the size asked
+    // must not hand on a bitmap over the 24 MP limit.
+    @Test fun decodedSizeIsCheckedAfterDecoding() {
+        assertTrue(decodedSizeAllowed(6000, 4000)) // exactly 24 MP
+        assertTrue(decodedSizeAllowed(1, 1))
+        assertFalse(decodedSizeAllowed(6000, 4001))
+        assertFalse(decodedSizeAllowed(16320, 12240)) // a 200 MP photo the decoder did not scale down
+        assertFalse(decodedSizeAllowed(0, 10))
+        assertFalse(decodedSizeAllowed(10, -1))
+        assertFalse(decodedSizeAllowed(Int.MAX_VALUE, Int.MAX_VALUE))
+    }
+
     @Test fun declaredSizeIsCheckedBeforeDecoding() {
         // Sides: up to 32 768 px.
         assertTrue(declaredSizeAllowed(32_768, 1))

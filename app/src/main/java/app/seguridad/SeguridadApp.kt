@@ -52,8 +52,12 @@ class SeguridadApp : Application() {
         // first), and if it ever did, ShareTemp is synchronized: the wipe runs before or after, never in the middle.
         container.appScope.launch(Dispatchers.IO) { container.shareTemp.wipeAll() }
         // A few hundred bytes, read before the first frame: the theme, the start notice and the lock time must be the
-        // saved ones from the start (a damaged file just gives the defaults).
-        runBlocking(Dispatchers.IO) { container.settings.load() }
+        // saved ones from the start (a damaged file just gives the defaults). Then, once, whether this start comes after an
+        // update from an earlier version (the notice of the new name).
+        runBlocking(Dispatchers.IO) {
+            container.settings.load()
+            container.decideRenameNotice()
+        }
         container.rememberClock(System.currentTimeMillis()) // The clock mark also rises when the app starts, not only on use.
     }
 }

@@ -133,3 +133,10 @@ fun redactMegapixels(w: Int, h: Int): Int = max(1L, (w.toLong() * h / 1_000_000.
  */
 fun declaredSizeAllowed(w: Int, h: Int): Boolean =
     w in 1..MAX_DECLARED_SIDE && h in 1..MAX_DECLARED_SIDE && w.toLong() * h <= MAX_DECLARED_PIXELS
+
+/**
+ * M5: true when a decoded [w]×[h] bitmap is within [MAX_REDACT_PIXELS] (and not empty). Checked after every decode
+ * («Leer QR», «Tachar» and the HEIC → JPEG conversion), so a decoder that ignored the size asked never hands on a bitmap
+ * the limit is there to keep out.
+ */
+fun decodedSizeAllowed(w: Int, h: Int): Boolean = w > 0 && h > 0 && w.toLong() * h <= MAX_REDACT_PIXELS

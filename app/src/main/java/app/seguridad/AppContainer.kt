@@ -3,6 +3,7 @@ package app.seguridad
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.net.secureClient
 import app.seguridad.settings.CLOCK_WRITE_STEP_MS
+import app.seguridad.settings.RenameNotice
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.clockMarkWorthWriting
 import app.seguridad.settings.resettingClock
@@ -97,9 +98,26 @@ class AppContainer(
     /** The only connection of the app (Have I Been Pwned), with the eMudhra keys distrusted; built on first use. */
     val client: OkHttpClient by lazy { secureClient(appVersion) }
 
+    private val vaultDir = File(filesDir, "vault")
+
+    /**
+     * The notice of the new name (owner's decision, 31-10-2026), shown once to those who updated: here, not in a screen,
+     * so a rotation keeps the dialog up until «Entendido».
+     */
+    val renameNotice = RenameNotice(settings)
+
+    /**
+     * At the start of the app, after the settings are loaded: decides once whether the notice of the new name is due
+     * ([SettingsStore.decideRenameNotice]). Data from an earlier version: the settings file, or anything in the vault's
+     * folder (the vault, its attachments, a damaged vault set aside). Blocking file access: call off the main thread.
+     */
+    suspend fun decideRenameNotice() {
+        settings.decideRenameNotice(vaultExists = vaultDir.listFiles()?.isNotEmpty() == true)
+    }
+
     /** Password vault (files/vault/vault.bin); never in backups (allowBackup is off). Lock time and Argon2id cost come from the settings. */
     val vault = VaultStore(
-        File(File(filesDir, "vault"), "vault.bin"),
+        File(vaultDir, "vault.bin"),
         kdf = { settings.settings.value.kdf.params },
         idleLockMs = { settings.settings.value.lockAfter.ms },
         inForeground = { foreground },
@@ -237,6 +255,8 @@ class AppContainer(
         lastCopyAt = { settings.settings.value.lastAutoBackupAt },
         copies = { settings.settings.value.currentAutoBackupCopies },
         replacePending = { settings.settings.value.autoBackupReplacePending },
+        replaceTargets = { settings.settings.value.autoBackupReplaceTargets },
+        replaceTold = { settings.settings.value.autoBackupReplaceTold },
         onResult = ::recordAutoBackup,
     )
 

@@ -22,6 +22,7 @@ import app.seguridad.tools.photo.detectFormat
 import app.seguridad.tools.photo.isAvif
 import app.seguridad.tools.redact.Box
 import app.seguridad.tools.redact.declaredSizeAllowed
+import app.seguridad.tools.redact.decodedSizeAllowed
 import app.seguridad.tools.redact.redactSampleSize
 import app.seguridad.tools.redact.redactTargetSize
 import java.io.ByteArrayOutputStream
@@ -52,8 +53,9 @@ fun decodeForRedaction(bytes: ByteArray): RedactSource {
         val (decoded, downscaled) =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) withImageDecoder(bytes) else withBitmapFactory(bytes, format)
         bitmap = decoded
-        // A decoder that ignored the requested size must not take the memory the limit is there to protect.
-        if (decoded.width <= 0 || decoded.height <= 0 || decoded.width.toLong() * decoded.height > MAX_REDACT_PIXELS) {
+        // A decoder that ignored the requested size must not take the memory the limit is there to protect (decodeBounded
+        // checks it too; this also covers BitmapFactory on Android 8).
+        if (!decodedSizeAllowed(decoded.width, decoded.height)) {
             throw PhotoFailure(PHOTO_DAMAGED)
         }
         return RedactSource(decoded, format, downscaled)

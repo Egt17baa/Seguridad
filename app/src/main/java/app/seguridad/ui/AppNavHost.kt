@@ -9,11 +9,13 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +35,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.navArgument
 import app.seguridad.AppContainer
+import app.seguridad.android.FilterObscuredTouches
+import app.seguridad.tools.APP_RENAMED_TEXT
+import app.seguridad.tools.APP_RENAMED_TITLE
+import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
 import app.seguridad.ui.screens.CodesScreen
@@ -67,6 +73,7 @@ import app.seguridad.ui.screens.VaultScreen
 import app.seguridad.vault.replacedText
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
+import app.seguridad.vault.VaultState
 import kotlinx.coroutines.launch
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -129,6 +136,14 @@ fun AppNavHost(container: AppContainer) {
     replaceOutcome?.let { shown ->
         ReplaceOutcomeDialog(shown.error ?: replacedText(shown.unlistedLeft), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
     }
+    // The notice of the new name, once, to those who updated (owner's decision, 31-10-2026). Not at the vault's gate,
+    // where it would cover the password field or sit under the fingerprint prompt: once the vault is open, or at once
+    // when there is none. It lives in AppContainer, so a rotation keeps it up until «Entendido».
+    val vaultState by vault.state.collectAsStateWithLifecycle()
+    val renameReady = vaultState is VaultState.Unlocked || vaultState is VaultState.NoVault
+    LaunchedEffect(renameReady) { if (renameReady) container.renameNotice.showIfDue() }
+    val renameVisible by container.renameNotice.visible.collectAsStateWithLifecycle()
+    if (renameVisible) RenameNoticeDialog(onClose = container.renameNotice::closed)
     val replacing by container.autoBackup.replacing.collectAsStateWithLifecycle()
     if (masterState.open) {
         MasterChangedDialog(
@@ -253,4 +268,18 @@ fun AppNavHost(container: AppContainer) {
             }
         }
     }
+}
+
+/** «Nuevo nombre»: the app used to be called «Seguridad» ([APP_RENAMED_TEXT]); shown once, closed with «Entendido». */
+@Composable
+private fun RenameNoticeDialog(onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(APP_RENAMED_TITLE) },
+        text = {
+            FilterObscuredTouches()
+            Text(APP_RENAMED_TEXT)
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text(PASSWORD_CHANGE_CLOSE) } },
+    )
 }

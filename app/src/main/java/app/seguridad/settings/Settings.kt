@@ -56,6 +56,18 @@ data class Settings(
      * this is cleared once that copy is recorded. Saved, so a restart in between does not lose the request.
      */
     val autoBackupReplacePending: Boolean = false,
+    /**
+     * M4: the ids of the copies that request still has to delete, those listed when it was asked (made before the change
+     * of master password); copies made after it follow [autoBackupKeep]. Null for a request saved before 1.3.0 (a default,
+     * so an older settings.json still reads): its first attempt deletes every listed copy but the new one, as before, and
+     * what it could not delete becomes this list. Cleared with the request.
+     */
+    val autoBackupReplaceTargets: List<String>? = null,
+    /**
+     * M2: the failures already told to the user for that request (fixed texts, as [lastAutoBackupError]), so each is told
+     * once per request, also after a restart. Cleared with the request, and when it is asked again.
+     */
+    val autoBackupReplaceTold: List<String> = emptyList(),
     /** The highest time of day the app ever saw (epoch ms), a mark that only rises: a clock set back behind it ends the fingerprint. */
     val clockHighWaterMs: Long = 0,
     /**
@@ -63,6 +75,12 @@ data class Settings(
      * copying a secret no longer asks. With a default, so a settings.json from 1.2.2 or before still reads.
      */
     val clipboardHistoryNoticeAccepted: Boolean = false,
+    /**
+     * The notice that the app used to be called «Seguridad» ([RenameNotice]): null until the first start of 1.3.0 decides
+     * it (the default, so a settings.json from 1.2.x still reads); then true only if data from an earlier version was
+     * there (this file, or the vault), and false from the moment it is shown, or for a new install.
+     */
+    val renameNoticePending: Boolean? = null,
 )
 
 /** [Settings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */
@@ -71,7 +89,11 @@ val Settings.currentAutoBackupCopies: List<String>
 
 /** Settings with no automatic copy listed as this app's (see [Settings.autoBackupCopies]). */
 fun Settings.forgettingAutoBackupCopies(): Settings =
-    copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null, autoBackupReplacePending = false)
+    copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null).withoutReplaceRequest()
+
+/** These settings with no request to replace the old copies: its targets and what it told go with it. */
+fun Settings.withoutReplaceRequest(): Settings =
+    copy(autoBackupReplacePending = false, autoBackupReplaceTargets = null, autoBackupReplaceTold = emptyList())
 
 /**
  * These settings with [chosen] as the folder for the copies. The request to replace the old copies ([Settings.autoBackupReplacePending])
@@ -82,12 +104,11 @@ fun Settings.withFolderChosen(chosen: String): Settings = copy(
     lastAutoBackupError = null,
     lastAutoBackupAt = null,
     autoBackupOffForNewVault = false,
-    autoBackupReplacePending = autoBackupReplacePending && chosen == autoBackupUri,
-)
+).let { if (chosen == autoBackupUri) it else it.withoutReplaceRequest() }
 
 /** These settings with the automatic copies turned off by the user: a request to replace the old ones goes with them. */
 fun Settings.withAutoBackupTurnedOff(): Settings =
-    copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupReplacePending = false)
+    copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null).withoutReplaceRequest()
 
 /** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
 const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
@@ -102,27 +123,38 @@ const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al
  */
 fun Settings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null): Settings {
     val stale = r.generation != null && generation != null && r.generation != generation
-    return recording(if (stale) r.copy(copies = null, replaced = false) else r)
+    return recording(if (stale) r.copy(copies = null, replaced = false, replaceTargets = null) else r)
 }
 
-private fun Settings.recording(r: AutoBackupResult): Settings {
-    // CR-1: only a replacement with every old copy deleted (no error) is done; any failure keeps the request, to be retried.
-    val done = r.replaced && r.error == null
-    return when {
-        autoBackupUri != r.folder -> this
-        // Asked while the vault was locked: only the request is kept; what Ajustes shows about the last copy does not change.
-        r.replaceRequested -> copy(autoBackupReplacePending = true)
-        r.writtenAt != null && r.copies != null ->
-            copy(
-                lastAutoBackupError = r.error,
-                lastAutoBackupAt = r.writtenAt,
-                autoBackupCopies = r.copies,
-                autoBackupCopiesFolder = r.folder,
-                autoBackupReplacePending = autoBackupReplacePending && !done,
-            )
-        r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupReplacePending = autoBackupReplacePending && !done)
-        else -> copy(lastAutoBackupError = r.error)
-    }
+private fun Settings.recording(r: AutoBackupResult): Settings = when {
+    autoBackupUri != r.folder -> this
+    // Asked while the vault was locked: the request, its targets (M4) and nothing told yet; what Ajustes shows about the
+    // last copy does not change.
+    r.replaceRequested ->
+        copy(autoBackupReplacePending = true, autoBackupReplaceTargets = r.replaceTargets, autoBackupReplaceTold = emptyList())
+    r.writtenAt != null && r.copies != null ->
+        copy(
+            lastAutoBackupError = r.error,
+            lastAutoBackupAt = r.writtenAt,
+            autoBackupCopies = r.copies,
+            autoBackupCopiesFolder = r.folder,
+        ).replaceAfter(r)
+    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt).replaceAfter(r)
+    else -> copy(lastAutoBackupError = r.error).replaceAfter(r)
+}
+
+/**
+ * The pending request after [r]: done when [r] replaced the old copies (CR-1: AutoBackup says so only when every target
+ * and leftover temporary copy went); otherwise kept, with the targets left (M4) and the failure it told added (M2).
+ */
+private fun Settings.replaceAfter(r: AutoBackupResult): Settings {
+    if (!autoBackupReplacePending) return this
+    if (r.replaced) return withoutReplaceRequest()
+    val told = if (r.newRequest) emptyList() else autoBackupReplaceTold
+    return copy(
+        autoBackupReplaceTargets = r.replaceTargets ?: autoBackupReplaceTargets,
+        autoBackupReplaceTold = if (r.toldKey != null && r.toldKey !in told) told + r.toldKey else told,
+    )
 }
 
 /** How many automatic copies can be kept. */
