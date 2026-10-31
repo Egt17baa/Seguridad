@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import app.seguridad.crypto.newPasswordFailureMessage
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +22,7 @@ import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.newPasswordFailureMessage
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
 import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.ui.theme.NegativeColor

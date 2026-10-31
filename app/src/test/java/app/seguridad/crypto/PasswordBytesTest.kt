@@ -111,19 +111,30 @@ class PasswordBytesTest {
         }
     }
 
+    /** The UTF-8 bytes Bouncy Castle 1.80 (Seguridad 1.0.x and 1.1.x) hashed for «lone\uD800x», recorded from the jar. */
+    private val lone180Bytes = "6c6f6e65f09081b8"
+
+    private fun unhex(s: String) = ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(16).toByte() }
+
+    /** Argon2id over [bytes] straight from Bouncy Castle (no password encoding of ours involved). */
+    private fun rawKey(bytes: String, salt: ByteArray, p: KdfParams) = argon2idRaw(unhex(bytes), salt, ByteArray(0), ByteArray(0), p, KEY_BYTES)
+
     @Test fun dataMadeUnderSuchAPasswordStillOpensAndNothingNewIsMade() {
-        // SG1: and .sgenc written as 1.1.x did (the header, then the key Bouncy Castle 1.80 derived): they open.
+        // Review F5, m3: the key does not come from the code under test. It is Argon2id over the bytes Bouncy Castle 1.80
+        // hashed for «lone\uD800x» (recorded above), and that pairing is pinned to 1.80's own key for salt 01..10.
+        assertEquals("2643e1004ac4d6f1e6e0c83ec986341aad61e13b9294b9e60d1a85a39ed785dd", hexOf(rawKey(lone180Bytes, salt, quick)))
         val pw = "lone\uD800x"
         val secret = Secret.Password(pw.toCharArray())
+        // An SG1: text and a .sgenc file laid out as every version writes them (header, then the records), under that key.
         val header = newHeader(Header.KIND_TEXT, Aead.AES_256_GCM, secret, quick, secureRandom)
         val aad = header.bytes()
-        val key = keyForHeader(secret, header, PasswordUse.EXISTING)
+        val key = rawKey(lone180Bytes, header.salt, header.kdf)
         val sealed = aead(Aead.AES_256_GCM, true, key, header.nonce, aad, "hola".toByteArray(), header.dialect)
         val token = Dialect.SEGURIDAD.textPrefix + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(aad + sealed)
         assertEquals("hola", decryptText(token, pw.toCharArray()))
         val fileHeader = newHeader(Header.KIND_FILE, Aead.AES_256_GCM, secret, quick, secureRandom)
         val fileAad = fileHeader.bytes()
-        val fileKey = keyForHeader(secret, fileHeader, PasswordUse.EXISTING)
+        val fileKey = rawKey(lone180Bytes, fileHeader.salt, fileHeader.kdf)
         val file = java.io.ByteArrayOutputStream().apply {
             write(fileAad)
             val name = aead(Aead.AES_256_GCM, true, fileKey, streamNonce(fileHeader.nonce, 0, false), fileAad, "a.txt".toByteArray(), fileHeader.dialect)
@@ -144,26 +155,42 @@ class PasswordBytesTest {
         )
     }
 
-    @Test fun aVaultUnderSuchAMasterStillOpensButNoneIsCreatedOrChangedToOne() {
-        // A vault wrapped under the 1.1.x key of «lone\uD800x» (afterMasterUnlock wraps again under the master that opened
-        // it, with the EXISTING encoding): it unlocks, and keeps unlocking after the upgrade wrap.
+    @Test fun aRealVersion2VaultUnderSuchAMasterStillOpensButNoneIsCreatedOrChangedToOne() {
+        // Review F5, m3: the real vault written by v1.1.1 (`vault-1.1.json`, version 2, KDF 1024/1/1, master
+        // «maestra-de-prueba»), with its data key wrapped again, as 1.1.1 wraps it (AES-256-GCM under keyAad v2), under the
+        // key Bouncy Castle 1.80 derived for «lone\uD800x» with that file's salt. That key was computed with the 1.80 jar
+        // (`generateBytes(char[])`); it is also Argon2id over the recorded 1.80 bytes.
         val vault = app.seguridad.vault.VaultCrypto
+        val fixture = vault.decodeFile(javaClass.getResourceAsStream("/seguridad/vault-1.1.json")!!.use { it.readBytes() }.decodeToString())
+        assertEquals(2, fixture.version)
+        val dek = vault.unlock(fixture, "maestra-de-prueba".toCharArray())
+        val entries = vault.read(fixture, dek)
+        val fixtureSalt = java.util.Base64.getDecoder().decode(fixture.salt)
+        val kek180 = "1af4072506a3e46bc2ea33d2870112863f64019575ad4159c94e633acaffb26c"
+        assertEquals(kek180, hexOf(rawKey(lone180Bytes, fixtureSalt, fixture.kdf.params())))
+        val nonce = randomBytes(NONCE_BYTES)
+        val wrapped = nonce + aead(Aead.AES_256_GCM, true, unhex(kek180), nonce, app.seguridad.vault.keyAad(fixture, 2), dek)
+        val legacyFile = fixture.copy(wrappedKey = java.util.Base64.getEncoder().encodeToString(wrapped))
         val legacy = "lone\uD800x"
-        val (file, dek) = vault.create("maestra-valida".toCharArray(), 1L, quick)
-        val stronger = KdfParams(memoryKiB = 1024, iterations = 2, parallelism = 1) // So afterMasterUnlock wraps again.
-        val underLegacy = vault.afterMasterUnlock(file, dek, legacy.toCharArray(), 2L, stronger)
-        val opened = vault.unlock(underLegacy, legacy.toCharArray())
+        // It opens with that master (and no longer with the other), with the same entries.
+        val opened = vault.unlock(legacyFile, legacy.toCharArray())
         assertArrayEquals(dek, opened)
-        val again = vault.afterMasterUnlock(underLegacy, opened, legacy.toCharArray(), 3L, KdfParams(memoryKiB = 1024, iterations = 3, parallelism = 1))
-        assertArrayEquals(dek, vault.unlock(again, legacy.toCharArray()))
+        assertEquals(entries, vault.read(legacyFile, opened))
+        assertThrows(CryptoFailure::class.java) { vault.unlock(legacyFile, "maestra-de-prueba".toCharArray()) }
+        // The upgrade to version 3 after unlocking (what VaultStore does with the same master) keeps it opening.
+        val v3 = vault.afterMasterUnlock(legacyFile, opened, legacy.toCharArray(), 1_790_000_000_001L, quick)
+        assertEquals(3, v3.version)
+        val reopened = vault.unlock(v3, legacy.toCharArray())
+        assertArrayEquals(dek, reopened)
+        assertEquals(entries, vault.read(v3, reopened))
         // But no new vault, and no new master, is made with it.
         assertEquals(PASSWORD_NOT_TEXT, assertThrows(CryptoFailure::class.java) { vault.create(legacy.toCharArray(), 1L, quick) }.message)
         assertEquals(
             PASSWORD_NOT_TEXT,
-            assertThrows(CryptoFailure::class.java) { vault.changeMaster(underLegacy, dek, "x\uD800y".toCharArray(), 4L, quick) }.message,
+            assertThrows(CryptoFailure::class.java) { vault.changeMaster(v3, reopened, "x\uD800y".toCharArray(), 2L, quick) }.message,
         )
         // Changing the master away from it works.
-        val (changed, newDek) = vault.changeMaster(underLegacy, dek, "nueva-valida".toCharArray(), 4L, quick)
+        val (changed, newDek) = vault.changeMaster(v3, reopened, "nueva-valida".toCharArray(), 2L, quick)
         assertArrayEquals(newDek, vault.unlock(changed, "nueva-valida".toCharArray()))
     }
 
@@ -177,7 +204,7 @@ class PasswordBytesTest {
     @Test fun argon2idLeavesThePasswordCharsAsTheyWere() {
         // The caller wipes its CharArray; argon2id must not change it (or a retry would derive another key).
         val chars = "contraseña".toCharArray()
-        argon2id(chars, salt, quick)
+        for (use in PasswordUse.entries) argon2id(chars, salt, quick, use = use)
         assertEquals("contraseña", String(chars))
     }
 

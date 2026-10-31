@@ -282,24 +282,59 @@ private val LATIN_LOOK_ALIKES: Map<Char, Char> = mapOf(
     '\u0131' to 'i', '\u0237' to 'j',
 )
 
-/** Los paréntesis, corchetes, llaves, comillas angulares y demás que encierran una palabra como «(tú)». */
-private const val OPENING_BRACKETS = "([{<«‹⟨〈《【〔「『⦅"
-private const val CLOSING_BRACKETS = ")]}>»›⟩〉》】〕」』⦆"
+/**
+ * Si [c] encierra una palabra como en «(tú)»: toda la puntuación de apertura y de cierre de Unicode y las comillas de
+ * apertura y de cierre (categorías Ps, Pe, Pi y Pf: «( [ { « ‹ ⟨ ⟦ ⦇ ⸨ ❨ 〘 【 「…»), más «<», «>» y los techos y suelos
+ * «⌈ ⌉ ⌊ ⌋», que Unicode da como símbolos matemáticos (Sm). Revisión F5, m2.
+ */
+private fun isBracket(c: Char): Boolean = when (Character.getType(c).toByte()) {
+    Character.START_PUNCTUATION, Character.END_PUNCTUATION,
+    Character.INITIAL_QUOTE_PUNCTUATION, Character.FINAL_QUOTE_PUNCTUATION,
+    -> true
+    else -> c in "<>\u2308\u2309\u230A\u230B"
+}
+
+/**
+ * Lo que sustituye a un signo de [isBracket] en el nombre plegado: un carácter de uso privado, que no es una letra y que
+ * ningún nombre guardado puede llevar (la lista fija de las tarjetas lo prohíbe), así que no se confunde con nada.
+ */
+private const val BRACKET_MARK = '\uE000'
+
+/** «tu» o «ti» entre dos signos de [isBracket] (ya cambiados por [BRACKET_MARK]), en cualquier sentido: «(tú)», «»tú«», «[ti]»… */
+private val BRACKETED_YOU = Regex("\uE000t[iu]\uE000")
+
+/** Lo que se lee como una «i» o una «o» en «ver1ficado», «ver!ficado», «verif|cado» o «verificad0»: solo para buscar «verifi». */
+private fun digitOrSignAsLetter(c: Char): Char = when (c) {
+    '1', '!', '|', '\u00A1', '\u01C0' -> 'i'
+    '0' -> 'o'
+    else -> c
+}
 
 /**
  * CADENAS-4 y CLAVE-PUBLICA-1 (auditoría 1.3.0): si [name] se puede confundir con lo que la app escribe junto al nombre
- * de un contacto («verificado», «sin verificar», la ✓) o con mi propia firma («Firmado por ti»). Sí, si:
- *  - lleva una marca de verificación ([CHECK_MARKS]);
- *  - sin mayúsculas, acentos ni compatibilidad (NFKD: «ｖｅｒｉｆｉｃａｄｏ» es «verificado»), con las letras latinas que se leen
- *    como otra ya cambiadas por ella ([LATIN_LOOK_ALIKES]: «ᴠᴇʀɪꜰɪᴄᴀᴅᴏ», «verıfıcado», «ʋerificado») y quitando todo lo que
- *    no es una letra, contiene «verifi» (verificado, verificada, sin verificar, verified, «v e r i f i c a d o»…);
- *  - solo con sus letras es «ti» o «tu» (también «tú» y «Tú»), o lleva «tu» o «ti» entre paréntesis, corchetes, llaves o
- *    comillas angulares («(tú)», «[tú]», «{ti}», «‹tú›»…).
+ * de un contacto («verificado», «sin verificar», la ✓) o con mi propia firma («Firmado por ti»).
+ *
+ * **Lo que detecta.** El nombre se pasa a NFKD, se le quitan las marcas combinantes (los acentos) y se pone en minúsculas;
+ * las letras latinas de [LATIN_LOOK_ALIKES] se cambian por la que parecen. Entonces, sí, si:
+ *  - lleva una marca de verificación ([CHECK_MARKS]: ✓ ✔ ☑ ✅ √ ⍻ 🗸 🗹 y la de Egeo);
+ *  - con «1», «!», «|», «¡» y «ǀ» como «i» y «0» como «o», y quedándose solo con las letras, contiene «verifi».
+ *    Así caen «verificado», «verificada», «sin verificar», «Verificado», «verificádo», «verified», «v e r i f i c a d o»,
+ *    «ｖｅｒｉｆｉｃａｄｏ», «ᴠᴇʀɪꜰɪᴄᴀᴅᴏ», «verıfıcado», «ʋerificado», «ver1ficado», «verif1cado» y «ver!ficado». Las cifras
+ *    solo cuentan como letras para esta búsqueda: «Lucía 10» vale;
+ *  - solo con sus letras es «ti» o «tu» («tú», «Tú», «ᴛɪ»…);
+ *  - lleva «tu» o «ti» entre dos signos de [isBracket], en cualquier sentido y con espacios o no: «(tú)», «[tú]»,
+ *    «{ti}», ««tú»», «‹ti›», «⸨tú⸩», «❨tú❩», «⦇tú⦈», «⟦tú⟧», «〘tú〙», «⌈tú⌉», «<tú>».
+ *
+ * **Lo que no detecta** (se acepta: la línea del remitente pone el estado real delante y el nombre entre «», y en las
+ * listas la marca real va debajo del nombre):
+ *  - letras de otros alfabetos que se parecen a las latinas («vеrificado» con una е cirílica, «νerificado» con una ν
+ *    griega, «ᴠᴇʀɪғɪᴄᴀᴅᴏ» con una ғ cirílica);
+ *  - letras latinas que no están en [LATIN_LOOK_ALIKES] («ꝟerificado», «veꞃificado») y otras letras en lugar de la «i»
+ *    («verlficado» con una ele);
+ *  - «tu» o «ti» separados con otros signos («Ana - tú», «Ana: tú») y los emoji que no son una marca de verificación (👍).
+ *
  * Es una regla para lo que se escribe o llega ahora ([checkContactName] y [suggestedContactName]); un contacto ya
- * guardado así se sigue leyendo y se enseña entre «» ([shownContactTitle]). No ve las letras de otros alfabetos que se
- * parecen a las latinas («vеrificado» con una е cirílica, «νerificado» con una ν griega), ni otras latinas que no están
- * en la lista: para eso está el orden de la línea del remitente, con el estado delante, y la marca real debajo del
- * nombre en las listas.
+ * guardado así se sigue leyendo y se enseña entre «» ([shownContactTitle]).
  */
 fun imitatesTrustMark(name: String): Boolean {
     if (name.codePoints().anyMatch { it in CHECK_MARKS }) return true
@@ -307,20 +342,13 @@ fun imitatesTrustMark(name: String): Boolean {
     val folded = buildString(decomposed.length) {
         for (c in decomposed) {
             val lower = c.lowercaseChar()
-            append(
-                LATIN_LOOK_ALIKES[lower] ?: LATIN_LOOK_ALIKES[c] ?: when (c) {
-                    in OPENING_BRACKETS -> '('
-                    in CLOSING_BRACKETS -> ')'
-                    else -> lower
-                },
-            )
+            append(LATIN_LOOK_ALIKES[lower] ?: LATIN_LOOK_ALIKES[c] ?: if (isBracket(c)) BRACKET_MARK else lower)
         }
     }
     val letters = folded.filter { it.isLetter() }
-    if ("verifi" in letters) return true
+    if ("verifi" in folded.map(::digitOrSignAsLetter).filter { it.isLetter() }.joinToString("")) return true
     if (letters == "ti" || letters == "tu") return true
-    val compact = folded.filterNot { it.isWhitespace() }
-    return "(tu)" in compact || "(ti)" in compact
+    return BRACKETED_YOU.containsMatchIn(folded.filterNot { it.isWhitespace() })
 }
 
 /**

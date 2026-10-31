@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import app.seguridad.crypto.newPasswordFailureMessage
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.clickable
@@ -65,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.newPasswordFailureMessage
 import app.seguridad.crypto.totpCode
 import app.seguridad.tools.RESET_WIPES_DAMAGED
 import app.seguridad.tools.VAULT_CREATE_INTRO
