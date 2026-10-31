@@ -265,6 +265,10 @@ class ContactsViewTest {
         "Ana \u1D20\u1D07\u0280\u026A\uA730\u026A\u1D04\u1D00\u1D05\u1D0F \u1D04\u1D0F\u0274 \u01EB\u0280", // … ᴄᴏɴ ǫʀ
         "Ana ver\u0131f\u0131cado", "Ana \u028Berificado", "Ana \u237B", "Ana [tú]", "Ana {tu}", "Ana «tú»", "Ana ‹ti›",
         "Ana 【tú】", "Ana (ti)", "\u1D1B\u026A",
+        // Review F5, m2: every Ps/Pe/Pi/Pf bracket, ⌈⌉ (Sm), and digits or signs read as «i» or «o».
+        "Ana ⸨tú⸩", "Ana ❨tú❩", "Ana ⦇tú⦈", "Ana ⟦tú⟧", "Ana 〘tú〙", "Ana ⌈tú⌉", "Ana ⌊ti⌋", "Ana »tú«", "Ana “tú”",
+        "Ana ver1ficado", "Ana verif1cado", "Ana ver!ficado", "Ana verif|cado", "Ana ver¡ficado", "Ana verif\u01C0cado",
+        "Ana VER1F1CAD0",
     )
 
     @Test fun unNombreQueImitaLaMarcaDeVerificacionSeRechaza() {
@@ -280,6 +284,8 @@ class ContactsViewTest {
         for (ok in listOf(
             "Ana", "Tito", "Tuya", "Martín", "Ana Tú Pérez", "Verónica", "Vera", "Fico", "❤️", "Ana (casa)", "Ti Ana",
             "Ana [trabajo]", "Ana «Tita»", "Iñaki", "Ana \u1D04\u1D00\u0280\u1D0D\u1D07\u0274", // ᴄᴀʀᴍᴇɴ
+            "Ana (Tita)", "Lucía 10", "Ana 1ª", "Ana 2024", "Verona (trabajo)", "Ver (fiesta)", "Ana (ti amo)", "Tuti",
+            "Ana | trabajo", "Pepe 01",
         )) {
             assertTrue("«$ok» debería valer", checkContactName(ok) is ContactName.Valid)
             assertFalse(ok, imitatesTrustMark(ok))

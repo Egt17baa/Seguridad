@@ -5,8 +5,8 @@ import app.seguridad.crypto.Aead
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KEY_BYTES
 import app.seguridad.crypto.KdfParams
-import app.seguridad.crypto.PasswordUse
 import app.seguridad.crypto.NONCE_BYTES
+import app.seguridad.crypto.PasswordUse
 import app.seguridad.crypto.SALT_BYTES
 import app.seguridad.crypto.TAG_BYTES
 import app.seguridad.crypto.TotpSecret
@@ -200,9 +200,10 @@ private fun openAny(key: ByteArray, sealed: String, f: VaultFile, aad: (Int) -> 
  * The labels come from the file's own format, so a [VaultFile.LEGACY_FORMAT] file gets exactly the old labels
  * ("criptopanel-vault-key-v1", "criptopanel-vault-key-v2"). Versions 2 and 3 share the label and bind the format,
  * version, Argon2id cost and salt to the wrapped key: the version number inside the associated data is what tells
- * them apart, so wrapping again under a 3 needs the master password.
+ * them apart, so wrapping again under a 3 needs the master password. Internal only so a test can wrap the real 1.1.1
+ * fixture under the key Bouncy Castle 1.80 derived (`PasswordBytesTest`, review F5, m3).
  */
-private fun keyAad(f: VaultFile, version: Int) =
+internal fun keyAad(f: VaultFile, version: Int) =
     if (version == 1) "${f.format}-key-v1".toByteArray() else fieldsAad("${f.format}-key-v2", f, version)
 
 /**

@@ -102,13 +102,13 @@ class CryptoTest {
         val salt = ByteArray(SALT_BYTES)
         try {
             try {
-                argon2id(password, salt, KdfParams(memoryKiB = MAX_KDF_MEMORY_KIB + 1, iterations = 1))
+                argon2id(password, salt, KdfParams(memoryKiB = MAX_KDF_MEMORY_KIB + 1, iterations = 1), use = PasswordUse.NEW)
                 fail("expected CryptoFailure for excessive memory")
             } catch (e: CryptoFailure) {
                 // Rejected before the expensive KDF allocation.
             }
             try {
-                argon2id(password, salt, KdfParams(memoryKiB = 1024, iterations = 0))
+                argon2id(password, salt, KdfParams(memoryKiB = 1024, iterations = 0), use = PasswordUse.NEW)
                 fail("expected CryptoFailure for invalid iterations")
             } catch (e: CryptoFailure) {
                 // Rejected before the expensive KDF allocation.
@@ -120,13 +120,13 @@ class CryptoTest {
 
     @Test fun `argon2id public API rejects malformed salt and output length`() {
         try {
-            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES - 1), FAST)
+            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES - 1), FAST, use = PasswordUse.NEW)
             fail("expected IllegalArgumentException for malformed salt")
         } catch (e: IllegalArgumentException) {
             // expected
         }
         try {
-            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES), FAST, 1025)
+            argon2id("pw".toCharArray(), ByteArray(SALT_BYTES), FAST, 1025, PasswordUse.NEW)
             fail("expected IllegalArgumentException for unbounded output")
         } catch (e: IllegalArgumentException) {
             // expected
@@ -245,7 +245,7 @@ class CryptoTest {
         val secret = Secret.Password(password.toCharArray())
         val header = newHeader(Header.KIND_FILE, Aead.AES_256_GCM, secret, FAST, secureRandom)
         val aad = header.bytes()
-        val key = keyForHeader(secret, header)
+        val key = keyForHeader(secret, header, PasswordUse.NEW)
         val out = ByteArrayOutputStream()
         out.write(aad)
         val sealedName = aead(Aead.AES_256_GCM, true, key, streamNonce(header.nonce, 0, false), aad, name.toByteArray(Charsets.UTF_8))

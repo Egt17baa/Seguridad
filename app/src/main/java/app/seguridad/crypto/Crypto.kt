@@ -213,9 +213,10 @@ fun randomBytes(n: Int, random: SecureRandom = secureRandom): ByteArray = ByteAr
  * and what opens something made earlier differ only for a password that is not valid text); the caller wipes the result
  * when done. Throws [CryptoFailure] ([KDF_OUT_OF_MEMORY]) when the phone has no heap for [p]'s memory, so opening «Alto»
  * data on a small phone fails with a clear message rather than crashing the app, and ([PASSWORD_NOT_TEXT]) for a
- * password [use] refuses.
+ * password [use] refuses. [use] has no default on purpose (review F5, m1): a new path that opens data must say
+ * [PasswordUse.EXISTING], or 1.0.x/1.1.x data would stop opening without any test noticing.
  */
-fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = KEY_BYTES, use: PasswordUse = PasswordUse.NEW): ByteArray {
+fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = KEY_BYTES, use: PasswordUse): ByteArray {
     // Keep this public entry point safe too: callers must not be able to bypass header validation.
     require(salt.size == SALT_BYTES) { "Argon2id salt must be 16 bytes" }
     require(length in 4..1024) { "Argon2id output length is out of bounds" }
@@ -363,9 +364,9 @@ fun parseRawKey(text: String): ByteArray? {
 
 /**
  * The encryption key for [secret]; for a raw key, a copy (the caller wipes it). A password is encoded for [use]: [PasswordUse.NEW]
- * when encrypting, [PasswordUse.EXISTING] when decrypting (review F5, M1).
+ * when encrypting, [PasswordUse.EXISTING] when decrypting (review F5, M1); no default, as in [argon2id].
  */
-internal fun keyForHeader(secret: Secret, header: Header, use: PasswordUse = PasswordUse.NEW): ByteArray = when (secret) {
+internal fun keyForHeader(secret: Secret, header: Header, use: PasswordUse): ByteArray = when (secret) {
     is Secret.Password -> {
         if (header.kdfId != Header.KDF_ARGON2ID) throw CryptoFailure("Esto se cifró con una clave, no con una contraseña")
         argon2id(secret.chars, header.salt, header.kdf, use = use)

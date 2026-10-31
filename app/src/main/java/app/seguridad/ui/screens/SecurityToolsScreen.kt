@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import app.seguridad.crypto.newPasswordFailureMessage
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -73,6 +72,7 @@ import app.seguridad.crypto.generatePassphrase
 import app.seguridad.crypto.generatePassword
 import app.seguridad.crypto.inspectText
 import app.seguridad.crypto.isRawKeyText
+import app.seguridad.crypto.newPasswordFailureMessage
 import app.seguridad.crypto.newRawKeyHex
 import app.seguridad.crypto.parseRawKey
 import app.seguridad.crypto.passphraseEntropy
