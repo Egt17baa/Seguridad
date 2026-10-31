@@ -40,7 +40,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -88,8 +87,6 @@ import app.seguridad.tools.CODES_SITE_NEEDED
 import app.seguridad.tools.CODES_TOOL_TITLE
 import app.seguridad.tools.CODES_UNLOCK_TO_SAVE
 import app.seguridad.tools.RECOVERY_CODES_TEXT
-import app.seguridad.tools.codes.Cell
-import app.seguridad.tools.codes.CellFactory
 import app.seguridad.tools.codes.CodesSession
 import app.seguridad.tools.codes.LockSeen
 import app.seguridad.tools.codes.PendingSave
@@ -122,20 +119,6 @@ private val pinCountScope = CoroutineScope(SupervisorJob() + Dispatchers.Default
 private val pinCounts = ConcurrentHashMap<Int, Deferred<Long>>()
 
 private fun pinCount(digits: Int): Deferred<Long> = pinCounts.computeIfAbsent(digits) { pinCountScope.async { strongPinCount(digits) } }
-
-/** Compose state for a [CodesSession]: what the ViewModel holds redraws the screen when it changes. */
-private object ComposeCells : CellFactory {
-    override fun <T> cell(initial: T): Cell<T> = object : Cell<T> {
-        private val state = mutableStateOf(initial)
-        override var value: T
-            get() = state.value
-            set(v) {
-                state.value = v
-            }
-    }
-
-    override fun <T> list(): MutableList<T> = mutableStateListOf()
-}
 
 /**
  * Holds the screen's [CodesSession] for its navigation entry: a rotation, a theme change or a split screen keeps what

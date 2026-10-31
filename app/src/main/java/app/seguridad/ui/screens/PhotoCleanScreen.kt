@@ -120,20 +120,22 @@ internal fun writeDocument(context: Context, uri: Uri, bytes: ByteArray) {
 }
 
 /**
- * CPU work, on Dispatchers.Default: only HEIF goes to the JPEG conversion; an unknown format is refused. Stops between
- * steps once the screen is gone.
+ * CPU work, on Dispatchers.Default: only HEIF goes to the JPEG conversion; an unknown format is refused. Stops once the
+ * screen is gone or another photo is opened: between steps, and inside the readers too (HERR-1, audit 1.3.0: they call
+ * [check] as they go, so a cancelled job frees its thread instead of running to the end).
  */
 private suspend fun cleanCopy(bytes: ByteArray): CleanCopy = withContext(Dispatchers.Default) {
+    val check = { ensureActive() }
     fun same(ext: String, mime: String): CleanCopy {
-        val report = PhotoCleaner.inspect(bytes)
+        val report = PhotoCleaner.inspect(bytes, check)
         ensureActive()
-        return CleanCopy(report, false, PhotoCleaner.clean(bytes), ext, mime)
+        return CleanCopy(report, false, PhotoCleaner.clean(bytes, check), ext, mime)
     }
     when (detectFormat(bytes)) {
         PhotoFormat.HEIF -> {
             val jpeg = heifToJpeg(bytes)
             ensureActive()
-            CleanCopy(PhotoCleaner.inspect(jpeg), true, jpeg, "jpg", "image/jpeg")
+            CleanCopy(PhotoCleaner.inspect(jpeg, check), true, jpeg, "jpg", "image/jpeg")
         }
         PhotoFormat.JPEG -> same("jpg", "image/jpeg")
         PhotoFormat.PNG -> same("png", "image/png")

@@ -12,10 +12,11 @@ package app.seguridad.tools.photo
  * loop advances, and the only exception that leaves this object is [PhotoFailure].
  */
 object Jpeg {
-    fun inspect(bytes: ByteArray): PhotoReport = parse(bytes).report
+    /** [check]: the caller's cancellation checkpoint, called once per segment and every MiB of scan data (HERR-1). */
+    fun inspect(bytes: ByteArray, check: () -> Unit = {}): PhotoReport = parse(bytes, check).report
 
-    fun clean(bytes: ByteArray): ByteArray {
-        val parsed = parse(bytes)
+    fun clean(bytes: ByteArray, check: () -> Unit = {}): ByteArray {
+        val parsed = parse(bytes, check)
         val orientation = if (parsed.report.orientation != 1) orientationApp1(parsed.report.orientation) else null
         var size = 4L + (orientation?.size ?: 0)
         for (p in parsed.pieces) size += p.length
@@ -43,7 +44,7 @@ object Jpeg {
 
     private fun damaged(): Nothing = throw PhotoFailure(PHOTO_DAMAGED)
 
-    private fun parse(b: ByteArray): Parsed {
+    private fun parse(b: ByteArray, check: () -> Unit): Parsed {
         val n = b.size
         fun u8(i: Int) = b[i].toInt() and 0xFF
         if (n < 4 || u8(0) != 0xFF || u8(1) != 0xD8) damaged()
@@ -56,6 +57,7 @@ object Jpeg {
         var p = 2
         var imageEnd = -1
         while (true) {
+            check()
             if (p >= n || u8(p) != 0xFF) damaged()
             while (p < n && u8(p) == 0xFF) p++ // fill bytes
             if (p >= n) damaged()
@@ -80,13 +82,13 @@ object Jpeg {
                 0xDA -> {
                     if (!sawSof) damaged()
                     sawSos = true
-                    val dataEnd = scanEnd(b, segEnd)
+                    val dataEnd = scanEnd(b, segEnd, check)
                     pieces += Piece(segStart, dataEnd)
                     p = dataEnd
                 }
                 0xFE -> found += Found.XMP_COMMENTS
                 in 0xE0..0xEF -> {
-                    val keep = app(b, m, payload, segEnd, found)
+                    val keep = app(b, m, payload, segEnd, found, check)
                     if (keep != null) pieces += keep
                     if (m == 0xE1 && Bytes.startsWith(b, payload, segEnd, EXIF)) {
                         // Every EXIF segment is reported; the first one gives orientation and GPS.
@@ -100,7 +102,9 @@ object Jpeg {
         }
         if (!sawSos) damaged()
 
-        if (hasTrailingData(b, imageEnd)) found += Found.MOTION_VIDEO
+        trailing(b, imageEnd)?.let { found += it }
+        // The other image of an HDR photo is its gain map: named once, as that.
+        if (Found.HDR_GAIN_MAP in found) found -= Found.EXTRA_IMAGE
         val report = PhotoReport(PhotoFormat.JPEG, found.toSet(), exif?.gps, exif?.orientation ?: 1)
         return Parsed(report, pieces)
     }
@@ -109,10 +113,12 @@ object Jpeg {
      * End of the entropy-coded data that starts at [start]: the first FF that is followed
      * (after any fill FFs) by a marker other than 00 (stuffed byte) or D0..D7 (restart).
      */
-    private fun scanEnd(b: ByteArray, start: Int): Int {
+    private fun scanEnd(b: ByteArray, start: Int, check: () -> Unit): Int {
         val n = b.size
         var i = start
+        var steps = 0
         while (true) {
+            if (++steps and SCAN_CHECK_MASK == 0) check()
             if (i >= n) damaged() // no EOI
             if (b[i] != 0xFF.toByte()) { i++; continue }
             var j = i
@@ -124,14 +130,27 @@ object Jpeg {
         }
     }
 
-    /** Anything after EOI other than zero or FF padding: a motion-photo video or another image. */
-    private fun hasTrailingData(b: ByteArray, from: Int): Boolean {
-        for (i in from until b.size) if (b[i] != 0.toByte() && b[i] != 0xFF.toByte()) return true
-        return false
+    /**
+     * What comes after EOI, past any zero or FF padding, or null when nothing does (Ultra HDR review, audit 1.3.0: it
+     * used to be called a video whatever it was):
+     * - another JPEG (FF D8 FF), such as the gain map of an Ultra HDR photo or an MPF image: [Found.EXTRA_IMAGE];
+     * - an MP4 (its `ftyp` box) or Samsung's «MotionPhoto_Data»: [Found.MOTION_VIDEO];
+     * - anything else: [Found.OTHER]. All of it is dropped either way.
+     */
+    private fun trailing(b: ByteArray, from: Int): Found? {
+        val n = b.size
+        var k = from
+        while (k < n && (b[k] == 0.toByte() || b[k] == 0xFF.toByte())) k++
+        if (k >= n) return null
+        if (k > from && b[k] == 0xD8.toByte() && b[k - 1] == 0xFF.toByte() && k + 1 < n && b[k + 1] == 0xFF.toByte()) return Found.EXTRA_IMAGE
+        // The box size before `ftyp` starts with zero bytes, which the loop above went past.
+        if (Bytes.contains(b, maxOf(from, k - 3), minOf(n, k + 12), FTYP)) return Found.MOTION_VIDEO
+        if (Bytes.contains(b, k, minOf(n, k + TRAILER_SEARCH), SAMSUNG_MOTION)) return Found.MOTION_VIDEO
+        return Found.OTHER
     }
 
     /** Reports an APPn segment and returns the piece to keep, if it is one of the two kept. */
-    private fun app(b: ByteArray, m: Int, payload: Int, end: Int, found: MutableSet<Found>): Piece? {
+    private fun app(b: ByteArray, m: Int, payload: Int, end: Int, found: MutableSet<Found>, check: () -> Unit): Piece? {
         fun has(prefix: ByteArray) = Bytes.startsWith(b, payload, end, prefix)
         when (m) {
             0xE0 -> when {
@@ -146,12 +165,20 @@ object Jpeg {
             }
             0xE1 -> when {
                 has(EXIF) -> {} // read by the caller
-                has(XMP) || has(XMP_EXT) -> { found += Found.XMP_COMMENTS; found += Xmp.flags(b, payload, end) }
+                has(XMP) || has(XMP_EXT) -> {
+                    found += Found.XMP_COMMENTS
+                    found += Xmp.flags(b, payload, end, check)
+                    // The primary image of an Ultra HDR photo describes its gain map here (Adobe's namespace).
+                    if (Bytes.contains(b, payload, end, HDR_GAIN_MAP_NS) || Bytes.contains(b, payload, end, HDRGM)) found += Found.HDR_GAIN_MAP
+                }
                 else -> found += Found.OTHER
             }
             0xE2 -> when {
                 has(ICC) -> { found += Found.ICC_KEPT; return Piece(payload - 4, end) }
-                has(MPF) -> found += Found.MOTION_VIDEO
+                // MPF lists other images of the file (an Ultra HDR gain map, a preview…), stored after EOI.
+                has(MPF) -> found += Found.EXTRA_IMAGE
+                // ISO 21496-1 gain map metadata (Android 15+), with or without the XMP above.
+                has(ISO_GAIN_MAP) -> found += Found.HDR_GAIN_MAP
                 else -> found += Found.OTHER
             }
             0xEB -> found += if (has(JP) && Bytes.contains(b, payload, minOf(end, payload + 32), JUMB)) Found.C2PA else Found.OTHER
@@ -182,7 +209,7 @@ object Jpeg {
      * least one SOF before the first SOS; and a final EOI with nothing after. No fill bytes,
      * no standalone markers, nothing else: exactly the shapes [clean] writes.
      */
-    internal fun isCleanOutput(b: ByteArray): Boolean {
+    internal fun isCleanOutput(b: ByteArray, check: () -> Unit = {}): Boolean {
         val n = b.size
         fun u8(i: Int) = b[i].toInt() and 0xFF
         if (n < 4 || u8(0) != 0xFF || u8(1) != 0xD8) return false
@@ -191,6 +218,7 @@ object Jpeg {
         var sawSos = false
         var p = 2
         while (true) {
+            check()
             if (p + 2 > n || u8(p) != 0xFF) return false
             val m = u8(p + 1)
             if (m == 0xD9) return sawSos && p + 2 == n
@@ -210,7 +238,7 @@ object Jpeg {
             if (!ok) return false
             p = if (m == 0xDA) {
                 sawSos = true
-                try { scanEnd(b, end) } catch (e: PhotoFailure) { return false }
+                try { scanEnd(b, end, check) } catch (e: PhotoFailure) { return false }
             } else {
                 end
             }
@@ -242,6 +270,17 @@ object Jpeg {
     private val XMP_EXT = ascii("http://ns.adobe.com/xmp/extension/\u0000")
     private val ICC = ascii("ICC_PROFILE\u0000")
     private val MPF = ascii("MPF\u0000")
+    private val ISO_GAIN_MAP = ascii("urn:iso:std:iso:ts:21496:-1")
+    private val HDR_GAIN_MAP_NS = ascii("http://ns.adobe.com/hdr-gain-map/1.0/")
+    private val HDRGM = ascii("hdrgm:")
+    private val FTYP = ascii("ftyp")
+    private val SAMSUNG_MOTION = ascii("MotionPhoto_Data")
+
+    /** How far into what follows EOI Samsung's marker is looked for (it comes first). */
+    private const val TRAILER_SEARCH = 4096
+
+    /** The scan data loop calls the checkpoint once per 2^20 steps (about a MiB). */
+    private const val SCAN_CHECK_MASK = 0xFFFFF
     private val JP = ascii("JP")
     private val JUMB = ascii("jumb")
     private val PHOTOSHOP = ascii("Photoshop 3.0\u0000")

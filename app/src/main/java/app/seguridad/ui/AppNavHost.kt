@@ -215,10 +215,21 @@ fun AppNavHost(container: AppContainer) {
                     ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
                 }
                 composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
-                composable("tools/text") { TextCryptoScreen(settings.kdf.params, onBack = back) }
-                composable("tools/file") { FileCryptoScreen(settings.kdf.params, onBack = back, onOpenReceived = { nav.navigate("contacts/open") }) }
+                // COV1-1: what is typed there and the result go by the «PIN y códigos» rule (lock time, multi-window, locks).
+                val lockAfterMs = { settingsStore.settings.value.lockAfter.ms }
+                composable("tools/text") {
+                    TextCryptoScreen(settings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                }
+                composable("tools/file") {
+                    FileCryptoScreen(
+                        settings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp,
+                        onBack = back, onOpenReceived = { nav.navigate("contacts/open") },
+                    )
+                }
                 composable("tools/generator") { GeneratorScreen(onBack = back) }
-                composable("tools/breach") { BreachScreen(container.pwned, onBack = back) }
+                composable("tools/breach") {
+                    BreachScreen(container.pwned, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                }
                 composable("tools/hash") { FileHashScreen(onBack = back) }
                 composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
                 composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
@@ -226,13 +237,15 @@ fun AppNavHost(container: AppContainer) {
                 composable("tools/qr") {
                     QrInspectScreen(
                         vault,
+                        lockAfterMs = lockAfterMs,
+                        awayInOtherApp = container.awayInOtherApp,
                         onAddContact = { nav.navigate("contacts/add") },
                         onOpenReceived = { nav.navigate("contacts/open") },
                         onAddTotp = { nav.navigate("tools/qr/totp") },
                         onBack = back,
                     )
                 }
-                composable("tools/codes") { CodesScreen(vault, lockAfterMs = { settingsStore.settings.value.lockAfter.ms }, awayInOtherApp = container.awayInOtherApp, onBack = back) }
+                composable("tools/codes") { CodesScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
                 composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
                 composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
                 composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }

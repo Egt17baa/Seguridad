@@ -4,7 +4,9 @@ import app.seguridad.tools.photo.Found.AUTHOR_RIGHTS
 import app.seguridad.tools.photo.Found.C2PA
 import app.seguridad.tools.photo.Found.DATE_SOFTWARE
 import app.seguridad.tools.photo.Found.DEVICE
+import app.seguridad.tools.photo.Found.EXTRA_IMAGE
 import app.seguridad.tools.photo.Found.GPS
+import app.seguridad.tools.photo.Found.HDR_GAIN_MAP
 import app.seguridad.tools.photo.Found.ICC_KEPT
 import app.seguridad.tools.photo.Found.MOTION_VIDEO
 import app.seguridad.tools.photo.Found.OTHER
@@ -58,7 +60,8 @@ class JpegTest {
     @Test fun reportNamesWhatIsThere() {
         val r = Jpeg.inspect(TestImages.everything())
         assertEquals(PhotoFormat.JPEG, r.format)
-        assertEquals(setOf(GPS, DEVICE, DATE_SOFTWARE, THUMBNAIL, XMP_COMMENTS, ICC_KEPT, MOTION_VIDEO, AUTHOR_RIGHTS), r.found)
+        // MPF is another image, and the junk after EOI is neither a video nor an image.
+        assertEquals(setOf(GPS, DEVICE, DATE_SOFTWARE, THUMBNAIL, XMP_COMMENTS, ICC_KEPT, EXTRA_IMAGE, AUTHOR_RIGHTS, OTHER), r.found)
         assertEquals(40.42 to -3.7, r.gps)
         assertEquals(1, r.orientation)
     }
@@ -75,9 +78,67 @@ class JpegTest {
         val out = Jpeg.clean(input)
         assertArrayEquals(TestImages.plainJpeg(), out)
         assertTrue(Jpeg.inspect(out).found.isEmpty())
-        assertTrue(MOTION_VIDEO in Jpeg.inspect(input).found)
-        // A second image alone after EOI, without MPF, is still reported.
-        assertTrue(MOTION_VIDEO in Jpeg.inspect(concat(TestImages.plainJpeg(), TestImages.plainJpeg())).found)
+        // Another image, not a video (Ultra HDR review, audit 1.3.0).
+        assertEquals(setOf(EXTRA_IMAGE), Jpeg.inspect(input).found)
+        // A second image alone after EOI, without MPF, is still reported, as an image.
+        assertEquals(setOf(EXTRA_IMAGE), Jpeg.inspect(concat(TestImages.plainJpeg(), TestImages.plainJpeg())).found)
+        // After zero or FF padding too.
+        assertEquals(setOf(EXTRA_IMAGE), Jpeg.inspect(concat(TestImages.plainJpeg(), ByteArray(8), TestImages.bytes(0xFF, 0xFF), TestImages.plainJpeg())).found)
+    }
+
+    /** The primary XMP of an Ultra HDR JPEG (Android 14+): the gain map's version and its place in the container. */
+    private val ultraHdrXmp = TestImages.xmp(
+        TestImages.xmpPacket(
+            "xmlns:Container='http://ns.google.com/photos/1.0/container/' " +
+                "xmlns:Item='http://ns.google.com/photos/1.0/container/item/' " +
+                "xmlns:hdrgm='http://ns.adobe.com/hdr-gain-map/1.0/' hdrgm:Version='1.0'><Container:Directory><rdf:Seq>" +
+                "<rdf:li><Container:Item Item:Semantic='Primary' Item:Mime='image/jpeg'/></rdf:li>" +
+                "<rdf:li><Container:Item Item:Semantic='GainMap' Item:Mime='image/jpeg' Item:Length='1234'/></rdf:li>" +
+                "</rdf:Seq></Container:Directory></rdf:Description><rdf:Description",
+        ),
+    )
+
+    @Test fun ultraHdrIsAGainMapNotAVideo() {
+        // MPF, the gain map's XMP, and the gain map (a JPEG) after EOI.
+        val input = concat(SOI, ultraHdrXmp, TestImages.mpf(), baseline.body(), EOI, TestImages.plainJpeg())
+        val r = Jpeg.inspect(input)
+        assertEquals(setOf(XMP_COMMENTS, HDR_GAIN_MAP), r.found)
+        assertFalse(MOTION_VIDEO in r.found)
+        // The copy is the base image alone: no XMP, no MPF, no gain map.
+        val out = PhotoCleaner.clean(input)
+        assertArrayEquals(TestImages.plainJpeg(), out)
+        assertTrue(Jpeg.inspect(out).found.isEmpty())
+        // ISO 21496-1 gain map metadata (Android 15+), in APP2 instead of XMP.
+        val iso = TestImages.seg(0xE2, concat(ascii("urn:iso:std:iso:ts:21496:-1"), bytes(0, 0, 0, 0, 0)))
+        val isoInput = concat(SOI, iso, TestImages.mpf(), baseline.body(), EOI, TestImages.plainJpeg())
+        assertEquals(setOf(HDR_GAIN_MAP), Jpeg.inspect(isoInput).found)
+        assertArrayEquals(TestImages.plainJpeg(), PhotoCleaner.clean(isoInput))
+    }
+
+    @Test fun motionPhotosAreStillVideos() {
+        val mp4 = concat(bytes(0, 0, 0, 0x18), ascii("ftypmp42"), ByteArray(16) { 1 })
+        // Google's marker in XMP, with the video after EOI.
+        val google = concat(SOI, TestImages.xmp(TestImages.xmpPacket("xmlns:GCamera='http://ns.google.com/photos/1.0/camera/' GCamera:MotionPhoto='1'")), baseline.body(), EOI, mp4)
+        assertEquals(setOf(XMP_COMMENTS, MOTION_VIDEO), Jpeg.inspect(google).found)
+        assertArrayEquals(TestImages.plainJpeg(), PhotoCleaner.clean(google))
+        // No marker, but an MP4 right after EOI.
+        assertEquals(setOf(MOTION_VIDEO), Jpeg.inspect(concat(TestImages.plainJpeg(), mp4)).found)
+        // Samsung's trailer names it.
+        val samsung = concat(TestImages.plainJpeg(), ascii("MotionPhoto_Data"), mp4, ascii("SEFH"))
+        assertEquals(setOf(MOTION_VIDEO), Jpeg.inspect(samsung).found)
+        // An Ultra HDR motion photo: both.
+        val both = concat(
+            SOI, ultraHdrXmp, TestImages.xmp(TestImages.xmpPacket("GCamera:MotionPhoto='1'")), TestImages.mpf(), baseline.body(), EOI,
+            TestImages.plainJpeg(), mp4,
+        )
+        assertEquals(setOf(XMP_COMMENTS, HDR_GAIN_MAP, MOTION_VIDEO), Jpeg.inspect(both).found)
+        assertArrayEquals(TestImages.plainJpeg(), PhotoCleaner.clean(both))
+    }
+
+    @Test fun otherDataAfterEoiIsNamedNeutrally() {
+        val r = Jpeg.inspect(concat(TestImages.plainJpeg(), ascii("datos tras el final")))
+        assertEquals(setOf(OTHER), r.found)
+        assertArrayEquals(TestImages.plainJpeg(), Jpeg.clean(concat(TestImages.plainJpeg(), ascii("datos tras el final"))))
     }
 
     @Test fun paddingAfterEoiIsNotAVideo() {

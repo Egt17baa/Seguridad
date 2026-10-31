@@ -15,10 +15,11 @@ import java.util.zip.CRC32
  * leaves this object is [PhotoFailure].
  */
 object Png {
-    fun inspect(bytes: ByteArray): PhotoReport = parse(bytes).report
+    /** [check]: the caller's cancellation checkpoint, called once per chunk and in the XMP reader (HERR-1). */
+    fun inspect(bytes: ByteArray, check: () -> Unit = {}): PhotoReport = parse(bytes, check).report
 
-    fun clean(bytes: ByteArray): ByteArray {
-        val spans = parse(bytes).spans
+    fun clean(bytes: ByteArray, check: () -> Unit = {}): ByteArray {
+        val spans = parse(bytes, check).spans
         var size = SIGNATURE.size.toLong()
         for (s in spans) size += s.end - s.start
         if (size > Int.MAX_VALUE - 8) damaged()
@@ -78,7 +79,7 @@ object Png {
         return w in 1..0x7FFFFFFFL && h in 1..0x7FFFFFFFL
     }
 
-    private fun parse(b: ByteArray): Parsed {
+    private fun parse(b: ByteArray, check: () -> Unit): Parsed {
         if (!Bytes.startsWith(b, 0, b.size, SIGNATURE)) damaged()
         val found = HashSet<Found>()
         val spans = ArrayList<Span>()
@@ -88,6 +89,7 @@ object Png {
         var p = SIGNATURE.size
         var first = true
         while (true) {
+            check()
             val c = chunkAt(b, p) ?: damaged()
             if (first != (c.type == "IHDR")) damaged() // IHDR first, and only there
             if (first && !ihdrOk(b, c)) damaged()
@@ -112,7 +114,7 @@ object Png {
                 spans += Span(p, c.next)
             } else {
                 // Several eXIf chunks: gps and orientation come from the first, `found` merges all.
-                val info = report(b, c, found)
+                val info = report(b, c, found, check)
                 if (exif == null) exif = info
             }
             p = c.next
@@ -122,9 +124,9 @@ object Png {
     }
 
     /** Reports a dropped chunk. Returns the EXIF reading for an eXIf chunk. */
-    private fun report(b: ByteArray, c: Chunk, found: MutableSet<Found>): ExifInfo? {
+    private fun report(b: ByteArray, c: Chunk, found: MutableSet<Found>, check: () -> Unit): ExifInfo? {
         when (c.type) {
-            "tEXt", "zTXt", "iTXt" -> text(b, c, found)
+            "tEXt", "zTXt", "iTXt" -> text(b, c, found, check)
             "tIME" -> found += Found.DATE_SOFTWARE
             "caBX" -> found += Found.C2PA
             "eXIf" -> {
@@ -140,7 +142,7 @@ object Png {
     }
 
     /** Text chunks are reported from their keyword only; uncompressed XMP is also read. */
-    private fun text(b: ByteArray, c: Chunk, found: MutableSet<Found>) {
+    private fun text(b: ByteArray, c: Chunk, found: MutableSet<Found>, check: () -> Unit) {
         var k = c.dataAt
         val limit = minOf(c.dataEnd, c.dataAt + 80)
         while (k < limit && b[k] != 0.toByte()) k++
@@ -152,7 +154,7 @@ object Png {
             keyword == "Source" -> found += Found.DEVICE
             keyword == "XML:com.adobe.xmp" -> {
                 found += Found.XMP_COMMENTS
-                xmpStart(b, c, k + 1)?.let { found += Xmp.flags(b, it, c.dataEnd) }
+                xmpStart(b, c, k + 1)?.let { found += Xmp.flags(b, it, c.dataEnd, check) }
             }
             keyword == "Comment" || keyword == "Description" || keyword == "Title" -> found += Found.XMP_COMMENTS
             else -> found += Found.OTHER
@@ -181,13 +183,14 @@ object Png {
      * chunks (each once, before the IDAT run), valid CRCs, at least one IDAT, and IEND last with
      * nothing after. Exactly the shapes [clean] writes.
      */
-    internal fun isCleanOutput(b: ByteArray): Boolean {
+    internal fun isCleanOutput(b: ByteArray, check: () -> Unit = {}): Boolean {
         if (!Bytes.startsWith(b, 0, b.size, SIGNATURE)) return false
         val seen = HashSet<String>()
         var sawIdat = false
         var p = SIGNATURE.size
         var first = true
         while (true) {
+            check()
             val c = chunkAt(b, p) ?: return false
             if (first != (c.type == "IHDR")) return false
             if (first && !ihdrOk(b, c)) return false
