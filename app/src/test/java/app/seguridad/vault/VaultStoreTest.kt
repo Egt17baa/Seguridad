@@ -648,8 +648,8 @@ class VaultStoreTest {
 
     /**
      * BOV-2: a store with no vault whose import is cut by MainActivity.onStop (lock) in the middle, before the save: the
-     * cost is read once the copy's password is checked (A8, inside replace). Since F3 (COPIAS-3) the import hook
-     * (onReplaced, formerly beforeReplace) runs only after the save, so it can no longer stand for that moment.
+     * cost is read once the copy's password is checked (A8, inside replace). The import hook
+     * (beforeReplace) writes the settings, so the lock is put where nothing is written yet.
      */
     private fun storeLockingDuringImport(): VaultStore {
         lateinit var s: VaultStore

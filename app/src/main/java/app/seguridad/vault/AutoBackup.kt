@@ -105,12 +105,12 @@ const val AUTO_BACKUP_REPLACED =
 /** COPIAS-2: added to [AUTO_BACKUP_REPLACED] when [n] files with a copy's name, not on the app's list, are left in the folder. */
 fun autoBackupUnlistedText(n: Int): String = if (n == 1) {
     "En la carpeta queda 1 copia con nombre de copia automática que la app no tenía apuntada (por ejemplo, de antes de " +
-        "la versión 1.2.1 o de otra bóveda): no se ha borrado y puede abrirse con una contraseña anterior. Si no la " +
+        "la versión 1.2.1 o de otra bóveda): no se ha borrado y puede que se abra con una contraseña anterior. Si no la " +
         "necesitas, bórrala a mano."
 } else {
     "En la carpeta quedan $n copias con nombre de copia automática que la app no tenía apuntadas (por ejemplo, de antes " +
-        "de la versión 1.2.1 o de otra bóveda): no se han borrado y pueden abrirse con una contraseña anterior. Si no las " +
-        "necesitas, bórralas a mano."
+        "de la versión 1.2.1 o de otra bóveda): no se han borrado y puede que se abran con una contraseña anterior. Si no " +
+        "las necesitas, bórralas a mano."
 }
 
 /** What a replacement that went well says ([AutoBackupResult.unlistedLeft]: 0 when unknown, as after a re-creation). */
