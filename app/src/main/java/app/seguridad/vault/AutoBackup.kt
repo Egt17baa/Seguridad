@@ -99,7 +99,8 @@ const val AUTO_BACKUP_OLD_NOT_DELETED = "La copia automática se hizo, pero no s
 // «Borrar las copias automáticas anteriores y hacer una nueva» (tras cambiar la contraseña maestra).
 // Only what is true whatever the folder holds: the copies deleted are those the app had listed (COPIAS-2).
 const val AUTO_BACKUP_REPLACED =
-    "Se hizo una copia nueva y se borraron las copias automáticas anteriores que la app tenía apuntadas en esta carpeta. " +
+    "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña que la app tenía " +
+        "apuntadas en esta carpeta. " +
         "Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
 
 /** COPIAS-2: added to [AUTO_BACKUP_REPLACED] when [n] files with a copy's name, not on the app's list, are left in the folder. */
@@ -283,33 +284,39 @@ class AutoBackup(
      * (as it is right after a change of master password) nothing can be copied yet: the request is given to [onResult]
      * to be saved, and it returns [AUTO_BACKUP_REPLACE_WAITS] ([AUTO_BACKUP_FAILED] if it could not be saved). With no
      * folder or no vault it returns [AUTO_BACKUP_FAILED]. The work is not cancelled with the caller.
+     *
+     * [targets] are the copies to replace: the app passes those listed when the password changed ([MasterChanged]), so
+     * neither the first request nor a «Volver a intentarlo» ever deletes a copy made after the change (m2 of the CR
+     * re-review); a pending request uses what it still has to delete. Null (tests, and a request with no snapshot) means
+     * every copy listed now.
      */
-    suspend fun replaceOldCopies(): AutoBackupResult = scope.async { replaceNow() }.await()
+    suspend fun replaceOldCopies(targets: List<String>? = null): AutoBackupResult = scope.async { replaceNow(targets) }.await()
 
-    private suspend fun replaceNow(): AutoBackupResult = lock.withLock {
+    private suspend fun replaceNow(targets: List<String>?): AutoBackupResult = lock.withLock {
         _replacing.value = true
         try {
             val uri = folder() ?: return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
             when (store.state.value) {
                 is VaultState.Unlocked -> Unit
-                is VaultState.Locked -> return@withLock waitForUnlock(uri)
+                is VaultState.Locked -> return@withLock waitForUnlock(uri, targets)
                 else -> return@withLock AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
             }
             // A failure here is reported: asked while open, it is not retried behind the user's back (unless a request
             // saved while locked is still pending: it goes on, with its own targets, and what it told starts again).
-            val pendingTargets = if (replacePending()) replaceTargets() else null
-            attempt(Replace(pendingTargets, announce = false, newRequest = true))
-                ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri) else AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
+            val asked = if (replacePending()) replaceTargets() ?: targets else targets
+            attempt(Replace(asked, announce = false, newRequest = true))
+                ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, targets) else AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
         } finally {
             _replacing.value = false
         }
     }
 
     /** The vault is locked: the request is saved (through [onResult]) and the first copy after the next unlock does it. */
-    private suspend fun waitForUnlock(uri: String): AutoBackupResult {
+    private suspend fun waitForUnlock(uri: String, targets: List<String>?): AutoBackupResult {
         defer()
-        // M4: the copies listed now are the ones to replace (all made before the change); later ones follow [keep].
-        onResult(AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = copies()))
+        // M4: the copies listed when the password changed ([targets]; or, without them, those listed now, which are the
+        // same while the vault has stayed locked since) are the ones to replace; later ones follow [keep].
+        onResult(AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = targets ?: copies()))
         // Not saved (a full disk): do not say it will be done.
         return AutoBackupResult(uri, null, if (replacePending()) AUTO_BACKUP_REPLACE_WAITS else AUTO_BACKUP_FAILED)
     }
@@ -528,10 +535,11 @@ class AutoBackup(
         val ownedIds = owned.toHashSet()
         val unlisted = present.count { COPY_NAME.matches(it.name) && it.id !in ownedIds && it.id != newest.id }
         val targetsLeft = old.filter { it in notDeleted }
-        return Rotation(
-            if (failed) AUTO_BACKUP_OLD_NOT_DELETED else null, mine, unlisted, targetsLeft,
-            replaceDone = targetsLeft.isEmpty() && !leftoverLeft,
-        )
+        val done = targetsLeft.isEmpty() && !leftoverLeft
+        // m2 (CR re-review): a replacement is said by its targets and leftovers only. Once they are all gone it is a
+        // success, even if a copy beyond [keep] (made after the change, under the new password) could not be deleted:
+        // that one stays listed ([mine]) and the next rotation tries it again, as any normal copy.
+        return Rotation(if (done) null else AUTO_BACKUP_OLD_NOT_DELETED, mine, unlisted, targetsLeft, replaceDone = done)
     }
 
     private fun messageFor(e: Throwable): String = when (e) {
@@ -565,8 +573,17 @@ sealed interface ReplaceStatus {
  * said (kept across a re-creation); [pending], [lastError] and [lastBackupAt] what the settings say, which are what is
  * left when the answer was lost, and what wins over an answer «waits» once they show the replacement ran. «Done» only
  * comes from an answer without error or from a copy written after the request with no error and nothing waiting.
+ * [toldSinceRequest]: a failure of an attempt for this request was already told (the settings' told list is not empty).
  */
-fun replaceStatus(requestedAt: Long, answered: Boolean, answerError: String?, pending: Boolean, lastError: String?, lastBackupAt: Long?): ReplaceStatus = when {
+fun replaceStatus(
+    requestedAt: Long,
+    answered: Boolean,
+    answerError: String?,
+    pending: Boolean,
+    lastError: String?,
+    lastBackupAt: Long?,
+    toldSinceRequest: Boolean = false,
+): ReplaceStatus = when {
     requestedAt == 0L -> ReplaceStatus.NotAsked
     // T11-b: «waits» was true when the call answered; once the settings record the replacement (nothing waiting and a
     // copy written after the request), that record is what is shown.
@@ -575,7 +592,9 @@ fun replaceStatus(requestedAt: Long, answered: Boolean, answerError: String?, pe
     // CR-1, M1: a copy was written after the request (so the replacement ran) and the last attempt failed: the request
     // still waits to be retried, and the dialog says what happened (with «Volver a intentarlo») instead of «se hará en
     // cuanto abras la bóveda».
-    pending && lastError != null && lastBackupAt != null && lastBackupAt >= requestedAt -> ReplaceStatus.Failed(lastError)
+    // m3 (CR re-review): an attempt that wrote nothing (offline) leaves the date as it was; that a failure was told for
+    // this request ([toldSinceRequest]: Settings.autoBackupReplaceTold, emptied at each request) shows it ran too.
+    pending && lastError != null && (toldSinceRequest || (lastBackupAt != null && lastBackupAt >= requestedAt)) -> ReplaceStatus.Failed(lastError)
     answered -> when (answerError) {
         null -> ReplaceStatus.Done
         AUTO_BACKUP_REPLACE_WAITS -> ReplaceStatus.Waits

@@ -5,6 +5,7 @@ import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.withAutoBackupResult
+import app.seguridad.settings.withFolderChosen
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -86,12 +87,17 @@ class AutoBackupF3Test {
 
     private lateinit var settings: SettingsStore
 
+    /** Whether creating a vault goes through AppContainer's beforeCreate (off for the setup's first vault). */
+    private var newVaultWired = false
+
     private suspend fun newSettings() = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined).apply {
         load(); update { it.copy(autoBackupUri = folderUri) }
     }
 
     private fun vaultStore(dir: File) = VaultStore(
         File(dir, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+        // As AppContainer (which also gives the folder back), from the moment a test makes a new vault (I1).
+        beforeCreate = { if (newVaultWired) settings.turnOffAutoBackupForNewVault() },
         beforeReplace = { settings.forgetAutoBackupCopiesForImport() }, // as AppContainer
     )
 
@@ -125,6 +131,34 @@ class AutoBackupF3Test {
     }
 
     // ---- CADENAS-3 + COPIAS-1 ----
+
+    // I1 (CR re-review): copies off, the vault destroyed («He olvidado la contraseña»), a new vault, the same folder chosen
+    // again: the old vault's .sgbak copies are never deleted by the new vault's rotation (A12: they can still be imported).
+    @Test fun `I1 a new vault made with the copies off never deletes the old vault's copies`() = runTest {
+        val (s, t, _) = setup()
+        val a = auto(s, t)
+        val old = threeCopies(s, t)
+        settings.turnOffAutoBackup()
+        newVaultWired = true
+        s.destroy()
+        s.create("maestra-nueva".toCharArray())
+        settings.update { it.withFolderChosen(folderUri) }
+        a.request()
+        settle()
+        repeat(6) { i -> clock += 60_000; s.upsert(note("nueva$i")); settle() } // More than «Copias que guardar» (5).
+        assertTrue("No copy of the old vault deleted: ${t.deleted}", t.deleted.none { it in old })
+        assertTrue(t.idOfName.values.containsAll(old))
+        assertEquals(5, settings.settings.value.currentAutoBackupCopies.size) // The new vault's own rotation still works.
+    }
+
+    // m1 (CR re-review): the success text says which copies went: those from before the change of password.
+    @Test fun `m1 the replacement's text names the copies from before the change`() {
+        assertEquals(
+            "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña que la app tenía " +
+                "apuntadas en esta carpeta. Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran.",
+            AUTO_BACKUP_REPLACED,
+        )
+    }
 
     @Test fun `generation goes up with create, import and destroy, not with a failed import`() = runTest {
         val (s, _, text) = setup()

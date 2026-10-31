@@ -282,9 +282,8 @@ class SettingsTest {
         val done = asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("b"), replaced = true))
         assertFalse(done.autoBackupReplacePending)
         assertEquals(listOf("b"), done.autoBackupCopies)
-        // CR-1: AutoBackup says «replaced» only when every target and leftover temporary copy went (M3, M4), so that is
-        // what clears it, even if a copy beyond «Copias que guardar» could not be deleted (the error says so).
-        assertFalse(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaced = true)).autoBackupReplacePending)
+        // CR-1, m2: AutoBackup says «replaced» only when every target and leftover temporary copy went (M3, M4), and then
+        // with no error, even if a copy beyond «Copias que guardar» could not be deleted (that one is just tried again).
         // Not replaced: kept, with the targets left and the failure told (M2, M4).
         val left = asked.withAutoBackupResult(
             AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED, listOf("a", "b"), replaceTargets = listOf("a"), toldKey = AUTO_BACKUP_OLD_NOT_DELETED),
@@ -352,6 +351,30 @@ class SettingsTest {
         // Already off: nothing to do, nothing to give back.
         assertEquals(null, s.turnOffAutoBackupForNewVault())
         assertEquals(off, s.settings.value)
+    }
+
+    // I1 (CR re-review): with the copies off, a new vault still forgets the old vault's list (and any request), so choosing
+    // the same folder again never rotates the previous vault's copies away; nothing is given back (nothing was held).
+    @Test fun newVaultWithTheCopiesOffStillForgetsTheOldList() = runTest {
+        val s = store().apply { load() }
+        s.update {
+            it.copy(
+                autoBackupUri = folder, autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder,
+                autoBackupReplacePending = true, autoBackupReplaceTargets = listOf("v1-a"), autoBackupReplaceTold = listOf("x"),
+            )
+        }
+        s.turnOffAutoBackup() // «Desactivar»: the list stays on purpose (the same folder chosen again goes on rotating it).
+        s.update { it.copy(autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder) }
+        assertEquals(null, s.turnOffAutoBackupForNewVault()) // The new vault.
+        val after = s.settings.value
+        assertEquals(emptyList<String>(), after.autoBackupCopies)
+        assertEquals(null, after.autoBackupCopiesFolder)
+        assertFalse(after.autoBackupReplacePending)
+        assertNull(after.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), after.autoBackupReplaceTold)
+        assertEquals(emptyList<String>(), store().apply { load() }.settings.value.autoBackupCopies) // Saved.
+        // The same folder chosen again: no copy of the old vault is listed as this one's.
+        assertEquals(emptyList<String>(), after.withFolderChosen(folder).currentAutoBackupCopies)
     }
 
     @Test fun newVaultWithAutoBackupOffChangesNothing() = runTest {

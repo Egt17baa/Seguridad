@@ -3,6 +3,10 @@ package app.seguridad.vault
 import app.seguridad.crypto.MigrationResult
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.tools.codes.CellFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 
 // The entry editor keeps a separate field for the LOGIN password and for the SEED's BIP-39 passphrase. With one shared
 // field (1.0.0), a password generated under «Acceso» became the passphrase after switching to «Frase semilla», and a
@@ -121,3 +125,20 @@ class EntryEditSession(cells: CellFactory, val id: String?, private val initialT
         finished.value = true
     }
 }
+
+/**
+ * The ViewModel's wiring of this session (m6 of the CR re-review), here so it is tested: follows the vault's [state] in
+ * [scope] (the ViewModel's, not tied to the lifecycle), so a lock clears the form at once even with no composition (the
+ * app in the background), and the next unlock loads it again from the vault.
+ */
+fun EntryEditSession.followVault(state: Flow<VaultState>, scope: CoroutineScope): Job = scope.launch {
+    state.collect { vaultStateIs(it is VaultState.Unlocked, (it as? VaultState.Unlocked)?.entries.orEmpty()) }
+}
+
+/** The screen left the composition: a rotation ([changingConfigurations]) keeps what was typed, any other way out clears it. */
+fun EntryEditSession.left(changingConfigurations: Boolean) {
+    if (!changingConfigurations) clear()
+}
+
+/** The ViewModel's onCleared: the navigation entry is gone for good. */
+fun EntryEditSession.cleared() = clear()

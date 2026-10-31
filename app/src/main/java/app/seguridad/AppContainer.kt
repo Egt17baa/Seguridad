@@ -104,7 +104,7 @@ class AppContainer(
      * The notice of the new name (owner's decision, 31-10-2026), shown once to those who updated: here, not in a screen,
      * so a rotation keeps the dialog up until «Entendido».
      */
-    val renameNotice = RenameNotice(settings)
+    val renameNotice = RenameNotice(settings, appScope)
 
     /**
      * At the start of the app, after the settings are loaded: decides once whether the notice of the new name is due
@@ -264,7 +264,12 @@ class AppContainer(
      * The dialog after a change of master password (A6) and what its replacement of the old copies answered: here, not in
      * a screen, so a rotation during the key derivation or the replacement does not lose it (M-3).
      */
-    val masterChanged = MasterChanged(appScope, replace = autoBackup::replaceOldCopies, now = System::currentTimeMillis)
+    val masterChanged = MasterChanged(
+        appScope,
+        replace = autoBackup::replaceOldCopies,
+        now = System::currentTimeMillis,
+        oldCopies = { settings.settings.value.currentAutoBackupCopies },
+    )
 
     /**
      * A copy waiting for the A14 notice (Android 8 to 12), shown by the dialog at the root of the app. Here for the same

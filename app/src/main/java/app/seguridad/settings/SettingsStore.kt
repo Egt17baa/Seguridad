@@ -59,13 +59,22 @@ class SettingsStore(
 
     /**
      * A new vault is about to be created: turns the automatic copies off, as their rotation would delete the copies of
-     * the previous vault (maybe the only good ones) without knowing which vault each belongs to. Returns the folder
-     * that was chosen, so the caller gives its permission back; null if they were already off (nothing written).
+     * the previous vault (maybe the only good ones) without knowing which vault each belongs to. Whether they were on or
+     * off, the previous vault's list of copies and any request to replace them are forgotten (I1 of the CR re-review):
+     * with the copies off the list is kept on purpose, so choosing the same folder again would otherwise have the new
+     * vault rotate the old vault's copies away. Returns the folder that was chosen, so the caller gives its permission
+     * back; null if they were already off. Nothing is written when there is nothing to change.
      */
     suspend fun turnOffAutoBackupForNewVault(): String? = mutex.withLock {
         val s = _settings.value
-        val folder = s.autoBackupUri ?: return@withLock null
-        write(s.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = true).forgettingAutoBackupCopies())
+        val folder = s.autoBackupUri
+        val off = if (folder != null) {
+            s.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = true)
+        } else {
+            s
+        }
+        val next = off.forgettingAutoBackupCopies()
+        if (next != s) write(next)
         folder
     }
 
