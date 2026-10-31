@@ -169,6 +169,7 @@ class PlatformSourcesTest {
         assertTrue("the new menu (Compose foundation 1.9+)", "filterTextContextMenuComponents(" in body)
         assertTrue("with the tested allow-list", "keptInNoCopyMenu" in code("ui/theme/Components.kt"))
         assertTrue("the old menu", "LocalTextToolbar provides" in body)
+        assertTrue("F4 review M1: keyboard copy and cut", "onPreviewKeyEvent" in body && "isCopyOrCutKey(" in body)
     }
 
     @Test fun `TECLADO-2 the plain texts of Cifrar para and Firmar and every password field are inside NoCopy`() {
@@ -188,7 +189,14 @@ class PlatformSourcesTest {
     @Test fun `TECLADO-3 a copy found on reopening is cleared by its time, also when the app was closed before`() {
         val src = code("android/Clipboard.kt")
         assertTrue("ownCopyClearDelay(" in src)
-        assertTrue("wipeReopenedCopy(" in src)
+        // F4 review M3: both timers use the same rule.
+        assertEquals(2, Regex("""wipeOwnCopy\(""").findAll(src).count())
+        // F4 review M2: the process-wide timer must not hold the Activity.
+        val b = blank(main("android/Clipboard.kt"))
+        val stale = callRange(b, b.indexOf("fun clearStaleCopy("))
+        val body = b.substring(stale.first, stale.last + 1)
+        assertTrue("applicationContext.getSystemService(ClipboardManager" in body)
+        assertFalse(Regex("""[^.]context\.getSystemService""").containsMatchIn(body))
         assertTrue("clearStaleCopy(this)" in code("MainActivity.kt"))
     }
 

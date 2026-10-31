@@ -7,7 +7,9 @@ import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSeparato
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.platform.TextToolbarStatus
+import android.view.KeyEvent
 import app.seguridad.ui.theme.NoCopyToolbar
+import app.seguridad.ui.theme.isCopyOrCutKey
 import app.seguridad.ui.theme.keptInNoCopyMenu
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -83,5 +85,33 @@ class NoCopyMenuTest {
         toolbar.hide()
         assertTrue(base.hidden)
         assertEquals(TextToolbarStatus.Hidden, toolbar.status)
+    }
+
+    @Test fun `F4 review M1, copy and cut by keyboard or by the keyboard's editing panel are caught`() {
+        // Compose 1.9.0 (KeyMappingKt.commonKeyMapping): Ctrl+C, Ctrl+Insert and KEYCODE_COPY copy; Ctrl+X and KEYCODE_CUT cut.
+        // The IME panel's «Copiar»/«Cortar» (performContextMenuAction) arrive as KEYCODE_COPY/KEYCODE_CUT.
+        assertTrue(isCopyOrCutKey(KeyEvent.KEYCODE_C, ctrl = true, shift = false))
+        assertTrue(isCopyOrCutKey(KeyEvent.KEYCODE_C, ctrl = true, shift = true))
+        assertTrue(isCopyOrCutKey(KeyEvent.KEYCODE_X, ctrl = true, shift = false))
+        assertTrue(isCopyOrCutKey(KeyEvent.KEYCODE_INSERT, ctrl = true, shift = false))
+        assertTrue(isCopyOrCutKey(KeyEvent.KEYCODE_FORWARD_DEL, ctrl = false, shift = true))
+        assertTrue(isCopyOrCutKey(KeyEvent.KEYCODE_COPY, ctrl = false, shift = false))
+        assertTrue(isCopyOrCutKey(KeyEvent.KEYCODE_CUT, ctrl = false, shift = false))
+        assertEquals(278, KeyEvent.KEYCODE_COPY)
+        assertEquals(277, KeyEvent.KEYCODE_CUT)
+        assertEquals(112, KeyEvent.KEYCODE_FORWARD_DEL)
+        assertEquals(124, KeyEvent.KEYCODE_INSERT)
+    }
+
+    @Test fun `F4 review M1, pasting, typing and deleting still work`() {
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_V, ctrl = true, shift = false))
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_INSERT, ctrl = false, shift = true))
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_PASTE, ctrl = false, shift = false))
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_A, ctrl = true, shift = false))
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_C, ctrl = false, shift = false))
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_X, ctrl = false, shift = true))
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_FORWARD_DEL, ctrl = false, shift = false))
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_DEL, ctrl = false, shift = true))
+        assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_INSERT, ctrl = false, shift = false))
     }
 }

@@ -550,12 +550,13 @@ fun clipboardAboutText(seconds: Int): String =
 /**
  * Ajustes, under «Borrar del portapapeles lo copiado» (replaces «Solo se borra si sigue ahí lo que copiaste desde la
  * app.», which was not true in the background). In the foreground the app reads the clipboard and leaves another
- * copy alone; from Android 10, in the background it cannot read it and clears it (android/Clipboard.kt, M2). TECLADO-3
- * and COV2-5 as [clipboardAboutText].
+ * copy alone, labelled or not; from Android 10, in the background it cannot read it and clears it (both timers follow
+ * [wipeOwnCopy], F4 review M3; M2 of the keyboard audit). TECLADO-3 and COV2-5 as [clipboardAboutText]; the wording of
+ * the second sentence is from the F4 review (M4).
  */
 const val CLIPBOARD_CLEAR_HINT =
-    "Con la app en primer plano, solo se borra si sigue ahí lo que copiaste desde ella. Si no lo está, desde " +
-        "Android 10 la app no puede ver el portapapeles y lo vacía, aunque hayas copiado otra cosa después. Si " +
+    "Con la app en primer plano, solo se borra si sigue ahí lo que copiaste desde ella. Con la app en segundo " +
+        "plano, desde Android 10 no puede ver el portapapeles y lo vacía, aunque hayas copiado otra cosa después. Si " +
         "Android cierra la app antes, lo que copiaste se borra al volver a abrirla. Solo se borra en este móvil: " +
         "si compartes el portapapeles con otros dispositivos, allí puede quedarse."
 

@@ -1,5 +1,6 @@
 package app.seguridad.ui.theme
 
+import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -33,6 +34,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.platform.TextToolbarStatus
@@ -115,23 +119,54 @@ internal fun keptInNoCopyMenu(component: TextContextMenuComponent): Boolean =
 private val NoCopyMenuFilter: (TextContextMenuComponent) -> Boolean = ::keptInNoCopyMenu
 
 /**
- * Secrets typed or shown in [content] can only leave through the app's own «Copiar» (pasting still works), with both
- * of Compose's text menus: the new one is filtered by a modifier on a box around [content] (it applies to the text
- * fields and SelectionContainers inside, in this window only: a dialog needs its own NoCopy inside), the old one by
- * [NoCopyToolbar]. [modifier] goes on that box, which passes its minimum size on to [content]: put a single layout in.
+ * F4 review M1: Copy and Cut that do not go through a menu. Compose 1.9.0 (`KeyMappingKt.commonKeyMapping`) copies on
+ * Ctrl+C, Ctrl+Insert and KEYCODE_COPY, and cuts on Ctrl+X and KEYCODE_CUT, also in a hidden password field (that path
+ * has no password check). A keyboard's editing panel («Copiar»/«Cortar» in Gboard's toolbar) calls
+ * `InputConnection.performContextMenuAction`, which Compose's `RecordingInputConnection` turns into KEYCODE_COPY or
+ * KEYCODE_CUT sent to the view. Shift+Delete (KEYCODE_FORWARD_DEL) is not Cut in 1.9.0, but is in other toolkits:
+ * caught too. Pasting (Ctrl+V, Shift+Insert, KEYCODE_PASTE) is not.
+ */
+internal fun isCopyOrCutKey(keyCode: Int, ctrl: Boolean, shift: Boolean): Boolean = when (keyCode) {
+    KeyEvent.KEYCODE_COPY, KeyEvent.KEYCODE_CUT -> true
+    KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_INSERT -> ctrl
+    KeyEvent.KEYCODE_FORWARD_DEL -> shift && !ctrl
+    else -> false
+}
+
+/**
+ * Secrets typed or shown in [content] do not leave through the system's Copy or Cut, so they only go out with the
+ * sensitive flag and the timed clearing of the app's own «Copiar» (pasting still works):
+ * - the new text menu of Compose 1.9+ is filtered by a modifier on a box around [content] ([keptInNoCopyMenu]); it
+ *   applies to the text fields and SelectionContainers inside, in this window only: a dialog needs its own NoCopy;
+ * - the old menu, by [NoCopyToolbar];
+ * - the keyboard shortcuts and the keyboard's editing panel, by a preview key handler on the same box
+ *   ([isCopyOrCutKey]): an ancestor's preview runs before the focused field (Compose `FocusOwnerImpl`), and the
+ *   panel's copy and cut arrive as key events.
+ *
+ * Not covered, and no parent can cover them: an accessibility service's «Copiar» action (TalkBack's editing actions)
+ * on a visible field that is not a password, since Compose gives every such field copyText and cutText semantics; and
+ * a keyboard that reads the field itself through its InputConnection (it already sees what is typed) and copies it
+ * on its own. [modifier] goes on the box, which passes its minimum size on to [content]: put a single layout in.
  */
 @Composable
 fun NoCopy(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val base = LocalTextToolbar.current
     val toolbar = remember(base) { base as? NoCopyToolbar ?: NoCopyToolbar(base) }
     CompositionLocalProvider(LocalTextToolbar provides toolbar) {
-        Box(modifier.filterTextContextMenuComponents(NoCopyMenuFilter), propagateMinConstraints = true) { content() }
+        Box(
+            modifier
+                .filterTextContextMenuComponents(NoCopyMenuFilter)
+                // Both the key down and the key up are consumed: the field never sees either.
+                .onPreviewKeyEvent { isCopyOrCutKey(it.nativeKeyEvent.keyCode, it.isCtrlPressed, it.isShiftPressed) },
+            propagateMinConstraints = true,
+        ) { content() }
     }
 }
 
 /**
- * Password field with a show/hide switch; never put in saved state. Hidden, Compose offers no Copy; after «Ver» it
- * would, so the field is always inside [NoCopy] (TECLADO-2): the master password and every other one.
+ * Password field with a show/hide switch; never put in saved state. Hidden, Compose's menus offer no Copy, but after
+ * «Ver» they would, and a keyboard shortcut copies it even hidden: so the field is always inside [NoCopy] (TECLADO-2,
+ * F4 review M1), the master password and every other one.
  */
 @Composable
 fun PasswordField(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, label: String = "Contraseña") {

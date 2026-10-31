@@ -27,15 +27,18 @@ class ClipboardClearingTest {
         assertEquals(0L, ownCopyClearDelay(nowMs = copiedAt - 3_600_000L, copiedAtMs = copiedAt, clearAfterMs = wait))
     }
 
-    @Test fun `at its time, the reopened copy is cleared only if it is still that copy, or if the clipboard is hidden`() {
+    @Test fun `at its time, a copy is cleared only if it is still that copy of ours, or if the clipboard is hidden`() {
+        // One rule for both timers (the copy's own and the one armed on reopening), F4 review M3.
         // Hidden (Android 10+ with the app in the background) or empty: cleared, never a secret left behind.
-        assertTrue(wipeReopenedCopy(seenLabel = null, seenTimestamp = null, expectedTimestamp = copiedAt))
+        assertTrue(wipeOwnCopy(described = false, seenLabel = null, sameCopy = false))
         // Still ours, the same copy.
-        assertTrue(wipeReopenedCopy(seenLabel = CLIPBOARD_OWN_LABEL, seenTimestamp = copiedAt, expectedTimestamp = copiedAt))
-        // Another app's copy since: left alone.
-        assertFalse(wipeReopenedCopy(seenLabel = "Otra", seenTimestamp = copiedAt + 1, expectedTimestamp = copiedAt))
-        assertFalse(wipeReopenedCopy(seenLabel = "", seenTimestamp = copiedAt + 1, expectedTimestamp = copiedAt))
+        assertTrue(wipeOwnCopy(described = true, seenLabel = CLIPBOARD_OWN_LABEL, sameCopy = true))
+        // Another app's copy since: left alone, also when it has no label (an image, a ClipData without a label).
+        assertFalse(wipeOwnCopy(described = true, seenLabel = "Otra", sameCopy = false))
+        assertFalse(wipeOwnCopy(described = true, seenLabel = "", sameCopy = false))
+        assertFalse(wipeOwnCopy(described = true, seenLabel = null, sameCopy = false))
+        assertFalse(wipeOwnCopy(described = true, seenLabel = null, sameCopy = true))
         // A newer copy of ours: its own timer clears it.
-        assertFalse(wipeReopenedCopy(seenLabel = CLIPBOARD_OWN_LABEL, seenTimestamp = copiedAt + 1, expectedTimestamp = copiedAt))
+        assertFalse(wipeOwnCopy(described = true, seenLabel = CLIPBOARD_OWN_LABEL, sameCopy = false))
     }
 }
