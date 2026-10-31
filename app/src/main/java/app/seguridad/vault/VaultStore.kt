@@ -119,12 +119,14 @@ class VaultStore(
      */
     private val beforeCreate: suspend () -> Unit = {},
     /**
-     * Runs once an import has replaced the vault and it is saved (the app forgets which automatic copies it made, so they
-     * are never rotated away: they are the replaced vault's). Never before the save: a failed import keeps them listed,
-     * and a request to replace them (A6) stays (COPIAS-3). Returns whether that dropped such a request, which
-     * [importReplace] hands back so «Copia importada» says so. A throw is ignored: the vault is imported all the same.
+     * Runs once an import's copy is checked, just before the vault is saved: the app forgets, durably, which automatic
+     * copies it made (they are the replaced vault's, and must never be rotated away by the imported one). If it throws,
+     * nothing is replaced and the import fails with [IMPORT_SETTINGS_FAILED]. If the save then fails, its
+     * [ReplacePrepared.undo] puts the settings back (COPIAS-3). It is durable first so that a process death after the
+     * save never leaves the imported vault with the old vault's list; one before the save only leaves the old vault's
+     * copies unlisted, which never deletes any.
      */
-    private val onReplaced: suspend () -> Boolean = { false },
+    private val beforeReplace: suspend () -> ReplacePrepared = { ReplacePrepared(false) {} },
     /** The highest time the app ever saw (a mark that only rises), kept in the settings; see [VaultCrypto.biometricAllowed]. */
     private val clockHighWater: () -> Long = { 0 },
     /** Told the time at every unlock and every [touch]; the app keeps the highest in the settings. */
@@ -699,7 +701,7 @@ class VaultStore(
      * Replaces this vault with an exported one after checking its master password. Throws [CryptoFailure]. An export
      * whose entries have attachments is refused (its files are only in the .sgbak copy), and so is one with more than
      * one identity; nothing changes. True when the import dropped a request, still waiting, to replace the old
-     * automatic copies (A6; see [onReplaced]), so the caller says so.
+     * automatic copies (A6; see [beforeReplace]), so the caller says so.
      */
     suspend fun importReplace(text: String, master: CharArray): Boolean {
         checkCanReplace()
@@ -753,7 +755,7 @@ class VaultStore(
 
     /**
      * [importReplace]; [backup] is the copy read and its temporary folder, null for a JSON export. [since] is [epoch]
-     * when the import started: a lock since then leaves the imported vault locked. Returns what [onReplaced] said.
+     * when the import started: a lock since then leaves the imported vault locked. Returns [ReplacePrepared.droppedRequest].
      */
     private suspend fun replace(incoming: VaultFile, master: CharArray, backup: Pair<BackupContents, File>?, since: Int): Boolean = mutex.withLock {
         val key = derive { VaultCrypto.unlock(incoming, master) }
@@ -777,43 +779,57 @@ class VaultStore(
         }
         withContext(NonCancellable) {
             // All of the copy is fine: from here a copy still being written is of the vault being replaced (CADENAS-3).
-            // Bumped before the save, so it is never listed even if it ends between the save and [onReplaced]; if the
-            // save fails, such a copy only stays unlisted (never deleted), which is the safe side.
+            // Bumped before the settings forget its copies, so such a copy can never list them again; if the import then
+            // fails, a copy in flight only stays unlisted (never deleted), which is the safe side.
             nextGeneration()
-            // Importing with no readable vault (the "Crea tu bóveda" screen): a file that could not be read is kept, as in [create].
-            if (vault == null) withContext(io) { keepAside() }
-            if (backup == null) {
-                commit(checked, key, since)
-                onClockReset(now()) // Only once the copy is saved: a failed save lowers nothing.
-                return@withContext replaced()
-            }
-            val moved = try {
-                withContext(io) { moveIn(refs.mapTo(HashSet()) { it.id }, backup.first.attachments, backup.second) }
+            val prepared = try {
+                beforeReplace()
             } catch (e: Exception) {
                 key.fill(0)
-                throw e
+                throw CryptoFailure(IMPORT_SETTINGS_FAILED) // Nothing written: the vault and its copies' list are as they were.
             }
+            // From here a failure before the save puts the settings back; [changed] (the revision) tells whether it saved.
+            val before = _revision.value
             try {
-                save(checked)
-                changed()
+                // Importing with no readable vault (the "Crea tu bóveda" screen): a file that could not be read is kept, as in [create].
+                if (vault == null) withContext(io) { keepAside() }
+                if (backup == null) {
+                    commit(checked, key, since)
+                    onClockReset(now()) // Only once the copy is saved: a failed save lowers nothing.
+                    return@withContext prepared.droppedRequest
+                }
+                val moved = try {
+                    withContext(io) { moveIn(refs.mapTo(HashSet()) { it.id }, backup.first.attachments, backup.second) }
+                } catch (e: Exception) {
+                    key.fill(0)
+                    throw e
+                }
+                try {
+                    save(checked)
+                    changed()
+                } catch (e: Exception) {
+                    withContext(io) { putBack(moved) }
+                    key.fill(0)
+                    throw e
+                }
             } catch (e: Exception) {
-                withContext(io) { putBack(moved) }
-                key.fill(0)
+                if (_revision.value == before) undo(prepared) // Not saved: still the old vault, with its list.
                 throw e
             }
             onClockReset(now()) // Saved: the copy's master password was verified and it is the vault now.
-            val dropped = replaced()
             opened(checked, key, since)
             collectGarbage() // The old vault's attachments the new one does not use.
-            dropped
+            prepared.droppedRequest
         }
     }
 
-    /** [onReplaced], once the imported vault is saved (COPIAS-3); a failure there never undoes the import. */
-    private suspend fun replaced(): Boolean = try {
-        onReplaced()
-    } catch (e: Exception) {
-        false
+    /** Puts the settings back after an import that was not saved; best effort (a full disk keeps the forget, which is safe). */
+    private suspend fun undo(prepared: ReplacePrepared) {
+        try {
+            prepared.undo()
+        } catch (e: Exception) {
+            // The old vault's copies stay unlisted: never deleted, only no longer rotated.
+        }
     }
 
     /**
@@ -924,6 +940,16 @@ private const val NEEDS_MASTER_FOR_CONTACTS = "Hace falta la contraseña maestra
 private const val SEVERAL_IDENTITIES = "La copia tiene más de una identidad: no se puede importar"
 private const val COPY_DAMAGED = "La copia está dañada: no se puede importar"
 private const val REPLACE_NEEDS_OPEN = "Abre la bóveda antes de importar una copia"
+
+/** The settings could not record, before the import, that the old vault's automatic copies are not the new one's. */
+const val IMPORT_SETTINGS_FAILED = "No se ha importado la copia: no se pudieron guardar los ajustes de la app. ¿Queda espacio en el móvil?"
+
+/**
+ * What [VaultStore]'s `beforeReplace` did before an import saves the vault: whether it dropped a request, still waiting,
+ * to replace the old automatic copies (A6), which «Copia importada» then says; and [undo], which puts the settings back
+ * if the vault is not saved.
+ */
+class ReplacePrepared(val droppedRequest: Boolean, val undo: suspend () -> Unit)
 private const val ONLY_ONE_IDENTITY = "Solo puede haber una identidad"
 private const val IMPORT_TOO_BIG = "El archivo pasa de 20 MB: no es una copia de la bóveda"
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"

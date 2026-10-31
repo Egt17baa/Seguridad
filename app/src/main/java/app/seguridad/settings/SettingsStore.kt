@@ -2,6 +2,7 @@ package app.seguridad.settings
 
 import app.seguridad.core.appJson
 import app.seguridad.core.writeTextAtomically
+import app.seguridad.vault.ReplacePrepared
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,21 +61,23 @@ class SettingsStore(
     }
 
     /**
-     * An imported vault replaced this one: its automatic copies are no longer listed as ours, so none is ever rotated
-     * away. True when this dropped a request, still waiting, to replace them (A6), for «Copia importada» to say so.
-     * Never throws: if the file cannot be written (a full disk) the list is forgotten in memory all the same, and the
-     * next save that works writes it out (COPIAS-3), as the vault is imported by then whatever happens here.
+     * An import is about to replace the vault: its automatic copies are no longer listed as ours, so none is ever rotated
+     * away by the imported vault, and a request to replace them (A6) goes. Written to disk before the vault is saved:
+     * throws if it cannot be (the import is then refused). The result says whether a request was dropped and can put
+     * the three fields back ([ReplacePrepared.undo]) if the vault is not saved after all.
      */
-    suspend fun forgetAutoBackupCopies(): Boolean = mutex.withLock {
+    suspend fun forgetAutoBackupCopiesForImport(): ReplacePrepared = mutex.withLock {
         val before = _settings.value
-        val next = sane(before.forgettingAutoBackupCopies())
-        _settings.value = next
-        try {
-            withContext(io) { file.writeTextAtomically(appJson.encodeToString(Settings.serializer(), next)) }
-        } catch (e: Exception) {
-            // Kept in memory (see above).
+        write(before.forgettingAutoBackupCopies())
+        ReplacePrepared(before.autoBackupReplacePending) {
+            update {
+                it.copy(
+                    autoBackupCopies = before.autoBackupCopies,
+                    autoBackupCopiesFolder = before.autoBackupCopiesFolder,
+                    autoBackupReplacePending = before.autoBackupReplacePending,
+                )
+            }
         }
-        before.autoBackupReplacePending
     }
 
     private suspend fun write(change: Settings) {

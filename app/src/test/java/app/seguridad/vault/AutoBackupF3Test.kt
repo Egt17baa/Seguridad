@@ -92,7 +92,7 @@ class AutoBackupF3Test {
 
     private fun vaultStore(dir: File) = VaultStore(
         File(dir, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
-        onReplaced = { settings.forgetAutoBackupCopies() }, // as AppContainer
+        beforeReplace = { settings.forgetAutoBackupCopiesForImport() }, // as AppContainer
     )
 
     private fun TestScope.auto(s: VaultStore, target: BackupTarget) = AutoBackup(
@@ -260,20 +260,72 @@ class AutoBackupF3Test {
         assertFalse("nothing pending: nothing dropped", s.importReplace(text, "maestra-b".toCharArray()))
     }
 
-    @Test fun `COPIAS-3 the list is forgotten in memory even if the settings cannot be written`() = runTest {
-        settings = newSettings()
-        settings.update { it.copy(autoBackupCopies = listOf("doc-1"), autoBackupCopiesFolder = folderUri, autoBackupReplacePending = true) }
-        check(File(tmp.root, "settings.json.tmp").mkdir()) // a full disk: every write throws
-        assertTrue(settings.forgetAutoBackupCopies())
-        assertTrue(settings.settings.value.currentAutoBackupCopies.isEmpty())
-        assertFalse(settings.settings.value.autoBackupReplacePending)
+    /** As a full disk for the settings: their temporary file is a folder, so every write throws. */
+    private fun fillSettingsDisk() = check(File(tmp.root, "settings.json.tmp").mkdir())
+
+    private fun reloaded() = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined)
+
+    @Test fun `M1 a failed save puts the list and the request back on disk too`() = runTest {
+        val (s, t, text) = setup()
+        auto(s, t)
+        threeCopies(s, t)
+        settings.update { it.copy(autoBackupReplacePending = true) }
+        val listBefore = settings.settings.value.currentAutoBackupCopies
+        File(tmp.root, "a/vault.bin.tmp").apply { mkdirs(); File(this, "x").writeText("x") }
+        assertTrue(runCatching { s.importReplace(text, "maestra-b".toCharArray()) }.isFailure)
+        val disk = reloaded().apply { load() }.settings.value
+        assertTrue(disk.autoBackupReplacePending)
+        assertEquals(listBefore, disk.currentAutoBackupCopies)
     }
 
-    @Test fun `COPIAS-3 an import whose settings cannot be written still imports`() = runTest {
-        val (s, _, text) = setup()
-        check(File(tmp.root, "settings.json.tmp").mkdir())
-        s.importReplace(text, "maestra-b".toCharArray())
-        assertTrue((s.state.value as VaultState.Unlocked).entries.any { it.id == "B" })
-        assertTrue(settings.settings.value.currentAutoBackupCopies.isEmpty())
+    @Test fun `M1 a forget that cannot be written aborts the import and changes nothing`() = runTest {
+        val (s, t, text) = setup()
+        auto(s, t)
+        threeCopies(s, t)
+        settings.update { it.copy(autoBackupReplacePending = true) }
+        val listBefore = settings.settings.value.currentAutoBackupCopies
+        fillSettingsDisk()
+        val e = runCatching { s.importReplace(text, "maestra-b".toCharArray()) }.exceptionOrNull()
+        assertTrue("$e", e is app.seguridad.crypto.CryptoFailure && e.message == IMPORT_SETTINGS_FAILED)
+        assertTrue("still the old vault", (s.state.value as VaultState.Unlocked).entries.none { it.id == "B" })
+        assertTrue(settings.settings.value.autoBackupReplacePending)
+        assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
+        // The JSON path and the .sgbak path abort alike.
+        val copy = ByteArrayOutputStream().also { s.exportBackup(it) }.toByteArray()
+        assertTrue(runCatching { s.importReplace(copy.inputStream(), "maestra-a".toCharArray()) }.exceptionOrNull() is app.seguridad.crypto.CryptoFailure)
+        assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
+    }
+
+    /** The process dies once the forget is on disk and before the vault is saved: the old vault is still the one. */
+    @Test fun `M1 a process death between the forget and the save never lets A6 delete a wrong copy`() = runTest {
+        val (_, t, text) = setup()
+        var dying = false
+        val s = VaultStore(
+            File(tmp.root, "a/vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            beforeReplace = {
+                val prepared = settings.forgetAutoBackupCopiesForImport()
+                if (dying) throw IllegalStateException("process killed") // nothing after this runs
+                prepared
+            },
+        ).apply { load(); unlock("maestra-a".toCharArray()) }
+        auto(s, t)
+        val old = threeCopies(s, t)
+        dying = true
+        runCatching { s.importReplace(text, "maestra-b".toCharArray()) }
+        // Restart: everything is read again from disk.
+        settings = reloaded().apply { load() }
+        val s2 = vaultStore(File(tmp.root, "a")).apply { load() }
+        val a2 = auto(s2, t)
+        s2.unlock("maestra-a".toCharArray())
+        runCurrent()
+        assertTrue("the old vault is still the one", (s2.state.value as VaultState.Unlocked).entries.none { it.id == "B" })
+        clock += 60_000
+        a2.replaceOldCopies()
+        assertTrue("nothing of the vault on disk is deleted by a list it never had: ${t.deleted}", t.deleted.none { it in old })
+    }
+
+    @Test fun `M3 the unlisted text does not claim the old password opens them`() {
+        assertTrue(autoBackupUnlistedText(1).contains("puede que se abra con una contraseña anterior"))
+        assertTrue(autoBackupUnlistedText(2).contains("puede que se abran con una contraseña anterior"))
     }
 }

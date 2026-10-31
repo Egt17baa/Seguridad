@@ -93,10 +93,10 @@ class AppContainer(
         // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
         // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
         beforeCreate = { settings.turnOffAutoBackupForNewVault()?.let(releaseFolder) },
-        // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted. Only
-        // once the imported vault is saved (COPIAS-3); a copy still being written of the replaced vault is told apart by
-        // the vault's generation (CADENAS-3, see [recordAutoBackup]).
-        onReplaced = { settings.forgetAutoBackupCopies() },
+        // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted. Written
+        // before the vault is saved, and put back if that fails (COPIAS-3); a copy still being written of the replaced
+        // vault is told apart by the vault's generation (CADENAS-3, see [recordAutoBackup]).
+        beforeReplace = { settings.forgetAutoBackupCopiesForImport() },
         clockHighWater = { clockMark },
         onClockSeen = ::rememberClock,
         onClockReset = ::resetClock,
