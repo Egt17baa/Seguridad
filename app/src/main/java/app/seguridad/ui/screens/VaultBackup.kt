@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.crypto.newPasswordFailureMessage
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -129,7 +130,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                             "La bóveda se bloqueó: no se ha cambiado nada"
                         }
                     } catch (e: Exception) {
-                        "No se pudo cambiar la contraseña maestra"
+                        newPasswordFailureMessage(e, "No se pudo cambiar la contraseña maestra") // Review F5, M2.
                     } finally {
                         pw.fill('\u0000')
                     }

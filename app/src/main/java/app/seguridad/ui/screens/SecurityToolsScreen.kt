@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.crypto.newPasswordFailureMessage
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -642,7 +643,7 @@ private class FileCryptoViewModel(
                 throw e
             } catch (e: Exception) {
                 discardDocumentNow(appContext, dest)
-                false to "No se pudo cifrar el archivo."
+                false to newPasswordFailureMessage(e, "No se pudo cifrar el archivo.") // Review F5, M2.
             } finally {
                 secret.wipe()
                 if (clearPasswordAfterUse) s.password = ""

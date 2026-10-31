@@ -260,6 +260,11 @@ class ContactsViewTest {
         "Ana (verificado)", "Ana (Verificado)", "Ana ✓ verificado con QR", "Ana (verificada)", "Ana, sin verificar",
         "Ana VERIFICADO", "Ana (verificádo)", "Ana ✓", "Ana ✔️", "Ana ☑", "Ana ✅", "ti", "Ti", "tú", "TÚ", "tu", "Ana (tú)",
         "Ana (tu)", "Ana v e r i f i c a d o", "Ana ｖｅｒｉｆｉｃａｄｏ", "Ana verified",
+        // Review F5, M3: Latin look-alikes NFKD does not fold, ⍻, and other brackets.
+        "Ana \u1D20\u1D07\u0280\u026A\uA730\u026A\u1D04\u1D00\u1D05\u1D0F", // ᴠᴇʀɪꜰɪᴄᴀᴅᴏ
+        "Ana \u1D20\u1D07\u0280\u026A\uA730\u026A\u1D04\u1D00\u1D05\u1D0F \u1D04\u1D0F\u0274 \u01EB\u0280", // … ᴄᴏɴ ǫʀ
+        "Ana ver\u0131f\u0131cado", "Ana \u028Berificado", "Ana \u237B", "Ana [tú]", "Ana {tu}", "Ana «tú»", "Ana ‹ti›",
+        "Ana 【tú】", "Ana (ti)", "\u1D1B\u026A",
     )
 
     @Test fun unNombreQueImitaLaMarcaDeVerificacionSeRechaza() {
@@ -272,12 +277,15 @@ class ContactsViewTest {
         // Mi propio nombre, que va en mi tarjeta, tampoco.
         assertTrue(checkOwnName("Ana (verificado)") is ContactName.Invalid)
         // Los nombres normales siguen valiendo, también los que llevan «ti» o «tu» dentro de otra palabra.
-        for (ok in listOf("Ana", "Tito", "Tuya", "Martín", "Ana Tú Pérez", "Verónica", "Vera", "Fico", "❤️", "Ana (casa)", "Ti Ana")) {
+        for (ok in listOf(
+            "Ana", "Tito", "Tuya", "Martín", "Ana Tú Pérez", "Verónica", "Vera", "Fico", "❤️", "Ana (casa)", "Ti Ana",
+            "Ana [trabajo]", "Ana «Tita»", "Iñaki", "Ana \u1D04\u1D00\u0280\u1D0D\u1D07\u0274", // ᴄᴀʀᴍᴇɴ
+        )) {
             assertTrue("«$ok» debería valer", checkContactName(ok) is ContactName.Valid)
             assertFalse(ok, imitatesTrustMark(ok))
         }
         assertEquals(
-            "El nombre no puede parecerse a la marca de verificación («verificado», «sin verificar», ✓) ni ser «ti» o «tú»",
+            "El nombre no puede parecerse a la marca de verificación («verificado», «sin verificar», ✓) ni a tu propia firma («ti», «tú»)",
             NAME_IMITATES_MARK,
         )
     }

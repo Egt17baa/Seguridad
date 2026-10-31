@@ -81,7 +81,7 @@ private const val NAME_FORBIDDEN = "El nombre tiene caracteres de control, de di
  * verificar», la ✓) o a la línea de mi propia firma («Firmado por ti»). Ver [imitatesTrustMark].
  */
 const val NAME_IMITATES_MARK =
-    "El nombre no puede parecerse a la marca de verificación («verificado», «sin verificar», ✓) ni ser «ti» o «tú»"
+    "El nombre no puede parecerse a la marca de verificación («verificado», «sin verificar», ✓) ni a tu propia firma («ti», «tú»)"
 private const val NEW_CONTACT_NAME = "Contacto nuevo"
 private const val NEW_SUFFIX = " (nuevo)"
 
@@ -263,29 +263,64 @@ fun checkContactName(raw: String): ContactName {
     return ContactName.Valid(name)
 }
 
-/** Las marcas de verificación (✓ ✔ ☑ ✅ √ 🗸 🗹 y la de Egeo): ninguna puede ir en un nombre. */
-private val CHECK_MARKS = setOf(0x2713, 0x2714, 0x2611, 0x2705, 0x221A, 0x1F5F8, 0x1F5F9, 0x10102)
+/** Las marcas de verificación (✓ ✔ ☑ ✅ √ ⍻ 🗸 🗹 y la de Egeo): ninguna puede ir en un nombre. */
+private val CHECK_MARKS = setOf(0x2713, 0x2714, 0x2611, 0x2705, 0x221A, 0x237B, 0x1F5F8, 0x1F5F9, 0x10102)
 
 private val COMBINING_MARKS = Regex("\\p{M}+")
+
+/**
+ * Letras latinas que se leen como otra y que NFKD no pliega (revisión F5, M3): las versalitas («ᴠᴇʀɪꜰɪᴄᴀᴅᴏ ᴄᴏɴ ǫʀ»),
+ * la i sin punto (ı), la ʋ y la ȷ, con la letra que parecen.
+ */
+private val LATIN_LOOK_ALIKES: Map<Char, Char> = mapOf(
+    '\u1D00' to 'a', '\u0299' to 'b', '\u1D04' to 'c', '\u1D05' to 'd', '\u1D07' to 'e', '\uA730' to 'f',
+    '\u0262' to 'g', '\u029C' to 'h', '\u026A' to 'i', '\u1D09' to 'i', '\u1D0A' to 'j', '\u1D0B' to 'k',
+    '\u029F' to 'l', '\u1D0C' to 'l', '\u1D0D' to 'm', '\u0274' to 'n', '\u1D0E' to 'n', '\u1D0F' to 'o',
+    '\u1D10' to 'o', '\u1D11' to 'o', '\u1D12' to 'o', '\u1D13' to 'o', '\u01EB' to 'o', '\u1D18' to 'p',
+    '\uA7AF' to 'q', '\u0280' to 'r', '\u1D19' to 'r', '\u1D1A' to 'r', '\uA731' to 's', '\u1D1B' to 't',
+    '\u1D1C' to 'u', '\u1D20' to 'v', '\u028B' to 'v', '\u1D21' to 'w', '\u028F' to 'y', '\u1D22' to 'z',
+    '\u0131' to 'i', '\u0237' to 'j',
+)
+
+/** Los paréntesis, corchetes, llaves, comillas angulares y demás que encierran una palabra como «(tú)». */
+private const val OPENING_BRACKETS = "([{<«‹⟨〈《【〔「『⦅"
+private const val CLOSING_BRACKETS = ")]}>»›⟩〉》】〕」』⦆"
 
 /**
  * CADENAS-4 y CLAVE-PUBLICA-1 (auditoría 1.3.0): si [name] se puede confundir con lo que la app escribe junto al nombre
  * de un contacto («verificado», «sin verificar», la ✓) o con mi propia firma («Firmado por ti»). Sí, si:
  *  - lleva una marca de verificación ([CHECK_MARKS]);
- *  - sin mayúsculas, acentos ni compatibilidad (NFKD: «ｖｅｒｉｆｉｃａｄｏ» es «verificado») y quitando todo lo que no es una
- *    letra, contiene «verifi» (verificado, verificada, sin verificar, verified, «v e r i f i c a d o»…);
- *  - solo con sus letras es «ti» o «tu» (también «tú» y «Tú»), o lleva «(tu)» o «(tú)».
+ *  - sin mayúsculas, acentos ni compatibilidad (NFKD: «ｖｅｒｉｆｉｃａｄｏ» es «verificado»), con las letras latinas que se leen
+ *    como otra ya cambiadas por ella ([LATIN_LOOK_ALIKES]: «ᴠᴇʀɪꜰɪᴄᴀᴅᴏ», «verıfıcado», «ʋerificado») y quitando todo lo que
+ *    no es una letra, contiene «verifi» (verificado, verificada, sin verificar, verified, «v e r i f i c a d o»…);
+ *  - solo con sus letras es «ti» o «tu» (también «tú» y «Tú»), o lleva «tu» o «ti» entre paréntesis, corchetes, llaves o
+ *    comillas angulares («(tú)», «[tú]», «{ti}», «‹tú›»…).
  * Es una regla para lo que se escribe o llega ahora ([checkContactName] y [suggestedContactName]); un contacto ya
- * guardado así se sigue leyendo y se enseña entre «» ([shownContactTitle]). No ve letras de otros alfabetos que se
- * parecen («vеrificado» con una е cirílica): para eso está el orden de la línea del remitente, con el estado delante.
+ * guardado así se sigue leyendo y se enseña entre «» ([shownContactTitle]). No ve las letras de otros alfabetos que se
+ * parecen a las latinas («vеrificado» con una е cirílica, «νerificado» con una ν griega), ni otras latinas que no están
+ * en la lista: para eso está el orden de la línea del remitente, con el estado delante, y la marca real debajo del
+ * nombre en las listas.
  */
 fun imitatesTrustMark(name: String): Boolean {
     if (name.codePoints().anyMatch { it in CHECK_MARKS }) return true
-    val folded = COMBINING_MARKS.replace(Normalizer.normalize(name, Normalizer.Form.NFKD), "").lowercase(Locale.ROOT)
+    val decomposed = COMBINING_MARKS.replace(Normalizer.normalize(name, Normalizer.Form.NFKD), "")
+    val folded = buildString(decomposed.length) {
+        for (c in decomposed) {
+            val lower = c.lowercaseChar()
+            append(
+                LATIN_LOOK_ALIKES[lower] ?: LATIN_LOOK_ALIKES[c] ?: when (c) {
+                    in OPENING_BRACKETS -> '('
+                    in CLOSING_BRACKETS -> ')'
+                    else -> lower
+                },
+            )
+        }
+    }
     val letters = folded.filter { it.isLetter() }
     if ("verifi" in letters) return true
     if (letters == "ti" || letters == "tu") return true
-    return "(tu)" in folded.filterNot { it.isWhitespace() }
+    val compact = folded.filterNot { it.isWhitespace() }
+    return "(tu)" in compact || "(ti)" in compact
 }
 
 /**

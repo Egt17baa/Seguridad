@@ -5,6 +5,7 @@ import app.seguridad.crypto.Aead
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KEY_BYTES
 import app.seguridad.crypto.KdfParams
+import app.seguridad.crypto.PasswordUse
 import app.seguridad.crypto.NONCE_BYTES
 import app.seguridad.crypto.SALT_BYTES
 import app.seguridad.crypto.TAG_BYTES
@@ -238,17 +239,21 @@ object VaultCrypto {
     fun create(master: CharArray, now: Long, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): Pair<VaultFile, ByteArray> {
         val dek = randomBytes(KEY_BYTES, random)
         try {
-            return wrap(dek, emptyList(), master, now, kdf, random) to dek
+            return wrap(dek, emptyList(), master, PasswordUse.NEW, now, kdf, random) to dek
         } catch (e: Exception) {
             dek.fill(0)
             throw e
         }
     }
 
-    /** A [VaultFile.FORMAT] version-3 file holding [entries] under [dek], with [dek] wrapped by [master] (fresh salt). */
-    private fun wrap(dek: ByteArray, entries: List<VaultEntry>, master: CharArray, now: Long, kdf: KdfParams, random: SecureRandom, revision: Long = 0): VaultFile {
+    /**
+     * A [VaultFile.FORMAT] version-3 file holding [entries] under [dek], with [dek] wrapped by [master] (fresh salt). [use]
+     * is [PasswordUse.NEW] for a new vault or a new master password, and [PasswordUse.EXISTING] when wrapping again under
+     * the master that has just opened the file (review F5, M1: a 1.0.x/1.1.x master must keep working after the upgrade).
+     */
+    private fun wrap(dek: ByteArray, entries: List<VaultEntry>, master: CharArray, use: PasswordUse, now: Long, kdf: KdfParams, random: SecureRandom, revision: Long = 0): VaultFile {
         val salt = randomBytes(SALT_BYTES, random)
-        val kek = argon2id(master, salt, kdf)
+        val kek = argon2id(master, salt, kdf, use = use)
         try {
             val plain = VaultFile(
                 format = VaultFile.FORMAT, // Not the default, so it is always written out.
@@ -278,7 +283,7 @@ object VaultCrypto {
         } catch (e: IllegalArgumentException) {
             throw CryptoFailure()
         }
-        val kek = argon2id(master, salt, kdf)
+        val kek = argon2id(master, salt, kdf, use = PasswordUse.EXISTING)
         try {
             return openAny(kek, file.wrappedKey, file) { keyAad(file, it) }.first.also { if (it.size != KEY_BYTES) throw CryptoFailure() }
         } finally {
@@ -347,7 +352,7 @@ object VaultCrypto {
         // Whatever is wrapped again never costs less than the file did on either axis (a stronger old file keeps its strength).
         val cost = KdfParams(maxOf(known.kdf.memoryKiB, kdf.memoryKiB), maxOf(known.kdf.iterations, kdf.iterations), kdf.parallelism)
         return if (known.format != VaultFile.FORMAT || known.version != VaultFile.VERSION || weaker) {
-            wrap(dek, entries, master, now, cost, random, known.revision + 1)
+            wrap(dek, entries, master, PasswordUse.EXISTING, now, cost, random, known.revision + 1)
         } else {
             write(known.copy(masterCheckedAt = now), dek, entries, random)
         }
@@ -361,7 +366,7 @@ object VaultCrypto {
         val entries = read(file, dek)
         val newDek = randomBytes(KEY_BYTES, random)
         try {
-            return wrap(newDek, entries, newMaster, now, kdf, random, file.revision + 1) to newDek
+            return wrap(newDek, entries, newMaster, PasswordUse.NEW, now, kdf, random, file.revision + 1) to newDek
         } catch (e: Exception) {
             newDek.fill(0)
             throw e
