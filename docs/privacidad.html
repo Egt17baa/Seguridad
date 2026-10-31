@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Política de privacidad de Seguridad</title>
+<title>Política de privacidad de Clavero</title>
 <style>
   :root { --fg: #1b1b1f; --bg: #ffffff; --muted: #55565c; --link: #1a5fb4; }
   @media (prefers-color-scheme: dark) { :root { --fg: #e4e2e6; --bg: #1b1b1f; --muted: #b0b0b8; --link: #99c1f1; } }
@@ -18,31 +18,39 @@
 </head>
 <body>
 <main>
-<h1>Política de privacidad de Seguridad</h1>
-<p class="meta">App Android «Seguridad» (<code>io.github.egt17baa.seguridad</code>). Última actualización: 27 de octubre de 2026.</p>
+<h1>Política de privacidad de Clavero</h1>
+<p class="meta">App Android «Clavero», antes «Seguridad» (<code>io.github.egt17baa.seguridad</code>). Última actualización: 31 de octubre de 2026.</p>
 
 <h2>Quién la desarrolla</h2>
 <p>Egt17baa (seudónimo), desarrollador particular residente en España. No hay empresa detrás ni ánimo de lucro: la app es gratuita, sin anuncios, sin compras y sin donaciones, y su código es abierto (Apache-2.0): <a href="https://github.com/Egt17baa/Seguridad">github.com/Egt17baa/Seguridad</a>.</p>
-<p>Contacto: abre una incidencia en <a href="https://github.com/Egt17baa/Seguridad/issues">github.com/Egt17baa/Seguridad/issues</a>. Para un problema de seguridad, usa el aviso privado que explica <a href="https://github.com/Egt17baa/Seguridad/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+<p>Contacto: escribe a <a href="mailto:seguridad.egt17baa@gmail.com">seguridad.egt17baa@gmail.com</a> o abre una incidencia en <a href="https://github.com/Egt17baa/Seguridad/issues">github.com/Egt17baa/Seguridad/issues</a>. Para un problema de seguridad, usa el aviso privado que explica <a href="https://github.com/Egt17baa/Seguridad/blob/main/SECURITY.md">SECURITY.md</a>.</p>
 
 <h2>Qué datos recogemos</h2>
-<p>Ninguno. La app no tiene cuentas, analítica, anuncios ni servidores propios. No recibimos, vemos ni guardamos tus contraseñas, códigos 2FA, frases semilla, notas, adjuntos, archivos, tu identidad ni tus contactos.</p>
+<p>Ninguno. La app no tiene cuentas, analítica, anuncios ni servidores propios. No recibimos, vemos ni guardamos tus contraseñas, códigos 2FA, frases semilla, notas, adjuntos, archivos, tus fotos e imágenes, tu identidad ni tus contactos. Como no recibimos datos, no conservamos ninguno.</p>
 
 <h2>Dónde se guardan tus datos</h2>
-<p>Solo en tu móvil, cifrados. Las copias de seguridad automáticas de Android están desactivadas para esta app.</p>
+<p>La bóveda (contraseñas, códigos 2FA, frases semilla, notas, adjuntos, tu identidad y tus contactos) se guarda cifrada en tu móvil. Las copias de seguridad automáticas de Android están desactivadas para esta app. Fuera de la bóveda solo quedan las copias y los archivos que guardas o compartes tú, la copia automática si la activas (en la carpeta que elijas) y las copias temporales que se explican aquí. Lo que copias va al portapapeles del sistema, donde otras apps lo pueden pegar: la app lo borra pasados los segundos que elijas en Ajustes (o al volver a abrirla, si Android la cerró antes), y solo en este móvil: no del historial del teclado ni de otros dispositivos con los que compartas el portapapeles.</p>
+<p>Cuando descifras un archivo (en Cifrar archivos o al abrir lo que te envía un contacto), la app escribe antes una copia temporal sin cifrar en su almacenamiento privado, al que no pueden entrar otras apps. La borra en cuanto la guardas donde elijas o cancelas y, si la app se cierra antes, la próxima vez que la abras.</p>
 <p>Tu identidad (las claves con las que cifras y firmas) y tus contactos (su nombre y sus claves públicas) se guardan únicamente dentro de la bóveda cifrada de tu móvil y en las copias de seguridad que hagas tú. No se envían a ningún sitio, y esta versión no envía nada nuevo: no hay servidor que reciba tarjetas, mensajes ni firmas. Los textos y archivos que cifras para un contacto, o las firmas, los compartes tú por el canal que elijas (por ejemplo, una aplicación de mensajería), que los trata según su propia política.</p>
 <p>Si exportas una copia, o activas la copia automática eligiendo una carpeta, el archivo (con tu identidad y tus contactos, si los tienes) se guarda cifrado con tu contraseña maestra donde tú elijas. Si esa carpeta está sincronizada con un servicio en la nube (por ejemplo, Google Drive), ese servicio recibe el archivo cifrado según su propia política; no puede leer su contenido sin tu contraseña.</p>
+<p>Al cambiar la contraseña maestra, las copias que ya existen se siguen abriendo con la contraseña anterior. Puedes pedir que se haga una copia nueva y se borren las copias automáticas de antes del cambio que la app tiene apuntadas en esa carpeta. No se borran las que no tenga apuntadas (por ejemplo, las de antes de la versión 1.2.1 o las de otra bóveda) ni las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera).</p>
+<p>Los PIN, los códigos de recuperación y las respuestas inventadas se generan en el móvil; si los guardas, van a la bóveda cifrada.</p>
 <p>Si olvidas la contraseña maestra, nadie puede recuperar los datos.</p>
+
+<h2>Fotos e imágenes</h2>
+<p>Limpiar foto, Tachar en imagen y el Inspector de QR (con «Elegir imagen») abren solo la imagen que eliges tú con el selector de Android: la app no pide permiso para ver tu galería. La imagen se analiza en el móvil y la app no la envía a ningún sitio: solo sale del móvil la copia que tú compartas. Si guardas una copia, se escribe donde tú elijas; si esa carpeta está sincronizada con un servicio en la nube, ese servicio la recibe según su propia política. Si pulsas «Compartir», la app prepara una copia temporal en su almacenamiento interno y se la entrega a la app que elijas (por ejemplo, una de mensajería), que la trata según su propia política. Solo hay una copia temporal a la vez: se borra cuando compartes otra, al volver a Clavero pasados unos minutos o, como muy tarde, la próxima vez que abras la app.</p>
+<p>La copia de Limpiar foto se propone con el nombre «copia-de-foto» y la de Tachar en imagen con «imagen-tachada», para que el nombre no diga la fecha ni quién sale. Limpiar foto quita la ubicación, el modelo del móvil, la fecha y otros datos ocultos del archivo: la copia solo conserva la imagen, sus datos de color (como el perfil de color) y, en las JPEG, la orientación (el giro) de la foto. No cambia lo que se ve en la imagen ni quita las marcas invisibles que pueda llevar la propia imagen, y el original no se toca: sigue teniendo esos datos. Las fotos HEIC y HEIF se pueden usar desde Android 9, y las AVIF desde Android 12; las tres se guardan como JPEG y, si pasan de unos 24 megapíxeles, se reducen a ese tamaño.</p>
 
 <h2>La única conexión a Internet: comprobar si una contraseña está filtrada</h2>
 <p>Solo cuando pulsas «¿Filtrada?» o «Comprobar filtraciones» (en la salud de la bóveda), la app consulta el servicio Pwned Passwords de Have I Been Pwned (<code>api.pwnedpasswords.com</code>), una vez por cada contraseña distinta. Tus contraseñas nunca salen del móvil: se envían únicamente los 5 primeros caracteres de su huella SHA-1, que comparten cientos de contraseñas distintas, y la respuesta lleva relleno. Nada se guarda.</p>
-<p>Como en cualquier conexión, ese servicio y tu proveedor de red ven la dirección IP de tu dispositivo y la versión de la app, y los tratan según su propia política: <a href="https://haveibeenpwned.com/Privacy">haveibeenpwned.com/Privacy</a>. Nosotros no recibimos nada de esa consulta.</p>
+<p>Como en cualquier conexión, ese servicio y tu proveedor de red ven la dirección IP de tu dispositivo, y el servicio ve además el nombre y la versión de la app (por ejemplo, «Clavero/1.3.0»). Have I Been Pwned lo gestiona Superlative Enterprises Pty Ltd, en Australia, fuera de la Unión Europea, y usa Cloudflare para atender las consultas; tu proveedor de red y cada uno de ellos lo tratan según su propia política (la de Have I Been Pwned: <a href="https://haveibeenpwned.com/Privacy">haveibeenpwned.com/Privacy</a>). Nosotros no recibimos nada de esa consulta.</p>
 
 <h2>Permisos</h2>
 <ul>
 <li>Internet: solo para la comprobación de contraseñas filtradas descrita arriba.</li>
-<li>Cámara: solo mientras escaneas un código QR (de 2FA, de exportación de Google Authenticator o de la tarjeta de un contacto). Las imágenes no se guardan ni se envían.</li>
+<li>Cámara: solo mientras escaneas un código QR (de 2FA, de exportación de Google Authenticator, de la tarjeta de un contacto, o cualquier QR en el Inspector de QR). Las imágenes no se guardan ni se envían.</li>
 <li>Biometría: la huella la gestiona Android; la app nunca accede a ella.</li>
+<li>No pide permiso de fotos ni de ubicación.</li>
 </ul>
 
 <h2>Seguridad</h2>
@@ -52,7 +60,7 @@
 <p>La app no está dirigida a menores de 13 años.</p>
 
 <h2>Tus derechos</h2>
-<p>Como no tratamos datos personales, no podemos atender solicitudes de acceso o supresión sobre datos que no tenemos. Para borrar todo, desinstala la app o borra sus datos desde los Ajustes de Android. Puedes escribirnos por el contacto de arriba con cualquier duda y, si lo consideras necesario, reclamar ante la Agencia Española de Protección de Datos (<a href="https://www.aepd.es">www.aepd.es</a>).</p>
+<p>Como no tratamos datos personales, no podemos atender solicitudes de acceso o supresión sobre datos que no tenemos. Para borrar todo lo que guarda la app, desinstálala o borra sus datos desde los Ajustes de Android. Eso no borra los archivos que hayas guardado fuera de la app (las copias <code>.sgbak</code>, también las automáticas, las copias de fotos y las imágenes tachadas, y los archivos cifrados): están donde los guardaste, y los borras tú. Puedes escribirnos por el contacto de arriba con cualquier duda y, si lo consideras necesario, reclamar ante la Agencia Española de Protección de Datos (<a href="https://www.aepd.es">www.aepd.es</a>).</p>
 
 <h2>Cambios</h2>
 <p>Si esta política cambia, se publicará aquí con su nueva fecha. El historial de cambios está en el repositorio.</p>

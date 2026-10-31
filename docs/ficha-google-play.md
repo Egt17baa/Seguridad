@@ -1,14 +1,22 @@
 # Ficha de Google Play (borrador)
 
-Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal»), sin la palabra «wallet», y con los avisos de «sin recuperación» y «sin auditoría independiente». El nombre «Seguridad» es provisional (ver `docs/PUBLICAR.md`, apartado 3.1).
+Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal», «anónimo», «garantiza» salvo «no garantiza», «limpio», «sospechoso»), sin la palabra «wallet», y con los avisos de «sin recuperación» y «sin auditoría independiente». La app se llamaba «Seguridad» hasta la 1.2.2; desde la 1.3.0 su nombre visible es «Clavero» (decisión del dueño del 31-10-2026; el identificador `io.github.egt17baa.seguridad` no cambia).
+
+Al publicarla (decisiones del dueño del 31-10-2026, con la revisión final del Abogado Digital; detalle en [`PUBLICAR.md`](PUBLICAR.md), apartados 3.5 a 3.7): en todos los países menos Francia (con sus departamentos y territorios de ultramar, si Play los lista aparte), Rusia y Bielorrusia; Seguridad de los datos, «No recoge ni comparte datos»; desarrollador «Egt17baa», no comerciante. Las capturas de pantalla no muestran «wallet» ni datos reales.
+
+## Nombre de la app (máximo 30 caracteres)
+
+Clavero: bóveda cifrada
+
+(Si se prefiere sin subtítulo, «Clavero».)
 
 ## Descripción breve (máximo 80 caracteres)
 
-Bóveda cifrada, 2FA, contactos y cifrado de archivos. Sin cuentas ni nube.
+Bóveda cifrada, 2FA, contactos y cifrado de archivos. Sin cuentas ni anuncios.
 
 ## Descripción completa
 
-Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una bóveda cifrada en tu móvil, y cifra textos y archivos. No tiene cuentas, nube, analítica ni anuncios, y es de código abierto (Apache-2.0).
+Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semilla y notas en una bóveda cifrada en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
 
 **Bóveda**
 • Accesos, frases semilla, notas y códigos 2FA, cifrados con una clave protegida por tu contraseña maestra (Argon2id) y, si quieres, por tu huella.
@@ -26,19 +34,25 @@ Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una b
 
 **Contactos**
 • Tu identidad y tus contactos viven en la bóveda cifrada de tu móvil. Añade a un contacto escaneando su QR o pegando su tarjeta y comparando la huella.
-• Cifra un texto o un archivo para un contacto y envíalo por el canal que quieras (WhatsApp, Telegram, correo). Solo quien tenga la identidad de ese contacto podrá abrirlo; comprueba su huella para estar seguro de que es suya.
+• Cifra un texto o un archivo para un contacto y envíalo por el canal que quieras (una app de mensajería o el correo). Solo quien tenga la identidad de ese contacto podrá abrirlo; comprueba su huella para confirmar que es suya.
 • Firma un texto o un archivo: demuestra a tus contactos que es tuyo y que no ha cambiado.
 • El cifrado entre contactos está diseñado para resistir también a ordenadores cuánticos futuros (cifrado híbrido X-Wing, en proceso de estandarización). Las firmas no: usan Ed25519.
 
 **Herramientas**
-• Generador de contraseñas y frases, huella SHA-256 de archivos y comprobación de contraseñas filtradas.
+• Generador de contraseñas y frases, PIN al azar sin patrones habituales, códigos de recuperación y respuestas inventadas para preguntas de seguridad.
+• Limpiar foto: quita la ubicación y otros datos ocultos del archivo antes de enviarla; la copia solo conserva la imagen, sus datos de color y, en las JPEG, la orientación. No cambia lo que se ve en ella. Las fotos HEIC y HEIF (desde Android 9) y AVIF (desde Android 12) se guardan como JPEG, reducidas si pasan de unos 24 megapíxeles.
+• Tachar en imagen: tapa con bloques negros lo que no quieras enseñar en una captura.
+• Inspector de QR: enseña qué hay en un QR, con avisos de señales típicas de engaño, sin abrir nada. No garantiza que un enlace sea seguro.
+• Huella SHA-256 de archivos y comprobación de contraseñas filtradas.
 
 **Privacidad**
-Todo se queda en tu móvil. La única conexión a Internet es opcional: cuando pulsas «¿Filtrada?» o «Comprobar filtraciones», la app consulta el servicio Pwned Passwords de Have I Been Pwned enviando solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña, nunca la contraseña.
+La bóveda se queda cifrada en tu móvil. De la app sale lo que tú exportas, guardas, copias al portapapeles o compartes, y la copia automática, si la activas, a la carpeta que elijas. La única conexión a Internet es opcional: cuando pulsas «¿Filtrada?» o «Comprobar filtraciones», la app consulta el servicio Pwned Passwords de Have I Been Pwned enviando solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña, nunca la contraseña. Las fotos se procesan en el móvil y la app no las envía a ningún sitio: solo sale la copia que tú compartas.
 
 **Antes de usarla, ten en cuenta**
 • Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
-• Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Seguridad.
+• Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Clavero.
+• Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia.
+• Cambiar la contraseña maestra no cambia las copias que ya existen: se siguen abriendo con la contraseña anterior.
 • Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes, usa un dispositivo hardware dedicado.
 
 Gratuita, sin anuncios ni compras. Código fuente: https://github.com/Egt17baa/Seguridad

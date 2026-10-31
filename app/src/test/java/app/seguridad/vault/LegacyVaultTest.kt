@@ -31,7 +31,7 @@ class LegacyVaultTest {
     private fun store(idleLockMs: () -> Long = { 5 * 60_000L }) =
         VaultStore(
             File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
-            idleLockMs = idleLockMs, keptOpen = { keptOpen },
+            idleLockMs = idleLockMs, keptOpen = { keptOpen }, elapsed = { clock },
         )
 
     private suspend fun importsAndRewrites(name: String) {

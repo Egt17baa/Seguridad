@@ -2,6 +2,7 @@ package app.seguridad.settings
 
 import app.seguridad.crypto.KdfParams
 import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.VaultState
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -49,6 +50,38 @@ data class Settings(
      */
     val autoBackupCopies: List<String> = emptyList(),
     val autoBackupCopiesFolder: String? = null,
+    /**
+     * «Borrar las copias automáticas anteriores y hacer una nueva» was asked for while the vault was locked (it always is
+     * right after a change of master password): the copies made after the next unlock replace the old ones, and this is
+     * cleared once a copy has deleted every target ([autoBackupReplaceTargets]) and every leftover temporary copy; until
+     * then each copy tries again. Saved, so a restart in between does not lose the request.
+     */
+    val autoBackupReplacePending: Boolean = false,
+    /**
+     * M4: the ids of the copies that request still has to delete, those listed when it was asked (made before the change
+     * of master password); copies made after it follow [autoBackupKeep]. Null for a request saved before 1.3.0 (a default,
+     * so an older settings.json still reads): its first attempt deletes every listed copy but the new one, as before, and
+     * what it could not delete becomes this list. Cleared with the request.
+     */
+    val autoBackupReplaceTargets: List<String>? = null,
+    /**
+     * M2: the failures already told to the user for that request (fixed texts, as [lastAutoBackupError]), so each is told
+     * once per request, also after a restart. Cleared with the request, and when it is asked again.
+     */
+    val autoBackupReplaceTold: List<String> = emptyList(),
+    /** The highest time of day the app ever saw (epoch ms), a mark that only rises: a clock set back behind it ends the fingerprint. */
+    val clockHighWaterMs: Long = 0,
+    /**
+     * A14: the notice about the keyboard's clipboard history (Android 8 to 12, with no EXTRA_IS_SENSITIVE) was accepted;
+     * copying a secret no longer asks. With a default, so a settings.json from 1.2.2 or before still reads.
+     */
+    val clipboardHistoryNoticeAccepted: Boolean = false,
+    /**
+     * The notice that the app used to be called «Seguridad» ([RenameNotice]): null until the first start of 1.3.0 decides
+     * it (the default, so a settings.json from 1.2.x still reads); then true only if data from an earlier version was
+     * there (this file, or the vault), and false from the moment it is shown, or for a new install.
+     */
+    val renameNoticePending: Boolean? = null,
 )
 
 /** [Settings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */
@@ -56,7 +89,27 @@ val Settings.currentAutoBackupCopies: List<String>
     get() = if (autoBackupUri != null && autoBackupCopiesFolder == autoBackupUri) autoBackupCopies else emptyList()
 
 /** Settings with no automatic copy listed as this app's (see [Settings.autoBackupCopies]). */
-fun Settings.forgettingAutoBackupCopies(): Settings = copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null)
+fun Settings.forgettingAutoBackupCopies(): Settings =
+    copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null).withoutReplaceRequest()
+
+/** These settings with no request to replace the old copies: its targets and what it told go with it. */
+fun Settings.withoutReplaceRequest(): Settings =
+    copy(autoBackupReplacePending = false, autoBackupReplaceTargets = null, autoBackupReplaceTold = emptyList())
+
+/**
+ * These settings with [chosen] as the folder for the copies. The request to replace the old copies ([Settings.autoBackupReplacePending])
+ * goes only if the folder is another one: the same folder chosen again still has the copies it was asked about.
+ */
+fun Settings.withFolderChosen(chosen: String): Settings = copy(
+    autoBackupUri = chosen,
+    lastAutoBackupError = null,
+    lastAutoBackupAt = null,
+    autoBackupOffForNewVault = false,
+).let { if (chosen == autoBackupUri) it else it.withoutReplaceRequest() }
+
+/** These settings with the automatic copies turned off by the user: a request to replace the old ones goes with them. */
+fun Settings.withAutoBackupTurnedOff(): Settings =
+    copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null).withoutReplaceRequest()
 
 /** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
 const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
@@ -65,14 +118,44 @@ const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al
 /**
  * How the last automatic copy went, for Ajustes: only when [r] went to the folder still chosen (turned off or another
  * folder chosen meanwhile, that copy says nothing about the current one). A written copy updates the date even if its
- * old copies could not be deleted.
+ * old copies could not be deleted. [generation] is the vault's ([app.seguridad.vault.VaultStore.generation]) when this
+ * is recorded: a result of a vault that was replaced since ([AutoBackupResult.generation] differs) keeps neither its
+ * list nor its «replaced», so the forgotten list of the replaced vault is never written back (CADENAS-3).
  */
-fun Settings.withAutoBackupResult(r: AutoBackupResult): Settings = when {
+fun Settings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null): Settings {
+    val stale = r.generation != null && generation != null && r.generation != generation
+    return recording(if (stale) r.copy(copies = null, replaced = false, replaceTargets = null) else r)
+}
+
+private fun Settings.recording(r: AutoBackupResult): Settings = when {
     autoBackupUri != r.folder -> this
+    // Asked while the vault was locked: the request, its targets (M4) and nothing told yet; what Ajustes shows about the
+    // last copy does not change.
+    r.replaceRequested ->
+        copy(autoBackupReplacePending = true, autoBackupReplaceTargets = r.replaceTargets, autoBackupReplaceTold = emptyList())
     r.writtenAt != null && r.copies != null ->
-        copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt, autoBackupCopies = r.copies, autoBackupCopiesFolder = r.folder)
-    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt)
-    else -> copy(lastAutoBackupError = r.error)
+        copy(
+            lastAutoBackupError = r.error,
+            lastAutoBackupAt = r.writtenAt,
+            autoBackupCopies = r.copies,
+            autoBackupCopiesFolder = r.folder,
+        ).replaceAfter(r)
+    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt).replaceAfter(r)
+    else -> copy(lastAutoBackupError = r.error).replaceAfter(r)
+}
+
+/**
+ * The pending request after [r]: done when [r] replaced the old copies (CR-1: AutoBackup says so only when every target
+ * and leftover temporary copy went); otherwise kept, with the targets left (M4) and the failure it told added (M2).
+ */
+private fun Settings.replaceAfter(r: AutoBackupResult): Settings {
+    if (!autoBackupReplacePending) return this
+    if (r.replaced) return withoutReplaceRequest()
+    val told = if (r.newRequest) emptyList() else autoBackupReplaceTold
+    return copy(
+        autoBackupReplaceTargets = r.replaceTargets ?: autoBackupReplaceTargets,
+        autoBackupReplaceTold = if (r.toldKey != null && r.toldKey !in told) told + r.toldKey else told,
+    )
 }
 
 /** How many automatic copies can be kept. */
@@ -85,3 +168,23 @@ const val AUTO_BACKUP_KEEP_DEFAULT = 5
  * also opens on phones with a somewhat smaller heap.
  */
 fun KdfProfile.availableOn(heapKiB: Long): Boolean = this == KdfProfile.STANDARD || heapKiB / 2 >= params.memoryKiB
+
+/** The clock mark is rewritten only when the time is this far past it (it is told at every touch). */
+const val CLOCK_WRITE_STEP_MS = 30_000L
+
+/** Whether [seen] is worth writing over [mark]: at least [CLOCK_WRITE_STEP_MS] past it. A lower time never is. */
+fun clockMarkWorthWriting(mark: Long, seen: Long): Boolean = seen >= mark + CLOCK_WRITE_STEP_MS
+
+/** These settings having seen [seen]: the mark only rises. */
+fun Settings.seeingClock(seen: Long): Settings = if (seen > clockHighWaterMs) copy(clockHighWaterMs = seen) else this
+
+/** These settings after a master password check at [now]: the mark restarts there, which may lower it. */
+fun Settings.resettingClock(now: Long): Settings = if (now == clockHighWaterMs) this else copy(clockHighWaterMs = now)
+
+/**
+ * COV2-1 (owner's ruling): whether Ajustes lets the copies' folder (choose, change, turn off), «Conservar las N
+ * últimas», the idle lock, the clipboard time and the Argon2id cost be changed. Only with the vault open, or with no
+ * vault (nothing to protect, and the Argon2id cost also serves text and file encryption): someone holding the phone
+ * for a moment with the vault locked must not redirect its copies or weaken its defences.
+ */
+fun settingsEditable(state: VaultState): Boolean = state is VaultState.Unlocked || state is VaultState.NoVault

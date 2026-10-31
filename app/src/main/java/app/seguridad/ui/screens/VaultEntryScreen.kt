@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -19,6 +20,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -31,13 +33,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.android.copySensitive
+import app.seguridad.android.readClipboardText
 import app.seguridad.crypto.PasswordOptions
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.generatePassword
-import app.seguridad.crypto.MigrationResult
 import app.seguridad.crypto.parseOtpAuth
 import app.seguridad.crypto.parseOtpMigration
 import app.seguridad.crypto.totpCode
@@ -47,14 +52,21 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.ui.theme.ScanQrLabel
+import app.seguridad.tools.codes.getValue
+import app.seguridad.tools.codes.setValue
+import app.seguridad.vault.EntryEditSession
+import app.seguridad.vault.cleared
+import app.seguridad.vault.followVault
+import app.seguridad.vault.left
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.PendingMigration
 import app.seguridad.vault.PasswordChange
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
-import app.seguridad.vault.initialPassword
 import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.passwordToSave
 import app.seguridad.vault.seedWordCount
@@ -65,6 +77,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -197,60 +210,159 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
     }
 }
 
-@Composable
-fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType, onDone: () -> Unit) {
-    VaultIdleLock(store)
-    val state by store.state.collectAsStateWithLifecycle()
-    val unlocked = state as? VaultState.Unlocked ?: return LockedNotice(onDone)
-    val existing = remember(id) { id?.let { i -> unlocked.entries.firstOrNull { it.id == i } } }
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var type by remember { mutableStateOf(existing?.type ?: initialType) }
-    var title by remember { mutableStateOf(existing?.title.orEmpty()) }
-    var username by remember { mutableStateOf(existing?.username.orEmpty()) }
-    // One field per type: a password generated under «Acceso» must never become a seed's passphrase.
-    var loginPassword by remember { mutableStateOf(initialPassword(existing, EntryType.LOGIN)) }
-    var seedPassphrase by remember { mutableStateOf(initialPassword(existing, EntryType.SEED)) }
-    var url by remember { mutableStateOf(existing?.url.orEmpty()) }
-    var notes by remember { mutableStateOf(existing?.notes.orEmpty()) }
-    var seed by remember { mutableStateOf(existing?.seedWords.orEmpty()) }
-    var totp by remember { mutableStateOf(existing?.totp ?: TotpSecret("")) }
-    var favorite by remember { mutableStateOf(existing?.favorite ?: false) }
-    var tagsText by remember { mutableStateOf(existing?.tags.orEmpty().joinToString(", ")) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var saving by remember { mutableStateOf(false) }
-    // One id for a new entry, however many times Guardar is tapped.
-    val newId = remember { UUID.randomUUID().toString() }
-    // Typing counts as use too, so a long note is not lost to the idle lock.
-    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp, tagsText) { store.touch() }
+/**
+ * Holds the entry editor's [EntryEditSession] for its navigation entry (M6, concern 3 of the CR review): a rotation keeps
+ * what was typed and the pending Google Authenticator import; the death of the process does not (never in saved state).
+ * Save and import run in [viewModelScope], so a rotation cuts neither them nor what follows them. The vault's state is
+ * collected for the entry's whole life (not tied to the lifecycle): a lock clears the form at once, also in the
+ * background. When the entry is gone for good ([onCleared]), everything goes.
+ */
+private class EntryEditViewModel(private val store: VaultStore, id: String?, initialType: EntryType) : ViewModel() {
+    val form = EntryEditSession(ComposeCells, id, initialType, newId = UUID.randomUUID().toString())
 
-    // A Google Authenticator export waiting for the user's confirmation, with the entries it would add.
-    var migration by remember { mutableStateOf<Pair<MigrationResult, List<VaultEntry>>?>(null) }
-    var migrationLeftOut by remember { mutableStateOf(emptyList<String>()) }
-    var info by remember { mutableStateOf<String?>(null) }
+    init {
+        (store.state.value as? VaultState.Unlocked)?.let { form.load(it.entries) }
+        form.followVault(store.state, viewModelScope)
+    }
 
+    /** A 2FA text scanned, pasted or handed over by the QR inspector: applied exactly as a scan here. */
     fun applyOtpAuth(text: String) {
-        info = null
+        val entries = (store.state.value as? VaultState.Unlocked)?.entries ?: return
+        form.info.value = null
         if (text.trimStart().startsWith("otpauth-migration://", ignoreCase = true)) {
             val result = parseOtpMigration(text)
             if (result == null) {
-                error = "El QR de Google Authenticator no es válido o está dañado"
+                form.error.value = "El QR de Google Authenticator no es válido o está dañado"
             } else {
-                val (entries, dupes) = totpImportEntries(result.imported, unlocked.entries, System.currentTimeMillis()) { UUID.randomUUID().toString() }
-                migration = result to entries
-                migrationLeftOut = result.skipped + dupes
-                error = null
+                val (added, dupes) = totpImportEntries(result.imported, entries, System.currentTimeMillis()) { UUID.randomUUID().toString() }
+                form.migration.value = PendingMigration(result, added, result.skipped + dupes)
+                form.error.value = null
             }
             return
         }
         val parsed = parseOtpAuth(text)
         if (parsed == null) {
-            error = "El QR o enlace no es un código 2FA (otpauth://totp/…)"
+            form.error.value = "El QR o enlace no es un código 2FA (otpauth://totp/…)"
         } else {
-            totp = parsed
-            if (title.isBlank()) title = parsed.issuer.ifBlank { parsed.account }
-            error = null
+            form.totp.value = parsed
+            if (form.title.value.isBlank()) form.title.value = parsed.issuer.ifBlank { parsed.account }
+            form.error.value = null
         }
+    }
+
+    fun save(entry: VaultEntry) {
+        if (form.saving.value) return
+        form.saving.value = true
+        viewModelScope.launch {
+            try {
+                if (store.upsert(entry)) {
+                    form.finish()
+                } else if (form.loaded) {
+                    form.error.value = "La bóveda se bloqueó: no se ha guardado"
+                }
+            } catch (x: CancellationException) {
+                throw x
+            } catch (x: Exception) {
+                if (form.loaded) form.error.value = "No se pudo guardar"
+            } finally {
+                form.saving.value = false
+            }
+        }
+    }
+
+    /** «Importar» in the Google Authenticator dialog: [pending]'s entries, then what the batch says comes next. */
+    fun importMigration(pending: PendingMigration) {
+        if (form.saving.value) return
+        val result = pending.result
+        val batch = result.batchIndex + 1
+        val more = result.batchSize > 1 && batch < result.batchSize
+        if (pending.entries.isEmpty()) {
+            form.migration.value = null
+            if (more) form.info.value = "Lote $batch de ${result.batchSize}: escanea el siguiente"
+            return
+        }
+        form.saving.value = true
+        viewModelScope.launch {
+            try {
+                when {
+                    !store.addAll(pending.entries) -> if (form.loaded) form.error.value = "La bóveda se bloqueó: no se ha importado nada"
+                    more -> form.info.value =
+                        "Lote $batch de ${result.batchSize} importado (${pending.entries.size}). Lote ${batch + 1} de ${result.batchSize}: escanea el siguiente"
+                    // Editing an entry: leaving would lose its unsaved changes, so it stays here.
+                    form.existing.value != null -> form.info.value =
+                        "Importados ${pending.entries.size} códigos de Google Authenticator. Esta entrada sigue abierta: " +
+                            "guárdala si la has cambiado."
+                    else -> form.finish()
+                }
+            } catch (x: CancellationException) {
+                throw x
+            } catch (x: Exception) {
+                if (form.loaded) form.error.value = "No se pudo importar"
+            } finally {
+                form.migration.value = null
+                form.saving.value = false
+            }
+        }
+    }
+
+    override fun onCleared() {
+        form.cleared()
+    }
+}
+
+/**
+ * A new entry ([id] null) or an existing one. Its state lives in [EntryEditViewModel] (a rotation keeps it). [otpAuthText]
+ * is a 2FA text the QR inspector read (`otpauth://` or a Google Authenticator export): applied once per session, exactly
+ * as a scan here would be; [onOtpAuthTaken] then lets the caller drop its own copy.
+ */
+@Composable
+fun VaultEntryEditScreen(
+    store: VaultStore,
+    id: String?,
+    initialType: EntryType,
+    onDone: () -> Unit,
+    otpAuthText: String? = null,
+    onOtpAuthTaken: () -> Unit = {},
+) {
+    VaultIdleLock(store)
+    val state by store.state.collectAsStateWithLifecycle()
+    val unlocked = state as? VaultState.Unlocked ?: return LockedNotice(onDone)
+    val vm = viewModel { EntryEditViewModel(store, id, initialType) }
+    val form = vm.form
+    val context = LocalContext.current
+    val activity = context.fragmentActivity()
+    // Only a rotation (or another configuration change) keeps what was typed: leaving otherwise lets it go now.
+    DisposableEffect(vm) {
+        onDispose { form.left(changingConfigurations = activity?.isChangingConfigurations == true) }
+    }
+    if (form.finished.value) {
+        LaunchedEffect(Unit) { onDone() }
+        return
+    }
+    // Back after leaving (another tab): from the vault again, never from what was typed. A no-op once loaded.
+    form.load(unlocked.entries)
+    val existing = form.existing.value
+    var type by form.type
+    var title by form.title
+    var username by form.username
+    // One field per type: a password generated under «Acceso» must never become a seed's passphrase.
+    var loginPassword by form.loginPassword
+    var seedPassphrase by form.seedPassphrase
+    var url by form.url
+    var notes by form.notes
+    var seed by form.seed
+    var totp by form.totp
+    var favorite by form.favorite
+    var tagsText by form.tagsText
+    var error by form.error
+    val info = form.info.value
+    val saving = form.saving.value
+    // Typing counts as use too, so a long note is not lost to the idle lock.
+    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp, tagsText) { store.touch() }
+
+    LaunchedEffect(Unit) {
+        form.takeHandOver(otpAuthText)?.let(vm::applyOtpAuth)
+        onOtpAuthTaken()
     }
 
     // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.
@@ -258,16 +370,17 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
         val raw = result.contents
         when {
-            raw != null -> applyOtpAuth(raw)
+            raw != null -> vm.applyOtpAuth(raw)
             result.originalIntent?.getBooleanExtra(com.google.zxing.client.android.Intents.Scan.MISSING_CAMERA_PERMISSION, false) == true ->
                 error = "Sin permiso de cámara: pega el enlace otpauth:// o escribe la clave"
             // Otherwise the user cancelled: nothing to say.
         }
     }
 
-    BackScaffold(if (existing == null) "Nueva entrada" else "Editar", onDone) { padding ->
+    BackScaffold(if (existing == null) "Nueva entrada" else "Editar", form::finish) { padding ->
         NoCopy {
-            Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // M-9: imePadding, so the notes and the last fields stay above the keyboard with edge-to-edge.
+            Column(Modifier.padding(padding).imePadding().touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (existing == null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                         VAULT_ENTRY_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${typeIcon(t)} ${t.label}") }) }
@@ -278,7 +391,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                     EntryType.LOGIN -> {
                         OutlinedTextField(username, { username = it }, label = { Text("Usuario o correo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         PasswordField(loginPassword, { loginPassword = it })
-                        TextButton(onClick = { loginPassword = generatePassword(PasswordOptions(length = 20)) ?: loginPassword }) { Text("🎲 Generar una segura") }
+                        TextButton(onClick = { loginPassword = generatePassword(PasswordOptions(length = 20)) ?: loginPassword }) { Text("🎲 Generar una al azar") }
                         OutlinedTextField(url, { url = it }, label = { Text("Web") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
                     EntryType.SEED -> {
@@ -287,17 +400,17 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             { seed = it },
                             label = { Text("Palabras de recuperación, separadas por espacios") },
                             minLines = 3,
-                            // A password field: well-behaved keyboards (Gboard among them) neither learn nor suggest from it, nor sync
-                            // it. That is up to the keyboard: Compose cannot force it.
+                            // A password field: well-behaved keyboards (Gboard among them) neither suggest from it nor sync it. Not
+                            // learning is also asked of every field by NoLearningInput; both are up to the keyboard to honour.
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                             modifier = Modifier.fillMaxWidth(),
                         )
                         val (n, valid) = seedWordCount(seed)
                         if (n > 0) Text("$n palabras" + if (valid) " ✓" else " (lo habitual son 12, 15, 18, 21 o 24)", style = MaterialTheme.typography.bodySmall)
                         PasswordField(seedPassphrase, { seedPassphrase = it }, label = "Passphrase BIP-39 (opcional)")
-                        TextButton(onClick = { seedPassphrase = generatePassword(PasswordOptions(length = 20)) ?: seedPassphrase }) { Text("🎲 Generar una segura") }
+                        TextButton(onClick = { seedPassphrase = generatePassword(PasswordOptions(length = 20)) ?: seedPassphrase }) { Text("🎲 Generar una al azar") }
                         Text(
-                            "Una passphrase crea una wallet distinta. Guárdala en un sitio distinto de la frase: quien tenga solo la frase no accede a esos fondos. Si la pierdes, tú tampoco.",
+                            "Una passphrase crea una cartera distinta. Guárdala en un sitio distinto de la frase: quien tenga solo la frase no accede a esos fondos. Si la pierdes, tú tampoco.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -313,10 +426,10 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                                     error = "No se pudo abrir el escáner: pega el enlace otpauth:// o escribe la clave"
                                 }
-                            }) { Text("📷 Escanear QR") }
+                            }) { ScanQrLabel() }
                             OutlinedButton(onClick = {
-                                val cm = context.getSystemService(android.content.ClipboardManager::class.java)
-                                cm?.primaryClip?.getItemAt(0)?.text?.toString()?.let(::applyOtpAuth) ?: run { error = "El portapapeles está vacío" }
+                                // M3 (audit 1.3.0, teclado): never throws, like every other «Pegar».
+                                readClipboardText(context)?.let(vm::applyOtpAuth) ?: run { error = "El portapapeles está vacío" }
                             }) { Text("Pegar enlace") }
                         }
                         OutlinedTextField(totp.issuer, { totp = totp.copy(issuer = it) }, label = { Text("Servicio") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -369,7 +482,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                         }
                         if (error != null) return@Button
                         val e = VaultEntry(
-                            id = existing?.id ?: newId,
+                            id = form.entryId,
                             type = type,
                             title = title.trim(),
                             username = if (type == EntryType.LOGIN) username.trim() else "",
@@ -383,16 +496,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             favorite = favorite,
                             tags = normalizeTags(tagsText),
                         )
-                        saving = true
-                        scope.launch {
-                            try {
-                                if (store.upsert(e)) onDone() else error = "La bóveda se bloqueó: no se ha guardado"
-                            } catch (x: Exception) {
-                                error = "No se pudo guardar"
-                            } finally {
-                                saving = false
-                            }
-                        }
+                        vm.save(e)
                     },
                     enabled = !saving,
                     modifier = Modifier.fillMaxWidth(),
@@ -400,7 +504,9 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
             }
         }
     }
-    migration?.let { (result, entries) ->
+    form.migration.value?.let { pending ->
+        val result = pending.result
+        val entries = pending.entries
         val batch = result.batchIndex + 1
         val more = result.batchSize > 1 && batch < result.batchSize
         val batchNote = when {
@@ -409,7 +515,7 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
             else -> "Lote $batch de ${result.batchSize}: es el último"
         }
         AlertDialog(
-            onDismissRequest = { if (!saving) migration = null },
+            onDismissRequest = { if (!saving) form.migration.value = null },
             title = { Text("Importar de Google Authenticator") },
             text = {
                 FilterObscuredTouches()
@@ -421,44 +527,19 @@ fun VaultEntryEditScreen(store: VaultStore, id: String?, initialType: EntryType,
                             else -> "Se añadirán ${entries.size} códigos nuevos a la bóveda: ${entries.joinToString(", ") { it.title }}."
                         },
                     )
-                    if (migrationLeftOut.isNotEmpty()) {
-                        Text("No se importan (${migrationLeftOut.size}):", style = MaterialTheme.typography.labelLarge)
-                        migrationLeftOut.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                    if (pending.leftOut.isNotEmpty()) {
+                        Text("No se importan (${pending.leftOut.size}):", style = MaterialTheme.typography.labelLarge)
+                        pending.leftOut.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
                     }
                     batchNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
                 }
             },
             confirmButton = {
-                TextButton(enabled = !saving, onClick = {
-                    if (entries.isEmpty()) {
-                        migration = null
-                        if (more) info = "Lote $batch de ${result.batchSize}: escanea el siguiente"
-                        return@TextButton
-                    }
-                    saving = true
-                    scope.launch {
-                        try {
-                            if (!store.addAll(entries)) {
-                                error = "La bóveda se bloqueó: no se ha importado nada"
-                            } else if (more) {
-                                info = "Lote $batch de ${result.batchSize} importado (${entries.size}). Lote ${batch + 1} de ${result.batchSize}: escanea el siguiente"
-                            } else if (existing != null) {
-                                // Editing an entry: leaving would lose its unsaved changes, so it stays here.
-                                info = "Importados ${entries.size} códigos de Google Authenticator. Esta entrada sigue abierta: " +
-                                    "guárdala si la has cambiado."
-                            } else {
-                                onDone()
-                            }
-                        } catch (x: Exception) {
-                            error = "No se pudo importar"
-                        } finally {
-                            migration = null
-                            saving = false
-                        }
-                    }
-                }) { Text(if (entries.isEmpty()) "Aceptar" else "Importar ${entries.size}") }
+                TextButton(enabled = !saving, onClick = { vm.importMigration(pending) }) {
+                    Text(if (entries.isEmpty()) "Aceptar" else "Importar ${entries.size}")
+                }
             },
-            dismissButton = { if (entries.isNotEmpty()) TextButton(enabled = !saving, onClick = { migration = null }) { Text("Cancelar") } },
+            dismissButton = { if (entries.isNotEmpty()) TextButton(enabled = !saving, onClick = { form.migration.value = null }) { Text("Cancelar") } },
         )
     }
 }

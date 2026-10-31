@@ -6,6 +6,7 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KEY_BYTES
 import app.seguridad.crypto.KdfParams
 import app.seguridad.crypto.NONCE_BYTES
+import app.seguridad.crypto.PasswordUse
 import app.seguridad.crypto.SALT_BYTES
 import app.seguridad.crypto.aead
 import app.seguridad.crypto.argon2id
@@ -74,7 +75,7 @@ class VaultTamperTest {
         val master = "vieja".toCharArray()
         val dek = randomBytes(KEY_BYTES)
         val salt = randomBytes(SALT_BYTES)
-        val kek = argon2id(master, salt, QUICK)
+        val kek = argon2id(master, salt, QUICK, use = PasswordUse.NEW)
         fun v1Seal(key: ByteArray, plain: ByteArray, aad: String): String {
             val nonce = randomBytes(NONCE_BYTES)
             return Base64.getEncoder().encodeToString(nonce + aead(Aead.AES_256_GCM, true, key, nonce, aad.toByteArray(), plain))
@@ -102,7 +103,7 @@ class VaultTamperTest {
     private fun v192Json(master: CharArray): String {
         val dek = randomBytes(KEY_BYTES)
         val salt = randomBytes(SALT_BYTES)
-        val kek = argon2id(master, salt, QUICK)
+        val kek = argon2id(master, salt, QUICK, use = PasswordUse.NEW)
         fun v1Seal(key: ByteArray, plain: ByteArray, aad: String): String {
             val nonce = randomBytes(NONCE_BYTES)
             return Base64.getEncoder().encodeToString(nonce + aead(Aead.AES_256_GCM, true, key, nonce, aad.toByteArray(), plain))

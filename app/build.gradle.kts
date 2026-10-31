@@ -17,6 +17,9 @@ fun loadProps(name: String) = Properties().apply {
 val keystoreProps = loadProps("keystore.properties")
 fun signingValue(key: String, env: String): String? = keystoreProps.getProperty(key) ?: System.getenv(env)
 val releaseStoreFile = signingValue("storeFile", "SEGURIDAD_KEYSTORE_FILE")
+// Without an upload key, a release APK or AAB is only built on request (-PfirmaDePrueba=true), signed with the public
+// debug key: anyone can sign an "update" with that key, so it must never be distributed by mistake. See checkReleaseKey.
+val firmaDePrueba = providers.gradleProperty("firmaDePrueba").orNull == "true"
 
 android {
     namespace = "app.seguridad"
@@ -29,7 +32,7 @@ android {
         targetSdk = 36
         // Every Play upload needs a higher versionCode: pass -PversionCode=N (CI uses the run number).
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "1.2.2"
+        versionName = "1.3.0"
         // SHA-256 of the certificate in debug.keystore (public test key), for verifying the installed debug build.
         buildConfigField("String", "DEBUG_CERT_SHA256", "\"C0014DF66F103A436485115FE0880512C9F05DB39E0E3A94D659997EE9411834\"")
     }
@@ -57,8 +60,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Without an upload key the release build is signed with the debug key so it can be installed
-            // for testing; Google Play rejects that signature, so a real upload always needs keystore.properties.
+            // Without an upload key the release build is signed with the debug key, so lintRelease, checkAssets and the
+            // other checks still configure; packaging it fails in checkReleaseKey unless -PfirmaDePrueba=true is given.
+            // Google Play rejects that signature, so a real upload always needs keystore.properties (or the CI secrets).
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
@@ -120,6 +124,24 @@ licenseReport {
     filters = arrayOf(LicenseBundleNormalizer())
     allowedLicensesFile = rootProject.file("config/allowed-licenses.json")
 }
+
+// A10e: packaging a release APK or AAB without the upload key fails at execution time, so configuring the release
+// variant (lintRelease, checkLicense, checkAssets) still works without it. Only the packaging tasks depend on it.
+val checkReleaseKey by tasks.registering {
+    group = "verification"
+    description = "Falla si se empaqueta una release sin clave de subida y sin -PfirmaDePrueba=true."
+    val missingKey = releaseStoreFile == null && !firmaDePrueba
+    doLast {
+        if (missingKey) {
+            throw GradleException(
+                "Sin clave de subida: usa keystore.properties o -PfirmaDePrueba=true para un APK de prueba firmado con la " +
+                    "clave pública de depuración",
+            )
+        }
+    }
+}
+val releasePackagingTasks = setOf("packageRelease", "packageReleaseBundle", "packageReleaseUniversalApk")
+tasks.matching { it.name in releasePackagingTasks }.configureEach { dependsOn(checkReleaseKey) }
 
 // Regression guard for Seguridad 1.0.0: androidx.biometric 1.1.0 alone brings androidx.fragment 1.2.5, whose
 // FragmentActivity.startActivityForResult rejects the request codes of ActivityResultRegistry (>= 0x10000) with

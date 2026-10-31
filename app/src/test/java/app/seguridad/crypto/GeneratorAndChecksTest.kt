@@ -41,10 +41,12 @@ class GeneratorAndChecksTest {
     // The HTTP side (only the 5-character prefix is sent) is tested with the network client.
     @Test fun `sha1 of a password and range counts, ignoring padding`() {
         // SHA-1("password") = 5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8
-        val hash = sha1Hex("password".toCharArray())
-        assertEquals("5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8", hash)
+        val hash = sha1HexChars("password".toCharArray())
+        assertEquals("5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8", String(hash))
         val body = "0018A45C4D1DEF81644B54AB7F969B88D65:0\r\n1E4C9B93F3F0682250B6CF8331B7EE68FD8:9659365\r\n"
-        assertEquals(9659365, pwnedCount(body, hash.drop(5)))
+        // The suffix as a view of the CharArray (CIFRADO-1: no String of the hash), and as a String.
+        assertEquals(9659365, pwnedCount(body, java.nio.CharBuffer.wrap(hash, 5, hash.size - 5)))
+        assertEquals(9659365, pwnedCount(body, String(hash).drop(5).lowercase()))
         assertEquals(0, pwnedCount("0018A45C4D1DEF81644B54AB7F969B88D65:0", "0018A45C4D1DEF81644B54AB7F969B88D65"))
     }
 
@@ -53,5 +55,22 @@ class GeneratorAndChecksTest {
         assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", h)
         assertTrue(sameHash(h, "BA:78:16:BF:8F:01:CF:EA:41:41:40:DE:5D:AE:22:23:B0:03:61:A3:96:17:7A:9C:B4:10:FF:61:F2:00:15:AD"))
         assertFalse(sameHash(h, ""))
+    }
+
+    @Test fun `COV1-2 sha256 of a stream stops at the caller's checkpoint`() {
+        // «Huella SHA-256» passes ensureActive(): leaving the screen or picking another file stops the reading.
+        var calls = 0
+        val big = ByteArrayInputStream(ByteArray(4 * 1024 * 1024))
+        try {
+            sha256Hex(big) { if (++calls == 3) throw java.util.concurrent.CancellationException() }
+            org.junit.Assert.fail("not stopped")
+        } catch (e: java.util.concurrent.CancellationException) {
+            assertEquals(3, calls)
+        }
+        // Without a cancellation the result is the same.
+        assertEquals(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            sha256Hex(ByteArrayInputStream("abc".toByteArray())) { calls++ },
+        )
     }
 }

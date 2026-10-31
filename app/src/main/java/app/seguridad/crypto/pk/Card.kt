@@ -228,10 +228,13 @@ private fun readCardText(text: String): Pair<Card, ByteArray> {
  * Unicode 15.1, más Cc, Zl y Zp, el uso privado, los sustitutos sueltos y los no caracteres. Se aplica igual al crear
  * ([cardBytes]) y al leer ([parseCard]). **A partir de la 1.2.0, cualquier endurecimiento posterior se hará solo al
  * mostrar el nombre, nunca al leerlo**: la 1.2.x tiene que seguir leyendo toda tarjeta que la 1.2.0 aceptaba.
+ *
+ * Los nombres de archivo que se enseñan o se guardan (`safeFileName` y `sanitizeReceivedName`) quitan esta lista y algo
+ * más (`isHiddenInName`, en `crypto/FileCrypto.kt`; CIFRADO-2): eso no cambia lo que se lee aquí.
  */
 internal fun hasForbiddenNameCharacter(name: String): Boolean = name.codePoints().anyMatch(::isForbiddenNameCodePoint)
 
-private fun isForbiddenNameCodePoint(cp: Int): Boolean = when (cp) {
+internal fun isForbiddenNameCodePoint(cp: Int): Boolean = when (cp) {
     in 0x0000..0x001F, in 0x007F..0x009F,
     0x00AD, 0x034F, 0x061C,
     in 0x115F..0x1160, 0x3164, 0xFFA0,

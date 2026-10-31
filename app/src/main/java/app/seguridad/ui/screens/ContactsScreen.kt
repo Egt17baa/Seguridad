@@ -63,6 +63,7 @@ import app.seguridad.vault.fingerprintRows
 import app.seguridad.vault.identity
 import app.seguridad.vault.masterFailureMessage
 import app.seguridad.vault.verificationMark
+import app.seguridad.vault.shownContactTitle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -228,8 +229,8 @@ private fun ContactsList(entries: List<VaultEntry>, onIdentity: () -> Unit, onCo
                     onValueChange = { query = it },
                     label = { Text("Buscar contacto") },
                     singleLine = true,
-                    // No corrections or suggestions. The keyboard may still learn the words (Compose has no
-                    // IME_FLAG_NO_PERSONALIZED_LEARNING): only titles and names go here, never a secret.
+                    // No corrections or suggestions. autoCorrectEnabled = false does not stop the keyboard from learning:
+                    // that is NoLearningInput (IME_FLAG_NO_PERSONALIZED_LEARNING, for every field of the app).
                     keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -253,7 +254,7 @@ private fun ContactsList(entries: List<VaultEntry>, onIdentity: () -> Unit, onCo
             ) {
                 Text(typeIcon(EntryType.CONTACT), style = MaterialTheme.typography.titleLarge)
                 Column(Modifier.weight(1f)) {
-                    Text(e.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(shownContactTitle(e.title), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     VerificationMark(e)
                 }
             }

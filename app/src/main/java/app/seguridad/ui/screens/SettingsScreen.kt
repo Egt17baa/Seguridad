@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,6 +13,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -40,6 +41,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.BuildConfig
+import app.seguridad.android.BiometricVault
+import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES
 import app.seguridad.settings.AUTO_BACKUP_OFF_NEW_VAULT
@@ -49,11 +52,39 @@ import app.seguridad.settings.LockAfter
 import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.ThemeMode
+import app.seguridad.settings.withFolderChosen
 import app.seguridad.settings.availableOn
+import app.seguridad.settings.settingsEditable
+import app.seguridad.tools.KEY_LOCATION_TITLE
+import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
+import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
+import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
+import app.seguridad.tools.ABOUT_SUMMARY
+import app.seguridad.tools.CLIPBOARD_CLEAR_HINT
+import app.seguridad.tools.LOCK_ON_EXIT_HINT
+import app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT
+import app.seguridad.tools.KeyLevel
+import app.seguridad.tools.PASSWORD_CHANGED_TITLE
+import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
+import app.seguridad.tools.PASSWORD_CHANGE_COPIES
+import app.seguridad.tools.PASSWORD_CHANGE_OLD_BACKUPS
+import app.seguridad.tools.PASSWORD_CHANGE_RENEW_HINT
+import app.seguridad.tools.PASSWORD_CHANGE_SECRETS_HINT
+import app.seguridad.tools.PASSWORD_CHANGE_REPLACE_COPIES
+import app.seguridad.tools.PASSWORD_CHANGE_WORKING
+import app.seguridad.tools.RENEW_IDENTITY
+import app.seguridad.tools.STRONGBOX_AVAILABLE_NOTICE
+import app.seguridad.tools.keyLevelLabel
+import app.seguridad.tools.shouldOfferStrongBoxHint
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.vault.AutoBackup
+import app.seguridad.vault.MasterChanged
+import app.seguridad.vault.ReplaceStatus
+import app.seguridad.vault.replaceStatus
+import app.seguridad.vault.replacedText
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
@@ -126,10 +157,17 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
     // Copies are only made from the open vault (each attachment is checked): while locked, one waits for it.
     val locked = vaultState is VaultState.Locked
     val noVault = vaultState is VaultState.NoVault
+    // COV2-1: where the copies go and how many are kept change only with the vault open, or with none.
+    val editable = settingsEditable(vaultState)
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+    val picker = rememberDocumentPicker(ActivityResultContracts.OpenDocumentTree()) { uri ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
         if (uri != null) scope.launch {
+            // Checked again on return: the vault may have locked while the picker was open (COV2-1). No permission taken.
+            if (!settingsEditable(vault.state.value)) {
+                snackbar.showSnackbar(SETTINGS_NEED_OPEN_VAULT)
+                return@launch
+            }
             val resolver = context.contentResolver
             if (!withContext(Dispatchers.IO) { SafBackupTarget.takeFolder(resolver, uri) }) {
                 snackbar.showSnackbar("No se pudo obtener permiso para usar esa carpeta. Elige otra.")
@@ -137,10 +175,11 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             }
             val chosen = uri.toString()
             val previous = store.settings.value.autoBackupUri
+            val hadRequest = store.settings.value.autoBackupReplacePending
             try {
                 // The copies listed stay with the folder they are in ([Settings.currentAutoBackupCopies]): the same one
-                // chosen again goes on rotating them, another one starts with none.
-                store.update { it.copy(autoBackupUri = chosen, lastAutoBackupError = null, lastAutoBackupAt = null, autoBackupOffForNewVault = false) }
+                // chosen again goes on rotating them (and keeps a request to replace them), another one starts with none.
+                store.update { it.withFolderChosen(chosen) }
             } catch (e: Exception) {
                 if (chosen != previous) SafBackupTarget.releaseFolder(resolver, chosen)
                 snackbar.showSnackbar("No se pudo guardar el ajuste")
@@ -148,16 +187,20 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             }
             if (previous != null && previous != chosen) SafBackupTarget.releaseFolder(resolver, previous)
             autoBackup.request()
+            // A request to replace the old copies that the new folder dropped is said, not lost in silence.
+            val dropped = if (hadRequest && !store.settings.value.autoBackupReplacePending) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
             snackbar.showSnackbar(
                 when (vault.state.value) {
+                    // Locked only if it locked in the instant since the check above: the copy still waits for it.
                     VaultState.Locked -> "Copia automática activada: se hará una en cuanto abras la bóveda y después tras cada cambio."
                     VaultState.NoVault -> "Copia automática activada: se hará una cuando crees la bóveda y después tras cada cambio."
                     else -> "Copia automática activada: se hará una ahora y tras cada cambio en la bóveda."
-                },
+                } + dropped,
             )
         }
     }
-    val choose = {
+    val choose = choose@{
+        if (!settingsEditable(vault.state.value)) return@choose
         VaultLock.keepOpenOnce = true
         vault.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
         picker.launchOrError(null)?.let { failure ->
@@ -176,12 +219,13 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             if (settings.autoBackupOffForNewVault) {
                 Text(AUTO_BACKUP_OFF_NEW_VAULT, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
             }
-            OutlinedButton(onClick = choose, modifier = Modifier.fillMaxWidth()) { Text("Elegir carpeta") }
+            OutlinedButton(onClick = choose, enabled = editable, modifier = Modifier.fillMaxWidth()) { Text("Elegir carpeta") }
+            if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
             return@Section
         }
         Text("Carpeta: ${SafBackupTarget.label(folder)}", style = MaterialTheme.typography.bodyMedium)
-        Choices(AUTO_BACKUP_KEEP_CHOICES, settings.autoBackupKeep, { "Conservar las $it últimas" }) { k ->
-            scope.launch {
+        Choices(AUTO_BACKUP_KEEP_CHOICES, settings.autoBackupKeep, { "Conservar las $it últimas" }, enabled = { editable }) { k ->
+            if (settingsEditable(vault.state.value)) scope.launch {
                 try {
                     store.update { it.copy(autoBackupKeep = k) }
                 } catch (e: Exception) {
@@ -213,14 +257,19 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Hacer una copia ahora") }
-        OutlinedButton(onClick = choose, modifier = Modifier.fillMaxWidth()) { Text("Cambiar de carpeta") }
+        OutlinedButton(onClick = choose, enabled = editable, modifier = Modifier.fillMaxWidth()) { Text("Cambiar de carpeta") }
         OutlinedButton(
+            enabled = editable,
             onClick = {
-                scope.launch {
+                if (settingsEditable(vault.state.value)) scope.launch {
                     try {
-                        store.update { it.copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null) }
+                        // From the write itself (T11-c): a replacement that finished just before is not «dropped».
+                        val hadRequest = store.turnOffAutoBackup()
                         SafBackupTarget.releaseFolder(context.contentResolver, folder)
-                        snackbar.showSnackbar("Copia automática desactivada. Las copias ya hechas siguen en la carpeta.")
+                        snackbar.showSnackbar(
+                            "Copia automática desactivada. Las copias ya hechas siguen en la carpeta." +
+                                if (hadRequest) " $AUTO_BACKUP_REPLACE_DROPPED" else "",
+                        )
                     } catch (e: Exception) {
                         snackbar.showSnackbar("No se pudo guardar el ajuste")
                     }
@@ -228,11 +277,122 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Desactivar") }
+        if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
         Hint(
             "Cada copia va cifrada con la contraseña maestra que tenía la bóveda al hacerla: si la cambias, las copias anteriores " +
                 "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…), nunca " +
                 "otros archivos de la carpeta.",
         )
+    }
+}
+
+/**
+ * What follows a change of master password (the vault is locked by then): the copies that already exist do not change,
+ * the automatic ones can be replaced ([onReplace], only while [autoBackupOn], which is read again at each recomposition),
+ * and the identity can be renewed ([onRenew] leads to «Mi identidad»). Nothing of it lives in the dialog, which a
+ * rotation recreates: [state] is AppContainer.masterChanged (whether it was asked, and what the call answered, recorded
+ * even if the activity was re-created meanwhile), [replacing] is AutoBackup working in its own scope, and [pending],
+ * [lastError] and [lastBackupAt] are the saved settings. It is offered again only after a failure. The dialog cannot be
+ * dismissed while it works.
+ */
+@Composable
+fun MasterChangedDialog(
+    state: MasterChanged.State,
+    autoBackupOn: Boolean,
+    replacing: Boolean,
+    pending: Boolean,
+    lastError: String?,
+    lastBackupAt: Long?,
+    /** m3: a failure of this request was already told (Settings.autoBackupReplaceTold is not empty). */
+    toldSinceRequest: Boolean,
+    onReplace: () -> Unit,
+    onRenew: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val working = state.busy || replacing
+    val status = replaceStatus(state.requestedAt, state.answered, state.answerError, pending, lastError, lastBackupAt, toldSinceRequest)
+    val canReplace = !working && (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed)
+    AlertDialog(
+        onDismissRequest = { if (!working) onClose() },
+        title = { Text(PASSWORD_CHANGED_TITLE) },
+        text = {
+            FilterObscuredTouches()
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Also said in a snackbar, which a rotation can lose: here it stays until the dialog is closed.
+                if (state.fingerprintFailed) Text(PASSWORD_CHANGED_FINGERPRINT_FAILED, color = NegativeColor)
+                Text(PASSWORD_CHANGE_COPIES)
+                Text(PASSWORD_CHANGE_OLD_BACKUPS)
+                if (autoBackupOn) {
+                    OutlinedButton(
+                        enabled = canReplace,
+                        onClick = { if (canReplace) onReplace() },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(PASSWORD_CHANGE_REPLACE_COPIES) }
+                    when {
+                        working -> Hint(PASSWORD_CHANGE_WORKING)
+                        // 0 unknown (the answer was lost to a re-creation): the base text, true whatever the folder holds.
+                        status is ReplaceStatus.Done -> Hint(replacedText(state.answerUnlisted))
+                        status is ReplaceStatus.Waits -> Hint(AUTO_BACKUP_REPLACE_WAITS)
+                        status is ReplaceStatus.Failed -> Text(status.message, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+                        else -> Unit
+                    }
+                }
+                // R-5 of the earlier dictamen: «Renovar identidad» only when the vault had one; the advice on passwords stays.
+                if (state.hasIdentity) {
+                    Text(PASSWORD_CHANGE_RENEW_HINT)
+                    OutlinedButton(enabled = !working, onClick = onRenew, modifier = Modifier.fillMaxWidth()) { Text(RENEW_IDENTITY) }
+                } else {
+                    Text(PASSWORD_CHANGE_SECRETS_HINT)
+                }
+            }
+        },
+        confirmButton = { TextButton(enabled = !working, onClick = onClose) { Text(PASSWORD_CHANGE_CLOSE) } },
+    )
+}
+
+/** How a replacement that ran after an unlock went (it was asked for while the vault was locked), told once. */
+@Composable
+fun ReplaceOutcomeDialog(text: String, failed: Boolean, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(AUTO_BACKUP_OUTCOME_TITLE) },
+        text = {
+            FilterObscuredTouches()
+            Text(text, color = if (failed) NegativeColor else MaterialTheme.colorScheme.onSurface)
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text(PASSWORD_CHANGE_CLOSE) } },
+    )
+}
+
+/**
+ * «Dónde está la clave de la huella», only while the fingerprint is on. Read from the Keystore off the main thread, on
+ * each visit and whenever the vault changes state (a new master password or an import turns the fingerprint off).
+ */
+@Composable
+private fun FingerprintKeySection(vaultState: VaultState) {
+    val context = LocalContext.current
+    val level by produceState<KeyLevel?>(null, vaultState) {
+        value = withContext(Dispatchers.IO) { if (BiometricVault.enabled(context)) BiometricVault.keyLevel(context) else null }
+    }
+    // R2: decided once per visit to Ajustes (a lock or unlock does not take it away), from the key as it was then.
+    val offerHint by produceState(false) {
+        value = withContext(Dispatchers.IO) {
+            BiometricVault.enabled(context) && shouldOfferStrongBoxHint(
+                hasStrongBox = BiometricVault.hasStrongBox(context),
+                current = BiometricVault.keyLevel(context),
+                strongBoxFailedBefore = BiometricVault.strongBoxFailed(context),
+                hintShown = BiometricVault.strongBoxHintShown(context),
+            )
+        }
+    }
+    val current = level ?: return
+    Section(KEY_LOCATION_TITLE) {
+        Text(keyLevelLabel(current), style = MaterialTheme.typography.bodyMedium)
+        if (offerHint) {
+            Hint(STRONGBOX_AVAILABLE_NOTICE)
+            // Saved only once it has been put on screen, so it is not lost to a visit that never showed it.
+            LaunchedEffect(Unit) { withContext(Dispatchers.IO) { BiometricVault.markStrongBoxHintShown(context) } }
+        }
     }
 }
 
@@ -248,6 +408,8 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
     val scope = rememberCoroutineScope()
     val actions = vaultActions(vault, snackbar)
     val highAvailable = remember { KdfProfile.HIGH.availableOn(Runtime.getRuntime().maxMemory() / 1024) }
+    // COV2-1: the lock, the clipboard and the Argon2id cost change only with the vault open, or with none (the theme always).
+    val editable = settingsEditable(vaultState)
     fun change(f: (Settings) -> Settings) {
         scope.launch {
             try {
@@ -268,17 +430,24 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Section("Bloquear la bóveda tras no usarla") {
-                Choices(LockAfter.entries, settings.lockAfter, { it.label }) { v -> change { it.copy(lockAfter = v) } }
-                Hint("Al salir de la app se bloquea siempre (salvo mientras eliges un archivo o escaneas un QR para ella; con «Al salir», como mucho 2 minutos).")
+                Choices(LockAfter.entries, settings.lockAfter, { it.label }, enabled = { editable }) { v ->
+                    if (settingsEditable(vault.state.value)) change { it.copy(lockAfter = v) }
+                }
+                if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+                Hint(LOCK_ON_EXIT_HINT)
             }
             Section("Borrar del portapapeles lo copiado") {
-                Choices(ClipboardClear.entries, settings.clipboard, { "A los ${it.seconds} s" }) { v -> change { it.copy(clipboard = v) } }
-                Hint("Solo se borra si sigue ahí lo que copiaste desde la app.")
+                Choices(ClipboardClear.entries, settings.clipboard, { "A los ${it.seconds} s" }, enabled = { editable }) { v ->
+                    if (settingsEditable(vault.state.value)) change { it.copy(clipboard = v) }
+                }
+                if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+                Hint(CLIPBOARD_CLEAR_HINT)
             }
             Section("Coste de Argon2id para lo nuevo") {
-                Choices(KdfProfile.entries, settings.kdf, { it.label }, enabled = { it != KdfProfile.HIGH || highAvailable }) { v ->
-                    change { it.copy(kdf = v) }
+                Choices(KdfProfile.entries, settings.kdf, { it.label }, enabled = { editable && (it != KdfProfile.HIGH || highAvailable) }) { v ->
+                    if (settingsEditable(vault.state.value)) change { it.copy(kdf = v) }
                 }
+                if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
                 Hint(
                     "Se usa al crear la bóveda, al cambiar la contraseña maestra y al cifrar textos y archivos. Lo ya cifrado guarda su coste. " +
                         "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria: muchos móviles " +
@@ -306,6 +475,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                 Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia, la exportación .json de la 1.0 y la criptopanel-vault, que se vuelve a cifrar con el formato nuevo.")
             }
             AutoBackupSection(store, vault, autoBackup, snackbar)
+            FingerprintKeySection(vaultState)
             Section("Información") {
                 TextButton(onClick = onAbout) { Text("Acerca de, licencias y avisos") }
             }
@@ -337,10 +507,10 @@ fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Seguridad ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.headlineSmall)
-            Hint("Contraseñas, códigos 2FA, frases semilla y cifrado, todo en tu móvil y sin cuentas.")
+            Text("Clavero ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.headlineSmall)
+            Hint(ABOUT_SUMMARY)
             Section("Avisos") {
-                Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una wallet hardware y un gestor de contraseñas auditado.")
+                Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una cartera física de criptomonedas y un gestor de contraseñas auditado.")
                 Hint("• Sin recuperación: si olvidas la contraseña maestra o la de algo cifrado, nadie puede recuperar lo guardado.")
                 Hint("• Red: solo se conectan «¿Filtrada?» y «Comprobar filtraciones» de la salud de la bóveda, cuando las pulsas, a api.pwnedpasswords.com, y solo envían los 5 primeros caracteres de la huella SHA-1 de cada contraseña.")
             }

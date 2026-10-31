@@ -45,8 +45,8 @@ const val BACKUP_HEAD_BYTES = 64
 private val ATTACHMENT_ENTRY = Regex("att/([0-9a-f]{32})\\.bin")
 private val ATTACHMENT_ID = Regex("[0-9a-f]{32}")
 
-internal const val BACKUP_DAMAGED = "La copia está dañada o no es una copia de Seguridad"
-internal const val BACKUP_NEWER = "La copia es de una versión más nueva de Seguridad"
+internal const val BACKUP_DAMAGED = "La copia está dañada o no es una copia de Clavero"
+internal const val BACKUP_NEWER = "La copia es de una versión más nueva de Clavero"
 internal const val BACKUP_TOO_BIG = "La copia pasa de 100 MB"
 internal const val BACKUP_ENTRY_TOO_BIG = "Un archivo de la copia pasa de 6 MB"
 internal const val BACKUP_TOO_MANY = "La copia tiene más de 2 000 archivos"
