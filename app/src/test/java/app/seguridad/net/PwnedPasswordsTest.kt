@@ -35,7 +35,7 @@ class PwnedPasswordsTest {
         assertEquals("/range/5BAA6", path)
         assertEquals("true", req.getHeader("Add-Padding"))
         // The app's real version, never a fixed one: it goes stale (it said 1.0.0 in 1.1.0).
-        assertEquals("Seguridad/9.8.7", req.getHeader("User-Agent"))
+        assertEquals("Clavero/9.8.7", req.getHeader("User-Agent"))
         assertFalse(req.requestLine.contains("password"))
         assertFalse(req.requestLine.contains(suffix))
         assertEquals(0, req.bodySize)

@@ -170,7 +170,7 @@ object BiometricVault {
     ): BiometricPrompt {
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
-            .setSubtitle("Bóveda de Seguridad")
+            .setSubtitle("Bóveda de Clavero")
             .setNegativeButtonText("Usar contraseña maestra")
             .setAllowedAuthenticators(BIOMETRIC_STRONG)
             .build()

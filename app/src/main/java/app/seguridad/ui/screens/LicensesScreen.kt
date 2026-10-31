@@ -46,7 +46,7 @@ fun LicensesScreen(onBack: () -> Unit) {
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Seguridad solo usa componentes de código abierto con licencia libre y gratuita.", style = MaterialTheme.typography.bodyMedium)
+            Text("Clavero solo usa componentes de código abierto con licencia libre y gratuita.", style = MaterialTheme.typography.bodyMedium)
             components.forEach { c ->
                 var open by rememberSaveable(c.name) { mutableStateOf(false) }
                 val text = remember(c.asset) { asset(c.asset) }

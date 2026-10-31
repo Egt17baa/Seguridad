@@ -77,7 +77,7 @@ const val NO_IDENTITY_TO_SIGN = "Crea tu identidad en Contactos para firmar"
 const val NO_IDENTITY_TO_OPEN = "Crea tu identidad en Contactos para abrir mensajes cifrados"
 
 /** Lo que se dice cuando no hay ninguna tarjeta, mensaje ni firma en lo pegado. */
-const val UNKNOWN_RECEIVED = "No es una tarjeta, un mensaje cifrado ni un texto firmado de Seguridad"
+const val UNKNOWN_RECEIVED = "No es una tarjeta, un mensaje cifrado ni un texto firmado de Clavero"
 
 private const val PASTE_SOMETHING = "Pega un texto"
 private const val TOO_BIG_RECEIVED = "El texto es demasiado grande"

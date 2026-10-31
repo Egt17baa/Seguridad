@@ -1,6 +1,12 @@
 # Ficha de Google Play (borrador)
 
-Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal», «anónimo», «garantiza» salvo «no garantiza», «limpio», «sospechoso»), sin la palabra «wallet», y con los avisos de «sin recuperación» y «sin auditoría independiente». El nombre «Seguridad» es provisional (ver `docs/PUBLICAR.md`, apartado 3.1).
+Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal», «anónimo», «garantiza» salvo «no garantiza», «limpio», «sospechoso»), sin la palabra «wallet», y con los avisos de «sin recuperación» y «sin auditoría independiente». La app se llamaba «Seguridad» hasta la 1.2.2; desde la 1.3.0 su nombre visible es «Clavero» (decisión del dueño del 31-10-2026; el identificador `io.github.egt17baa.seguridad` no cambia).
+
+## Nombre de la app (máximo 30 caracteres)
+
+Clavero: bóveda cifrada
+
+(Si se prefiere sin subtítulo, «Clavero».)
 
 ## Descripción breve (máximo 80 caracteres)
 
@@ -8,7 +14,7 @@ Bóveda cifrada, 2FA, contactos y cifrado de archivos. Sin cuentas ni anuncios.
 
 ## Descripción completa
 
-Seguridad guarda tus contraseñas, códigos 2FA, frases semilla y notas en una bóveda cifrada en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
+Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semilla y notas en una bóveda cifrada en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
 
 **Bóveda**
 • Accesos, frases semilla, notas y códigos 2FA, cifrados con una clave protegida por tu contraseña maestra (Argon2id) y, si quieres, por tu huella.
@@ -42,7 +48,7 @@ La bóveda se queda cifrada en tu móvil. De la app sale lo que tú exportas, gu
 
 **Antes de usarla, ten en cuenta**
 • Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
-• Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Seguridad.
+• Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Clavero.
 • Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia.
 • Cambiar la contraseña maestra no cambia las copias que ya existen: se siguen abriendo con la contraseña anterior.
 • Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes, usa un dispositivo hardware dedicado.

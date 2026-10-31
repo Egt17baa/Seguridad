@@ -1,4 +1,6 @@
-# Firmar y publicar Seguridad
+# Firmar y publicar Clavero
+
+Clavero se llamaba «Seguridad» hasta la 1.2.2. El nombre visible cambia en la 1.3.0; el `applicationId`, la clave de subida, los secretos `SEGURIDAD_*` y el workflow `build-apk.yml` no cambian.
 
 ## 1. La clave de subida y su huella
 
@@ -19,7 +21,7 @@ Desde la 1.3.0, **build-firma** y **play-bundle** fallan si el APK o el AAB no l
 Para comprobar un APK descargado:
 
 ```bash
-$ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs Seguridad.apk
+$ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs Clavero-vX.Y.Z.apk
 ```
 
 La línea `Signer #1 certificate SHA-256 digest` debe dar la huella de arriba (en minúsculas y sin los dos puntos).
@@ -32,10 +34,10 @@ keytool -list -v -keystore tu.jks -alias TU_ALIAS | grep SHA256
 
 ## 2. Descargar el APK (instalación directa)
 
-Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo `v1.1.1`) adjunta a su release `Seguridad-v1.1.1.apk` y `Seguridad-v1.1.1.apk.sha256`; si la release no existe aún, se crea con el nombre de la etiqueta. Los push a `main` ya no publican nada (antes iba a `apk-latest`): así no llegan a nadie versiones sin estabilizar. Desde la 1.3.0 tampoco se firman con la clave de subida: dejan un APK de prueba como artefacto.
+Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo `v1.3.0`) adjunta a su release `Clavero-v1.3.0.apk` y `Clavero-v1.3.0.apk.sha256` (hasta la 1.2.2 se llamaban `Seguridad-vX.Y.Z.apk`); si la release no existe aún, se crea con el nombre de la etiqueta. Los push a `main` ya no publican nada (antes iba a `apk-latest`): así no llegan a nadie versiones sin estabilizar. Desde la 1.3.0 tampoco se firman con la clave de subida: dejan un APK de prueba como artefacto.
 
 1. En GitHub, abre el repositorio → *Releases* → la última versión.
-2. Descarga `Seguridad-vX.Y.Z.apk` y comprueba su huella (apartado 1) y su SHA-256.
+2. Descarga `Clavero-vX.Y.Z.apk` (hasta la 1.2.2, `Seguridad-vX.Y.Z.apk`) y comprueba su huella (apartado 1) y su SHA-256.
 3. En el móvil, permite instalar apps de esa fuente e instálalo. Después puedes volver a quitar ese permiso.
 
 **Verificación de desarrolladores Android.** Desde el 30 de septiembre de 2026, los móviles certificados de algunos países solo instalan apps de desarrolladores verificados, y en 2027 se extiende al resto. Registra también este APK (el de GitHub) en Play Console, en la misma cuenta, para que siga instalándose.
@@ -50,7 +52,7 @@ Solo las versiones etiquetadas publican un APK. Cada etiqueta `v*` (por ejemplo 
 
 **La 1.2.0 se instala encima de la 1.1.1** (mismo identificador y misma firma) y conserva la bóveda, pero después de abrirla con la 1.2 no se puede volver a la 1.1: la bóveda pasa a la versión 3 y la 1.1 no puede usarla (con la maestra no la abre y con la huella no puede guardar cambios; no se pierden datos). Conviene exportar una copia `.sgbak` antes de actualizar.
 
-Las ramas `claude/**`, los pull requests y los push a `main` no publican nada: su APK queda como artefacto `Seguridad-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
+Las ramas `claude/**`, los pull requests y los push a `main` no publican nada: su APK queda como artefacto `Clavero-apk` de la ejecución (*Actions → la ejecución → Artifacts*), solo para probar.
 
 Un APK firmado con la clave de subida y otro firmado con la de prueba no se actualizan entre sí: Android pide desinstalar, y al desinstalar se borra la bóveda. Exporta antes una copia.
 
@@ -59,12 +61,12 @@ Un APK firmado con la clave de subida y otro firmado con la de prueba no se actu
 ### 3.1 Antes de la primera subida
 
 - El `applicationId` es `io.github.egt17baa.seguridad`, bajo el espacio de GitHub del propietario (desde la 1.1.1). **No se puede cambiar una vez publicado.**
-- El nombre «Seguridad» es genérico: no se puede registrar como marca y puede confundirse con los ajustes «Seguridad» del sistema. Antes de la primera subida, decide un nombre distintivo (comprobado en TMview y en Google Play); el nombre visible sí se puede cambiar después, el `applicationId` no.
+- El nombre visible es «Clavero» desde la 1.3.0 (antes «Seguridad», que era genérico: no se podía registrar como marca y se confundía con los ajustes «Seguridad» del sistema). Antes de la primera subida, comprueba que «Clavero» sigue libre en TMview, en la EUIPO, en la OEPM, en WIPO (clase 9) y en Google Play; el nombre visible se puede cambiar después, el `applicationId` no.
 - Cuenta de desarrollador en <https://play.google.com/console> (pago único y verificación de identidad). Las cuentas **personales** nuevas tienen que hacer una prueba cerrada con al menos 12 testers durante 14 días antes de pasar a producción.
 
 ### 3.2 Crear la app
 
-1. *Play Console → Crear app*: nombre **Seguridad**, idioma predeterminado español, tipo **app**, **gratuita**. Una app gratuita no puede pasar a ser de pago.
+1. *Play Console → Crear app*: nombre **Clavero** (o el de la ficha, [`docs/ficha-google-play.md`](ficha-google-play.md)), idioma predeterminado español, tipo **app**, **gratuita**. Una app gratuita no puede pasar a ser de pago.
 2. Acepta las declaraciones y crea la app.
 
 ### 3.3 Play App Signing
@@ -80,7 +82,7 @@ Las instalaciones desde Play y las del APK de *Releases* tienen firmas distintas
 ### 3.4 Generar y subir el AAB
 
 1. Crea una etiqueta y súbela: `git tag v1.0.0 && git push origin v1.0.0`, o lanza el workflow *Build APK* a mano (*Actions → Build APK → Run workflow*).
-2. El trabajo **play-bundle**, cuando **build-firma** (tests, lint, licencias, assets y manifiesto del mismo commit) y **jvm-check** han pasado (con *Required reviewers*, cuando apruebas los dos trabajos del entorno `firma`), compila `:app:bundleRelease` firmado con la clave de subida y deja el artefacto **`Seguridad-google-play-aab`**. Si faltan los secretos, falla a propósito: Play no acepta la clave de prueba. Si **build-firma** o **jvm-check** fallan, no se ejecuta y no hay AAB.
+2. El trabajo **play-bundle**, cuando **build-firma** (tests, lint, licencias, assets y manifiesto del mismo commit) y **jvm-check** han pasado (con *Required reviewers*, cuando apruebas los dos trabajos del entorno `firma`), compila `:app:bundleRelease` firmado con la clave de subida y deja el artefacto **`Clavero-google-play-aab`**. Si faltan los secretos, falla a propósito: Play no acepta la clave de prueba. Si **build-firma** o **jvm-check** fallan, no se ejecuta y no hay AAB.
 3. El `versionCode` es el número de ejecución del workflow (`github.run_number`), así que cada subida tiene uno mayor que la anterior. GitHub lleva ese número por archivo de workflow: **no renombres ni muevas `.github/workflows/build-apk.yml`** (tampoco al cambiar el nombre de la app). Volvería a empezar en 1, Play rechazaría la subida y quien instaló desde *Releases* no podría actualizar.
 4. Descarga el artefacto (*Actions → la ejecución → Artifacts*), descomprime el zip y queda `app-release.aab`.
 5. *Prueba y publicación → Prueba cerrada* (o *Producción* si tu cuenta lo permite) → *Crear versión* → sube `app-release.aab`, escribe las notas de la versión y envía a revisión.
