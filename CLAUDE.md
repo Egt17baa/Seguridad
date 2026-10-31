@@ -46,7 +46,8 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | Tarea 16: revisión final del Abogado Digital (lote AB) | Terminada, con sus cambios aplicados y confirmados |
 | Tarea 16: detalles menores aplazados de las tareas 1 a 9 (lote MN) | Terminados |
 | Tarea 16: APK de publicación (`aapt2`, `check-manifest`, sin `PreviewActivity`) | Comprobado con la clave de prueba; falta el APK firmado |
-| Tarea 16: fusión en `main` sin etiqueta, APK firmado desde `main`, prueba en el móvil, etiqueta `v1.3.0` | Pendiente |
+| Tarea 16: fusión en `main` sin etiqueta | Hecha (`6e3542d`) |
+| Tarea 16: APK firmado desde `main`, prueba en el móvil, etiqueta `v1.3.0` | Pendiente (dueño) |
 
 **Decisiones del dueño y del controlador que siguen vigentes** (el detalle está en `progress.md`, en las líneas «Ruling» y «Owner decision»):
 - **Detalles menores:** se arreglan todos, no se aplazan.
@@ -74,7 +75,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Prueba de palabras prohibidas:** `SourceTextsTest` revisa todas las cadenas de `app/src/main/java`, no solo `ToolTexts.kt`.
 
 **Pendientes:**
-1. **Fusión en `main`** en local con `--no-ff` y `git push origin main`, sin etiqueta. Apuntar el commit de la fusión en el informe de la auditoría.
+1. **Hecho:** fusión en `main` (`6e3542d`, 31-10-2026, sin etiqueta). Los arreglos que salgan se hacen en la rama y se vuelven a fusionar con `--no-ff`.
 2. **Ajustes de GitHub del dueño**, según la lista «Entorno de firma» del README:
    - la regla de `main`;
    - Actions con permisos de solo lectura;
