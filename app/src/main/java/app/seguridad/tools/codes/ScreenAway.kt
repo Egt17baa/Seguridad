@@ -15,7 +15,9 @@ import app.seguridad.vault.LockReason
  *
  * One trip away has one start, the first stop: a later stop (a rotation's dispose after its ON_STOP, Home while in the
  * other app) does not move it. A trip to the other app that began while the screen was already stopped (on another
- * tab) is not its own: coming back from the other app does not use up that tab's stop.
+ * tab) is not its own: coming back from the other app does not use up that tab's stop. A start while the other app
+ * still has the focus (a re-creation, which brings no top-resumed callback) does not end the trip: only [otherAppLeft]
+ * does, so the time in the other app is never forgotten.
  */
 class ScreenAway(createdAt: Long = 0L) {
     /** When the screen stopped; null while it is shown. */
@@ -39,12 +41,23 @@ class ScreenAway(createdAt: Long = 0L) {
         if (stoppedAt == null) stoppedAt = now
     }
 
-    /** True when the screen must be emptied: it was away at least [awayTooLong]. */
+    /**
+     * True when the screen must be emptied: it was away at least [awayTooLong]. While another app still has the focus
+     * ([inOtherApp]: a re-creation by a rotation, a resize of the split, a theme change or a fold, or back to the split
+     * pair from Home with the focus on the other app), the trip goes on: it stays open, and [otherAppLeft] ends it (N1 of
+     * the F1 re-review). After a wipe here it counts again from [now].
+     */
     fun started(now: Long, lockAfterMs: Long): Boolean {
         val at = stoppedAt ?: return false
-        stoppedAt = null
-        stopIsOtherApp = false
-        return awayTooLong(now - at, lockAfterMs)
+        val tooLong = awayTooLong(now - at, lockAfterMs)
+        if (inOtherApp) {
+            stoppedAt = if (tooLong) now else at
+            stopIsOtherApp = true
+        } else {
+            stoppedAt = null
+            stopIsOtherApp = false
+        }
+        return tooLong
     }
 
     fun otherAppFocused(now: Long) {

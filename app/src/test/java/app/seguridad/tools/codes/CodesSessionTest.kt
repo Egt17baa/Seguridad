@@ -237,10 +237,38 @@ class CodesSessionTest {
         t.otherAppFocused(0)
         t.stopped(5_000)
         assertFalse(t.started(50_000, lockAfterMs = 0))
-        assertFalse(t.otherAppLeft(120_000, lockAfterMs = 0))
+        assertFalse(t.otherAppLeft(50_001, lockAfterMs = 0)) // Top-resumed comes right after onStart on the phone.
         assertEquals(tPin, t.pin)
         // Never focused away: back does nothing.
         assertFalse(filled().otherAppLeft(10_000_000, lockAfterMs = 0))
+    }
+
+    @Test fun `N1 a re-creation while the user is in the other app does not forget the time away`() {
+        // Split screen, the browser has the focus; the phone is rotated (or the divider dragged, the theme changes): the
+        // activity is re-created, the old screen stops, the new one starts, and no top-resumed callback comes.
+        val s = filled()
+        val pin = s.pin
+        val codes = s.codes
+        s.otherAppFocused(0)
+        s.stopped(1_000)
+        assertFalse(s.started(1_100, lockAfterMs = 0))
+        assertEquals(pin, s.pin)
+        // Ten minutes later, back in Seguridad: everything drawn is new; the sites and the questions stay.
+        assertTrue(s.otherAppLeft(600_000, lockAfterMs = 0))
+        assertNotEquals(pin, s.pin)
+        assertNotEquals(codes, s.codes)
+        assertEquals("banco.es", s.recoverySite)
+        assertEquals("¿Calle?", s.rows[1].question)
+        // A re-start that comes after the time away (still in the other app) wipes then, and the trip goes on from there.
+        val t = filled()
+        t.otherAppFocused(0)
+        t.stopped(1_000)
+        val tPin = t.pin
+        assertTrue(t.started(70_000, lockAfterMs = 0))
+        assertNotEquals(tPin, t.pin)
+        val again = t.pin
+        assertFalse(t.otherAppLeft(70_000 + 59_999, lockAfterMs = 0))
+        assertEquals(again, t.pin)
     }
 
     @Test fun `M3 the rule on its own, for other screens`() {

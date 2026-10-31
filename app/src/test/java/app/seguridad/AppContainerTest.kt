@@ -63,7 +63,11 @@ class AppContainerTest {
         assertFalse(c.awayInOtherApp.value)
         assertTrue("Back within 2 minutes: still open", c.vault.state.value is VaultState.Unlocked)
         c.leftForAnotherApp()
-        elapsed += app.seguridad.vault.AWAY_BACKSTOP_MS
+        // N3: the system takes the focus away again during the same trip (a second loss, no return in between): the
+        // backstop still counts from the first one.
+        elapsed += app.seguridad.vault.AWAY_BACKSTOP_MS - 1
+        c.leftForAnotherApp()
+        elapsed += 1
         assertTrue(c.vault.lockIfIdle())
         assertEquals(VaultState.Locked, c.vault.state.value)
         c.backFromAnotherApp()
