@@ -228,8 +228,11 @@ internal fun PasswordDialog(
     var b by remember { mutableStateOf("") }
     // CRY-A01: only a password chosen now (the new master) has to be long enough and not easy to guess. The password of
     // a copy to import (newPassword = false) already exists, so it only needs the length it always needed.
-    val problem = if (newPassword) newMasterProblem(a) else null
-    val ok = (if (newPassword) problem == null else a.length >= MIN_MASTER) && (!askTwice || a == b)
+    // The new master also must not be a single known word: the lists load off the main thread (null until they are in) and
+    // the button waits for them. The import dialog does not read them, and does not wait.
+    val words = if (newPassword) rememberMasterWords() else null
+    val problem = if (newPassword) newMasterProblem(a, words ?: emptySet()) else null
+    val ok = (if (newPassword) words != null && problem == null else a.length >= MIN_MASTER) && (!askTwice || a == b)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },

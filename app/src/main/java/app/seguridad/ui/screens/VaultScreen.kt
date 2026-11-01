@@ -237,6 +237,9 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     // Review F5, M2: a password that is not valid text, or no memory for Argon2id, says so; anything else, «Inténtalo de nuevo».
     var failed by remember { mutableStateOf<String?>(null) }
+    // A single known word is not a master: the lists load off the main thread (null until they are in), once for this
+    // screen, and the button of creating waits for them.
+    val words = rememberMasterWords()
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Crea tu bóveda", style = MaterialTheme.typography.headlineSmall)
         failed?.let { Text(it, color = NegativeColor) }
@@ -245,9 +248,9 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         PasswordField(a, { a = it }, label = "Contraseña maestra (mínimo $MIN_MASTER caracteres)")
-        // CRY-A01: as soon as there is text, what is missing (length first, then strength); the button waits for null.
-        // A polite live region, so TalkBack announces it when it changes.
-        val problem = newMasterProblem(a)
+        // CRY-A01: as soon as there is text, what is missing (length first, then strength, then a single known word); the
+        // button waits for null. A polite live region, so TalkBack announces it when it changes.
+        val problem = newMasterProblem(a, words ?: emptySet())
         if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         PasswordField(b, { b = it }, label = "Repítela")
         if (b.isNotEmpty() && a != b) Text("No coinciden", color = NegativeColor)
@@ -264,7 +267,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
             Text("Entiendo que si olvido la contraseña maestra nadie puede recuperar lo que guarde.")
         }
         Button(
-            enabled = !busy && problem == null && a == b && understood,
+            enabled = !busy && words != null && problem == null && a == b && understood,
             onClick = {
                 busy = true
                 failed = null
