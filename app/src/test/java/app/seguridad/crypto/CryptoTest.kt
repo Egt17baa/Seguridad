@@ -44,8 +44,9 @@ private inline fun assertFails(block: () -> Unit) {
  *
  * Generated with the code of d0702a3 (before CRY-A03), and then checked without Bouncy Castle's modes: GCM composed by hand
  * (CTR + GHASH) over single-block calls, with OpenSSL's AES and Camellia through `cryptography` and with Bouncy Castle's raw
- * Twofish and Serpent engines (which have their own vectors in SeedCryptoTest); AES-GCM and ChaCha20-Poly1305 also with the
- * AEAD API of `cryptography`; and the cascade layer by layer, with HKDF-SHA256 subkeys derived by `cryptography`.
+ * Twofish and Serpent engines (SeedCryptoTest has a published vector for Twofish and only a round trip for Serpent, so for
+ * those two only the GCM composition is independent); AES-GCM and ChaCha20-Poly1305 also with the AEAD API of `cryptography`;
+ * and the cascade layer by layer, with HKDF-SHA256 subkeys derived by `cryptography`.
  */
 private object Kat {
     val key = hexBytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
