@@ -97,11 +97,16 @@ class AppNameTest {
         assertTrue("Texts that name CriptoPanel:\n" + bad.joinToString("\n"), bad.isEmpty())
     }
 
-    /** 1.3.1: nothing reads CriptoPanel's texts (`CP1:`), files (`.cpenc`) or vaults (`criptopanel-vault`) any more. */
+    /**
+     * 1.3.1: nothing reads CriptoPanel's texts (`CP1:`), files (`.cpenc`) or vaults (`criptopanel-vault`) any more, and no
+     * text offers them: no literal is one of those names, nor holds the prefix or the extension inside it («empieza por
+     * SG1: o CP1:», «Elegir archivo .sgenc o .cpenc»). «criptopanel» inside a text is the test above.
+     */
     @Test
     fun `no code reads CriptoPanel`() {
         val formats = setOf("CP1:", ".cpenc", "criptopanel", "criptopanel-vault")
-        val bad = appLiterals().flatMap { (f, found) -> found.filter { (_, lit) -> lit in formats }.map { (line, lit) -> "${f.name}:$line «$lit»" } }
+        fun readsIt(lit: String) = lit in formats || "CP1:" in lit || ".cpenc" in lit.lowercase()
+        val bad = appLiterals().flatMap { (f, found) -> found.filter { (_, lit) -> readsIt(lit) }.map { (line, lit) -> "${f.name}:$line «$lit»" } }
         assertTrue("CriptoPanel's formats still in the code:\n" + bad.joinToString("\n"), bad.isEmpty())
     }
 

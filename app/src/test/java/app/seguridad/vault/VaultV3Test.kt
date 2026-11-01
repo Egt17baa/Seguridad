@@ -676,6 +676,30 @@ class VaultV3Test {
         assertEquals(BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file.copy(version = 1), now))
     }
 
+    // Task 6, review Minor 4: the fingerprint is only tried on a file the master password would open. Any other version
+    // or format asks for the master password (which then says it is not a compatible vault) instead of failing to read
+    // with the data key, which would turn the fingerprint off (task 3: only a CryptoFailure does that).
+    @Test fun biometricRefusalAsksForTheMasterForAVersionOrFormatThatDoesNotOpen() = runTest {
+        val now = 1_000_000_000L
+        val (file, dek) = VaultCrypto.create("m".toCharArray(), now, KdfParams(1024, 1, 1))
+        dek.fill(0)
+        for (v in listOf(1, 4, -1)) assertEquals("version $v", BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file.copy(version = v), now))
+        assertEquals(BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file.copy(format = "otra-cosa"), now))
+        for (v in listOf(VaultFile.VERSION_UNKNOWN, VaultFile.VERSION_2, VaultFile.VERSION)) {
+            assertNull("version $v", VaultCrypto.biometricRefusal(file.copy(version = v), now + 1_000))
+        }
+        // Through the store: a vault.bin that says version 4 asks for the master password, and nothing changes on disk.
+        val dir = phone("version-4")
+        File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(v3Fixture().copy(version = 4)))
+        val before = File(dir, "vault.bin").readText()
+        val s = store(dir).apply { load() }
+        assertEquals(BiometricRefusal.MASTER_DUE, s.biometricRefusal)
+        assertFalse(s.biometricAllowed)
+        assertEquals(BiometricRefusal.MASTER_DUE, failsWith<MasterRequired> { s.unlockWithKey(fixtureDek()) }.reason)
+        assertFalse(s.state.value is VaultState.Unlocked)
+        assertEquals(before, File(dir, "vault.bin").readText())
+    }
+
     // Fix round 1: converting an old file never lowers its cost either (real 1.1 file: 1024 KiB, 1 pass).
     @Test fun conversionOfAStrongerOldFileKeepsItsCost() {
         val v2 = v2Fixture()
