@@ -444,7 +444,7 @@ class VaultStore(
 
     private suspend fun unlockWithKeyLocked(key: ByteArray, since: Int) {
         val v = vault ?: return key.fill(0)
-        // The real version first: a version-1 file (date not authenticated) needs the master password once.
+        // The real version first (one the file does not say is found with the key), then the checks on it.
         val known = try {
             VaultCrypto.resolve(v, key)
         } catch (e: CryptoFailure) {
@@ -763,7 +763,7 @@ class VaultStore(
 
     /**
      * [importReplace] from a file: a `seguridad-backup` copy (.sgbak, recognised by its head with [isBackup]) or a
-     * JSON export of Seguridad or CriptoPanel (at most [VAULT_IMPORT_MAX_BYTES]). The copy is read as a stream into
+     * JSON export of Seguridad 1.0.x (at most [VAULT_IMPORT_MAX_BYTES]). The copy is read as a stream into
      * a temporary folder next to the attachments, before taking the mutex and always deleted afterwards. All or
      * nothing: its master password and every attachment (present, with the SHA-256 its entry records) are checked
      * before anything is replaced; if writing the vault then fails, the attachments are put back as they were.

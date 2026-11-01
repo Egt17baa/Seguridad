@@ -57,7 +57,7 @@ fun backupFileName(date: LocalDate): String = "seguridad-boveda-%04d%02d%02d.sgb
 
 /**
  * Whether [head] (the first [BACKUP_HEAD_BYTES] of a file) may be something «Importar copia» reads: a `seguridad-backup`
- * ([isBackup]) or a JSON object (a vault export of Seguridad or CriptoPanel: the strict JSON parser accepts only blanks
+ * ([isBackup]) or a JSON object (a vault export of Seguridad 1.0.x: the strict JSON parser accepts only blanks
  * before the `{`, never a byte-order mark). A head that is all blanks and as long as [BACKUP_HEAD_BYTES] is let through,
  * since the `{` may come later. Checked before the master password is asked, so a photo or a note is turned down at
  * once; it never refuses what [VaultStore.importReplace] accepts, which still checks everything (owner's phone test,
@@ -72,7 +72,7 @@ fun mayBeVaultImport(head: ByteArray): Boolean {
 
 /**
  * Whether [head] (the first [BACKUP_HEAD_BYTES] of a file) is a `seguridad-backup`: a ZIP local file header whose
- * name is [BACKUP_MARKER]. Anything else (a JSON export of 1.0.x or CriptoPanel, another ZIP) is not.
+ * name is [BACKUP_MARKER]. Anything else (a JSON export of 1.0.x, another ZIP) is not.
  */
 fun isBackup(head: ByteArray): Boolean {
     val name = BACKUP_MARKER.toByteArray(Charsets.US_ASCII)

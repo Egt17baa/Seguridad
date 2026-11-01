@@ -24,12 +24,12 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Wire format family. New data is always written as [SEGURIDAD]; [CRIPTOPANEL] (CP1:, .cpenc) is still read.
- * The two differ only in the header magic, the text prefix, the file extension and the HKDF label prefix.
+ * Wire format of the texts and files this app writes and reads: the header magic, the text prefix, the file extension
+ * and the HKDF label prefix. Only [SEGURIDAD], the names of when the app was called «Seguridad»: since 1.3.1 no other
+ * is read (owner's decision, 1-11-2026), so any other magic is [NOT_COMPATIBLE].
  */
 enum class Dialect(val magic: ByteArray, val textPrefix: String, val fileExtension: String, val labelPrefix: String) {
     SEGURIDAD(byteArrayOf('S'.code.toByte(), 'G'.code.toByte()), "SG1:", ".sgenc", "seguridad"),
-    CRIPTOPANEL(byteArrayOf('C'.code.toByte(), 'P'.code.toByte()), "CP1:", ".cpenc", "criptopanel"),
     ;
 
     companion object {
@@ -109,8 +109,8 @@ enum class PasswordUse {
     NEW,
 
     /**
-     * It opens something made earlier (unlocking the vault, importing a copy, decrypting an `SG1:`/`CP1:` text or a
-     * `.sgenc`/`.cpenc` file), or wraps it again under the same password it already had. Encoded exactly as Bouncy
+     * It opens something made earlier (unlocking the vault, importing a copy, decrypting an `SG1:` text or a `.sgenc`
+     * file), or wraps it again under the same password it already had. Encoded exactly as Bouncy
      * Castle 1.80 did (Seguridad 1.0.x and 1.1.x): a high surrogate takes **whatever unit follows** as its pair,
      * `(((hi and 0x3FF) shl 10) or (next and 0x3FF)) + 0x10000` in 4 bytes, even when that unit is not a low surrogate
      * (from 1.2.0, Bouncy Castle 1.86 refused those, so no other key can exist for them). A lone low surrogate and a high
@@ -434,7 +434,6 @@ internal fun keyForHeader(secret: Secret, header: Header, use: PasswordUse): Byt
     is Secret.RawKey -> when (header.kdfId) {
         // A fresh key per message from the random salt, so one raw key can protect any number of texts and files.
         Header.KDF_RAW_KEY_HKDF -> rawKeyHkdf(secret.bytes, header.salt, header.dialect)
-        Header.KDF_RAW_KEY -> secret.bytes.copyOf()
         else -> throw CryptoFailure("Esto se cifró con una contraseña, no con una clave")
     }
 }
@@ -446,14 +445,14 @@ internal fun rawKeyHkdf(key: ByteArray, salt: ByteArray, dialect: Dialect): Byte
 }
 
 /** Whether [kdfId] means a raw key rather than a password. */
-internal fun isRawKdf(kdfId: Byte) = kdfId == Header.KDF_RAW_KEY || kdfId == Header.KDF_RAW_KEY_HKDF
+internal fun isRawKdf(kdfId: Byte) = kdfId == Header.KDF_RAW_KEY_HKDF
 
 /** Header shared by texts and files; the whole of it is authenticated as associated data. */
 internal data class Header(
     val kind: Byte,
     val alg: Aead,
     val kdf: KdfParams,
-    /** [KDF_ARGON2ID] for passwords, [KDF_RAW_KEY_HKDF] (or the older [KDF_RAW_KEY]) for a raw key; then [kdf] is unused and stored as zeros. */
+    /** [KDF_ARGON2ID] for passwords, [KDF_RAW_KEY_HKDF] for a raw key; then [kdf] is unused and stored as zeros. */
     val kdfId: Byte,
     val salt: ByteArray,
     /** Full 12-byte nonce for texts, 7-byte STREAM prefix for files. */
@@ -474,8 +473,8 @@ internal data class Header(
     companion object {
         const val VERSION: Byte = 1
         const val KDF_ARGON2ID: Byte = 1
-        /** Raw key used directly (old CP1 texts and files from 1.9.0; still read, no longer written). */
-        const val KDF_RAW_KEY: Byte = 2
+        // 2 was a raw key used as it is, without HKDF: only CriptoPanel 1.9.0 wrote it, never under this app's magic
+        // (newHeader has written KDF_RAW_KEY_HKDF from the start). Refused since 1.3.1; never to be reused.
         /** Raw key, expanded with HKDF-SHA256 and the header's random salt. */
         const val KDF_RAW_KEY_HKDF: Byte = 3
         const val KIND_TEXT: Byte = 1
@@ -505,29 +504,24 @@ internal data class Header(
     }
 }
 
-/** Prefix of the texts this app writes ([Dialect.SEGURIDAD]); the legacy dialect's (CP1:) is still read. */
+/** Prefix of the texts this app writes and reads ([Dialect.SEGURIDAD]). */
 const val TEXT_PREFIX = "SG1:"
 
-/** Not a header of any dialect, or a text prefix that does not match its header's magic. */
+/** A header without this app's magic ([Dialect.SEGURIDAD]). */
 internal const val NOT_COMPATIBLE = "No es un dato cifrado compatible"
 
 /** Largest .txt imported into the text decrypter (a ciphertext is a few KB). */
 const val MAX_TEXT_FILE_BYTES = 1024 * 1024
 
-/** The first "SG1:" or "CP1:" ciphertext inside a text file, which may also hold other lines; null if there is none. */
+/** The first "SG1:" ciphertext inside a text file, which may also hold other lines; null if there is none. */
 fun extractToken(text: String): String? {
-    // One pass over the text per prefix: where each one first appears, and the earliest wins (two prefixes never start at
-    // the same place).
-    val (prefix, start) = Dialect.entries
-        .map { it.textPrefix to text.indexOf(it.textPrefix) }
-        .filter { (_, at) -> at >= 0 }
-        .minByOrNull { (_, at) -> at } ?: return null
-    return extractPrefixedToken(text, prefix, start)
+    val start = text.indexOf(TEXT_PREFIX)
+    return if (start < 0) null else extractPrefixedToken(text, TEXT_PREFIX, start)
 }
 
 /**
  * The token that starts with [prefix] at [start] (its first appearance) inside [text], which may be a chat message or a
- * file with other lines; null if nothing follows the prefix. Only for the "SG1:" and "CP1:" texts, through [extractToken]: the
+ * file with other lines; null if nothing follows the prefix. Only for the "SG1:" texts, through [extractToken]: the
  * public-key formats ("SGM1:", "SGS1:", "SGK1:") have their own reader (`pk/Message.kt`, `pk/Received.kt`), which tries
  * every way of joining the pieces because a word after the token can look like Base64url too.
  * The token is Base64url: on its own line it ends at the first other character (a space, a full stop…), and chat apps
@@ -581,22 +575,18 @@ fun encryptText(plain: String, secret: Secret, alg: Aead = Aead.AES_256_GCM, kdf
     }
 }
 
-/** Decrypts a "SG1:" or "CP1:" text; spaces and line breaks added by chat apps are ignored. */
+/** Decrypts a "SG1:" text; spaces and line breaks added by chat apps are ignored. */
 fun decryptText(token: String, password: CharArray): String = decryptText(token, Secret.Password(password))
 
-/** The dialect whose text prefix [clean] starts with, or null. */
-private fun textDialect(clean: String): Dialect? = Dialect.entries.firstOrNull { clean.startsWith(it.textPrefix) }
-
-/** How a "SG1:" or "CP1:" text was encrypted, read from its header without any secret; null if it is not one. */
+/** How a "SG1:" text was encrypted, read from its header without any secret; null if it is not one. */
 fun inspectText(token: String): Pair<Aead, Boolean>? = try {
     val clean = token.trim().filterNot { it.isWhitespace() }
-    val dialect = textDialect(clean)
-    if (dialect == null) {
+    if (!clean.startsWith(TEXT_PREFIX)) {
         null
     } else {
-        val raw = Base64.getUrlDecoder().decode(clean.removePrefix(dialect.textPrefix))
+        val raw = Base64.getUrlDecoder().decode(clean.removePrefix(TEXT_PREFIX))
         val h = Header.parse(ByteBuffer.wrap(raw), Header.KIND_TEXT)
-        if (h.dialect != dialect) null else h.alg to isRawKdf(h.kdfId)
+        h.alg to isRawKdf(h.kdfId)
     }
 } catch (e: Exception) {
     null
@@ -605,16 +595,15 @@ fun inspectText(token: String): Pair<Aead, Boolean>? = try {
 /** [heapKiB] is only for tests: what the reading phone lets the app use. */
 fun decryptText(token: String, secret: Secret, heapKiB: Long = appHeapKiB()): String {
     val clean = token.trim().filterNot { it.isWhitespace() }
-    val dialect = textDialect(clean) ?: throw CryptoFailure("El texto cifrado debe empezar por $TEXT_PREFIX")
+    if (!clean.startsWith(TEXT_PREFIX)) throw CryptoFailure("El texto cifrado debe empezar por $TEXT_PREFIX")
     val raw = try {
-        Base64.getUrlDecoder().decode(clean.removePrefix(dialect.textPrefix))
+        Base64.getUrlDecoder().decode(clean.removePrefix(TEXT_PREFIX))
     } catch (e: IllegalArgumentException) {
         throw CryptoFailure("El texto cifrado está incompleto o dañado")
     }
     val buf = ByteBuffer.wrap(raw)
+    // Header.parse refuses any magic but this app's (NOT_COMPATIBLE), also behind this app's prefix.
     val header = Header.parse(buf, Header.KIND_TEXT, heapKiB)
-    // A prefix of one dialect on a header of the other was never written by either format.
-    if (header.dialect != dialect) throw CryptoFailure(NOT_COMPATIBLE)
     val aad = raw.copyOfRange(0, raw.size - buf.remaining())
     val sealed = raw.copyOfRange(aad.size, raw.size)
     if (sealed.size < header.alg.overhead) throw CryptoFailure()

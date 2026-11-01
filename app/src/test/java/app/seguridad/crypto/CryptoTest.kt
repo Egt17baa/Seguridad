@@ -44,9 +44,12 @@ private inline fun assertFails(block: () -> Unit) {
  *
  * Generated with the code of d0702a3 (before CRY-A03), and then checked without Bouncy Castle's modes: GCM composed by hand
  * (CTR + GHASH) over single-block calls, with OpenSSL's AES and Camellia through `cryptography` and with Bouncy Castle's raw
- * Twofish and Serpent engines (SeedCryptoTest has a published vector for Twofish and only a round trip for Serpent, so for
- * those two only the GCM composition is independent); AES-GCM and ChaCha20-Poly1305 also with the AEAD API of `cryptography`;
- * and the cascade layer by layer, with HKDF-SHA256 subkeys derived by `cryptography`.
+ * Twofish and Serpent engines (so for those two the check of GCM is independent of Bouncy Castle but the engine is not:
+ * the raw Twofish engine has a published vector of its own in SeedCryptoTest, the raw Serpent engine only a round trip
+ * there); AES-GCM and ChaCha20-Poly1305 also with the AEAD API of `cryptography`; and the cascade layer by layer, with
+ * HKDF-SHA256 subkeys derived by `cryptography`. Since 1.3.1 they are the cascade's known answer in place of the CriptoPanel
+ * fixture, which went with CriptoPanel's format; DialectTest pins the whole SG1 and .sgenc formats, the cascade among them,
+ * with texts and files written by 1.3.0.
  */
 private object Kat {
     val key = hexBytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
@@ -145,14 +148,6 @@ class CryptoTest {
         assertEquals("d31a8d34648e60db7b86afbc53ef7ec2", hex(out.copyOfRange(0, 16)).lowercase())
     }
 
-    @Test fun `decrypts texts written by an independent implementation`() {
-        val pw = "correct horse ñ".toCharArray()
-        val aes = "CP1:Q1ABAQEBAAAEAAEBAAECAwQFBgcICQoLDA0OD2RlZmdoaWprbG1ub2loismlG8RNiFvPJx5I1k0nVb9bEoje6KduRwcTuem4VA"
-        val chacha = "CP1:Q1ABAQIBAAAEAAEBAAECAwQFBgcICQoLDA0OD2RlZmdoaWprbG1ub5E-Bvs0ABX6YQQ4Sj5rVJut-hWYOUmh1uh1R6Zw5pADRg"
-        assertEquals("Hola, señor 🔐", decryptText(aes, pw))
-        assertEquals("Hola, señor 🔐", decryptText(chacha, pw))
-    }
-
     @Test fun `text round trip with both ciphers and the real defaults`() {
         Aead.entries.forEach { alg ->
             val t = encryptText("secreto\nmultilínea ✓", "pw".toCharArray(), alg, FAST)
@@ -177,7 +172,6 @@ class CryptoTest {
         }
         assertFails { decryptText("hola", "pw".toCharArray()) }
         assertFails { decryptText("SG1:%%%", "pw".toCharArray()) }
-        assertFails { decryptText("CP1:%%%", "pw".toCharArray()) }
     }
 
     @Test fun `chat line breaks are ignored`() {
@@ -241,13 +235,6 @@ class CryptoTest {
     @Test fun `file round trips at chunk boundaries`() {
         listOf(0, 1, CHUNK_BYTES - 1, CHUNK_BYTES, CHUNK_BYTES + 1, 3 * CHUNK_BYTES + 5).forEach { roundTrip(it) }
         roundTrip(CHUNK_BYTES * 2, Aead.CHACHA20_POLY1305)
-    }
-
-    @Test fun `decrypts a file written by an independent implementation`() {
-        val ref = requireNotNull(javaClass.classLoader.getResource("criptopanel/ref.cpenc")).readBytes()
-        val out = ByteArrayOutputStream()
-        assertEquals("foto ñ.jpg", decryptStream(ByteArrayInputStream(ref), out, "pw".toCharArray()))
-        assertArrayEquals(ByteArray(65536 + 10) { ((it * 7) % 251).toByte() }, out.toByteArray())
     }
 
     @Test fun `truncation, reordering and bit flips in files are detected`() {

@@ -1023,9 +1023,9 @@ class PkActionsTest {
     @Test fun unSgencConContrasenaTieneSuPropioAvisoYNuncaSeTomaPorFirmaInvalida() {
         assertTrue(classifyPicked(symmetricFile(), false) is PickedFile.Symmetric)
         assertTrue(classifyPicked(symmetricFile(), haveSignature = true) is PickedFile.Symmetric)
-        // El dialecto antiguo (CP1, .cpenc) también.
-        val legacy = symmetricFile { b -> b.copyOf().also { it[0] = 'C'.code.toByte(); it[1] = 'P'.code.toByte() } }
-        assertTrue(classifyPicked(legacy, false) is PickedFile.Symmetric)
+        // Desde la 1.3.1, un .cpenc de CriptoPanel (criptopanel/ref.cpenc) ya no: es un archivo más, como cualquier otro.
+        val cpenc = requireNotNull(javaClass.classLoader!!.getResource("criptopanel/ref.cpenc")).readBytes()
+        assertTrue(classifyPicked(cpenc, false) is PickedFile.Other)
         // Y no se confunde con lo de clave pública.
         assertEquals(PickedKind.OTHER, pickedKind(symmetricFile().copyOf(8)))
         assertTrue(SYMMETRIC_FILE_NOTICE.contains("cifrado con contraseña"))
