@@ -57,6 +57,7 @@ class OtpMigrationTest {
         assertEquals("SHA256", s.algorithm)
         assertEquals(8, s.digits)
         assertEquals(30, s.period)
+        assertTrue(s.isSupported())
         assertArrayEquals(KEY, base32Decode(s.secret))
         assertEquals("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", s.secret)
         assertTrue(r.skipped.isEmpty())
@@ -79,6 +80,7 @@ class OtpMigrationTest {
         val payload = Pb().msg(1, Pb().bytes(1, KEY).str(2, "Banco: ana "))
         val s = parseOtpMigration(uri(payload.toByteArray()))!!.imported.single()
         assertEquals(TotpSecret(base32Encode(KEY), issuer = "Banco", account = "ana"), s)
+        assertTrue(s.isSupported())
     }
 
     /**
@@ -90,8 +92,22 @@ class OtpMigrationTest {
     @Test fun parsesKnownGoogleExample() {
         val r = parseOtpMigration("otpauth-migration://offline?data=CjEKCkhlbGxvId6tvu8SGEV4YW1wbGU6YWxpY2VAZ29vZ2xlLmNvbRoHRXhhbXBsZTAC")!!
         assertEquals(listOf(TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Example", account = "alice@google.com")), r.imported)
+        assertTrue(r.imported.all { it.isSupported() })
         assertTrue(r.skipped.isEmpty())
         assertEquals(1, r.batchSize)
+    }
+
+    /** Every algorithm and digit count Google writes (and 0, "unspecified"): what is imported is something the app calculates. */
+    @Test fun everyImportedEntryIsSupportedAndGivesACode() {
+        val payload = Pb().apply {
+            for (alg in listOf(0L, 1L, 2L, 3L)) for (digits in listOf(0L, 1L, 2L)) msg(1, otp(KEY, "A:a$alg$digits", "A", alg = alg, digits = digits))
+        }
+        val imported = parseOtpMigration(uri(payload.toByteArray()))!!.imported
+        assertEquals(12, imported.size)
+        for (s in imported) {
+            assertTrue(s.toString(), s.isSupported())
+            assertNotNull(s.toString(), totpCode(s, 59_000))
+        }
     }
 
     @Test fun skipsHotpAndMd5WithReason() {
@@ -153,6 +169,7 @@ class OtpMigrationTest {
         // More than 100 parameters; exactly 100 is fine.
         val hundred = Pb().apply { repeat(100) { msg(1, otp(KEY, "A:$it", "A")) } }
         assertEquals(100, parseOtpMigration(uri(hundred.toByteArray()))!!.imported.size)
+        assertTrue(parseOtpMigration(uri(hundred.toByteArray()))!!.imported.all { it.isSupported() })
         assertNull(parseOtpMigration(uri(hundred.msg(1, otp(KEY, "A:x", "A")).toByteArray())))
         // More than 64 KB of URI, even with valid content.
         val big = Pb().apply { repeat(100) { msg(1, otp(KEY, "A:" + "a".repeat(600), "A")) } }.toByteArray()
@@ -214,6 +231,7 @@ class OtpMigrationTest {
             val u = s.toOtpAuthUri()
             assertTrue(u, u.startsWith("otpauth://totp/"))
             assertTrue(u, java.net.URI(u).rawQuery != null && ' ' !in u)
+            assertTrue(u, s.isSupported())
             assertEquals(u, s, parseOtpAuth(u))
         }
     }
