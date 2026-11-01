@@ -45,3 +45,7 @@ Task 2: round 2 implementer DONE_WITH_CONCERNS 1be454e (round-1 findings verifie
 Task 2: fix round 2/5 (all 6 round-1 findings + amendment steps 6-8 addressed, 0 Critical/Important; 2 new Minor: N1 stale wording «contraseña123 passes»/«siempre pasa» in plan, context, test name, report Abogado note; N2 refusal rates overstated ~2x; commits d981e72..1be454e; task-2-rereview-1.md)
 - Controller fixed N1 in plan Review Focus 2-3 and context.md. Round 3: test rename, report note, N2 wording, plus out-of-scope jvm-check `inputs.dir(assets)` (same build file, one line).
 Task 2: deferred minor (pre-existing, final review to triage): SecurityToolsScreen.kt:940 reads the EFF list on the main thread inside remember.
+Task 2: round 3 implementer DONE b5c72b1 (N1 test name/report note, N2 rates, jvm-check assets input)
+Task 2: fix round 3/5 (N1, N2, jvm-check assets input addressed, 0 open; commits 1be454e..b5c72b1; task-2-rereview-2.md). Note: the «~1/27,600» quoted above is superseded — exact figures 1 in 3,900 (12 chars), 61,000 (16), 1.1 million (20).
+Task 2: complete (commits 9567564..b5c72b1, review clean). Abogado note to carry: task-2-report.md «Ronda 2» note (replaces round 1).
+Task 3: dispatched (base b5c72b1, implementer sonnet)
