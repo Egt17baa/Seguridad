@@ -88,7 +88,9 @@ fun biometricUnlockError(e: Exception): String = when (e) {
  * if it does the text is shown all the same and the exception does not reach the caller's scope. Nothing else reaches
  * [onWrongKey]: a key that authenticates but whose entries do not decode ([CryptoFailure], final review F1),
  * [MasterRequired] (the 7-day rule, the clock, or a file this version cannot open, whose key is never tried) and any
- * other failure go to [onError] with [biometricUnlockError], and the fingerprint stays.
+ * other failure go to [onError] with [biometricUnlockError], and the fingerprint stays. For a file that states its
+ * version, the 7-day rule and the clock are looked at before the key is used ([VaultStore.unlockWithKey]): a stale key
+ * is then only found at the first fingerprint unlock after the master password.
  *
  * Limit, as for any state of the screen (BOV-3): if the screen is rotated while the answer is on its way, [onWrongKey]
  * still turns the fingerprint off, but the new screen does not repeat [FINGERPRINT_STALE] (the old composition got it).
@@ -445,10 +447,14 @@ class VaultStore(
 
     /**
      * With a data key released by the biometric prompt, which the store owns from here: it ends in the open vault or
-     * wiped, also when the caller is cancelled while it waits for the mutex (BOV-3). In this order: [MasterRequired]
-     * with [BiometricRefusal.UNSUPPORTED] for a file this version cannot open, without trying the key;
-     * [StaleBiometricKey] when the key does not authenticate the entries; [MasterRequired] when the 7-day recheck is
-     * due or the clock went back; [CryptoFailure] when the entries authenticate but do not decode.
+     * wiped, also when the caller is cancelled while it waits for the mutex (BOV-3). In this order:
+     * 1. [MasterRequired] with [BiometricRefusal.UNSUPPORTED] for a file this version cannot open, without trying the
+     *    key;
+     * 2. for a file that states its version (2 or 3), [MasterRequired] when the 7-day recheck is due or the clock went
+     *    back, before the key is used at all;
+     * 3. [StaleBiometricKey] when the key does not authenticate the entries (for a file of unknown version this is
+     *    also how its version is found, and the 7-day rule and the clock are looked at only after it);
+     * 4. [CryptoFailure] when the entries authenticate but do not decode.
      */
     suspend fun unlockWithKey(key: ByteArray) {
         val since = epoch
@@ -467,18 +473,24 @@ class VaultStore(
             key.fill(0)
             throw MasterRequired(BiometricRefusal.UNSUPPORTED)
         }
-        // Then whether the key authenticates the entries (which also gives the version a file does not say), for every
-        // version and before the 7-day rule: only that failure is a stale fingerprint (F1). A CryptoFailure of opened()
-        // below is entries that authenticate but do not decode, and keeps the fingerprint.
+        fun refuseIfDue(file: VaultFile) {
+            val refusal = VaultCrypto.biometricRefusal(file, now(), clockHighWater())
+            if (refusal != null) {
+                key.fill(0)
+                throw MasterRequired(refusal)
+            }
+        }
+        // A file that states its version: the access rule (7 days, clock) first, so the fingerprint key decrypts
+        // nothing when it refuses (as in 1.3.0). A file of unknown version needs the key to tell its version.
+        val stated = v.version != VaultFile.VERSION_UNKNOWN
+        if (stated) refuseIfDue(v)
+        // Whether the key authenticates the entries (AES-GCM only): only that failure is a stale fingerprint (F1).
         val known = VaultCrypto.authenticated(v, key) ?: run {
             key.fill(0)
             throw StaleBiometricKey()
         }
-        val refusal = VaultCrypto.biometricRefusal(known, now(), clockHighWater())
-        if (refusal != null) {
-            key.fill(0)
-            throw MasterRequired(refusal)
-        }
+        if (!stated) refuseIfDue(known)
+        // A CryptoFailure of opened() is entries that authenticate but do not decode, and keeps the fingerprint.
         opened(known, key, since)
         collectGarbage()
     }

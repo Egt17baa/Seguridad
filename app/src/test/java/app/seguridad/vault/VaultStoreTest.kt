@@ -1031,9 +1031,8 @@ class VaultStoreTest {
     }
 
     @Test fun `CRY-A02 with the master password due, a vault of unknown version tries the key first, so a stale key still turns the fingerprint off`() = runTest {
-        // The key is tried before the 7-day rule (for a file of unknown version it is also what tells the version):
-        // a stale key is refused there; the right key then meets the 7-day rule. Since F1 a version-3 file goes the
-        // same way (below).
+        // The other order than version 3 (see «a version-3 vault asks for it before trying the key», below): resolve() has to try the key to know the version, before
+        // the 7-day rule is looked at. A stale key is a StaleBiometricKey there; the right key then meets the 7-day rule.
         val (s, dek) = unknownVersionVault()
         clock += MASTER_RECHECK_MS
         val foreign = foreignKey()
@@ -1095,19 +1094,33 @@ class VaultStoreTest {
         assertTrue(key.all { it == 0.toByte() })
     }
 
-    @Test fun `F1 with the master password due, another vault's key is stale for a version-3 vault too`() = runTest {
-        // Final review 1.3.1, F1: the key is tried (authentication only) before the 7-day rule for every version, the
-        // order a VERSION_UNKNOWN file always had. Until then a version-3 file asked for the master password first,
-        // and the stale fingerprint was only found at the next fingerprint unlock after it. The right key still meets
-        // the 7-day rule and keeps the fingerprint (see «the 7-day rule asks for the master password and keeps…»).
+    @Test fun `CRY-A02 with the master password due, a version-3 vault asks for it before trying the key, so another vault's key keeps the fingerprint for now`() = runTest {
+        // Documented order (the design changes nothing about MasterRequired): for version 2 and 3, resolve() returns the
+        // file without trying the key and the refusal is decided from the file, before opened() tries the key. The stale
+        // fingerprint is found at the first fingerprint unlock after the master password (a VERSION_UNKNOWN file goes the other way).
         val s = store().apply { load(); create("m".toCharArray()); lock() }
         clock += MASTER_RECHECK_MS
         val foreign = foreignKey()
         var off = 0
         val errors = mutableListOf<String>()
         launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
-        assertEquals(1, off)
-        assertEquals(listOf(FINGERPRINT_STALE), errors)
+        assertEquals(0, off)
+        assertEquals(listOf(MasterRequired().message!!), errors)
+        assertTrue(foreign.all { it == 0.toByte() })
+    }
+
+    @Test fun `F1 with the clock set back, a version-3 vault asks for the master before trying the key`() = runTest {
+        // Controller ruling (final review, round 2): for a file that states its version the access rule (7 days, clock)
+        // refuses before the fingerprint key decrypts anything, so another vault's key keeps the fingerprint for now.
+        var mark = 0L
+        val s = clockStore({ mark }, {}).apply { load(); create("m".toCharArray()); lock() }
+        mark = clock + 6 * 60_000 // The highest time seen is more than 5 minutes ahead: A11.
+        val foreign = foreignKey()
+        var off = 0
+        val errors = mutableListOf<String>()
+        launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
+        assertEquals(0, off)
+        assertEquals(listOf(CLOCK_CHANGED_TEXT), errors)
         assertTrue(foreign.all { it == 0.toByte() })
     }
 
