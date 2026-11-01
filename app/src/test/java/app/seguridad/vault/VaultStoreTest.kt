@@ -975,7 +975,169 @@ class VaultStoreTest {
         val errors = mutableListOf<String>()
         val bad = ByteArray(32) { 1 }
         launchUnlockWithKey(s, bad) { errors += it }.join()
-        assertEquals(listOf("Contraseña incorrecta o datos dañados"), errors)
+        // CRY-A02 (1.3.1): a key that opens nothing is a stale fingerprint, no longer «Contraseña incorrecta o datos dañados».
+        assertEquals(listOf(FINGERPRINT_STALE), errors)
         assertTrue(bad.all { it == 0.toByte() })
+    }
+
+    // ---- Review 1.3.1, CRY-A02: a fingerprint that wraps another vault's key is turned off and says so ----
+
+    /** The data key of a different vault (another file, another master password): what a stale fingerprint hands over. */
+    private suspend fun foreignKey(): ByteArray {
+        val other = store("other.bin").apply { load(); create("otra".toCharArray()) }
+        return other.dataKeyCopy()!!
+    }
+
+    @Test fun `CRY-A02 the text is the one the Abogado Digital reviews`() {
+        assertEquals(
+            "La huella ya no abre esta bóveda (se cambió la contraseña maestra o se importó una copia). " +
+                "Entra con la contraseña maestra y vuelve a activarla si quieres.",
+            FINGERPRINT_STALE,
+        )
+        assertTrue(app.seguridad.tools.ForbiddenWords.problems(FINGERPRINT_STALE).isEmpty())
+    }
+
+    @Test fun `CRY-A02 another vault's key turns the fingerprint off once, says so, and leaves the vault locked and the key wiped`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()); lock() }
+        val foreign = foreignKey()
+        val events = mutableListOf<String>()
+        launchUnlockWithKey(s, foreign, onWrongKey = { events += "off" }) { events += "error: $it" }.join()
+        assertEquals(listOf("off", "error: $FINGERPRINT_STALE"), events) // Turned off first, then the text.
+        assertEquals(VaultState.Locked, s.state.value)
+        assertNull(s.dataKeyCopy())
+        assertTrue(foreign.all { it == 0.toByte() })
+    }
+
+    @Test fun `CRY-A02 the same wrong key from a version-1 vault, whose version is found by the key, is just as stale`() = runTest {
+        // Version 1 (VERSION_UNKNOWN): resolve() itself throws CryptoFailure for a key that opens nothing.
+        val (written, _) = VaultCrypto.create("m".toCharArray(), clock, KdfParams(1024, 1, 1))
+        val legacy = written.copy(version = VaultFile.VERSION_UNKNOWN)
+        File(tmp.root, "vault.bin").writeText(VaultCrypto.encodeFile(legacy))
+        val s = store().apply { load() }
+        val foreign = foreignKey()
+        var off = 0
+        val errors = mutableListOf<String>()
+        launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
+        assertEquals(1, off)
+        assertEquals(listOf(FINGERPRINT_STALE), errors)
+        assertTrue(foreign.all { it == 0.toByte() })
+    }
+
+    @Test fun `CRY-A02 the right key opens the vault and does not turn the fingerprint off`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        var off = 0
+        val errors = mutableListOf<String>()
+        launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
+        assertEquals(0, off)
+        assertTrue(errors.isEmpty())
+        assertTrue(s.state.value is VaultState.Unlocked)
+        assertTrue(key.contentEquals(s.dataKeyCopy()!!)) // The store keeps it.
+    }
+
+    @Test fun `CRY-A02 the 7-day rule asks for the master password and keeps the fingerprint`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        clock += MASTER_RECHECK_MS
+        var off = 0
+        val errors = mutableListOf<String>()
+        launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
+        assertEquals(0, off)
+        assertEquals(listOf(MasterRequired().message!!), errors) // Today's text.
+        assertEquals(VaultState.Locked, s.state.value)
+        assertTrue(key.all { it == 0.toByte() })
+    }
+
+    @Test fun `CRY-A02 a clock set back asks for the master password and keeps the fingerprint`() = runTest {
+        var mark = 0L
+        val s = clockStore({ mark }, {}).apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        mark = clock + 6 * 60_000 // The highest time seen is more than 5 minutes ahead: A11.
+        var off = 0
+        val errors = mutableListOf<String>()
+        launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
+        assertEquals(0, off)
+        assertEquals(listOf(CLOCK_CHANGED_TEXT), errors)
+        assertEquals(VaultState.Locked, s.state.value)
+        assertTrue(key.all { it == 0.toByte() })
+    }
+
+    @Test fun `CRY-A02 the master password being due comes before the key check, so another vault's key then keeps the fingerprint for now`() = runTest {
+        // Documented order (the design changes nothing about MasterRequired): the refusal is decided from the file, before
+        // the key is tried. The stale fingerprint is found at the first unlock after the master password.
+        val s = store().apply { load(); create("m".toCharArray()); lock() }
+        clock += MASTER_RECHECK_MS
+        val foreign = foreignKey()
+        var off = 0
+        val errors = mutableListOf<String>()
+        launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
+        assertEquals(0, off)
+        assertEquals(listOf(MasterRequired().message!!), errors)
+        assertTrue(foreign.all { it == 0.toByte() })
+    }
+
+    @Test fun `CRY-A02 any other failure keeps today's text and the fingerprint`() = runTest {
+        var broken = false
+        val s = clockStore({ if (broken) throw java.io.IOException("/data/user/0/app/files/x: EIO") else 0L }, {})
+            .apply { load(); create("m".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        broken = true
+        var off = 0
+        val errors = mutableListOf<String>()
+        launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
+        assertEquals(0, off)
+        assertEquals(listOf(BIOMETRIC_UNLOCK_FAILED), errors)
+        assertTrue(key.all { it == 0.toByte() })
+    }
+
+    @Test fun `CRY-A02 if turning the fingerprint off fails the text is shown all the same`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()); lock() }
+        val foreign = foreignKey()
+        val errors = mutableListOf<String>()
+        // The Keystore may refuse to delete the key: that must not become a crash of the scope nor hide the text.
+        launchUnlockWithKey(s, foreign, onWrongKey = { throw java.security.KeyStoreException("no") }) { errors += it }.join()
+        assertEquals(listOf(FINGERPRINT_STALE), errors)
+        assertEquals(VaultState.Locked, s.state.value)
+        assertTrue(foreign.all { it == 0.toByte() })
+    }
+
+    /** ui/ is not compiled on the JVM: the wiring of the unlock screen is checked in its source (code only, no comments). */
+    private fun vaultScreenCode(): String {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null) {
+            val f = File(dir, "app/src/main/java/app/seguridad/ui/screens/VaultScreen.kt")
+            if (f.isFile) return f.readLines().filterNot { it.trimStart().let { l -> l.startsWith("//") || l.startsWith("*") || l.startsWith("/*") } }.joinToString("\n")
+            dir = dir.parentFile
+        }
+        error("VaultScreen.kt not found")
+    }
+
+    @Test fun `CRY-A02 the unlock screen turns the fingerprint off with the wrong key and stops offering it`() {
+        val src = vaultScreenCode()
+        assertTrue(
+            Regex("""launchUnlockWithKey\(store, key, onWrongKey = \{[^}]*BiometricVault\.disable\(context\)[^}]*\}\)""").containsMatchIn(src),
+        )
+        // The button and the automatic prompt follow `bio`, which is read again after the failure and is off at once.
+        assertTrue("val bio = !fingerprintStale && BiometricVault.enabled(context) && store.biometricAllowed" in src)
+        assertTrue("fingerprintStale = true" in src)
+    }
+
+    @Test fun `CRY-A02 a cancellation turns nothing off and reports nothing`() = runTest {
+        val s = store().apply { load(); create("m".toCharArray()); lock() }
+        val foreign = foreignKey()
+        val m = mutexOf(s)
+        m.lock()
+        val gone = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Job().apply { cancel() })
+        var off = 0
+        val errors = mutableListOf<String>()
+        gone.launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
+        m.unlock()
+        assertEquals(0, off) // Not shown to anybody: the answer is not about this screen.
+        assertTrue(errors.isEmpty())
+        assertTrue(foreign.all { it == 0.toByte() })
     }
 }
