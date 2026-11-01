@@ -30,19 +30,19 @@ import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BACKUP_DAMAGED
 import app.seguridad.vault.BACKUP_HEAD_BYTES
+import app.seguridad.vault.MIN_MASTER
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.backupFileName
 import app.seguridad.vault.identity
 import app.seguridad.vault.mayBeVaultImport
+import app.seguridad.vault.newMasterProblem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-
-const val MIN_MASTER = 10
 
 /**
  * What to do once the master password was changed (the vault is then locked), with whether the fingerprint could not be
@@ -110,6 +110,8 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             title = "Nueva contraseña maestra",
             confirmLabel = "Cambiar",
             askTwice = true,
+            // CRY-A01: this master is chosen now, so it has to pass newMasterProblem. Importing never does.
+            newPassword = true,
             onDismiss = { dialog = null },
         ) { pw ->
             scope.launch {
@@ -214,12 +216,16 @@ internal fun PasswordDialog(
     confirmLabel: String,
     onDismiss: () -> Unit,
     askTwice: Boolean = false,
+    newPassword: Boolean = false,
     warning: String? = null,
     onConfirm: (CharArray) -> Unit,
 ) {
     var a by remember { mutableStateOf("") }
     var b by remember { mutableStateOf("") }
-    val ok = a.length >= MIN_MASTER && (!askTwice || a == b)
+    // CRY-A01: only a password chosen now (the new master) has to be long enough and not easy to guess. The password of
+    // a copy to import (newPassword = false) already exists, so it only needs the length it always needed.
+    val problem = if (newPassword) newMasterProblem(a) else null
+    val ok = (if (newPassword) problem == null else a.length >= MIN_MASTER) && (!askTwice || a == b)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -229,6 +235,7 @@ internal fun PasswordDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     warning?.let { Text(it, color = NegativeColor) }
                     PasswordField(a, { a = it })
+                    if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor) }
                     if (askTwice) PasswordField(b, { b = it }, label = "Repítela")
                     if (askTwice && b.isNotEmpty() && a != b) Text("No coinciden", color = NegativeColor)
                 }

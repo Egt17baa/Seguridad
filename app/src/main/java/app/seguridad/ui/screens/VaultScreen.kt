@@ -74,11 +74,13 @@ import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.CLOCK_CHANGED_TEXT
 import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.MIN_MASTER
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.launchUnlockWithKey
+import app.seguridad.vault.newMasterProblem
 import app.seguridad.vault.query
 import app.seguridad.vault.seedWordCount
 import kotlinx.coroutines.delay
@@ -239,6 +241,9 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         PasswordField(a, { a = it }, label = "Contraseña maestra (mínimo $MIN_MASTER caracteres)")
+        // CRY-A01: as soon as there is text, what is missing (length first, then strength); the button waits for null.
+        val problem = newMasterProblem(a)
+        if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor) }
         PasswordField(b, { b = it }, label = "Repítela")
         if (b.isNotEmpty() && a != b) Text("No coinciden", color = NegativeColor)
         Text(
@@ -251,7 +256,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
             Text("Entiendo que si olvido la contraseña maestra nadie puede recuperar lo que guarde.")
         }
         Button(
-            enabled = !busy && a.length >= MIN_MASTER && a == b && understood,
+            enabled = !busy && problem == null && a == b && understood,
             onClick = {
                 busy = true
                 failed = null
