@@ -82,9 +82,13 @@ fun biometricUnlockError(e: Exception): String = when (e) {
  * keeps the key in the open vault or wipes it, never drops it (BOV-3). A cancellation is not reported.
  *
  * A [CryptoFailure] means the key opens nothing: the blob the fingerprint guards is another vault's (CRY-A02). Then
- * [onWrongKey] runs once (the screen turns the fingerprint off) and [onError] gets [FINGERPRINT_STALE]. If [onWrongKey]
- * throws (the Keystore may refuse to delete the key), the text is shown all the same. [MasterRequired] (the 7-day rule or
- * the clock) and any other failure never reach [onWrongKey]: they go to [onError] with [biometricUnlockError].
+ * [onWrongKey] runs once (the screen turns the fingerprint off) and [onError] gets [FINGERPRINT_STALE]. [onWrongKey] is not
+ * expected to throw, but if it does the text is shown all the same and the exception does not reach the caller's scope.
+ * [MasterRequired] (the 7-day rule or the clock) and any other failure never reach [onWrongKey]: they go to [onError] with
+ * [biometricUnlockError].
+ *
+ * Limit, as for any state of the screen (BOV-3): if the screen is rotated while the answer is on its way, [onWrongKey]
+ * still turns the fingerprint off, but the new screen does not repeat [FINGERPRINT_STALE] (the old composition got it).
  */
 @OptIn(DelicateCoroutinesApi::class) // ATOMIC: the body must run even on a cancelled scope, to own the key.
 fun CoroutineScope.launchUnlockWithKey(
@@ -102,7 +106,7 @@ fun CoroutineScope.launchUnlockWithKey(
             try {
                 onWrongKey()
             } catch (off: Exception) {
-                // The Keystore refused: the fingerprint stays on and the next try ends here again; the user still gets the text.
+                // Defensive: an unexpected exception from onWrongKey must not crash the screen's scope nor hide the text below.
             }
             onError(FINGERPRINT_STALE)
         } catch (e: Exception) {
