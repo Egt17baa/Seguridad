@@ -77,3 +77,5 @@ Task 5: fix round 1/5 (I1, M1, M4, M6, M7 addressed, 0 open; commits 5657ec3..1f
 Task 5: complete (commits 7256c07..1f88721, review clean). Abogado: TOTP_UNSUPPORTED_LINK (new wording) and TOTP_UNSUPPORTED_ENTRY.
 Task 5: deferred minor (pre-existing, informative): totpKey drops short decoded arrays without zeroing; base32Decode keeps a copy in its ByteArrayOutputStream; VaultEntryScreen.kt:494 `totpKey(...) == null` without wiping.
 Task 6: dispatched (base after ledger commit, implementer opus)
+Task 6: implementer DONE ba572c0 (CP1:/.cpenc/criptopanel-vault removed; also header kdf id 2 (raw key without HKDF, only CriptoPanel 1.9.0 wrote it) and vault AAD v1 removed as dead; 1.3.0-written SG1/.sgenc fixtures added; app 1272 / jvm-check 1267; concerns: .github/pull_request_template.md:9 still says CriptoPanel formats are read — controller fixes with CLAUDE.md in the docs step; README 1.3.1 line sits in a new «Formatos» section)
+Task 6: review dispatched (opus, base 1a65545, head ba572c0; named risks: Clavero formats intact, kdf id 2 / AAD v1 removal, generic error for CriptoPanel data, on-disk check, texts, Task 4 KATs)
