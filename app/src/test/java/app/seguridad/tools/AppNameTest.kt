@@ -2,6 +2,7 @@ package app.seguridad.tools
 
 import app.seguridad.crypto.Dialect
 import app.seguridad.crypto.ENCRYPTED_EXTENSION
+import app.seguridad.crypto.TEXT_PREFIX
 import app.seguridad.crypto.pk.CARD_TEXT_PREFIX
 import app.seguridad.crypto.pk.MESSAGE_PREFIX
 import app.seguridad.crypto.pk.SIGNATURE_EXTENSION
@@ -126,8 +127,7 @@ class AppNameTest {
         assertEquals("seguridad-vault", VaultFile.FORMAT)
         assertEquals("seguridad-backup", BACKUP_MARKER)
         assertEquals("seguridad-auto-", AUTO_BACKUP_PREFIX)
-        assertEquals("SG1:", Dialect.SEGURIDAD.textPrefix)
-        assertEquals(".sgenc", Dialect.SEGURIDAD.fileExtension)
+        assertEquals("SG1:", TEXT_PREFIX)
         assertEquals("seguridad", Dialect.SEGURIDAD.labelPrefix)
         assertEquals(listOf(Dialect.SEGURIDAD), Dialect.entries) // CriptoPanel's is not read since 1.3.1.
         assertEquals(".sgenc", ENCRYPTED_EXTENSION)

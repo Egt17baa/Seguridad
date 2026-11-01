@@ -130,7 +130,7 @@ class PasswordBytesTest {
         val aad = header.bytes()
         val key = rawKey(lone180Bytes, header.salt, header.kdf)
         val sealed = aead(Aead.AES_256_GCM, true, key, header.nonce, aad, "hola".toByteArray(), header.dialect)
-        val token = Dialect.SEGURIDAD.textPrefix + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(aad + sealed)
+        val token = TEXT_PREFIX + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(aad + sealed)
         assertEquals("hola", decryptText(token, pw.toCharArray()))
         val fileHeader = newHeader(Header.KIND_FILE, Aead.AES_256_GCM, secret, quick, secureRandom)
         val fileAad = fileHeader.bytes()
