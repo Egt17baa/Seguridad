@@ -305,13 +305,20 @@ private fun UnlockVault(store: VaultStore) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDestroy by remember { mutableStateOf(false) }
-    val bio = BiometricVault.enabled(context) && store.biometricAllowed
+    // A key that opened nothing (CRY-A02): the button is gone for this screen even if the Keystore refused to turn it off.
+    var fingerprintStale by remember { mutableStateOf(false) }
+    val bio = !fingerprintStale && BiometricVault.enabled(context) && store.biometricAllowed
     fun withFingerprint() {
         val activity = context.fragmentActivity() ?: return
         // The key is handed over even if this screen's scope is gone (a rotation): opened or wiped, never dropped (BOV-3);
-        // only the store's own texts are shown, never a raw exception (LIBRE-4).
+        // only the store's own texts are shown, never a raw exception (LIBRE-4). A key of another vault (a fingerprint
+        // that outlived a change of master password or an import) turns the fingerprint off and says so (CRY-A02);
+        // launchUnlockWithKey shows the text even if turning it off throws, as VaultBackup does after a new master.
         BiometricVault.unlock(activity, onKey = { key ->
-            scope.launchUnlockWithKey(store, key) { error = it }
+            scope.launchUnlockWithKey(store, key, onWrongKey = {
+                fingerprintStale = true
+                BiometricVault.disable(context)
+            }) { error = it }
         }, onError = { error = it })
     }
     LaunchedEffect(Unit) { if (bio) withFingerprint() }

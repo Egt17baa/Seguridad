@@ -58,6 +58,15 @@ const val CLOCK_CHANGED_TEXT = "La hora del móvil se ha atrasado. Por seguridad
 const val BIOMETRIC_UNLOCK_FAILED = "No se pudo abrir la bóveda con la huella"
 
 /**
+ * Shown when the fingerprint released a key that does not open this vault: the blob it guards is another vault's (the
+ * master password was changed or a copy imported, and turning the fingerprint off then failed or was cut short). The
+ * fingerprint is turned off at the same time ([launchUnlockWithKey], CRY-A02). Reviewed by the Abogado Digital.
+ */
+const val FINGERPRINT_STALE =
+    "La huella ya no abre esta bóveda (se cambió la contraseña maestra o se importó una copia). " +
+        "Entra con la contraseña maestra y vuelve a activarla si quieres."
+
+/**
  * What the unlock screen shows when [VaultStore.unlockWithKey] throws [e]: the store's own Spanish texts (a wrong or
  * damaged key, the master password due, the clock gone back) and a fixed text for anything else, so an unexpected
  * exception (in English, maybe with a path) is never shown as it is.
@@ -70,16 +79,32 @@ fun biometricUnlockError(e: Exception): String = when (e) {
 /**
  * Hands the key the fingerprint released to [store], also from a scope already cancelled (the prompt of a screen that
  * a rotation re-created may answer late): started atomically, so [VaultStore.unlockWithKey] always runs and either
- * keeps the key in the open vault or wipes it, never drops it (BOV-3). A cancellation is not reported; any other
- * failure goes to [onError] with [biometricUnlockError].
+ * keeps the key in the open vault or wipes it, never drops it (BOV-3). A cancellation is not reported.
+ *
+ * A [CryptoFailure] means the key opens nothing: the blob the fingerprint guards is another vault's (CRY-A02). Then
+ * [onWrongKey] runs once (the screen turns the fingerprint off) and [onError] gets [FINGERPRINT_STALE]. If [onWrongKey]
+ * throws (the Keystore may refuse to delete the key), the text is shown all the same. [MasterRequired] (the 7-day rule or
+ * the clock) and any other failure never reach [onWrongKey]: they go to [onError] with [biometricUnlockError].
  */
 @OptIn(DelicateCoroutinesApi::class) // ATOMIC: the body must run even on a cancelled scope, to own the key.
-fun CoroutineScope.launchUnlockWithKey(store: VaultStore, key: ByteArray, onError: (String) -> Unit): Job =
+fun CoroutineScope.launchUnlockWithKey(
+    store: VaultStore,
+    key: ByteArray,
+    onWrongKey: () -> Unit = {},
+    onError: (String) -> Unit,
+): Job =
     launch(start = CoroutineStart.ATOMIC) {
         try {
             store.unlockWithKey(key)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: CryptoFailure) {
+            try {
+                onWrongKey()
+            } catch (off: Exception) {
+                // The Keystore refused: the fingerprint stays on and the next try ends here again; the user still gets the text.
+            }
+            onError(FINGERPRINT_STALE)
         } catch (e: Exception) {
             onError(biometricUnlockError(e))
         }
