@@ -44,4 +44,8 @@ tasks.test {
     inputs.files(fileTree("../app/src/main/java") { include(androidOnly) })
         .withPropertyName("androidOnlySources")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // MasterPolicyTest reads the word lists of the app (the same assets the screens load): a change in them reruns the tests.
+    inputs.dir("../app/src/main/assets")
+        .withPropertyName("appAssets")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }

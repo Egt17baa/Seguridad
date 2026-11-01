@@ -92,11 +92,12 @@ fun loadMasterWords(open: (String) -> InputStream): Set<String> = try {
  * «una sola palabra» and pass if the estimate reaches, and so does any word that is in none of the lists. The rule does
  * not guarantee that a master is strong.
  *
- * What the Generator proposes with its usual options passes in the tests: a phrase of 5 words (at least 15 letters, and the
- * longest word of the lists has 9), with any separator and list, and a password of 16 characters. A password of digits
- * only is sometimes refused up to about 24 characters (a sequence such as «123» counts as one character). With [words], a
- * password of 16 characters with the four classes of characters is refused about 1 time in 27,600, when its few letters
- * (3 to 5) are a word of the lists; asking the Generator for another one solves it.
+ * What the Generator proposes with its usual options passes in the tests: a phrase of 5 words (at least 15 letters, and no
+ * known word has more than 10: «contrasena», from «Salud»; the lists have 9 at most), with any separator and list, and a
+ * password of 16 characters. A password of digits only is sometimes refused up to about 24 characters (a sequence such as
+ * «123» counts as one character). With [words], a password of the Generator with the four classes of characters is refused
+ * when its few letters (3 to 5) are a word of the lists: about 1 time in 3,900 at 12 characters, 1 in 61,000 at 16 and 1 in
+ * 1.1 million at 20 (the default length); asking the Generator for another one solves it.
  */
 fun newMasterProblem(candidate: String, words: Set<String> = emptySet()): String? = when {
     candidate.length < MIN_MASTER -> MASTER_TOO_SHORT
