@@ -23,6 +23,7 @@ import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
 import java.security.SecureRandom
+import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -51,6 +52,21 @@ class MasterPolicyTest {
         assertEquals(MASTER_TOO_SHORT, newMasterProblem(""))
         assertEquals(MASTER_TOO_SHORT, newMasterProblem("a".repeat(MIN_MASTER - 1)))
         assertEquals(MASTER_TOO_SHORT, newMasterProblem("Xq7#vB2!m")) // 9 characters, strong by the estimate: length comes first.
+    }
+
+    /** F3 (N-02): ten characters in both counts, the UTF-16 units typed and the code points of NFC without Cf. */
+    @Test fun `F3 five emojis, five letters typed decomposed or five digits with invisible characters are too short`() {
+        val nfd = { t: String -> Normalizer.normalize(t, Normalizer.Form.NFD) }
+        for (c in listOf("😀😀😀😀😀", nfd("ąąąąą"), "1\u200B2\u200B3\u200B4\u200B5\u200B", "\u095C".repeat(5))) {
+            assertEquals(c, MASTER_TOO_SHORT, newMasterProblem(c))
+            assertEquals(c, MASTER_TOO_SHORT, newMasterProblem(c, allWords))
+        }
+        // Long enough in both counts, and still a run or a sequence: the estimate refuses them.
+        val digitsApart = "0123456789".toList().joinToString("\u200B")
+        for (c in listOf("😀".repeat(10), nfd("ą".repeat(10)), digitsApart, "\u095C".repeat(10))) {
+            assertEquals(c, MASTER_TOO_WEAK, newMasterProblem(c))
+            assertEquals(c, MASTER_TOO_WEAK, newMasterProblem(c, allWords))
+        }
     }
 
     @Test fun `ten characters are enough for the length, the strength decides next`() {
