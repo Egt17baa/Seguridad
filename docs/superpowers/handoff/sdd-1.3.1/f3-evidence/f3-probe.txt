@@ -1,0 +1,8 @@
+1F600 1F600 1F600 1F600 1F600            units=10 nfcNoCfCps= 5 old=  66.4 new=   6.6 
+0061 0328 0061 0328 0061 0328 0061 032   units=10 nfcNoCfCps= 5 old=  69.8 new=   6.6 
+0031 200B 0032 200B 0033 200B 0034 200   units=10 nfcNoCfCps= 5 old=  67.8 new=   3.3 
+00F1 212A 0061 0062 0063 0064 0065 006   units=10 nfcNoCfCps=10 old=  20.9 new=  21.7 STRONGER
+00F1 037E 0061 0062 0063 0064 0065 006   units=10 nfcNoCfCps=10 old=  20.9 new=  21.9 STRONGER
+095C 095C 095C 095C 095C                 units= 5 nfcNoCfCps=10 old=   6.6 new=  66.4 STRONGER
+0344 0344 0344 0344 0344                 units= 5 nfcNoCfCps=10 old=   6.6 new=  66.4 STRONGER
+FB2F FB2F FB2F FB2F FB2F                 units= 5 nfcNoCfCps=10 old=   6.6 new=  66.4 STRONGER

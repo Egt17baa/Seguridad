@@ -26,7 +26,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
    - la auditoría completa con `experto-seguridad-cripto`, `auditoria-seguridad-movil` y `auditoria-seguridad`;
    - la revisión final del Abogado Digital (punto 4), con sus cambios aplicados.
 
-## Estado actual: Clavero 1.3.1, terminada en la rama y pendiente del PR (1-11-2026)
+## Estado actual: Clavero 1.3.1, fusionada en `main` y pendiente de la prueba en el móvil (1-11-2026)
 
 **Nombre:** la app se llama **Clavero** desde la 1.3.0 (antes «Seguridad»). Cambian el nombre visible, los textos, la política, la ficha, el README y los nombres de los APK publicados (`Clavero-<etiqueta>.apk`). **No cambian**, y `AppNameTest` lo comprueba:
 - el `applicationId` `io.github.egt17baa.seguridad` y el paquete `app.seguridad`;
@@ -37,8 +37,8 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 
 **Fase:**
 - **La 1.3.0 está publicada:** etiqueta `v1.3.0` en `b6ea21b` (`main`), con `Clavero-v1.3.0.apk` en *Releases*, firmado con la clave de subida. Su registro está en `docs/superpowers/handoff/sdd-1.3.0/progress.md` y su auditoría en `docs/auditorias/2026-10-31-auditoria-1.3.0.md`.
-- **La 1.3.1 es una versión de mantenimiento:** corrige los cinco hallazgos de la revisión criptográfica (`auditoria/04-cripto.md`) y quita CriptoPanel. Se trabaja en la rama `ccr-a1a6eabb-765f9g`, desde `main` en `9504ce3`. El código se cerró en `284d206`.
-- **Dónde está:** el registro en `docs/superpowers/handoff/sdd-1.3.1/progress.md`, la auditoría en `docs/auditorias/2026-11-01-auditoria-1.3.1.md` y el traspaso en `docs/superpowers/handoff/2026-11-01-clavero-1.3.1-traspaso.md`.
+- **La 1.3.1 es una versión de mantenimiento:** corrige los cinco hallazgos de la revisión criptográfica (`auditoria/04-cripto.md`) y quita CriptoPanel. Se trabajó en la rama `ccr-a1a6eabb-765f9g`, desde `main` en `9504ce3`. El código se cerró en `284d206`, y el PR #13 se fusionó en `main` el 1-11-2026 (`f9259bd`).
+- **Dónde está:** el registro en `docs/superpowers/handoff/sdd-1.3.1/progress.md` (en la misma carpeta, los informes de cada tarea, de las revisiones, de la auditoría del cambio y del Abogado Digital), la auditoría en `docs/auditorias/2026-11-01-auditoria-1.3.1.md` y el traspaso en `docs/superpowers/handoff/2026-11-01-clavero-1.3.1-traspaso.md`.
 - `main` está protegida desde el 1-11-2026: todo cambio entra por un PR, con **build** y **jvm-check** en verde.
 
 | Paso de la 1.3.1 | Estado |
@@ -51,7 +51,8 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | Documentos de la publicación (auditoría, README, `CLAUDE.md`, plantilla del PR, traspaso) | Hechos y repasados, y puestos al día con los cambios del Abogado Digital |
 | Revisión final del Abogado Digital | Hecha (1-11-2026): «se puede publicar, con cambios»; ninguna norma exige cambios; O-1 y R-1 a R-4 aplicados (`284d206` y los documentos) |
 | Comprobación corta de la última tanda (`284d206` y sus documentos) | Hecha, sin nada abierto |
-| PR a `main`, APK firmado, prueba del dueño en el móvil y etiqueta `v1.3.1` | Pendiente |
+| PR a `main` (#13, `f9259bd`) | Fusionado (1-11-2026) |
+| APK firmado, prueba del dueño en el móvil y etiqueta `v1.3.1` | Pendiente |
 
 **Decisiones del dueño y del controlador que siguen vigentes** (el detalle está en `progress.md`, en las líneas «Ruling» y «Owner decision»):
 - **Detalles menores:** se arreglan todos, no se aplazan.
@@ -100,7 +101,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Cada subida de `targetSdk`:** se repite en el móvil «¿Filtrada?» y «Comprobar filtraciones» con red. La segunda validación TLS de CRY-B01 no recibe el OCSP grapado ni las SCT de la extensión TLS, y podría rechazar de más si Android llega a exigir Certificate Transparency (N-04).
 
 **Pendientes, del dueño** (`docs/PUBLICAR.md` §3.7 y README, «Entorno de firma»):
-1. **1.3.1:** cuando el PR esté fusionado, Actions → Build APK → Run workflow desde `main`, aprobar **build-firma**, descargar `Clavero.apk` y hacer las pruebas de la 1.3.1 del README («Comprobaciones manuales en el móvil»).
+1. **1.3.1:** el PR #13 ya está fusionado: Actions → Build APK → Run workflow desde `main`, aprobar **build-firma**, descargar `Clavero.apk` y hacer las pruebas de la 1.3.1 del README («Comprobaciones manuales en el móvil»).
 2. **1.3.1:** si salen bien, la etiqueta `v1.3.1` desde Termux.
 3. **1.3.1, la política:** `docs/privacidad.html` cambió (el ejemplo de User-Agent, R-2). El día que publique, el dueño pone su fecha (la línea «Última actualización») y vuelve a publicarla en GitHub Pages. La rama no toca la fecha.
 4. **1.3.1, las notas de la versión** de GitHub (y de Play, si publica allí): según la guía del Abogado Digital y con el borrador del traspaso de la 1.3.1, §3.
