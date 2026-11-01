@@ -56,7 +56,7 @@ class MasterPolicyTest {
 
     /**
      * Why each one is refused: «contraseña», «Contraseña» and «CONTRASEÑA» only because that exact word (in lower case) is
-     * in the common list of «Salud», not because of their strength (see the next test: add a digit and they pass); the
+     * in the common list of «Salud», not because of their strength (see the next test: add a digit and the estimate alone accepts them); the
      * others because a run of equal characters, or a sequence of the alphabet, the digits or a keyboard row, counts as one.
      */
     @Test fun `the obvious passwords of ten characters or more are too weak`() {
@@ -80,20 +80,20 @@ class MasterPolicyTest {
     /**
      * The second limit of the estimate, pinned on purpose: any character outside ASCII (ñ, an accent) adds a pool of 100
      * symbols in estimateBits, about 7 bits per character, so a Spanish word with one of them looks strong. «contraseña»
-     * alone is refused only because it is in the common list; with a digit after it, or with a year, it passes. If
+     * alone is refused only because it is in the common list; with a digit after it, or with a year, the estimate alone accepts it. If
      * estimateBits changes (an accent-folding pass, a dictionary, another threshold), this test shows what that does to
      * the rule for a new master: change it then, knowing the effect.
      *
      * This is the estimate alone, with no `words`. The owner's amendment closes the gap for ONE known word: with the lists
      * loaded «contraseña123» and «Contraseña2024» are refused (`what the estimate lets through and the word rule catches`).
      */
-    @Test fun `a word with an accent or an enye gets a large bonus, so contrasena123 and Contrasena2024 pass`() {
+    @Test fun `a word with an accent or an enye gets a large bonus, so the estimate alone accepts contrasena123 and Contrasena2024`() {
         for (c in listOf("contraseña1", "contraseña123", "Contraseña2024")) {
             val bits = estimateBits(c)
             assertTrue("«$c»: $bits bits", bits >= WEAK_BITS)
-            assertNull("«$c» is accepted today", newMasterProblem(c))
+            assertNull("«$c» is accepted by the estimate alone (no word lists)", newMasterProblem(c))
         }
-        // Without the ñ the bonus is gone and the estimate is lower, but it still passes: what the rule refuses is not words.
+        // Without the ñ the bonus is gone and the estimate is lower, but the estimate alone still accepts it: it does not refuse words.
         assertTrue(estimateBits("contrasena123") < estimateBits("contraseña123"))
         assertNull(newMasterProblem("contrasena123"))
         // What the common list catches is only the exact word.
@@ -286,9 +286,10 @@ class MasterPolicyTest {
     }
 
     /**
-     * A fixed sequence (SHA1PRNG with a seed), not SecureRandom(): with the word lists loaded, about 1 password in 27,600 of
-     * 16 characters with the four classes is refused, because its few letters (3 to 5) happen to spell a list word and the
-     * rest are digits and symbols (see the next test). 200 fresh draws would fail one run in 140 by chance.
+     * A fixed sequence (SHA1PRNG with a seed), not SecureRandom(): with the word lists loaded, about 1 password in 61,000 of
+     * 16 characters with the four classes is refused (1 in 3,900 at 12, 1 in 1.1 million at 20), because its few letters
+     * (3 to 5) happen to spell a list word and the rest are digits and symbols (see the next test). 200 fresh draws would
+     * fail about one run in 308 by chance.
      */
     private fun fixedRandom(): SecureRandom = SecureRandom.getInstance("SHA1PRNG").apply { setSeed(20261101L) }
 
