@@ -196,8 +196,9 @@ internal fun keyAad(f: VaultFile, version: Int) = fieldsAad("${f.format}-key-v2"
 /**
  * Version 2 binds the same fields plus the revision and the last master check to the entries: a phone with root
  * can neither stretch the 7-day biometric window nor mix an older data blob into the current file.
+ * Internal only so a test can seal entries that authenticate but do not decode (final review 1.3.1, F1).
  */
-private fun dataAad(f: VaultFile, version: Int) = fieldsAad("${f.format}-data-v2", f, version, f.revision, f.masterCheckedAt)
+internal fun dataAad(f: VaultFile, version: Int) = fieldsAad("${f.format}-data-v2", f, version, f.revision, f.masterCheckedAt)
 
 /** Encrypts and then wipes [plain]. */
 private fun seal(key: ByteArray, plain: ByteArray, aad: ByteArray, random: SecureRandom, wipe: Boolean = true): String {
@@ -219,7 +220,8 @@ private fun open(key: ByteArray, sealed: String, aad: ByteArray): ByteArray {
     return aead(Aead.AES_256_GCM, false, key, raw.copyOfRange(0, NONCE_BYTES), aad, raw.copyOfRange(NONCE_BYTES, raw.size))
 }
 
-private const val NOT_A_VAULT = "No es una bóveda compatible"
+/** What [VaultCrypto] says of a file it cannot open; the unlock screen shows it, not «Contraseña incorrecta» (F2). */
+internal const val NOT_A_VAULT = "No es una bóveda compatible"
 
 object VaultCrypto {
     /** A new vault: fresh DEK wrapped with [master]. Returns the file and the open DEK (caller keeps it while unlocked). */
@@ -297,6 +299,25 @@ object VaultCrypto {
         } finally {
             json.fill(0)
         }
+    }
+
+    /** True if this version can open [file] at all (its format and version); nothing is decrypted. */
+    fun opens(file: VaultFile): Boolean = supported(file)
+
+    /**
+     * [file] with its real version if [dek] authenticates its entries under one of the candidate versions (AES-256-GCM
+     * only: the JSON is not decoded and the decrypted bytes are wiped), or null if it authenticates under none: the key
+     * is another vault's, or the blob is damaged (AES-GCM cannot tell those two apart). What the fingerprint needs to
+     * tell a stale key from entries this version cannot decode ([VaultStore.unlockWithKey], F1).
+     */
+    fun authenticated(file: VaultFile, dek: ByteArray): VaultFile? {
+        val (json, version) = try {
+            openAny(dek, file.data, file) { dataAad(file, it) }
+        } catch (e: CryptoFailure) {
+            return null
+        }
+        json.fill(0)
+        return file.copy(version = version)
     }
 
     /** [file] with its real version, found by which associated data opens its entries. */
@@ -387,26 +408,30 @@ object VaultCrypto {
 
     /**
      * Whether a biometric unlock may proceed: only for a file [unlock] would open (a [VaultFile.FORMAT] file of version
-     * 2 or 3, or one that does not say its version, which [VaultStore] [resolve]s with the key first), within 7 days of
-     * the last master check and never with a date in the future. Any other format or version (1, 4…) asks for the master
-     * password, which then says it is not a compatible vault, instead of failing to read the entries with the data key:
-     * that [CryptoFailure] would turn the fingerprint off. [highWater] is the highest time the app ever saw (a mark that
-     * only rises): a clock set back more than [CLOCK_SLACK_MS] behind it asks for the master password, so setting the
-     * clock back no longer stretches the 7 days.
+     * 2 or 3, or one that does not say its version, whose version [VaultStore] finds with the key), within 7 days of
+     * the last master check and never with a date in the future. Any other format or version (1, 4…) is
+     * [BiometricRefusal.UNSUPPORTED]: the unlock screen offers no fingerprint and shows no notice for it, the key is
+     * never tried on it, and the master password then gets «No es una bóveda compatible» ([NOT_A_VAULT]) instead of
+     * «Contraseña incorrecta». [highWater] is the highest time the app ever saw (a mark that only rises): a clock set
+     * back more than [CLOCK_SLACK_MS] behind it asks for the master password, so setting the clock back no longer
+     * stretches the 7 days.
      */
     fun biometricAllowed(file: VaultFile, now: Long, highWater: Long = 0): Boolean = biometricRefusal(file, now, highWater) == null
 
-    /** Why [biometricAllowed] says no, or null when it says yes; the screen words the two reasons differently. */
+    /** Why [biometricAllowed] says no, or null when it says yes; the screen words the reasons differently. */
     fun biometricRefusal(file: VaultFile, now: Long, highWater: Long = 0): BiometricRefusal? = when {
-        !supported(file) -> BiometricRefusal.MASTER_DUE
+        !supported(file) -> BiometricRefusal.UNSUPPORTED
         now < file.masterCheckedAt || now < highWater - CLOCK_SLACK_MS -> BiometricRefusal.CLOCK
         now - file.masterCheckedAt >= MASTER_RECHECK_MS -> BiometricRefusal.MASTER_DUE
         else -> null
     }
 }
 
-/** Why the fingerprint is refused: the master password is due (format or 7 days), or the clock went backwards. */
-enum class BiometricRefusal { MASTER_DUE, CLOCK }
+/**
+ * Why the fingerprint is refused: the master password is due (7 days), the clock went backwards, or this version cannot
+ * open the file (its format or version; the screen shows no notice for it).
+ */
+enum class BiometricRefusal { MASTER_DUE, CLOCK, UNSUPPORTED }
 
 /** How far behind the highest time seen the clock may be before the fingerprint asks for the master password. */
 const val CLOCK_SLACK_MS = 5 * 60_000L
