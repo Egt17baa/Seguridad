@@ -11,11 +11,19 @@ import javax.net.ssl.X509TrustManager
  *
  * X509TrustManagerExtensions takes Network Security Config's RootTrustManager, the default trust manager, from API 24
  * (minSdk is 26). It validates the chain again for the server's name and returns the chain it built, up to the root.
- * Without the name it cannot ask, so the connection is refused (fails closed): the leak check then says it could not
- * check.
+ *
+ * Fails closed, and the leak check then says it could not check:
+ * - without the server's name the connection is refused. This is stricter than the system, which would take the
+ *   default configuration: the name always comes from the handshake (see DistrustingTrustManager);
+ * - a system trust manager it cannot take (never the default one on API 24+) refuses every connection, rather than
+ *   closing the app when the client is built.
  */
 fun androidTrustedChain(system: X509TrustManager): TrustedChain {
-    val extensions = X509TrustManagerExtensions(system)
+    val extensions = try {
+        X509TrustManagerExtensions(system)
+    } catch (e: IllegalArgumentException) {
+        return { _, _, _ -> throw CertificateException("The system trust manager cannot give the chain it validated", e) }
+    }
     return { chain, authType, host ->
         if (host == null) throw CertificateException("No server name: the chain the system validated cannot be checked")
         extensions.checkServerTrusted(chain, authType, host)

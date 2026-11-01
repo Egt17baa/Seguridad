@@ -300,5 +300,7 @@ class PlatformSourcesTest {
         assertTrue("X509TrustManagerExtensions(system)" in src)
         assertTrue("checkServerTrusted(chain, authType, host)" in src)
         assertTrue(Regex("""if \(host == null\) throw CertificateException\(""").containsMatchIn(src))
+        // Review round 1, minor 1: a system trust manager it cannot take refuses every connection; the app does not close.
+        assertTrue(Regex("""catch \(e: IllegalArgumentException\) \{\s*return \{ _, _, _ -> throw CertificateException\(""").containsMatchIn(src))
     }
 }
