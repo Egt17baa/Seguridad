@@ -8,8 +8,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -42,6 +43,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -49,6 +51,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -95,6 +98,7 @@ import app.seguridad.tools.photo.PhotoFailure
 import app.seguridad.tools.photo.PhotoFormat
 import app.seguridad.tools.photoUnsupportedText
 import app.seguridad.tools.redact.RedactHistory
+import app.seguridad.tools.redact.RedactZoom
 import app.seguridad.tools.redact.ViewRect
 import app.seguridad.tools.redact.boxFromDrag
 import app.seguridad.tools.redact.boxToView
@@ -567,6 +571,12 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
  * a drag from the left edge to cover a name there must draw a box, not leave the screen; the exclusion is API 29+ and
  * Android caps it at 200 dp of height per edge, hence the padding too), and tells TalkBack what it is and how many
  * blocks it has (M-11).
+ *
+ * Zoom (owner's request, 1-11-2026): two fingers enlarge (up to [app.seguridad.tools.redact.MAX_REDACT_ZOOM]), shrink
+ * and move the image ([RedactZoom]); a second finger that lands before the first has moved makes it a pinch, never a
+ * box, and what the last finger does after a pinch draws nothing. A double tap puts it back to its size. The preview
+ * is clipped to its area. Touches are brought back to the unzoomed preview before [boxFromDrag], so a box drawn while
+ * zoomed covers exactly what was under the finger, in image pixels as always.
  */
 @Composable
 private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, isShown: () -> Boolean, onBox: (RedactBox) -> Unit) {
@@ -576,6 +586,8 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
     DisposableEffect(p) { onDispose { if (!currentIsShown()) p.previewBitmap.recycle() } }
     var dragFrom by remember(p) { mutableStateOf<Offset?>(null) }
     var dragTo by remember(p) { mutableStateOf<Offset?>(null) }
+    // The view's zoom: not secret, lost on rotation (the composition is re-created) and with another image.
+    var zoom by remember(p) { mutableStateOf(RedactZoom()) }
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val aspect = p.width.toFloat() / p.height
@@ -589,45 +601,94 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
                     .size(w, h)
                     .systemGestureExclusion()
                     .semantics { contentDescription = redactCanvasDescription(boxes.size) }
+                    .clipToBounds()
                     .pointerInput(p) {
+                    var lastTapAt = 0L
+                    var lastTapAtPos = Offset.Zero
                     awaitEachGesture {
-                        // The box starts where the finger went down, not where the drag was recognised.
+                        // One finger draws a box, from where it went down; two fingers enlarge, shrink and move the
+                        // image (owner's request, 1-11-2026); a double tap puts it back to its size.
                         val down = awaitFirstDown()
                         // Busy: not consumed, so the page still scrolls.
                         if (!currentEnabled) return@awaitEachGesture
                         dragFrom = down.position
                         dragTo = down.position
-                        val start = awaitTouchSlopOrCancellation(down.id) { change, _ ->
-                            change.consume()
-                            dragTo = change.position
-                        }
-                        val ended = start != null && drag(start.id) { change ->
-                            change.consume()
-                            dragTo = change.position
+                        var drawing = false
+                        var pinching = false
+                        var tapEndedAt = -1L
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pressed = event.changes.count { it.pressed }
+                            if (!drawing && pressed >= 2) {
+                                // A second finger before the first one moved: a pinch, never a box.
+                                pinching = true
+                                dragFrom = null
+                                dragTo = null
+                                val c = event.calculateCentroid(useCurrent = true)
+                                val pan = event.calculatePan()
+                                zoom = zoom.transformed(event.calculateZoom(), c.x, c.y, pan.x, pan.y, size.width.toFloat(), size.height.toFloat())
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
+                            if (pinching) {
+                                // The fingers left one by one: what one finger does now is not a box.
+                                event.changes.forEach { it.consume() }
+                                if (pressed == 0) break
+                                continue
+                            }
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null || !change.pressed) {
+                                if (!drawing && change != null) tapEndedAt = change.uptimeMillis
+                                break
+                            }
+                            if (!drawing && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) drawing = true
+                            if (drawing) {
+                                change.consume()
+                                dragTo = change.position
+                            }
                         }
                         val from = dragFrom
                         val to = dragTo
                         dragFrom = null
                         dragTo = null
-                        if (ended && currentEnabled && from != null && to != null) {
+                        if (drawing && currentEnabled && from != null && to != null) {
                             val viewW = size.width.toFloat()
                             val viewH = size.height.toFloat()
-                            boxFromDrag(from.x, from.y, to.x, to.y, viewW, viewH, p.width, p.height)?.let { currentOnBox(it) }
+                            val z = zoom
+                            boxFromDrag(z.toPreviewX(from.x), z.toPreviewY(from.y), z.toPreviewX(to.x), z.toPreviewY(to.y), viewW, viewH, p.width, p.height)
+                                ?.let { currentOnBox(it) }
+                        }
+                        if (tapEndedAt >= 0) {
+                            val double = tapEndedAt - lastTapAt <= viewConfiguration.doubleTapTimeoutMillis &&
+                                (down.position - lastTapAtPos).getDistance() <= viewConfiguration.touchSlop * 4
+                            if (double) {
+                                zoom = RedactZoom()
+                                lastTapAt = 0L
+                            } else {
+                                lastTapAt = tapEndedAt
+                                lastTapAtPos = down.position
+                            }
                         }
                     }
                 },
             ) {
-                drawImage(
-                    p.preview,
-                    dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                    filterQuality = FilterQuality.Low,
-                )
-                for (b in boxes) drawBlack(boxToView(b, size.width, size.height, p.width, p.height))
-                val from = dragFrom
-                val to = dragTo
-                if (enabled && from != null && to != null) {
-                    boxFromDrag(from.x, from.y, to.x, to.y, size.width, size.height, p.width, p.height)?.let {
-                        drawBlack(boxToView(it, size.width, size.height, p.width, p.height))
+                val z = zoom
+                withTransform({
+                    translate(z.offsetX, z.offsetY)
+                    scale(z.scale, z.scale, pivot = Offset.Zero)
+                }) {
+                    drawImage(
+                        p.preview,
+                        dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                        filterQuality = FilterQuality.Low,
+                    )
+                    for (b in boxes) drawBlack(boxToView(b, size.width, size.height, p.width, p.height))
+                    val from = dragFrom
+                    val to = dragTo
+                    if (enabled && from != null && to != null) {
+                        boxFromDrag(z.toPreviewX(from.x), z.toPreviewY(from.y), z.toPreviewX(to.x), z.toPreviewY(to.y), size.width, size.height, p.width, p.height)?.let {
+                            drawBlack(boxToView(it, size.width, size.height, p.width, p.height))
+                        }
                     }
                 }
             }
