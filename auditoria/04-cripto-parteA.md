@@ -230,7 +230,7 @@ Root y el volcado de memoria quedan como riesgo residual aceptado (`docs/superpo
       scope.launchUnlockWithKey(store, key, onWrongKey = { BiometricVault.disable(context) }) { error = it }
   }, onError = { error = it })
   ```
-  Una bóveda dañada de verdad también la desactivaría, y no se pierde nada: en ese caso la maestra tampoco la abre. `MasterRequired` no es una `CryptoFailure`, así que la regla de los 7 días y la del reloj (A11) no cambian. Test: en `VaultStoreTest`, `unlockWithKey` con una DEK de otra bóveda lanza `CryptoFailure` y deja la bóveda bloqueada. El borrado de la huella se prueba en el móvil, con la lista de `README.md`.
+  Una bóveda que esté dañada también la desactivaría, y no se pierde nada: en ese caso la maestra tampoco la abre. `MasterRequired` no es una `CryptoFailure`, así que la regla de los 7 días y la del reloj (A11) no cambian. Test: en `VaultStoreTest`, `unlockWithKey` con una DEK de otra bóveda lanza `CryptoFailure` y deja la bóveda bloqueada. El borrado de la huella se prueba en el móvil, con la lista de `README.md`.
 - **Si algún día se quiere AAD** (no lo recomiendo ahora: cada cambio de `BiometricVault` necesita su propia prueba en el móvil):
   - guardar `putInt("scheme", 2)` y usar como AAD `"seguridad-biometric-v2"`;
   - al leer, sin `scheme` se descifra sin AAD, como en 1.1–1.3, y se sigue leyendo para siempre;
