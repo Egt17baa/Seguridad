@@ -3,6 +3,7 @@ package app.seguridad.vault
 import app.seguridad.health.WEAK_BITS
 import app.seguridad.health.commonPasswords
 import app.seguridad.health.estimateBits
+import app.seguridad.health.strengthForm
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -12,7 +13,11 @@ import java.io.InputStream
 import java.text.Normalizer
 import java.util.Locale
 
-/** Fewest characters of a master password (UTF-16 units, as the text field counts them). */
+/**
+ * Fewest characters of a master password. A NEW master ([newMasterProblem]) needs this many both in UTF-16 units, as
+ * the text field counts them, and in code points of its NFC form without format characters, so five emojis or five
+ * letters typed decomposed are not ten (F3). The import dialog only counts UTF-16 units, as before.
+ */
 const val MIN_MASTER = 10
 
 /** What the screens show while the new master has fewer than [MIN_MASTER] characters. */
@@ -108,9 +113,10 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
 }
 
 /**
- * Why [candidate] does not do as a NEW master password, or null if it does (CRY-A01): first [MASTER_TOO_SHORT], then
- * [MASTER_TOO_WEAK], which is the answer to two different things, in this order: the strength is the one of «Salud»
- * ([estimateBits] against [WEAK_BITS]) and, if [words] is given, the password is ONE known word.
+ * Why [candidate] does not do as a NEW master password, or null if it does (CRY-A01): first [MASTER_TOO_SHORT] (fewer
+ * than [MIN_MASTER] UTF-16 units, or fewer than [MIN_MASTER] code points once in NFC and without format characters,
+ * F3), then [MASTER_TOO_WEAK], which is the answer to two different things, in this order: the strength is the one of
+ * «Salud» ([estimateBits] against [WEAK_BITS]) and, if [words] is given, the password is ONE known word.
  *
  * [words] is what [loadMasterWords] returns: the cores ([masterCore]) of the common list of «Salud» and of the EFF,
  * BIP-39 English and BIP-39 Spanish lists. A candidate whose core is in it is a single known word with capitals, accents,
@@ -125,7 +131,9 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
  *
  * It is an estimate and a list of words, not a dictionary: it does not know other words, names, places or personal data,
  * so it removes the obvious cases and nothing more. The estimate refuses a short password, a run of equal characters, a
- * sequence («1234567890», «abcdefghij», «qwertyuiop») and the exact words of the common list of «Salud». «Barcelona1»
+ * sequence («1234567890», «abcdefghij», «qwertyuiop») and the exact words of the common list of «Salud»; since F3 also
+ * when they are emojis, letters typed decomposed or digits with invisible characters between them (it counts the UTF-16
+ * units and the code points of the NFC form without format characters, and keeps the weaker result). «Barcelona1»
  * gives about 59 bits and passes, because «barcelona» is in no list. A word with an enye or an accent gets a large bonus
  * in the estimate (one character outside ASCII adds 100 symbols to the pool of the whole password), which is why the
  * word check exists. Its limit: it is about the WHOLE core being one word. Two words together («abandon-ability») are not
@@ -140,7 +148,8 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
  * 1.1 million at 20 (the default length); asking the Generator for another one solves it.
  */
 fun newMasterProblem(candidate: String, words: Set<String> = emptySet()): String? = when {
-    candidate.length < MIN_MASTER -> MASTER_TOO_SHORT
+    candidate.length < MIN_MASTER || strengthForm(candidate).let { it.codePointCount(0, it.length) } < MIN_MASTER ->
+        MASTER_TOO_SHORT
     estimateBits(candidate) < WEAK_BITS -> MASTER_TOO_WEAK
     words.isNotEmpty() && masterCore(candidate) in words -> MASTER_TOO_WEAK
     else -> null
