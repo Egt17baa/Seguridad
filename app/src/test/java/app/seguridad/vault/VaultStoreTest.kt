@@ -1028,7 +1028,7 @@ class VaultStoreTest {
     }
 
     @Test fun `CRY-A02 with the master password due, a vault of unknown version tries the key first, so a stale key still turns the fingerprint off`() = runTest {
-        // The other order than version 3 (see the next test): resolve() has to try the key to know the version, before
+        // The other order than version 3 (see «a version-3 vault asks for it before trying the key», below): resolve() has to try the key to know the version, before
         // the 7-day rule is looked at. A stale key is a CryptoFailure there; the right key then meets the 7-day rule.
         val (s, dek) = unknownVersionVault()
         clock += MASTER_RECHECK_MS
