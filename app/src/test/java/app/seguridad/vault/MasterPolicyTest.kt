@@ -7,6 +7,9 @@ import app.seguridad.crypto.generatePassword
 import app.seguridad.health.WEAK_BITS
 import app.seguridad.health.commonPasswords
 import app.seguridad.health.estimateBits
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -21,6 +24,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.security.SecureRandom
 import java.util.Locale
+import java.util.concurrent.Executors
 
 /**
  * CRY-A01 (review 1.3.1): a NEW master password has to be long enough and pass the strength estimate of «Salud». The
@@ -160,6 +164,15 @@ class MasterPolicyTest {
         assertTrue(asset("eff_large_wordlist.txt").all { line -> line.none { it.isDigit() } })
     }
 
+    /** Final review M2, F7: the build fails if any list of the rule would be missing from the APK (see checkAssets). */
+    @Test fun `checkAssets fails the build when a list of the master rule is not in the APK`() {
+        val gradle = projectFile("app/build.gradle.kts").readText()
+        val task = gradle.substringAfter("val checkAssets by tasks.registering")
+            .substringBefore("tasks.named(\"check\")")
+        for (name in MASTER_WORD_LISTS) assertTrue(name, "\"$name\"" in task)
+        assertTrue(task, Regex("""if \(missing\.isNotEmpty\(\)\) \{\s*throw GradleException""").containsMatchIn(task))
+    }
+
     @Test fun `one known word is refused whatever is around it, once the lists are loaded`() {
         for (c in listOf(
             "contraseña123", "Contraseña2024", "Password1!", "iloveyou12", "abandon1234", "Ábaco12345", "A\u0301baco12345", "abaco123456",
@@ -228,6 +241,7 @@ class MasterPolicyTest {
         assertEquals(MASTER_WORD_LISTS, opened)
         assertEquals("every stream is closed", MASTER_WORD_LISTS, closed)
         assertEquals(allWords, loaded)
+        assertTrue("${loaded.size} words: the word check is on with the repository's assets (F7)", loaded.size > 9000)
 
         // A list that cannot be read: nothing at all, never half of the lists.
         assertEquals(emptySet<String>(), loadMasterWords { name ->
@@ -237,6 +251,57 @@ class MasterPolicyTest {
         assertEquals(emptySet<String>(), loadMasterWords { throw IOException("no assets") })
         assertEquals("not a crash of the screen either", emptySet<String>(), loadMasterWords { throw IllegalStateException("closed") })
         assertNull("so the rule is the estimate: «contraseña123» passes", newMasterProblem("contraseña123", loadMasterWords { throw IOException() }))
+    }
+
+    // ---- Final review 1.3.1, F6: the lists are read once per process, off the main thread ----
+
+    /** Opens the real assets, counting what it opens and closes and on which thread; [failing] makes it throw. */
+    private inner class CountingAssets(var failing: Boolean = false) {
+        val opened = mutableListOf<String>()
+        val closed = mutableListOf<String>()
+        val threads = mutableSetOf<String>()
+
+        fun open(name: String): InputStream {
+            opened += name
+            // Without the suffix kotlinx adds to the name in debug mode.
+            threads += Thread.currentThread().name.substringBefore(" @coroutine#")
+            if (failing) throw IOException("no assets")
+            return object : FileInputStream(assetFile(name)) {
+                override fun close() { closed += name; super.close() }
+            }
+        }
+    }
+
+    @Test fun `F6 the lists are read once per process, on the dispatcher given, and every stream is closed`() {
+        val io = Executors.newSingleThreadExecutor { Thread(it, "listas") }.asCoroutineDispatcher()
+        try {
+            val assets = CountingAssets()
+            val lists = WordLists(assets::open, io)
+            runBlocking {
+                repeat(3) { assertEquals(allWords, lists.master()) }
+                repeat(3) { assertEquals(asset(EFF_WORD_LIST), lists.eff()) }
+            }
+            // The EFF list twice: once among the master's lists, once for the Generator; never again after that.
+            assertEquals(MASTER_WORD_LISTS + EFF_WORD_LIST, assets.opened)
+            assertEquals(assets.opened, assets.closed)
+            assertEquals("never the caller's thread", setOf("listas"), assets.threads)
+        } finally {
+            io.close()
+        }
+    }
+
+    @Test fun `F6 a list that cannot be read is not kept, so the next screen reads it again`() = runBlocking {
+        val assets = CountingAssets(failing = true)
+        val lists = WordLists(assets::open, Dispatchers.Unconfined)
+        assertEquals("the rule stays at the length and the estimate", emptySet<String>(), lists.master())
+        assertNull("«Frase» stays off", lists.eff())
+        assets.failing = false
+        assertEquals(allWords, lists.master())
+        assertEquals(asset(EFF_WORD_LIST), lists.eff())
+        val read = assets.opened.size
+        lists.master()
+        lists.eff()
+        assertEquals("kept once read", read, assets.opened.size)
     }
 
     // ---- What the Generator proposes passes ----
@@ -333,6 +398,16 @@ class MasterPolicyTest {
 
     private fun screen(name: String) = code(screens().first { it.name == name })
 
+    /** A file of the repository, from app/ or jvm-check/. */
+    private fun projectFile(path: String): File {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null) {
+            File(dir, path).takeIf { it.isFile }?.let { return it }
+            dir = dir.parentFile
+        }
+        error("$path not found")
+    }
+
     /** The arguments of `"<route>" -> PasswordDialog(...)`, up to the trailing lambda `) { pw ->`. */
     private fun dialogArguments(route: String): String {
         val m = Regex("""\"$route\" -> PasswordDialog\((.*?)\) \{ pw ->""", RegexOption.DOT_MATCHES_ALL).find(screen("VaultBackup.kt"))
@@ -370,20 +445,37 @@ class MasterPolicyTest {
         assertTrue(ok, "if (newPassword) words != null && problem == null else a.length >= MIN_MASTER" in ok)
     }
 
-    /** The loader of the screens: IO dispatcher, once per composition, never saved, and what it reads is MASTER_WORD_LISTS. */
-    @Test fun `the words are loaded once per screen, off the main thread, and never saved`() {
+    /**
+     * The loader of the screens (F6): the process' [WordLists] (AppContainer, off the main thread, read once), waited
+     * for in each screen, never saved; what it reads is MASTER_WORD_LISTS.
+     */
+    @Test fun `the words are loaded once per process, off the main thread, and never saved`() {
         val src = screen("MasterWords.kt")
         assertTrue("fun rememberMasterWords(" in src)
-        assertTrue("once per composition: LaunchedEffect(Unit)", "LaunchedEffect(Unit)" in src)
-        assertTrue("off the main thread", "withContext(Dispatchers.IO)" in src)
-        assertTrue("the lists are read by loadMasterWords", Regex("""loadMasterWords\s*[({]""").containsMatchIn(src))
+        val processLists = "(LocalContext.current.applicationContext as SeguridadApp).container.wordLists"
+        assertTrue("the process' lists", processLists in src)
+        assertTrue("each screen waits for them", "LaunchedEffect(Unit) { words = lists.master() }" in src)
+        assertFalse("the screen never reads the lists itself", Regex("""loadMasterWords\s*[({]""").containsMatchIn(src))
         assertTrue("null until loaded", "remember { mutableStateOf<Set<String>?>(null) }" in src)
+        val container = projectFile("app/src/main/java/app/seguridad/AppContainer.kt").readText()
+        assertTrue("one per process, Dispatchers.IO", "val wordLists = WordLists(openAsset)" in container)
+        val app = projectFile("app/src/main/java/app/seguridad/SeguridadApp.kt").readText()
+        assertTrue("from the APK's assets", "openAsset = { name -> assets.open(name) }" in app)
         assertFalse("rememberSaveable" in src)
         assertFalse("Bundle" in src)
         // A read that fails is loadMasterWords' emptySet(): the state is set either way, so the button is never left waiting.
         assertFalse("catch" in src)
         // The lists live in one place: the screens do not name them again.
         assertTrue(screens().filter { it.name != "SecurityToolsScreen.kt" && it.name != "CodesScreen.kt" }.none { Regex("""eff_large_wordlist|bip39_""").containsMatchIn(code(it)) })
+    }
+
+    /** Final review aplazado 1 and A-2, F6: the Generator's EFF list, off the main thread, closed, once per process. */
+    @Test fun `the Generator reads the EFF list off the main thread and Frase waits for it`() {
+        val gen = screen("SecurityToolsScreen.kt").substringAfter("fun GeneratorScreen(")
+            .substringBefore("private fun Option(")
+        assertTrue(gen, "val words by produceState<List<String>?>(null) { value = lists.eff() }" in gen)
+        assertTrue(gen, Regex("""onClick = \{ phrase = true \},\s*enabled = words != null""").containsMatchIn(gen))
+        assertFalse(gen, "assets.open(" in gen || "eff_large_wordlist" in gen)
     }
 
     @Test fun `the master dialog asks for a new password and the import dialog does not`() {

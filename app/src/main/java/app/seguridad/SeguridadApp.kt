@@ -28,6 +28,8 @@ class SeguridadApp : Application() {
             revokeShare = { file -> revokeSharedCopy(this, file) },
             // CRY-B01: the eMudhra check also looks at the chain Android validated, with its cached intermediates.
             trustedChainOf = { androidTrustedChain(it) },
+            // F6: the word lists of the master rule and of the Generator, read once per process.
+            openAsset = { name -> assets.open(name) },
         )
     }
 

@@ -3,6 +3,11 @@ package app.seguridad.vault
 import app.seguridad.health.WEAK_BITS
 import app.seguridad.health.commonPasswords
 import app.seguridad.health.estimateBits
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.text.Normalizer
 import java.util.Locale
@@ -17,8 +22,11 @@ const val MASTER_TOO_SHORT = "Mínimo $MIN_MASTER caracteres"
 const val MASTER_TOO_WEAK =
     "Esta contraseña es fácil de adivinar. Usa una frase de 5 o 6 palabras que solo tú conozcas (el Generador te puede dar una)."
 
+/** The EFF list of `assets/`: the Generator's phrases, and one of [MASTER_WORD_LISTS]. */
+const val EFF_WORD_LIST = "eff_large_wordlist.txt"
+
 /** The word lists of `assets/` that the rule for a new master knows, the ones the app already reads (EFF, BIP-39 English and Spanish). */
-val MASTER_WORD_LISTS = listOf("eff_large_wordlist.txt", "bip39_english.txt", "bip39_spanish.txt")
+val MASTER_WORD_LISTS = listOf(EFF_WORD_LIST, "bip39_english.txt", "bip39_spanish.txt")
 
 private val COMBINING_MARKS = Regex("\\p{Mn}+")
 
@@ -65,6 +73,38 @@ fun loadMasterWords(open: (String) -> InputStream): Set<String> = try {
     masterWords(MASTER_WORD_LISTS.map { name -> open(name).bufferedReader(Charsets.UTF_8).use { it.readLines() } })
 } catch (e: Exception) {
     emptySet()
+}
+
+/**
+ * The word lists of `assets/` that the screens need, read with [open] on [io] (never the caller's thread) and kept for
+ * the life of the process (one instance lives in AppContainer, F6): the known words of the rule of a new master
+ * ([master]) and the EFF list of the Generator's phrases ([eff]). They are not secret. A read that fails is not kept,
+ * so the next screen that asks reads again; a caller cancelled while they load (its screen closed) keeps nothing
+ * either. The EFF list is read twice per process at most: once among the master's lists and once for the Generator.
+ */
+class WordLists(private val open: (String) -> InputStream, private val io: CoroutineDispatcher = Dispatchers.IO) {
+    private val mutex = Mutex()
+    private var known: Set<String>? = null
+    private var effList: List<String>? = null
+
+    /** [loadMasterWords]: an empty set if a list cannot be read, which is not kept. */
+    suspend fun master(): Set<String> = mutex.withLock {
+        known ?: withContext(io) { loadMasterWords(open) }.also { if (it.isNotEmpty()) known = it }
+    }
+
+    /** The EFF list without blank lines, or null if it cannot be read (not kept: the next screen tries again). */
+    suspend fun eff(): List<String>? = mutex.withLock {
+        effList ?: withContext(io) { readEff() }?.also { effList = it }
+    }
+
+    /** Blocking, like [loadMasterWords]: catching `Exception` here swallows no cancellation. */
+    private fun readEff(): List<String>? = try {
+        open(EFF_WORD_LIST).bufferedReader(Charsets.UTF_8).use { it.readLines() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { null }
+    } catch (e: Exception) {
+        null
+    }
 }
 
 /**
