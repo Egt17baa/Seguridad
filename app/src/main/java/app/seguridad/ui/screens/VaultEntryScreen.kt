@@ -45,12 +45,12 @@ import app.seguridad.crypto.TOTP_UNSUPPORTED_ENTRY
 import app.seguridad.crypto.TOTP_UNSUPPORTED_LINK
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.generatePassword
+import app.seguridad.crypto.OtpAuthRead
 import app.seguridad.crypto.isSupported
-import app.seguridad.crypto.otpAuthUnsupported
-import app.seguridad.crypto.parseOtpAuth
+import app.seguridad.crypto.isUsableTotpKey
 import app.seguridad.crypto.parseOtpMigration
+import app.seguridad.crypto.readOtpAuth
 import app.seguridad.crypto.totpCode
-import app.seguridad.crypto.totpKey
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
@@ -254,14 +254,16 @@ private class EntryEditViewModel(private val store: VaultStore, id: String?, ini
             }
             return
         }
-        val parsed = parseOtpAuth(text)
-        if (parsed == null) {
+        when (val read = readOtpAuth(text)) {
+            is OtpAuthRead.Usable -> {
+                val parsed = read.secret
+                form.totp.value = parsed
+                if (form.title.value.isBlank()) form.title.value = parsed.issuer.ifBlank { parsed.account }
+                form.error.value = null
+            }
             // A valid 2FA code whose settings this app does not calculate is said so, instead of "not a 2FA code".
-            form.error.value = if (otpAuthUnsupported(text)) TOTP_UNSUPPORTED_LINK else "El QR o enlace no es un código 2FA (otpauth://totp/…)"
-        } else {
-            form.totp.value = parsed
-            if (form.title.value.isBlank()) form.title.value = parsed.issuer.ifBlank { parsed.account }
-            form.error.value = null
+            is OtpAuthRead.UnsupportedSettings -> form.error.value = TOTP_UNSUPPORTED_LINK
+            OtpAuthRead.NotUsable -> form.error.value = "El QR o enlace no es un código 2FA (otpauth://totp/…)"
         }
     }
 
@@ -491,7 +493,7 @@ fun VaultEntryEditScreen(
                         val now = System.currentTimeMillis()
                         error = when {
                             title.isBlank() -> "Ponle un nombre"
-                            type == EntryType.TOTP && totpKey(totp.secret) == null -> "La clave secreta no es válida (Base32: letras A-Z y números 2-7, al menos 16)"
+                            type == EntryType.TOTP && !isUsableTotpKey(totp.secret) -> "La clave secreta no es válida (Base32: letras A-Z y números 2-7, al menos 16)"
                             type == EntryType.SEED && seedWordCount(seed).first == 0 -> "Escribe las palabras"
                             else -> null
                         }

@@ -20,22 +20,27 @@ data class TotpSecret(
 
 private const val BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
-/** RFC 4648 Base32, tolerant of spaces, dashes, lower case and missing padding (as authenticator apps show keys). */
+/**
+ * RFC 4648 Base32, tolerant of spaces, dashes, lower case and missing padding (as authenticator apps show keys). The
+ * key is written straight into an array of its exact size (the whole bytes of 5 bits per character): no growing buffer
+ * keeps a copy of it that nobody can clear (A-1), so the caller wipes the one array there is.
+ */
 fun base32Decode(text: String): ByteArray? {
     val clean = text.uppercase().filter { it != ' ' && it != '-' && it != '=' }
     if (clean.isEmpty() || clean.any { it !in BASE32 }) return null
-    val out = java.io.ByteArrayOutputStream()
+    val out = ByteArray(clean.length * 5 / 8)
+    var n = 0
     var buffer = 0
     var bits = 0
     for (c in clean) {
         buffer = (buffer shl 5) or BASE32.indexOf(c)
         bits += 5
         if (bits >= 8) {
-            out.write((buffer shr (bits - 8)) and 0xFF)
+            out[n++] = (buffer shr (bits - 8)).toByte()
             bits -= 8
         }
     }
-    return out.toByteArray()
+    return out
 }
 
 /** RFC 4648 Base32, upper case and without padding (the way otpauth:// links and authenticator apps write keys). */
@@ -62,11 +67,18 @@ fun base32Encode(bytes: ByteArray): String {
  */
 const val TOTP_MIN_KEY_BYTES = 10
 
-/** The decoded key if it is a usable TOTP secret. */
-fun totpKey(secret: String): ByteArray? = base32Decode(secret)?.takeIf { it.size >= TOTP_MIN_KEY_BYTES }
+/** The decoded key if it is a usable TOTP secret; a decoded key that is too short is cleared, not just dropped. */
+fun totpKey(secret: String): ByteArray? = base32Decode(secret)?.let(::longEnoughOrWiped)
+
+/** [key] if it has [TOTP_MIN_KEY_BYTES] at least; otherwise it is cleared and the answer is null. */
+internal fun longEnoughOrWiped(key: ByteArray): ByteArray? {
+    if (key.size >= TOTP_MIN_KEY_BYTES) return key
+    key.fill(0)
+    return null
+}
 
 /** If [secret] is a usable TOTP key, without keeping the decoded copy that the check needs: it is cleared before returning. */
-private fun isUsableTotpKey(secret: String): Boolean {
+internal fun isUsableTotpKey(secret: String): Boolean {
     val key = totpKey(secret) ?: return false
     key.fill(0)
     return true
@@ -97,6 +109,9 @@ const val TOTP_UNSUPPORTED_LINK = "Este código 2FA usa un algoritmo, un número
 
 /** Shown in the detail of a saved code that uses such a setting, instead of the code. */
 const val TOTP_UNSUPPORTED_ENTRY = "Clavero no puede calcular este código: usa un ajuste que no admite."
+
+/** Shown in the vault list, small, instead of the code of a saved code that uses such a setting (F4). */
+const val TOTP_UNSUPPORTED_ROW = "2FA no admitido"
 
 /**
  * HOTP (RFC 4226) with the given HMAC; TOTP feeds it the time step. An algorithm or a number of digits that [isSupported]
@@ -140,25 +155,39 @@ const val OTPAUTH_MAX_NAME_CHARS = 256
  */
 internal fun otpName(text: String): String = withoutBidiControls(text.filterNot { it.isISOControl() }).trim().take(OTPAUTH_MAX_NAME_CHARS)
 
-/** What [readOtpAuth] makes of a text. */
-private sealed interface OtpAuthRead {
+/** What [readOtpAuth] makes of a text: the one answer the editor and the QR inspector decide on (F4). */
+sealed interface OtpAuthRead {
+    /**
+     * The service and the account the link names (in that order, as they are shown), whether or not this app calculates
+     * its settings; null when it is not a link with a usable key. For the QR inspector. Never the key.
+     */
+    val names: Pair<String, String>?
+
     /** Not an otpauth://totp/ link, or one without a usable key, or a broken one. */
-    object NotUsable : OtpAuthRead
+    object NotUsable : OtpAuthRead {
+        override val names: Pair<String, String>? get() = null
+    }
 
     /**
      * A link with a usable key but an algorithm, a number of digits or a period that [isSupported] refuses. It keeps the
-     * service and the account the link names (as [parseOtpAuth] would have kept them), for [otpAuthNames].
+     * service and the account the link names (as [Usable] would have kept them), for [names].
      */
-    class UnsupportedSettings(val issuer: String, val account: String) : OtpAuthRead
+    class UnsupportedSettings(val issuer: String, val account: String) : OtpAuthRead {
+        override val names: Pair<String, String> get() = issuer to account
+    }
 
-    class Usable(val secret: TotpSecret) : OtpAuthRead
+    class Usable(val secret: TotpSecret) : OtpAuthRead {
+        override val names: Pair<String, String> get() = secret.issuer to secret.account
+    }
 }
 
 /**
- * Parses an otpauth://totp/… link as QR codes carry it. A setting is taken as written; the default (SHA1, 6 digits,
- * 30 s) only when the parameter is missing. A setting that is there and is not supported never becomes the default.
+ * Parses an otpauth://totp/… link as QR codes carry it: [OtpAuthRead.Usable] with the code,
+ * [OtpAuthRead.UnsupportedSettings] for a valid 2FA link whose settings this app does not calculate, and
+ * [OtpAuthRead.NotUsable] for anything else. A setting is taken as written; the default (SHA1, 6 digits, 30 s) only
+ * when the parameter is missing. A setting that is there and is not supported never becomes the default.
  */
-private fun readOtpAuth(uri: String): OtpAuthRead {
+fun readOtpAuth(uri: String): OtpAuthRead {
     if (uri.length > OTPAUTH_MAX_CHARS) return OtpAuthRead.NotUsable
     val u = try {
         URI(uri.trim())
@@ -192,31 +221,11 @@ private fun readOtpAuth(uri: String): OtpAuthRead {
     }
 }
 
-/** Parses an otpauth://totp/… link as QR codes carry it; null if it is not a usable TOTP link ([otpAuthUnsupported] tells one that is valid but not supported). */
-fun parseOtpAuth(uri: String): TotpSecret? = (readOtpAuth(uri) as? OtpAuthRead.Usable)?.secret
-
-/**
- * True if [text] is an otpauth://totp/ link with a usable key and an algorithm, a number of digits or a period that
- * this app does not calculate, so that [parseOtpAuth] refuses it for that reason and not because it is no 2FA code.
- */
-fun otpAuthUnsupported(text: String): Boolean = readOtpAuth(text) is OtpAuthRead.UnsupportedSettings
-
-/**
- * The service and the account (in that order, as they are shown) that an otpauth://totp/ link with a usable key names,
- * also when its settings are not supported ([otpAuthUnsupported]); null if [text] is not such a link. For the QR inspector,
- * which says what a code is whether or not this app can calculate it. Never the key.
- */
-fun otpAuthNames(text: String): Pair<String, String>? = when (val read = readOtpAuth(text)) {
-    is OtpAuthRead.Usable -> read.secret.issuer to read.secret.account
-    is OtpAuthRead.UnsupportedSettings -> read.issuer to read.account
-    OtpAuthRead.NotUsable -> null
-}
-
-/** Percent-encoding for otpauth:// labels and values: UTF-8, spaces as %20 (never '+', which [parseOtpAuth] reads as a space). */
+/** Percent-encoding for otpauth:// labels and values: UTF-8, spaces as %20 (never '+', which [readOtpAuth] reads as a space). */
 private fun otpEncode(text: String) = java.net.URLEncoder.encode(text, "UTF-8").replace("+", "%20")
 
 /**
- * The otpauth://totp/ link of this code (Key-Uri-Format), for showing as a QR to another app; [parseOtpAuth] reads it back
+ * The otpauth://totp/ link of this code (Key-Uri-Format), for showing as a QR to another app; [readOtpAuth] reads it back
  * unchanged. The label is "Issuer:account", but a ':' in the issuer is left out of the label: the issuer parameter is the
  * one that counts, and the account is whatever follows the label's first ':'.
  */

@@ -2,8 +2,11 @@ package app.seguridad.vault
 
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KdfParams
+import app.seguridad.crypto.OtpAuthRead
+import app.seguridad.crypto.TOTP_MIN_KEY_BYTES
 import app.seguridad.crypto.TOTP_UNSUPPORTED_ENTRY
 import app.seguridad.crypto.TOTP_UNSUPPORTED_LINK
+import app.seguridad.crypto.TOTP_UNSUPPORTED_ROW
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.base32Decode
 import app.seguridad.crypto.base32Encode
@@ -11,9 +14,8 @@ import app.seguridad.crypto.hotp
 import app.seguridad.crypto.isSupported
 import app.seguridad.crypto.OTPAUTH_MAX_CHARS
 import app.seguridad.crypto.OTPAUTH_MAX_NAME_CHARS
-import app.seguridad.crypto.otpAuthNames
-import app.seguridad.crypto.otpAuthUnsupported
-import app.seguridad.crypto.parseOtpAuth
+import app.seguridad.crypto.longEnoughOrWiped
+import app.seguridad.crypto.readOtpAuth
 import app.seguridad.crypto.totpCode
 import app.seguridad.crypto.totpKey
 import app.seguridad.tools.ForbiddenWords
@@ -23,6 +25,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -32,6 +35,11 @@ import java.util.zip.ZipInputStream
 private val FAST = KdfParams(1024, 1, 1)
 
 class VaultTotpTest {
+    // The three readings of a link these tests check, all from the one sealed answer the screens use (F4).
+    private fun parseOtpAuth(text: String) = (readOtpAuth(text) as? OtpAuthRead.Usable)?.secret
+    private fun otpAuthUnsupported(text: String) = readOtpAuth(text) is OtpAuthRead.UnsupportedSettings
+    private fun otpAuthNames(text: String) = readOtpAuth(text).names
+
     private fun entry(id: String, password: String = "p") =
         VaultEntry(id, EntryType.LOGIN, "Banco", username = "ana", password = password, createdAt = 1, updatedAt = 1)
 
@@ -127,6 +135,28 @@ class VaultTotpTest {
         val (code, left) = totpCode(TotpSecret(secret, digits = 8), 59_000)!!
         assertEquals("94287082", code)
         assertEquals(1, left)
+    }
+
+    /** Final review A-1, F5: the decoder gives the whole bytes of 5 bits per character, as a plain bit string. */
+    @Test fun `base32 decodes into an array of its exact size`() {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        val rnd = java.util.Random(5)
+        for (length in 1..64) repeat(20) {
+            val text = String(CharArray(length) { alphabet[rnd.nextInt(32)] })
+            val bits = text.map { Integer.toBinaryString(alphabet.indexOf(it)).padStart(5, '0') }.joinToString("")
+            val expected = ByteArray(bits.length / 8) { i -> bits.substring(8 * i, 8 * i + 8).toInt(2).toByte() }
+            assertArrayEquals(text, expected, base32Decode(text))
+        }
+    }
+
+    /** Final review A-1, F5: a decoded key that is too short is cleared before it is dropped. */
+    @Test fun `a decoded key too short for TOTP is cleared, a long enough one is handed over as it is`() {
+        val short = ByteArray(TOTP_MIN_KEY_BYTES - 1) { 7 }
+        assertNull(longEnoughOrWiped(short))
+        assertTrue(short.all { it == 0.toByte() })
+        val enough = ByteArray(TOTP_MIN_KEY_BYTES) { 7 }
+        assertSame(enough, longEnoughOrWiped(enough))
+        assertTrue(enough.all { it == 7.toByte() })
     }
 
     @Test fun `otpauth links`() {
@@ -312,6 +342,11 @@ class VaultTotpTest {
         }
     }
 
+    @Test fun `F4 the text of the list row is short and passes the forbidden words`() {
+        assertEquals("2FA no admitido", TOTP_UNSUPPORTED_ROW)
+        assertEquals(emptyList<String>(), ForbiddenWords.problems(TOTP_UNSUPPORTED_ROW))
+    }
+
     @Test fun `the two new texts name Clavero, pass the forbidden words and say what happens`() {
         assertEquals("Este código 2FA usa un algoritmo, un número de dígitos o un periodo que Clavero no admite.", TOTP_UNSUPPORTED_LINK)
         assertEquals("Clavero no puede calcular este código: usa un ajuste que no admite.", TOTP_UNSUPPORTED_ENTRY)
@@ -328,11 +363,23 @@ class VaultTotpTest {
         }
         val source = screen!!.readText()
         val apply = source.substringAfter("fun applyOtpAuth(").substringBefore("    fun save(")
-        assertTrue(apply, apply.contains("otpAuthUnsupported(text)") && apply.contains("TOTP_UNSUPPORTED_LINK"))
+        // F4: the link is read once, and its sealed answer decides (no second parse for the reason).
+        assertEquals(apply, 1, Regex("""readOtpAuth\(""").findAll(apply).count())
+        assertTrue(apply, "when (val read = readOtpAuth(text))" in apply)
+        assertTrue(apply, "is OtpAuthRead.UnsupportedSettings -> form.error.value = TOTP_UNSUPPORTED_LINK" in apply)
+        assertFalse(apply, "parseOtpAuth(" in apply || "otpAuthUnsupported(" in apply)
         val detail = source.substringAfter("fun VaultEntryDetailScreen(").substringBefore("private class EntryEditViewModel")
         assertTrue(detail, detail.contains("isSupported()") && detail.contains("TOTP_UNSUPPORTED_ENTRY"))
-        // The list does not change: it still shows a code or nothing, and no text.
+        // F5: the key typed in the editor is checked with the function that clears its decoded copy.
+        assertTrue("type == EntryType.TOTP && !isUsableTotpKey(totp.secret) ->" in source)
+        assertFalse("totpKey(" in source)
+        // F4: the list shows the short text instead of the code, only for settings this app does not calculate.
         val list = File(screen.parentFile, "VaultScreen.kt").readText()
-        assertFalse(list.contains("TOTP_UNSUPPORTED"))
+        val small = """style = MaterialTheme\.typography\.labelSmall"""
+        val row = Regex("""if \(!t\.isSupported\(\)\) \{\s*Text\(\s*TOTP_UNSUPPORTED_ROW,\s*$small""")
+        assertTrue(row.containsMatchIn(list))
+        // The code itself is unchanged: totpCode gives null for such settings, and shows nothing for any other null.
+        assertTrue(Regex("""maxLines = 1,\s*\)\s*\}\s*totpCode\(t, now\)\?\.let""").containsMatchIn(list))
+        assertFalse(list.contains("TOTP_UNSUPPORTED_LINK") || list.contains("TOTP_UNSUPPORTED_ENTRY"))
     }
 }

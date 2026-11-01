@@ -67,6 +67,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.TOTP_UNSUPPORTED_ROW
+import app.seguridad.crypto.isSupported
 import app.seguridad.crypto.newPasswordFailureMessage
 import app.seguridad.crypto.totpCode
 import app.seguridad.tools.RESET_WIPES_DAMAGED
@@ -456,6 +458,16 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
                 }
                 if (e.favorite) Text("★", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 e.totp?.let { t ->
+                    // A setting this app does not calculate: why there is no code, as small as the seconds of one (F4).
+                    // totpCode below gives null for it; any other null (a key that is not usable) still shows nothing.
+                    if (!t.isSupported()) {
+                        Text(
+                            TOTP_UNSUPPORTED_ROW,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
                     totpCode(t, now)?.let { (code, left) ->
                         Column(horizontalAlignment = Alignment.End) {
                             Text(code.chunked(3).joinToString(" "), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
