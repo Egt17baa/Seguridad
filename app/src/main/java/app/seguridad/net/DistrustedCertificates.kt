@@ -12,6 +12,7 @@ import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
+import javax.net.ssl.SSLSocket
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509ExtendedTrustManager
 import javax.net.ssl.X509TrustManager
@@ -70,30 +71,58 @@ internal fun X509Certificate.isDistrusted(): Boolean =
     subjectX500Principal.isDistrustedRootName() || issuerX500Principal.isDistrustedRootName() || spkiSha256() in DISTRUSTED_SPKI_SHA256
 
 /**
- * The system's trust decisions, plus a refusal of any chain that goes through a distrusted key, whichever root
- * it chains to. Never weaker than [base]: it only adds a check after [base] accepted the chain.
+ * The chain the system validated and accepted for a server, up to the root it trusts: it can hold certificates the
+ * server did not send (see [DistrustingTrustManager]). [host] is the server's name from the handshake, or null when
+ * it is not known.
  */
-class DistrustingTrustManager(private val base: X509TrustManager) : X509ExtendedTrustManager() {
-    private fun refuse(chain: Array<out X509Certificate>) {
+typealias TrustedChain = (chain: Array<out X509Certificate>, authType: String, host: String?) -> List<X509Certificate>
+
+/**
+ * The system's trust decisions, plus a refusal of any chain that goes through a distrusted key, whichever root
+ * it chains to. Never weaker than [base]: it only adds checks, one before [base] and one after [base] accepted the chain.
+ *
+ * Why twice (CRY-B01): on Android, [base] is Network Security Config's RootTrustManager over Conscrypt's
+ * TrustManagerImpl, which keeps the intermediates of every chain it validates in a cache («intermediateIndex», one for
+ * the whole process: every default trust manager shares it since Android 7) and uses them to complete a later chain
+ * that lacks its intermediate. So the chain the server presents is not always the chain the system validated:
+ * 1. the presented chain is refused before [base] sees it, so the system never validates, nor caches, a compromised
+ *    intermediate through this client;
+ * 2. after [base] accepted it, [trustedChain] gives the chain [base] built, and it is refused too: a server that sends
+ *    only a leaf is caught when the system completes it with a compromised intermediate cached any other way.
+ *
+ * On Android, [trustedChain] is androidTrustedChain (X509TrustManagerExtensions, in `android/`). The default, the
+ * presented chain again, is right on the JVM, which keeps no such cache.
+ */
+class DistrustingTrustManager(
+    private val base: X509TrustManager,
+    private val trustedChain: TrustedChain = { chain, _, _ -> chain.toList() },
+) : X509ExtendedTrustManager() {
+    private fun refuse(chain: List<X509Certificate>) {
         chain.firstOrNull { it.isDistrusted() }?.let {
             throw CertificateException("Distrusted certificate authority (eMudhra key compromise): ${it.subjectX500Principal.name}")
         }
     }
 
-    override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String) {
-        base.checkServerTrusted(chain, authType)
-        refuse(chain)
+    /** The presented chain, then [system] (the check of [base]), then the chain [base] validated for [host]. */
+    private inline fun checked(chain: Array<out X509Certificate>, authType: String, host: String?, system: () -> Unit) {
+        refuse(chain.asList())
+        system()
+        refuse(trustedChain(chain, authType, host))
     }
 
-    override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String, socket: Socket?) {
-        (base as? X509ExtendedTrustManager)?.checkServerTrusted(chain, authType, socket) ?: base.checkServerTrusted(chain, authType)
-        refuse(chain)
-    }
+    override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String) =
+        checked(chain, authType, host = null) { base.checkServerTrusted(chain, authType) }
 
-    override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String, engine: SSLEngine?) {
-        (base as? X509ExtendedTrustManager)?.checkServerTrusted(chain, authType, engine) ?: base.checkServerTrusted(chain, authType)
-        refuse(chain)
-    }
+    // The server's name, from the handshake in progress: the same place RootTrustManager reads it from.
+    override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String, socket: Socket?) =
+        checked(chain, authType, (socket as? SSLSocket)?.handshakeSession?.peerHost) {
+            (base as? X509ExtendedTrustManager)?.checkServerTrusted(chain, authType, socket) ?: base.checkServerTrusted(chain, authType)
+        }
+
+    override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String, engine: SSLEngine?) =
+        checked(chain, authType, engine?.handshakeSession?.peerHost) {
+            (base as? X509ExtendedTrustManager)?.checkServerTrusted(chain, authType, engine) ?: base.checkServerTrusted(chain, authType)
+        }
 
     override fun checkClientTrusted(chain: Array<out X509Certificate>, authType: String) = base.checkClientTrusted(chain, authType)
 
@@ -106,11 +135,15 @@ class DistrustingTrustManager(private val base: X509TrustManager) : X509Extended
     override fun getAcceptedIssuers(): Array<X509Certificate> = base.acceptedIssuers.filterNot { it.isDistrusted() }.toTypedArray()
 }
 
-/** HTTPS through the system trust store, minus the compromised eMudhra keys (see [DistrustingTrustManager]). */
-fun OkHttpClient.Builder.distrustCompromisedCas(): OkHttpClient.Builder {
+/**
+ * HTTPS through the system trust store, minus the compromised eMudhra keys (see [DistrustingTrustManager]).
+ * [trustedChainOf] makes, from the system's trust manager, the [TrustedChain] that gives the chain it validated (Android
+ * passes androidTrustedChain); without it, the presented chain is checked again, which is enough on the JVM.
+ */
+fun OkHttpClient.Builder.distrustCompromisedCas(trustedChainOf: ((X509TrustManager) -> TrustedChain)? = null): OkHttpClient.Builder {
     val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(null as KeyStore?) }
     val system = factory.trustManagers.filterIsInstance<X509TrustManager>().single()
-    val trust = DistrustingTrustManager(system)
+    val trust = trustedChainOf?.let { DistrustingTrustManager(system, it(system)) } ?: DistrustingTrustManager(system)
     val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }
     return sslSocketFactory(tls.socketFactory, trust)
 }
