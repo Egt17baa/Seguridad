@@ -16,7 +16,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
@@ -235,7 +239,8 @@ internal fun PasswordDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     warning?.let { Text(it, color = NegativeColor) }
                     PasswordField(a, { a = it })
-                    if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor) }
+                    // A polite live region, so TalkBack announces it when it changes.
+                    if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     if (askTwice) PasswordField(b, { b = it }, label = "Repítela")
                     if (askTwice && b.isNotEmpty() && a != b) Text("No coinciden", color = NegativeColor)
                 }

@@ -37,4 +37,11 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
 }
 
-tasks.test { testLogging { events("passed", "failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL } }
+tasks.test {
+    testLogging { events("passed", "failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
+    // The source-text tests (MasterPolicyTest, PlatformSourcesTest, DocumentUriTest...) read the Android-only sources, which are
+    // not compiled here. As inputs, a change in only one of them reruns the tests instead of leaving the task UP-TO-DATE.
+    inputs.files(fileTree("../app/src/main/java") { include(androidOnly) })
+        .withPropertyName("androidOnlySources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}

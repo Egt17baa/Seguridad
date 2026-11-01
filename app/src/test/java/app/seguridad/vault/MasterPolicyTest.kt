@@ -42,6 +42,11 @@ class MasterPolicyTest {
         assertNull(newMasterProblem("Xq7#vB2!mK"))
     }
 
+    /**
+     * Why each one is refused: «contraseña», «Contraseña» and «CONTRASEÑA» only because that exact word (in lower case) is
+     * in the common list of «Salud», not because of their strength (see the next test: add a digit and they pass); the
+     * others because a run of equal characters, or a sequence of the alphabet, the digits or a keyboard row, counts as one.
+     */
     @Test fun `the obvious passwords of ten characters or more are too weak`() {
         for (weak in listOf("contraseña", "Contraseña", "CONTRASEÑA", "1234567890", "aaaaaaaaaa", "qwertyuiop", "          ", "abcdefghij", "0000000000")) {
             assertEquals("«$weak» must be refused", MASTER_TOO_WEAK, newMasterProblem(weak))
@@ -58,6 +63,26 @@ class MasterPolicyTest {
         val bits = estimateBits("Barcelona1")
         assertTrue("$bits", bits >= WEAK_BITS && bits < 65.0)
         assertNull(newMasterProblem("Barcelona1"))
+    }
+
+    /**
+     * The second limit of the estimate, pinned on purpose: any character outside ASCII (ñ, an accent) adds a pool of 100
+     * symbols in estimateBits, about 7 bits per character, so a Spanish word with one of them looks strong. «contraseña»
+     * alone is refused only because it is in the common list; with a digit after it, or with a year, it passes. If
+     * estimateBits changes (an accent-folding pass, a dictionary, another threshold), this test shows what that does to
+     * the rule for a new master: change it then, knowing the effect.
+     */
+    @Test fun `a word with an accent or an enye gets a large bonus, so contrasena123 and Contrasena2024 pass`() {
+        for (c in listOf("contraseña1", "contraseña123", "Contraseña2024")) {
+            val bits = estimateBits(c)
+            assertTrue("«$c»: $bits bits", bits >= WEAK_BITS)
+            assertNull("«$c» is accepted today", newMasterProblem(c))
+        }
+        // Without the ñ the bonus is gone and the estimate is lower, but it still passes: what the rule refuses is not words.
+        assertTrue(estimateBits("contrasena123") < estimateBits("contraseña123"))
+        assertNull(newMasterProblem("contrasena123"))
+        // What the common list catches is only the exact word.
+        assertEquals(MASTER_TOO_WEAK, newMasterProblem("contraseña"))
     }
 
     @Test fun `the threshold is the one of Salud`() {
@@ -111,10 +136,12 @@ class MasterPolicyTest {
             val password = generatePassword(PasswordOptions(length = 16), random)!!
             assertNull("«$password» (${estimateBits(password)} bits)", newMasterProblem(password))
         }
-        // Without symbols, and only letters: still above the threshold at 16 characters.
-        repeat(200) {
-            val password = generatePassword(PasswordOptions(length = 16, symbols = false), random)!!
-            assertNull("«$password» (${estimateBits(password)} bits)", newMasterProblem(password))
+        // Without symbols (letters and digits), and letters only: still above the threshold at 16 characters.
+        for (options in listOf(PasswordOptions(length = 16, symbols = false), PasswordOptions(length = 16, digits = false, symbols = false))) {
+            repeat(200) {
+                val password = generatePassword(options, random)!!
+                assertNull("«$password» (${estimateBits(password)} bits)", newMasterProblem(password))
+            }
         }
     }
 
@@ -152,6 +179,24 @@ class MasterPolicyTest {
     @Test fun `the master dialog asks for a new password and the import dialog does not`() {
         assertTrue("newPassword = true" in dialogArguments("master"))
         assertTrue("newPassword" !in dialogArguments("import"))
+    }
+
+    /** The two new red texts are a polite live region, so TalkBack announces them; the old «No coinciden» does not change. */
+    @Test fun `the problem of a new master is announced by TalkBack and No coinciden is left as it was`() {
+        for (name in listOf("VaultScreen.kt", "VaultBackup.kt")) {
+            val src = screen(name)
+            val problemLine = src.lines().single { "problem?.let" in it }
+            assertTrue("$name: $problemLine", "Modifier.semantics { liveRegion = LiveRegionMode.Polite }" in problemLine)
+            assertEquals("$name: only the problem is a live region", 1, Regex("""liveRegion\s*=""").findAll(src).count())
+            assertTrue(src.lines().filter { "No coinciden" in it }.none { "liveRegion" in it })
+        }
+    }
+
+    /** MASTER_TOO_WEAK already says «usa una frase de 5 o 6 palabras»: the fixed hint below the field waits for it to go. */
+    @Test fun `the hint of a phrase is not shown together with the same advice`() {
+        val src = screen("VaultScreen.kt")
+        assertTrue(Regex("""if \(\w+ != MASTER_TOO_WEAK\)\s*\{\s*Text\(\s*"Consejo: usa una frase""").containsMatchIn(src))
+        assertEquals("the hint is shown once", 1, Regex("""Consejo: usa una frase""").findAll(src).count())
     }
 
     @Test fun `no screen but the dialog itself checks only the length of a master`() {

@@ -56,6 +56,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,6 +77,7 @@ import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.CLOCK_CHANGED_TEXT
 import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MIN_MASTER
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
@@ -242,15 +246,19 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
         )
         PasswordField(a, { a = it }, label = "Contraseña maestra (mínimo $MIN_MASTER caracteres)")
         // CRY-A01: as soon as there is text, what is missing (length first, then strength); the button waits for null.
+        // A polite live region, so TalkBack announces it when it changes.
         val problem = newMasterProblem(a)
-        if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor) }
+        if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         PasswordField(b, { b = it }, label = "Repítela")
         if (b.isNotEmpty() && a != b) Text("No coinciden", color = NegativeColor)
-        Text(
-            "Consejo: usa una frase de 5 o 6 palabras que solo tú conozcas (el Generador te puede dar una).",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // MASTER_TOO_WEAK already gives this advice: the fixed hint waits until that text is gone.
+        if (problem != MASTER_TOO_WEAK) {
+            Text(
+                "Consejo: usa una frase de 5 o 6 palabras que solo tú conozcas (el Generador te puede dar una).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { understood = !understood }) {
             Checkbox(checked = understood, onCheckedChange = { understood = it })
             Text("Entiendo que si olvido la contraseña maestra nadie puede recuperar lo que guarde.")
