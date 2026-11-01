@@ -1,11 +1,13 @@
 package app.seguridad.ui.screens
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.webkit.MimeTypeMap
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
@@ -23,6 +25,7 @@ import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.core.documentAuthorityHost
 import app.seguridad.core.isAcceptableDocumentUri
 import app.seguridad.core.pickerLaunchError
+import app.seguridad.core.restoredFileMime
 import app.seguridad.tools.PICKER_REJECTED
 import app.seguridad.tools.PICKER_REJECTED_OK
 
@@ -85,6 +88,22 @@ internal fun isAcceptableDocument(context: Context, uri: Uri): Boolean {
         null // Not visible to the app (package visibility) or not found: not one of ours, which are always visible.
     }
     return owner != context.packageName
+}
+
+/**
+ * CreateDocument for a restored file (a decrypted file or attachment), with the input as the proposed name and the
+ * MIME type of its extension ([restoredFileMime]), so that a name already taken becomes «foto (1).jpg» and not
+ * «foto.jpg (1)», which no app opens (owner's phone test, 1-11-2026). Otherwise the same as
+ * [ActivityResultContracts.CreateDocument]; it is registered through [rememberDocumentPicker] like every picker.
+ */
+internal class CreateRestoredDocument : ActivityResultContract<String, Uri?>() {
+    override fun createIntent(context: Context, input: String): Intent =
+        Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType(restoredFileMime(input) { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) })
+            .putExtra(Intent.EXTRA_TITLE, input)
+
+    override fun parseResult(resultCode: Int, intent: Intent?): Uri? = intent.takeIf { resultCode == Activity.RESULT_OK }?.data
 }
 
 /**

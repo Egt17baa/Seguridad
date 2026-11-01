@@ -78,7 +78,7 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
         }
     }
 
-    val save = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val save = rememberDocumentPicker(CreateRestoredDocument()) { dest ->
         val id = pendingSave
         pendingSave = null
         if (dest == null || id == null) return@rememberDocumentPicker
