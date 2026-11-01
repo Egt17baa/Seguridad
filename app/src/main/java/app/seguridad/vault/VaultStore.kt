@@ -58,13 +58,15 @@ const val CLOCK_CHANGED_TEXT = "La hora del móvil se ha atrasado. Por seguridad
 const val BIOMETRIC_UNLOCK_FAILED = "No se pudo abrir la bóveda con la huella"
 
 /**
- * Shown when the fingerprint released a key that does not open this vault: the blob it guards is another vault's (the
- * master password was changed or a copy imported, and turning the fingerprint off then failed or was cut short). The
- * fingerprint is turned off at the same time ([launchUnlockWithKey], CRY-A02). Reviewed by the Abogado Digital.
+ * Shown when the fingerprint released a key that does not authenticate this vault's entries: the blob it guards is
+ * another vault's (the master password was changed or a copy imported, and turning the fingerprint off then failed or
+ * was cut short), or the entries' blob is damaged. AES-GCM cannot tell those apart, so the text says «Puede deberse a»
+ * and names the three causes, not one as a fact. The fingerprint is turned off at the same time
+ * ([launchUnlockWithKey], CRY-A02). Reviewed by the Abogado Digital (final review of 1.3.1, O-1).
  */
 const val FINGERPRINT_STALE =
-    "La huella ya no abre esta bóveda (se cambió la contraseña maestra o se importó una copia). " +
-        "Entra con la contraseña maestra y vuelve a activarla si quieres."
+    "La huella ya no abre esta bóveda. Puede deberse a un cambio de la contraseña maestra, a una copia importada o a " +
+        "datos dañados. Entra con la contraseña maestra y vuelve a activarla si quieres."
 
 /**
  * What the unlock screen shows when [VaultStore.unlockWithKey] throws [e]: the store's own Spanish texts (a stale key,

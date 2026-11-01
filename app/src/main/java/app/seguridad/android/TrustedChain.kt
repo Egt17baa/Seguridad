@@ -21,7 +21,7 @@ import javax.net.ssl.X509TrustManager
  * This second validation does not get the stapled OCSP response nor the SCTs of the TLS extension (the variant with the
  * server's name has no session): if Android ever required Certificate Transparency of the app (a Network Security
  * Config, or the default of a future targetSdk), it could refuse a server the first validation accepts. It fails closed
- * (N-04): check «Comprobar contraseña» with network on a phone at every raise of targetSdk.
+ * (N-04): check «¿Filtrada?» and «Comprobar filtraciones» with network on a phone at every raise of targetSdk.
  */
 fun androidTrustedChain(system: X509TrustManager): TrustedChain {
     val extensions = try {
