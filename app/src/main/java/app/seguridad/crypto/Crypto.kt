@@ -7,6 +7,7 @@ import org.bouncycastle.crypto.engines.CamelliaEngine
 import org.bouncycastle.crypto.engines.SerpentEngine
 import org.bouncycastle.crypto.engines.TwofishEngine
 import org.bouncycastle.crypto.generators.HKDFBytesGenerator
+import org.bouncycastle.crypto.modes.AEADCipher
 import org.bouncycastle.crypto.modes.GCMBlockCipher
 import org.bouncycastle.crypto.params.HKDFParameters
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator
@@ -252,25 +253,51 @@ internal fun argon2idRaw(password: ByteArray, salt: ByteArray, secret: ByteArray
 }
 
 /**
+ * Runs an initialised Bouncy Castle AEAD over [input]: ciphertext ‖ tag when encrypting, the plaintext when decrypting.
+ *
+ * Bouncy Castle decrypts into the output buffer and only then checks the tag, so after a bad tag (or any other failure) the
+ * buffer holds the whole plaintext, or what a damaged copy decrypts to. It is wiped on every way out but success; the array
+ * that is returned is never wiped. [alloc] gives the buffer and is there so a test can look at it.
+ */
+private fun runAead(cipher: AEADCipher, input: ByteArray, alloc: (Int) -> ByteArray): ByteArray {
+    val out = alloc(cipher.getOutputSize(input.size))
+    var done = false
+    try {
+        val n = cipher.processBytes(input, 0, input.size, out, 0)
+        val total = n + cipher.doFinal(out, n)
+        val result = if (total == out.size) out else out.copyOf(total).also { out.fill(0) }
+        done = true
+        return result
+    } catch (e: InvalidCipherTextException) {
+        throw CryptoFailure()
+    } finally {
+        if (!done) out.fill(0)
+    }
+}
+
+/**
  * GCM over any 128-bit block cipher from Bouncy Castle.
  *
  * CRY-A03: [KeyParameter] copies the key, `getKey()` returns that copy and `GCMBlockCipher.lastKey` is the same array
  * (bcprov 1.86, pinned by CryptoTest), so one `fill(0)` wipes both, also when the tag fails. The caller's [key] is not
- * touched: it is the caller's to wipe. The round keys the engine expands from it stay in the engine until the garbage
- * collector; there is no API to wipe them (accepted risk).
+ * touched: it is the caller's to wipe. Twofish's working key is that same array, so it goes too. What stays until the garbage
+ * collector, because the API has no way to wipe it: the round keys the engine expands from the key (re-keying an engine
+ * allocates new arrays and leaves the old ones), and the hash subkey and tables GCM derives from it (accepted risk).
  */
-internal fun blockGcm(engine: BlockCipher, encrypt: Boolean, key: ByteArray, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray {
+internal fun blockGcm(
+    engine: BlockCipher,
+    encrypt: Boolean,
+    key: ByteArray,
+    nonce: ByteArray,
+    aad: ByteArray,
+    input: ByteArray,
+    alloc: (Int) -> ByteArray = { ByteArray(it) },
+): ByteArray {
     val kp = KeyParameter(key)
     try {
-        return GCMBlockCipher.newInstance(engine).run {
-            init(encrypt, AEADParameters(kp, TAG_BYTES * 8, nonce, aad))
-            val out = ByteArray(getOutputSize(input.size))
-            val n = processBytes(input, 0, input.size, out, 0)
-            val total = n + doFinal(out, n)
-            if (total == out.size) out else out.copyOf(total).also { out.fill(0) }
-        }
-    } catch (e: InvalidCipherTextException) {
-        throw CryptoFailure()
+        val gcm = GCMBlockCipher.newInstance(engine)
+        gcm.init(encrypt, AEADParameters(kp, TAG_BYTES * 8, nonce, aad))
+        return runAead(gcm, input, alloc)
     } finally {
         kp.key.fill(0)
     }
@@ -330,24 +357,35 @@ fun aead(
 }
 
 /**
- * ChaCha20-Poly1305 (RFC 8439). Takes over [kp] and wipes its copy of the key on the way out (CRY-A03), also when the tag
- * fails. Unlike GCM, `ChaCha20Poly1305.init` copies the key once more into a private field of its own, and the engine
- * expands it; neither can be wiped without reflection (accepted risk).
+ * ChaCha20-Poly1305 (RFC 8439). Takes over [kp] and wipes its copy of the key on the way out (CRY-A03), also when the tag fails.
+ *
+ * Unlike GCM, [ChaCha20Poly1305] keeps more than the [KeyParameter]: its own copy of the key in a private field, the key words
+ * of its engine and the Poly1305 key derived from it. None of them has a wipe method, but `init` overwrites all three, so a
+ * last `init` in decrypt mode (there is no nonce-reuse check there) with an all-zero key wipes them with the public API
+ * (bcprov 1.86; CryptoTest pins it). That does not work for the GCM engines: re-keying Twofish, Serpent or Camellia allocates
+ * new arrays and leaves the old ones. [cipher] and [alloc] are there so a test can look at what is left.
  */
-internal fun chaChaPoly(kp: KeyParameter, encrypt: Boolean, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray =
+internal fun chaChaPoly(
+    kp: KeyParameter,
+    encrypt: Boolean,
+    nonce: ByteArray,
+    aad: ByteArray,
+    input: ByteArray,
+    cipher: ChaCha20Poly1305 = ChaCha20Poly1305(),
+    alloc: (Int) -> ByteArray = { ByteArray(it) },
+): ByteArray {
     try {
-        ChaCha20Poly1305().run {
-            init(encrypt, AEADParameters(kp, TAG_BYTES * 8, nonce, aad))
-            val out = ByteArray(getOutputSize(input.size))
-            val n = processBytes(input, 0, input.size, out, 0)
-            val total = n + doFinal(out, n)
-            if (total == out.size) out else out.copyOf(total).also { out.fill(0) }
-        }
-    } catch (e: InvalidCipherTextException) {
-        throw CryptoFailure()
+        cipher.init(encrypt, AEADParameters(kp, TAG_BYTES * 8, nonce, aad))
+        return runAead(cipher, input, alloc)
     } finally {
         kp.key.fill(0)
+        try {
+            cipher.init(false, AEADParameters(KeyParameter(ByteArray(KEY_BYTES)), TAG_BYTES * 8, nonce, ByteArray(0)))
+        } catch (e: RuntimeException) {
+            // Best effort: an init that never copied the key (a nonce of the wrong size) has nothing to overwrite.
+        }
     }
+}
 
 /** What unlocks a ciphertext: a password (stretched with Argon2id) or a random 256-bit key used as is. */
 sealed interface Secret {
