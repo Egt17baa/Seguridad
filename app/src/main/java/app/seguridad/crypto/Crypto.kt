@@ -24,12 +24,13 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Wire format of the texts and files this app writes and reads: the header magic, the text prefix, the file extension
- * and the HKDF label prefix. Only [SEGURIDAD], the names of when the app was called «Seguridad»: since 1.3.1 no other
- * is read (owner's decision, 1-11-2026), so any other magic is [NOT_COMPATIBLE].
+ * What the header of the texts and files this app writes and reads says of their format: the header magic and the HKDF
+ * label prefix. Only [SEGURIDAD], the names of when the app was called «Seguridad»: since 1.3.1 no other is read
+ * (owner's decision, 1-11-2026), so any other magic is [NOT_COMPATIBLE]. The text prefix is [TEXT_PREFIX] and the file
+ * extension [ENCRYPTED_EXTENSION], each defined once (F8).
  */
-enum class Dialect(val magic: ByteArray, val textPrefix: String, val fileExtension: String, val labelPrefix: String) {
-    SEGURIDAD(byteArrayOf('S'.code.toByte(), 'G'.code.toByte()), "SG1:", ".sgenc", "seguridad"),
+enum class Dialect(val magic: ByteArray, val labelPrefix: String) {
+    SEGURIDAD(byteArrayOf('S'.code.toByte(), 'G'.code.toByte()), "seguridad"),
     ;
 
     companion object {
@@ -504,7 +505,7 @@ internal data class Header(
     }
 }
 
-/** Prefix of the texts this app writes and reads ([Dialect.SEGURIDAD]). */
+/** Prefix of the texts this app writes and reads ([Dialect.SEGURIDAD]): the one definition, for writing and reading. */
 const val TEXT_PREFIX = "SG1:"
 
 /** A header without this app's magic ([Dialect.SEGURIDAD]). */
@@ -568,7 +569,7 @@ fun encryptText(plain: String, secret: Secret, alg: Aead = Aead.AES_256_GCM, kdf
     val plainBytes = plain.toByteArray(Charsets.UTF_8)
     try {
         val sealed = aead(alg, true, key, header.nonce, aad, plainBytes, header.dialect)
-        return header.dialect.textPrefix + Base64.getUrlEncoder().withoutPadding().encodeToString(aad + sealed)
+        return TEXT_PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(aad + sealed)
     } finally {
         key.fill(0)
         plainBytes.fill(0)
