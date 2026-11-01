@@ -28,12 +28,14 @@ import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
+import app.seguridad.vault.BACKUP_DAMAGED
 import app.seguridad.vault.BACKUP_HEAD_BYTES
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.backupFileName
 import app.seguridad.vault.identity
+import app.seguridad.vault.mayBeVaultImport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -87,12 +89,15 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
     var importUri by remember { mutableStateOf<Uri?>(null) }
     val importer = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
-            // Its first bytes, to say now (not after the password) if it cannot be read.
-            val readable = runCatching {
+            // Its first bytes, to say now (not after the password) if it cannot be read or cannot be a copy: the
+            // picker offers every file (owner's phone test, 1-11-2026), so a photo or a note is turned down here.
+            val head = runCatching {
                 withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(BACKUP_HEAD_BYTES) } }
-            }.isSuccess
-            if (!readable) {
+            }.getOrNull()
+            if (head == null) {
                 snackbar.showSnackbar("No se pudo leer el archivo")
+            } else if (!mayBeVaultImport(head)) {
+                snackbar.showSnackbar(BACKUP_DAMAGED)
             } else {
                 importUri = uri
                 dialog = "import"
@@ -190,8 +195,10 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             import = {
                 VaultLock.keepOpenOnce = true
                 store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-                // Some cloud providers label a ZIP uploaded from a computer x-zip-compressed; the content is sniffed anyway.
-                importer.launchOrError(arrayOf("application/octet-stream", "application/zip", "application/x-zip-compressed", "application/json", "text/*"))?.let { failure ->
+                // Every file: Drive and other cloud providers label a .sgbak as they like (an unknown extension), and
+                // a type list left the copies in Drive greyed out (owner's phone test, 1-11-2026). The head is checked
+                // right after picking (mayBeVaultImport) and the import checks everything.
+                importer.launchOrError(arrayOf("*/*"))?.let { failure ->
                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
                     scope.launch { snackbar.showSnackbar(failure) }
                 }
