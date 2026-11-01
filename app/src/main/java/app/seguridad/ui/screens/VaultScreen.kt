@@ -305,7 +305,7 @@ private fun UnlockVault(store: VaultStore) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDestroy by remember { mutableStateOf(false) }
-    // A key that opened nothing (CRY-A02): the button is gone for this screen even if the Keystore refused to turn it off.
+    // A key that opened nothing (CRY-A02): the button is gone for this screen even if turning it off ever threw.
     var fingerprintStale by remember { mutableStateOf(false) }
     val bio = !fingerprintStale && BiometricVault.enabled(context) && store.biometricAllowed
     fun withFingerprint() {
