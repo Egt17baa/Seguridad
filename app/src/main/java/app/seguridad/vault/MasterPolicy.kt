@@ -22,11 +22,16 @@ const val MASTER_TOO_WEAK =
  * does the password of a copy made with a weaker master. The rule is not in [VaultStore] either: the tests and the test
  * data create vaults with throwaway masters.
  *
- * It is an estimate with no dictionary: it does not know words or personal data. «Barcelona1» gives about 59 bits and
- * passes, so the rule removes the obvious cases («contraseña», «1234567890», «aaaaaaaaaa», «qwertyuiop») but does not
- * guarantee that a master is strong. What the Generator proposes with its usual options (a phrase of 5 words, with any
- * separator and list; a password of 16 characters) always passes; the tests check it. A password of digits only needs
- * more than 16 characters to reach the threshold.
+ * It is an estimate with no dictionary: it does not know words or personal data, so it removes the obvious cases and
+ * nothing more. What it refuses is a short password, a run of equal characters, a sequence («1234567890», «abcdefghij»,
+ * «qwertyuiop») and the exact words of the common list of «Salud»; «contraseña» is refused only because it is in that
+ * list. «Barcelona1» gives about 59 bits and passes. A word with an enye or an accent gets a large bonus (one
+ * character outside ASCII adds 100 symbols to the pool of the whole password), so «contraseña123» and «Contraseña2024»
+ * pass too. The rule does not guarantee that a master is strong.
+ *
+ * What the Generator proposes with its usual options passes in the tests: a phrase of 5 words, with any separator and
+ * list, and a password of 16 characters. A password of digits only is sometimes refused up to about 24 characters
+ * (a sequence such as «123» counts as one character).
  */
 fun newMasterProblem(candidate: String): String? = when {
     candidate.length < MIN_MASTER -> MASTER_TOO_SHORT
