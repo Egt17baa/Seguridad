@@ -19,6 +19,9 @@ private val COMMON = setOf(
 )
 private val KEYBOARD_ROWS = listOf("qwertyuiop", "asdfghjkl", "zxcvbnm", "1234567890")
 
+/** The most used passwords that [estimateBits] gives 0 bits (as typed in the list, before any normalization). */
+internal fun commonPasswords(): Set<String> = COMMON
+
 /** LOGIN entries with a non-empty password, grouped by password: password -> entry ids (in vault order). */
 fun uniquePasswords(entries: List<VaultEntry>): Map<String, List<String>> =
     entries.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }

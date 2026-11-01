@@ -5,18 +5,30 @@ import app.seguridad.crypto.PasswordOptions
 import app.seguridad.crypto.generatePassphrase
 import app.seguridad.crypto.generatePassword
 import app.seguridad.health.WEAK_BITS
+import app.seguridad.health.commonPasswords
 import app.seguridad.health.estimateBits
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileNotFoundException
+import java.io.IOException
+import java.io.InputStream
 import java.security.SecureRandom
+import java.util.Locale
 
 /**
  * CRY-A01 (review 1.3.1): a NEW master password has to be long enough and pass the strength estimate of «Salud». The
  * rule is only for creating the vault and for changing the master; opening and importing never go through it.
+ *
+ * Owner's amendment (1-11-2026): besides, a new master that is ONE known word (the common list of «Salud» or a word of
+ * the EFF, BIP-39 English or BIP-39 Spanish list, whatever its capitals, accents, digits and symbols) is refused too.
+ * The tests without `words` are the rule as it was; the ones with [allWords] are the rule with the lists loaded.
  */
 class MasterPolicyTest {
     // ---- The rule ----
@@ -71,6 +83,9 @@ class MasterPolicyTest {
      * alone is refused only because it is in the common list; with a digit after it, or with a year, it passes. If
      * estimateBits changes (an accent-folding pass, a dictionary, another threshold), this test shows what that does to
      * the rule for a new master: change it then, knowing the effect.
+     *
+     * This is the estimate alone, with no `words`. The owner's amendment closes the gap for ONE known word: with the lists
+     * loaded «contraseña123» and «Contraseña2024» are refused (`what the estimate lets through and the word rule catches`).
      */
     @Test fun `a word with an accent or an enye gets a large bonus, so contrasena123 and Contrasena2024 pass`() {
         for (c in listOf("contraseña1", "contraseña123", "Contraseña2024")) {
@@ -85,6 +100,14 @@ class MasterPolicyTest {
         assertEquals(MASTER_TOO_WEAK, newMasterProblem("contraseña"))
     }
 
+    /** The list the word rule takes from «Salud» is the one the estimate already gives 0 bits (Health.kt), not a copy. */
+    @Test fun `the common list the rule reads is the one of Salud`() {
+        val common = commonPasswords()
+        assertTrue(common.size >= 10)
+        for (c in common) assertEquals("«$c»", 0.0, estimateBits(c), 0.0)
+        assertTrue(common.all { it.isNotEmpty() })
+    }
+
     @Test fun `the threshold is the one of Salud`() {
         // Same function and same constant as the «Débil» mark of Salud: a password refused here is flagged weak there.
         assertEquals(50.0, WEAK_BITS, 0.0)
@@ -93,12 +116,144 @@ class MasterPolicyTest {
         }
     }
 
-    // ---- What the Generator proposes always passes ----
+    // ---- One known word is not a master (owner's amendment, 1-11-2026) ----
 
-    private fun asset(name: String): List<String> {
+    @Test fun `the core of a password is its letters, lowercase and without accents`() {
+        assertEquals("contrasena", masterCore("Contraseña2024!"))
+        assertEquals("abaco", masterCore("Ábaco-12345"))
+        assertEquals("abaco", masterCore("A\u0301baco-12345")) // the same with a combining accent (the Spanish list is stored so)
+        assertEquals("nandu", masterCore("ÑANDÚ 99"))
+        assertEquals("password", masterCore("pass word-1!"))
+        assertEquals("password", masterCore("password\uD83D\uDE00")) // an emoji is not a letter
+        assertEquals("", masterCore("1234567890"))
+        assertEquals("", masterCore(""))
+    }
+
+    @Test fun `the core does not depend on the language of the phone`() {
+        val before = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR")) // with it, a plain lowercase of «I» gives the dotless «ı»
+            assertEquals("iloveyou", masterCore("ILOVEYOU12"))
+            assertEquals("title", masterCore("TITLE-1"))
+        } finally {
+            Locale.setDefault(before)
+        }
+    }
+
+    @Test fun `the words are the cores of the lists and of the common list of Salud`() {
+        val words = masterWords(listOf(listOf("Ábaco", "drop-down", "", "123", "  ", "NIÑO"), listOf("zebra")))
+        assertTrue(setOf("abaco", "dropdown", "nino", "zebra").all { it in words })
+        assertFalse("no empty word, or every password of digits would be refused", "" in words)
+        // The common list of «Salud» (Health.kt), passed through the same normalization.
+        assertTrue(setOf("password", "qwerty", "contrasena", "admin", "iloveyou").all { it in masterWords(emptyList()) })
+        assertFalse("" in masterWords(emptyList()))
+        // The three real lists: every word of every list is there, normalized, and nothing but that.
+        for (name in MASTER_WORD_LISTS) assertTrue(name, asset(name).map(::masterCore).filter { it.isNotEmpty() }.all { it in allWords })
+        assertTrue("${allWords.size} words", allWords.size > 9000)
+        assertTrue("abaco" in allWords && "abandon" in allWords && "abdominal" in allWords)
+    }
+
+    @Test fun `the three lists are the ones of assets the app already reads`() {
+        assertEquals(listOf("eff_large_wordlist.txt", "bip39_english.txt", "bip39_spanish.txt"), MASTER_WORD_LISTS)
+        for (name in MASTER_WORD_LISTS) assertTrue(name, asset(name).size >= 2048)
+        // The EFF list has no dice numbers any more (the app removed them), so a line is a word.
+        assertTrue(asset("eff_large_wordlist.txt").all { line -> line.none { it.isDigit() } })
+    }
+
+    @Test fun `one known word is refused whatever is around it, once the lists are loaded`() {
+        for (c in listOf(
+            "contraseña123", "Contraseña2024", "Password1!", "iloveyou12", "abandon1234", "Ábaco12345", "A\u0301baco12345", "abaco123456",
+            "ABANDON-2024!", "1234abandon", "abandon!!!!!!", "a.b.a.n.d.o.n.1", "  abandon  1234", "Admin12345", "QWERTY-12345", "Abc1234567",
+        )) {
+            assertEquals("«$c» must be refused with the lists", MASTER_TOO_WEAK, newMasterProblem(c, allWords))
+        }
+        // A word of the EFF list of 7 letters or more with 123 after it (10 characters or more), as it is or with a capital.
+        val eff = asset("eff_large_wordlist.txt").filter { masterCore(it).length >= 7 }
+        assertTrue(eff.size > 1000)
+        for (w in eff) for (c in listOf(w + "123", w.replaceFirstChar { it.uppercase() } + "123")) {
+            assertEquals("«$c» must be refused with the lists", MASTER_TOO_WEAK, newMasterProblem(c, allWords))
+        }
+    }
+
+    /** The reason for the amendment: these pass the estimate (an ñ or an accent weighs about 7 bits), only the word refuses them. */
+    @Test fun `what the estimate lets through and the word rule catches`() {
+        for (c in listOf("contraseña123", "Contraseña2024", "Password1!", "iloveyou12")) {
+            assertTrue("«$c»: ${estimateBits(c)} bits", estimateBits(c) >= WEAK_BITS)
+            assertNull("«$c» passes without the lists", newMasterProblem(c))
+            assertEquals("«$c» does not pass with them", MASTER_TOO_WEAK, newMasterProblem(c, allWords))
+        }
+    }
+
+    @Test fun `the order is the length first, then the estimate and the word`() {
+        assertEquals(MASTER_TOO_SHORT, newMasterProblem("abaco", allWords)) // a list word, but short
+        assertEquals(MASTER_TOO_SHORT, newMasterProblem("Ábaco123", allWords))
+        assertEquals(MASTER_TOO_SHORT, newMasterProblem("", allWords))
+        assertEquals(MASTER_TOO_WEAK, newMasterProblem("aaaaaaaaaa", allWords)) // not a word, but the estimate refuses it
+        assertEquals(MASTER_TOO_WEAK, newMasterProblem("1234567890", allWords)) // the core is empty: no word, the estimate refuses it
+    }
+
+    @Test fun `two words together pass if the estimate reaches, and so does a word that is not in any list`() {
+        // The accepted limit, on purpose: «una sola palabra» is the whole core, not a word inside it.
+        assertNull(newMasterProblem("abandon-ability", allWords))
+        assertNull(newMasterProblem("casa perro luz mar sol", allWords))
+        assertNull(newMasterProblem("Xq7#vB2!mK", allWords))
+        assertFalse("«barcelona» is now in a word list: use another city in this example", "barcelona" in allWords)
+        assertNull(newMasterProblem("Barcelona1", allWords))
+    }
+
+    @Test fun `without the lists newMasterProblem does what it did before`() {
+        fun before(c: String) = when {
+            c.length < MIN_MASTER -> MASTER_TOO_SHORT
+            estimateBits(c) < WEAK_BITS -> MASTER_TOO_WEAK
+            else -> null
+        }
+        for (c in listOf(
+            "", "corta", "contraseña", "Contraseña", "contraseña123", "Contraseña2024", "Password1!", "iloveyou12", "abandon1234",
+            "Ábaco12345", "1234567890", "aaaaaaaaaa", "qwertyuiop", "Barcelona1", "casa perro luz mar sol", "Xq7#vB2!mK",
+        )) {
+            assertEquals(c, before(c), newMasterProblem(c))
+            assertEquals(c, before(c), newMasterProblem(c, emptySet()))
+        }
+    }
+
+    @Test fun `the lists are read from assets, and a failure leaves the rule at the estimate`() {
+        val opened = mutableListOf<String>()
+        val closed = mutableListOf<String>()
+        val loaded = loadMasterWords { name ->
+            opened += name
+            object : FileInputStream(assetFile(name)) {
+                override fun close() { closed += name; super.close() }
+            }
+        }
+        assertEquals(MASTER_WORD_LISTS, opened)
+        assertEquals("every stream is closed", MASTER_WORD_LISTS, closed)
+        assertEquals(allWords, loaded)
+
+        // A list that cannot be read: nothing at all, never half of the lists.
+        assertEquals(emptySet<String>(), loadMasterWords { name ->
+            if (name == "bip39_english.txt") throw FileNotFoundException(name)
+            ByteArrayInputStream("hello\nworld\n".toByteArray())
+        })
+        assertEquals(emptySet<String>(), loadMasterWords { throw IOException("no assets") })
+        assertEquals("not a crash of the screen either", emptySet<String>(), loadMasterWords { throw IllegalStateException("closed") })
+        assertNull("so the rule is the estimate: «contraseña123» passes", newMasterProblem("contraseña123", loadMasterWords { throw IOException() }))
+    }
+
+    // ---- What the Generator proposes passes ----
+
+    private fun assetFile(name: String): File =
         // Run from app/ (Gradle Android tests) or from jvm-check/.
-        val file = listOf("src/main/assets", "../app/src/main/assets").map { File(it, name) }.first { it.exists() }
-        return file.readLines().filter { it.isNotBlank() }
+        listOf("src/main/assets", "../app/src/main/assets").map { File(it, name) }.first { it.exists() }
+
+    private fun asset(name: String): List<String> = assetFile(name).readLines().filter { it.isNotBlank() }
+
+    /** The three lists of assets/ the screens load (MASTER_WORD_LISTS), as the screens normalize them (masterWords). */
+    private val allWords: Set<String> by lazy { masterWords(MASTER_WORD_LISTS.map(::asset)) }
+
+    /** Accepted both by the estimate alone and with the word lists loaded (what the screens do). */
+    private fun assertAccepted(message: String, candidate: String) {
+        assertNull("$message (${estimateBits(candidate)} bits)", newMasterProblem(candidate))
+        assertNull("$message, with the word lists", newMasterProblem(candidate, allWords))
     }
 
     /** The separators the Generator screen offers (GeneratorScreen): guion, espacio, punto, barra baja. */
@@ -111,7 +266,7 @@ class MasterPolicyTest {
             for (sep in separators) {
                 repeat(200) {
                     val phrase = generatePassphrase(words, PassphraseOptions(words = 5, separator = sep), random)
-                    assertNull("$listName «$sep»: «$phrase» (${estimateBits(phrase)} bits)", newMasterProblem(phrase))
+                    assertAccepted("$listName «$sep»: «$phrase»", phrase)
                 }
             }
         }
@@ -124,25 +279,40 @@ class MasterPolicyTest {
             for (sep in separators) for (capitalize in listOf(false, true)) for (addNumber in listOf(false, true)) {
                 repeat(50) {
                     val phrase = generatePassphrase(words, PassphraseOptions(5, sep, capitalize, addNumber), random)
-                    assertNull("$listName «$sep»: «$phrase»", newMasterProblem(phrase))
+                    assertAccepted("$listName «$sep»: «$phrase»", phrase)
                 }
             }
         }
     }
 
+    /**
+     * A fixed sequence (SHA1PRNG with a seed), not SecureRandom(): with the word lists loaded, about 1 password in 27,600 of
+     * 16 characters with the four classes is refused, because its few letters (3 to 5) happen to spell a list word and the
+     * rest are digits and symbols (see the next test). 200 fresh draws would fail one run in 140 by chance.
+     */
+    private fun fixedRandom(): SecureRandom = SecureRandom.getInstance("SHA1PRNG").apply { setSeed(20261101L) }
+
     @Test fun `a password of 16 characters of the Generator passes`() {
-        val random = SecureRandom()
+        val random = fixedRandom()
         repeat(200) {
             val password = generatePassword(PasswordOptions(length = 16), random)!!
-            assertNull("«$password» (${estimateBits(password)} bits)", newMasterProblem(password))
+            assertAccepted("«$password»", password)
         }
         // Without symbols (letters and digits), and letters only: still above the threshold at 16 characters.
         for (options in listOf(PasswordOptions(length = 16, symbols = false), PasswordOptions(length = 16, digits = false, symbols = false))) {
             repeat(200) {
                 val password = generatePassword(options, random)!!
-                assertNull("«$password» (${estimateBits(password)} bits)", newMasterProblem(password))
+                assertAccepted("«$password»", password)
             }
         }
+    }
+
+    /** The price of the rule, pinned: a long random password with only a few letters, and they spell a word, is refused. */
+    @Test fun `a random password whose only letters spell a list word is refused, and Otra gives another`() {
+        val password = "!7#Act4\$9&2@1"
+        assertTrue("${estimateBits(password)} bits", estimateBits(password) >= WEAK_BITS)
+        assertNull("the estimate alone accepts it", newMasterProblem(password))
+        assertEquals(MASTER_TOO_WEAK, newMasterProblem(password, allWords))
     }
 
     // ---- Where the rule is, and where it is not (source text: ui/ is not compiled on the JVM) ----
@@ -174,6 +344,45 @@ class MasterPolicyTest {
         assertTrue(Regex("""newMasterProblem\(""").containsMatchIn(screen("VaultBackup.kt")))
         // The create button waits for the rule: no problem, not only «long enough».
         assertTrue("problem == null" in screen("VaultScreen.kt"))
+    }
+
+    /**
+     * The two screens load the lists (once, off the main thread) and give them to newMasterProblem; the button of creating or
+     * changing waits for them. The import dialog neither loads them nor waits.
+     */
+    @Test fun `the two screens pass the loaded words to newMasterProblem and wait for them`() {
+        for (name in listOf("VaultScreen.kt", "VaultBackup.kt")) {
+            val src = screen(name)
+            assertEquals("$name: one call of newMasterProblem", 1, Regex("""newMasterProblem\(""").findAll(src).count())
+            assertTrue("$name passes the loaded words", Regex("""newMasterProblem\(a, words\b""").containsMatchIn(src))
+        }
+        val create = screen("VaultScreen.kt")
+        assertTrue("CreateVault loads the words", "val words = rememberMasterWords()" in create)
+        val button = create.lines().single { it.trim().startsWith("enabled = ") && "problem == null" in it }
+        assertTrue(button, "words != null" in button)
+
+        val dialog = screen("VaultBackup.kt").let { it.substring(it.indexOf("fun PasswordDialog(")) }
+        // Only the dialog of a new master loads them; the import one does not even read the assets.
+        assertTrue("val words = if (newPassword) rememberMasterWords() else null" in dialog)
+        assertEquals(1, Regex("""rememberMasterWords\(""").findAll(dialog).count())
+        val ok = dialog.lines().single { it.trim().startsWith("val ok = ") }
+        assertTrue(ok, "if (newPassword) words != null && problem == null else a.length >= MIN_MASTER" in ok)
+    }
+
+    /** The loader of the screens: IO dispatcher, once per composition, never saved, and what it reads is MASTER_WORD_LISTS. */
+    @Test fun `the words are loaded once per screen, off the main thread, and never saved`() {
+        val src = screen("MasterWords.kt")
+        assertTrue("fun rememberMasterWords(" in src)
+        assertTrue("once per composition: LaunchedEffect(Unit)", "LaunchedEffect(Unit)" in src)
+        assertTrue("off the main thread", "withContext(Dispatchers.IO)" in src)
+        assertTrue("the lists are read by loadMasterWords", Regex("""loadMasterWords\s*[({]""").containsMatchIn(src))
+        assertTrue("null until loaded", "remember { mutableStateOf<Set<String>?>(null) }" in src)
+        assertFalse("rememberSaveable" in src)
+        assertFalse("Bundle" in src)
+        // A read that fails is loadMasterWords' emptySet(): the state is set either way, so the button is never left waiting.
+        assertFalse("catch" in src)
+        // The lists live in one place: the screens do not name them again.
+        assertTrue(screens().filter { it.name != "SecurityToolsScreen.kt" && it.name != "CodesScreen.kt" }.none { Regex("""eff_large_wordlist|bip39_""").containsMatchIn(code(it)) })
     }
 
     @Test fun `the master dialog asks for a new password and the import dialog does not`() {
