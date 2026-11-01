@@ -1098,7 +1098,7 @@ class VaultStoreTest {
 
     @Test fun `CRY-A02 with the master password due, a version-3 vault asks for it before trying the key, so another vault's key keeps the fingerprint for now`() = runTest {
         // Documented order (the design changes nothing about MasterRequired): for a file that states its version (2 or 3)
-        // the refusal is decided from the file (refuseIfDue in VaultStore.unlockWithKey), before VaultCrypto.authenticated
+        // the refusal is decided from the file (refuseIfDue in unlockWithKeyLocked), before VaultCrypto.authenticated
         // uses the key at all. The stale fingerprint is found at the first fingerprint unlock after the master password
         // (a VERSION_UNKNOWN file goes the other way).
         val s = store().apply { load(); create("m".toCharArray()); lock() }
