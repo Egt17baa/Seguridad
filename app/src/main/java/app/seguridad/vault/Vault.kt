@@ -118,10 +118,10 @@ data class VaultFile(
     val format: String,
     /**
      * 2: every field is authenticated (see [VaultCrypto]). 3: the same binding (the version number is one of the bound
-     * fields, so a 2 cannot pass for a 3 or the other way round) and the only one that may hold [EntryType.IDENTITY] and
-     * [EntryType.CONTACT] entries. A [FORMAT] file always says its version: 2 (written by 1.0 and 1.1) or 3. One that
-     * does not ([VERSION_UNKNOWN]) is tried as both: the version whose associated data opens the blobs is the right
-     * one (see [VaultCrypto.resolve]).
+     * fields, so a 2 cannot pass for a 3 or the other way round) and the only one that may hold [EntryType.IDENTITY]
+     * and [EntryType.CONTACT] entries. This app always writes it: 2 (1.0 and 1.1) or 3. A file without it
+     * ([VERSION_UNKNOWN], edited by hand) is tried as both: the version whose associated data opens the blobs is the
+     * right one (see [VaultCrypto.resolve]).
      */
     val version: Int = VERSION_UNKNOWN,
     val kdf: VaultKdf,
@@ -243,7 +243,7 @@ object VaultCrypto {
         val kek = argon2id(master, salt, kdf, use = use)
         try {
             val plain = VaultFile(
-                format = VaultFile.FORMAT, // Not the default, so it is always written out.
+                format = VaultFile.FORMAT, // Required (no default), so it is always written out.
                 version = VaultFile.VERSION, // Always written out, so it is never ambiguous again.
                 kdf = VaultKdf(kdf.memoryKiB, kdf.iterations, kdf.parallelism),
                 salt = b64.encodeToString(salt),
@@ -329,13 +329,14 @@ object VaultCrypto {
      * version-2 file into version 3, which needs the master password once more to wrap the key with the new binding.
      * The data key stays the same (a fingerprint set up with it keeps working) and the revision goes up by one. A
      * version-3 file is only re-sealed, unless its Argon2id is cheaper than [kdf] in memory or passes: then the key is
-     * wrapped again with the cost asked, same data key, revision + 1. That happens at any unlock with the master password, on purpose: after an import of a copy made
-     * with a lower cost (A8), and also after a higher cost was chosen in Ajustes, which takes effect at the next unlock
-     * with the master password (that unlock then runs Argon2id twice: once to open with the old cost, once to wrap with
-     * the new one). If saving that fails ([VaultStore] opens anyway), the vault in memory already has the new cost and any
-     * later save writes it; only if no save ever succeeds does the next start do it again, never silently lowering
-     * anything. [VaultStore.confirmMaster] (a check inside an open session) does not do it: it only checks a version-3
-     * file, so a save the user is waiting for is not delayed by a second Argon2id; the next unlock does it.
+     * wrapped again with the cost asked, same data key, revision + 1. That happens at any unlock with the master
+     * password, on purpose: after an import of a copy made with a lower cost (A8), and also after a higher cost was
+     * chosen in Ajustes, which takes effect at the next unlock with the master password (that unlock then runs Argon2id
+     * twice: once to open with the old cost, once to wrap with the new one). If saving that fails ([VaultStore] opens
+     * anyway), the vault in memory already has the new cost and any later save writes it; only if no save ever succeeds
+     * does the next start do it again, never silently lowering anything. [VaultStore.confirmMaster] (a check inside an
+     * open session) does not do it: it only checks a version-3 file, so a save the user is waiting for is not delayed
+     * by a second Argon2id; the next unlock does it.
      *
      * Whatever is wrapped again never costs less than the file did on any axis (CR-2): memory, passes and parallelism
      * are each the higher of the file's and [kdf]'s. A lower parallelism alone is not «cheaper»: Argon2id's cost to an
@@ -385,18 +386,19 @@ object VaultCrypto {
     }
 
     /**
-     * Whether a biometric unlock may proceed: only for a [VaultFile.FORMAT] file, and not for one that says it is
-     * version 1 (a version this format never had: the master password then says it is not a compatible vault; an
-     * unknown version is [resolve]d with the key first), within 7 days of the last master check and never with a date
-     * in the future. [highWater] is the highest time the app ever saw (a mark that only rises): a clock set back more
-     * than [CLOCK_SLACK_MS] behind it asks for the master password, so setting the clock back no longer stretches the
-     * 7 days.
+     * Whether a biometric unlock may proceed: only for a file [unlock] would open (a [VaultFile.FORMAT] file of version
+     * 2 or 3, or one that does not say its version, which [VaultStore] [resolve]s with the key first), within 7 days of
+     * the last master check and never with a date in the future. Any other format or version (1, 4…) asks for the master
+     * password, which then says it is not a compatible vault, instead of failing to read the entries with the data key:
+     * that [CryptoFailure] would turn the fingerprint off. [highWater] is the highest time the app ever saw (a mark that
+     * only rises): a clock set back more than [CLOCK_SLACK_MS] behind it asks for the master password, so setting the
+     * clock back no longer stretches the 7 days.
      */
     fun biometricAllowed(file: VaultFile, now: Long, highWater: Long = 0): Boolean = biometricRefusal(file, now, highWater) == null
 
     /** Why [biometricAllowed] says no, or null when it says yes; the screen words the two reasons differently. */
     fun biometricRefusal(file: VaultFile, now: Long, highWater: Long = 0): BiometricRefusal? = when {
-        file.format != VaultFile.FORMAT || file.version == 1 -> BiometricRefusal.MASTER_DUE
+        !supported(file) -> BiometricRefusal.MASTER_DUE
         now < file.masterCheckedAt || now < highWater - CLOCK_SLACK_MS -> BiometricRefusal.CLOCK
         now - file.masterCheckedAt >= MASTER_RECHECK_MS -> BiometricRefusal.MASTER_DUE
         else -> null

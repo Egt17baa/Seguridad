@@ -21,8 +21,12 @@ private val FAST = KdfParams(1024, 1, 1)
 /**
  * The texts and files of this app: `SG1:` and `.sgenc`, the names of when it was called «Seguridad». Since 1.3.1 it
  * reads nothing else (owner's decision, 1-11-2026): CriptoPanel's texts (`CP1:`) and files (`.cpenc`) get the same
- * error as any data that is not this app's. One real text set and one real file written by CriptoPanel 1.10.0 stay in
- * `criptopanel/` to check that.
+ * error as any data that is not this app's. To check that, `criptopanel/` keeps, byte for byte as they were:
+ *  - the eight `CP1:` texts of `texts.json`, written by CriptoPanel 1.10.0 (`bac076a`, as its `generator` says). Its
+ *    `files` list names two `.cpenc` that were removed in 1.3.1, so only its `texts` are read;
+ *  - `ref.cpenc`, a file in CriptoPanel's container («CP», AES-256-GCM, Argon2id 1024 KiB, 1 pass, 1 lane, password «pw»,
+ *    «foto ñ.jpg» with 65 546 bytes in two records). It came with the port from CriptoPanel (`c70f932`), whose test called
+ *    it «written by an independent implementation»; the repository keeps no record of what wrote it.
  */
 class DialectTest {
     private fun criptopanel(name: String): ByteArray =
@@ -110,6 +114,37 @@ class DialectTest {
         }.toByteArray()
         assertArrayEquals(f1, written(Secret.Password(pw.toCharArray()), Aead.CHACHA20_POLY1305, 0x70))
         assertArrayEquals(f2, written(Secret.RawKey(key.copyOf()), Aead.TWOFISH_256_GCM, 0xA0))
+    }
+
+    /**
+     * Written outside Clavero (task 6, review Minor 6), with Python's `cryptography` 50.0.1 only, byte by byte from the
+     * container as this app reads it: the header («SG», 1, kind, algorithm, Argon2id, memory in 4 bytes big-endian,
+     * passes, lanes, salt, nonce or STREAM prefix) as the associated data, an Argon2id key from the UTF-8 password and,
+     * for the file, the sealed name as record 0 and the data as record 1, the last. The generator (and its check of the
+     * RFC 9106 vector) is quoted in full in the task 6 report, round 1. Unlike the 1.3.0 vectors above, which catch a
+     * change, these catch a mistake that writer and reader would share. Only one data record: a second one would need
+     * 64 KiB of constants; the record counter beyond 1 is covered by the round trips.
+     */
+    @Test fun `SG1 texts and sgenc files written outside Clavero with Python cryptography open`() {
+        val password = "contraseña independiente 🔐"
+        val token = "SG1:U0cBAQEBAAAEAAICMDEyMzQ1Njc4OTo7PD0-P2BhYmNkZWZnaGlqa33HEVI8DXD57gJ6TTrKyHfqnrEV62CbXvr3MVPhH7JGc71s" +
+            "gsw1kX4CAk4dtbZW2vFnSFUQ5J2dLo-QkqprzC_XQOUE5Z0rM-6Duy_H"
+        assertEquals(Aead.AES_256_GCM to false, inspectText(token))
+        assertEquals("Texto escrito fuera de Clavero: ñ, € y 🔐\nsegunda línea", decryptText(token, password.toCharArray()))
+        val header = Header.parse(ByteBuffer.wrap(unb64(token, TEXT_PREFIX)), Header.KIND_TEXT)
+        assertEquals(KdfParams(1024, 2, 2), header.kdf) // Lanes and passes come from the header, not from this app's defaults.
+
+        val sgenc = Base64.getDecoder().decode(
+            "U0cBAgIBAAAIAAEBgIGCg4SFhoeIiYqLjI2Oj6ChoqOkpaYAHniay2z+OQCax8OzeY9fXB/+92x1MW9HcQU0VW3QwtsHOqtOJkGNhRalWuBg" +
+                "eKBlvkOpkf3xQjjLo5guvUy66BV901kU0CN8l0gm7/U418KDzQt/Fp0fauc8qRzeJHb7K2HsuLM3ci/l7MVrfxosrakfwidknX0PSAb2lM+J" +
+                "C0DDytknWKTC9CMtC6HaKSq0nEaDoFtsz4T63MPDzbpJgxXDVGlOj3H3OjudEOOopPe2U2z5drvUTf/54PXFMQ1yzWEAhicDsO2dfTzySQh4" +
+                "4BQbGhxr333GYzCvgSmgJtm1gY09+l8k9n/WaOFFpq73WRldRNiBDwSsoCvWqvrJcgermgWolVhwO8k2rgc+hL+XIRghnecE9HFTgQSt/uJh" +
+                "QfHj7X4hVr0fBzy8NuI8DHpXSvKjjS9NFyOnXO1I+v+58HQLwgaXPcL+BoGxxLEkgyv3AqyjWKhPayE=",
+        )
+        val out = ByteArrayOutputStream()
+        assertEquals("informe ñ.txt", decryptStream(ByteArrayInputStream(sgenc), out, password.toCharArray()))
+        assertArrayEquals(ByteArray(300) { ((it * 13 + 5) % 256).toByte() }, out.toByteArray())
+        assertEquals(Aead.CHACHA20_POLY1305, Header.parse(ByteBuffer.wrap(sgenc), Header.KIND_FILE).alg)
     }
 
     @Test fun `CriptoPanel data is refused`() {
