@@ -292,4 +292,15 @@ class PlatformSourcesTest {
         assertTrue("Hint(CLIPBOARD_CLEAR_HINT)" in settings)
         assertFalse("Solo se borra si sigue" in settings)
     }
+
+    @Test fun `CRY-B01 the app's client checks the chain Android validated, and fails closed without the server's name`() {
+        assertTrue("trustedChainOf = { androidTrustedChain(it) }" in code("SeguridadApp.kt"))
+        assertTrue("secureClient(appVersion, trustedChainOf)" in code("AppContainer.kt"))
+        val src = code("android/TrustedChain.kt")
+        assertTrue("X509TrustManagerExtensions(system)" in src)
+        assertTrue("checkServerTrusted(chain, authType, host)" in src)
+        assertTrue(Regex("""if \(host == null\) throw CertificateException\(""").containsMatchIn(src))
+        // Review round 1, minor 1: a system trust manager it cannot take refuses every connection; the app does not close.
+        assertTrue(Regex("""catch \(e: IllegalArgumentException\) \{\s*return \{ _, _, _ -> throw CertificateException\(""").containsMatchIn(src))
+    }
 }

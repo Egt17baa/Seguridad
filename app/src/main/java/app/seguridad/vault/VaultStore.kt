@@ -58,39 +58,88 @@ const val CLOCK_CHANGED_TEXT = "La hora del móvil se ha atrasado. Por seguridad
 const val BIOMETRIC_UNLOCK_FAILED = "No se pudo abrir la bóveda con la huella"
 
 /**
- * What the unlock screen shows when [VaultStore.unlockWithKey] throws [e]: the store's own Spanish texts (a wrong or
- * damaged key, the master password due, the clock gone back) and a fixed text for anything else, so an unexpected
- * exception (in English, maybe with a path) is never shown as it is.
+ * Shown when the fingerprint released a key that does not authenticate this vault's entries: the blob it guards is
+ * another vault's (the master password was changed or a copy imported, and turning the fingerprint off then failed or
+ * was cut short), or the entries' blob is damaged. AES-GCM cannot tell those apart, so the text says «Puede deberse a»
+ * and names the three causes, not one as a fact. The fingerprint is turned off at the same time
+ * ([launchUnlockWithKey], CRY-A02). Reviewed by the Abogado Digital (final review of 1.3.1, O-1).
+ */
+const val FINGERPRINT_STALE =
+    "La huella ya no abre esta bóveda. Puede deberse a un cambio de la contraseña maestra, a una copia importada o a " +
+        "datos dañados. Entra con la contraseña maestra y vuelve a activarla si quieres."
+
+/**
+ * What the unlock screen shows when [VaultStore.unlockWithKey] throws [e]: the store's own Spanish texts (a stale key,
+ * damaged or undecodable entries, the master password due, the clock gone back, a file this version cannot open) and a
+ * fixed text for anything else, so an unexpected exception (in English, maybe with a path) is never shown as it is.
  */
 fun biometricUnlockError(e: Exception): String = when (e) {
-    is CryptoFailure, is MasterRequired -> e.message ?: BIOMETRIC_UNLOCK_FAILED
+    is CryptoFailure, is MasterRequired, is StaleBiometricKey -> e.message ?: BIOMETRIC_UNLOCK_FAILED
     else -> BIOMETRIC_UNLOCK_FAILED
 }
 
 /**
  * Hands the key the fingerprint released to [store], also from a scope already cancelled (the prompt of a screen that
  * a rotation re-created may answer late): started atomically, so [VaultStore.unlockWithKey] always runs and either
- * keeps the key in the open vault or wipes it, never drops it (BOV-3). A cancellation is not reported; any other
- * failure goes to [onError] with [biometricUnlockError].
+ * keeps the key in the open vault or wipes it, never drops it (BOV-3). A cancellation is not reported.
+ *
+ * Only [StaleBiometricKey] turns the fingerprint off: the key does not authenticate the vault's entries under any
+ * version the file may be, so the blob the fingerprint guards is another vault's (CRY-A02), or the entries' blob is
+ * damaged, which AES-GCM cannot tell apart and the master password cannot open either. Then [onWrongKey] runs once (the
+ * screen turns the fingerprint off) and [onError] gets [FINGERPRINT_STALE]. [onWrongKey] is not expected to throw, but
+ * if it does the text is shown all the same and the exception does not reach the caller's scope. Nothing else reaches
+ * [onWrongKey]: a key that authenticates but whose entries do not decode ([CryptoFailure], final review F1),
+ * [MasterRequired] (the 7-day rule, the clock, or a file this version cannot open, whose key is never tried) and any
+ * other failure go to [onError] with [biometricUnlockError], and the fingerprint stays. For a file that states its
+ * version, the 7-day rule and the clock are looked at before the key is used ([VaultStore.unlockWithKey]): a stale key
+ * is then only found at the first fingerprint unlock after the master password.
+ *
+ * Limit, as for any state of the screen (BOV-3): if the screen is rotated while the answer is on its way, [onWrongKey]
+ * still turns the fingerprint off, but the new screen does not repeat [FINGERPRINT_STALE] (the old composition got it).
  */
 @OptIn(DelicateCoroutinesApi::class) // ATOMIC: the body must run even on a cancelled scope, to own the key.
-fun CoroutineScope.launchUnlockWithKey(store: VaultStore, key: ByteArray, onError: (String) -> Unit): Job =
+fun CoroutineScope.launchUnlockWithKey(
+    store: VaultStore,
+    key: ByteArray,
+    onWrongKey: () -> Unit = {},
+    onError: (String) -> Unit,
+): Job =
     launch(start = CoroutineStart.ATOMIC) {
         try {
             store.unlockWithKey(key)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: StaleBiometricKey) {
+            try {
+                onWrongKey()
+            } catch (off: Exception) {
+                // Defensive: an unexpected exception from onWrongKey must not crash the screen's scope nor hide the text below.
+            }
+            onError(FINGERPRINT_STALE)
         } catch (e: Exception) {
             onError(biometricUnlockError(e))
         }
     }
 
 /**
- * Biometric unlock refused: the master password was not typed for [MASTER_RECHECK_MS], or the clock went backwards
- * ([reason]); the message names the one reason, never both.
+ * The fingerprint released a key that does not authenticate this vault's entries ([VaultCrypto.authenticated]): a stale
+ * fingerprint (CRY-A02). Not a [CryptoFailure], so that only this, and not entries that fail to decode, turns it off.
+ */
+class StaleBiometricKey : Exception(FINGERPRINT_STALE)
+
+/**
+ * Biometric unlock refused: the master password was not typed for [MASTER_RECHECK_MS], the clock went backwards, or
+ * this version cannot open the file ([reason]); the message names the one reason. The last one carries the existing
+ * [NOT_A_VAULT], never the 7-day text (the screen does not offer the fingerprint for such a file).
  */
 class MasterRequired(val reason: BiometricRefusal = BiometricRefusal.MASTER_DUE) :
-    Exception(if (reason == BiometricRefusal.CLOCK) CLOCK_CHANGED_TEXT else "Escribe tu contraseña maestra (se pide cada 7 días)")
+    Exception(
+        when (reason) {
+            BiometricRefusal.CLOCK -> CLOCK_CHANGED_TEXT
+            BiometricRefusal.UNSUPPORTED -> NOT_A_VAULT
+            BiometricRefusal.MASTER_DUE -> "Escribe tu contraseña maestra (se pide cada 7 días)"
+        },
+    )
 
 /**
  * The password vault on disk (files/vault/vault.bin, never in Android backups) and its unlocked state.
@@ -400,8 +449,14 @@ class VaultStore(
 
     /**
      * With a data key released by the biometric prompt, which the store owns from here: it ends in the open vault or
-     * wiped, also when the caller is cancelled while it waits for the mutex (BOV-3). Throws [MasterRequired] when the
-     * 7-day recheck is due.
+     * wiped, also when the caller is cancelled while it waits for the mutex (BOV-3). In this order:
+     * 1. [MasterRequired] with [BiometricRefusal.UNSUPPORTED] for a file this version cannot open, without trying the
+     *    key;
+     * 2. for a file that states its version (2 or 3), [MasterRequired] when the 7-day recheck is due or the clock went
+     *    back, before the key is used at all;
+     * 3. [StaleBiometricKey] when the key does not authenticate the entries (for a file of unknown version this is
+     *    also how its version is found, and the 7-day rule and the clock are looked at only after it);
+     * 4. [CryptoFailure] when the entries authenticate but do not decode.
      */
     suspend fun unlockWithKey(key: ByteArray) {
         val since = epoch
@@ -415,18 +470,29 @@ class VaultStore(
 
     private suspend fun unlockWithKeyLocked(key: ByteArray, since: Int) {
         val v = vault ?: return key.fill(0)
-        // The real version first: a version-1 file (date not authenticated) needs the master password once.
-        val known = try {
-            VaultCrypto.resolve(v, key)
-        } catch (e: CryptoFailure) {
+        // A file this version cannot open: the key is not tried, so it is never taken for a stale one.
+        if (!VaultCrypto.opens(v)) {
             key.fill(0)
-            throw e
+            throw MasterRequired(BiometricRefusal.UNSUPPORTED)
         }
-        val refusal = VaultCrypto.biometricRefusal(known, now(), clockHighWater())
-        if (refusal != null) {
+        fun refuseIfDue(file: VaultFile) {
+            val refusal = VaultCrypto.biometricRefusal(file, now(), clockHighWater())
+            if (refusal != null) {
+                key.fill(0)
+                throw MasterRequired(refusal)
+            }
+        }
+        // A file that states its version: the access rule (7 days, clock) first, so the fingerprint key decrypts
+        // nothing when it refuses (as in 1.3.0). A file of unknown version needs the key to tell its version.
+        val stated = v.version != VaultFile.VERSION_UNKNOWN
+        if (stated) refuseIfDue(v)
+        // Whether the key authenticates the entries (AES-GCM only): only that failure is a stale fingerprint (F1).
+        val known = VaultCrypto.authenticated(v, key) ?: run {
             key.fill(0)
-            throw MasterRequired(refusal)
+            throw StaleBiometricKey()
         }
+        if (!stated) refuseIfDue(known)
+        // A CryptoFailure of opened() is entries that authenticate but do not decode, and keeps the fingerprint.
         opened(known, key, since)
         collectGarbage()
     }
@@ -734,7 +800,7 @@ class VaultStore(
 
     /**
      * [importReplace] from a file: a `seguridad-backup` copy (.sgbak, recognised by its head with [isBackup]) or a
-     * JSON export of Seguridad or CriptoPanel (at most [VAULT_IMPORT_MAX_BYTES]). The copy is read as a stream into
+     * JSON export of Seguridad 1.0.x (at most [VAULT_IMPORT_MAX_BYTES]). The copy is read as a stream into
      * a temporary folder next to the attachments, before taking the mutex and always deleted afterwards. All or
      * nothing: its master password and every attachment (present, with the SHA-256 its entry records) are checked
      * before anything is replaced; if writing the vault then fails, the attachments are put back as they were.

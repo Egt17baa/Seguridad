@@ -1,5 +1,6 @@
 package app.seguridad.tools.qr
 
+import app.seguridad.crypto.TOTP_UNSUPPORTED_LINK
 import app.seguridad.tools.ALL_TOOL_TEXTS
 import app.seguridad.tools.QR_COPIED_WITH_HIDDEN
 import app.seguridad.tools.QR_CRYPTO
@@ -237,6 +238,31 @@ class QrViewTest {
         assertEquals("Banco", otp.field("Servicio"))
         assertEquals("ana", otp.field("Cuenta"))
         assertEquals(QrAction.ADD_TOTP, qrView("otpauth-migration://offline?data=AAAA").action)
+    }
+
+    @Test
+    fun aCodeWithSettingsTheAppCannotCalculateStillShowsItsNamesAndSaysSo() {
+        val link = "otpauth://totp/Banco:ana?secret=JBSWY3DPEHPK3PXP&issuer=Banco"
+        // Usable: names, no note.
+        assertTrue(qrView(link).notes.isEmpty())
+        assertTrue(qrView("$link&digits=8&period=60&algorithm=SHA256").notes.isEmpty())
+        // Not calculable (algorithm, digits or period): the same names, the key still hidden and the note, but no
+        // «Añadir a la bóveda» (F4): the editor would refuse the link with that same note.
+        for (setting in listOf("digits=10", "period=300", "algorithm=MD5", "digits=5", "period=5")) {
+            val v = qrView("$link&$setting")
+            assertEquals(setting, QrAction.NONE, v.action)
+            assertTrue(setting, v.textHidden && v.carriesSecret)
+            assertEquals(setting, "Banco", v.field("Servicio"))
+            assertEquals(setting, "ana", v.field("Cuenta"))
+            assertEquals(setting, listOf(TOTP_UNSUPPORTED_LINK), v.notes)
+            assertFalse(setting, v.fields.any { "JBSWY3DPEHPK3PXP" in it.value })
+        }
+        // Not a usable 2FA link at all (no key, a short key, a counter link): no names and no note, as before.
+        for (text in listOf("otpauth://totp/Banco:ana?digits=10", "otpauth://totp/Banco:ana?secret=A&digits=10", "otpauth://hotp/Banco:ana?secret=JBSWY3DPEHPK3PXP&counter=1")) {
+            val v = qrView(text)
+            assertEquals(text, QrAction.ADD_TOTP, v.action)
+            assertTrue(text, v.fields.isEmpty() && v.notes.isEmpty())
+        }
     }
 
     @Test

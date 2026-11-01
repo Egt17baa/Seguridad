@@ -56,6 +56,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +67,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.TOTP_UNSUPPORTED_ROW
+import app.seguridad.crypto.isSupported
 import app.seguridad.crypto.newPasswordFailureMessage
 import app.seguridad.crypto.totpCode
 import app.seguridad.tools.RESET_WIPES_DAMAGED
@@ -74,11 +79,15 @@ import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.CLOCK_CHANGED_TEXT
 import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.MASTER_TOO_WEAK
+import app.seguridad.vault.MIN_MASTER
+import app.seguridad.vault.NOT_A_VAULT
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.launchUnlockWithKey
+import app.seguridad.vault.newMasterProblem
 import app.seguridad.vault.query
 import app.seguridad.vault.seedWordCount
 import kotlinx.coroutines.delay
@@ -231,6 +240,9 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     // Review F5, M2: a password that is not valid text, or no memory for Argon2id, says so; anything else, «Inténtalo de nuevo».
     var failed by remember { mutableStateOf<String?>(null) }
+    // A single known word is not a master: the lists load off the main thread (null until they are in), once for this
+    // screen, and the button of creating waits for them.
+    val words = rememberMasterWords()
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Crea tu bóveda", style = MaterialTheme.typography.headlineSmall)
         failed?.let { Text(it, color = NegativeColor) }
@@ -239,19 +251,26 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         PasswordField(a, { a = it }, label = "Contraseña maestra (mínimo $MIN_MASTER caracteres)")
+        // CRY-A01: as soon as there is text, what is missing (length first, then strength, then a single known word); the
+        // button waits for null. A polite live region, so TalkBack announces it when it changes.
+        val problem = newMasterProblem(a, words ?: emptySet())
+        if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         PasswordField(b, { b = it }, label = "Repítela")
         if (b.isNotEmpty() && a != b) Text("No coinciden", color = NegativeColor)
-        Text(
-            "Consejo: usa una frase de 5 o 6 palabras que solo tú conozcas (el Generador te puede dar una).",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // MASTER_TOO_WEAK already gives this advice: the fixed hint waits until that text is gone.
+        if (problem != MASTER_TOO_WEAK) {
+            Text(
+                "Consejo: usa una frase de 5 o 6 palabras que solo tú conozcas (el Generador te puede dar una).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { understood = !understood }) {
             Checkbox(checked = understood, onCheckedChange = { understood = it })
             Text("Entiendo que si olvido la contraseña maestra nadie puede recuperar lo que guarde.")
         }
         Button(
-            enabled = !busy && a.length >= MIN_MASTER && a == b && understood,
+            enabled = !busy && words != null && problem == null && a == b && understood,
             onClick = {
                 busy = true
                 failed = null
@@ -274,7 +293,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
         OutlinedButton(onClick = onImport, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Importar una copia exportada") }
         Text(
-            "Sirve una copia .sgbak de esta app (con los adjuntos), una exportación .json de la 1.0 o una criptopanel-vault (se vuelve a cifrar con el formato nuevo).",
+            "Sirve una copia .sgbak de esta app (con los adjuntos) o una exportación .json de la 1.0.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -289,13 +308,20 @@ private fun UnlockVault(store: VaultStore) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDestroy by remember { mutableStateOf(false) }
-    val bio = BiometricVault.enabled(context) && store.biometricAllowed
+    // A key that opened nothing (CRY-A02): the button is gone for this screen even if turning it off ever threw.
+    var fingerprintStale by remember { mutableStateOf(false) }
+    val bio = !fingerprintStale && BiometricVault.enabled(context) && store.biometricAllowed
     fun withFingerprint() {
         val activity = context.fragmentActivity() ?: return
         // The key is handed over even if this screen's scope is gone (a rotation): opened or wiped, never dropped (BOV-3);
-        // only the store's own texts are shown, never a raw exception (LIBRE-4).
+        // only the store's own texts are shown, never a raw exception (LIBRE-4). A key of another vault (a fingerprint
+        // that outlived a change of master password or an import) turns the fingerprint off and says so (CRY-A02);
+        // launchUnlockWithKey shows the text even if turning it off throws, as VaultBackup does after a new master.
         BiometricVault.unlock(activity, onKey = { key ->
-            scope.launchUnlockWithKey(store, key) { error = it }
+            scope.launchUnlockWithKey(store, key, onWrongKey = {
+                fingerprintStale = true
+                BiometricVault.disable(context)
+            }) { error = it }
         }, onError = { error = it })
     }
     LaunchedEffect(Unit) { if (bio) withFingerprint() }
@@ -312,7 +338,8 @@ private fun UnlockVault(store: VaultStore) {
                         store.unlock(chars)
                         pw = ""
                     } catch (e: CryptoFailure) {
-                        error = "Contraseña incorrecta"
+                        // A file this version cannot open is not a forgotten password («He olvidado» deletes it).
+                        error = if (e.message == NOT_A_VAULT) NOT_A_VAULT else "Contraseña incorrecta"
                     } catch (e: Exception) {
                         error = "No se pudo abrir la bóveda"
                     } finally {
@@ -330,7 +357,8 @@ private fun UnlockVault(store: VaultStore) {
                 BiometricRefusal.CLOCK -> Text(CLOCK_CHANGED_TEXT, style = MaterialTheme.typography.bodySmall)
                 BiometricRefusal.MASTER_DUE ->
                     Text("Por seguridad, cada 7 días hay que escribir la contraseña maestra.", style = MaterialTheme.typography.bodySmall)
-                null -> Unit
+                // A file this version cannot open: no notice (the master password says it is not compatible).
+                BiometricRefusal.UNSUPPORTED, null -> Unit
             }
         }
         error?.let { Text(it, color = NegativeColor) }
@@ -430,6 +458,16 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
                 }
                 if (e.favorite) Text("★", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 e.totp?.let { t ->
+                    // A setting this app does not calculate: why there is no code, as small as the seconds of one (F4).
+                    // totpCode below gives null for it; any other null (a key that is not usable) still shows nothing.
+                    if (!t.isSupported()) {
+                        Text(
+                            TOTP_UNSUPPORTED_ROW,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
                     totpCode(t, now)?.let { (code, left) ->
                         Column(horizontalAlignment = Alignment.End) {
                             Text(code.chunked(3).joinToString(" "), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)

@@ -110,18 +110,18 @@ data class VaultKdf(val memoryKiB: Int, val iterations: Int, val parallelism: In
 @Serializable
 data class VaultFile(
     /**
-     * [FORMAT] for every file this app writes ([VaultCrypto] always sets it, so it is always in the JSON).
-     * The default is [LEGACY_FORMAT] on purpose: the old app left the key out because it was its default value,
-     * so a file without it is one of those. Never change this default, or no old vault would open.
+     * [FORMAT] in every file this app writes ([VaultCrypto] always sets it). No default, on purpose: a file without
+     * it is not a vault of this app, and [VaultCrypto.decodeFile] refuses it as «No es una bóveda compatible» before
+     * any key is derived. Until 1.3.0 a missing key meant CriptoPanel's vault, which is no longer read (owner's
+     * decision, 1-11-2026); this app never left it out ([VaultCrypto] has written it since its first version).
      */
-    val format: String = LEGACY_FORMAT,
+    val format: String,
     /**
-     * 1: only the two sealed blobs were authenticated. 2: every field is (see [VaultCrypto]). 3: the same binding
-     * (the version number is one of the bound fields, so a 2 cannot pass for a 3 or the other way round) and the
-     * only one that may hold [EntryType.IDENTITY] and [EntryType.CONTACT] entries.
-     * Old [LEGACY_FORMAT] files left the field out when it had its default value, so a missing one
-     * ([VERSION_UNKNOWN]) can be either: the version whose associated data opens the blobs is the right one
-     * (see [VaultCrypto.resolve]). A [FORMAT] file always says its version: 2 (written by 1.1) or 3.
+     * 2: every field is authenticated (see [VaultCrypto]). 3: the same binding (the version number is one of the bound
+     * fields, so a 2 cannot pass for a 3 or the other way round) and the only one that may hold [EntryType.IDENTITY]
+     * and [EntryType.CONTACT] entries. This app always writes it: 2 (1.0 and 1.1) or 3. A file without it
+     * ([VERSION_UNKNOWN], edited by hand) is tried as both: the version whose associated data opens the blobs is the
+     * right one (see [VaultCrypto.resolve]).
      */
     val version: Int = VERSION_UNKNOWN,
     val kdf: VaultKdf,
@@ -138,8 +138,6 @@ data class VaultFile(
 ) {
     companion object {
         const val FORMAT = "seguridad-vault"
-        /** The older format this app imports: read only, and rewritten as [FORMAT] on import or unlock. */
-        const val LEGACY_FORMAT = "criptopanel-vault"
         /**
          * The version this app writes. Version 1.1 only reads [VERSION_2] and loses nothing: with the master password it
          * says "No es una bóveda compatible"; opened with the fingerprint, a 3 without an identity or contacts shows its
@@ -164,26 +162,17 @@ private fun fieldsAad(label: String, f: VaultFile, version: Int, vararg extra: A
     (listOf(label, f.format, version, f.kdf.memoryKiB, f.kdf.iterations, f.kdf.parallelism, f.salt) + extra)
         .joinToString("\u0000").toByteArray(Charsets.UTF_8)
 
-/**
- * Formats and versions [VaultCrypto] can open. Version 1 only ever existed in the legacy format, and the legacy
- * format never goes past 2 (CriptoPanel has no version 3).
- */
-private fun supported(f: VaultFile) = when (f.format) {
-    VaultFile.FORMAT -> f.version == VaultFile.VERSION_UNKNOWN || f.version == VaultFile.VERSION_2 || f.version == VaultFile.VERSION
-    VaultFile.LEGACY_FORMAT -> f.version in VaultFile.VERSION_UNKNOWN..VaultFile.VERSION_2
-    else -> false
-}
+/** What [VaultCrypto] can open: a [VaultFile.FORMAT] file of version 2 or 3, or one that does not say its version. */
+private fun supported(f: VaultFile) = f.format == VaultFile.FORMAT &&
+    (f.version == VaultFile.VERSION_UNKNOWN || f.version == VaultFile.VERSION_2 || f.version == VaultFile.VERSION)
 
 /** Versions to try for [f]: its own, or both when the file does not say (newest first). */
-private fun candidates(f: VaultFile) = when {
-    f.version != VaultFile.VERSION_UNKNOWN -> listOf(f.version)
-    f.format == VaultFile.LEGACY_FORMAT -> listOf(VaultFile.VERSION_2, 1)
-    else -> listOf(VaultFile.VERSION, VaultFile.VERSION_2)
-}
+private fun candidates(f: VaultFile) =
+    if (f.version != VaultFile.VERSION_UNKNOWN) listOf(f.version) else listOf(VaultFile.VERSION, VaultFile.VERSION_2)
 
 /**
- * Opens the first candidate version that authenticates. Trying version 1 is no downgrade: a blob sealed with
- * version-1 associated data only exists in a genuine version-1 file (it needs the key to make one).
+ * Opens the first candidate version that authenticates. Trying the 2 after the 3 is no downgrade: the version is one
+ * of the bound fields, so a blob only opens under the version it was sealed with.
  */
 private fun openAny(key: ByteArray, sealed: String, f: VaultFile, aad: (Int) -> ByteArray): Pair<ByteArray, Int> {
     for (v in candidates(f)) {
@@ -197,21 +186,19 @@ private fun openAny(key: ByteArray, sealed: String, f: VaultFile, aad: (Int) -> 
 }
 
 /**
- * The labels come from the file's own format, so a [VaultFile.LEGACY_FORMAT] file gets exactly the old labels
- * ("criptopanel-vault-key-v1", "criptopanel-vault-key-v2"). Versions 2 and 3 share the label and bind the format,
+ * The label comes from the file's own format ("seguridad-vault-key-v2"). Versions 2 and 3 share it and bind the format,
  * version, Argon2id cost and salt to the wrapped key: the version number inside the associated data is what tells
  * them apart, so wrapping again under a 3 needs the master password. Internal only so a test can wrap the real 1.1.1
  * fixture under the key Bouncy Castle 1.80 derived (`PasswordBytesTest`, review F5, m3).
  */
-internal fun keyAad(f: VaultFile, version: Int) =
-    if (version == 1) "${f.format}-key-v1".toByteArray() else fieldsAad("${f.format}-key-v2", f, version)
+internal fun keyAad(f: VaultFile, version: Int) = fieldsAad("${f.format}-key-v2", f, version)
 
 /**
  * Version 2 binds the same fields plus the revision and the last master check to the entries: a phone with root
  * can neither stretch the 7-day biometric window nor mix an older data blob into the current file.
+ * Internal only so a test can seal entries that authenticate but do not decode (final review 1.3.1, F1).
  */
-private fun dataAad(f: VaultFile, version: Int) =
-    if (version == 1) "${f.format}-data-v1".toByteArray() else fieldsAad("${f.format}-data-v2", f, version, f.revision, f.masterCheckedAt)
+internal fun dataAad(f: VaultFile, version: Int) = fieldsAad("${f.format}-data-v2", f, version, f.revision, f.masterCheckedAt)
 
 /** Encrypts and then wipes [plain]. */
 private fun seal(key: ByteArray, plain: ByteArray, aad: ByteArray, random: SecureRandom, wipe: Boolean = true): String {
@@ -233,7 +220,8 @@ private fun open(key: ByteArray, sealed: String, aad: ByteArray): ByteArray {
     return aead(Aead.AES_256_GCM, false, key, raw.copyOfRange(0, NONCE_BYTES), aad, raw.copyOfRange(NONCE_BYTES, raw.size))
 }
 
-private const val NOT_A_VAULT = "No es una bóveda compatible"
+/** What [VaultCrypto] says of a file it cannot open; the unlock screen shows it, not «Contraseña incorrecta» (F2). */
+internal const val NOT_A_VAULT = "No es una bóveda compatible"
 
 object VaultCrypto {
     /** A new vault: fresh DEK wrapped with [master]. Returns the file and the open DEK (caller keeps it while unlocked). */
@@ -257,7 +245,7 @@ object VaultCrypto {
         val kek = argon2id(master, salt, kdf, use = use)
         try {
             val plain = VaultFile(
-                format = VaultFile.FORMAT, // Not the default, so it is always written out.
+                format = VaultFile.FORMAT, // Required (no default), so it is always written out.
                 version = VaultFile.VERSION, // Always written out, so it is never ambiguous again.
                 kdf = VaultKdf(kdf.memoryKiB, kdf.iterations, kdf.parallelism),
                 salt = b64.encodeToString(salt),
@@ -275,7 +263,7 @@ object VaultCrypto {
         }
     }
 
-    /** The DEK, or [CryptoFailure] for a wrong master password or a damaged or altered file. Opens both formats. */
+    /** The DEK, or [CryptoFailure] for a wrong master password or a damaged or altered file. */
     fun unlock(file: VaultFile, master: CharArray, heapKiB: Long = appHeapKiB()): ByteArray {
         if (!supported(file)) throw CryptoFailure(NOT_A_VAULT)
         val kdf = file.kdf.params().also { it.checkSane(heapKiB) }
@@ -313,6 +301,25 @@ object VaultCrypto {
         }
     }
 
+    /** True if this version can open [file] at all (its format and version); nothing is decrypted. */
+    fun opens(file: VaultFile): Boolean = supported(file)
+
+    /**
+     * [file] with its real version if [dek] authenticates its entries under one of the candidate versions (AES-256-GCM
+     * only: the JSON is not decoded and the decrypted bytes are wiped), or null if it authenticates under none: the key
+     * is another vault's, or the blob is damaged (AES-GCM cannot tell those two apart). What the fingerprint needs to
+     * tell a stale key from entries this version cannot decode ([VaultStore.unlockWithKey], F1).
+     */
+    fun authenticated(file: VaultFile, dek: ByteArray): VaultFile? {
+        val (json, version) = try {
+            openAny(dek, file.data, file) { dataAad(file, it) }
+        } catch (e: CryptoFailure) {
+            return null
+        }
+        json.fill(0)
+        return file.copy(version = version)
+    }
+
     /** [file] with its real version, found by which associated data opens its entries. */
     fun resolve(file: VaultFile, dek: ByteArray): VaultFile {
         if (file.version != VaultFile.VERSION_UNKNOWN) return file
@@ -340,17 +347,17 @@ object VaultCrypto {
 
     /**
      * After the master password opened [file]: records the check (re-sealing, since it is authenticated) and turns a
-     * legacy file (any version), a version-1 file or a version-2 file into [VaultFile.FORMAT] version 3, which needs
-     * the master password once more to wrap the key with the new binding. The data key stays the same (a fingerprint
-     * set up with it keeps working) and the revision goes up by one. A version-3 file is only re-sealed, unless its
-     * Argon2id is cheaper than [kdf] in memory or passes: then the key is wrapped again with the cost asked, same data
-     * key, revision + 1. That happens at any unlock with the master password, on purpose: after an import of a copy made
-     * with a lower cost (A8), and also after a higher cost was chosen in Ajustes, which takes effect at the next unlock
-     * with the master password (that unlock then runs Argon2id twice: once to open with the old cost, once to wrap with
-     * the new one). If saving that fails ([VaultStore] opens anyway), the vault in memory already has the new cost and any
-     * later save writes it; only if no save ever succeeds does the next start do it again, never silently lowering
-     * anything. [VaultStore.confirmMaster] (a check inside an open session) does not do it: it only checks a version-3
-     * file, so a save the user is waiting for is not delayed by a second Argon2id; the next unlock does it.
+     * version-2 file into version 3, which needs the master password once more to wrap the key with the new binding.
+     * The data key stays the same (a fingerprint set up with it keeps working) and the revision goes up by one. A
+     * version-3 file is only re-sealed, unless its Argon2id is cheaper than [kdf] in memory or passes: then the key is
+     * wrapped again with the cost asked, same data key, revision + 1. That happens at any unlock with the master
+     * password, on purpose: after an import of a copy made with a lower cost (A8), and also after a higher cost was
+     * chosen in Ajustes, which takes effect at the next unlock with the master password (that unlock then runs Argon2id
+     * twice: once to open with the old cost, once to wrap with the new one). If saving that fails ([VaultStore] opens
+     * anyway), the vault in memory already has the new cost and any later save writes it; only if no save ever succeeds
+     * does the next start do it again, never silently lowering anything. [VaultStore.confirmMaster] (a check inside an
+     * open session) does not do it: it only checks a version-3 file, so a save the user is waiting for is not delayed
+     * by a second Argon2id; the next unlock does it.
      *
      * Whatever is wrapped again never costs less than the file did on any axis (CR-2): memory, passes and parallelism
      * are each the higher of the file's and [kdf]'s. A lower parallelism alone is not «cheaper»: Argon2id's cost to an
@@ -400,25 +407,31 @@ object VaultCrypto {
     }
 
     /**
-     * Whether a biometric unlock may proceed: only for [VaultFile.FORMAT] (a legacy file needs the master password
-     * once to be converted), not for version 1 (date not authenticated; an unknown version is [resolve]d with the
-     * key first), within 7 days of the last master check and never with a date in the future. [highWater] is the
-     * highest time the app ever saw (a mark that only rises): a clock set back more than [CLOCK_SLACK_MS] behind it
-     * asks for the master password, so setting the clock back no longer stretches the 7 days.
+     * Whether a biometric unlock may proceed: only for a file [unlock] would open (a [VaultFile.FORMAT] file of version
+     * 2 or 3, or one that does not say its version, whose version [VaultStore] finds with the key), within 7 days of
+     * the last master check and never with a date in the future. Any other format or version (1, 4…) is
+     * [BiometricRefusal.UNSUPPORTED]: the unlock screen offers no fingerprint and shows no notice for it, the key is
+     * never tried on it, and the master password then gets «No es una bóveda compatible» ([NOT_A_VAULT]) instead of
+     * «Contraseña incorrecta». [highWater] is the highest time the app ever saw (a mark that only rises): a clock set
+     * back more than [CLOCK_SLACK_MS] behind it asks for the master password, so setting the clock back no longer
+     * stretches the 7 days.
      */
     fun biometricAllowed(file: VaultFile, now: Long, highWater: Long = 0): Boolean = biometricRefusal(file, now, highWater) == null
 
-    /** Why [biometricAllowed] says no, or null when it says yes; the screen words the two reasons differently. */
+    /** Why [biometricAllowed] says no, or null when it says yes; the screen words the reasons differently. */
     fun biometricRefusal(file: VaultFile, now: Long, highWater: Long = 0): BiometricRefusal? = when {
-        file.format != VaultFile.FORMAT || file.version == 1 -> BiometricRefusal.MASTER_DUE
+        !supported(file) -> BiometricRefusal.UNSUPPORTED
         now < file.masterCheckedAt || now < highWater - CLOCK_SLACK_MS -> BiometricRefusal.CLOCK
         now - file.masterCheckedAt >= MASTER_RECHECK_MS -> BiometricRefusal.MASTER_DUE
         else -> null
     }
 }
 
-/** Why the fingerprint is refused: the master password is due (format or 7 days), or the clock went backwards. */
-enum class BiometricRefusal { MASTER_DUE, CLOCK }
+/**
+ * Why the fingerprint is refused: the master password is due (7 days), the clock went backwards, or this version cannot
+ * open the file (its format or version; the screen shows no notice for it).
+ */
+enum class BiometricRefusal { MASTER_DUE, CLOCK, UNSUPPORTED }
 
 /** How far behind the highest time seen the clock may be before the fingerprint asks for the master password. */
 const val CLOCK_SLACK_MS = 5 * 60_000L

@@ -61,7 +61,7 @@ const val ENCRYPT_HELP =
     "Solo quien tenga la identidad del contacto elegido podrá leerlo. Si alguien robara esa identidad podría leer también " +
         "lo que ya recibió, y quien vea el mensaje sabe que existe, su tamaño y cuándo se envió."
 
-/** Un `.sgenc` (o `.cpenc`) cifrado con contraseña elegido en «Abrir lo recibido»: se abre en Herramientas. */
+/** Un `.sgenc` cifrado con contraseña elegido en «Abrir lo recibido»: se abre en Herramientas. */
 const val SYMMETRIC_FILE_NOTICE = "Este archivo está cifrado con contraseña: ábrelo en Herramientas → Cifrar archivos"
 
 /** Debajo del texto cifrado o firmado que se comparte: es público. */
@@ -433,7 +433,7 @@ sealed interface PickedFile {
     /** Un `.sgsig`: [bytes] son los primeros 1.024 bytes (una firma válida mide 101; `verifyFileSignature` rechaza otro tamaño). */
     class Signature(val bytes: ByteArray) : PickedFile
 
-    /** Un `.sgenc` o `.cpenc` cifrado con contraseña (el de Herramientas → Cifrar archivos). */
+    /** Un `.sgenc` cifrado con contraseña (el de Herramientas → Cifrar archivos). */
     data object Symmetric : PickedFile
 
     /** Un archivo de texto con algo que se reconoce (`SGM1:`, `SGS1:`, `SGK1:`): se lee como si se hubiera pegado. */
@@ -450,7 +450,7 @@ private const val HEAD_BYTES = 8
 
 /**
  * Qué es un archivo elegido, por sus primeros bytes [bytes] (como mucho [MAX_TEXT_FILE_BYTES] + 1; basta con eso). En este orden:
- *  1. cifrado con contraseña (`SG`/`CP`, versión 1, archivo): [PickedFile.Symmetric], con o sin `.sgsig` ya elegido;
+ *  1. cifrado con contraseña (`SG`, versión 1, archivo): [PickedFile.Symmetric], con o sin `.sgsig` ya elegido;
  *  2. de clave pública: un `.sgenc` de tipo 3 ([PickedFile.Encrypted]) o un `.sgsig` ([PickedFile.Signature]); otro binario
  *     que empiece por `SG` 2 (una tarjeta en bytes) es [PickedFile.Other] y nunca se lee como texto;
  *  3. un texto (UTF-8 estricto, de hasta [MAX_TEXT_FILE_BYTES]) en el que `detectReceived` reconoce algo se lee igual que si
@@ -476,7 +476,7 @@ fun classifyPicked(bytes: ByteArray, haveSignature: Boolean): PickedFile {
     return if (plan is ReceivedPlan.Unrecognized) PickedFile.Other else PickedFile.Text(text, plan)
 }
 
-/** Si [bytes] empieza como un archivo cifrado con contraseña: `SG` o `CP`, versión 1 y tipo archivo. */
+/** Si [bytes] empieza como un archivo cifrado con contraseña: `SG`, versión 1 y tipo archivo. */
 private fun isSymmetricHeader(bytes: ByteArray): Boolean =
     bytes.size >= 4 && Dialect.ofMagic(bytes.copyOf(2)) != null && bytes[2] == Header.VERSION && bytes[3] == Header.KIND_FILE
 

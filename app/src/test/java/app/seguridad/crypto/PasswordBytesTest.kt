@@ -13,7 +13,7 @@ import java.util.Random
 /**
  * CIFRADO-1 (audit 1.3.0): Argon2id and the HIBP check encode the password to UTF-8 themselves (into an array that is
  * wiped), instead of letting Bouncy Castle or `String` leave a copy on the heap. The bytes must be exactly the ones of
- * before, or a vault, a `.sgbak`, an `SG1:`/`CP1:` text or a `.sgenc`/`.cpenc` file would no longer open. For a password
+ * before, or a vault, a `.sgbak`, an `SG1:` text or a `.sgenc` file would no longer open. For a password
  * that is not valid text, what opens existing data follows Bouncy Castle 1.80 (Seguridad 1.0.x and 1.1.x), and nothing
  * new is protected with it (review F5, M1).
  */
@@ -130,7 +130,7 @@ class PasswordBytesTest {
         val aad = header.bytes()
         val key = rawKey(lone180Bytes, header.salt, header.kdf)
         val sealed = aead(Aead.AES_256_GCM, true, key, header.nonce, aad, "hola".toByteArray(), header.dialect)
-        val token = Dialect.SEGURIDAD.textPrefix + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(aad + sealed)
+        val token = TEXT_PREFIX + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(aad + sealed)
         assertEquals("hola", decryptText(token, pw.toCharArray()))
         val fileHeader = newHeader(Header.KIND_FILE, Aead.AES_256_GCM, secret, quick, secureRandom)
         val fileAad = fileHeader.bytes()

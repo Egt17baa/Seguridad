@@ -16,7 +16,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
@@ -30,19 +34,19 @@ import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BACKUP_DAMAGED
 import app.seguridad.vault.BACKUP_HEAD_BYTES
+import app.seguridad.vault.MIN_MASTER
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.backupFileName
 import app.seguridad.vault.identity
 import app.seguridad.vault.mayBeVaultImport
+import app.seguridad.vault.newMasterProblem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-
-const val MIN_MASTER = 10
 
 /**
  * What to do once the master password was changed (the vault is then locked), with whether the fingerprint could not be
@@ -57,7 +61,7 @@ val LocalOnMasterChanged = staticCompositionLocalOf<(fingerprintFailed: Boolean,
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
 
 /**
- * Export (a .sgbak copy with the attachments), import (a .sgbak copy, or a JSON export of 1.0.x or CriptoPanel)
+ * Export (a .sgbak copy with the attachments), import (a .sgbak copy, or a JSON export of 1.0.x)
  * and change of master password, with their pickers and dialogs; results are shown in [snackbar]. Call once per
  * screen, where its dialogs belong.
  */
@@ -110,6 +114,8 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             title = "Nueva contraseña maestra",
             confirmLabel = "Cambiar",
             askTwice = true,
+            // CRY-A01: this master is chosen now, so it has to pass newMasterProblem. Importing never does.
+            newPassword = true,
             onDismiss = { dialog = null },
         ) { pw ->
             scope.launch {
@@ -214,12 +220,19 @@ internal fun PasswordDialog(
     confirmLabel: String,
     onDismiss: () -> Unit,
     askTwice: Boolean = false,
+    newPassword: Boolean = false,
     warning: String? = null,
     onConfirm: (CharArray) -> Unit,
 ) {
     var a by remember { mutableStateOf("") }
     var b by remember { mutableStateOf("") }
-    val ok = a.length >= MIN_MASTER && (!askTwice || a == b)
+    // CRY-A01: only a password chosen now (the new master) has to be long enough and not easy to guess. The password of
+    // a copy to import (newPassword = false) already exists, so it only needs the length it always needed.
+    // The new master also must not be a single known word: the lists load off the main thread (null until they are in) and
+    // the button waits for them. The import dialog does not read them, and does not wait.
+    val words = if (newPassword) rememberMasterWords() else null
+    val problem = if (newPassword) newMasterProblem(a, words ?: emptySet()) else null
+    val ok = (if (newPassword) words != null && problem == null else a.length >= MIN_MASTER) && (!askTwice || a == b)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -229,6 +242,8 @@ internal fun PasswordDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     warning?.let { Text(it, color = NegativeColor) }
                     PasswordField(a, { a = it })
+                    // A polite live region, so TalkBack announces it when it changes.
+                    if (a.isNotEmpty()) problem?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     if (askTwice) PasswordField(b, { b = it }, label = "Repítela")
                     if (askTwice && b.isNotEmpty() && a != b) Text("No coinciden", color = NegativeColor)
                 }

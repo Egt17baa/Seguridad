@@ -472,7 +472,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                             "Al importar se reemplaza la bóveda de este móvil."
                     },
                 )
-                Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia, la exportación .json de la 1.0 y la criptopanel-vault, que se vuelve a cifrar con el formato nuevo.")
+                Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia y la exportación .json de la 1.0.")
             }
             AutoBackupSection(store, vault, autoBackup, snackbar)
             FingerprintKeySection(vaultState)

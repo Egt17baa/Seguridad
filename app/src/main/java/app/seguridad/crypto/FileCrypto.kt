@@ -10,10 +10,8 @@ import java.security.SecureRandom
 
 const val STREAM_PREFIX_BYTES = 7
 const val CHUNK_BYTES = 64 * 1024
-/** Extension of the files this app writes ([Dialect.SEGURIDAD]). */
+/** Extension of the files this app writes and reads ([Dialect.SEGURIDAD]). */
 const val ENCRYPTED_EXTENSION = ".sgenc"
-/** Extension of the legacy dialect's files (.cpenc), still read. */
-const val LEGACY_ENCRYPTED_EXTENSION = ".cpenc"
 /** The most the sealed file name may measure, in UTF-8 bytes ([safeFileName] keeps it far below: [MAX_SAVED_NAME_BYTES]). Shared with the public-key files (`pk/FileMessage.kt`). */
 internal const val MAX_FILE_NAME_BYTES = 1024
 

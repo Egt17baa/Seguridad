@@ -1,16 +1,8 @@
 package app.seguridad.vault
 
-import app.seguridad.core.appJson
-import app.seguridad.crypto.Aead
 import app.seguridad.crypto.CryptoFailure
-import app.seguridad.crypto.KEY_BYTES
 import app.seguridad.crypto.KdfParams
-import app.seguridad.crypto.NONCE_BYTES
-import app.seguridad.crypto.PasswordUse
 import app.seguridad.crypto.SALT_BYTES
-import app.seguridad.crypto.aead
-import app.seguridad.crypto.argon2id
-import app.seguridad.crypto.randomBytes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -66,64 +58,12 @@ class VaultTamperTest {
         listOf(
             file.copy(kdf = file.kdf.copy(iterations = 2)),
             file.copy(salt = otherSalt),
-            file.copy(version = 1), // Downgrade to the old, less bound format.
+            file.copy(version = 1), // A version this format never had.
         ).forEach { refused { VaultCrypto.unlock(it, "maestra".toCharArray()) } }
         VaultCrypto.unlock(file, "maestra".toCharArray())
     }
 
-    @Test fun `version 1 vaults still open and become version 2 at the next master unlock`() {
-        val master = "vieja".toCharArray()
-        val dek = randomBytes(KEY_BYTES)
-        val salt = randomBytes(SALT_BYTES)
-        val kek = argon2id(master, salt, QUICK, use = PasswordUse.NEW)
-        fun v1Seal(key: ByteArray, plain: ByteArray, aad: String): String {
-            val nonce = randomBytes(NONCE_BYTES)
-            return Base64.getEncoder().encodeToString(nonce + aead(Aead.AES_256_GCM, true, key, nonce, aad.toByteArray(), plain))
-        }
-        val v1 = VaultFile(
-            version = 1,
-            kdf = VaultKdf(QUICK.memoryKiB, QUICK.iterations, QUICK.parallelism),
-            salt = Base64.getEncoder().encodeToString(salt),
-            wrappedKey = v1Seal(kek, dek, "criptopanel-vault-key-v1"),
-            data = v1Seal(dek, appJson.encodeToString(listOf(note)).toByteArray(), "criptopanel-vault-data-v1"),
-            masterCheckedAt = 0,
-        )
-        val opened = VaultCrypto.unlock(v1, master)
-        assertEquals(listOf("Wallet"), VaultCrypto.read(v1, opened).map { it.title })
-        assertFalse(VaultCrypto.biometricAllowed(v1, 1)) // Its date is not authenticated.
-        val upgraded = VaultCrypto.afterMasterUnlock(v1, opened, master, now = 5, kdf = QUICK)
-        assertEquals(VaultFile.VERSION, upgraded.version)
-        assertTrue(VaultCrypto.biometricAllowed(upgraded, 6))
-        // Same data key, so a fingerprint set up before the upgrade keeps working.
-        assertEquals(listOf("Wallet"), VaultCrypto.read(upgraded, dek).map { it.title })
-        assertEquals(listOf("Wallet"), VaultCrypto.read(upgraded, VaultCrypto.unlock(upgraded, master)).map { it.title })
-    }
-
-    /** A 1.9.2 vault on disk: version 1, and its JSON has no "version" key (it was the default then). */
-    private fun v192Json(master: CharArray): String {
-        val dek = randomBytes(KEY_BYTES)
-        val salt = randomBytes(SALT_BYTES)
-        val kek = argon2id(master, salt, QUICK, use = PasswordUse.NEW)
-        fun v1Seal(key: ByteArray, plain: ByteArray, aad: String): String {
-            val nonce = randomBytes(NONCE_BYTES)
-            return Base64.getEncoder().encodeToString(nonce + aead(Aead.AES_256_GCM, true, key, nonce, aad.toByteArray(), plain))
-        }
-        return """{"kdf":{"memoryKiB":${QUICK.memoryKiB},"iterations":${QUICK.iterations},"parallelism":${QUICK.parallelism}},""" +
-            """"salt":"${Base64.getEncoder().encodeToString(salt)}","wrappedKey":"${v1Seal(kek, dek, "criptopanel-vault-key-v1")}",""" +
-            """"data":"${v1Seal(dek, appJson.encodeToString(listOf(note)).toByteArray(), "criptopanel-vault-data-v1")}","masterCheckedAt":5}"""
-    }
-
-    @Test fun `vault files without a version key, as 1_9_2 and 1_9_3 wrote them, still open`() {
-        val master = "maestra".toCharArray()
-        // 1.9.2: version 1 without the key.
-        val old = VaultCrypto.decodeFile(v192Json(master))
-        assertEquals(VaultFile.VERSION_UNKNOWN, old.version)
-        val oldKey = VaultCrypto.unlock(old, master)
-        assertEquals(listOf("Wallet"), VaultCrypto.read(old, oldKey).map { it.title })
-        assertEquals(1, VaultCrypto.resolve(old, oldKey).version)
-        val upgraded = VaultCrypto.afterMasterUnlock(old, oldKey, master, now = 10, kdf = QUICK)
-        assertTrue(VaultCrypto.encodeFile(upgraded).contains("\"version\":3"))
-        // 1.9.3: version 2 without the key.
+    @Test fun `a vault file without a version key still opens`() {
         val (v2, dek) = vault()
         val stripped = VaultCrypto.decodeFile(VaultCrypto.encodeFile(v2).replace("\"version\":3,", ""))
         assertEquals(VaultFile.VERSION_UNKNOWN, stripped.version)

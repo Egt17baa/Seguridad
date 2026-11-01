@@ -16,8 +16,9 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Vaults written by CriptoPanel (real files, made with its own code: 1.9.2 for v1, 1.9.3 for the one without a
- * "version" key, 1.10.0 for v2) open in Seguridad and are rewritten as seguridad-vault v2.
+ * The vault formats this app opens (only `seguridad-vault`; a file without the "format" key is not one), and the lock
+ * on time. Two real vaults written by CriptoPanel (1.9.3 for the one without a "version" key, 1.10.0 for v2) stay in
+ * `criptopanel/` to check that, since 1.3.1, they are refused like any other file.
  */
 class LegacyVaultTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -34,64 +35,54 @@ class LegacyVaultTest {
             idleLockMs = idleLockMs, keptOpen = { keptOpen }, elapsed = { clock },
         )
 
-    private suspend fun importsAndRewrites(name: String) {
+    /** A vault of this app, as [VaultCrypto.create] makes it. */
+    private fun ours() = VaultCrypto.create(master.toCharArray(), clock, KdfParams(1024, 1, 1)).let { (file, dek) -> dek.fill(0); file }
+
+    /**
+     * Since 1.3.1 (owner's decision, 1-11-2026) a CriptoPanel vault (criptopanel/vault-v2.json, and vault-noversion.json
+     * from before it wrote a version) is not imported: with its right master password, as text and as a file, it gets
+     * what any JSON that is not a vault of this app gets, and the vault on the phone stays exactly as it was.
+     */
+    @Test fun `CriptoPanel data is refused`() = runTest {
         val s = store().apply { load() }
         s.create("otra".toCharArray())
-        s.importReplace(fixture(name), master.toCharArray())
+        s.upsert(VaultEntry("1", EntryType.NOTE, "Nota", notes = "secreto", createdAt = 0, updatedAt = 0))
+        val vaultFile = File(tmp.root, "vault.bin")
+        val before = vaultFile.readBytes()
         val entries = (s.state.value as VaultState.Unlocked).entries
-        assertEquals(2, entries.size)
-        assertEquals(setOf(EntryType.LOGIN, EntryType.TOTP), entries.map { it.type }.toSet())
-        assertEquals("JBSWY3DPEHPK3PXP", entries.single { it.type == EntryType.TOTP }.totp!!.secret)
-        val onDisk = VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText())
-        assertEquals("seguridad-vault", onDisk.format)
-        assertEquals(VaultFile.VERSION, onDisk.version)
-        assertEquals(clock, onDisk.masterCheckedAt)
-        s.lock()
-        s.unlock(master.toCharArray())
-        assertEquals(2, (s.state.value as VaultState.Unlocked).entries.size)
-        // And from a fresh start, as after restarting the app.
-        val again = store().apply { load() }
-        again.unlock(master.toCharArray())
-        assertEquals(2, (again.state.value as VaultState.Unlocked).entries.size)
-    }
+        val files = tmp.root.list()!!.sorted()
 
-    @Test fun importsCriptopanelV1() = runTest { importsAndRewrites("vault-v1.json") }
-
-    @Test fun importsCriptopanelNoVersion() = runTest { importsAndRewrites("vault-noversion.json") }
-
-    @Test fun importsCriptopanelV2() = runTest { importsAndRewrites("vault-v2.json") }
-
-    @Test fun legacyFilesHaveNoFormatKeyAndReadAsLegacy() {
-        listOf("vault-v1.json", "vault-noversion.json", "vault-v2.json").forEach {
-            assertFalse(fixture(it).contains("\"format\""))
-            assertEquals(VaultFile.LEGACY_FORMAT, VaultCrypto.decodeFile(fixture(it)).format)
-        }
-    }
-
-    @Test fun upgradeKeepsTheDataKeyAndBumpsTheRevision() {
-        val legacy = VaultCrypto.decodeFile(fixture("vault-v2.json"))
-        val dek = VaultCrypto.unlock(legacy, master.toCharArray())
-        val upgraded = VaultCrypto.afterMasterUnlock(legacy, dek.copyOf(), master.toCharArray(), now = 42, kdf = KdfParams(1024, 1, 1))
-        assertEquals(VaultFile.FORMAT, upgraded.format)
-        assertEquals(VaultFile.VERSION, upgraded.version)
-        assertEquals(legacy.revision + 1, upgraded.revision)
-        assertEquals(42L, upgraded.masterCheckedAt)
-        assertArrayEquals(dek, VaultCrypto.unlock(upgraded, master.toCharArray()))
-        assertTrue(VaultCrypto.encodeFile(upgraded).contains("\"format\":\"seguridad-vault\""))
-    }
-
-    @Test fun legacyFormatWithNewLabelsFails() {
-        val relabelled = VaultCrypto.decodeFile(fixture("vault-v2.json")).copy(format = VaultFile.FORMAT)
-        try {
-            VaultCrypto.unlock(relabelled, master.toCharArray())
-            fail()
+        suspend fun importFailure(text: String, asFile: Boolean): String? = try {
+            if (asFile) s.importReplace(text.byteInputStream(), master.toCharArray()) else s.importReplace(text, master.toCharArray())
+            fail("expected CryptoFailure")
+            null
         } catch (e: CryptoFailure) {
-            // expected
+            e.message
+        }
+        for (asFile in listOf(false, true)) {
+            val notOurs = importFailure("""{"hola":"esto no es una bóveda"}""", asFile)
+            assertEquals("No es una bóveda compatible", notOurs)
+            for (name in listOf("vault-v2.json", "vault-noversion.json")) {
+                val json = fixture(name)
+                assertFalse(name, json.contains("\"format\""))
+                assertEquals("$name, as a file: $asFile", notOurs, importFailure(json, asFile))
+                assertArrayEquals(name, before, vaultFile.readBytes())
+                assertEquals(name, entries, (s.state.value as VaultState.Unlocked).entries)
+                assertEquals(name, files, tmp.root.list()!!.sorted())
+            }
+        }
+        listOf("vault-v2.json", "vault-noversion.json").forEach {
+            try {
+                VaultCrypto.decodeFile(fixture(it))
+                fail(it)
+            } catch (e: CryptoFailure) {
+                assertEquals("No es una bóveda compatible", e.message)
+            }
         }
     }
 
     @Test fun unknownFormatIsRefused() {
-        val other = VaultCrypto.decodeFile(fixture("vault-v2.json")).copy(format = "otra-cosa")
+        val other = ours().copy(format = "otra-cosa")
         try {
             VaultCrypto.unlock(other, master.toCharArray())
             fail()
@@ -154,37 +145,29 @@ class LegacyVaultTest {
         dek.fill(0)
         val json = VaultCrypto.encodeFile(file)
         assertTrue(json.contains("\"format\":\"seguridad-vault\","))
-        val stripped = VaultCrypto.decodeFile(json.replace("\"format\":\"seguridad-vault\",", ""))
-        assertEquals(VaultFile.LEGACY_FORMAT, stripped.format) // Reads as a legacy file…
-        assertUnlockFails(stripped) // …whose legacy labels do not open it.
-        assertUnlockFails(file.copy(format = VaultFile.LEGACY_FORMAT))
+        try {
+            VaultCrypto.decodeFile(json.replace("\"format\":\"seguridad-vault\",", ""))
+            fail("a vault without its format must not be read")
+        } catch (e: CryptoFailure) {
+            assertEquals("No es una bóveda compatible", e.message) // Refused before any key is derived.
+        }
         assertEquals(KEY_BYTES, VaultCrypto.unlock(file, master.toCharArray()).also { it.fill(0) }.size) // The original still opens.
     }
 
-    private fun assertUnlockFails(f: VaultFile) {
-        try {
-            VaultCrypto.unlock(f, master.toCharArray())
-            fail()
-        } catch (e: CryptoFailure) {
-            // expected
-        }
+    @Test fun noBiometricsForAnotherFormatEvenWhenRecentlyChecked() {
+        val file = ours()
+        assertEquals(clock, file.masterCheckedAt)
+        assertTrue(VaultCrypto.biometricAllowed(file, clock + 1_000))
+        assertFalse(VaultCrypto.biometricAllowed(file.copy(format = "otra-cosa"), clock + 1_000)) // Only the format differs.
     }
 
-    @Test fun noBiometricsForLegacyV2EvenWhenRecentlyChecked() {
-        val legacy = VaultCrypto.decodeFile(fixture("vault-v2.json")).copy(masterCheckedAt = clock)
-        assertEquals(2, legacy.version)
-        assertFalse(VaultCrypto.biometricAllowed(legacy, clock + 1_000))
-        assertTrue(VaultCrypto.biometricAllowed(legacy.copy(format = VaultFile.FORMAT), clock + 1_000)) // Only the format differs.
-    }
-
-    @Test fun writeRefusesALegacyFile() {
-        val legacy = VaultCrypto.decodeFile(fixture("vault-v2.json"))
-        val dek = VaultCrypto.unlock(legacy, master.toCharArray())
+    @Test fun writeRefusesAnotherFormat() {
+        val (file, dek) = VaultCrypto.create(master.toCharArray(), clock, KdfParams(1024, 1, 1))
         try {
-            VaultCrypto.write(legacy, dek, emptyList())
+            VaultCrypto.write(file.copy(format = "otra-cosa"), dek, emptyList())
             fail()
         } catch (e: IllegalStateException) {
-            // expected: a legacy file is only ever rewritten by afterMasterUnlock.
+            // expected: write only ever re-seals a file of this app's format.
         } finally {
             dek.fill(0)
         }

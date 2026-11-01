@@ -34,7 +34,7 @@ private val components = listOf(
     Component("ZXing y ZXing Android Embedded", "Apache-2.0", "https://github.com/journeyapps/zxing-android-embedded", "apache-2.0.txt", "Lectura de códigos QR con la cámara. Incluye código de Barcode4J: Copyright 2002-2010 Jeremias Märki, Copyright 2005-2006 Dietmar Bürkle. Portions of this software were contributed under section 5 of the Apache License."),
     Component("Bouncy Castle", "MIT", "https://www.bouncycastle.org/", "bouncycastle.txt", "Algoritmos criptográficos: Argon2id, ChaCha20-Poly1305, Twofish, Serpent, Camellia, Ed25519, HPKE y el cifrado híbrido X-Wing."),
     Component("Lista de palabras BIP-39", "MIT", "https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md", "bip39.txt", "Las 2.048 palabras en inglés y las 2.048 en español, sin cambios."),
-    Component("Lista de palabras larga de la EFF", "CC BY 3.0 US", "https://www.eff.org/dice", "cc-by-3.0.txt", "De la Electronic Frontier Foundation. El Generador usa las mismas palabras, en el mismo orden; solo se ha quitado la columna de los números de dado. Licencia: https://creativecommons.org/licenses/by/3.0/us/"),
+    Component("Lista de palabras larga de la EFF", "CC BY 3.0 US", "https://www.eff.org/dice", "cc-by-3.0.txt", "De la Electronic Frontier Foundation, con las mismas palabras y en el mismo orden; solo se ha quitado la columna de los números de dado. El Generador la usa para las frases y, al crear la bóveda o cambiar la contraseña maestra, la app no acepta como maestra una sola de sus palabras. Licencia: https://creativecommons.org/licenses/by/3.0/us/"),
 )
 
 /** One entry per component, each with its license text that can be unfolded. */

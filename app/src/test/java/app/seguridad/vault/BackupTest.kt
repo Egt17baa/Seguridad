@@ -198,8 +198,8 @@ class BackupTest {
     }
 
     @Test fun jsonExportsStillImport() = runTest {
-        // CriptoPanel (1.9.2, 1.9.3 and 1.10.0) and Seguridad 1.0.2 exports, as text and as a stream.
-        val fixtures = listOf("/criptopanel/vault-v1.json", "/criptopanel/vault-noversion.json", "/criptopanel/vault-v2.json", "/seguridad/export-1.0.2.json")
+        // The Seguridad 1.0.2 export, as text and as a stream (CriptoPanel's are refused since 1.3.1: LegacyVaultTest).
+        val fixtures = listOf("/seguridad/export-1.0.2.json")
         for (path in fixtures) for (asStream in listOf(false, true)) {
             val text = javaClass.getResource(path)!!.readText()
             val s = store(phone("j${path.hashCode()}$asStream")).apply { load(); create("otra-maestra".toCharArray()) }
