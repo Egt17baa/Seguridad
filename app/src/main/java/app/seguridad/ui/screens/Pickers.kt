@@ -93,8 +93,9 @@ internal fun isAcceptableDocument(context: Context, uri: Uri): Boolean {
 /**
  * CreateDocument for a restored file (a decrypted file or attachment), with the input as the proposed name and the
  * MIME type of its extension ([restoredFileMime]), so that a name already taken becomes «foto (1).jpg» and not
- * «foto.jpg (1)», which no app opens (owner's phone test, 1-11-2026). Otherwise the same as
- * [ActivityResultContracts.CreateDocument]; it is registered through [rememberDocumentPicker] like every picker.
+ * «foto.jpg (1)», which no app opens (owner's phone test, 1-11-2026). Like [ActivityResultContracts.CreateDocument],
+ * plus `CATEGORY_OPENABLE` (the file is written as a stream, so a virtual document cannot be chosen to overwrite); it
+ * is registered through [rememberDocumentPicker] like every picker.
  */
 internal class CreateRestoredDocument : ActivityResultContract<String, Uri?>() {
     override fun createIntent(context: Context, input: String): Intent =
