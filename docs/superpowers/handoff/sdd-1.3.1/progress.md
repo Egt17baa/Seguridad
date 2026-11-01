@@ -49,3 +49,12 @@ Task 2: round 3 implementer DONE b5c72b1 (N1 test name/report note, N2 rates, jv
 Task 2: fix round 3/5 (N1, N2, jvm-check assets input addressed, 0 open; commits 1be454e..b5c72b1; task-2-rereview-2.md). Note: the «~1/27,600» quoted above is superseded — exact figures 1 in 3,900 (12 chars), 61,000 (16), 1.1 million (20).
 Task 2: complete (commits 9567564..b5c72b1, review clean). Abogado note to carry: task-2-report.md «Ronda 2» note (replaces round 1).
 Task 3: dispatched (base b5c72b1, implementer sonnet)
+Task 3: implementer DONE e435a96 (try around onWrongKey moved into launchUnlockWithKey for JVM testability; fingerprintStale flag hides the button even if disable fails; BOV-3 test now expects FINGERPRINT_STALE)
+Task 3: review Approved, spec ✅, 0 Critical/0 Important, 7 Minor (task-3-review.md): M1 report misstates check order for VERSION_UNKNOWN; M2 comment/test motive for a throwing disable inexact; M3 wiring source test doesn't pin order nor `if (bio)`; M4 test names (BOV-3, «version-1»); M5 rotation during the notice loses FINGERPRINT_STALE text; M6 a really-throwing disable re-prompts each lock; M7 disable IPC on main thread (pre-existing).
+- Ruling: Task 3 M1-M4 fixed in round 1; M5 and M6 accepted limits (same as BOV-3 error state; disable cannot throw in practice: edit{} apply + runCatching) — documented in KDoc and report, not built; M7 pre-existing, deferred to final review. FINGERPRINT_STALE wording («se cambió… o se importó…» stated as fact though a damaged vault gives the same) goes to the Abogado Digital review — cost if wrong: a text tweak.
+Task 3: deferred minor (pre-existing): BiometricVault.disable Keystore IPC on the main thread (VaultScreen.kt:371 and now :320).
+Task 3: round 1 implementer DONE 0389a1f (M1-M4 fixed, M5 KDoc, M6 report)
+Task 3: fix round 1/5 (M1-M6 addressed; 2 new Minor one-line comments: VaultScreen.kt:308 still names the Keystore, VaultStoreTest.kt:1031 «see the next test» points 6 tests away; commits e435a96..0389a1f; task-3-rereview-1.md)
+Task 3: fix round 2/5 (2 comment leftovers addressed, 0 open; commits 0389a1f..25a08cb; task-3-rereview-2.md)
+Task 3: complete (commits 1430a1d..25a08cb, review clean). Owner phone test: stale fingerprint → FINGERPRINT_STALE and the button disappears. Abogado: FINGERPRINT_STALE wording (causes stated as fact).
+Task 4: dispatched (base 25a08cb, implementer sonnet)
