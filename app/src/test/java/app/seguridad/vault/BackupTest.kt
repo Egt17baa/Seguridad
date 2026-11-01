@@ -438,6 +438,10 @@ class BackupTest {
         assertFalse(isBackup(zipOf(listOf("vault.json" to ByteArray(3), marker)).copyOf(BACKUP_HEAD_BYTES)))
         assertFalse(isBackup(zip.copyOf(40)))
         assertFalse(isBackup(ByteArray(0)))
+        // «Importar copia» lets the current formats through its pre-check: this copy (seguridad-backup v2) and the
+        // vault file as written today (seguridad-vault v3), the one a JSON export holds (ImportHeadTest).
+        assertTrue(mayBeVaultImport(zip.copyOf(BACKUP_HEAD_BYTES)))
+        assertTrue(mayBeVaultImport(File(phone("a"), "vault.bin").readBytes().copyOf(BACKUP_HEAD_BYTES)))
         assertEquals("seguridad-boveda-20261026.sgbak", backupFileName(LocalDate.of(2026, 10, 26)))
         assertEquals("seguridad-boveda-20270105.sgbak", backupFileName(LocalDate.of(2027, 1, 5)))
     }
