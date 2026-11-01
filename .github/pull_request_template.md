@@ -6,7 +6,7 @@
 
 - [ ] `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets` y `./gradlew -p jvm-check test` pasan.
 - [ ] `bash scripts/check-manifest.sh app/build/outputs/apk/debug/app-debug.apk` da OK: ningún componente exportado ni permiso nuevo.
-- [ ] Los formatos guardados (`SG1:`, `.sgenc`, `seguridad-vault`, `seguridad-backup`, `CP1:`, `.cpenc`, `criptopanel-vault`…) se siguen leyendo, con tests sobre datos reales anteriores si cambia alguno.
+- [ ] Los formatos guardados de Clavero (`SG1:`, `.sgenc`, `seguridad-vault`, `seguridad-backup`, `SGK1:`, `SGM1:`, `SGS1:`…) se siguen leyendo, con tests sobre datos reales anteriores si cambia alguno. Los de CriptoPanel (`CP1:`, `.cpenc`, `criptopanel-vault`) se rechazan con el error genérico desde la 1.3.1.
 - [ ] Las dependencias nuevas son gratuitas y de licencia permisiva (Apache-2.0, MIT, BSD, ISC o CC BY para datos).
 
 ## Cambios de seguridad
