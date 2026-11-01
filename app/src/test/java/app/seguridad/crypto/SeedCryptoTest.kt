@@ -137,15 +137,6 @@ class SeedCryptoTest {
         assertEquals(Aead.AES_256_GCM to true, inspectText(a))
     }
 
-    @Test fun `texts from 1_9_0 with the key used directly still decrypt`() {
-        val key = parseRawKey(newRawKeyHex())!!
-        val header = Header(Header.KIND_TEXT, Aead.SERPENT_256_GCM, KdfParams(), Header.KDF_RAW_KEY, ByteArray(SALT_BYTES), randomBytes(NONCE_BYTES), Dialect.CRIPTOPANEL)
-        val aad = header.bytes()
-        val token = Dialect.CRIPTOPANEL.textPrefix + java.util.Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(aad + aead(Aead.SERPENT_256_GCM, true, key, header.nonce, aad, "zoo vote".toByteArray()))
-        assertEquals("zoo vote", decryptText(token, Secret.RawKey(key)))
-    }
-
     @Test fun `headers asking for more than 256 MiB of Argon2 memory are refused`() {
         KdfParams(MAX_KDF_MEMORY_KIB, 3, 1).checkSane()
         try {
@@ -164,7 +155,6 @@ class SeedCryptoTest {
         assertEquals("legal winner", decryptText(extractToken(token + "\n")!!, Secret.RawKey(key)))
         assertNull(extractToken("sin nada cifrado"))
         assertNull(extractToken("SG1:"))
-        assertNull(extractToken("CP1:"))
     }
 
     @Test fun `the default Argon2 cost is accepted even on a phone with a small heap`() {

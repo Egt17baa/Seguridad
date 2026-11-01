@@ -511,9 +511,8 @@ class MessageTest {
         rejects("prefijo en minúsculas") { decryptMessage(token.replace("SGM1:", "sgm1:"), b) }
     }
 
-    /** `extractToken` (solo `SG1:` y `CP1:`) se queda como estaba: los formatos de clave pública tienen su propio lector. */
+    /** `extractToken` (solo `SG1:`) se queda como estaba: los formatos de clave pública tienen su propio lector. */
     @Test fun extractTokenSigueIgualParaLosFormatosAntiguos() {
-        assertEquals("CP1:abc_-", extractToken("nota\nCP1:abc_-\nGuardado el lunes"))
         assertEquals("SG1:abcd", extractToken("SG1:ab\ncd\n"))
         assertEquals("SG1:abc", extractToken("Mira: SG1:abc. Gracias"))
         assertNull(extractToken("SG1:"))

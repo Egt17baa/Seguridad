@@ -46,6 +46,9 @@ private fun uri(payload: ByteArray) =
 private val KEY = "12345678901234567890".toByteArray() // The RFC 6238 test key (20 bytes).
 
 class OtpMigrationTest {
+    /** The usable 2FA code of a link, from the one sealed answer the screens use (F4). */
+    private fun parseOtpAuth(text: String) = (readOtpAuth(text) as? OtpAuthRead.Usable)?.secret
+
     @Test fun parsesSingleTotp() {
         val payload = Pb().msg(1, otp(KEY, "GitHub:ana@example.com", "GitHub", alg = 2, digits = 2))
             .int(2, 1).int(3, 1).int(4, 0).int(5, 12345)
@@ -57,6 +60,7 @@ class OtpMigrationTest {
         assertEquals("SHA256", s.algorithm)
         assertEquals(8, s.digits)
         assertEquals(30, s.period)
+        assertTrue(s.isSupported())
         assertArrayEquals(KEY, base32Decode(s.secret))
         assertEquals("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", s.secret)
         assertTrue(r.skipped.isEmpty())
@@ -79,6 +83,7 @@ class OtpMigrationTest {
         val payload = Pb().msg(1, Pb().bytes(1, KEY).str(2, "Banco: ana "))
         val s = parseOtpMigration(uri(payload.toByteArray()))!!.imported.single()
         assertEquals(TotpSecret(base32Encode(KEY), issuer = "Banco", account = "ana"), s)
+        assertTrue(s.isSupported())
     }
 
     /**
@@ -90,8 +95,22 @@ class OtpMigrationTest {
     @Test fun parsesKnownGoogleExample() {
         val r = parseOtpMigration("otpauth-migration://offline?data=CjEKCkhlbGxvId6tvu8SGEV4YW1wbGU6YWxpY2VAZ29vZ2xlLmNvbRoHRXhhbXBsZTAC")!!
         assertEquals(listOf(TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Example", account = "alice@google.com")), r.imported)
+        assertTrue(r.imported.all { it.isSupported() })
         assertTrue(r.skipped.isEmpty())
         assertEquals(1, r.batchSize)
+    }
+
+    /** Every algorithm and digit count Google writes (and 0, "unspecified"): what is imported is something the app calculates. */
+    @Test fun everyImportedEntryIsSupportedAndGivesACode() {
+        val payload = Pb().apply {
+            for (alg in listOf(0L, 1L, 2L, 3L)) for (digits in listOf(0L, 1L, 2L)) msg(1, otp(KEY, "A:a$alg$digits", "A", alg = alg, digits = digits))
+        }
+        val imported = parseOtpMigration(uri(payload.toByteArray()))!!.imported
+        assertEquals(12, imported.size)
+        for (s in imported) {
+            assertTrue(s.toString(), s.isSupported())
+            assertNotNull(s.toString(), totpCode(s, 59_000))
+        }
     }
 
     @Test fun skipsHotpAndMd5WithReason() {
@@ -153,6 +172,7 @@ class OtpMigrationTest {
         // More than 100 parameters; exactly 100 is fine.
         val hundred = Pb().apply { repeat(100) { msg(1, otp(KEY, "A:$it", "A")) } }
         assertEquals(100, parseOtpMigration(uri(hundred.toByteArray()))!!.imported.size)
+        assertTrue(parseOtpMigration(uri(hundred.toByteArray()))!!.imported.all { it.isSupported() })
         assertNull(parseOtpMigration(uri(hundred.msg(1, otp(KEY, "A:x", "A")).toByteArray())))
         // More than 64 KB of URI, even with valid content.
         val big = Pb().apply { repeat(100) { msg(1, otp(KEY, "A:" + "a".repeat(600), "A")) } }.toByteArray()
@@ -214,7 +234,23 @@ class OtpMigrationTest {
             val u = s.toOtpAuthUri()
             assertTrue(u, u.startsWith("otpauth://totp/"))
             assertTrue(u, java.net.URI(u).rawQuery != null && ' ' !in u)
+            assertTrue(u, s.isSupported())
             assertEquals(u, s, parseOtpAuth(u))
         }
+    }
+
+    /** A saved code with no algorithm is SHA-1 (isSupported); its link must say so, since «algorithm=» alone is refused. */
+    @Test fun toOtpAuthWritesSha1ForAnEmptyAlgorithm() {
+        val saved = TotpSecret("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", issuer = "Banco", account = "ana", algorithm = "", digits = 8)
+        assertTrue(saved.isSupported())
+        val u = saved.toOtpAuthUri()
+        assertTrue(u, "algorithm=SHA1" in u && "algorithm=&" !in u && !u.endsWith("algorithm="))
+        val read = parseOtpAuth(u)
+        assertEquals(u, saved.copy(algorithm = "SHA1"), read)
+        // The same code, from the saved entry and from its link: the RFC 6238 SHA-1 value at 59 s.
+        assertEquals("94287082", totpCode(saved, 59_000)!!.first)
+        assertEquals(totpCode(saved, 59_000), totpCode(read!!, 59_000))
+        // Any other algorithm is written as it is, in capitals, as before.
+        assertTrue("algorithm=SHA256" in saved.copy(algorithm = "sha256").toOtpAuthUri())
     }
 }

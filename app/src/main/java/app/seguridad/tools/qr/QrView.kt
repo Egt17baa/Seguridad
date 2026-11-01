@@ -1,6 +1,8 @@
 package app.seguridad.tools.qr
 
-import app.seguridad.crypto.parseOtpAuth
+import app.seguridad.crypto.OtpAuthRead
+import app.seguridad.crypto.TOTP_UNSUPPORTED_LINK
+import app.seguridad.crypto.readOtpAuth
 import app.seguridad.tools.QR_CIPHER_NONE
 import app.seguridad.tools.QR_CIPHER_UNKNOWN
 import app.seguridad.tools.QR_COPIED_WITH_HIDDEN
@@ -180,13 +182,18 @@ fun qrView(text: String): QrView {
         is QrKind.SeguridadCard -> base.copy(title = QR_KIND_CARD, alerts = hidden, notes = listOf(QR_SGK1), action = QrAction.ADD_CONTACT)
         is QrKind.SeguridadReceived -> base.copy(title = QR_KIND_RECEIVED, alerts = hidden, action = QrAction.OPEN_RECEIVED)
         is QrKind.OtpAuth -> {
-            // Only the names: the key itself stays in the hidden full text.
-            val otp = parseOtpAuth(kind.text)
+            // Only the names: the key itself stays in the hidden full text. A code whose settings this app does not
+            // calculate still shows its names, with the note that says so (the same text the editor gives), and no
+            // «Añadir a la bóveda», which would only lead to that refusal (F4). The link is read once.
+            val read = readOtpAuth(kind.text)
+            val unsupported = read is OtpAuthRead.UnsupportedSettings
+            val names = read.names
             base.copy(
                 title = QR_KIND_OTP,
-                fields = listOfNotNull(f(QR_FIELD_SERVICE, otp?.issuer), f(QR_FIELD_ACCOUNT, otp?.account)),
+                fields = listOfNotNull(f(QR_FIELD_SERVICE, names?.first), f(QR_FIELD_ACCOUNT, names?.second)),
                 alerts = hidden,
-                action = QrAction.ADD_TOTP,
+                notes = listOfNotNull(TOTP_UNSUPPORTED_LINK.takeIf { unsupported }),
+                action = if (unsupported) QrAction.NONE else QrAction.ADD_TOTP,
                 textHidden = true,
             )
         }

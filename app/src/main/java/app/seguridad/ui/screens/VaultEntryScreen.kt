@@ -41,12 +41,16 @@ import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.android.copySensitive
 import app.seguridad.android.readClipboardText
 import app.seguridad.crypto.PasswordOptions
+import app.seguridad.crypto.TOTP_UNSUPPORTED_ENTRY
+import app.seguridad.crypto.TOTP_UNSUPPORTED_LINK
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.generatePassword
-import app.seguridad.crypto.parseOtpAuth
+import app.seguridad.crypto.OtpAuthRead
+import app.seguridad.crypto.isSupported
+import app.seguridad.crypto.isUsableTotpKey
 import app.seguridad.crypto.parseOtpMigration
+import app.seguridad.crypto.readOtpAuth
 import app.seguridad.crypto.totpCode
-import app.seguridad.crypto.totpKey
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
@@ -142,15 +146,25 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
         Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (failed) Text("No se pudo borrar (¿almacenamiento lleno?)", color = NegativeColor)
             entry.totp?.let { t ->
-                totpCode(t, now)?.let { (code, left) ->
+                if (!t.isSupported()) {
+                    // A saved code with an algorithm, digits or period this app does not calculate: the reason, not a wrong code.
                     SectionCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(listOf(t.issuer, t.account).filter { it.isNotBlank() }.joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(code.chunked(3).joinToString(" "), style = MaterialTheme.typography.displaySmall, fontFamily = FontFamily.Monospace)
-                            Text("Caduca en $left s", color = if (left <= 5) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(TOTP_UNSUPPORTED_ENTRY, color = NegativeColor)
                         }
                     }
-                    Field("Código", code, mono = true)
+                } else {
+                    totpCode(t, now)?.let { (code, left) ->
+                        SectionCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(listOf(t.issuer, t.account).filter { it.isNotBlank() }.joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(code.chunked(3).joinToString(" "), style = MaterialTheme.typography.displaySmall, fontFamily = FontFamily.Monospace)
+                                Text("Caduca en $left s", color = if (left <= 5) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Field("Código", code, mono = true)
+                    }
                 }
             }
             if (entry.favorite || entry.tags.isNotEmpty()) {
@@ -240,13 +254,16 @@ private class EntryEditViewModel(private val store: VaultStore, id: String?, ini
             }
             return
         }
-        val parsed = parseOtpAuth(text)
-        if (parsed == null) {
-            form.error.value = "El QR o enlace no es un código 2FA (otpauth://totp/…)"
-        } else {
-            form.totp.value = parsed
-            if (form.title.value.isBlank()) form.title.value = parsed.issuer.ifBlank { parsed.account }
-            form.error.value = null
+        when (val read = readOtpAuth(text)) {
+            is OtpAuthRead.Usable -> {
+                val parsed = read.secret
+                form.totp.value = parsed
+                if (form.title.value.isBlank()) form.title.value = parsed.issuer.ifBlank { parsed.account }
+                form.error.value = null
+            }
+            // A valid 2FA code whose settings this app does not calculate is said so, instead of "not a 2FA code".
+            is OtpAuthRead.UnsupportedSettings -> form.error.value = TOTP_UNSUPPORTED_LINK
+            OtpAuthRead.NotUsable -> form.error.value = "El QR o enlace no es un código 2FA (otpauth://totp/…)"
         }
     }
 
@@ -476,7 +493,7 @@ fun VaultEntryEditScreen(
                         val now = System.currentTimeMillis()
                         error = when {
                             title.isBlank() -> "Ponle un nombre"
-                            type == EntryType.TOTP && totpKey(totp.secret) == null -> "La clave secreta no es válida (Base32: letras A-Z y números 2-7, al menos 16)"
+                            type == EntryType.TOTP && !isUsableTotpKey(totp.secret) -> "La clave secreta no es válida (Base32: letras A-Z y números 2-7, al menos 16)"
                             type == EntryType.SEED && seedWordCount(seed).first == 0 -> "Escribe las palabras"
                             else -> null
                         }

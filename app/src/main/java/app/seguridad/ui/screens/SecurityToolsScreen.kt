@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -56,7 +57,6 @@ import app.seguridad.crypto.Bip39
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.ENCRYPTED_EXTENSION
 import app.seguridad.crypto.KdfParams
-import app.seguridad.crypto.LEGACY_ENCRYPTED_EXTENSION
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.PassphraseOptions
 import app.seguridad.crypto.PasswordOptions
@@ -351,7 +351,7 @@ private class TextCryptoViewModel(
                 reset()
                 session.fileMessage = true to "Texto cifrado importado de ${read.second}."
             } else {
-                session.fileMessage = false to if (text == null) "No se pudo leer el archivo." else "Ese archivo no contiene un texto cifrado ($TEXT_PREFIX… o $LEGACY_TEXT_PREFIX…)."
+                session.fileMessage = false to if (text == null) "No se pudo leer el archivo." else "Ese archivo no contiene un texto cifrado ($TEXT_PREFIX…)."
             }
         }
     }
@@ -406,7 +406,7 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
             OutlinedTextField(
                 value = s.input,
                 onValueChange = { s.guard.typed(); s.input = it; vm.reset() },
-                label = { Text("Texto cifrado (empieza por $TEXT_PREFIX o $LEGACY_TEXT_PREFIX)") },
+                label = { Text("Texto cifrado (empieza por $TEXT_PREFIX)") },
                 minLines = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -582,9 +582,6 @@ internal fun displayName(context: Context, uri: Uri): String =
 
 /** Decrypted files wait here, in the app's private cache, until saved; leftovers are wiped at start. */
 const val DECRYPT_TMP_PREFIX = "dec"
-
-/** Prefix of the legacy texts, still decrypted (new ones always start with [TEXT_PREFIX]). */
-private const val LEGACY_TEXT_PREFIX = "CP1:"
 
 /** A decryption that ended: the name to propose in the save dialog, for the run [run] (its copy is the session's pending one). */
 private class DecryptedReady(val name: String, val run: Long)
@@ -769,7 +766,7 @@ private class FileCryptoViewModel(
 }
 
 /**
- * Saves `<name>.sgenc`, encrypted with [kdf]; decrypts both its own files and the legacy ones. The password, the key and
+ * Saves `<name>.sgenc`, encrypted with [kdf], and decrypts them. The password, the key and
  * the last message live in [FileCryptoViewModel] and go by the «PIN y códigos» rule (COV1-1).
  */
 @Composable
@@ -867,7 +864,7 @@ fun FileCryptoScreen(
             val name = vm.sourceName
             Text(
                 if (source == null || name == null) {
-                    if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION o $LEGACY_ENCRYPTED_EXTENSION"
+                    if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION"
                 } else {
                     sanitizeReceivedName(name)
                 },
@@ -937,18 +934,29 @@ private fun StrengthBar(bits: Double) {
 fun GeneratorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val words = remember { context.assets.open("eff_large_wordlist.txt").bufferedReader().readLines().filter { it.isNotBlank() } }
+    val lists = wordLists()
+    // The EFF list, once per process and off the main thread (F6); null until it is there, and «Frase» waits for it.
+    val words by produceState<List<String>?>(null) { value = lists.eff() }
     var phrase by remember { mutableStateOf(false) }
     var p by remember { mutableStateOf(PasswordOptions()) }
     var w by remember { mutableStateOf(PassphraseOptions()) }
     var seed by remember { mutableIntStateOf(0) }
-    val result = remember(phrase, p, w, seed) { if (phrase) generatePassphrase(words, w) else generatePassword(p) }
-    val bits = if (phrase) passphraseEntropy(words.size, w) else passwordEntropy(p)
+    // «Frase» is only on once the list is there, and it never goes away again (words stays set).
+    val phraseWords = words.takeIf { phrase }
+    val result = remember(phraseWords, p, w, seed) {
+        if (phraseWords != null) generatePassphrase(phraseWords, w) else generatePassword(p)
+    }
+    val bits = if (phraseWords != null) passphraseEntropy(phraseWords.size, w) else passwordEntropy(p)
 
     ToolColumn("Generador", onBack) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             SegmentedButton(selected = !phrase, onClick = { phrase = false }, shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text("Contraseña") }
-            SegmentedButton(selected = phrase, onClick = { phrase = true }, shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text("Frase") }
+            SegmentedButton(
+                selected = phrase,
+                onClick = { phrase = true },
+                enabled = words != null,
+                shape = SegmentedButtonDefaults.itemShape(1, 2),
+            ) { Text("Frase") }
         }
         SectionCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -531,7 +531,9 @@ class VaultV3Test {
         File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(v3.copy(version = 2)))
         val before = File(dir, "vault.bin").readText()
         val s = store(dir).apply { load() }
-        failsWith<CryptoFailure> { s.unlockWithKey(dek) }
+        // Final review F1: a key that does not authenticate the entries is a StaleBiometricKey (FINGERPRINT_STALE,
+        // as before).
+        failsWith<StaleBiometricKey> { s.unlockWithKey(dek) }
         assertFalse(s.state.value is VaultState.Unlocked)
         assertEquals(before, File(dir, "vault.bin").readText())
         assertNull(s.dataKeyCopy())
@@ -573,7 +575,7 @@ class VaultV3Test {
             File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(h))
             val before = File(dir, "vault.bin").readText()
             val s = store(dir).apply { load() }
-            failsWith<CryptoFailure> { s.unlockWithKey(dek.copyOf()) }
+            failsWith<StaleBiometricKey> { s.unlockWithKey(dek.copyOf()) } // Does not authenticate: F1.
             assertFalse(s.state.value is VaultState.Unlocked)
             assertEquals(before, File(dir, "vault.bin").readText())
         }
@@ -673,7 +675,48 @@ class VaultV3Test {
         assertEquals(BiometricRefusal.CLOCK, VaultCrypto.biometricRefusal(file, now, now + 6 * 60_000))
         assertEquals(BiometricRefusal.CLOCK, VaultCrypto.biometricRefusal(file, now - 1)) // Before the last check.
         assertEquals(BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file, now + MASTER_RECHECK_MS))
-        assertEquals(BiometricRefusal.MASTER_DUE, VaultCrypto.biometricRefusal(file.copy(version = 1), now))
+        assertEquals(BiometricRefusal.UNSUPPORTED, VaultCrypto.biometricRefusal(file.copy(version = 1), now))
+    }
+
+    // Task 6, review Minor 4, and final review F2: the fingerprint is only tried on a file the master password would
+    // open. Any other version or format is UNSUPPORTED: the screen offers no fingerprint and shows no notice for it
+    // (not the 7-day text), the key is never tried (it would not authenticate, and that would turn the fingerprint
+    // off), and the master password says «No es una bóveda compatible» instead of «Contraseña incorrecta».
+    @Test fun biometricRefusalIsUnsupportedForAVersionOrFormatThatDoesNotOpen() = runTest {
+        val now = 1_000_000_000L
+        val (file, dek) = VaultCrypto.create("m".toCharArray(), now, KdfParams(1024, 1, 1))
+        dek.fill(0)
+        fun refusal(f: VaultFile, at: Long = now) = VaultCrypto.biometricRefusal(f, at)
+        val unsupported = BiometricRefusal.UNSUPPORTED
+        for (v in listOf(1, 4, -1)) assertEquals("version $v", unsupported, refusal(file.copy(version = v)))
+        assertEquals(unsupported, refusal(file.copy(format = "otra-cosa")))
+        assertEquals(unsupported, refusal(file.copy(format = "otra-cosa", version = VaultFile.VERSION_UNKNOWN)))
+        // Before the clock and the 7 days: a file that does not open is that, whatever its dates say.
+        assertEquals(unsupported, refusal(file.copy(version = 4), now - 1))
+        assertEquals(unsupported, refusal(file.copy(version = 4), now + MASTER_RECHECK_MS))
+        // Versions 0, 2 and 3 do not change: allowed within the 7 days, MASTER_DUE after them, CLOCK with the clock
+        // back.
+        for (v in listOf(VaultFile.VERSION_UNKNOWN, VaultFile.VERSION_2, VaultFile.VERSION)) {
+            assertNull("version $v", refusal(file.copy(version = v), now + 1_000))
+            val due = refusal(file.copy(version = v), now + MASTER_RECHECK_MS)
+            assertEquals("version $v", BiometricRefusal.MASTER_DUE, due)
+            assertEquals("version $v", BiometricRefusal.CLOCK, refusal(file.copy(version = v), now - 1))
+        }
+        // The texts: MASTER_DUE keeps its own; UNSUPPORTED carries the existing «No es una bóveda compatible».
+        assertEquals("Escribe tu contraseña maestra (se pide cada 7 días)", MasterRequired().message)
+        assertEquals("No es una bóveda compatible", MasterRequired(BiometricRefusal.UNSUPPORTED).message)
+        // Through the store: a vault.bin that says version 4 refuses the fingerprint, and nothing changes on disk.
+        val dir = phone("version-4")
+        File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(v3Fixture().copy(version = 4)))
+        val before = File(dir, "vault.bin").readText()
+        val s = store(dir).apply { load() }
+        assertEquals(BiometricRefusal.UNSUPPORTED, s.biometricRefusal)
+        assertFalse(s.biometricAllowed)
+        assertEquals(BiometricRefusal.UNSUPPORTED, failsWith<MasterRequired> { s.unlockWithKey(fixtureDek()) }.reason)
+        // The master password, right as it is, gets the text the unlock screen shows for it.
+        assertEquals(NOT_A_VAULT, failsWith<CryptoFailure> { s.unlock(master.toCharArray()) }.message)
+        assertFalse(s.state.value is VaultState.Unlocked)
+        assertEquals(before, File(dir, "vault.bin").readText())
     }
 
     // Fix round 1: converting an old file never lowers its cost either (real 1.1 file: 1024 KiB, 1 pass).
