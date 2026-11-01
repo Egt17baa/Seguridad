@@ -10,20 +10,28 @@ const val MAX_REDACT_ZOOM = 5f
  * preview ([toPreviewX], [toPreviewY]). Nothing secret: it is kept like any other view state and lost on rotation.
  */
 data class RedactZoom(val scale: Float = 1f, val offsetX: Float = 0f, val offsetY: Float = 0f) {
-    fun toPreviewX(x: Float): Float = (x - offsetX) / scale
-    fun toPreviewY(y: Float): Float = (y - offsetY) / scale
+    /**
+     * A touch at view x on the unzoomed preview, clamped to the [viewW] view first: a drag past the edge stops at what
+     * is shown, so a box drawn while zoomed never covers parts that were not on screen.
+     */
+    fun toPreviewX(x: Float, viewW: Float): Float = (x.coerceIn(0f, viewW) - offsetX) / scale
+
+    /** Like [toPreviewX], for y in a [viewH] view. */
+    fun toPreviewY(y: Float, viewH: Float): Float = (y.coerceIn(0f, viewH) - offsetY) / scale
 
     /** [r] (unzoomed preview pixels, from [boxToView]) where it is shown now. */
     fun toView(r: ViewRect) = ViewRect(r.left * scale + offsetX, r.top * scale + offsetY, r.right * scale + offsetX, r.bottom * scale + offsetY)
 
     /**
-     * After a two-finger move on a [viewW]×[viewH] preview: enlarged by [zoom] around the fingers' centre ([cx], [cy]),
-     * which keeps the point of the image under them, then moved by ([panX], [panY]). The scale stays between 1 and
+     * After a two-finger move on a [viewW]×[viewH] preview: enlarged by [zoom] around the fingers' centre before the
+     * move ([cx], [cy]), then moved by the centre's movement ([panX], [panY]), so the point of the image that was under
+     * the fingers stays under them. The scale stays between 1 and
      * [MAX_REDACT_ZOOM], and the image always covers the whole preview (no empty margin). Returns itself for input that
      * is not a finite number, a zoom that is not positive, or an empty view.
      */
     fun transformed(zoom: Float, cx: Float, cy: Float, panX: Float, panY: Float, viewW: Float, viewH: Float): RedactZoom {
-        val finite = listOf(zoom, cx, cy, panX, panY, viewW, viewH).all { it.isFinite() }
+        val finite = zoom.isFinite() && cx.isFinite() && cy.isFinite() && panX.isFinite() && panY.isFinite() &&
+            viewW.isFinite() && viewH.isFinite()
         if (!finite || zoom <= 0f || viewW <= 0f || viewH <= 0f) return this
         val s = (scale * zoom).coerceIn(1f, MAX_REDACT_ZOOM)
         val f = s / scale

@@ -12,24 +12,24 @@ class RedactZoomTest {
     @Test fun startsUnzoomedAndMapsPointsAsThey() {
         val z = RedactZoom()
         assertEquals(1f, z.scale)
-        assertEquals(123f, z.toPreviewX(123f))
-        assertEquals(45f, z.toPreviewY(45f))
+        assertEquals(123f, z.toPreviewX(123f, w))
+        assertEquals(45f, z.toPreviewY(45f, h))
     }
 
     @Test fun pinchKeepsThePointUnderTheFingers() {
         // Twice as big around (250, 100): that point of the image stays under the fingers.
         val z = RedactZoom().transformed(2f, 250f, 100f, 0f, 0f, w, h)
         assertEquals(2f, z.scale)
-        assertEquals(250f, z.toPreviewX(250f), 1e-3f)
-        assertEquals(100f, z.toPreviewY(100f), 1e-3f)
+        assertEquals(250f, z.toPreviewX(250f, w), 1e-3f)
+        assertEquals(100f, z.toPreviewY(100f, h), 1e-3f)
         // What is now at the left edge of the view is a quarter of the way into the image: (0 - (-250)) / 2 = 125.
-        assertEquals(125f, z.toPreviewX(0f), 1e-3f)
+        assertEquals(125f, z.toPreviewX(0f, w), 1e-3f)
     }
 
     @Test fun aBoxDrawnWhileZoomedLandsWhereItWasDrawn() {
         val z = RedactZoom().transformed(4f, 500f, 250f, 0f, 0f, w, h)
         // A drag across the middle of the zoomed view covers the middle quarter of the image.
-        val box = boxFromDrag(z.toPreviewX(0f), z.toPreviewY(0f), z.toPreviewX(w), z.toPreviewY(h), w, h, 4000, 2000)
+        val box = boxFromDrag(z.toPreviewX(0f, w), z.toPreviewY(0f, h), z.toPreviewX(w, w), z.toPreviewY(h, h), w, h, 4000, 2000)
         assertEquals(Box(1500, 750, 2500, 1250), box)
         // And it is painted back exactly over the drag.
         val r = z.toView(boxToView(box!!, w, h, 4000, 2000))
@@ -37,6 +37,22 @@ class RedactZoomTest {
         assertEquals(0f, r.top, 1e-2f)
         assertEquals(w, r.right, 1e-2f)
         assertEquals(h, r.bottom, 1e-2f)
+    }
+
+    @Test fun theImageFollowsTheFingersWhilePinchingAndMoving() {
+        // Fingers centred on (250, 100) spread to twice the distance and move 10 px right: the image point that was
+        // under them (x 250 of the preview) is now under their new centre (260).
+        val z = RedactZoom().transformed(2f, 250f, 100f, 10f, 0f, w, h)
+        assertEquals(250f, z.toPreviewX(260f, w), 1e-3f)
+        assertEquals(100f, z.toPreviewY(100f, h), 1e-3f)
+    }
+
+    @Test fun aDragPastTheEdgeStopsAtWhatIsShown() {
+        // Zoomed ×2 on the top-left quarter: a drag from the middle to far outside covers up to the view's corner only.
+        val z = RedactZoom().transformed(2f, 0f, 0f, 0f, 0f, w, h)
+        val box = boxFromDrag(z.toPreviewX(500f, w), z.toPreviewY(250f, h), z.toPreviewX(9000f, w), z.toPreviewY(9000f, h), w, h, 1000, 500)
+        assertEquals(Box(250, 125, 500, 250), box)
+        assertEquals(0f, z.toPreviewX(-300f, w), 1e-3f)
     }
 
     @Test fun scaleStaysBetweenOneAndTheMaximum() {
