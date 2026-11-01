@@ -68,3 +68,12 @@ Task 4: fix round 2/5 (3 comment findings addressed; commits 86b6eec..b208d9d; t
 - Ruling: that one-clause comment nit goes to the final-review fix wave (still fixed before merge), not another round — rounds on comment wording were not converging — cost if wrong: none.
 Task 4: complete (commits d0702a3..b208d9d, review clean). Residual-risk sentence for the final audit: task-4-report.md:160.
 Task 5: dispatched (base after ledger commit, implementer sonnet)
+Task 5: implementer DONE 5657ec3 (concerns: TOTP_UNSUPPORTED_LINK names digits/period but also fires for an unknown algorithm; empty digits=/period= now reject; QrView.kt:184 no longer shows service/account for unsupported links; hotp throws IAE on unsupported)
+Task 5: review Approved, spec ✅, 0 Critical, 1 Important plan-mandated (I1: TOTP_UNSUPPORTED_LINK says «dígitos o periodo» but also fires for an unsupported algorithm), 7 Minor (M1 QR inspector loses service/account for unsupported links; M2 empty digits=/period= reject; M3 hotp throws; M4 toOtpAuthUri with algorithm "" writes algorithm= that parse rejects; M5 broad source test; M6 KDoc/duplicate header; M7 readOtpAuth's decoded key copy not zeroed). task-5-review.md
+- Ruling: I1 — the spec binds truthful texts over the plan's verbatim copy: TOTP_UNSUPPORTED_LINK becomes «Este código 2FA usa un algoritmo, un número de dígitos o un periodo que Clavero no admite.» (Abogado reviews it at the end) — cost if wrong: a text tweak.
+- Ruling: round 1 also fixes M1 (inspector shows service/account plus the same TOTP_UNSUPPORTED_LINK note, no new text), M4 (blank algorithm exported as SHA1), M6 KDoc, M7 (zero the decoded key in readOtpAuth). M2 accepted (design), M3 no impact, M5 project pattern, M6 duplicate header left (cosmetic).
+Task 5: round 1 implementer DONE 1f88721 (I1 text, M1 otpAuthNames + inspector note, M4 SHA1 export, M6 KDoc, M7 isUsableTotpKey zeroes)
+Task 5: fix round 1/5 (I1, M1, M4, M6, M7 addressed, 0 open; commits 5657ec3..1f88721; task-5-rereview-1.md)
+Task 5: complete (commits 7256c07..1f88721, review clean). Abogado: TOTP_UNSUPPORTED_LINK (new wording) and TOTP_UNSUPPORTED_ENTRY.
+Task 5: deferred minor (pre-existing, informative): totpKey drops short decoded arrays without zeroing; base32Decode keeps a copy in its ByteArrayOutputStream; VaultEntryScreen.kt:494 `totpKey(...) == null` without wiping.
+Task 6: dispatched (base after ledger commit, implementer opus)
