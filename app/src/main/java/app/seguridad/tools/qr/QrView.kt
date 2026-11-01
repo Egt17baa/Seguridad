@@ -1,6 +1,8 @@
 package app.seguridad.tools.qr
 
-import app.seguridad.crypto.parseOtpAuth
+import app.seguridad.crypto.TOTP_UNSUPPORTED_LINK
+import app.seguridad.crypto.otpAuthNames
+import app.seguridad.crypto.otpAuthUnsupported
 import app.seguridad.tools.QR_CIPHER_NONE
 import app.seguridad.tools.QR_CIPHER_UNKNOWN
 import app.seguridad.tools.QR_COPIED_WITH_HIDDEN
@@ -180,12 +182,14 @@ fun qrView(text: String): QrView {
         is QrKind.SeguridadCard -> base.copy(title = QR_KIND_CARD, alerts = hidden, notes = listOf(QR_SGK1), action = QrAction.ADD_CONTACT)
         is QrKind.SeguridadReceived -> base.copy(title = QR_KIND_RECEIVED, alerts = hidden, action = QrAction.OPEN_RECEIVED)
         is QrKind.OtpAuth -> {
-            // Only the names: the key itself stays in the hidden full text.
-            val otp = parseOtpAuth(kind.text)
+            // Only the names: the key itself stays in the hidden full text. A code whose settings this app does not
+            // calculate still shows its names, with the note that says so (the same text the editor gives).
+            val names = otpAuthNames(kind.text)
             base.copy(
                 title = QR_KIND_OTP,
-                fields = listOfNotNull(f(QR_FIELD_SERVICE, otp?.issuer), f(QR_FIELD_ACCOUNT, otp?.account)),
+                fields = listOfNotNull(f(QR_FIELD_SERVICE, names?.first), f(QR_FIELD_ACCOUNT, names?.second)),
                 alerts = hidden,
+                notes = listOfNotNull(TOTP_UNSUPPORTED_LINK.takeIf { otpAuthUnsupported(kind.text) }),
                 action = QrAction.ADD_TOTP,
                 textHidden = true,
             )

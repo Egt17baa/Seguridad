@@ -11,6 +11,7 @@ import app.seguridad.crypto.hotp
 import app.seguridad.crypto.isSupported
 import app.seguridad.crypto.OTPAUTH_MAX_CHARS
 import app.seguridad.crypto.OTPAUTH_MAX_NAME_CHARS
+import app.seguridad.crypto.otpAuthNames
 import app.seguridad.crypto.otpAuthUnsupported
 import app.seguridad.crypto.parseOtpAuth
 import app.seguridad.crypto.totpCode
@@ -223,6 +224,24 @@ class VaultTotpTest {
         assertFalse("too long", otpAuthUnsupported(link("&digits=10&issuer=" + "b".repeat(OTPAUTH_MAX_CHARS))))
     }
 
+    @Test fun `the service and the account of a link are read also when its settings are not supported`() {
+        assertEquals("Example" to "ana", otpAuthNames(link("")))
+        for (setting in listOf("digits=10", "period=300", "algorithm=MD5", "digits=abc", "period=", "algorithm=")) {
+            assertEquals(setting, "Example" to "ana", otpAuthNames(link("&$setting")))
+        }
+        // As parseOtpAuth keeps them: from the label when the issuer parameter is missing, and without turning them around.
+        assertEquals("Banco" to "ana", otpAuthNames("otpauth://totp/Banco:ana?secret=JBSWY3DPEHPK3PXP&digits=10"))
+        assertEquals("Banco" to "alice", otpAuthNames("otpauth://totp/%E2%80%AEocnaB:al%0Aice?secret=JBSWY3DPEHPK3PXP&issuer=%E2%81%A6Banco%E2%80%8F&period=5"))
+        assertEquals("" to "", otpAuthNames("otpauth://totp/?secret=JBSWY3DPEHPK3PXP&digits=10"))
+        // The names of a link that is not a usable 2FA link are none.
+        for (text in listOf(
+            "", "https://example.com/Example:ana?secret=JBSWY3DPEHPK3PXP", "otpauth://hotp/Example:ana?secret=JBSWY3DPEHPK3PXP&counter=1",
+            "otpauth://totp/Example:ana?digits=10", "otpauth://totp/Example:ana?secret=A&digits=10", "otpauth://totp/Example:ana?secret=!!!",
+            "otpauth://totp/Example:ana?secret=JBSWY3DPEHPK3PXP%", "otpauth://totp/Example%:ana?secret=JBSWY3DPEHPK3PXP&digits=10",
+            "otpauth-migration://offline?data=AAAA",
+        )) assertNull(text, otpAuthNames(text))
+    }
+
     @Test fun `a code with a setting this app cannot calculate gives no code instead of a wrong one`() {
         val key = TotpSecret(rfcSecret, digits = 8)
         assertEquals("94287082", totpCode(key, 59_000)!!.first)
@@ -294,7 +313,7 @@ class VaultTotpTest {
     }
 
     @Test fun `the two new texts name Clavero, pass the forbidden words and say what happens`() {
-        assertEquals("Este código 2FA usa un número de dígitos o un periodo que Clavero no admite.", TOTP_UNSUPPORTED_LINK)
+        assertEquals("Este código 2FA usa un algoritmo, un número de dígitos o un periodo que Clavero no admite.", TOTP_UNSUPPORTED_LINK)
         assertEquals("Clavero no puede calcular este código: usa un ajuste que no admite.", TOTP_UNSUPPORTED_ENTRY)
         for (text in listOf(TOTP_UNSUPPORTED_LINK, TOTP_UNSUPPORTED_ENTRY)) assertEquals(text, emptyList<String>(), ForbiddenWords.problems(text))
     }

@@ -65,8 +65,17 @@ const val TOTP_MIN_KEY_BYTES = 10
 /** The decoded key if it is a usable TOTP secret. */
 fun totpKey(secret: String): ByteArray? = base32Decode(secret)?.takeIf { it.size >= TOTP_MIN_KEY_BYTES }
 
-/** The digits and the periods (in seconds) of a TOTP code that this app calculates. */
+/** If [secret] is a usable TOTP key, without keeping the decoded copy that the check needs: it is cleared before returning. */
+private fun isUsableTotpKey(secret: String): Boolean {
+    val key = totpKey(secret) ?: return false
+    key.fill(0)
+    return true
+}
+
+/** The numbers of digits of a TOTP code that this app calculates (RFC 4226 §5.3: 6 at least, and possibly 7 and 8). */
 private val TOTP_DIGITS = 6..8
+
+/** The periods, in seconds, of a TOTP code that this app calculates (the app's own range; RFC 6238 suggests 30 s). */
 private val TOTP_PERIODS = 10..120
 
 /**
@@ -84,7 +93,7 @@ private fun hmacName(algorithm: String): String? = when (algorithm.uppercase()) 
 fun TotpSecret.isSupported(): Boolean = hmacName(algorithm) != null && digits in TOTP_DIGITS && period in TOTP_PERIODS
 
 /** Shown when a scanned or typed link is a valid 2FA code but uses a setting that [isSupported] refuses. */
-const val TOTP_UNSUPPORTED_LINK = "Este código 2FA usa un número de dígitos o un periodo que Clavero no admite."
+const val TOTP_UNSUPPORTED_LINK = "Este código 2FA usa un algoritmo, un número de dígitos o un periodo que Clavero no admite."
 
 /** Shown in the detail of a saved code that uses such a setting, instead of the code. */
 const val TOTP_UNSUPPORTED_ENTRY = "Clavero no puede calcular este código: usa un ajuste que no admite."
@@ -136,8 +145,11 @@ private sealed interface OtpAuthRead {
     /** Not an otpauth://totp/ link, or one without a usable key, or a broken one. */
     object NotUsable : OtpAuthRead
 
-    /** A link with a usable key but an algorithm, a number of digits or a period that [isSupported] refuses. */
-    object UnsupportedSettings : OtpAuthRead
+    /**
+     * A link with a usable key but an algorithm, a number of digits or a period that [isSupported] refuses. It keeps the
+     * service and the account the link names (as [parseOtpAuth] would have kept them), for [otpAuthNames].
+     */
+    class UnsupportedSettings(val issuer: String, val account: String) : OtpAuthRead
 
     class Usable(val secret: TotpSecret) : OtpAuthRead
 }
@@ -162,25 +174,19 @@ private fun readOtpAuth(uri: String): OtpAuthRead {
             val kv = it.split('=', limit = 2)
             if (kv.size == 2) kv[0].lowercase() to URLDecoder.decode(kv[1], "UTF-8") else null
         }.toMap()
-        val secret = query["secret"]?.takeIf { totpKey(it) != null } ?: return OtpAuthRead.NotUsable
+        val secret = query["secret"]?.takeIf { isUsableTotpKey(it) } ?: return OtpAuthRead.NotUsable
         val label = URLDecoder.decode((u.rawPath ?: "").removePrefix("/"), "UTF-8")
         val labelIssuer = label.substringBefore(':', "").trim()
-        val account = label.substringAfter(':').trim()
+        val issuer = otpName(query["issuer"] ?: labelIssuer)
+        val account = otpName(label.substringAfter(':').trim())
         // The default only when the parameter is missing; one that is there and is not a number is refused at once, and
         // one that is a number out of range, or an unknown algorithm, is refused by isSupported.
         val algorithm = (query["algorithm"] ?: "SHA1").uppercase()
-        val digits = query["digits"]?.let { it.toIntOrNull() ?: return OtpAuthRead.UnsupportedSettings } ?: 6
-        val period = query["period"]?.let { it.toIntOrNull() ?: return OtpAuthRead.UnsupportedSettings } ?: 30
-        val code = TotpSecret(
-            secret = secret.uppercase().filter { it in BASE32 },
-            issuer = otpName(query["issuer"] ?: labelIssuer),
-            account = otpName(account),
-            algorithm = algorithm,
-            digits = digits,
-            period = period,
-        )
+        val digits = query["digits"]?.let { it.toIntOrNull() ?: return OtpAuthRead.UnsupportedSettings(issuer, account) } ?: 6
+        val period = query["period"]?.let { it.toIntOrNull() ?: return OtpAuthRead.UnsupportedSettings(issuer, account) } ?: 30
+        val code = TotpSecret(secret.uppercase().filter { it in BASE32 }, issuer = issuer, account = account, algorithm = algorithm, digits = digits, period = period)
         // isSupported reads an empty algorithm as SHA-1, as it must for a saved code; a link with «algorithm=» names none.
-        if (algorithm.isNotEmpty() && code.isSupported()) OtpAuthRead.Usable(code) else OtpAuthRead.UnsupportedSettings
+        if (algorithm.isNotEmpty() && code.isSupported()) OtpAuthRead.Usable(code) else OtpAuthRead.UnsupportedSettings(issuer, account)
     } catch (e: Exception) {
         OtpAuthRead.NotUsable
     }
@@ -194,6 +200,17 @@ fun parseOtpAuth(uri: String): TotpSecret? = (readOtpAuth(uri) as? OtpAuthRead.U
  * this app does not calculate, so that [parseOtpAuth] refuses it for that reason and not because it is no 2FA code.
  */
 fun otpAuthUnsupported(text: String): Boolean = readOtpAuth(text) is OtpAuthRead.UnsupportedSettings
+
+/**
+ * The service and the account (in that order, as they are shown) that an otpauth://totp/ link with a usable key names,
+ * also when its settings are not supported ([otpAuthUnsupported]); null if [text] is not such a link. For the QR inspector,
+ * which says what a code is whether or not this app can calculate it. Never the key.
+ */
+fun otpAuthNames(text: String): Pair<String, String>? = when (val read = readOtpAuth(text)) {
+    is OtpAuthRead.Usable -> read.secret.issuer to read.secret.account
+    is OtpAuthRead.UnsupportedSettings -> read.issuer to read.account
+    OtpAuthRead.NotUsable -> null
+}
 
 /** Percent-encoding for otpauth:// labels and values: UTF-8, spaces as %20 (never '+', which [parseOtpAuth] reads as a space). */
 private fun otpEncode(text: String) = java.net.URLEncoder.encode(text, "UTF-8").replace("+", "%20")
@@ -213,7 +230,8 @@ fun TotpSecret.toOtpAuthUri(): String {
     val query = buildList {
         add("secret=" + secret.uppercase().filter { it in BASE32 })
         if (issuer.isNotEmpty()) add("issuer=" + otpEncode(issuer))
-        add("algorithm=" + algorithm.uppercase())
+        // A saved code without an algorithm is SHA-1 (isSupported); the link says so, because «algorithm=» alone is refused.
+        add("algorithm=" + algorithm.uppercase().ifEmpty { "SHA1" })
         add("digits=$digits")
         add("period=$period")
     }

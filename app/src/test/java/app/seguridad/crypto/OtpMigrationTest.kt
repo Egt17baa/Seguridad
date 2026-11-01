@@ -235,4 +235,19 @@ class OtpMigrationTest {
             assertEquals(u, s, parseOtpAuth(u))
         }
     }
+
+    /** A saved code with no algorithm is SHA-1 (isSupported); its link must say so, since «algorithm=» alone is refused. */
+    @Test fun toOtpAuthWritesSha1ForAnEmptyAlgorithm() {
+        val saved = TotpSecret("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", issuer = "Banco", account = "ana", algorithm = "", digits = 8)
+        assertTrue(saved.isSupported())
+        val u = saved.toOtpAuthUri()
+        assertTrue(u, "algorithm=SHA1" in u && "algorithm=&" !in u && !u.endsWith("algorithm="))
+        val read = parseOtpAuth(u)
+        assertEquals(u, saved.copy(algorithm = "SHA1"), read)
+        // The same code, from the saved entry and from its link: the RFC 6238 SHA-1 value at 59 s.
+        assertEquals("94287082", totpCode(saved, 59_000)!!.first)
+        assertEquals(totpCode(saved, 59_000), totpCode(read!!, 59_000))
+        // Any other algorithm is written as it is, in capitals, as before.
+        assertTrue("algorithm=SHA256" in saved.copy(algorithm = "sha256").toOtpAuthUri())
+    }
 }
