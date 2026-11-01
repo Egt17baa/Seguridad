@@ -57,16 +57,17 @@ fun backupFileName(date: LocalDate): String = "seguridad-boveda-%04d%02d%02d.sgb
 
 /**
  * Whether [head] (the first [BACKUP_HEAD_BYTES] of a file) may be something «Importar copia» reads: a `seguridad-backup`
- * ([isBackup]) or a JSON object (a vault export of Seguridad or CriptoPanel), allowing a UTF-8 BOM and leading blanks.
- * Checked before the master password is asked, so a photo or a note is turned down at once; it never refuses what
- * [VaultStore.importReplace] accepts, which still checks everything (owner's phone test, 1-11-2026).
+ * ([isBackup]) or a JSON object (a vault export of Seguridad or CriptoPanel: the strict JSON parser accepts only blanks
+ * before the `{`, never a byte-order mark). A head that is all blanks and as long as [BACKUP_HEAD_BYTES] is let through,
+ * since the `{` may come later. Checked before the master password is asked, so a photo or a note is turned down at
+ * once; it never refuses what [VaultStore.importReplace] accepts, which still checks everything (owner's phone test,
+ * 1-11-2026).
  */
 fun mayBeVaultImport(head: ByteArray): Boolean {
     if (isBackup(head)) return true
     var i = 0
-    if (head.size >= 3 && head[0] == 0xEF.toByte() && head[1] == 0xBB.toByte() && head[2] == 0xBF.toByte()) i = 3
     while (i < head.size && (head[i].toInt() and 0xff).toChar() in " \t\r\n") i++
-    return i < head.size && head[i] == '{'.code.toByte()
+    return if (i == head.size) head.size >= BACKUP_HEAD_BYTES else head[i] == '{'.code.toByte()
 }
 
 /**
