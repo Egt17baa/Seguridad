@@ -256,8 +256,9 @@ internal fun argon2idRaw(password: ByteArray, salt: ByteArray, secret: ByteArray
  * Runs an initialised Bouncy Castle AEAD over [input]: ciphertext ‖ tag when encrypting, the plaintext when decrypting.
  *
  * Bouncy Castle decrypts into the output buffer and only then checks the tag, so after a bad tag (or any other failure) the
- * buffer holds the whole plaintext, or what a damaged copy decrypts to. It is wiped on every way out but success; the array
- * that is returned is never wiped. [alloc] gives the buffer and is there so a test can look at it.
+ * buffer holds the whole plaintext, or what a damaged copy decrypts to. It is wiped on every failure. On success the array
+ * that is returned is never wiped; the only buffer wiped then is an unused longer one, when the result is a shorter copy of it.
+ * [alloc] gives the buffer and is there so a test can look at it.
  */
 private fun runAead(cipher: AEADCipher, input: ByteArray, alloc: (Int) -> ByteArray): ByteArray {
     val out = alloc(cipher.getOutputSize(input.size))
