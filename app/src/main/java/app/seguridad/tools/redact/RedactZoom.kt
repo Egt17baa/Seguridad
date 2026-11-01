@@ -25,9 +25,9 @@ data class RedactZoom(val scale: Float = 1f, val offsetX: Float = 0f, val offset
     /**
      * After a two-finger move on a [viewW]×[viewH] preview: enlarged by [zoom] around the fingers' centre before the
      * move ([cx], [cy]), then moved by the centre's movement ([panX], [panY]), so the point of the image that was under
-     * the fingers stays under them. The scale stays between 1 and
-     * [MAX_REDACT_ZOOM], and the image always covers the whole preview (no empty margin). Returns itself for input that
-     * is not a finite number, a zoom that is not positive, or an empty view.
+     * the fingers stays under them. The scale stays between 1 and [MAX_REDACT_ZOOM], and the image always covers the
+     * whole preview (no empty margin). Returns itself for input that is not a finite number, a zoom that is not
+     * positive, or an empty view.
      */
     fun transformed(zoom: Float, cx: Float, cy: Float, panX: Float, panY: Float, viewW: Float, viewH: Float): RedactZoom {
         val finite = zoom.isFinite() && cx.isFinite() && cy.isFinite() && panX.isFinite() && panY.isFinite() &&

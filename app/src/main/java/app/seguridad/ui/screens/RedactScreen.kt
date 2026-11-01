@@ -609,8 +609,8 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
                     var lastTapAtPos = Offset.Zero
                     awaitEachGesture {
                         // One finger draws a box, from where it went down; two fingers (the second before the first
-                        // moved) enlarge, shrink and move the image (owner's request, 1-11-2026); a double tap puts it
-                        // back to its size.
+                        // moved past the touch slop) enlarge, shrink and move the image (owner's request, 1-11-2026);
+                        // a double tap puts it back to its size.
                         val down = awaitFirstDown()
                         // Busy: not consumed, so the page still scrolls.
                         if (!currentEnabled) return@awaitEachGesture
