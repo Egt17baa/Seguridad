@@ -50,7 +50,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | Ronda de arreglos de la revisión final (F1 a F9, de `37d50f2` a `95ddc44`) | Hecha, con su repaso acotado hecho y sus dos detalles menores arreglados (`284d206`) |
 | Documentos de la publicación (auditoría, README, `CLAUDE.md`, plantilla del PR, traspaso) | Hechos y repasados, y puestos al día con los cambios del Abogado Digital |
 | Revisión final del Abogado Digital | Hecha (1-11-2026): «se puede publicar, con cambios»; ninguna norma exige cambios; O-1 y R-1 a R-4 aplicados (`284d206` y los documentos) |
-| Comprobación corta de la última tanda (`284d206` y sus documentos) | Pendiente |
+| Comprobación corta de la última tanda (`284d206` y sus documentos) | Hecha, sin nada abierto |
 | PR a `main`, APK firmado, prueba del dueño en el móvil y etiqueta `v1.3.1` | Pendiente |
 
 **Decisiones del dueño y del controlador que siguen vigentes** (el detalle está en `progress.md`, en las líneas «Ruling» y «Owner decision»):
