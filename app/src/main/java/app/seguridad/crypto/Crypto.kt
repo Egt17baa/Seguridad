@@ -251,11 +251,19 @@ internal fun argon2idRaw(password: ByteArray, salt: ByteArray, secret: ByteArray
     return out
 }
 
-/** GCM over any 128-bit block cipher from Bouncy Castle. */
-private fun blockGcm(engine: BlockCipher, encrypt: Boolean, key: ByteArray, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray =
+/**
+ * GCM over any 128-bit block cipher from Bouncy Castle.
+ *
+ * CRY-A03: [KeyParameter] copies the key, `getKey()` returns that copy and `GCMBlockCipher.lastKey` is the same array
+ * (bcprov 1.86, pinned by CryptoTest), so one `fill(0)` wipes both, also when the tag fails. The caller's [key] is not
+ * touched: it is the caller's to wipe. The round keys the engine expands from it stay in the engine until the garbage
+ * collector; there is no API to wipe them (accepted risk).
+ */
+internal fun blockGcm(engine: BlockCipher, encrypt: Boolean, key: ByteArray, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray {
+    val kp = KeyParameter(key)
     try {
-        GCMBlockCipher.newInstance(engine).run {
-            init(encrypt, AEADParameters(KeyParameter(key), TAG_BYTES * 8, nonce, aad))
+        return GCMBlockCipher.newInstance(engine).run {
+            init(encrypt, AEADParameters(kp, TAG_BYTES * 8, nonce, aad))
             val out = ByteArray(getOutputSize(input.size))
             val n = processBytes(input, 0, input.size, out, 0)
             val total = n + doFinal(out, n)
@@ -263,7 +271,10 @@ private fun blockGcm(engine: BlockCipher, encrypt: Boolean, key: ByteArray, nonc
         }
     } catch (e: InvalidCipherTextException) {
         throw CryptoFailure()
+    } finally {
+        kp.key.fill(0)
     }
+}
 
 /** Independent 256-bit keys for each cascade layer, from the one key (HKDF-SHA256). */
 internal fun cascadeKey(key: ByteArray, layer: String, dialect: Dialect): ByteArray {
@@ -315,9 +326,18 @@ fun aead(
     } catch (e: GeneralSecurityException) {
         throw CryptoFailure()
     }
-    Aead.CHACHA20_POLY1305 -> try {
+    Aead.CHACHA20_POLY1305 -> chaChaPoly(KeyParameter(key), encrypt, nonce, aad, input)
+}
+
+/**
+ * ChaCha20-Poly1305 (RFC 8439). Takes over [kp] and wipes its copy of the key on the way out (CRY-A03), also when the tag
+ * fails. Unlike GCM, `ChaCha20Poly1305.init` copies the key once more into a private field of its own, and the engine
+ * expands it; neither can be wiped without reflection (accepted risk).
+ */
+internal fun chaChaPoly(kp: KeyParameter, encrypt: Boolean, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray =
+    try {
         ChaCha20Poly1305().run {
-            init(encrypt, AEADParameters(KeyParameter(key), TAG_BYTES * 8, nonce, aad))
+            init(encrypt, AEADParameters(kp, TAG_BYTES * 8, nonce, aad))
             val out = ByteArray(getOutputSize(input.size))
             val n = processBytes(input, 0, input.size, out, 0)
             val total = n + doFinal(out, n)
@@ -325,8 +345,9 @@ fun aead(
         }
     } catch (e: InvalidCipherTextException) {
         throw CryptoFailure()
+    } finally {
+        kp.key.fill(0)
     }
-}
 
 /** What unlocks a ciphertext: a password (stretched with Argon2id) or a random 256-bit key used as is. */
 sealed interface Secret {

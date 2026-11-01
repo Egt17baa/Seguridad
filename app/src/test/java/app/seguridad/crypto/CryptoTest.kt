@@ -1,8 +1,18 @@
 package app.seguridad.crypto
 
+import org.bouncycastle.crypto.BlockCipher
+import org.bouncycastle.crypto.CipherParameters
+import org.bouncycastle.crypto.engines.CamelliaEngine
+import org.bouncycastle.crypto.engines.SerpentEngine
+import org.bouncycastle.crypto.engines.TwofishEngine
+import org.bouncycastle.crypto.modes.GCMBlockCipher
+import org.bouncycastle.crypto.params.AEADParameters
+import org.bouncycastle.crypto.params.KeyParameter
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -22,6 +32,24 @@ private inline fun assertFails(block: () -> Unit) {
     } catch (e: CryptoFailure) {
         // expected
     }
+}
+
+/**
+ * CRY-A03: wraps a block cipher and remembers the [KeyParameter] that [GCMBlockCipher] hands to it. That is the object
+ * [blockGcm] built from the caller's key, so the test sees the very copy the function used and not one of its own.
+ */
+private class KeySpy(private val inner: BlockCipher) : BlockCipher by inner {
+    val seen = mutableListOf<KeyParameter>()
+
+    override fun init(forEncryption: Boolean, params: CipherParameters) {
+        seen += params as KeyParameter
+        inner.init(forEncryption, params)
+    }
+}
+
+private fun assertWiped(what: String, bytes: ByteArray) {
+    assertEquals("$what: size", KEY_BYTES, bytes.size)
+    assertTrue("$what is not all zeros: ${hex(bytes)}", bytes.all { it == 0.toByte() })
 }
 
 class CryptoTest {
@@ -395,6 +423,139 @@ class CryptoTest {
         // Idempotent.
         for (n in listOf("$family.png", "fac${zwj}tura", zwj, "文".repeat(82) + smile + zwj + smile, "$man$zwj\u00A0", "$man$zwj$zwj$woman")) {
             assertEquals("name=<$n>", safeFileName(n), safeFileName(safeFileName(n)))
+        }
+    }
+
+    // --- CRY-A03: the key copies that Bouncy Castle's KeyParameter keeps ---
+
+    @Test fun `bouncy castle KeyParameter keeps its own copy of the key and getKey returns that same array`() {
+        val key = ByteArray(KEY_BYTES) { (it + 1).toByte() }
+        val kp = KeyParameter(key)
+        assertNotSame("the copy must not be the caller's array, or wiping it would wipe the caller's key", key, kp.key)
+        assertSame("getKey() must not hand out a clone each time, or wiping it would wipe nothing", kp.key, kp.key)
+        assertArrayEquals(key, kp.key)
+        // Wiping what getKey() returns leaves the caller's array alone.
+        kp.key.fill(0)
+        assertWiped("KeyParameter.key", kp.key)
+        assertArrayEquals(ByteArray(KEY_BYTES) { (it + 1).toByte() }, key)
+    }
+
+    @Test fun `GCMBlockCipher keeps the same array as the KeyParameter as its last key`() {
+        val kp = KeyParameter(ByteArray(KEY_BYTES) { (it + 1).toByte() })
+        val gcm = GCMBlockCipher.newInstance(TwofishEngine())
+        gcm.init(true, AEADParameters(kp, TAG_BYTES * 8, ByteArray(NONCE_BYTES), ByteArray(0)))
+        val lastKey = try {
+            GCMBlockCipher::class.java.getDeclaredField("lastKey").apply { isAccessible = true }.get(gcm) as ByteArray
+        } catch (e: NoSuchFieldException) {
+            fail("bcprov no longer has GCMBlockCipher.lastKey: check again that wiping KeyParameter.key still reaches every copy GCM keeps")
+            return
+        }
+        assertSame("lastKey must be the array of the KeyParameter, so that one fill(0) wipes both", kp.key, lastKey)
+    }
+
+    @Test fun `GCM over Twofish, Serpent and Camellia wipes the KeyParameter it built, on encrypting and on decrypting`() {
+        val nonce = ByteArray(NONCE_BYTES) { (it + 40).toByte() }
+        val aad = "cabecera".toByteArray()
+        val pt = "texto de prueba para CRY-A03".toByteArray()
+        for ((alg, engine) in listOf<Pair<Aead, () -> BlockCipher>>(
+            Aead.TWOFISH_256_GCM to { TwofishEngine() },
+            Aead.SERPENT_256_GCM to { SerpentEngine() },
+            Aead.CAMELLIA_256_GCM to { CamelliaEngine() },
+        )) {
+            val key = ByteArray(KEY_BYTES) { (it * 3 + 7).toByte() }
+            val keyBefore = key.copyOf()
+
+            val encSpy = KeySpy(engine())
+            val ct = blockGcm(encSpy, true, key, nonce, aad, pt)
+            assertTrue("$alg: the engine saw no KeyParameter", encSpy.seen.isNotEmpty())
+            for (kp in encSpy.seen) {
+                assertNotSame("$alg: the KeyParameter must hold a copy", key, kp.key)
+                assertWiped("$alg encrypt", kp.key)
+            }
+            assertArrayEquals("$alg: the caller's key is the caller's to wipe", keyBefore, key)
+            // The bytes are what aead gives, and what the real algorithm gives.
+            assertArrayEquals("$alg: same bytes as aead", aead(alg, true, key, nonce, aad, pt), ct)
+
+            val decSpy = KeySpy(engine())
+            assertArrayEquals(pt, blockGcm(decSpy, false, key, nonce, aad, ct))
+            assertTrue("$alg: the engine saw no KeyParameter", decSpy.seen.isNotEmpty())
+            for (kp in decSpy.seen) assertWiped("$alg decrypt", kp.key)
+            assertArrayEquals(keyBefore, key)
+        }
+    }
+
+    @Test fun `GCM over Twofish, Serpent and Camellia wipes the KeyParameter also when the tag fails`() {
+        val nonce = ByteArray(NONCE_BYTES) { (it + 40).toByte() }
+        val aad = "cabecera".toByteArray()
+        for (make in listOf<() -> BlockCipher>({ TwofishEngine() }, { SerpentEngine() }, { CamelliaEngine() })) {
+            val key = ByteArray(KEY_BYTES) { (it * 3 + 7).toByte() }
+            val keyBefore = key.copyOf()
+            val ct = blockGcm(make(), true, key, nonce, aad, "texto de prueba".toByteArray())
+            val name = make().algorithmName
+
+            // A flipped bit in the ciphertext, in the tag, a wrong AAD and a wrong key: all end in CryptoFailure.
+            fun flip(at: Int) = ct.copyOf().also { it[at] = (it[at].toInt() xor 1).toByte() }
+            class Attempt(val what: String, val key: ByteArray, val aad: ByteArray, val data: ByteArray)
+            val attempts = listOf(
+                Attempt("body", key, aad, flip(0)),
+                Attempt("tag", key, aad, flip(ct.size - 1)),
+                Attempt("aad", key, "otra".toByteArray(), ct),
+                Attempt("key", ByteArray(KEY_BYTES) { 9 }, aad, ct),
+            )
+            for (t in attempts) {
+                val spy = KeySpy(make())
+                assertFails { blockGcm(spy, false, t.key, nonce, t.aad, t.data) }
+                assertTrue("$name/${t.what}: the engine saw no KeyParameter", spy.seen.isNotEmpty())
+                for (kp in spy.seen) assertWiped("$name/${t.what}", kp.key)
+            }
+            assertArrayEquals(keyBefore, key)
+        }
+    }
+
+    @Test fun `ChaCha20-Poly1305 wipes the KeyParameter it is given, on encrypting, on decrypting and when the tag fails`() {
+        val key = hexBytes("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
+        val nonce = hexBytes("070000004041424344454647")
+        val aad = hexBytes("50515253c0c1c2c3c4c5c6c7")
+        val pt = "Ladies and Gentlemen of the class of '99".toByteArray()
+        val keyBefore = key.copyOf()
+
+        val encKp = KeyParameter(key)
+        val ct = chaChaPoly(encKp, true, nonce, aad, pt)
+        assertWiped("encrypt", encKp.key)
+        assertArrayEquals("same bytes as aead", aead(Aead.CHACHA20_POLY1305, true, key, nonce, aad, pt), ct)
+
+        val decKp = KeyParameter(key)
+        assertArrayEquals(pt, chaChaPoly(decKp, false, nonce, aad, ct))
+        assertWiped("decrypt", decKp.key)
+
+        val flipped = ct.copyOf().also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() }
+        val badTagKp = KeyParameter(key)
+        assertFails { chaChaPoly(badTagKp, false, nonce, aad, flipped) }
+        assertWiped("bad tag", badTagKp.key)
+
+        val badKeyKp = KeyParameter(ByteArray(KEY_BYTES) { 9 })
+        assertFails { chaChaPoly(badKeyKp, false, nonce, aad, ct) }
+        assertWiped("wrong key", badKeyKp.key)
+
+        assertArrayEquals("the caller's key is the caller's to wipe", keyBefore, key)
+    }
+
+    @Test fun `aead never touches the key array it is given, with any algorithm`() {
+        val nonce = ByteArray(NONCE_BYTES) { (it + 1).toByte() }
+        val aad = "aad".toByteArray()
+        val pt = "mismo texto, mismos bytes".toByteArray()
+        for (alg in Aead.entries) {
+            val key = ByteArray(KEY_BYTES) { (it * 5 + 1).toByte() }
+            val keyBefore = key.copyOf()
+            val ct = aead(alg, true, key, nonce, aad, pt)
+            assertArrayEquals("$alg encrypt left the key alone", keyBefore, key)
+            assertArrayEquals("$alg round trip", pt, aead(alg, false, key, nonce, aad, ct))
+            assertArrayEquals("$alg decrypt left the key alone", keyBefore, key)
+            // The same key and nonce give the same bytes again: nothing of the key was spent by the first call.
+            assertArrayEquals("$alg is deterministic", ct, aead(alg, true, key, nonce, aad, pt))
+            val bad = ct.copyOf().also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() }
+            assertFails { aead(alg, false, key, nonce, aad, bad) }
+            assertArrayEquals("$alg after a failed tag, the key is still there", keyBefore, key)
         }
     }
 }
