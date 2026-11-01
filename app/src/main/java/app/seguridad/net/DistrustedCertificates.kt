@@ -93,9 +93,11 @@ typealias TrustedChain = (chain: Array<out X509Certificate>, authType: String, h
  * On Android, [trustedChain] is androidTrustedChain (X509TrustManagerExtensions, in `android/`). The default, the
  * presented chain again, is right on the JVM, which keeps no such cache.
  */
+@Suppress("CustomX509TrustManager") // Lint: it always asks the system first and only adds refusals, never accepts on its own.
 class DistrustingTrustManager(
     private val base: X509TrustManager,
-    private val trustedChain: TrustedChain = { chain, _, _ -> chain.toList() },
+    /** Internal so HttpClientTest can see that the client checks the chain the given function makes. */
+    internal val trustedChain: TrustedChain = { chain, _, _ -> chain.toList() },
 ) : X509ExtendedTrustManager() {
     private fun refuse(chain: List<X509Certificate>) {
         chain.firstOrNull { it.isDistrusted() }?.let {

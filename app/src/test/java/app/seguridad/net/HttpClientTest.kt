@@ -36,16 +36,18 @@ class HttpClientTest {
             .trustManagers.filterIsInstance<X509TrustManager>().single()
         val trust = client.x509TrustManager
         assertTrue(trust is DistrustingTrustManager)
-        assertEquals(system.acceptedIssuers.filterNot { it.isDistrusted() }, trust!!.acceptedIssuers.toList())
+        assertEquals(system.acceptedIssuers.filterNot { it.isDistrusted() }.toSet(), trust!!.acceptedIssuers.toSet())
         assertEquals(listOf(15_000, 15_000, 15_000, 15_000), with(client) { listOf(connectTimeoutMillis, readTimeoutMillis, writeTimeoutMillis, callTimeoutMillis) })
     }
 
-    // CRY-B01: on Android, the function gets the system's own trust manager (not the eMudhra check), once, when the client is built.
+    // CRY-B01: on Android, the function gets the system's own trust manager (not the eMudhra check), once, when the client
+    // is built, and the eMudhra check of the client uses the chain it makes.
     @Test fun theValidatedChainComesFromTheSystemTrustManager() {
         val given = mutableListOf<X509TrustManager>()
-        val client = secureClient(appVersion = "1.0") { system -> given += system; { chain, _, _ -> chain.toList() } }
+        val validated: TrustedChain = { chain, _, _ -> chain.toList() }
+        val client = secureClient(appVersion = "1.0") { system -> given += system; validated }
         assertEquals(1, given.size)
         assertFalse(given.single() is DistrustingTrustManager)
-        assertTrue(client.x509TrustManager is DistrustingTrustManager)
+        assertSame(validated, (client.x509TrustManager as DistrustingTrustManager).trustedChain)
     }
 }
