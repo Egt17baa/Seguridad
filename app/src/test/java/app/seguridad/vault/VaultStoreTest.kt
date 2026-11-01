@@ -993,8 +993,8 @@ class VaultStoreTest {
 
     @Test fun `CRY-A02 the text is the one the Abogado Digital reviews`() {
         assertEquals(
-            "La huella ya no abre esta bóveda (se cambió la contraseña maestra o se importó una copia). " +
-                "Entra con la contraseña maestra y vuelve a activarla si quieres.",
+            "La huella ya no abre esta bóveda. Puede deberse a un cambio de la contraseña maestra, a una copia importada o a " +
+                "datos dañados. Entra con la contraseña maestra y vuelve a activarla si quieres.",
             FINGERPRINT_STALE,
         )
         assertTrue(app.seguridad.tools.ForbiddenWords.problems(FINGERPRINT_STALE).isEmpty())
@@ -1019,7 +1019,8 @@ class VaultStoreTest {
     }
 
     @Test fun `CRY-A02 another vault's key on a vault of unknown version (VERSION_UNKNOWN) is just as stale`() = runTest {
-        // resolve() tries the key to find the version, and it is resolve() that throws CryptoFailure for a key that opens nothing.
+        // With no stated version the key is how the version is found: VaultCrypto.authenticated tries the candidate
+        // versions with it, and a key that authenticates under none is a StaleBiometricKey (not a CryptoFailure).
         val (s, _) = unknownVersionVault()
         val foreign = foreignKey()
         var off = 0
@@ -1031,8 +1032,9 @@ class VaultStoreTest {
     }
 
     @Test fun `CRY-A02 with the master password due, a vault of unknown version tries the key first, so a stale key still turns the fingerprint off`() = runTest {
-        // The other order than version 3 (see «a version-3 vault asks for it before trying the key», below): resolve() has to try the key to know the version, before
-        // the 7-day rule is looked at. A stale key is a StaleBiometricKey there; the right key then meets the 7-day rule.
+        // The other order than version 3 (see «a version-3 vault asks for it before trying the key», below): with no stated
+        // version the key has to be tried (VaultCrypto.authenticated) to know it, before the 7-day rule is looked at. A stale
+        // key is a StaleBiometricKey there; the right key then meets the 7-day rule.
         val (s, dek) = unknownVersionVault()
         clock += MASTER_RECHECK_MS
         val foreign = foreignKey()
@@ -1095,9 +1097,10 @@ class VaultStoreTest {
     }
 
     @Test fun `CRY-A02 with the master password due, a version-3 vault asks for it before trying the key, so another vault's key keeps the fingerprint for now`() = runTest {
-        // Documented order (the design changes nothing about MasterRequired): for version 2 and 3, resolve() returns the
-        // file without trying the key and the refusal is decided from the file, before opened() tries the key. The stale
-        // fingerprint is found at the first fingerprint unlock after the master password (a VERSION_UNKNOWN file goes the other way).
+        // Documented order (the design changes nothing about MasterRequired): for a file that states its version (2 or 3)
+        // the refusal is decided from the file (refuseIfDue in VaultStore.unlockWithKey), before VaultCrypto.authenticated
+        // uses the key at all. The stale fingerprint is found at the first fingerprint unlock after the master password
+        // (a VERSION_UNKNOWN file goes the other way).
         val s = store().apply { load(); create("m".toCharArray()); lock() }
         clock += MASTER_RECHECK_MS
         val foreign = foreignKey()
