@@ -45,7 +45,7 @@ Protecciones en toda la app: `FLAG_SECURE`, filtro de toques bajo superposicione
 
 Clavero escribe y lee sus propios formatos, que conservan los nombres de cuando se llamaba «Seguridad»: textos `SG1:`, archivos `.sgenc`, la bóveda `seguridad-vault` y, desde la 1.1.0, la copia `seguridad-backup` en archivos `.sgbak`.
 
-La 1.3.1 deja de abrir los formatos de CriptoPanel (`CP1:`, `.cpenc` y su bóveda).
+La 1.3.1 deja de abrir los formatos de CriptoPanel (`CP1:`, `.cpenc` y su bóveda). La 1.3.0 (`Clavero-v1.3.0.apk`, en *Releases*) los sigue abriendo: con ella se pueden descifrar esos textos y archivos para cifrarlos de nuevo, e importar la copia de la bóveda de CriptoPanel, que se vuelve a cifrar en el formato de Clavero (importar reemplaza la bóveda del móvil: exporta antes la tuya). La 1.3.0 no se instala encima de la 1.3.1: úsala antes de actualizar o en otro móvil.
 
 Copias de la bóveda:
 
