@@ -79,6 +79,7 @@ import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MIN_MASTER
+import app.seguridad.vault.NOT_A_VAULT
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
@@ -335,7 +336,8 @@ private fun UnlockVault(store: VaultStore) {
                         store.unlock(chars)
                         pw = ""
                     } catch (e: CryptoFailure) {
-                        error = "Contraseña incorrecta"
+                        // A file this version cannot open is not a forgotten password («He olvidado» deletes it).
+                        error = if (e.message == NOT_A_VAULT) NOT_A_VAULT else "Contraseña incorrecta"
                     } catch (e: Exception) {
                         error = "No se pudo abrir la bóveda"
                     } finally {
@@ -353,7 +355,8 @@ private fun UnlockVault(store: VaultStore) {
                 BiometricRefusal.CLOCK -> Text(CLOCK_CHANGED_TEXT, style = MaterialTheme.typography.bodySmall)
                 BiometricRefusal.MASTER_DUE ->
                     Text("Por seguridad, cada 7 días hay que escribir la contraseña maestra.", style = MaterialTheme.typography.bodySmall)
-                null -> Unit
+                // A file this version cannot open: no notice (the master password says it is not compatible).
+                BiometricRefusal.UNSUPPORTED, null -> Unit
             }
         }
         error?.let { Text(it, color = NegativeColor) }
