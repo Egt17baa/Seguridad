@@ -56,7 +56,6 @@ import app.seguridad.crypto.Bip39
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.ENCRYPTED_EXTENSION
 import app.seguridad.crypto.KdfParams
-import app.seguridad.crypto.LEGACY_ENCRYPTED_EXTENSION
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.PassphraseOptions
 import app.seguridad.crypto.PasswordOptions
@@ -351,7 +350,7 @@ private class TextCryptoViewModel(
                 reset()
                 session.fileMessage = true to "Texto cifrado importado de ${read.second}."
             } else {
-                session.fileMessage = false to if (text == null) "No se pudo leer el archivo." else "Ese archivo no contiene un texto cifrado ($TEXT_PREFIX… o $LEGACY_TEXT_PREFIX…)."
+                session.fileMessage = false to if (text == null) "No se pudo leer el archivo." else "Ese archivo no contiene un texto cifrado ($TEXT_PREFIX…)."
             }
         }
     }
@@ -406,7 +405,7 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
             OutlinedTextField(
                 value = s.input,
                 onValueChange = { s.guard.typed(); s.input = it; vm.reset() },
-                label = { Text("Texto cifrado (empieza por $TEXT_PREFIX o $LEGACY_TEXT_PREFIX)") },
+                label = { Text("Texto cifrado (empieza por $TEXT_PREFIX)") },
                 minLines = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -582,9 +581,6 @@ internal fun displayName(context: Context, uri: Uri): String =
 
 /** Decrypted files wait here, in the app's private cache, until saved; leftovers are wiped at start. */
 const val DECRYPT_TMP_PREFIX = "dec"
-
-/** Prefix of the legacy texts, still decrypted (new ones always start with [TEXT_PREFIX]). */
-private const val LEGACY_TEXT_PREFIX = "CP1:"
 
 /** A decryption that ended: the name to propose in the save dialog, for the run [run] (its copy is the session's pending one). */
 private class DecryptedReady(val name: String, val run: Long)
@@ -769,7 +765,7 @@ private class FileCryptoViewModel(
 }
 
 /**
- * Saves `<name>.sgenc`, encrypted with [kdf]; decrypts both its own files and the legacy ones. The password, the key and
+ * Saves `<name>.sgenc`, encrypted with [kdf], and decrypts them. The password, the key and
  * the last message live in [FileCryptoViewModel] and go by the «PIN y códigos» rule (COV1-1).
  */
 @Composable
@@ -867,7 +863,7 @@ fun FileCryptoScreen(
             val name = vm.sourceName
             Text(
                 if (source == null || name == null) {
-                    if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION o $LEGACY_ENCRYPTED_EXTENSION"
+                    if (encrypt) "Elegir archivo" else "Elegir archivo $ENCRYPTED_EXTENSION"
                 } else {
                     sanitizeReceivedName(name)
                 },

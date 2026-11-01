@@ -11,7 +11,7 @@ import java.util.zip.ZipOutputStream
 /**
  * Prueba del dueño (1-11-2026): «Importar copia» pedía la contraseña maestra para cualquier archivo (un .txt) y solo
  * después decía que no era una bóveda. [mayBeVaultImport] mira la cabecera antes de pedir la contraseña; nunca rechaza
- * lo que la importación acepta (las copias .sgbak y los JSON de Seguridad y de CriptoPanel). Los formatos actuales
+ * lo que la importación acepta (las copias .sgbak y los JSON de Seguridad). Los formatos actuales
  * (seguridad-vault v3 y seguridad-backup v2) se comprueban en BackupTest.formatPinned.
  */
 class ImportHeadTest {
@@ -23,9 +23,6 @@ class ImportHeadTest {
             "seguridad/backup-1.1.sgbak",
             "seguridad/export-1.0.2.json",
             "seguridad/vault-1.1.json",
-            "criptopanel/vault-noversion.json",
-            "criptopanel/vault-v1.json",
-            "criptopanel/vault-v2.json",
         )) assertTrue(path, mayBeVaultImport(head(resource(path))))
         // A JSON saved by another editor with leading blank lines or spaces: the parser skips any amount of them, so a
         // head of blanks only (the `{` beyond the 64 bytes) is let through for the import to decide.
@@ -42,7 +39,6 @@ class ImportHeadTest {
         assertFalse(mayBeVaultImport(head(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "{}".toByteArray())))
         assertFalse(mayBeVaultImport(head("Hola, esto es una nota de texto.".toByteArray())))
         assertFalse(mayBeVaultImport(head(resource("seguridad/README.txt"))))
-        assertFalse(mayBeVaultImport(head(resource("criptopanel/ref.cpenc"))))
         assertFalse(mayBeVaultImport(head("[1,2,3]".toByteArray())))
         // A PNG and another ZIP.
         assertFalse(mayBeVaultImport(head(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) + ByteArray(40))))

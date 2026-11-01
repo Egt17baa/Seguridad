@@ -13,7 +13,7 @@ import java.util.Random
 /**
  * CIFRADO-1 (audit 1.3.0): Argon2id and the HIBP check encode the password to UTF-8 themselves (into an array that is
  * wiped), instead of letting Bouncy Castle or `String` leave a copy on the heap. The bytes must be exactly the ones of
- * before, or a vault, a `.sgbak`, an `SG1:`/`CP1:` text or a `.sgenc`/`.cpenc` file would no longer open. For a password
+ * before, or a vault, a `.sgbak`, an `SG1:` text or a `.sgenc` file would no longer open. For a password
  * that is not valid text, what opens existing data follows Bouncy Castle 1.80 (Seguridad 1.0.x and 1.1.x), and nothing
  * new is protected with it (review F5, M1).
  */

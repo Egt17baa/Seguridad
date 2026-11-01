@@ -61,7 +61,7 @@ val LocalOnMasterChanged = staticCompositionLocalOf<(fingerprintFailed: Boolean,
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
 
 /**
- * Export (a .sgbak copy with the attachments), import (a .sgbak copy, or a JSON export of 1.0.x or CriptoPanel)
+ * Export (a .sgbak copy with the attachments), import (a .sgbak copy, or a JSON export of 1.0.x)
  * and change of master password, with their pickers and dialogs; results are shown in [snackbar]. Call once per
  * screen, where its dialogs belong.
  */

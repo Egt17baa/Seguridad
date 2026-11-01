@@ -79,6 +79,32 @@ class AppNameTest {
         assertEquals("only APP_RENAMED_TEXT in ToolTexts.kt", 1, uses)
     }
 
+    /** Every Kotlin source of the app, with its (line, text) literals ([kotlinLiterals], as SourceTextsTest reads them). */
+    private fun appLiterals() = File(repo(), "app/src/main/java").walkTopDown().filter { it.isFile && it.extension == "kt" }
+        .map { it to kotlinLiterals(it.readText()) }.toList().also { assertTrue("Too few sources: ${it.size}", it.size > 50) }
+
+    /** 1.3.1 (owner's decision, 1-11-2026): CriptoPanel is out of Clavero, and no text of the app names it. */
+    @Test
+    fun `no visible text names CriptoPanel`() {
+        val bad = mutableListOf<String>()
+        for ((f, found) in appLiterals()) {
+            for ((line, lit) in found) if ("criptopanel" in lit.lowercase()) bad += "${f.name}:$line «$lit»"
+        }
+        val res = File(repo(), "app/src/main/res").listFiles { d -> d.isDirectory && d.name.startsWith("values") }.orEmpty()
+            .flatMap { it.listFiles { x -> x.extension == "xml" }.orEmpty().toList() }
+        assertTrue("strings.xml not found", res.any { it.name == "strings.xml" })
+        for (x in res) for ((line, text) in xmlTexts(x.readText())) if ("criptopanel" in text.lowercase()) bad += "${x.parentFile?.name}/${x.name}:$line «$text»"
+        assertTrue("Texts that name CriptoPanel:\n" + bad.joinToString("\n"), bad.isEmpty())
+    }
+
+    /** 1.3.1: nothing reads CriptoPanel's texts (`CP1:`), files (`.cpenc`) or vaults (`criptopanel-vault`) any more. */
+    @Test
+    fun `no code reads CriptoPanel`() {
+        val formats = setOf("CP1:", ".cpenc", "criptopanel", "criptopanel-vault")
+        val bad = appLiterals().flatMap { (f, found) -> found.filter { (_, lit) -> lit in formats }.map { (line, lit) -> "${f.name}:$line «$lit»" } }
+        assertTrue("CriptoPanel's formats still in the code:\n" + bad.joinToString("\n"), bad.isEmpty())
+    }
+
     @Test
     fun theIdentityTheFormatsAndTheClipboardLabelDoNotChange() {
         val gradle = read("app/build.gradle.kts")
@@ -93,14 +119,12 @@ class AppNameTest {
         assertEquals("Seguridad", CLIPBOARD_OWN_LABEL)
 
         assertEquals("seguridad-vault", VaultFile.FORMAT)
-        assertEquals("criptopanel-vault", VaultFile.LEGACY_FORMAT)
         assertEquals("seguridad-backup", BACKUP_MARKER)
         assertEquals("seguridad-auto-", AUTO_BACKUP_PREFIX)
         assertEquals("SG1:", Dialect.SEGURIDAD.textPrefix)
         assertEquals(".sgenc", Dialect.SEGURIDAD.fileExtension)
         assertEquals("seguridad", Dialect.SEGURIDAD.labelPrefix)
-        assertEquals("CP1:", Dialect.CRIPTOPANEL.textPrefix)
-        assertEquals(".cpenc", Dialect.CRIPTOPANEL.fileExtension)
+        assertEquals(listOf(Dialect.SEGURIDAD), Dialect.entries) // CriptoPanel's is not read since 1.3.1.
         assertEquals(".sgenc", ENCRYPTED_EXTENSION)
         assertEquals(".sgsig", SIGNATURE_EXTENSION)
         assertEquals("SGK1:", CARD_TEXT_PREFIX)
