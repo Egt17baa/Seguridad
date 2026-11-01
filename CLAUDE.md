@@ -26,7 +26,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
    - la auditoría completa con `experto-seguridad-cripto`, `auditoria-seguridad-movil` y `auditoria-seguridad`;
    - la revisión final del Abogado Digital (punto 4), con sus cambios aplicados.
 
-## Estado actual: Clavero 1.3.0 (31-10-2026)
+## Estado actual: Clavero 1.3.0, publicada (1-11-2026)
 
 **Nombre:** la app se llama **Clavero** desde la 1.3.0 (antes «Seguridad»). Cambian el nombre visible, los textos, la política, la ficha, el README y los nombres de los APK publicados (`Clavero-<etiqueta>.apk`). **No cambian**, y `AppNameTest` lo comprueba:
 - el `applicationId` `io.github.egt17baa.seguridad` y el paquete `app.seguridad`;
@@ -35,7 +35,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - los nombres de los formatos (`seguridad-vault`, `seguridad-backup`, `SG1:`…) y los prefijos de las copias (`seguridad-auto-`, `seguridad-boveda-`);
 - el nombre del repositorio, que el dueño puede cambiar si quiere.
 
-**Fase:** la tarea 16 está casi terminada, en la rama `ccr-a1a6eabb-765f9g`. Hay que seguir el traspaso `docs/superpowers/handoff/2026-10-28-seguridad-1.3.0-traspaso.md`. El registro de la ejecución está en `docs/superpowers/handoff/sdd-1.3.0/progress.md`, con su copia de trabajo en `.superpowers/sdd/2026-10-27-seguridad-1.3.0-herramientas/`. El informe de la auditoría está en `docs/auditorias/2026-10-31-auditoria-1.3.0.md`.
+**Fase:** la 1.3.0 está **publicada**: etiqueta `v1.3.0` en `b6ea21b` (`main`), con `Clavero-v1.3.0.apk` en *Releases*, firmado con la clave de subida. La rama de trabajo fue `ccr-a1a6eabb-765f9g`. `main` está protegida desde el 1-11-2026, así que todo cambio entra por un PR, con **build** y **jvm-check** en verde. El registro de la ejecución está en `docs/superpowers/handoff/sdd-1.3.0/progress.md` y el informe de la auditoría en `docs/auditorias/2026-10-31-auditoria-1.3.0.md`.
 
 | Paso | Estado |
 |---|---|
@@ -45,9 +45,9 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | Tarea 16: nombre nuevo «Clavero» y aviso único del cambio de nombre | Terminado y revisado |
 | Tarea 16: revisión final del Abogado Digital (lote AB) | Terminada, con sus cambios aplicados y confirmados |
 | Tarea 16: detalles menores aplazados de las tareas 1 a 9 (lote MN) | Terminados |
-| Tarea 16: APK de publicación (`aapt2`, `check-manifest`, sin `PreviewActivity`) | Comprobado con la clave de prueba; falta el APK firmado |
-| Tarea 16: fusión en `main` sin etiqueta | Hecha (`6e3542d`) |
-| Tarea 16: APK firmado desde `main`, prueba en el móvil, etiqueta `v1.3.0` | Pendiente (dueño) |
+| Tarea 16: APK de publicación (`aapt2`, `check-manifest`, sin `PreviewActivity`) | Comprobado, también el firmado y el de *Releases* |
+| Tarea 16: fusión en `main` (`6e3542d`) y arreglos de la prueba en el móvil por PR (#9 «Importar copia», #10 nombre repetido, #11 zoom en «Tachar») | Hechos |
+| Tarea 16: APK firmado, prueba del dueño en el móvil y etiqueta `v1.3.0` | Hechos (1-11-2026) |
 
 **Decisiones del dueño y del controlador que siguen vigentes** (el detalle está en `progress.md`, en las líneas «Ruling» y «Owner decision»):
 - **Detalles menores:** se arreglan todos, no se aplazan.
@@ -74,26 +74,18 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Protección de `main`:** el dueño la pone justo después de la fusión y antes de la etiqueta, con la lista «Entorno de firma» del README.
 - **Prueba de palabras prohibidas:** `SourceTextsTest` revisa todas las cadenas de `app/src/main/java`, no solo `ToolTexts.kt`.
 
-**Pendientes:**
-1. **Hecho:** fusión en `main` (`6e3542d`, 31-10-2026, sin etiqueta). Los arreglos que salgan se hacen en la rama y se vuelven a fusionar con `--no-ff`.
-2. **Ajustes de GitHub del dueño**, según la lista «Entorno de firma» del README:
-   - la regla de `main`;
-   - Actions con permisos de solo lectura;
-   - el entorno `firma` con revisores obligatorios y los secretos dentro (y borrar los del repositorio);
-   - revisar quién puede saltarse la regla de las etiquetas `v*`.
-3. **APK firmado desde `main`:** comprobar la huella en el resumen, `aapt2` y `check-manifest`, y apuntarlo en el §8.2 del informe.
-4. **Prueba del dueño en el Honor Magic 8 Pro:** la lista del README, que reúne la del traspaso (§2.6) y las de los informes. Incluye:
-   - girar el móvil durante «Activar huella» y durante el desbloqueo;
-   - Gboard, en un campo normal y en un campo dentro de un diálogo;
-   - fotos de 200 MP;
-   - un móvil de 3 a 4 GB de RAM para la memoria nativa de Tachar.
+**Más decisiones del 1-11-2026:**
+- **«Importar copia»** deja elegir cualquier archivo y mira su cabecera antes de pedir la contraseña (`mayBeVaultImport`).
+- **Un archivo restaurado se guarda con el tipo de su extensión** (`restoredFileMime`): imagen salvo SVG, vídeo, audio, texto plano y PDF; lo demás, `application/octet-stream`.
+- **Zoom en «Tachar»:** un segundo dedo antes de que el primero se mueva es zoom, y una cancelación del sistema no deja ningún bloque.
+- **Los avisos de R8 sobre los metadatos de Kotlin** se dejan para la próxima versión: son las mismas herramientas que la 1.2.2, y no se cambia la compilación justo antes de publicar.
 
-   Lo que falle se arregla en la rama y se vuelve a fusionar.
-5. **Acciones del dueño de `PUBLICAR.md` §3.7:**
-   - buscar marcas CLAVERO, CLAVIS y CLAVISTER en la clase 9 (TMview, OEPM, WIPO), y registrarla si quiere;
-   - la fecha de la política y GitHub Pages;
-   - las respuestas de Play Console.
-6. **El dueño pone la etiqueta `v1.3.0`**, y el APK publicado será `Clavero-v1.3.0.apk`.
+**Pendientes, del dueño** (`docs/PUBLICAR.md` §3.7 y README, «Entorno de firma»):
+1. **Borrar los secretos `SEGURIDAD_*` del repositorio**, si ya están en el entorno `firma`.
+2. **La comprobación del paso 7** con la rama `claude/prueba-secretos`, que debe dar `VACIO`.
+3. **Buscar las marcas** CLAVERO, CLAVIS y CLAVISTER en la clase 9 (TMview, OEPM, WIPO), y registrarla si quiere.
+4. **La fecha de la política, GitHub Pages y las respuestas de Play Console;** subir el AAB `Clavero-google-play-aab` de la ejecución #86 si publica en Google Play.
+5. **Las pruebas en el móvil que siguen pendientes en el informe (§4):** `adb`, TalkBack, la ventana flotante de MagicOS, el teclado de Honor y la colaboración con el PC.
 
 ## Reglas del proyecto
 
