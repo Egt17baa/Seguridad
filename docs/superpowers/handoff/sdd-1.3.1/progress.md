@@ -24,3 +24,5 @@ Branch: ccr-a1a6eabb-765f9g. Plan base: 8d9bd4b (main 9504ce3 + audit reports + 
 - Ruling: T7 step 3 may run Gradle without --offline only to fetch the pinned R8 and write its checksums; every verification after it runs --offline — the plan's step 3 says so explicitly — cost if wrong: none, the gate in step 4 still applies.
 
 ## Tasks
+Task 1: dispatched (base d228e41, implementer opus)
+- Owner decision (1-11-2026, second answer): remove CriptoPanel entirely — Clavero stops reading CP1:, .cpenc and criptopanel-vault; the owner imports any CriptoPanel vault into 1.3.0 before updating. Spec «Decisiones del dueño» and «Fuera CriptoPanel», plan Global Constraints, Review Focus 5 and Task 6 rewritten (commit below). Tasks 1-5 must not touch CriptoPanel code; Task 6 removes it.
