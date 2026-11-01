@@ -802,7 +802,7 @@ fun FileCryptoScreen(
     // state), until the user picks where to save it; deleted right after. M2 of the F6 review: the screen emptied while
     // the dialog was open (the time away, ON_START comes before the dialog's answer), or the app restarted meanwhile:
     // the copy was already given up, nothing is written and the document the dialog made goes.
-    val saveDecrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val saveDecrypted = rememberDocumentPicker(CreateRestoredDocument()) { dest ->
         val copy = s.takePending()
         val tmp = copy?.let { File(it.path) }?.takeIf { it.exists() && s.isCurrent(copy.run) }
         if (tmp == null) {
