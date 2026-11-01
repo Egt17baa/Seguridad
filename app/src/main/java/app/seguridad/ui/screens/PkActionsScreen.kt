@@ -647,7 +647,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         symmetric = false
     }
 
-    val saveDecrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val saveDecrypted = rememberDocumentPicker(CreateRestoredDocument()) { dest ->
         VaultLock.keepOpenOnce = false
         val received = pending
         if (received == null || !received.file.exists()) {
