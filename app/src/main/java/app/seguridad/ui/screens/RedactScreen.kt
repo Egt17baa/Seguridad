@@ -573,10 +573,12 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
  * blocks it has (M-11).
  *
  * Zoom (owner's request, 1-11-2026): two fingers enlarge (up to [app.seguridad.tools.redact.MAX_REDACT_ZOOM]), shrink
- * and move the image ([RedactZoom]); a second finger that lands before the first has moved makes it a pinch, never a
- * box, and what the last finger does after a pinch draws nothing. A double tap puts it back to its size. The preview
- * is clipped to its area. Touches are brought back to the unzoomed preview before [boxFromDrag], so a box drawn while
- * zoomed covers exactly what was under the finger, in image pixels as always.
+ * and move the image ([RedactZoom]). A second finger that lands before the first has moved past the touch slop makes
+ * it a pinch, not a box, and what the last finger does after a pinch draws nothing; one that lands once a box is being
+ * drawn is ignored. A double tap puts it back to its size. The preview is clipped to its area. Touches are clamped to
+ * the view and brought back to the unzoomed preview before [boxFromDrag], so a box drawn while zoomed covers what was
+ * under the finger and never parts that were not shown, in image pixels as always. A gesture the system cancels (it
+ * arrives consumed) leaves no box, as before.
  */
 @Composable
 private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, isShown: () -> Boolean, onBox: (RedactBox) -> Unit) {
@@ -606,8 +608,9 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
                     var lastTapAt = 0L
                     var lastTapAtPos = Offset.Zero
                     awaitEachGesture {
-                        // One finger draws a box, from where it went down; two fingers enlarge, shrink and move the
-                        // image (owner's request, 1-11-2026); a double tap puts it back to its size.
+                        // One finger draws a box, from where it went down; two fingers (the second before the first
+                        // moved) enlarge, shrink and move the image (owner's request, 1-11-2026); a double tap puts it
+                        // back to its size.
                         val down = awaitFirstDown()
                         // Busy: not consumed, so the page still scrolls.
                         if (!currentEnabled) return@awaitEachGesture
@@ -620,11 +623,12 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
                             val event = awaitPointerEvent()
                             val pressed = event.changes.count { it.pressed }
                             if (!drawing && pressed >= 2) {
-                                // A second finger before the first one moved: a pinch, never a box.
+                                // A second finger before the first one moved past the slop: a pinch, not a box.
                                 pinching = true
                                 dragFrom = null
                                 dragTo = null
-                                val c = event.calculateCentroid(useCurrent = true)
+                                // Pivot on the fingers' centre before this move, then add its pan: the image follows them.
+                                val c = event.calculateCentroid(useCurrent = false)
                                 val pan = event.calculatePan()
                                 zoom = zoom.transformed(event.calculateZoom(), c.x, c.y, pan.x, pan.y, size.width.toFloat(), size.height.toFloat())
                                 event.changes.forEach { it.consume() }
@@ -637,11 +641,18 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
                                 continue
                             }
                             val change = event.changes.firstOrNull { it.id == down.id }
-                            if (change == null || !change.pressed) {
-                                if (!drawing && change != null) tapEndedAt = change.uptimeMillis
+                            // Consumed before us: the system cancelled the gesture (a cancel arrives already consumed:
+                            // screen off, a system screenshot gesture) or an ancestor took it. Like the old drag(): no
+                            // box, and not a tap.
+                            if (change == null || change.isConsumed) {
+                                drawing = false
                                 break
                             }
-                            if (!drawing && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) drawing = true
+                            if (!change.pressed) {
+                                if (!drawing) tapEndedAt = change.uptimeMillis
+                                break
+                            }
+                            if (!drawing && (change.position - down.position).getDistance() >= viewConfiguration.touchSlop) drawing = true
                             if (drawing) {
                                 change.consume()
                                 dragTo = change.position
@@ -655,11 +666,13 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
                             val viewW = size.width.toFloat()
                             val viewH = size.height.toFloat()
                             val z = zoom
-                            boxFromDrag(z.toPreviewX(from.x), z.toPreviewY(from.y), z.toPreviewX(to.x), z.toPreviewY(to.y), viewW, viewH, p.width, p.height)
+                            boxFromDrag(z.toPreviewX(from.x, viewW), z.toPreviewY(from.y, viewH), z.toPreviewX(to.x, viewW), z.toPreviewY(to.y, viewH), viewW, viewH, p.width, p.height)
                                 ?.let { currentOnBox(it) }
                         }
                         if (tapEndedAt >= 0) {
-                            val double = tapEndedAt - lastTapAt <= viewConfiguration.doubleTapTimeoutMillis &&
+                            // From the first tap's lift to this one's touch, like detectTapGestures.
+                            val gap = down.uptimeMillis - lastTapAt
+                            val double = gap in viewConfiguration.doubleTapMinTimeMillis..viewConfiguration.doubleTapTimeoutMillis &&
                                 (down.position - lastTapAtPos).getDistance() <= viewConfiguration.touchSlop * 4
                             if (double) {
                                 zoom = RedactZoom()
@@ -686,7 +699,7 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
                     val from = dragFrom
                     val to = dragTo
                     if (enabled && from != null && to != null) {
-                        boxFromDrag(z.toPreviewX(from.x), z.toPreviewY(from.y), z.toPreviewX(to.x), z.toPreviewY(to.y), size.width, size.height, p.width, p.height)?.let {
+                        boxFromDrag(z.toPreviewX(from.x, size.width), z.toPreviewY(from.y, size.height), z.toPreviewX(to.x, size.width), z.toPreviewY(to.y, size.height), size.width, size.height, p.width, p.height)?.let {
                             drawBlack(boxToView(it, size.width, size.height, p.width, p.height))
                         }
                     }
