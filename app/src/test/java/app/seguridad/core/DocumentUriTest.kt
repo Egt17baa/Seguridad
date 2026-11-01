@@ -67,8 +67,10 @@ class DocumentUriTest {
         assertTrue("Too few sources: ${files.size}", files.size > 50)
         val offending = files.flatMap { f -> pickerViolations(f.readText()).map { "${f.name}: $it" } }
         assertTrue("Pickers not guarded:\n" + offending.joinToString("\n"), offending.isEmpty())
-        val guarded = files.sumOf { guardedPicker.findAll(it.readText()).count() }
+        // The three saves of a restored file use the contract of Pickers.kt that names the type (CreateRestoredDocument).
+        val guarded = files.sumOf { guardedPicker.findAll(it.readText()).count() + restoredSave.findAll(it.readText()).count() }
         assertEquals("Number of guarded pickers changed: update this test", 25, guarded)
+        assertEquals(3, files.sumOf { restoredSave.findAll(it.readText()).count() })
     }
 
     @Test fun theCheckCatchesEveryWayAroundTheGuard() {
@@ -78,6 +80,7 @@ class DocumentUriTest {
             "val pick = rememberLauncherForActivityResult(\n    ActivityResultContracts.StartActivityForResult(),\n) { r -> }",
             "val pick = registerForActivityResult(\n  ActivityResultContracts.CreateDocument(\"text/plain\")) { }",
             "val pick = rememberLauncherForActivityResult(MyPicker()) { }",
+            "val save = rememberLauncherForActivityResult(CreateRestoredDocument()) { }",
             // The picker's intent built by hand, or a contract of one's own.
             "launcher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE))",
             "Intent(Intent.ACTION_CREATE_DOCUMENT)", "Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)",
@@ -100,12 +103,14 @@ class DocumentUriTest {
             "val scanner = rememberLauncherForActivityResult(\n    ScanContract()\n) { result -> }",
             "val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri -> }",
             "val save = rememberDocumentPicker(\n    ActivityResultContracts.CreateDocument(\"image/png\"),\n    onSaveTarget,\n)",
+            "val save = rememberDocumentPicker(CreateRestoredDocument()) { dest -> }",
             "import androidx.activity.compose.rememberLauncherForActivityResult\nif (uri == null) return@rememberLauncherForActivityResult",
         )
         for (text in good) assertEquals(text, emptyList<String>(), pickerViolations(text))
     }
 
     private val guardedPicker = Regex("""rememberDocumentPicker\(\s*ActivityResultContracts\.""")
+    private val restoredSave = Regex("""rememberDocumentPicker\(\s*CreateRestoredDocument\(\)""")
 
     /** What in [text] (a whole source file) registers or launches a picker without rememberDocumentPicker. */
     private fun pickerViolations(text: String): List<String> {
