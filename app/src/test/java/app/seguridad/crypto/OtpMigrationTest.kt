@@ -46,6 +46,9 @@ private fun uri(payload: ByteArray) =
 private val KEY = "12345678901234567890".toByteArray() // The RFC 6238 test key (20 bytes).
 
 class OtpMigrationTest {
+    /** The usable 2FA code of a link, from the one sealed answer the screens use (F4). */
+    private fun parseOtpAuth(text: String) = (readOtpAuth(text) as? OtpAuthRead.Usable)?.secret
+
     @Test fun parsesSingleTotp() {
         val payload = Pb().msg(1, otp(KEY, "GitHub:ana@example.com", "GitHub", alg = 2, digits = 2))
             .int(2, 1).int(3, 1).int(4, 0).int(5, 12345)

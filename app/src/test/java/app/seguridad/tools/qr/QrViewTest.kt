@@ -246,10 +246,11 @@ class QrViewTest {
         // Usable: names, no note.
         assertTrue(qrView(link).notes.isEmpty())
         assertTrue(qrView("$link&digits=8&period=60&algorithm=SHA256").notes.isEmpty())
-        // Not calculable (algorithm, digits or period): the same names, the add button, the key still hidden, and the note.
+        // Not calculable (algorithm, digits or period): the same names, the key still hidden and the note, but no
+        // «Añadir a la bóveda» (F4): the editor would refuse the link with that same note.
         for (setting in listOf("digits=10", "period=300", "algorithm=MD5", "digits=5", "period=5")) {
             val v = qrView("$link&$setting")
-            assertEquals(setting, QrAction.ADD_TOTP, v.action)
+            assertEquals(setting, QrAction.NONE, v.action)
             assertTrue(setting, v.textHidden && v.carriesSecret)
             assertEquals(setting, "Banco", v.field("Servicio"))
             assertEquals(setting, "ana", v.field("Cuenta"))

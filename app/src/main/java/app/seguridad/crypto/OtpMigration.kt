@@ -133,7 +133,7 @@ private fun ProtoReader.otpParameters(): Pair<TotpSecret?, String?> {
                 else -> skip(wire)
             }
         }
-        // «Issuer:cuenta» in the name, as in parseOtpAuth; the issuer field wins when present.
+        // «Issuer:cuenta» in the name, as in readOtpAuth; the issuer field wins when present.
         val labelIssuer = otpName(name.substringBefore(':', ""))
         val account = otpName(name.substringAfter(':'))
         val finalIssuer = otpName(issuer).ifEmpty { labelIssuer }
