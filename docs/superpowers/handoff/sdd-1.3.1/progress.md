@@ -26,3 +26,11 @@ Branch: ccr-a1a6eabb-765f9g. Plan base: 8d9bd4b (main 9504ce3 + audit reports + 
 ## Tasks
 Task 1: dispatched (base d228e41, implementer opus)
 - Owner decision (1-11-2026, second answer): remove CriptoPanel entirely — Clavero stops reading CP1:, .cpenc and criptopanel-vault; the owner imports any CriptoPanel vault into 1.3.0 before updating. Spec «Decisiones del dueño» and «Fuera CriptoPanel», plan Global Constraints, Review Focus 5 and Task 6 rewritten (commit below). Tasks 1-5 must not touch CriptoPanel code; Task 6 removes it.
+Task 1: implementer DONE_WITH_CONCERNS cbf3721 (AppContainer(trustedChainOf) param + SeguridadApp.kt wiring instead of androidTrustedChain inside AppContainer: AppContainer compiles on JVM)
+- Ruling: accept Task 1 deviation (trustedChainOf injected through AppContainer's constructor, wired in SeguridadApp.kt, guarded by a PlatformSourcesTest) — AppContainer.kt is compiled by jvm-check and android/ is not, so the brief's literal wiring could not build; same pattern as revokeShare/backupFolder — cost if wrong: a refactor of the wiring only.
+- Owner (1-11-2026): no vault in CriptoPanel, so nothing to import before 1.3.1.
+Task 1: review Approved, spec ✅, 0 Critical/0 Important, 5 Minor (task-1-review.md): M1 X509TrustManagerExtensions ctor throw would crash instead of fail closed; M2 no test that the returned TrustedChain is used; M3 report overstates 1.3.0 peerHost dependency; M4 old CustomX509TrustManager lint on rewritten line; M5 HttpClientTest compares acceptedIssuers as ordered lists.
+- Ruling: Task 1 minors go into a fix round now, not deferred — project rule (CLAUDE.md, owner decision: «Detalles menores: se arreglan todos, no se aplazan») overrides the skill's defer route — cost if wrong: one extra small round.
+Task 1: fix round 1/5 (5 addressed, 0 open — M1 fail-closed ctor, M2 assertSame trustedChain, M3 report, M4 @Suppress, M5 sets; commits 4cc8fd2..f0a1b63; task-1-rereview-1.md)
+Task 1: complete (commits d228e41..f0a1b63, review clean). Owner phone test mandatory: «Comprobar contraseña» and «Salud» with network.
+Task 2: dispatched (base f0a1b63, implementer sonnet)
