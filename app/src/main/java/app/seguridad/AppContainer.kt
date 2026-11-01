@@ -19,6 +19,7 @@ import app.seguridad.vault.BackupTarget
 import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.WordLists
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -33,6 +34,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.File
+import java.io.FileNotFoundException
+import java.io.InputStream
 import javax.net.ssl.X509TrustManager
 
 /** The settings file, in the app's private files directory. */
@@ -82,6 +85,11 @@ class AppContainer(
      * (Android only); null on the JVM, which checks the chain the server presented (see secureClient).
      */
     trustedChainOf: ((X509TrustManager) -> TrustedChain)? = null,
+    /**
+     * Opens a file of the app's `assets/` for [wordLists]: SeguridadApp passes AssetManager.open. On the JVM there are
+     * none, so the lists cannot be read and the rule of a new master stays at the length and the estimate.
+     */
+    openAsset: (String) -> InputStream = { name -> throw FileNotFoundException(name) },
 ) {
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE), settingsIo)
 
@@ -101,6 +109,12 @@ class AppContainer(
      * menus never change it: they are windows of the activity, not activities.
      */
     val awayInOtherApp: StateFlow<Boolean> = _awayInOtherApp.asStateFlow()
+
+    /**
+     * The word lists of `assets/` (the rule of a new master and the Generator's phrases), read once per process and off
+     * the main thread, so no screen reads or normalizes them again when it opens or turns (F6). Not secret.
+     */
+    val wordLists = WordLists(openAsset)
 
     /** The only connection of the app (Have I Been Pwned), with the eMudhra keys distrusted; built on first use. */
     val client: OkHttpClient by lazy { secureClient(appVersion, trustedChainOf) }

@@ -181,14 +181,19 @@ tasks.named("check") { dependsOn(checkFragmentVersion) }
 // one (OkHttp 5 brings Mozilla's Public Suffix List, MPL-2.0, excluded above). Every asset of the release APK must come
 // from app/src/main/assets, so an asset a new library adds fails the build until its licence has been reviewed.
 // Only assets/: Java resources of library jars are not checked (OkHttp's Android artifact ships the list as an asset).
+// It also fails if a word list of the rule of a new master is missing from the APK (final review 1.3.1, M2): the app
+// would then turn the word check off without a sign (loadMasterWords gives an empty set).
 val releaseAssets = objects.listProperty<Directory>()
 androidComponents.onVariants(androidComponents.selector().withBuildType("release")) { variant ->
     releaseAssets.add(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.ASSETS))
 }
 val checkAssets by tasks.registering {
     group = "verification"
-    description = "Falla si el APK llevaría un archivo en assets/ que no sea de app/src/main/assets."
+    description = "Falla si el APK llevaría un archivo en assets/ que no sea de app/src/main/assets, " +
+        "o si le faltaría una lista de palabras de la contraseña maestra."
     val merged = releaseAssets
+    // MASTER_WORD_LISTS in vault/MasterPolicy.kt (MasterPolicyTest checks that this list names them all).
+    val wordLists = listOf("eff_large_wordlist.txt", "bip39_english.txt", "bip39_spanish.txt")
     val own = layout.projectDirectory.dir("src/main/assets").asFile
     val stamp = layout.buildDirectory.file("checkAssets/ok")
     // The merged assets already hold the app's own, so they are the only input.
@@ -196,7 +201,16 @@ val checkAssets by tasks.registering {
     outputs.file(stamp)
     doLast {
         fun relative(root: File) = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).invariantSeparatorsPath }.toSet()
-        val foreign = merged.get().flatMap { relative(it.asFile) }.toSet() - relative(own)
+        val packed = merged.get().flatMap { relative(it.asFile) }.toSet()
+        val missing = wordLists - packed
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Al APK le faltarían listas de palabras de la contraseña maestra: ${missing.joinToString()}. " +
+                    "Sin ellas, la regla de una maestra nueva no reconoce una sola palabra: no las quites ni las " +
+                    "excluyas en androidResources.",
+            )
+        }
+        val foreign = packed - relative(own)
         if (foreign.isNotEmpty()) {
             throw GradleException(
                 "El APK llevaría assets que no son de la app: ${foreign.sorted().joinToString()}. Una biblioteca puede traer " +
@@ -204,7 +218,7 @@ val checkAssets by tasks.registering {
             )
         }
         stamp.get().asFile.writeText("ok\n")
-        logger.lifecycle("assets/: solo archivos de app/src/main/assets")
+        logger.lifecycle("assets/: solo archivos de app/src/main/assets, con las tres listas de palabras")
     }
 }
 tasks.named("check") { dependsOn(checkAssets) }

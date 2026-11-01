@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -933,18 +934,29 @@ private fun StrengthBar(bits: Double) {
 fun GeneratorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val words = remember { context.assets.open("eff_large_wordlist.txt").bufferedReader().readLines().filter { it.isNotBlank() } }
+    val lists = wordLists()
+    // The EFF list, once per process and off the main thread (F6); null until it is there, and «Frase» waits for it.
+    val words by produceState<List<String>?>(null) { value = lists.eff() }
     var phrase by remember { mutableStateOf(false) }
     var p by remember { mutableStateOf(PasswordOptions()) }
     var w by remember { mutableStateOf(PassphraseOptions()) }
     var seed by remember { mutableIntStateOf(0) }
-    val result = remember(phrase, p, w, seed) { if (phrase) generatePassphrase(words, w) else generatePassword(p) }
-    val bits = if (phrase) passphraseEntropy(words.size, w) else passwordEntropy(p)
+    // «Frase» is only on once the list is there, and it never goes away again (words stays set).
+    val phraseWords = words.takeIf { phrase }
+    val result = remember(phraseWords, p, w, seed) {
+        if (phraseWords != null) generatePassphrase(phraseWords, w) else generatePassword(p)
+    }
+    val bits = if (phraseWords != null) passphraseEntropy(phraseWords.size, w) else passwordEntropy(p)
 
     ToolColumn("Generador", onBack) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             SegmentedButton(selected = !phrase, onClick = { phrase = false }, shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text("Contraseña") }
-            SegmentedButton(selected = phrase, onClick = { phrase = true }, shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text("Frase") }
+            SegmentedButton(
+                selected = phrase,
+                onClick = { phrase = true },
+                enabled = words != null,
+                shape = SegmentedButtonDefaults.itemShape(1, 2),
+            ) { Text("Frase") }
         }
         SectionCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
