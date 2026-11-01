@@ -1,6 +1,7 @@
 package app.seguridad
 
 import app.seguridad.net.PwnedPasswords
+import app.seguridad.net.TrustedChain
 import app.seguridad.net.secureClient
 import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.settings.RenameNotice
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.File
+import javax.net.ssl.X509TrustManager
 
 /** The settings file, in the app's private files directory. */
 const val SETTINGS_FILE = "settings.json"
@@ -75,6 +77,11 @@ class AppContainer(
      * Context.revokeUriPermission through the FileProvider). May throw: the copy is deleted all the same.
      */
     revokeShare: (File) -> Unit = {},
+    /**
+     * CRY-B01: the chain the system validated, for the eMudhra check of [client]. SeguridadApp passes androidTrustedChain
+     * (Android only); null on the JVM, which checks the chain the server presented (see secureClient).
+     */
+    trustedChainOf: ((X509TrustManager) -> TrustedChain)? = null,
 ) {
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE), settingsIo)
 
@@ -96,7 +103,7 @@ class AppContainer(
     val awayInOtherApp: StateFlow<Boolean> = _awayInOtherApp.asStateFlow()
 
     /** The only connection of the app (Have I Been Pwned), with the eMudhra keys distrusted; built on first use. */
-    val client: OkHttpClient by lazy { secureClient(appVersion) }
+    val client: OkHttpClient by lazy { secureClient(appVersion, trustedChainOf) }
 
     private val vaultDir = File(filesDir, "vault")
 
