@@ -56,6 +56,21 @@ internal const val BACKUP_DOES_NOT_FIT = "La bóveda no cabe en una copia (100 M
 fun backupFileName(date: LocalDate): String = "seguridad-boveda-%04d%02d%02d.sgbak".format(date.year, date.monthValue, date.dayOfMonth)
 
 /**
+ * Whether [head] (the first [BACKUP_HEAD_BYTES] of a file) may be something «Importar copia» reads: a `seguridad-backup`
+ * ([isBackup]) or a JSON object (a vault export of Seguridad or CriptoPanel: the strict JSON parser accepts only blanks
+ * before the `{`, never a byte-order mark). A head that is all blanks and as long as [BACKUP_HEAD_BYTES] is let through,
+ * since the `{` may come later. Checked before the master password is asked, so a photo or a note is turned down at
+ * once; it never refuses what [VaultStore.importReplace] accepts, which still checks everything (owner's phone test,
+ * 1-11-2026).
+ */
+fun mayBeVaultImport(head: ByteArray): Boolean {
+    if (isBackup(head)) return true
+    var i = 0
+    while (i < head.size && (head[i].toInt() and 0xff).toChar() in " \t\r\n") i++
+    return if (i == head.size) head.size >= BACKUP_HEAD_BYTES else head[i] == '{'.code.toByte()
+}
+
+/**
  * Whether [head] (the first [BACKUP_HEAD_BYTES] of a file) is a `seguridad-backup`: a ZIP local file header whose
  * name is [BACKUP_MARKER]. Anything else (a JSON export of 1.0.x or CriptoPanel, another ZIP) is not.
  */
