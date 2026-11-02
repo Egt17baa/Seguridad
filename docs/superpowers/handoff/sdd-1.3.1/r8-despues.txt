@@ -1,0 +1,2 @@
+WARNING: R8: Class file resource provider does not support async parsing: com.android.builder.dexing.r8.ClassFileProviderFactory$OrderedClassFileResourceProvider
+WARNING: R8: Class file resource provider does not support async parsing: com.android.builder.dexing.r8.ClassFileProviderFactory$OrderedClassFileResourceProvider
