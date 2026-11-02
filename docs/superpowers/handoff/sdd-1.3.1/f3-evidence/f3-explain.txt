@@ -1,0 +1,8 @@
+raw units=24 effLen(old)=22 old=167.4
+nfc cps=23 effLen(new)=23 new=175.0
+nfc: U+0029 U+0301 U+0055 U+0038 U+0053 U+0075 U+0071 U+0056 U+0050 U+0049 U+0075 U+1EF8 U+00DC U+00C9 U+004F U+0054 U+0030 U+004E U+0049 U+0052 U+004F U+00E1 U+00F1 
+raw units=3 effLen(old)=3 old=20.9
+nfc cps=4 effLen(new)=4 new=27.9
+nfc: U+0FB2 U+0F80 U+007A U+006D 
+[122, 121, 769, 120, 119] old effLen=5 new effLen=4
+[97, 98, 769, 99, 100] old effLen=5 new effLen=5

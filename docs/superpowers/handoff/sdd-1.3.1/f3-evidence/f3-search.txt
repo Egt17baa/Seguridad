@@ -1,0 +1,3 @@
+normal (NFC, BMP, no Cf)           n=200000 equal=200000 stronger=0
+task generator (emoji, NFD, Cf)    n=200000 equal=65420 stronger=52 e.g. U+0029 U+0301 U+0055 U+0038 U+0053 U+0075 U+0071 U+0056 U+0050 U+0049 U+0075 U+0059 U+0303 U+00DC U+00C9 U+004F U+0054 U+0030 U+004E U+0049 U+0052 U+004F U+00E1 U+00F1
+any assigned code point            n=200000 stronger=32 nfcCodePoints>utf16Units=31 e.g. U+0F76 U+007A U+006D

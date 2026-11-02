@@ -1,0 +1,9 @@
+candidate                | today                  | literal N-02           | option A              
+5 emojis                 | passes length+estimate | MASTER_TOO_SHORT       | MASTER_TOO_SHORT      
+????? NFD                | passes length+estimate | MASTER_TOO_SHORT       | MASTER_TOO_SHORT      
+12345 + U+200B           | passes length+estimate | MASTER_TOO_SHORT       | MASTER_TOO_SHORT      
+?? x5 (U+095C)           | MASTER_TOO_SHORT       | passes length+estimate | MASTER_TOO_SHORT      
+A+U+0301 baco12345       | passes length+estimate | MASTER_TOO_WEAK        | MASTER_TOO_WEAK       
+Xq7#vB2!mK               | passes length+estimate | passes length+estimate | passes length+estimate
+casa perro luz mar sol   | passes length+estimate | passes length+estimate | passes length+estimate
+contrase?a123            | passes length+estimate | passes length+estimate | passes length+estimate
