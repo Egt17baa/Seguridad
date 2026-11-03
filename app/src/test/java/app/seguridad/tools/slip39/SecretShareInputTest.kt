@@ -81,6 +81,28 @@ class SecretShareInputTest {
         assertNull(ok.error)
     }
 
+    /** Review M-1: the parts field holds the most parts a combination may need, at their longest, and not one character more. */
+    @Test fun thePartsFieldHoldsTheLargestCombination() {
+        assertEquals(135_936, SHARE_MAX_PARTS_CHARS)
+        val longest = List(SLIP39_MAX_WORDS) { "academic" }.joinToString(" ")
+        assertTrue(longest.length < SHARE_MAX_PART_LINE_CHARS)
+        val all = List(SLIP39_MAX_PARTS) { longest }.joinToString("\n")
+        assertTrue(all.length <= SHARE_MAX_PARTS_CHARS)
+        val r = combineRequest(all, "")
+        assertNull(r.error)
+        assertEquals(SLIP39_MAX_PARTS, r.parts.size)
+        assertEquals(SHARE_PARTS_TOO_LONG, combineRequest(all + " ".repeat(SHARE_MAX_PARTS_CHARS - all.length + 1), "").error)
+        assertNull(combineRequest(all + " ".repeat(SHARE_MAX_PARTS_CHARS - all.length), "").error)
+    }
+
+    @Test fun aPhraseWithAnUnknownWordNamesTheFirstOne() {
+        val words = zeros12.toMutableList().also { it[4] = "zzzz"; it[8] = "yyyy" }
+        assertEquals(sharePhraseUnknown(5), splitInput(words.joinToString(" "), true, bip39).error)
+        // An unknown word comes before the count, as before.
+        assertEquals(sharePhraseUnknown(2), splitInput("abandon zzzz", true, bip39).error)
+        assertTrue(bip39.isWord("abandon") && !bip39.isWord("Abandon") && !bip39.isWord(""))
+    }
+
     @Test fun anOversizedSplitIsRefusedBeforeAnyWork() {
         val one = listOf(GroupForm("2", "3"))
         val huge = "f".repeat(10_000_000)

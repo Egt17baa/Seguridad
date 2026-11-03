@@ -7,11 +7,19 @@ import java.text.Normalizer
 /** The phrase or hex field: 24 words of up to 8 letters, or 64 hex digits with separators, fit with room to spare. */
 const val SHARE_MAX_SECRET_CHARS = 1_000
 
-/** The parts field of «Recomponer»: about 70 parts of 59 words, or 200 of 20, so a huge paste cannot freeze the screen. */
-const val SHARE_MAX_PARTS_CHARS = 40_000
+/** The longest part on one line: [SLIP39_MAX_WORDS] words of up to 8 letters, a space or the line break after each. */
+const val SHARE_MAX_PART_LINE_CHARS = SLIP39_MAX_WORDS * 9
+
+/**
+ * The parts field of «Recomponer»: the [SLIP39_MAX_PARTS] parts a combination may need, at their longest (59 words),
+ * each on its line; 135 936 characters. Bounded, so a bigger paste is refused before any work (review M-1).
+ */
+const val SHARE_MAX_PARTS_CHARS = SLIP39_MAX_PARTS * SHARE_MAX_PART_LINE_CHARS
 
 /** A number field of the scheme: 1 to 16. */
 const val SHARE_MAX_NUMBER_CHARS = 2
+
+private val BIP39_WORD_COUNTS = setOf(12, 15, 18, 21, 24)
 
 /** The secret of the «Repartir» form ([secret], which the caller wipes) or the reason it is not one ([error]). */
 class SplitInput(val secret: ByteArray?, val error: String?)
@@ -30,11 +38,12 @@ fun splitInput(text: String, isPhrase: Boolean, bip39: Bip39): SplitInput {
         }
         return SplitInput(bytes, null)
     }
-    val clean = cleanPhrase(text)
-    val check = bip39.check(clean)
-    check.unknown.firstOrNull()?.let { return SplitInput(null, sharePhraseUnknown(it.position)) }
-    if (!check.validCount) return SplitInput(null, SHARE_PHRASE_COUNT)
-    val entropy = bip39.entropyOf(bip39.normalize(clean)) ?: return SplitInput(null, SHARE_PHRASE_CHECKSUM)
+    // Only the place of the first unknown word is shown, so no suggestion is worked out (review M-3).
+    val words = bip39.normalize(cleanPhrase(text))
+    val unknown = words.indexOfFirst { !bip39.isWord(it) }
+    if (unknown >= 0) return SplitInput(null, sharePhraseUnknown(unknown + 1))
+    if (words.size !in BIP39_WORD_COUNTS) return SplitInput(null, SHARE_PHRASE_COUNT)
+    val entropy = bip39.entropyOf(words) ?: return SplitInput(null, SHARE_PHRASE_CHECKSUM)
     return SplitInput(entropy, null)
 }
 

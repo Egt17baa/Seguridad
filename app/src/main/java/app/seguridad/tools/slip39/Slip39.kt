@@ -23,7 +23,10 @@ const val SLIP39_MAX_SECRET_BYTES = 32
 const val SLIP39_MAX_GROUPS = 16
 const val SLIP39_MAX_MEMBERS = 16
 
-/** The most parts one combination can need (16 groups of 16), so more is refused before any work. */
+/**
+ * The most parts one combination can need (16 groups of 16), so more is refused before any work. The parts field of the
+ * screen holds this many at their longest (SHARE_MAX_PARTS_CHARS).
+ */
 const val SLIP39_MAX_PARTS = SLIP39_MAX_GROUPS * SLIP39_MAX_MEMBERS
 
 /** A part of 59 words of 8 letters is 530 characters; this leaves room for spaces of more, not for a flood. */

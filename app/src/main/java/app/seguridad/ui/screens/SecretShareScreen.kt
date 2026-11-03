@@ -72,6 +72,7 @@ import app.seguridad.tools.slip39.SHARE_REMOVE_GROUP
 import app.seguridad.tools.slip39.SHARE_RESULT_HEX
 import app.seguridad.tools.slip39.SHARE_RESULT_NOTE
 import app.seguridad.tools.slip39.SHARE_RESULT_PHRASE
+import app.seguridad.tools.slip39.SHARE_RESULT_PHRASE_NOTE
 import app.seguridad.tools.slip39.SHARE_SPLIT_BUTTON
 import app.seguridad.tools.slip39.SHARE_TITLE
 import app.seguridad.tools.slip39.SHARE_TOO_LONG
@@ -397,7 +398,7 @@ private fun CombineForm(context: Context, vm: SecretShareViewModel) {
             Output(context, hex)
             if (phrase != null) {
                 Text(SHARE_RESULT_PHRASE, style = MaterialTheme.typography.labelMedium)
-                Output(context, phrase)
+                Output(context, phrase, note = SHARE_RESULT_PHRASE_NOTE)
             }
             Text(SHARE_RESULT_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -405,8 +406,10 @@ private fun CombineForm(context: Context, vm: SecretShareViewModel) {
 }
 
 @Composable
-private fun Output(context: Context, value: String) {
+private fun Output(context: Context, value: String, note: String? = null) {
     SelectionContainer { Text(value, fontFamily = FontFamily.Monospace) }
+    // Between the value and «Copiar», so it is read before the copy (review I-1).
+    note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     FilledTonalButton(onClick = { copySensitive(context, value) }) { Text(SHARE_COPY) }
 }
 

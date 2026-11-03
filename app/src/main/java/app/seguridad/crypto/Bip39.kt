@@ -25,6 +25,9 @@ class Bip39(val words: List<String>) {
 
     fun normalize(phrase: String): List<String> = phrase.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
 
+    /** Whether [word] (already normalized) is a word of the list. */
+    fun isWord(word: String): Boolean = word in index
+
     /** Up to [max] list words starting with [prefix]. */
     fun complete(prefix: String, max: Int = 6): List<String> {
         val p = prefix.trim().lowercase()

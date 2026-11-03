@@ -198,6 +198,14 @@ class PlatformSourcesTest {
         // The warning in its own card before the parts, and what the tool does not protect.
         assertTrue(src.indexOf("Text(SHARE_WARNING)") in 0 until src.indexOf("val parts = s.parts ?: return"))
         assertTrue("Text(SHARE_NOT_PROTECTED)" in src && "Text(SHARE_RESULT_NOTE" in src)
+        // Review I-1: the phrase of the recovered bytes carries its note, between the phrase and «Copiar».
+        assertTrue("Output(context, phrase, note = SHARE_RESULT_PHRASE_NOTE)" in src)
+        val output = src.substringAfter("private fun Output(").substringBefore("\n}\n")
+        assertTrue(output, output.indexOf("note?.let { Text(it") in 0 until output.indexOf("copySensitive(context, value)"))
+        assertTrue(
+            ("\"Esta es la frase BIP-39 de estos bytes. Si las partes vienen de una cartera, el secreto es su semilla y esta frase \" +\n" +
+                "        \"daría otra cartera distinta: usa la frase solo si repartiste una frase BIP-39.\"") in main("tools/slip39/SecretShareTexts.kt"),
+        )
         val texts = main("tools/slip39/SecretShareTexts.kt")
         assertTrue(
             ("\"Estas partes no son una copia SLIP-39 de cartera. Metidas en una cartera de hardware como recuperación SLIP-39 \" +\n" +
