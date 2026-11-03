@@ -56,6 +56,7 @@ import app.seguridad.ui.screens.QrInspectScreen
 import app.seguridad.ui.screens.QrTotpImportScreen
 import app.seguridad.ui.screens.RedactScreen
 import app.seguridad.ui.screens.HashLabScreen
+import app.seguridad.ui.screens.BackupCheckScreen
 import app.seguridad.ui.screens.SecretShareScreen
 import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
@@ -268,7 +269,16 @@ fun AppNavHost(container: AppContainer) {
                 }
                 composable("tools/codes") { CodesScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
                 composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
-                composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
+                composable("settings") {
+                    SettingsScreen(
+                        settingsStore, vault, container.autoBackup,
+                        onAbout = { nav.navigate("settings/about") },
+                        onCheckBackup = { nav.navigate("settings/check-backup") },
+                    )
+                }
+                composable("settings/check-backup") {
+                    BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                }
                 composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
                 composable("settings/licenses") { LicensesScreen(onBack = back) }
             }

@@ -218,6 +218,49 @@ class PlatformSourcesTest {
         assertTrue(task, "\"slip39_english.txt\"" in task.substringAfter("val wordLists = listOf(").substringBefore(")"))
     }
 
+    @Test fun `Comprobar una copia has the guard of the other tools, stops its run and writes nothing`() {
+        val src = code("ui/screens/BackupCheckScreen.kt")
+        // Nothing secret reaches saved state; the ViewModel wipes the session on being cleared, and a wipe stops the run.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        assertTrue("val session: BackupCheckSession = BackupCheckSession(ComposeCells, SystemClock.elapsedRealtime()) { stopAll() }" in src)
+        assertTrue("private val runs: BackupCheckRuns = BackupCheckRuns(session, viewModelScope) { store.lockEpoch }" in src)
+        // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
+        assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(BACKUP_CHECK_TITLE, onBack, s.guard)" in src)
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src && "Text(BACKUP_CHECK_STOPS_NOTE" in src)
+        // What the check does not prove, always on screen.
+        assertTrue("Text(BACKUP_CHECK_NOT_PROVEN," in src)
+        // The password leaves the field as a CharArray the run owns and zeroes (BackupCheckSessionTest).
+        assertTrue("val master = session.password.toCharArray()" in src && "session.password = \"\"" in src && "runs.start(master)" in src)
+        assertTrue("master?.fill('\\u0000')" in code("vault/BackupCheckSession.kt") && "password.fill('\\u0000')" in code("vault/BackupCheckSession.kt"))
+        // checkBackup on IO, in cacheDir/comprobar/ (one folder per run, BackupCheckTest).
+        assertTrue("withContext(Dispatchers.IO)" in src && "checkBackup(it.buffered(), pw, dir)" in src && "File(appContext.cacheDir, BACKUP_CHECK_DIR)" in src)
+        // A lock of the vault and leaving the app (not a rotation) stop the run going on.
+        assertTrue("if (wasOpen && !open) runs.stop()" in src)
+        assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }" in src)
+        // It writes nothing: the screen only reads the vault's state and its lock count, and none of its files changes
+        // the vault, the settings, the fingerprint or a copy.
+        assertEquals(setOf("state", "lockEpoch"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
+        val files = listOf(src, code("vault/BackupCheck.kt"), code("vault/BackupCheckSession.kt"))
+        val writes = listOf(
+            "importReplace", "exportBackup", "upsert(", "addAll(", "addAttachment", "removeAttachment", "changeMaster", "destroy(",
+            "VaultStore(", "SettingsStore", "settings", ".update(", "openOutputStream", "writeBackup", "BiometricVault", "autoBackup",
+            "AutoBackup", "keepOpenOnce", "touch()", "writeText", "writeBytes", "vault.bin",
+        )
+        for (file in files) for (w in writes) assertFalse(w, w in file)
+        assertFalse("VaultStore" in code("vault/BackupCheck.kt") || "VaultStore" in code("vault/BackupCheckSession.kt"))
+        // The row in Ajustes, the route, and the leftovers of a run cut short go at start.
+        assertTrue("onClick = onCheckBackup" in code("ui/screens/SettingsScreen.kt") && "Text(BACKUP_CHECK_TITLE)" in code("ui/screens/SettingsScreen.kt"))
+        assertTrue("composable(\"settings/check-backup\")" in code("ui/AppNavHost.kt"))
+        assertTrue("BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)" in code("ui/AppNavHost.kt"))
+        assertTrue("removeBackupCheckLeftovers(File(cacheDir, BACKUP_CHECK_DIR))" in code("SeguridadApp.kt"))
+        assertTrue("const val BACKUP_CHECK_TITLE = \"Comprobar una copia\"" in main("vault/BackupCheckTexts.kt"))
+        // The import uses the same checks (BackupCheck.kt), so they cannot drift apart.
+        val store = code("vault/VaultStore.kt")
+        assertTrue("checkCopyEntries(incomingEntries)" in store && "attachmentInCopy(it, backup.first)" in store)
+    }
+
     /** Ruling R3: no other product's brand in a user-visible text; the licence's attribution lives on the Licencias screen. */
     @Test fun `no wallet brand appears in the app's texts outside the licences`() {
         var dir: File? = File(".").absoluteFile
