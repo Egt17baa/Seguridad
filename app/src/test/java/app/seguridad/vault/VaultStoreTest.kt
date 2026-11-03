@@ -6,6 +6,7 @@ import app.seguridad.crypto.KdfParams
 import app.seguridad.crypto.aead
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
@@ -1151,6 +1152,21 @@ class VaultStoreTest {
         launchUnlockWithKey(s, foreign, onWrongKey = { throw IllegalStateException("unexpected") }) { errors += it }.join()
         assertEquals(listOf(FINGERPRINT_STALE), errors)
         assertEquals(VaultState.Locked, s.state.value)
+        assertTrue(foreign.all { it == 0.toByte() })
+    }
+
+    @Test fun `1_4_0 the stale-key text waits until turning the fingerprint off has ended`() = runTest {
+        // BiometricVault.disable is suspend from 1.4.0 (it waits its turn in the queue): onWrongKey is awaited, so
+        // the screen reads enabled() and shows FINGERPRINT_STALE only after the fingerprint is really off.
+        val s = store().apply { load(); create("m".toCharArray()); lock() }
+        val foreign = foreignKey()
+        val log = mutableListOf<String>()
+        launchUnlockWithKey(s, foreign, onWrongKey = {
+            log += "offStart"
+            delay(10)
+            log += "offEnd"
+        }) { log += it }.join()
+        assertEquals(listOf("offStart", "offEnd", FINGERPRINT_STALE), log)
         assertTrue(foreign.all { it == 0.toByte() })
     }
 
