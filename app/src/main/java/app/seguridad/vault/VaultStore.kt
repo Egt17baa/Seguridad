@@ -86,8 +86,9 @@ fun biometricUnlockError(e: Exception): String = when (e) {
  * Only [StaleBiometricKey] turns the fingerprint off: the key does not authenticate the vault's entries under any
  * version the file may be, so the blob the fingerprint guards is another vault's (CRY-A02), or the entries' blob is
  * damaged, which AES-GCM cannot tell apart and the master password cannot open either. Then [onWrongKey] runs once (the
- * screen turns the fingerprint off) and [onError] gets [FINGERPRINT_STALE]. [onWrongKey] is not expected to throw, but
- * if it does the text is shown all the same and the exception does not reach the caller's scope. Nothing else reaches
+ * screen turns the fingerprint off; it is suspend, so that has ended before the text) and [onError] gets
+ * [FINGERPRINT_STALE]. [onWrongKey] is not expected to throw, but if it does the text is shown all the same and the
+ * exception does not reach the caller's scope. Nothing else reaches
  * [onWrongKey]: a key that authenticates but whose entries do not decode ([CryptoFailure], final review F1),
  * [MasterRequired] (the 7-day rule, the clock, or a file this version cannot open, whose key is never tried) and any
  * other failure go to [onError] with [biometricUnlockError], and the fingerprint stays. For a file that states its
@@ -101,7 +102,7 @@ fun biometricUnlockError(e: Exception): String = when (e) {
 fun CoroutineScope.launchUnlockWithKey(
     store: VaultStore,
     key: ByteArray,
-    onWrongKey: () -> Unit = {},
+    onWrongKey: suspend () -> Unit = {},
     onError: (String) -> Unit,
 ): Job =
     launch(start = CoroutineStart.ATOMIC) {

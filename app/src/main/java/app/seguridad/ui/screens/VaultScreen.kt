@@ -167,8 +167,10 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
                                 DropdownMenuItem(text = { Text(if (bio) "Desactivar huella" else "Activar huella") }, onClick = {
                                     menu = false
                                     if (bio) {
-                                        BiometricVault.disable(context)
-                                        scope.launch { snackbar.showSnackbar("Huella desactivada") }
+                                        scope.launch {
+                                            BiometricVault.disable(context)
+                                            snackbar.showSnackbar("Huella desactivada")
+                                        }
                                     } else {
                                         val activity = context.fragmentActivity() ?: return@DropdownMenuItem
                                         val key = store.dataKeyCopy() ?: return@DropdownMenuItem
@@ -375,8 +377,11 @@ private fun UnlockVault(store: VaultStore) {
             confirmButton = {
                 TextButton(onClick = {
                     confirmDestroy = false
-                    BiometricVault.disable(context)
-                    scope.launch { store.destroy() }
+                    scope.launch {
+                        // CRY-A02: the fingerprint is off before the vault is deleted.
+                        BiometricVault.disable(context)
+                        store.destroy()
+                    }
                 }) { Text("Borrar bóveda", color = NegativeColor) }
             },
             dismissButton = { TextButton(onClick = { confirmDestroy = false }) { Text("Cancelar") } },
