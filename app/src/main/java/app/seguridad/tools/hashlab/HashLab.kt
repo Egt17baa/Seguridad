@@ -100,8 +100,6 @@ fun sameDigest(a: ByteArray, b: ByteArray): Boolean = MessageDigest.isEqual(a, b
 /** [text] as UTF-8, the bytes that are hashed. */
 fun textBytes(text: String): ByteArray = text.toByteArray(Charsets.UTF_8)
 
-fun hexEncode(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
-
 fun base64Encode(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
 
 /** [bytes] as text if they are valid UTF-8, or null (the screen then shows them as hex). */

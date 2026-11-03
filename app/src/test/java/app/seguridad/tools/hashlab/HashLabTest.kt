@@ -13,7 +13,7 @@ import org.junit.Test
 class HashLabTest {
     private val abc = "abc".toByteArray()
 
-    private fun h(algo: HashAlgo, data: ByteArray) = app.seguridad.crypto.hex(digest(algo, data)).lowercase()
+    private fun h(algo: HashAlgo, data: ByteArray) = app.seguridad.crypto.hexLower(digest(algo, data))
 
     // FIPS 180-4, Appendix B.1 (SHA-256 of «abc»).
     @Test fun sha256Abc() {
@@ -46,6 +46,15 @@ class HashLabTest {
     // The BLAKE3 team's test_vectors.json, case input_len = 0, first 32 bytes of the hash.
     @Test fun blake3Empty() {
         assertEquals("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262", h(HashAlgo.BLAKE3_256, ByteArray(0)))
+    }
+
+    // The BLAKE3 team's test_vectors.json (input byte i is i % 251), inputs of 1025 and 102400 bytes: they cross the
+    // 1024-byte chunks, so the chaining and the tree merge are pinned against the reference, not only the empty input.
+    private fun pattern(n: Int) = ByteArray(n) { (it % 251).toByte() }
+
+    @Test fun blake3MultiChunkOfficialVectors() {
+        assertEquals("d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444", h(HashAlgo.BLAKE3_256, pattern(1025)))
+        assertEquals("bc3e3d41a1146b069abffad3c0d44860cf664390afce4d9661f7902e7943e085", h(HashAlgo.BLAKE3_256, pattern(102400)))
     }
 
     // RFC 4231, test case 1: key = 0x0b × 20, data = «Hi There».
@@ -111,7 +120,7 @@ class HashLabTest {
         calls = 0
         val ok = digest(HashAlgo.SHA256, ByteArrayInputStream(abc)) { calls++ }
         assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", app.seguridad.crypto.hex(ok).lowercase())
-        assertTrue(calls >= 1)
+        assertEquals(2, calls)
     }
 
     @Test fun expectedParsesHexWithColonsAndSpaces() {
@@ -195,10 +204,44 @@ class HashLabTest {
 
     @Test fun codecRoundTripsAndShowsBinaryAsHex() {
         val bytes = byteArrayOf(0, 1, 2, -1, -128)
-        assertEquals("000102ff80", hexEncode(bytes))
+        assertEquals("000102ff80", app.seguridad.crypto.hexLower(bytes))
         assertEquals("AAEC/4A=", base64Encode(bytes))
         assertEquals("hola ñ", utf8OrNull("hola ñ".toByteArray()))
         assertNull(utf8OrNull(byteArrayOf(0xC3.toByte()))) // truncated sequence
         assertNull(utf8OrNull(bytes))
+    }
+
+    @Test fun wrongSizeMessageNamesTheAlgorithmsOfThatSize() {
+        assertTrue("SHA-512" in hashLabWrongSize(64, false) && "BLAKE2b-512" in hashLabWrongSize(64, false))
+        assertTrue("SHA-256" in hashLabWrongSize(32, false) && "BLAKE3-256" in hashLabWrongSize(32, false))
+        assertTrue("HMAC-SHA256" in hashLabWrongSize(64, true))
+    }
+
+    @Test fun hexTableEncoderMatchesBothCases() {
+        val all = ByteArray(256) { it.toByte() }
+        val upper = app.seguridad.crypto.hex(all)
+        assertEquals(512, upper.length)
+        assertEquals(upper.lowercase(), app.seguridad.crypto.hexLower(all))
+        assertEquals("00017F80FF", app.seguridad.crypto.hex(byteArrayOf(0, 1, 0x7F, -128, -1)))
+    }
+
+    @Test fun sessionWipesWhatWasTypedAndRefusesToBeRestoredByAnOldRun() {
+        val s = HashLabSession()
+        s.text = "t"; s.expected = "e"; s.hmacKey = "k"; s.hmacMessage = "m"; s.codecInput = "c"
+        val token = s.token()
+        s.wipe()
+        assertEquals("", s.text + s.expected + s.hmacKey + s.hmacMessage + s.codecInput)
+        assertFalse(s.isCurrent(token))
+    }
+
+    @Test fun sessionGuardWipesAfterTooLongAway() {
+        val s = HashLabSession()
+        s.hmacKey = "clave"
+        s.guard.stopped(0)
+        assertFalse(s.guard.started(30_000, lockAfterMs = 0))
+        assertEquals("clave", s.hmacKey)
+        s.guard.stopped(100_000)
+        assertTrue(s.guard.started(400_000, lockAfterMs = 300_000))
+        assertEquals("", s.hmacKey)
     }
 }

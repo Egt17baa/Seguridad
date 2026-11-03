@@ -77,7 +77,15 @@ import app.seguridad.tools.hashlab.base64Encode
 import app.seguridad.tools.hashlab.digest
 import app.seguridad.tools.hashlab.hashLabBusy
 import app.seguridad.tools.hashlab.hexDecode
-import app.seguridad.tools.hashlab.hexEncode
+import app.seguridad.crypto.hexLower
+import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
+import app.seguridad.tools.hashlab.HASH_LAB_ALGO_CHANGED
+import app.seguridad.tools.hashlab.HashLabSession
+import app.seguridad.tools.hashlab.hashLabRecalc
+import app.seguridad.tools.hashlab.hashLabWrongSize
+import app.seguridad.vault.VaultStore
+import kotlinx.coroutines.flow.StateFlow
+import android.os.SystemClock
 import app.seguridad.tools.hashlab.hmacSha256
 import app.seguridad.tools.hashlab.parseExpected
 import app.seguridad.tools.hashlab.sameDigest
@@ -106,65 +114,87 @@ private enum class LabTab(val label: String) {
 }
 
 /**
- * The «Laboratorio de hashes» for its navigation entry: what is typed, the expected hash and the file's result survive a
- * rotation or another tab; none of it is saved state (never `rememberSaveable` nor a Bundle: the HMAC key, the message
- * and the decoded text can be secrets), and [onCleared] drops it when the screen is left. A file is read in
- * [viewModelScope] on IO: a new pick, a new algorithm, «Cancelar» or leaving the screen stops the reading at its next
- * 64 KiB, and the result is shown only for the run started last ([FileHashSession], COV1-2 of the 1.3.0 audit).
+ * The «Laboratorio de hashes» for its navigation entry: what is typed ([HashLabSession]), the expected hash and the
+ * file's result survive a rotation or another tab; none of it is saved state (never `rememberSaveable` nor a Bundle: the
+ * HMAC key, the message and the decoded text can be secrets). The session's guard empties it by the «PIN y códigos» rule
+ * (lock of the vault, another app, time away), and [onCleared] drops it when the screen is left. A file is read in
+ * [viewModelScope] on IO: a new pick, «Cancelar» or leaving the screen stops the reading at its next 64 KiB, and the
+ * result is shown only for the run started last ([FileHashSession], COV1-2 of the 1.3.0 audit). Changing the algorithm
+ * never reads the file again by itself: the old result is hidden and the user asks for the new one.
  */
-private class HashLabViewModel(private val appContext: Context) : ViewModel() {
+private class HashLabViewModel(
+    private val appContext: Context,
+    store: VaultStore,
+    lockAfterMs: () -> Long,
+    awayInOtherApp: StateFlow<Boolean>,
+) : ViewModel() {
+    val session = HashLabSession(ComposeCells, SystemClock.elapsedRealtime())
     var tab by mutableIntStateOf(0)
     var algo by mutableStateOf(HashAlgo.SHA256)
         private set
-    var text by mutableStateOf("")
-    var expected by mutableStateOf("")
-    var hmacKey by mutableStateOf("")
     var hmacKeyIsHex by mutableStateOf(false)
-    var hmacMessage by mutableStateOf("")
-    var codecInput by mutableStateOf("")
     var codecEncode by mutableStateOf(true)
     var codecHex by mutableStateOf(false)
 
-    /** A paste over the limit of a field was refused (the field keeps what it had). */
-    var tooLong by mutableStateOf(false)
+    /** The field whose paste was refused for being too long (the field keeps what it had). */
+    var refused by mutableStateOf<Field?>(null)
         private set
 
     val file = FileHashSession(ComposeCells)
+
+    /** The algorithm of the result [file] holds. */
+    var fileAlgo by mutableStateOf(HashAlgo.SHA256)
+        private set
     var readBytes by mutableLongStateOf(0L)
         private set
     var totalBytes by mutableLongStateOf(-1L)
         private set
 
+    /** A file was chosen and not cancelled: «Calcular otra vez» can read it again. */
+    var hasFile by mutableStateOf(false)
+        private set
+
     private var job: Job? = null
-    private var run = 0L
+    @Volatile private var run = 0L
     private var lastUri: Uri? = null
 
-    /** Sets a field from [value] unless it is longer than [max] characters; a refused paste is said, not cut. */
-    fun limited(value: String, max: Int, set: (String) -> Unit) {
+    init {
+        watchAway(session.guard, store, lockAfterMs, awayInOtherApp)
+    }
+
+    enum class Field { TEXT, EXPECTED, KEY, MESSAGE, CODEC }
+
+    /** Sets a field from [value] unless it is longer than [max] characters; a refused paste is said, not cut. Typing is use of the screen. */
+    fun limited(field: Field, value: String, max: Int, set: (String) -> Unit) {
+        session.guard.typed()
         if (value.length <= max) {
-            tooLong = false
+            if (refused == field) refused = null
             set(value)
         } else {
-            tooLong = true
+            refused = field
         }
     }
 
     fun chooseTab(i: Int) {
         tab = i
-        tooLong = false
+        refused = null
     }
 
-    /** A new algorithm hashes the chosen file again. */
+    /** Only the choice: a file already hashed is not read again until «Calcular otra vez». */
     fun chooseAlgo(a: HashAlgo) {
-        if (a == algo) return
         algo = a
+    }
+
+    fun rehash() {
         lastUri?.let { pick(it) }
     }
 
     fun pick(uri: Uri) {
         job?.cancel()
         lastUri = uri
+        hasFile = true
         val chosen = algo
+        fileAlgo = chosen
         val mine = file.start()
         run = mine
         readBytes = 0
@@ -179,7 +209,18 @@ private class HashLabViewModel(private val appContext: Context) : ViewModel() {
                     val input = appContext.contentResolver.openInputStream(uri) ?: throw java.io.IOException("no stream")
                     input.use { raw ->
                         val counting = CountingInputStream(raw.buffered())
-                        hexEncode(digest(chosen, counting) { ensureActive(); readBytes = counting.count })
+                        var shown = 0L
+                        hexLower(
+                            digest(chosen, counting) {
+                                ensureActive()
+                                // Progress: only the run started last writes it, and about once per MiB.
+                                val n = counting.count
+                                if (run == mine && n - shown >= PROGRESS_STEP) {
+                                    shown = n
+                                    readBytes = n
+                                }
+                            },
+                        )
                     }
                 }
             } catch (e: CancellationException) {
@@ -195,19 +236,18 @@ private class HashLabViewModel(private val appContext: Context) : ViewModel() {
         job?.cancel()
         job = null
         lastUri = null
+        hasFile = false
         file.cancelled(run)
     }
 
     override fun onCleared() {
         job?.cancel()
         lastUri = null
-        text = ""
-        expected = ""
-        hmacKey = ""
-        hmacMessage = ""
-        codecInput = ""
+        session.wipe()
     }
 }
+
+private const val PROGRESS_STEP = 1L shl 20
 
 /** Counts the bytes read, for the progress; the one writer is the reading thread. */
 private class CountingInputStream(input: InputStream) : FilterInputStream(input) {
@@ -228,15 +268,17 @@ private fun sizeOf(context: Context, uri: Uri): Long =
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun HashLabScreen(onBack: () -> Unit) {
+fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: StateFlow<Boolean>, onBack: () -> Unit) {
     val context = LocalContext.current
     val appContext = context.applicationContext
-    val vm = viewModel { HashLabViewModel(appContext) }
+    val vm = viewModel { HashLabViewModel(appContext, store, lockAfterMs, awayInOtherApp) }
+    val s = vm.session
+    GuardEffects(s.guard, lockAfterMs)
     var pickerError by remember { mutableStateOf<String?>(null) }
     val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.pick(uri)
     }
-    ToolColumn(HASH_LAB_TITLE, onBack) {
+    ToolColumn(HASH_LAB_TITLE, onBack, s.guard) {
         Text(HASH_LAB_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             LabTab.entries.forEachIndexed { i, t ->
@@ -251,28 +293,30 @@ fun HashLabScreen(onBack: () -> Unit) {
                 }
             }
         }
+        val onExpected = { v: String -> vm.limited(HashLabViewModel.Field.EXPECTED, v, EXPECTED_FIELD_CHARS) { s.expected = it } }
+        val expectedRefused = vm.refused == HashLabViewModel.Field.EXPECTED
         when (tab) {
             LabTab.TEXT -> {
                 OutlinedTextField(
-                    value = vm.text,
-                    onValueChange = { v -> vm.limited(v, MAX_TEXT_CHARS) { vm.text = it } },
+                    value = s.text,
+                    onValueChange = { v -> vm.limited(HashLabViewModel.Field.TEXT, v, MAX_TEXT_CHARS) { s.text = it } },
                     label = { Text(HASH_LAB_TEXT_LABEL) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TooLongNote(vm.tooLong)
-                val bytes = remember(vm.text, vm.algo) { digest(vm.algo, textBytes(vm.text)) }
-                ResultAndCheck(context, vm.algo.label, bytes, vm.expected) { v -> vm.limited(v, EXPECTED_FIELD_CHARS) { vm.expected = it } }
+                TooLongNote(vm.refused == HashLabViewModel.Field.TEXT)
+                val bytes = remember(s.text, vm.algo) { digest(vm.algo, textBytes(s.text)) }
+                ResultAndCheck(context, vm.algo.label, bytes, s.expected, false, expectedRefused, onExpected)
             }
             LabTab.FILE -> {
-                val s = vm.file
+                val f = vm.file
                 OutlinedButton(
-                    enabled = !s.busy,
+                    enabled = !f.busy,
                     onClick = { pickerError = pick.launchOrError(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(s.name ?: HASH_LAB_PICK_FILE) }
+                ) { Text(f.name ?: HASH_LAB_PICK_FILE) }
                 pickerError?.let { Text(it, color = NegativeColor) }
-                if (s.busy) {
+                if (f.busy) {
                     val done = Formatter.formatShortFileSize(context, vm.readBytes)
                     val total = vm.totalBytes.takeIf { it > 0 }?.let { Formatter.formatShortFileSize(context, it) }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -281,11 +325,14 @@ fun HashLabScreen(onBack: () -> Unit) {
                         TextButton(onClick = vm::cancel) { Text(HASH_LAB_CANCEL) }
                     }
                 }
-                if (s.failed) Text(HASH_LAB_FILE_FAILED, color = NegativeColor)
-                s.hash?.let { h ->
-                    ResultAndCheck(context, vm.algo.label, hexDecode(h) ?: ByteArray(0), vm.expected) { v ->
-                        vm.limited(v, EXPECTED_FIELD_CHARS) { vm.expected = it }
-                    }
+                if (f.failed) Text(HASH_LAB_FILE_FAILED, color = NegativeColor)
+                val h = f.hash
+                if (h != null && vm.fileAlgo == vm.algo) {
+                    ResultAndCheck(context, vm.fileAlgo.label, hexDecode(h) ?: ByteArray(0), s.expected, false, expectedRefused, onExpected)
+                } else if (h != null) {
+                    // Another algorithm was chosen after the file was hashed: the old result is not shown under the new name.
+                    Text(HASH_LAB_ALGO_CHANGED, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FilledTonalButton(enabled = vm.hasFile && !f.busy, onClick = vm::rehash) { Text(hashLabRecalc(vm.algo.label)) }
                 }
             }
             LabTab.HMAC -> {
@@ -295,27 +342,28 @@ fun HashLabScreen(onBack: () -> Unit) {
                     FilterChip(selected = vm.hmacKeyIsHex, onClick = { vm.hmacKeyIsHex = true }, label = { Text(HASH_LAB_KEY_AS_HEX) })
                 }
                 PasswordField(
-                    vm.hmacKey,
-                    { v -> vm.limited(v, MAX_KEY_CHARS) { vm.hmacKey = it } },
+                    s.hmacKey,
+                    { v -> vm.limited(HashLabViewModel.Field.KEY, v, MAX_KEY_CHARS) { s.hmacKey = it } },
                     label = HASH_LAB_KEY_LABEL,
                 )
+                TooLongNote(vm.refused == HashLabViewModel.Field.KEY)
                 OutlinedTextField(
-                    value = vm.hmacMessage,
-                    onValueChange = { v -> vm.limited(v, MAX_TEXT_CHARS) { vm.hmacMessage = it } },
+                    value = s.hmacMessage,
+                    onValueChange = { v -> vm.limited(HashLabViewModel.Field.MESSAGE, v, MAX_TEXT_CHARS) { s.hmacMessage = it } },
                     label = { Text(HASH_LAB_MESSAGE_LABEL) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TooLongNote(vm.tooLong)
-                val key = remember(vm.hmacKey, vm.hmacKeyIsHex) {
-                    if (vm.hmacKeyIsHex) hexDecode(vm.hmacKey) else textBytes(vm.hmacKey)
+                TooLongNote(vm.refused == HashLabViewModel.Field.MESSAGE)
+                val key = remember(s.hmacKey, vm.hmacKeyIsHex) {
+                    if (vm.hmacKeyIsHex) hexDecode(s.hmacKey) else textBytes(s.hmacKey)
                 }
                 when {
-                    vm.hmacKey.isEmpty() -> Text(HASH_LAB_KEY_EMPTY, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    s.hmacKey.isEmpty() -> Text(HASH_LAB_KEY_EMPTY, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     key == null -> Text(HASH_LAB_KEY_INVALID, color = NegativeColor)
                     else -> {
-                        val mac = remember(key, vm.hmacMessage) { hmacSha256(key, textBytes(vm.hmacMessage)) }
-                        ResultAndCheck(context, "HMAC-SHA256", mac, vm.expected) { v -> vm.limited(v, EXPECTED_FIELD_CHARS) { vm.expected = it } }
+                        val mac = remember(key, s.hmacMessage) { hmacSha256(key, textBytes(s.hmacMessage)) }
+                        ResultAndCheck(context, "HMAC-SHA256", mac, s.expected, true, expectedRefused, onExpected)
                     }
                 }
             }
@@ -327,15 +375,15 @@ fun HashLabScreen(onBack: () -> Unit) {
                     FilterChip(selected = vm.codecHex, onClick = { vm.codecHex = true }, label = { Text("Hex") })
                 }
                 OutlinedTextField(
-                    value = vm.codecInput,
-                    onValueChange = { v -> vm.limited(v, MAX_CODEC_UI_CHARS) { vm.codecInput = it } },
+                    value = s.codecInput,
+                    onValueChange = { v -> vm.limited(HashLabViewModel.Field.CODEC, v, MAX_CODEC_UI_CHARS) { s.codecInput = it } },
                     label = { Text(HASH_LAB_CODEC_INPUT) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TooLongNote(vm.tooLong)
-                if (vm.codecInput.isNotEmpty()) {
-                    val result = remember(vm.codecInput, vm.codecEncode, vm.codecHex) { codec(vm.codecInput, vm.codecEncode, vm.codecHex) }
+                TooLongNote(vm.refused == HashLabViewModel.Field.CODEC)
+                if (s.codecInput.isNotEmpty()) {
+                    val result = remember(s.codecInput, vm.codecEncode, vm.codecHex) { codec(s.codecInput, vm.codecEncode, vm.codecHex) }
                     if (result == null) {
                         Text(HASH_LAB_CODEC_INVALID, color = NegativeColor)
                     } else {
@@ -351,6 +399,7 @@ fun HashLabScreen(onBack: () -> Unit) {
                 Text(HASH_LAB_NOT_PROTECTED, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -364,11 +413,11 @@ private const val EXPECTED_FIELD_CHARS = 1024
 private fun codec(input: String, encode: Boolean, hex: Boolean): Pair<String, Boolean>? {
     if (encode) {
         val bytes = textBytes(input)
-        return (if (hex) hexEncode(bytes) else base64Encode(bytes)) to false
+        return (if (hex) hexLower(bytes) else base64Encode(bytes)) to false
     }
     val bytes = (if (hex) hexDecode(input) else base64Decode(input)) ?: return null
     val asText = utf8OrNull(bytes)
-    return if (asText != null) asText to false else hexEncode(bytes) to true
+    return if (asText != null) asText to false else hexLower(bytes) to true
 }
 
 @Composable
@@ -387,20 +436,33 @@ private fun OutputCard(context: Context, label: String, value: String) {
     }
 }
 
-/** The result in lowercase hex (how download pages publish it), the «huella esperada» field and its verdict. */
+/**
+ * The result in lowercase hex (how download pages publish it), the «huella esperada» field, [expectedRefused] under it
+ * and its verdict. A hash of the other size says so instead of «No coincide» ([hashLabWrongSize]).
+ */
 @Composable
-private fun ResultAndCheck(context: Context, label: String, result: ByteArray, expected: String, onExpected: (String) -> Unit) {
-    OutputCard(context, label, hexEncode(result))
+private fun ResultAndCheck(
+    context: Context,
+    label: String,
+    result: ByteArray,
+    expected: String,
+    hmac: Boolean,
+    expectedRefused: Boolean,
+    onExpected: (String) -> Unit,
+) {
+    OutputCard(context, label, hexLower(result))
     OutlinedTextField(
         value = expected,
         onValueChange = onExpected,
         label = { Text(HASH_LAB_EXPECTED_LABEL) },
         modifier = Modifier.fillMaxWidth(),
     )
+    TooLongNote(expectedRefused)
     if (expected.isNotBlank()) {
         val want = remember(expected) { parseExpected(expected) }
         when {
             want == null -> Text(HASH_LAB_EXPECTED_INVALID, color = NegativeColor)
+            want.size != result.size -> Text(hashLabWrongSize(want.size, hmac), color = NegativeColor)
             sameDigest(want, result) -> Text(HASH_LAB_MATCH, color = PositiveColor)
             else -> Text(HASH_LAB_NO_MATCH, color = NegativeColor)
         }

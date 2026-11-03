@@ -114,17 +114,28 @@ class PlatformSourcesTest {
         val src = code("ui/screens/HashLabScreen.kt")
         assertTrue("job?.cancel()" in src)
         assertTrue("file.finish(mine, hash)" in src)
-        assertTrue("digest(chosen, counting) { ensureActive();" in src)
+        assertTrue("digest(chosen, counting) {" in src && "ensureActive()" in src)
         assertTrue("withContext(Dispatchers.IO)" in src)
-        assertTrue("enabled = !s.busy" in src)
+        assertTrue("enabled = !f.busy" in src)
         assertTrue("TextButton(onClick = vm::cancel)" in src)
         // The HMAC key, the message and the text never reach saved state.
         assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
-        assertTrue("override fun onCleared()" in src && "hmacKey = \"\"" in src)
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
         // Every copy goes through the clearing helper.
         assertFalse("setPrimaryClip" in src || "LocalClipboard" in src)
         assertTrue("copySensitive(context, value)" in src)
         assertTrue("HASH_LAB_NO_MATCH" in src && "No se pudo leer" in main("tools/hashlab/HashLabTexts.kt"))
+        // The failure is shown by the screen, not only defined; so is «Lo que no protege».
+        assertTrue("if (f.failed) Text(HASH_LAB_FILE_FAILED" in src)
+        assertTrue("Text(HASH_LAB_NOT_PROTECTED," in src && "Text(HASH_LAB_NOT_PROTECTED_TITLE" in src)
+        // Important 1: the guard of «Cifrar texto» (vault lock, other app, time away) and its note.
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
+        assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(HASH_LAB_TITLE, onBack, s.guard)" in src)
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
+        // The over-limit note sits under each field, the algorithm change never re-reads a file, and progress is the last run's.
+        assertEquals(6, Regex("""TooLongNote\(""").findAll(src).count()) // the definition and one note per field
+        assertTrue("if (run == mine && n - shown >= PROGRESS_STEP)" in src)
     }
 
     @Test fun `HERR-1 Limpiar foto passes its cancellation to the readers`() {
