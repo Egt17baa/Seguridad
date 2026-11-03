@@ -33,3 +33,13 @@ Task 1: fix round 1 implemented (516c544); re-review sonnet ab3dc9022a17d6356
 Task 1: fix round 1/5 (3 addressed, 0 open — I1, M1, M2; commits d59c743..516c544)
 Task 1: complete (commits 7c8dea7..516c544, review clean)
 Task 1: phone tests for T12 README — enable then disable at once; disable during key generation and during the prompt; rotate at each enable step (incl. right after the finger is accepted); unlock while disabling; rotate with the unlock prompt shown; background the app with each prompt shown, return, then «Borrar bóveda» / «Activar huella».
+Task 2: dispatched (BASE fba2725, implementer sonnet a9d25f44d2cfdcf3b)
+Task 2: implementer DONE_WITH_CONCERNS (c36b08a). Note for T12: README.md:283,:291 and docs/ficha-google-play.md:46 still say «Huella SHA-256».
+Task 2: reviewer opus a54d234e94b4b8826
+Task 2: review → Needs fixes (I1 secretos no se borran al bloquear/salir/cambiar de pestaña; I2 aserto M8 debilitado; 7 menores). Fix round 1 dispatched (FIX_BASE c36b08a, resume a9d25f44d2cfdcf3b)
+Task 2: fix round 1 implemented (8690564); re-review sonnet a5647184ef0eb4ee5
+Task 2: fix round 1/5 (9 addressed, 1 new minor — nota de borrado exagera para el resultado de Archivo; commits c36b08a..8690564). Fix round 2 dispatched.
+Task 2: fix round 2/5 (1 addressed, 0 open; commits 8690564..66eedd9)
+Task 2: complete (commits fba2725..66eedd9, review clean)
+Task 2: minor (deferred to final fix wave, to be FIXED there per owner rule): the wipe does not reset `readBytes`/`totalBytes`/`fileAlgo` in HashLabViewModel, and the ViewModel `run` is not bumped by `clear()` (one last progress write could land); one long KDoc line in HashLabSession.
+Task 2: phone tests for T12 README — Laboratorio de hashes: each tab; file pick with progress and Cancelar on a large file; «Calcular otra vez con X»; lock/away wipes every tab incl. Archivo.
