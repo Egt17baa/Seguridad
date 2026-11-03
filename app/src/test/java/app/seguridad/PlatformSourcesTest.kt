@@ -135,6 +135,7 @@ class PlatformSourcesTest {
         assertTrue("HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
         // The over-limit note sits under each field, the algorithm change never re-reads a file, and progress is the last run's.
         assertEquals(6, Regex("""TooLongNote\(""").findAll(src).count()) // the definition and one note per field
+        assertTrue("HashLabSession(ComposeCells, SystemClock.elapsedRealtime()) { job?.cancel(); job = null }" in src)
         assertTrue("if (run == mine && n - shown >= PROGRESS_STEP)" in src)
     }
 

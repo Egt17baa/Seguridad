@@ -176,6 +176,15 @@ class FileHashSession(cells: CellFactory = PlainCells) {
         return true
     }
 
+    /** Everything goes, and any run going on is dropped: its late result or name finds another run and is refused. */
+    fun clear() {
+        run++
+        name = null
+        hash = null
+        failed = false
+        busy = false
+    }
+
     /** The user cancelled [run]: «Calculando…» ends, with no name, no result and no failure. False if another file was picked since. */
     fun cancelled(run: Long): Boolean {
         if (run != this.run) return false
