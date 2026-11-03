@@ -79,6 +79,18 @@ class KeyOpsQueueTest {
         assertTrue(enable.isCancelled)
     }
 
+    @Test fun anEnableAskedAfterADisableRunsAfterIt() = runTest {
+        val queue = queue()
+        val log = mutableListOf<String>()
+        val disable = launch { queue.run(KeyOp.DISABLE) { log += "disableStart"; delay(10); log += "disableEnd" } }
+        runCurrent()
+        val enable = launch { queue.run(KeyOp.ENABLE) { log += "enable" } }
+        joinAll(disable, enable)
+        // The last intent wins the other way too: the enable asked after the disable is neither cancelled nor run first.
+        assertEquals(listOf("disableStart", "disableEnd", "enable"), log)
+        assertTrue(!enable.isCancelled)
+    }
+
     @Test fun aCancelledEnableFinishesItsCleanupBeforeTheDisableRuns() = runTest {
         val queue = queue()
         val log = mutableListOf<String>()
