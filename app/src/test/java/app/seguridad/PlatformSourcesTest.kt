@@ -151,6 +151,10 @@ class PlatformSourcesTest {
         assertTrue("ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
         // Every field is bounded, and every copy goes through the clearing helper.
         assertTrue("MAX_CLASSIC_CHARS" in src && "MAX_CLASSIC_KEY_CHARS" in src && "vm.limited(" in src)
+        // M-3: no field refuses a paste silently, and the rotors and reflector are in the wiped session (M-4).
+        assertFalse("vm.limited(null" in src)
+        assertEquals(5, Regex("""KeyTooLong\(vm, ClassicLabViewModel\.Field""").findAll(src).count())
+        assertTrue("s.rotors" in src && "s.reflector" in src && "vm.rotors" !in src)
         assertFalse("setPrimaryClip" in src || "LocalClipboard" in src)
         assertTrue("copySensitive(context, value)" in src)
         // The visible notice, word for word, and the entry in Herramientas.

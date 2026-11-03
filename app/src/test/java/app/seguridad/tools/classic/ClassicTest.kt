@@ -58,9 +58,10 @@ class ClassicTest {
      * Operation Barbarossa, 7 July 1941, from the Russian front (two parts of one message). Published, for example, in
      * https://github.com/pgrodrigues/node-enigma-m3/blob/main/README.md (section «Operation Barbarossa, 1941») from the
      * Crypto Museum / Enigma literature: Enigma I, reflector B, rotors II IV V, rings B U L (2 21 12), plugs
-     * AV BS CG DL FU HZ IN KM OW RX. What is tested is the BODY decrypted at its message key (part 1 BLA, part 2 LSD);
-     * the indicator group (the message key sent under the day's start position) is not in that source and is not tested.
-     * The German text coming out of the decryption confirms the key independently of the source's own plaintext.
+     * AV BS CG DL FU HZ IN KM OW RX. What is tested: the BODY decrypted at its message key (part 1 BLA, part 2 LSD) and
+     * the INDICATOR groups (WXC: KCH -> BLA, CRS: YPJ -> LSD). The README gives the settings, the two bodies and their
+     * plaintext; it does not give the indicators. I read no other source for this message: the indicators were checked by
+     * decryption (they give the message keys, and the keys give the German text), not taken from a cited publication.
      */
     @Test fun historicalMessage() {
         val plugs = "AV BS CG DL FU HZ IN KM OW RX".split(' ').map { it[0] to it[1] }
@@ -72,6 +73,9 @@ class ClassicTest {
         val cipher2 = "SFBWD NJUSE GQOBH KRTAR EEZMW KPPRB XOHDR OEQGB BGTQV PGVKB VVGBI MHUSZ YDAJQ IROAX SSSNR EHYGG RPISE ZBOVM QIEMM ZCYSG QDGRE RVBIL EKXYQ IRGIR QNRDN VRXCY YTNJR"
         val plain2 = "DREIG EHTLA NGSAM ABERS IQERV ORWAE RTSXE INSSI EBENN ULLSE QSXUH RXROE MXEIN SXINF RGTXD REIXA UFFLI EGERS TRASZ EMITA NFANG XEINS SEQSX KMXKM XOSTW XKAME NECXK"
         assertEquals(plain2, machine("LSD").process(cipher2))
+        // The indicator: the message key, encrypted at the start position of the day (Grundstellung).
+        assertEquals("BLA", machine("WXC").process("KCH"))
+        assertEquals("LSD", machine("CRS").process("YPJ"))
     }
 
     @Test fun nonLettersPassThrough() {
@@ -145,8 +149,12 @@ class ClassicTest {
         assertThrows(IllegalArgumentException::class.java) { settings(rotors = listOf(Rotor.I, Rotor.II)) }
         assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('A' to 'B', 'B' to 'C')) }
         assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('A' to 'A')) }
-        assertThrows(IllegalArgumentException::class.java) { settings(plugs = ('A'..'N').map { it to it }) }
-        assertThrows(IllegalArgumentException::class.java) { settings(plugs = (0 until 14).map { ('A' + it) to ('A' + 14 + it) }.take(14)) }
+        // A plug joins two different letters, and both must be A-Z.
+        assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('A' to 'A')) }
+        assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('A' to 'ñ')) }
+        assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('a' to 'b')) }
+        // 14 plugs: 26 letters cannot make 14 disjoint pairs, so the size rule is shown with a list that breaks only it first.
+        assertThrows(IllegalArgumentException::class.java) { settings(plugs = List(14) { 'A' to 'B' }) }
         assertThrows(IllegalArgumentException::class.java) { settings(rings = listOf(0, 1, 1)) }
         assertThrows(IllegalArgumentException::class.java) { settings(rings = listOf(1, 27, 1)) }
         assertThrows(IllegalArgumentException::class.java) { settings(positions = "AB") }
@@ -171,14 +179,41 @@ class ClassicTest {
         assertEquals(ENIGMA_PLUG_REPEATED, buildEnigma(r, Reflector.B, "1 1 1", "AAA", "AB BC").error)
         assertEquals(ENIGMA_PLUG_TOO_MANY, buildEnigma(r, Reflector.B, "1 1 1", "AAA", List(14) { "AB" }.joinToString(" ")).error)
         assertEquals(null, buildEnigma(r, Reflector.B, "1 1 1", "AAA", "").error)
+        // M-1: only ASCII letters and digits. «ﬁ» (U+FB01) must not become the plug F-I, «ß» must not become SS, and
+        // Arabic-Indic digits are not rings.
+        assertEquals(ENIGMA_PLUG_FORMAT, buildEnigma(r, Reflector.B, "1 1 1", "AAA", "\uFB01").error)
+        assertEquals(ENIGMA_POSITIONS_INVALID, buildEnigma(r, Reflector.B, "1 1 1", "A\u00DF", "").error)
+        assertEquals(ENIGMA_RINGS_INVALID, buildEnigma(r, Reflector.B, "\u0661 \u0661 \u0661", "AAA", "").error)
+        assertEquals(ENIGMA_RINGS_INVALID, buildEnigma(r, Reflector.B, "001 1 1", "AAA", "").error)
+    }
+
+    @Test fun decomposedAccentPassesLikeThePrecomposedOne() {
+        val nfd = "e\u0301" // «é» as a base letter and a combining acute
+        val nfc = "\u00E9"
+        assertEquals(nfc, caesar(nfd, 3))
+        assertEquals(nfc, vigenere(nfd, "LEMON", false))
+        val e = Enigma(settings())
+        assertEquals(nfc + "BDZGO", e.process(nfd + "AAAAA"))
+        val f = Enigma(settings())
+        assertEquals(nfc, f.process(nfd))
+        assertEquals("AAA", f.positions) // no step
+        assertEquals(1, letterCounts("e\u0301e")[4]) // the accented «é» is not an «e»
+    }
+
+    @Test fun enigmaIntroGivesTheReflectorAsTheReasonNoLetterMapsToItself() {
+        assertTrue("El reflector devuelve la corriente por otro camino, y por eso una letra nunca sale como ella misma" in ENIGMA_INTRO.replace("  ", " "))
+        assertTrue("y por eso una letra nunca sale como ella misma" !in ENIGMA_INTRO.substringBefore("El reflector"))
     }
 
     @Test fun sessionWipeEmptiesWhatWasTyped() {
         val s = ClassicLabSession()
+        s.rotors = listOf(Rotor.V, Rotor.IV, Rotor.I); s.reflector = Reflector.C
         s.caesarText = "a"; s.shift = "9"; s.vigenereText = "b"; s.vigenereKey = "KEY"; s.enigmaText = "c"
         s.rings = "5 5 5"; s.positions = "XYZ"; s.plugs = "AB"; s.analysisText = "d"
         s.wipe()
         assertEquals(listOf("", DEFAULT_SHIFT, "", "", ""), listOf(s.caesarText, s.shift, s.vigenereText, s.vigenereKey, s.enigmaText))
         assertEquals(listOf(DEFAULT_RINGS, DEFAULT_POSITIONS, "", ""), listOf(s.rings, s.positions, s.plugs, s.analysisText))
+        assertEquals(listOf(Rotor.I, Rotor.II, Rotor.III), s.rotors)
+        assertEquals(Reflector.B, s.reflector)
     }
 }

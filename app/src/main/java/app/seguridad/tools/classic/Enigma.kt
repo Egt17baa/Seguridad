@@ -48,7 +48,8 @@ data class EnigmaSettings(
  * inverse: with the same key and start, encrypting the output gives the input back.
  *
  * Only A-Z count, with case folded: **a lowercase letter is read as its uppercase and comes out uppercase**. Any other
- * character («ñ», an accent, a digit, a space) passes through unchanged and the rotors do not step for it.
+ * character («ñ», an accent, a digit, a space) passes through unchanged and the rotors do not step for it. [process] first
+ * puts the text in NFC, so an accent typed as a base letter plus a combining mark counts as the one accented character.
  */
 class Enigma(private val settings: EnigmaSettings) {
     private val pos = IntArray(3) { settings.positions[it] - 'A' }
@@ -102,8 +103,9 @@ class Enigma(private val settings: EnigmaSettings) {
 
     /** [press] for every character of [text] in order. */
     fun process(text: String): String {
-        val out = StringBuilder(text.length)
-        for (c in text) out.append(press(c))
+        val composed = nfc(text) // «é» typed as e + accent is one character: it passes unchanged and does not step
+        val out = StringBuilder(composed.length)
+        for (c in composed) out.append(press(c))
         return out.toString()
     }
 }

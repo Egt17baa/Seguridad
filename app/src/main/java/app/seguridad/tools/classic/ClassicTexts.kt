@@ -19,6 +19,7 @@ const val CLASSIC_TEXT_LABEL = "Texto"
 const val CLASSIC_RESULT = "Resultado"
 const val CLASSIC_COPY = "Copiar"
 const val CLASSIC_TOO_LONG = "Ese texto es demasiado largo y no se ha pegado."
+const val CLASSIC_VALUE_TOO_LONG = "Ese valor es demasiado largo y no se ha pegado."
 
 /** Said under César and Vigenère: what happens to everything that is not A-Z. */
 const val CLASSIC_LETTERS_ONLY =
@@ -32,8 +33,9 @@ const val VIGENERE_KEY_INVALID = "La clave necesita al menos una letra de la A a
 const val VIGENERE_NOTE = "Las letras de la clave se repiten a lo largo del texto; los signos no gastan letras de la clave."
 
 const val ENIGMA_INTRO =
-    "Enigma I y M3 con sus cableados históricos. Cada pulsación hace girar los rotores antes de cifrar, y por eso una " +
-        "letra nunca sale como ella misma."
+    "Enigma I y M3 con sus cableados históricos. Cada pulsación hace girar los rotores antes de cifrar, así que la misma " +
+        "letra cambia a cada pulsación. El reflector devuelve la corriente por otro camino, y por eso una letra nunca sale " +
+        "como ella misma."
 const val ENIGMA_ROTORS = "Rotores (Walzenlage), de izquierda a derecha"
 const val ENIGMA_ROTOR_LEFT = "Izquierdo"
 const val ENIGMA_ROTOR_MIDDLE = "Central"

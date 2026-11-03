@@ -51,6 +51,7 @@ import app.seguridad.tools.classic.CLASSIC_TAB_VIGENERE
 import app.seguridad.tools.classic.CLASSIC_TEXT_LABEL
 import app.seguridad.tools.classic.CLASSIC_TITLE
 import app.seguridad.tools.classic.CLASSIC_TOO_LONG
+import app.seguridad.tools.classic.CLASSIC_VALUE_TOO_LONG
 import app.seguridad.tools.classic.ClassicLabSession
 import app.seguridad.tools.classic.ENIGMA_INTRO
 import app.seguridad.tools.classic.ENIGMA_LETTERS_ONLY
@@ -98,7 +99,7 @@ private enum class ClassicTab(val label: String) {
  * What the «Laboratorio clásico» keeps for its navigation entry: the typed fields ([ClassicLabSession]) survive a rotation
  * or another tab and are never saved state (never `rememberSaveable` nor a Bundle); the session's guard empties them by
  * the «PIN y códigos» rule (lock of the vault, another app, time away) and [onCleared] drops them when the screen is
- * left. The tab, the mode and the rotors and reflector are choices, not typed text, and stay. Nothing is stored and the
+ * left. The rotors and the reflector are part of the Enigma key and go with the rest; the tab and the mode stay. Nothing is stored and the
  * vault is not used.
  */
 private class ClassicLabViewModel(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: StateFlow<Boolean>) : ViewModel() {
@@ -106,8 +107,6 @@ private class ClassicLabViewModel(store: VaultStore, lockAfterMs: () -> Long, aw
     var tab by mutableIntStateOf(0)
     var caesarDecrypt by mutableStateOf(false)
     var vigenereDecrypt by mutableStateOf(false)
-    var rotors by mutableStateOf(listOf(Rotor.I, Rotor.II, Rotor.III))
-    var reflector by mutableStateOf(Reflector.B)
 
     /** The field whose paste was refused for being too long (the field keeps what it had). */
     var refused by mutableStateOf<Field?>(null)
@@ -117,7 +116,7 @@ private class ClassicLabViewModel(store: VaultStore, lockAfterMs: () -> Long, aw
         watchAway(session.guard, store, lockAfterMs, awayInOtherApp)
     }
 
-    enum class Field { CAESAR, VIGENERE, ENIGMA, ANALYSIS }
+    enum class Field { CAESAR, VIGENERE, ENIGMA, ANALYSIS, SHIFT, KEY, RINGS, POSITIONS, PLUGS }
 
     /** Sets a field from [value] unless it is longer than [max] characters; a refused paste is said, not cut. Typing is use of the screen. */
     fun limited(field: Field?, value: String, max: Int, set: (String) -> Unit) {
@@ -165,11 +164,12 @@ fun ClassicLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp:
                 TextInput(vm, ClassicLabViewModel.Field.CAESAR, CLASSIC_TEXT_LABEL, s.caesarText) { s.caesarText = it }
                 OutlinedTextField(
                     value = s.shift,
-                    onValueChange = { v -> vm.limited(null, v, 6) { s.shift = it } },
+                    onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.SHIFT, v, 6) { s.shift = it } },
                     label = { Text(CAESAR_SHIFT_LABEL) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                KeyTooLong(vm, ClassicLabViewModel.Field.SHIFT)
                 val k = s.shift.trim().toIntOrNull()?.takeIf { it in 0..25 }
                 if (k == null) {
                     Text(CAESAR_SHIFT_INVALID, color = NegativeColor)
@@ -184,11 +184,12 @@ fun ClassicLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp:
                 TextInput(vm, ClassicLabViewModel.Field.VIGENERE, CLASSIC_TEXT_LABEL, s.vigenereText) { s.vigenereText = it }
                 OutlinedTextField(
                     value = s.vigenereKey,
-                    onValueChange = { v -> vm.limited(null, v, MAX_CLASSIC_KEY_CHARS) { s.vigenereKey = it } },
+                    onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.KEY, v, MAX_CLASSIC_KEY_CHARS) { s.vigenereKey = it } },
                     label = { Text(VIGENERE_KEY_LABEL) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                KeyTooLong(vm, ClassicLabViewModel.Field.KEY)
                 if (s.vigenereKey.none { it in 'A'..'Z' || it in 'a'..'z' }) {
                     Text(VIGENERE_KEY_INVALID, color = NegativeColor)
                 } else {
@@ -228,6 +229,12 @@ private fun TextInput(vm: ClassicLabViewModel, field: ClassicLabViewModel.Field,
     if (vm.refused == field) Text(CLASSIC_TOO_LONG, color = NegativeColor)
 }
 
+/** Under a key field: a paste over its limit is said, not just ignored. */
+@Composable
+private fun KeyTooLong(vm: ClassicLabViewModel, field: ClassicLabViewModel.Field) {
+    if (vm.refused == field) Text(CLASSIC_VALUE_TOO_LONG, color = NegativeColor)
+}
+
 @Composable
 private fun Output(context: android.content.Context, value: String, extra: String? = null) {
     SectionCard(Modifier.fillMaxWidth()) {
@@ -251,8 +258,8 @@ private fun EnigmaTab(context: android.content.Context, vm: ClassicLabViewModel)
             Text(name, modifier = Modifier.padding(top = 8.dp, end = 4.dp))
             Rotor.entries.forEach { r ->
                 FilterChip(
-                    selected = vm.rotors[slot] == r,
-                    onClick = { vm.rotors = vm.rotors.toMutableList().also { it[slot] = r } },
+                    selected = s.rotors[slot] == r,
+                    onClick = { s.rotors = s.rotors.toMutableList().also { it[slot] = r } },
                     label = { Text(r.name) },
                 )
             }
@@ -261,32 +268,35 @@ private fun EnigmaTab(context: android.content.Context, vm: ClassicLabViewModel)
     Text(ENIGMA_REFLECTOR, style = MaterialTheme.typography.labelMedium)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Reflector.entries.forEach { r ->
-            FilterChip(selected = vm.reflector == r, onClick = { vm.reflector = r }, label = { Text(r.name) })
+            FilterChip(selected = s.reflector == r, onClick = { s.reflector = r }, label = { Text(r.name) })
         }
     }
     OutlinedTextField(
         value = s.rings,
-        onValueChange = { v -> vm.limited(null, v, MAX_CLASSIC_KEY_CHARS) { s.rings = it } },
+        onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.RINGS, v, MAX_CLASSIC_KEY_CHARS) { s.rings = it } },
         label = { Text(ENIGMA_RINGS_LABEL) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
+    KeyTooLong(vm, ClassicLabViewModel.Field.RINGS)
     OutlinedTextField(
         value = s.positions,
-        onValueChange = { v -> vm.limited(null, v, MAX_CLASSIC_KEY_CHARS) { s.positions = it } },
+        onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.POSITIONS, v, MAX_CLASSIC_KEY_CHARS) { s.positions = it } },
         label = { Text(ENIGMA_POSITIONS_LABEL) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
+    KeyTooLong(vm, ClassicLabViewModel.Field.POSITIONS)
     OutlinedTextField(
         value = s.plugs,
-        onValueChange = { v -> vm.limited(null, v, MAX_CLASSIC_KEY_CHARS) { s.plugs = it } },
+        onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.PLUGS, v, MAX_CLASSIC_KEY_CHARS) { s.plugs = it } },
         label = { Text(ENIGMA_PLUGS_LABEL) },
         modifier = Modifier.fillMaxWidth(),
     )
+    KeyTooLong(vm, ClassicLabViewModel.Field.PLUGS)
     TextInput(vm, ClassicLabViewModel.Field.ENIGMA, CLASSIC_TEXT_LABEL, s.enigmaText) { s.enigmaText = it }
-    val form = remember(vm.rotors, vm.reflector, s.rings, s.positions, s.plugs) {
-        buildEnigma(vm.rotors, vm.reflector, s.rings, s.positions, s.plugs)
+    val form = remember(s.rotors, s.reflector, s.rings, s.positions, s.plugs) {
+        buildEnigma(s.rotors, s.reflector, s.rings, s.positions, s.plugs)
     }
     val settings = form.settings
     if (settings == null) {

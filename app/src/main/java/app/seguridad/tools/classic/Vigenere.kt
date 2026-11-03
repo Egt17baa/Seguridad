@@ -8,9 +8,10 @@ package app.seguridad.tools.classic
 fun vigenere(text: String, key: String, decrypt: Boolean): String {
     val shifts = key.filter { it in 'A'..'Z' || it in 'a'..'z' }.map { it.uppercaseChar() - 'A' }
     require(shifts.isNotEmpty()) { "key without letters" }
-    val out = StringBuilder(text.length)
+    val composed = nfc(text) // «é» typed as e + accent is one character and passes unchanged
+    val out = StringBuilder(composed.length)
     var i = 0
-    for (c in text) {
+    for (c in composed) {
         if (c in 'A'..'Z' || c in 'a'..'z') {
             val s = shifts[i % shifts.size]
             out.append(shiftLetter(c, if (decrypt) 26 - s else s))
