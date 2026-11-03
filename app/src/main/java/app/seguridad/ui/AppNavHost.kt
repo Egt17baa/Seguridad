@@ -41,6 +41,7 @@ import app.seguridad.tools.APP_RENAMED_TITLE
 import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
+import app.seguridad.ui.screens.ClassicLabScreen
 import app.seguridad.ui.screens.CodesScreen
 import app.seguridad.ui.screens.ContactAddScreen
 import app.seguridad.ui.screens.ContactDetailScreen
@@ -248,6 +249,7 @@ fun AppNavHost(container: AppContainer) {
                     BreachScreen(container.pwned, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
                 }
                 composable("tools/hash") { HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
+                composable("tools/classic") { ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
                 composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
                 composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
                 // The QR's text never goes in a route: it is handed over through QrHandoff.
