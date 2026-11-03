@@ -52,13 +52,34 @@ class Slip39Test {
             val mnemonics = c[1].jsonArray.map { it.jsonPrimitive.content }
             val secret = c[2].jsonPrimitive.content
             if (secret.isEmpty()) {
-                failure { slip.combineShares(mnemonics, VECTOR_PASSPHRASE) }
+                // Review M-2: each invalid set must fail for its own reason, not just fail.
+                val number = name.substringBefore(".").toInt()
+                val want = requireNotNull(INVALID_VECTOR_REASONS[number]) { name }
+                assertEquals(name, kind(want), kind(failure { slip.combineShares(mnemonics, VECTOR_PASSPHRASE) }))
             } else {
                 valid++
                 assertEquals(name, secret, hex(slip.combineShares(mnemonics, VECTOR_PASSPHRASE)))
             }
         }
         assertEquals(15, valid)
+        assertEquals(30, INVALID_VECTOR_REASONS.size)
+    }
+
+    /** A message with its numbers taken out: the kind of failure, whatever part or group it names. */
+    private fun kind(message: String) = message.replace(Regex("[0-9]+"), "#")
+
+    /** The reason each invalid official vector must be refused for, by its number (the review's map). */
+    private val INVALID_VECTOR_REASONS: Map<Int, String> = buildMap {
+        for (n in listOf(2, 21)) put(n, slip39Checksum(1))
+        for (n in listOf(3, 22, 40)) put(n, slip39BadLength(1))
+        for (n in listOf(5, 24, 16, 35)) put(n, slip39WrongCount(1, 2, 1))
+        for (n in listOf(6, 7, 8, 9, 25, 26, 27, 28)) put(n, SLIP39_NOT_SAME_SET)
+        for (n in listOf(10, 29)) put(n, SLIP39_MORE_GROUPS_THAN_COUNT)
+        for (n in listOf(11, 30)) put(n, slip39SameIndex(1))
+        for (n in listOf(12, 31)) put(n, slip39ThresholdMismatch(1))
+        for (n in listOf(13, 32)) put(n, SLIP39_DIGEST_MISMATCH)
+        for (n in listOf(14, 15, 33, 34)) put(n, slip39TooFewGroups(2, 1))
+        put(39, slip39WordCount(1, 19, SLIP39_MIN_WORDS, SLIP39_MAX_WORDS))
     }
 
     private fun roundTrip(master: ByteArray, gt: Int, groups: List<GroupSpec>, pick: (List<List<String>>) -> List<String>) {
@@ -223,6 +244,9 @@ class Slip39Test {
     @Test fun boundsComeBeforeAnyWork() {
         val part = slip.splitSecret(ByteArray(16), none, 1, listOf(GroupSpec(1, 1)), iterationExponent = 0)[0][0]
         assertEquals("Hay demasiadas partes: como mucho 256.", failure { slip.combineShares(List(SLIP39_MAX_PARTS + 1) { part }, none) })
+        // Review M-1: the most parts at their longest pass the bounds (and are then read: here they fail their checksum).
+        val longest = List(SLIP39_MAX_WORDS) { "academic" }.joinToString(" ")
+        assertEquals(slip39Checksum(1), failure { slip.combineShares(List(SLIP39_MAX_PARTS) { longest }, none) })
         // Thousands of huge parts: refused by their number and their length before any is normalised or split.
         val huge = "academic ".repeat(1_000_000)
         val started = System.nanoTime()

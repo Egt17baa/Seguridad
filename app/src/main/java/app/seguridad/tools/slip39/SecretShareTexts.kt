@@ -76,6 +76,14 @@ const val SHARE_PARTS_LABEL = "Partes, una por línea"
 const val SHARE_PARTS_NOTE = "Escribe o pega las partes necesarias, cada una en su línea. Mayúsculas y espacios de más no importan."
 const val SHARE_RESULT_HEX = "Secreto en hex"
 const val SHARE_RESULT_PHRASE = "Como frase BIP-39"
+
+/**
+ * Review I-1: under the phrase, before «Copiar». The code turns any 16 to 32 bytes (in steps of 4) into a phrase and
+ * cannot tell where they came from; the parts of a cartera of hardware hold its BIP-32 seed, whose «phrase» is another.
+ */
+const val SHARE_RESULT_PHRASE_NOTE =
+    "Esta es la frase BIP-39 de estos bytes. Si las partes vienen de una cartera, el secreto es su semilla y esta frase " +
+        "daría otra cartera distinta: usa la frase solo si repartiste una frase BIP-39."
 const val SHARE_RESULT_NOTE =
     "Si la contraseña no es la que se usó al repartir, este es otro secreto distinto: SLIP-0039 no avisa."
 
