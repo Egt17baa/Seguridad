@@ -244,4 +244,32 @@ class HashLabTest {
         assertTrue(s.guard.started(400_000, lockAfterMs = 300_000))
         assertEquals("", s.hmacKey)
     }
+
+    @Test fun guardWipeAlsoDropsTheFileResultAndTheChosenSource() {
+        var stopped = 0
+        val s = HashLabSession(onWipe = { stopped++ })
+        val run = s.file.start()
+        s.source = "content://x"
+        s.file.named(run, "a.iso")
+        s.file.finish(run, "abcd")
+        s.guard.stopped(100_000)
+        assertTrue(s.guard.started(400_000, lockAfterMs = 300_000))
+        assertEquals(1, stopped)
+        assertNull(s.file.name)
+        assertNull(s.file.hash)
+        assertFalse(s.file.busy)
+        assertNull("«Calcular otra vez» is off afterwards", s.source)
+    }
+
+    @Test fun guardWipeDuringAFileRunRefusesItsLateResult() {
+        val s = HashLabSession()
+        val run = s.file.start()
+        s.source = "content://x"
+        s.wipe()
+        assertFalse(s.file.busy)
+        assertFalse(s.file.named(run, "a.iso"))
+        assertFalse(s.file.finish(run, "abcd"))
+        assertNull(s.file.hash)
+        assertNull(s.file.name)
+    }
 }

@@ -128,7 +128,7 @@ private class HashLabViewModel(
     lockAfterMs: () -> Long,
     awayInOtherApp: StateFlow<Boolean>,
 ) : ViewModel() {
-    val session = HashLabSession(ComposeCells, SystemClock.elapsedRealtime())
+    val session = HashLabSession(ComposeCells, SystemClock.elapsedRealtime()) { job?.cancel(); job = null }
     var tab by mutableIntStateOf(0)
     var algo by mutableStateOf(HashAlgo.SHA256)
         private set
@@ -140,7 +140,7 @@ private class HashLabViewModel(
     var refused by mutableStateOf<Field?>(null)
         private set
 
-    val file = FileHashSession(ComposeCells)
+    val file get() = session.file
 
     /** The algorithm of the result [file] holds. */
     var fileAlgo by mutableStateOf(HashAlgo.SHA256)
@@ -150,13 +150,11 @@ private class HashLabViewModel(
     var totalBytes by mutableLongStateOf(-1L)
         private set
 
-    /** A file was chosen and not cancelled: «Calcular otra vez» can read it again. */
-    var hasFile by mutableStateOf(false)
-        private set
+    /** A file was chosen and not cancelled nor wiped: «Calcular otra vez» can read it again. */
+    val hasFile get() = session.source != null
 
     private var job: Job? = null
     @Volatile private var run = 0L
-    private var lastUri: Uri? = null
 
     init {
         watchAway(session.guard, store, lockAfterMs, awayInOtherApp)
@@ -186,13 +184,12 @@ private class HashLabViewModel(
     }
 
     fun rehash() {
-        lastUri?.let { pick(it) }
+        (session.source as? Uri)?.let { pick(it) }
     }
 
     fun pick(uri: Uri) {
         job?.cancel()
-        lastUri = uri
-        hasFile = true
+        session.source = uri
         val chosen = algo
         fileAlgo = chosen
         val mine = file.start()
@@ -235,14 +232,12 @@ private class HashLabViewModel(
     fun cancel() {
         job?.cancel()
         job = null
-        lastUri = null
-        hasFile = false
+        session.source = null
         file.cancelled(run)
     }
 
     override fun onCleared() {
         job?.cancel()
-        lastUri = null
         session.wipe()
     }
 }
