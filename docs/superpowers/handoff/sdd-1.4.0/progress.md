@@ -43,3 +43,16 @@ Task 2: fix round 2/5 (1 addressed, 0 open; commits 8690564..66eedd9)
 Task 2: complete (commits fba2725..66eedd9, review clean)
 Task 2: minor (deferred to final fix wave, to be FIXED there per owner rule): the wipe does not reset `readBytes`/`totalBytes`/`fileAlgo` in HashLabViewModel, and the ViewModel `run` is not bumped by `clear()` (one last progress write could land); one long KDoc line in HashLabSession.
 Task 2: phone tests for T12 README — Laboratorio de hashes: each tab; file pick with progress and Cancelar on a large file; «Calcular otra vez con X»; lock/away wipes every tab incl. Archivo.
+Task 3: dispatched (BASE e107b20, implementer sonnet ad251fa5820bb982e)
+Task 3: implementer DONE_WITH_CONCERNS (082df93): TDD by mutation; UI not run on device; rotor/reflector chips survive wipe; Barbarossa source is a simulator README (plaintext confirms key).
+Task 3: reviewer opus a020acc3743510a58 (package review-e107b20..082df93.diff)
+Task 3: review → Needs fixes (I-1 ENIGMA_INTRO wrong reason; M-1 non-ASCII in Enigma form; M-2 NFD combining marks; M-3 silent refusal over limit in key fields; M-4 rotor order/reflector not wiped; M-5 indicators untested + only simulator source; M-6 two misleading settingsValidation cases). Fix round 1 dispatched (FIX_BASE 082df93, resume ad251fa5820bb982e)
+Task 3: fix round 1 implemented (031ef66); M-5 indicators checked by decryption, no standard source found (fallback as instructed)
+Task 3: re-review 1 sonnet ae95863ddeeef1317 (review-082df93..031ef66.diff)
+Task 4: pre-check — trezor/python-shamir-mnemonic LICENSE is MIT (Copyright 2019 SatoshiLabs), checked by controller
+Ruling R3 (Task 4): the SLIP-0039 warning drops the brand names. Text: «Estas partes no son una copia SLIP-39 de wallet. Metidas en una wallet de hardware como recuperación SLIP-39 darían otra wallet distinta. Recomponlas en Clavero o con una herramienta SLIP-0039 que devuelva la entropía.» — why: the owner's rule (other names only on the import screen and in the README; "no problems with anyone") outranks the spec's verbatim copy; the meaning is unchanged; «Recompónlas» is misspelled (RAE: enclitics follow the general accent rules → «Recomponlas»). Cost if wrong: a one-line text change. The MIT copyright line (SatoshiLabs) stays in the licence file, NOTICE and Licencias, because attribution is required; the passphrase "TREZOR" stays only in the test vectors.
+Task 3: fix round 1/5 (7 addressed, 0 open, 4 new minors N-1 nfc folds singletons/text not literal, N-2 first-person source comment, N-3 duplicate assert, N-4 refused note survives tab switch; commits 082df93..031ef66). Fix round 2 dispatched (FIX_BASE 031ef66).
+Task 3: fix round 2 implemented (ad7e744); re-review 2 resume ae95863ddeeef1317
+Task 3: fix round 2/5 (4 addressed, 0 open; commits 031ef66..ad7e744)
+Task 3: complete (commits e107b20..ad7e744, review clean)
+Task 3: phone tests for T12 README — Laboratorio clásico: each tab (César, Vigenère, Enigma); Barbarossa settings decrypt; paste over limit in a key field shows the note; lock/away wipes text, key, rings, positions, plugs, rotor order and reflector.
