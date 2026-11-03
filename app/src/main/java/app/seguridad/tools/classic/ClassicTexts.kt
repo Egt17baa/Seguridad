@@ -23,7 +23,8 @@ const val CLASSIC_VALUE_TOO_LONG = "Ese valor es demasiado largo y no se ha pega
 
 /** Said under César and Vigenère: what happens to everything that is not A-Z. */
 const val CLASSIC_LETTERS_ONLY =
-    "Solo se cambian las letras A-Z. La «ñ», las letras con tilde, los números y los signos pasan sin cambiar."
+    "Solo se cambian las letras A-Z. La «ñ», las letras con tilde habituales, los números y los signos pasan sin cambiar. " +
+        "Antes de cifrar, el texto se pasa a la forma normalizada (NFC), que une la tilde escrita aparte con su letra."
 
 const val CAESAR_SHIFT_LABEL = "Desplazamiento (0 a 25)"
 const val CAESAR_SHIFT_INVALID = "El desplazamiento tiene que ser un número entero de 0 a 25."
@@ -52,7 +53,8 @@ const val ENIGMA_PLUG_REPEATED = "Una letra solo puede estar en una conexión."
 const val ENIGMA_PLUG_TOO_MANY = "El tablero admite 13 conexiones como máximo."
 const val ENIGMA_LETTERS_ONLY =
     "Solo cuentan las letras A-Z: las minúsculas se leen como mayúsculas y salen en mayúsculas. Lo demás (la «ñ», las " +
-        "tildes, los números, los espacios) pasa sin cambiar y no hace girar los rotores."
+        "letras con tilde habituales, los números, los espacios) pasa sin cambiar y no hace girar los rotores. Antes de cifrar, " +
+        "el texto se pasa a la forma normalizada (NFC), que une la tilde escrita aparte con su letra."
 const val ENIGMA_SAME_KEY = "Para descifrar, escribe el texto cifrado con los mismos ajustes: Enigma deshace lo que hizo."
 
 fun enigmaFinalPositions(positions: String) = "Posición de los rotores al terminar: $positions"

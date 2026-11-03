@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -134,6 +135,11 @@ private class ClassicLabViewModel(store: VaultStore, lockAfterMs: () -> Long, aw
         refused = null
     }
 
+    /** The over-limit note belongs to the screen being looked at: it goes when the screen is left. */
+    fun clearRefused() {
+        refused = null
+    }
+
     override fun onCleared() {
         session.wipe()
     }
@@ -146,6 +152,7 @@ fun ClassicLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp:
     val vm = viewModel { ClassicLabViewModel(store, lockAfterMs, awayInOtherApp) }
     val s = vm.session
     GuardEffects(s.guard, lockAfterMs)
+    DisposableEffect(vm) { onDispose { vm.clearRefused() } }
     ToolColumn(CLASSIC_TITLE, onBack, s.guard) {
         SectionCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
