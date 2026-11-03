@@ -56,3 +56,19 @@ Task 3: fix round 2 implemented (ad7e744); re-review 2 resume ae95863ddeeef1317
 Task 3: fix round 2/5 (4 addressed, 0 open; commits 031ef66..ad7e744)
 Task 3: complete (commits e107b20..ad7e744, review clean)
 Task 3: phone tests for T12 README — Laboratorio clásico: each tab (César, Vigenère, Enigma); Barbarossa settings decrypt; paste over limit in a key field shows the note; lock/away wipes text, key, rings, positions, plugs, rotor order and reflector.
+Task 4: dispatched (BASE 556ed66, implementer opus abb0fa550dc82639f, ruling R3 carried)
+Owner decision (3-11-2026): every task review, the final branch review and the audits must check two threat classes, everywhere input enters the app (passwords, text fields, paste, files, imports, QR, shares, intents):
+  (a) huge or malicious input (e.g. a 200 GB file or a giant pasted password): size caps enforced BEFORE reading or allocating, streaming with bounded buffers, no whole-file reads, no unbounded parsing (depth/count), cancellable work off the main thread, no OOM/ANR/disk fill;
+  (b) race windows between check and use (TOCTOU): validate-then-reopen of the same Uri/file, state that can change between a check and the action (lock, wipe, recreate, second tap), late results after cancel/wipe, and timing side channels in secret comparisons (constant-time compare).
+  Applies retroactively to Tasks 1-3 in the final review; carried in every dispatch from Task 4 on.
+Task 4: implementer DONE_WITH_CONCERNS (0b9cb46). 1395 app tests / 1390 jvm-check green.
+Ruling R3a (Task 4): «wallet» → «cartera» in the SLIP-0039 warning — why: FinalLegalReviewTest.noAppTextSaysWallet enforces the Abogado Digital's R-14 (1.3.0), which outranks my R3 wording; meaning unchanged. Cost if wrong: one word.
+Ruling R4 (Task 4): accept the deviations — Slip39(words) class with check callback (word list from assets, like Bip39); PBKDF2 via Bouncy Castle PKCS5S2ParametersGenerator (allowed primitive, exact passphrase bytes, zeroable key); exponent capped at 8, split always e=1; combine accepts up to 64-byte secrets. Reviewer still checks each against SLIP-0039.
+Task 4: reviewer opus acc26165ae59c85f6 (review-556ed66..0b9cb46.diff)
+Task 4: review → spec ✅, quality Needs fixes (I-1 «Como frase BIP-39» shown for any 16..32-byte secret, misleading for wallet seeds; M-1 parts field cap 40000 chars below 256×33-word parts; M-2 invalid vectors don't check which failure; M-3 unused suggestions computed on main thread in split). ⚠️ lint resolved by controller: lint-results-debug.xml has 16 warnings, all in gradle/libs.versions.toml (GradleDependency, NewerVersionAvailable, AGP version: online checks), AndroidManifest (ObsoleteSdkInt) and mipmap (DiscouragedApi); none in task files. Phone test noted for T12.
+Task 4: fix round 1 dispatched (FIX_BASE 0b9cb46, resume abb0fa550dc82639f)
+Task 4: fix round 1 implemented (54161a8)
+Task 4: re-review 1 sonnet a33bb8c0665473375
+Task 4: fix round 1/5 (4 addressed, 0 open; commits 0b9cb46..54161a8)
+Task 4: complete (commits 556ed66..54161a8, review clean)
+Task 4: phone tests for T12 README — Repartir un secreto: split a 12- and a 24-word phrase and recombine; one official vector; time with exponent 8 and «Cancelar»; lock/away wipes everything; TalkBack on the warning card.
