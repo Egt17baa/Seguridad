@@ -56,6 +56,7 @@ import app.seguridad.ui.screens.QrInspectScreen
 import app.seguridad.ui.screens.QrTotpImportScreen
 import app.seguridad.ui.screens.RedactScreen
 import app.seguridad.ui.screens.HashLabScreen
+import app.seguridad.ui.screens.SecretShareScreen
 import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
 import app.seguridad.ui.screens.IdentityScreen
@@ -250,6 +251,7 @@ fun AppNavHost(container: AppContainer) {
                 }
                 composable("tools/hash") { HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
                 composable("tools/classic") { ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
+                composable("tools/share-secret") { SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
                 composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
                 composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
                 // The QR's text never goes in a route: it is handed over through QrHandoff.

@@ -11,6 +11,9 @@ It includes third-party components under their own licenses, listed in the app
   adapted: the dice-number column was removed; the words and their order are
   unchanged;
 - the BIP-39 English and Spanish wordlists (MIT);
+- the SLIP-0039 English wordlist (slip39_english.txt), without changes, from
+  python-shamir-mnemonic, Copyright 2019 SatoshiLabs (MIT); its test vectors are
+  used, without changes, in the tests only. Data only, no code;
 - Bouncy Castle (MIT).
 - ZXing (Apache-2.0). Its NOTICE file includes: "Barcode4J Copyright 2002-2010
   Jeremias Märki, Copyright 2005-2006 Dietmar Bürkle. Portions of this software

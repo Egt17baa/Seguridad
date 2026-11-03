@@ -165,6 +165,66 @@ class PlatformSourcesTest {
         assertTrue("Tool(\"tools/classic\"" in code("ui/screens/ToolsScreen.kt"))
     }
 
+    @Test fun `Repartir un secreto has the guard of the other tools, runs off the main thread and copies with clearing`() {
+        val src = code("ui/screens/SecretShareScreen.kt")
+        // Nothing secret reaches saved state; the ViewModel wipes the session on being cleared, and a wipe stops the run.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        assertTrue("val session: SecretShareSession = SecretShareSession(ComposeCells, SystemClock.elapsedRealtime()) { runs.stop() }" in src)
+        assertTrue("private val runs: SecretShareRuns = SecretShareRuns(session, viewModelScope)" in src)
+        // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
+        assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(SHARE_TITLE, onBack, s.guard)" in src)
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
+        assertTrue("composable(\"tools/share-secret\")" in code("ui/AppNavHost.kt"))
+        assertTrue("Tool(\"tools/share-secret\", \"🧩\", SHARE_TITLE, SHARE_SUBTITLE)" in code("ui/screens/ToolsScreen.kt"))
+        // PBKDF2 off the main thread (SecretShareRuns, tested in SecretShareRunsTest), each run on a snapshot of the form.
+        assertTrue("val r = splitRequest(s.secretInput, isPhrase = !hexInput, s.passphrase, s.groupThreshold, s.groups, words)" in src)
+        assertTrue("val r = combineRequest(s.typedParts, s.passphrase)" in src)
+        assertTrue("runs.split({ check -> slip.splitSecret(master, pass, r.groupThreshold, r.groups, check = check) })" in src)
+        assertTrue("runs.combine({ check -> slip.combineShares(r.parts, pass, check) }) { pass.fill('\\u0000') }" in src)
+        assertTrue("master.fill(0)" in src)
+        assertFalse("Dispatchers.Default" in src)
+        assertTrue("work: CoroutineDispatcher = Dispatchers.Default" in main("tools/slip39/SecretShareRuns.kt"))
+        // The word lists are read on IO.
+        assertTrue("withContext(Dispatchers.IO)" in src && "\"slip39_english.txt\"" in src)
+        // Every field is bounded, and every copy goes through the clearing helper.
+        for (max in listOf("SHARE_MAX_SECRET_CHARS", "SHARE_MAX_PARTS_CHARS", "SLIP39_MAX_PASSPHRASE_CHARS", "SHARE_MAX_NUMBER_CHARS")) {
+            assertTrue(max, "vm.limited(SecretShareViewModel.Field." in src && max in src)
+        }
+        assertFalse("setPrimaryClip" in src || "LocalClipboard" in src)
+        assertEquals(2, Regex("""copySensitive\(context, value\)""").findAll(src).count())
+        // The warning in its own card before the parts, and what the tool does not protect.
+        assertTrue(src.indexOf("Text(SHARE_WARNING)") in 0 until src.indexOf("val parts = s.parts ?: return"))
+        assertTrue("Text(SHARE_NOT_PROTECTED)" in src && "Text(SHARE_RESULT_NOTE" in src)
+        val texts = main("tools/slip39/SecretShareTexts.kt")
+        assertTrue(
+            ("\"Estas partes no son una copia SLIP-39 de cartera. Metidas en una cartera de hardware como recuperación SLIP-39 \" +\n" +
+                "        \"darían otra cartera distinta. Recomponlas en Clavero o con una herramienta SLIP-0039 que devuelva la entropía.\"") in texts,
+        )
+        // checkAssets fails the build if the list is not in the APK.
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/build.gradle.kts").isFile) dir = dir.parentFile
+        val task = File(dir, "app/build.gradle.kts").readText().substringAfter("val checkAssets by tasks.registering").substringBefore("tasks.named(\"check\")")
+        assertTrue(task, "\"slip39_english.txt\"" in task.substringAfter("val wordLists = listOf(").substringBefore(")"))
+    }
+
+    /** Ruling R3: no other product's brand in a user-visible text; the licence's attribution lives on the Licencias screen. */
+    @Test fun `no wallet brand appears in the app's texts outside the licences`() {
+        var dir: File? = File(".").absoluteFile
+        var root: File? = null
+        while (dir != null && root == null) {
+            File(dir, "app/src/main/java").takeIf { it.isDirectory }?.let { root = it }
+            dir = dir.parentFile
+        }
+        val brands = Regex("(?i)trezor|keystone|satoshilabs")
+        val found = root!!.walkTopDown().filter { it.isFile && it.extension == "kt" && it.name != "LicensesScreen.kt" }
+            .filter { brands.containsMatchIn(it.readText()) }.map { it.name }.toList()
+        assertEquals(emptyList<String>(), found)
+        assertTrue("SatoshiLabs" in main("ui/screens/LicensesScreen.kt"))
+    }
+
     @Test fun `HERR-1 Limpiar foto passes its cancellation to the readers`() {
         val src = code("ui/screens/PhotoCleanScreen.kt")
         assertTrue("PhotoCleaner.inspect(bytes, check)" in src && "PhotoCleaner.clean(bytes, check)" in src)

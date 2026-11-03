@@ -190,10 +190,11 @@ androidComponents.onVariants(androidComponents.selector().withBuildType("release
 val checkAssets by tasks.registering {
     group = "verification"
     description = "Falla si el APK llevaría un archivo en assets/ que no sea de app/src/main/assets, " +
-        "o si le faltaría una lista de palabras de la contraseña maestra."
+        "o si le faltaría una lista de palabras de la contraseña maestra o de «Repartir un secreto»."
     val merged = releaseAssets
-    // MASTER_WORD_LISTS in vault/MasterPolicy.kt (MasterPolicyTest checks that this list names them all).
-    val wordLists = listOf("eff_large_wordlist.txt", "bip39_english.txt", "bip39_spanish.txt")
+    // MASTER_WORD_LISTS in vault/MasterPolicy.kt (MasterPolicyTest checks that this list names them all), and the list of
+    // «Repartir un secreto» (1.4.0, task 4), without which that tool cannot work.
+    val wordLists = listOf("eff_large_wordlist.txt", "bip39_english.txt", "bip39_spanish.txt", "slip39_english.txt")
     val own = layout.projectDirectory.dir("src/main/assets").asFile
     val stamp = layout.buildDirectory.file("checkAssets/ok")
     // The merged assets already hold the app's own, so they are the only input.
@@ -205,9 +206,9 @@ val checkAssets by tasks.registering {
         val missing = wordLists - packed
         if (missing.isNotEmpty()) {
             throw GradleException(
-                "Al APK le faltarían listas de palabras de la contraseña maestra: ${missing.joinToString()}. " +
-                    "Sin ellas, la regla de una maestra nueva no reconoce una sola palabra: no las quites ni las " +
-                    "excluyas en androidResources.",
+                "Al APK le faltarían listas de palabras: ${missing.joinToString()}. Sin ellas, la regla de una " +
+                    "maestra nueva no reconoce una sola palabra, o «Repartir un secreto» no funciona: no las quites " +
+                    "ni las excluyas en androidResources.",
             )
         }
         val foreign = packed - relative(own)
@@ -218,7 +219,7 @@ val checkAssets by tasks.registering {
             )
         }
         stamp.get().asFile.writeText("ok\n")
-        logger.lifecycle("assets/: solo archivos de app/src/main/assets, con las tres listas de palabras")
+        logger.lifecycle("assets/: solo archivos de app/src/main/assets, con las cuatro listas de palabras")
     }
 }
 tasks.named("check") { dependsOn(checkAssets) }

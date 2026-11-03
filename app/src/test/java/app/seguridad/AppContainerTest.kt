@@ -58,10 +58,14 @@ class AppContainerTest {
         assertEquals(listOf("hola", "mundo"), c.wordLists.eff())
         assertEquals(listOf("hola", "mundo"), c.wordLists.eff())
         assertEquals(listOf(app.seguridad.vault.EFF_WORD_LIST), opened)
+        assertEquals(listOf("hola", "mundo"), c.wordLists.bip39English())
+        assertEquals(listOf("hola", "mundo"), c.wordLists.bip39English())
+        assertEquals(listOf(app.seguridad.vault.EFF_WORD_LIST, app.seguridad.vault.BIP39_ENGLISH_LIST), opened)
         val noAssets = File(tmp.root, "sin").apply { mkdirs() }
         val none = AppContainer(noAssets, cache, appVersion = "test", appScope = backgroundScope)
         assertEquals(emptySet<String>(), none.wordLists.master())
         assertNull(none.wordLists.eff())
+        assertNull(none.wordLists.bip39English())
     }
 
     @Test fun `COV2-3 another app taking the focus in multi-window, with Al salir`() = runTest {

@@ -30,8 +30,11 @@ const val MASTER_TOO_WEAK =
 /** The EFF list of `assets/`: the Generator's phrases, and one of [MASTER_WORD_LISTS]. */
 const val EFF_WORD_LIST = "eff_large_wordlist.txt"
 
+/** The BIP-39 English list of `assets/`: one of [MASTER_WORD_LISTS], and the phrases of «Repartir un secreto». */
+const val BIP39_ENGLISH_LIST = "bip39_english.txt"
+
 /** The word lists of `assets/` that the rule for a new master knows, the ones the app already reads (EFF, BIP-39 English and Spanish). */
-val MASTER_WORD_LISTS = listOf(EFF_WORD_LIST, "bip39_english.txt", "bip39_spanish.txt")
+val MASTER_WORD_LISTS = listOf(EFF_WORD_LIST, BIP39_ENGLISH_LIST, "bip39_spanish.txt")
 
 private val COMBINING_MARKS = Regex("\\p{Mn}+")
 
@@ -91,6 +94,7 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
     private val mutex = Mutex()
     private var known: Set<String>? = null
     private var effList: List<String>? = null
+    private var bip39List: List<String>? = null
 
     /** [loadMasterWords]: an empty set if a list cannot be read, which is not kept. */
     suspend fun master(): Set<String> = mutex.withLock {
@@ -99,12 +103,17 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
 
     /** The EFF list without blank lines, or null if it cannot be read (not kept: the next screen tries again). */
     suspend fun eff(): List<String>? = mutex.withLock {
-        effList ?: withContext(io) { readEff() }?.also { effList = it }
+        effList ?: withContext(io) { readList(EFF_WORD_LIST) }?.also { effList = it }
+    }
+
+    /** The BIP-39 English list without blank lines (for «Repartir un secreto»), or null if it cannot be read (not kept). */
+    suspend fun bip39English(): List<String>? = mutex.withLock {
+        bip39List ?: withContext(io) { readList(BIP39_ENGLISH_LIST) }?.also { bip39List = it }
     }
 
     /** Blocking, like [loadMasterWords]: catching `Exception` here swallows no cancellation. */
-    private fun readEff(): List<String>? = try {
-        open(EFF_WORD_LIST).bufferedReader(Charsets.UTF_8).use { it.readLines() }
+    private fun readList(name: String): List<String>? = try {
+        open(name).bufferedReader(Charsets.UTF_8).use { it.readLines() }
             .filter { it.isNotBlank() }
             .ifEmpty { null }
     } catch (e: Exception) {
