@@ -68,7 +68,7 @@ class PlatformSourcesTest {
         val parts = listOf(
             src.substringAfter("private fun SecretInput(").substringBefore("private fun hasSecret("),
             src.substringAfter("fun TextCryptoScreen(").substringBefore("private fun AwayNote("),
-            src.substringAfter("fun BreachScreen(").substringBefore("class FileHashViewModel"),
+            src.substringAfter("fun BreachScreen("),
         )
         var fields = 0
         for (part in parts) {
@@ -95,7 +95,7 @@ class PlatformSourcesTest {
         assertTrue("No se ha guardado: vuelve a descifrar el archivo." in main("ui/screens/SecurityToolsScreen.kt"))
         assertTrue("onDiscard = { deleteLater(appContext, it) }" in src)
         assertFalse("displayName(" in screen)
-        assertTrue(Regex("""withContext\(Dispatchers\.IO\) \{ runCatching \{ displayName\(appContext, uri\) \}""").findAll(src).count() >= 2)
+        assertTrue(Regex("""withContext\(Dispatchers\.IO\) \{ runCatching \{ displayName\(appContext, uri\) \}""").findAll(src + code("ui/screens/HashLabScreen.kt")).count() >= 2)
     }
 
     @Test fun `F6 N5 to N7 the decrypted copy is deleted on IO, the name read is shown, a late success is not`() {
@@ -110,13 +110,21 @@ class PlatformSourcesTest {
         assertTrue("if (checking || (source != null && vm.sourceName == null))" in src)
     }
 
-    @Test fun `COV1-2 Huella SHA-256 cancels the run before, and its button is off while one runs`() {
-        val src = code("ui/screens/SecurityToolsScreen.kt").substringAfter("class FileHashViewModel")
+    @Test fun `COV1-2 Laboratorio de hashes cancels the run before, and its button is off while one runs`() {
+        val src = code("ui/screens/HashLabScreen.kt")
         assertTrue("job?.cancel()" in src)
-        assertTrue("session.finish(run, hash)" in src)
-        assertTrue("sha256Hex(input.buffered()) { ensureActive() }" in src)
+        assertTrue("file.finish(mine, hash)" in src)
+        assertTrue("digest(chosen, counting) { ensureActive();" in src)
+        assertTrue("withContext(Dispatchers.IO)" in src)
         assertTrue("enabled = !s.busy" in src)
-        assertTrue("if (s.failed) Text(\"No se pudo leer el archivo.\"" in main("ui/screens/SecurityToolsScreen.kt"))
+        assertTrue("TextButton(onClick = vm::cancel)" in src)
+        // The HMAC key, the message and the text never reach saved state.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "hmacKey = \"\"" in src)
+        // Every copy goes through the clearing helper.
+        assertFalse("setPrimaryClip" in src || "LocalClipboard" in src)
+        assertTrue("copySensitive(context, value)" in src)
+        assertTrue("HASH_LAB_NO_MATCH" in src && "No se pudo leer" in main("tools/hashlab/HashLabTexts.kt"))
     }
 
     @Test fun `HERR-1 Limpiar foto passes its cancellation to the readers`() {
