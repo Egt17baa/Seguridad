@@ -139,6 +139,26 @@ class PlatformSourcesTest {
         assertTrue("if (run == mine && n - shown >= PROGRESS_STEP)" in src)
     }
 
+    @Test fun `Laboratorio clasico has the guard of the other tools, bounded fields and the clearing copy`() {
+        val src = code("ui/screens/ClassicLabScreen.kt")
+        // Typed text never reaches saved state; the ViewModel wipes it on being cleared.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
+        assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(CLASSIC_TITLE, onBack, s.guard)" in src)
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
+        // Every field is bounded, and every copy goes through the clearing helper.
+        assertTrue("MAX_CLASSIC_CHARS" in src && "MAX_CLASSIC_KEY_CHARS" in src && "vm.limited(" in src)
+        assertFalse("setPrimaryClip" in src || "LocalClipboard" in src)
+        assertTrue("copySensitive(context, value)" in src)
+        // The visible notice, word for word, and the entry in Herramientas.
+        assertTrue("Text(CLASSIC_NOTICE)" in src)
+        assertTrue("Son cifrados históricos, rotos desde hace décadas: no protegen nada. Sirven para aprender cómo funcionaban." in main("tools/classic/ClassicTexts.kt"))
+        assertTrue("Tool(\"tools/classic\"" in code("ui/screens/ToolsScreen.kt"))
+    }
+
     @Test fun `HERR-1 Limpiar foto passes its cancellation to the readers`() {
         val src = code("ui/screens/PhotoCleanScreen.kt")
         assertTrue("PhotoCleaner.inspect(bytes, check)" in src && "PhotoCleaner.clean(bytes, check)" in src)

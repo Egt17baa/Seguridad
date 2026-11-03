@@ -28,6 +28,8 @@ import app.seguridad.tools.IMAGE_TOOLS_LIMIT
 import app.seguridad.tools.clipboardAboutText
 import app.seguridad.tools.PHOTO_TOOL_SUBTITLE
 import app.seguridad.tools.PHOTO_TOOL_TITLE
+import app.seguridad.tools.classic.CLASSIC_SUBTITLE
+import app.seguridad.tools.classic.CLASSIC_TITLE
 import app.seguridad.tools.hashlab.HASH_LAB_SUBTITLE
 import app.seguridad.tools.hashlab.HASH_LAB_TITLE
 import app.seguridad.tools.QR_TOOL_SUBTITLE
@@ -44,6 +46,7 @@ val TOOLS = listOf(
     Tool("tools/generator", "🎲", "Generador", "Contraseñas y frases con su fortaleza"),
     Tool("tools/breach", "🕵", "¿Filtrada?", "Have I Been Pwned, sin enviar tu contraseña"),
     Tool("tools/hash", "#", HASH_LAB_TITLE, HASH_LAB_SUBTITLE),
+    Tool("tools/classic", "🏛", CLASSIC_TITLE, CLASSIC_SUBTITLE),
     Tool("tools/photo", "🧽", PHOTO_TOOL_TITLE, PHOTO_TOOL_SUBTITLE),
     Tool("tools/redact", "⬛", REDACT_TOOL_TITLE, REDACT_TOOL_SUBTITLE),
     Tool("tools/qr", "🔍", QR_TOOL_TITLE, QR_TOOL_SUBTITLE),
