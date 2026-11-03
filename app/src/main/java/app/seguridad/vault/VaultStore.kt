@@ -25,8 +25,6 @@ import app.seguridad.core.readAtMost
 import app.seguridad.core.writeTextAtomically
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KdfParams
-import app.seguridad.crypto.NONCE_BYTES
-import app.seguridad.crypto.TAG_BYTES
 import app.seguridad.crypto.randomBytes
 
 /**
@@ -841,14 +839,17 @@ class VaultStore(
         val (checked, refs) = try {
             val checked = withContext(compute) { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
             val incomingEntries = withContext(compute) { VaultCrypto.read(checked, key) }
-            // Only one identity per vault (see [upsert]): a copy with more is refused before anything changes.
-            if (incomingEntries.count { it.type == EntryType.IDENTITY } > 1) throw CryptoFailure(SEVERAL_IDENTITIES)
-            checkRestorable(incomingEntries)
+            // The rules «Comprobar una copia» checks too (BackupCheck.kt), so the two never drift apart: one identity per
+            // vault (see [upsert]), and what [upsert] and [addAttachment] keep. A copy that breaks one is refused before
+            // anything changes.
+            checkCopyEntries(incomingEntries)
             val refs = incomingEntries.flatMap { it.attachments }
             if (backup == null) {
                 if (refs.isNotEmpty()) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
             } else {
-                withContext(io) { refs.forEach { checkInBackup(it, backup.first) } }
+                // Each file, in the temporary folder the copy was read into, is the one moved into place below: what is
+                // checked here is what is imported, from a single read of the document.
+                withContext(io) { refs.forEach { if (attachmentInCopy(it, backup.first) != CopyAttachment.OK) throw CryptoFailure(attachmentNotInCopy(it.name)) } }
             }
             checked to refs
         } catch (e: Exception) {
@@ -907,34 +908,6 @@ class VaultStore(
             prepared.undo()
         } catch (e: Exception) {
             // The old vault's copies stay unlisted: never deleted, only no longer rotated.
-        }
-    }
-
-    /**
-     * What [upsert] and [addAttachment] keep for entries added here holds for a copy too, or it is refused before
-     * anything changes: no two entries with the same id, no attachments or password history in an identity or a
-     * contact, and the attachments within [MAX_ATTACHMENT_BYTES] each and [MAX_ATTACHMENTS_TOTAL_BYTES] in all.
-     * A copy this app made always passes; one written by hand (with its master password) may not.
-     */
-    private fun checkRestorable(entries: List<VaultEntry>) {
-        // The id goes, encoded, into the screens' routes (AppNavHost): only an id nothing could ever show or route is
-        // refused, so a copy of a vault that 1.0 to 1.2.x let in with any other id still restores (LIBRE-1).
-        if (entries.any { !isEntryId(it.id) }) throw CryptoFailure(COPY_DAMAGED)
-        if (entries.map { it.id }.distinct().size != entries.size) throw CryptoFailure(COPY_DAMAGED)
-        if (entries.any { it.type.isPersonal && (it.attachments.isNotEmpty() || it.passwordHistory.isNotEmpty()) }) throw CryptoFailure(COPY_DAMAGED)
-        val refs = entries.flatMap { it.attachments }
-        if (refs.any { it.size !in 0..MAX_ATTACHMENT_BYTES.toLong() } || attachments.totalBytes(refs) > MAX_ATTACHMENTS_TOTAL_BYTES) {
-            throw CryptoFailure(ATTACHMENTS_TOTAL_TOO_BIG)
-        }
-    }
-
-    /** [ref] has its file in the copy, with the SHA-256 the entry records (authenticated by the copy's data key). */
-    private fun checkInBackup(ref: AttachmentRef, contents: BackupContents) {
-        val file = contents.attachments[ref.id]
-        val limit = MAX_ATTACHMENT_BYTES.toLong() + NONCE_BYTES + TAG_BYTES
-        // The file is nonce + content + tag: its length proves the size the entry declares (and [checkRestorable] counts).
-        if (!isAttachmentId(ref.id) || file == null || file.length() != ref.size + NONCE_BYTES + TAG_BYTES || !fileMatchesSha256(file, ref.sha256, limit)) {
-            throw CryptoFailure("La copia está incompleta o dañada: falta o no coincide el adjunto «${ref.name}»")
         }
     }
 
@@ -1015,8 +988,6 @@ class VaultStore(
 const val VAULT_IMPORT_MAX_BYTES = 20 * 1024 * 1024
 
 private const val NEEDS_MASTER_FOR_CONTACTS = "Hace falta la contraseña maestra para guardar la identidad o los contactos"
-private const val SEVERAL_IDENTITIES = "La copia tiene más de una identidad: no se puede importar"
-private const val COPY_DAMAGED = "La copia está dañada: no se puede importar"
 private const val REPLACE_NEEDS_OPEN = "Abre la bóveda antes de importar una copia"
 
 /** The settings could not record, before the import, that the old vault's automatic copies are not the new one's. */

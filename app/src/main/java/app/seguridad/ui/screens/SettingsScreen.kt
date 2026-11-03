@@ -80,6 +80,7 @@ import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
+import app.seguridad.vault.BACKUP_CHECK_TITLE
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.ReplaceStatus
@@ -399,7 +400,7 @@ private fun FingerprintKeySection(vaultState: VaultState) {
 /** The Ajustes tab: lock, clipboard, Argon2id cost and theme; the vault's copies and master password; Acerca de. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBackup, onAbout: () -> Unit) {
+fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBackup, onAbout: () -> Unit, onCheckBackup: () -> Unit) {
     VaultIdleLock(vault)
     val settings by store.settings.collectAsStateWithLifecycle()
     val vaultState by vault.state.collectAsStateWithLifecycle()
@@ -464,6 +465,8 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                 OutlinedButton(onClick = actions.export, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Exportar bóveda") }
                 OutlinedButton(onClick = actions.import, enabled = canImport, modifier = Modifier.fillMaxWidth()) { Text("Importar copia") }
                 OutlinedButton(onClick = actions.changeMaster, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Cambiar contraseña maestra") }
+                // Reads a copy and writes nothing: open, locked or with no vault.
+                OutlinedButton(onClick = onCheckBackup, modifier = Modifier.fillMaxWidth()) { Text(BACKUP_CHECK_TITLE) }
                 Hint(
                     when (vaultState) {
                         VaultState.Locked -> "Desbloquea la bóveda (pestaña Bóveda) para exportarla, importar una copia o cambiar la contraseña maestra."

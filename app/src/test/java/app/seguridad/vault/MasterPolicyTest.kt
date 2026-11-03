@@ -520,7 +520,11 @@ class MasterPolicyTest {
     @Test fun `no screen but the dialog itself checks only the length of a master`() {
         val lengthOnly = Regex("""\blength\s*>=\s*MIN_MASTER""")
         val hits = screens().flatMap { f -> lengthOnly.findAll(code(f)).map { f.name }.toList() }
-        assertEquals("only PasswordDialog (the import) keeps the length check: $hits", listOf("VaultBackup.kt"), hits)
+        // The password of an existing copy (CRY-A01: never a new master) keeps the length check: the import's dialog and
+        // «Comprobar una copia» (1.4.0), which asks for the same password.
+        assertEquals("only PasswordDialog (the import) and the copy check keep the length check: $hits", listOf("BackupCheckScreen.kt", "VaultBackup.kt"), hits.sorted())
+        assertEquals(1, lengthOnly.findAll(screen("BackupCheckScreen.kt")).count())
+        assertTrue("session.password.length >= MIN_MASTER" in screen("BackupCheckScreen.kt"))
         val backup = screen("VaultBackup.kt")
         val dialog = backup.substring(backup.indexOf("fun PasswordDialog("))
         assertEquals(1, lengthOnly.findAll(dialog).count())
