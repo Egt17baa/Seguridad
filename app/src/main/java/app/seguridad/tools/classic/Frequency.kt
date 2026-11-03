@@ -3,7 +3,7 @@ package app.seguridad.tools.classic
 /** How many times each letter A-Z appears in [text] (index 0 is A), case folded. Other characters are not counted. */
 fun letterCounts(text: String): IntArray {
     val counts = IntArray(26)
-    for (c in text) {
+    for (c in nfc(text)) {
         when (c) {
             in 'A'..'Z' -> counts[c - 'A']++
             in 'a'..'z' -> counts[c - 'a']++
