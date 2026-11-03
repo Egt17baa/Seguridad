@@ -55,13 +55,12 @@ class ClassicTest {
     }
 
     /**
-     * Operation Barbarossa, 7 July 1941, from the Russian front (two parts of one message). Published, for example, in
-     * https://github.com/pgrodrigues/node-enigma-m3/blob/main/README.md (section «Operation Barbarossa, 1941») from the
-     * Crypto Museum / Enigma literature: Enigma I, reflector B, rotors II IV V, rings B U L (2 21 12), plugs
-     * AV BS CG DL FU HZ IN KM OW RX. What is tested: the BODY decrypted at its message key (part 1 BLA, part 2 LSD) and
-     * the INDICATOR groups (WXC: KCH -> BLA, CRS: YPJ -> LSD). The README gives the settings, the two bodies and their
-     * plaintext; it does not give the indicators. I read no other source for this message: the indicators were checked by
-     * decryption (they give the message keys, and the keys give the German text), not taken from a cited publication.
+     * Operation Barbarossa, 7 July 1941, from the Russian front (two parts of one message). Source: the README of
+     * https://github.com/pgrodrigues/node-enigma-m3 (section «Operation Barbarossa, 1941»), which gives the settings, the two
+     * bodies and their plaintext: Enigma I, reflector B, rotors II IV V, rings B U L (2 21 12), plugs
+     * AV BS CG DL FU HZ IN KM OW RX. Tested: the BODY decrypted at its message key (part 1 BLA, part 2 LSD) and the
+     * INDICATOR groups (WXC: KCH -> BLA, CRS: YPJ -> LSD). The README does not give the indicators; they were checked by
+     * decryption (they give the message keys, and the keys give the German text).
      */
     @Test fun historicalMessage() {
         val plugs = "AV BS CG DL FU HZ IN KM OW RX".split(' ').map { it[0] to it[1] }
@@ -148,7 +147,6 @@ class ClassicTest {
         assertThrows(IllegalArgumentException::class.java) { settings(rotors = listOf(Rotor.I, Rotor.I, Rotor.III)) }
         assertThrows(IllegalArgumentException::class.java) { settings(rotors = listOf(Rotor.I, Rotor.II)) }
         assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('A' to 'B', 'B' to 'C')) }
-        assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('A' to 'A')) }
         // A plug joins two different letters, and both must be A-Z.
         assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('A' to 'A')) }
         assertThrows(IllegalArgumentException::class.java) { settings(plugs = listOf('A' to 'ñ')) }
@@ -198,6 +196,17 @@ class ClassicTest {
         assertEquals(nfc, f.process(nfd))
         assertEquals("AAA", f.positions) // no step
         assertEquals(1, letterCounts("e\u0301e")[4]) // the accented «é» is not an «e»
+    }
+
+    @Test fun normalisationAlsoFoldsCanonicalSingletons() {
+        // The Kelvin sign U+212A is canonically the letter K: NFC turns it into ASCII «K», which is then shifted or stepped.
+        // The help texts say so (the text is normalised first) and only promise the usual accented letters unchanged.
+        assertEquals("L", caesar("\u212A", 1))
+        val e = Enigma(settings())
+        e.process("\u212A")
+        assertEquals("AAB", e.positions)
+        assertTrue("NFC" in CLASSIC_LETTERS_ONLY && "habituales" in CLASSIC_LETTERS_ONLY)
+        assertTrue("NFC" in ENIGMA_LETTERS_ONLY && "habituales" in ENIGMA_LETTERS_ONLY)
     }
 
     @Test fun enigmaIntroGivesTheReflectorAsTheReasonNoLetterMapsToItself() {
