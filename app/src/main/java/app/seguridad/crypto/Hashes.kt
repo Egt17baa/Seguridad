@@ -3,9 +3,24 @@ package app.seguridad.crypto
 import java.io.InputStream
 import java.security.MessageDigest
 
-fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02X".format(it) }
-
 private val HEX_DIGITS = "0123456789ABCDEF".toCharArray()
+private val HEX_DIGITS_LOWER = "0123456789abcdef".toCharArray()
+
+private fun hexWith(bytes: ByteArray, table: CharArray): String {
+    val out = CharArray(bytes.size * 2)
+    for (i in bytes.indices) {
+        val b = bytes[i].toInt() and 0xFF
+        out[2 * i] = table[b shr 4]
+        out[2 * i + 1] = table[b and 0x0F]
+    }
+    return String(out)
+}
+
+/** [bytes] as uppercase hex (table-based: no `String.format` per byte). */
+fun hex(bytes: ByteArray): String = hexWith(bytes, HEX_DIGITS)
+
+/** [bytes] as lowercase hex, how download pages publish a hash. */
+fun hexLower(bytes: ByteArray): String = hexWith(bytes, HEX_DIGITS_LOWER)
 
 /**
  * The SHA-1 of [password] in UTF-8, as uppercase hex in a new [CharArray] the caller wipes (what Have I Been Pwned
@@ -47,7 +62,7 @@ fun sha256Hex(input: InputStream, check: () -> Unit = {}): String {
         if (n < 0) break
         md.update(buf, 0, n)
     }
-    return hex(md.digest()).lowercase()
+    return hexLower(md.digest())
 }
 
 /** Compares a published hash with ours, ignoring case, spaces and colons. */

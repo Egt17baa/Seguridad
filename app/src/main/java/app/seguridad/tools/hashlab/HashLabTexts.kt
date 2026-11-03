@@ -33,7 +33,8 @@ const val HASH_LAB_CANCEL = "Cancelar"
 const val HASH_LAB_COPY = "Copiar"
 
 const val HASH_LAB_HMAC_INTRO =
-    "HMAC-SHA256 con una clave que escribes. La clave y el mensaje se quedan en esta pantalla y se borran al salir de ella."
+    "HMAC-SHA256 con una clave que escribes. La clave y el mensaje no se guardan en el móvil: solo están en esta pantalla, " +
+        "y el aviso de abajo dice cuándo se borran."
 const val HASH_LAB_KEY_LABEL = "Clave"
 const val HASH_LAB_KEY_AS_TEXT = "Clave en texto"
 const val HASH_LAB_KEY_AS_HEX = "Clave en hex"
@@ -49,3 +50,13 @@ const val HASH_LAB_NOT_TEXT = "No es texto UTF-8: se muestra en hex."
 
 fun hashLabBusy(done: String, total: String?): String =
     if (total == null) "Calculando… $done" else "Calculando… $done de $total"
+
+const val HASH_LAB_ALGO_CHANGED = "Elegiste otro algoritmo: el resultado de antes ya no vale."
+fun hashLabRecalc(algo: String) = "Calcular otra vez con $algo"
+
+/** The pasted hash is [want] bytes long and the result is not: another algorithm's size (or HMAC-SHA256's, [hmac]). */
+fun hashLabWrongSize(want: Int, hmac: Boolean): String {
+    val names = if (want == 64) "SHA-512 o BLAKE2b-512" else "SHA-256, SHA3-256 o BLAKE3-256"
+    return "Esta huella tiene $want bytes, el tamaño de $names." +
+        if (hmac) " HMAC-SHA256 da 32 bytes." else " Elige uno de esos algoritmos."
+}
