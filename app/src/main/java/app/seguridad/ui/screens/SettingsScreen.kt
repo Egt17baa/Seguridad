@@ -465,7 +465,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                 OutlinedButton(onClick = actions.export, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Exportar bóveda") }
                 OutlinedButton(onClick = actions.import, enabled = canImport, modifier = Modifier.fillMaxWidth()) { Text("Importar copia") }
                 OutlinedButton(onClick = actions.changeMaster, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Cambiar contraseña maestra") }
-                // Reads a copy and writes nothing: open, locked or with no vault.
+                // Reads a copy and changes neither the vault nor a copy: open, locked or with no vault.
                 OutlinedButton(onClick = onCheckBackup, modifier = Modifier.fillMaxWidth()) { Text(BACKUP_CHECK_TITLE) }
                 Hint(
                     when (vaultState) {

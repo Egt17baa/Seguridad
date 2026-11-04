@@ -88,9 +88,10 @@ import java.io.IOException
  * left. «Comprobar» takes the password as a CharArray and empties the field; [BackupCheckRuns] zeroes it when the check
  * ends or stops. A check runs [checkBackup] in its own folder of cacheDir/comprobar/ (deleted however it ends); it stops,
  * and its result is dropped, on a new check, «Cancelar», leaving the screen, leaving the app or a lock of the vault.
- * It writes nothing else: no vault, no settings, no copy. Choosing the file is as in «Importar copia»: the picker keeps
- * the vault open ([VaultLock.keepOpenOnce]) and `store.touch()` restarts its idle count, which is all the screen does
- * to the store.
+ * It changes neither the vault nor a copy, nor any setting the user chose. Choosing the file is as in «Importar copia»:
+ * the picker keeps the vault open ([VaultLock.keepOpenOnce]) and `store.touch()` restarts its idle count in memory and
+ * may raise the A11 clock mark (`Settings.clockHighWaterMs`, saved to disk only when it rises far enough, never
+ * lowered), as every use of the app does. That is all the screen does to the store.
  */
 private class BackupCheckViewModel(
     private val appContext: Context,

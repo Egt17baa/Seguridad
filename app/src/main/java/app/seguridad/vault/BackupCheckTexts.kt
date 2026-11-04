@@ -10,9 +10,8 @@ const val BACKUP_CHECK_TITLE = "Comprobar una copia"
 
 const val BACKUP_CHECK_INTRO =
     "Comprueba una copia .sgbak sin importarla: que la contraseña maestra que escribas la abre, que sus entradas se leen " +
-        "y que cada adjunto está en la copia y coincide con la huella SHA-256 que guarda su entrada. No cambia nada: no " +
-        "toca tu bóveda, tus ajustes ni tus copias. Mientras la comprueba, guarda lo que lee en una carpeta temporal de la " +
-        "app y lo borra al terminar."
+        "y que cada adjunto está en la copia y coincide con la huella SHA-256 que guarda su entrada. No cambia tu bóveda ni " +
+        "tus copias. Mientras la comprueba, guarda lo que lee en una carpeta temporal de la app y lo borra al terminar."
 
 const val BACKUP_CHECK_PICK = "Elegir copia"
 const val BACKUP_CHECK_PASSWORD = "Contraseña maestra de la copia"
