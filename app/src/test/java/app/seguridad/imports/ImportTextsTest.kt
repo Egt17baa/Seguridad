@@ -13,7 +13,18 @@ import java.io.File
  * Comments and Kotlin identifiers are not visible text and are not checked.
  */
 class ImportTextsTest {
-    private val names = listOf("bitwarden", "aegis", "2fas", "firefox", "mozilla", "apple", "safari", "icloud", "chrome", "chromium", "edge", "brave", "steam", "keepass", "keepassxc", "google")
+    /**
+     * Product names, found in any case as a part of a literal, so a name glued to other letters («GoogleDrive»,
+     * «misBitwarden») is caught too. None of them is part of an ordinary Spanish word.
+     */
+    private val names = listOf("bitwarden", "aegis", "2fas", "firefox", "mozilla", "apple", "safari", "icloud", "chrome", "chromium", "brave", "steam", "keepass", "google", "microsoft", "msedge")
+
+    /**
+     * Names that are part of ordinary words, so they are found only as a whole word: «edge» is inside «Ledger» (a
+     * hardware wallet the vault form names as an example) and «knowledge». A glued «MicrosoftEdge» or «msedge» is
+     * still caught through [names].
+     */
+    private val wholeWordNames = listOf("edge")
 
     /** The only file where any literal may name another product. */
     private val TEXTS_FILE = "app/seguridad/imports/ImportTexts.kt"
@@ -51,7 +62,11 @@ class ImportTextsTest {
             .associate { it.relativeTo(java).invariantSeparatorsPath to it.readText() }
     }
 
-    private fun namesIn(text: String) = names.filter { Regex("(?<![\\p{L}\\p{N}])${Regex.escape(it)}(?![\\p{L}\\p{N}])", RegexOption.IGNORE_CASE).containsMatchIn(text) }
+    private fun namesIn(text: String): List<String> {
+        val lower = text.lowercase()
+        return names.filter { it in lower } +
+            wholeWordNames.filter { Regex("(?<![\\p{L}\\p{N}])${Regex.escape(it)}(?![\\p{L}\\p{N}])").containsMatchIn(lower) }
+    }
 
     /** Each literal of [sources] that names another product and is neither in [TEXTS_FILE] nor in [ALLOWED]. */
     private fun violations(sources: Map<String, String>): List<String> = sources.flatMap { (path, src) ->
@@ -90,5 +105,11 @@ class ImportTextsTest {
         assertTrue(namesIn("importado-2fas").isNotEmpty())
         assertTrue(namesIn("GOOGLE").isNotEmpty())
         assertTrue(namesIn("importado-navegador").isEmpty())
+        // Glued to other letters or digits, in any case.
+        for (t in listOf("GoogleDrive", "misBitwarden", "copia2FASx", "iCloudDrive", "MicrosoftEdge", "msedge.exe", "Edge"))
+            assertTrue(t, namesIn(t).isNotEmpty())
+        // «edge» inside an ordinary word is not a name.
+        assertTrue(namesIn("Nombre (p. ej. «Binance» o «Ledger»)").isEmpty())
+        assertTrue(namesIn("knowledge").isEmpty())
     }
 }

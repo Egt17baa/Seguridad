@@ -56,6 +56,38 @@ class CsvTest {
         assertEquals(';', csvDelimiter("\n\r\nname;url\n"))
     }
 
+    @Test fun delimiterDetectionUsesTheParsersQuoteRule() {
+        // A quote in the middle of a header field is text (it opens nothing), for the detection as for the parse.
+        assertEquals(';', csvDelimiter("ab\"c;d;e\n1;2;3"))
+        assertEquals(listOf(listOf("ab\"c", "d", "e"), listOf("1", "2", "3")), parseCsv("ab\"c;d;e\n1;2;3"))
+        assertEquals(',', csvDelimiter("na\"me;url,x"))
+        assertEquals(listOf(listOf("na\"me;url", "x")), parseCsv("na\"me;url,x"))
+        assertEquals(';', csvDelimiter("na\"me;url;x,y"))
+        assertEquals(listOf(listOf("na\"me", "url", "x,y")), parseCsv("na\"me;url;x,y"))
+        // A quote at the start of a field does open one, with the delimiter inside it as text.
+        assertEquals(listOf(listOf("a;b;c", "d")), parseCsv("\"a;b;c\",d"))
+        assertEquals(listOf(listOf("x", "a,b", "d", "e")), parseCsv("x;\"a,b\";d;e"))
+    }
+
+    @Test fun delimiterDetectionAndParseAgreeOnAnyHeader() {
+        // Headers of commas, semicolons, quotes, spaces, letters and line breaks, at random but repeatable: the
+        // delimiter chosen is the one whose reading gives more cells, and the parse gives exactly that many.
+        val random = java.util.Random(6)
+        val alphabet = "ab,;\" \n\r"
+        repeat(20_000) {
+            val text = String(CharArray(random.nextInt(14)) { alphabet[random.nextInt(alphabet.length)] })
+            val d = csvDelimiter(text)
+            assertEquals(text, if (csvFirstRecordCells(text, ';') > csvFirstRecordCells(text, ',')) ';' else ',', d)
+            val rows = try {
+                parseCsv(text)
+            } catch (e: ImportFailure) {
+                assertEquals(text, IMPORT_CSV_UNCLOSED_QUOTE, e.message)
+                return@repeat
+            }
+            assertEquals(text, csvFirstRecordCells(text, d), rows.firstOrNull()?.size ?: 0)
+        }
+    }
+
     // --- Text decoding ---
 
     @Test fun utf8WithAndWithoutBom() {
