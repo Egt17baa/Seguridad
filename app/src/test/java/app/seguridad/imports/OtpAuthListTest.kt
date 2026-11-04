@@ -158,4 +158,14 @@ class OtpAuthListTest {
         // No skipped line names its secret.
         assertFalse(read.skipped.any { "JBSWY3DPEHPK3PXP" in it.title })
     }
+
+    @Test fun aegisTxtExportIsAList() {
+        // Ruling R21: Aegis's TXT export, one otpauth:// link per line (random data). A line that is not an otpauth
+        // link (as a steam:// one) is listed as broken; HOTP is not TOTP.
+        val read = ok(requireNotNull(javaClass.getResourceAsStream("/import/otpauth/aegis.txt")).use { it.readBytes() })
+        assertEquals(ImportFormat.OTPAUTH, read.format)
+        assertEquals(listOf("Banco inventado", "Foro"), read.items.map { it.entry.title })
+        assertEquals(8, read.items[1].entry.totp!!.digits)
+        assertEquals(listOf(SkipReason.NOT_TOTP, SkipReason.BROKEN), read.skipped.map { it.reason })
+    }
 }

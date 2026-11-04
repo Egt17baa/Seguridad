@@ -1,0 +1,7 @@
+folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp
+Trabajo,1,login,Correo inventado,Nota del acceso,PIN: f787,0,https://correo.example.com/,ana4c0c@example.com,Pw-e9d3720af925,6HHP77MIZZW7J6RI2KHBM3EQEG6KAO7S
+,,login,Tienda,,,0,https://tienda.example.org/,luis,Pw-eccaeb306dc9,otpauth://totp/Tienda:luis?secret=CEA673TK5OOA5XWCKROW6SQULR3ZUR5G&issuer=Tienda
+Casa,,note,Nota segura,"Línea 1
+Línea 2",,0,,,,
+,,login,Juego,,,0,https://juego.example.net/,jugador,Pw-8227351178d7,steam://ZHXU52D4MDKLX5DOTYNEDFY3OLDXW7QN
+,,login,,,,0,,,,

@@ -14,12 +14,13 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * A JSON with `encrypted` or `items`:
- * - `encrypted: true` with `passwordProtected: true` → [ReadResult.NeedsPassword] (Task 10 opens it);
+ * - `encrypted: true` with `passwordProtected: true` → [ReadResult.NeedsPassword] without [password], and opened
+ *   with it ([openBitwarden], Task 10), its content read against [treeBudget];
  * - `encrypted: true` without it → [IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED]: only that account can open it;
  * - `encrypted: false` or absent → [readBitwardenPlain].
  * Any other type for these two names is [IMPORT_BROKEN].
  */
-internal fun readBitwarden(root: JsonObject): ReadResult {
+internal fun readBitwarden(root: JsonObject, password: CharArray? = null, treeBudget: Long = JSON_MAX_TREE_BYTES): ReadResult {
     val encrypted = try {
         root.flag("encrypted") ?: false
     } catch (e: WrongType) {
@@ -31,7 +32,9 @@ internal fun readBitwarden(root: JsonObject): ReadResult {
     } catch (e: WrongType) {
         throw ImportFailure(IMPORT_BROKEN)
     }
-    if (protected) return ReadResult.NeedsPassword(ImportFormat.BITWARDEN)
+    if (protected) {
+        return if (password == null) ReadResult.NeedsPassword(ImportFormat.BITWARDEN) else ReadResult.Ok(openBitwarden(root, password, treeBudget))
+    }
     throw ImportFailure(IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED)
 }
 
@@ -180,7 +183,7 @@ private fun emit(r: ItemRead, shown: String, out: ImportReadBuilder) {
  * [SkipReason.NOT_TOTP]; or a bare Base32 key, which is a link with only that key (so the defaults SHA-1, 6 digits and
  * 30 s), percent-encoded into its parameter. Both go through [ImportReadBuilder.addOtpAuth].
  */
-private fun addLoginTotp(totp: String, title: String, folders: List<String>, out: ImportReadBuilder) {
+internal fun addLoginTotp(totp: String, title: String, folders: List<String>, out: ImportReadBuilder) {
     val t = totp.trim()
     when {
         t.startsWith("otpauth://", ignoreCase = true) -> out.addOtpAuth(t, title, folders)

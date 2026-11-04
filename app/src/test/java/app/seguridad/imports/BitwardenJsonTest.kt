@@ -251,7 +251,8 @@ class BitwardenJsonTest {
         val message = failed(text)
         assertEquals(IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED, message)
         assertEquals(
-            "Esta exportación está cifrada con tu cuenta de Bitwarden. Expórtala como \"JSON\" o como \"JSON (protegido con contraseña)\".",
+            "Esta exportación está cifrada con tu cuenta de Bitwarden y solo Bitwarden puede abrirla. Vuelve a exportar " +
+                "con el formato «.json», o con «.json (Encrypted)» y el tipo «Protegida con contraseña» (no «Cuenta restringida»).",
             message,
         )
         // passwordProtected false is the same.

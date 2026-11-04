@@ -185,10 +185,12 @@ private fun scanJson(text: String, limit: Long): Long {
  * ([checkJsonShape]); one the parser refuses is unknown too, and the parser's message (which quotes the file) is
  * never used. The format is told by its top-level names, in this order:
  * - `encrypted` or `items`: Bitwarden ([readBitwarden]);
- * - `db`: Aegis (an object in clear, a Base64 string when encrypted);
- * - `services` or `servicesEncrypted`: 2FAS.
+ * - `db`: Aegis (an object in clear, a Base64 string when encrypted: [openAegis]);
+ * - `services` or `servicesEncrypted`: 2FAS (`servicesEncrypted` a string when encrypted: [openTwoFas]).
+ * An encrypted file without [password] is [ReadResult.NeedsPassword]; with it, it is opened (Task 10), and what it
+ * holds goes through the same [checkJsonShape] with [treeBudget].
  */
-internal fun readJsonImport(text: String, treeBudget: Long = JSON_MAX_TREE_BYTES): ReadResult? {
+internal fun readJsonImport(text: String, treeBudget: Long = JSON_MAX_TREE_BYTES, password: CharArray? = null): ReadResult? {
     var start = 0
     while (start < text.length && text[start].isJsonSpace()) start++
     if (start >= text.length || text[start] != '{') return null
@@ -202,15 +204,23 @@ internal fun readJsonImport(text: String, treeBudget: Long = JSON_MAX_TREE_BYTES
     }
     if (root !is JsonObject) return null
     return when {
-        "encrypted" in root || "items" in root -> readBitwarden(root)
+        "encrypted" in root || "items" in root -> readBitwarden(root, password, treeBudget)
         "db" in root -> when (val db = root["db"]) {
             is JsonObject -> ReadResult.Ok(readAegisPlain(db))
-            is JsonPrimitive -> if (db.isString) ReadResult.NeedsPassword(ImportFormat.AEGIS) else throw ImportFailure(IMPORT_BROKEN)
+            is JsonPrimitive -> when {
+                !db.isString -> throw ImportFailure(IMPORT_BROKEN)
+                password == null -> ReadResult.NeedsPassword(ImportFormat.AEGIS)
+                else -> ReadResult.Ok(openAegis(root, password, treeBudget))
+            }
             else -> throw ImportFailure(IMPORT_BROKEN)
         }
         "services" in root || "servicesEncrypted" in root -> when (val enc = root["servicesEncrypted"]) {
             null, JsonNull -> ReadResult.Ok(readTwoFasPlain(root))
-            is JsonPrimitive -> if (enc.isString) ReadResult.NeedsPassword(ImportFormat.TWOFAS) else throw ImportFailure(IMPORT_BROKEN)
+            is JsonPrimitive -> when {
+                !enc.isString -> throw ImportFailure(IMPORT_BROKEN)
+                password == null -> ReadResult.NeedsPassword(ImportFormat.TWOFAS)
+                else -> ReadResult.Ok(openTwoFas(root, password, treeBudget))
+            }
             else -> throw ImportFailure(IMPORT_BROKEN)
         }
         else -> null

@@ -12,5 +12,20 @@ ni archivos de prueba).
 - otpauth/lista.txt: un enlace por línea (CRLF), con líneas en blanco, una línea entre comillas (CSV de una columna),
   un HOTP, un TOTP de 10 cifras y una línea que no es un enlace.
 
-Cuando lleguen las exportaciones reales del dueño (paso 5 de la tarea 6, aplicado a bitwarden.json, aegis-claro.json
-y 2fas-claro.2fas en la tarea 7), se añaden con su propia prueba.
+- otpauth/aegis.txt (tarea 10, R21): con la forma de la exportación TXT de Aegis, un enlace otpauth:// por línea, datos
+  al azar.
+
+Exportaciones cifradas (tarea 10). El dueño no entrega exportaciones reales (llevan sus secretos; decisión (e)). Las
+escribió una sola vez scripts/import-fixtures/gen_encrypted.py, una implementación independiente en Python hecha solo a
+partir de la documentación pública que nombra su cabecera; las pruebas leen estos bytes, no ejecutan el script. Cada
+archivo cifrado va con su gemelo en claro, y la contraseña es «prueba-clavero-1.4»:
+- bitwarden/bitwarden-protegido-pbkdf2.json (PBKDF2-SHA256, 100 000 iteraciones) y
+  bitwarden/bitwarden-protegido-argon2id.json (Argon2id, 16 MiB, 3 pasadas, 4 hilos; la sal, SHA-256 de la cadena
+  «salt», según la documentación y sin confirmar con una exportación real); su gemelo, bitwarden-protegido-claro.json,
+  es exactamente el texto que guarda «data».
+- aegis/aegis-cifrado.json (scrypt N = 2^15, r = 8, p = 1, y AES-256-GCM) y su gemelo aegis-cifrado-claro.json.
+- 2fas/2fas-cifrado.2fas (PBKDF2-HMAC-SHA256, 10 000 iteraciones, y AES-256-GCM; los grupos en claro) y su gemelo
+  2fas-cifrado-claro.2fas.
+
+Cuando lleguen exportaciones reales (1.4.1), se añaden con su propia prueba y se confirma lo que la tarea 10 apunta en
+«Pendiente de confirmar con exportaciones reales».
