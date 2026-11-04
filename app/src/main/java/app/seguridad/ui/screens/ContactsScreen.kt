@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.seguridad.imports.plainReportText
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
@@ -254,7 +255,7 @@ private fun ContactsList(entries: List<VaultEntry>, onIdentity: () -> Unit, onCo
             ) {
                 Text(typeIcon(EntryType.CONTACT), style = MaterialTheme.typography.titleLarge)
                 Column(Modifier.weight(1f)) {
-                    Text(shownContactTitle(e.title), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(plainReportText(shownContactTitle(e.title)), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     VerificationMark(e)
                 }
             }

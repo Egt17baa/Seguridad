@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.FilterObscuredTouches
+import app.seguridad.imports.plainReportText
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.vault.ContactName
@@ -103,7 +104,7 @@ private fun ContactDetail(store: VaultStore, entry: VaultEntry, snackbar: Snackb
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Plain Text: whatever the name holds is shown as it is, never as a link or markdown.
-        Text(shownContactTitle(entry.title), style = MaterialTheme.typography.headlineSmall)
+        Text(plainReportText(shownContactTitle(entry.title)), style = MaterialTheme.typography.headlineSmall)
         VerificationMark(entry)
         when (val f = fingerprint) {
             SavedFingerprint.Loading -> Unit
