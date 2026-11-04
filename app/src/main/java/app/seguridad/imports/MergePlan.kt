@@ -5,6 +5,7 @@ import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MAX_TAGS
 import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.VaultStore
 import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.totpKeyOf
 import app.seguridad.vault.withNewPassword
@@ -61,7 +62,7 @@ sealed interface ApplyResult {
 }
 
 /**
- * Compares [read] with [existing] (spec «Duplicado»):
+ * Compares [read] with [existing] (spec «Duplicado»). [existing] and [revision] must be read together: use [planImport].
  * - a `LOGIN` matches by title (trimmed, case ignored), user (trimmed) and the host of the URL (lowercase, without
  *   `www.`); when either side has no URL, title and user are enough;
  * - a `TOTP` matches by its key, the rule of `totpImportEntries` ([totpKeyOf]);
@@ -93,8 +94,17 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
 }
 
 /**
+ * The plan of [read] against the vault as it is now ([app.seguridad.vault.VaultStore.importSnapshot]: its entries and
+ * revision read together, under the store's lock); null when it is locked. The only way the import screen builds a
+ * plan: entries and revision read apart could pair an old list with a newer revision and pass the check of
+ * [app.seguridad.vault.VaultStore.applyImport].
+ */
+suspend fun VaultStore.planImport(read: ImportRead): MergePlan? = importSnapshot()?.let { planMerge(read, it.entries, it.revision) }
+
+/**
  * The tags of an entry imported from [format] with [folders] (spec «Etiquetas»): the origin tag first, then each folder
- * through [normalizeTags] (its commas become spaces, so a folder stays one tag, and `a/b` stays `a/b`), cut to
+ * through [normalizeTags] (its commas become spaces and a run of spaces one, so a folder stays one tag, «Trabajo, Casa»
+ * is «trabajo casa», and `a/b` stays `a/b`), cut to
  * [app.seguridad.vault.MAX_TAG_LENGTH] code points. At most [MAX_TAGS]: over it, the last folders go, never the origin tag.
  */
 fun importTags(folders: List<String>, format: ImportFormat): List<String> {
@@ -102,7 +112,7 @@ fun importTags(folders: List<String>, format: ImportFormat): List<String> {
     tags += format.originTag
     for (folder in folders) {
         if (tags.size >= MAX_TAGS) break
-        normalizeTags(folder.replace(',', ' ')).firstOrNull()?.let { tags += it }
+        normalizeTags(SPACES.replace(folder.replace(',', ' '), " ")).firstOrNull()?.let { tags += it }
     }
     return tags.toList()
 }
@@ -147,17 +157,21 @@ fun mergedEntries(
 /**
  * [existing] after «Reemplazar» with [incoming] (spec «Las opciones», so that replacing never loses anything):
  * - it keeps its id, type, `createdAt`, favourite and attachments;
- * - it takes the title, user, URL and 2FA of [incoming] only where they are not empty (blank counts as empty);
+ * - it takes the title, user, URL and 2FA of [incoming] only where they are not empty (blank counts as empty; within
+ *   the 2FA, a blank issuer or account keeps the vault's);
  * - notes: [incoming]'s if [existing] has none; if both have and they differ, [existing]'s, then a line
- *   [importedOnHeading] with the day of [now] in [zone], then [incoming]'s;
+ *   [importedOnHeading] with the day of [now] in [zone], then [incoming]'s; not again if [existing]'s already end with
+ *   them (the same file replaced twice);
  * - tags: its own, then [incoming]'s it lacks, up to [MAX_TAGS] (its own are never dropped);
  * - a new non-empty password goes through [withNewPassword], so the old one goes to the history.
- * An `IDENTITY` or `CONTACT` [existing], or an [incoming] of another type, is returned unchanged.
+ * An `IDENTITY` or `CONTACT` [existing], an [incoming] of another type, or a replacement that would only change
+ * `updatedAt`, gives [existing] itself.
  */
 fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: ZoneId = ZoneId.systemDefault()): VaultEntry {
     if (existing.type.isPersonal || incoming.type != existing.type) return existing
     val notes = when {
-        incoming.notes.isBlank() || incoming.notes == existing.notes -> existing.notes
+        // Already there (the same file replaced again): never appended twice.
+        incoming.notes.isBlank() || incoming.notes == existing.notes || existing.notes.endsWith("\n" + incoming.notes) -> existing.notes
         existing.notes.isBlank() -> incoming.notes
         else -> {
             val day = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
@@ -168,24 +182,30 @@ fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: Zon
         title = incoming.title.ifBlank { existing.title },
         username = incoming.username.ifBlank { existing.username },
         url = incoming.url.ifBlank { existing.url },
-        totp = incoming.totp ?: existing.totp,
+        // The code's settings from the file; its issuer and account only where the file has them.
+        totp = incoming.totp?.let { t ->
+            existing.totp?.let { e -> t.copy(issuer = t.issuer.ifBlank { e.issuer }, account = t.account.ifBlank { e.account }) } ?: t
+        } ?: existing.totp,
         notes = notes,
         tags = (existing.tags + incoming.tags.filter { it !in existing.tags }).distinct().take(maxOf(MAX_TAGS, existing.tags.size)),
         updatedAt = now,
     )
-    return if (incoming.password.isEmpty()) merged else merged.withNewPassword(incoming.password, now)
+    val replaced = if (incoming.password.isEmpty()) merged else merged.withNewPassword(incoming.password, now)
+    // Nothing but the date would change: the entry stays as it is (no save, no new copy for nothing).
+    return if (replaced.copy(updatedAt = existing.updatedAt) == existing) existing else replaced
 }
 
 /**
  * The preview's estimate of the vault file holding [entries]: `ceil(plainJsonBytes * 4 / 3) + 4096`, the entries' JSON
  * in Base64 (as [app.seguridad.vault.VaultCrypto] stores them) plus room for the nonce, the tag and the file's other
- * fields, so it is never below the real file. If even the entries' characters alone ([plainCharsLowerBound], fewer
- * than their JSON bytes) give an estimate over [BACKUP_MAX_ENTRY_BYTES], that one is returned without encoding them:
- * the answer (too big) is the same, and a huge import is not turned into an even larger string first.
- * [app.seguridad.vault.VaultStore.applyImport]'s exact check of the encrypted file decides.
+ * fields, so it is never below the real file. If the JSON bytes of the entries' texts alone ([escapedTextBytes], counted
+ * without building anything) already give an estimate over [BACKUP_MAX_ENTRY_BYTES], that one is returned without
+ * encoding them: the answer (too big) is the same, and a hostile import (text made of characters JSON escapes as six
+ * bytes each) is never turned into a larger string first. [app.seguridad.vault.VaultStore.applyImport]'s exact check of
+ * the encrypted file decides.
  */
 fun estimatedVaultFileBytes(entries: List<VaultEntry>): Long {
-    val low = base64Estimate(plainCharsLowerBound(entries))
+    val low = base64Estimate(escapedTextBytes(entries))
     if (low > BACKUP_MAX_ENTRY_BYTES) return low
     return base64Estimate(utf8Length(appJson.encodeToString(entries)))
 }
@@ -196,18 +216,48 @@ fun estimatedOverBytes(entries: List<VaultEntry>): Long = (estimatedVaultFileByt
 private fun base64Estimate(plain: Long): Long = (plain * 4 + 2) / 3 + 4096
 
 /**
- * The UTF-16 units of every text field of [entries]: never more than the UTF-8 bytes of their JSON (a UTF-16 unit is at
- * least one UTF-8 byte, a surrogate pair is four, and escaping only adds), so a lower bound of it.
+ * The bytes the text fields of [entries] take inside their JSON (`appJson`, as the vault encodes them), counted without
+ * building anything ([jsonEscapedLength]). A lower bound of the whole JSON (the field names, the quotes, the numbers and
+ * the other values are left out), close to it: within a few hundred bytes per entry.
  */
-internal fun plainCharsLowerBound(entries: List<VaultEntry>): Long {
+internal fun escapedTextBytes(entries: List<VaultEntry>): Long {
     var n = 0L
     for (e in entries) {
-        n += e.id.length + e.title.length + e.username.length + e.password.length + e.url.length + e.notes.length +
-            e.seedWords.length + e.identitySeed.length + e.card.length
-        for (t in e.tags) n += t.length
-        for (h in e.passwordHistory) n += h.password.length
-        e.totp?.let { n += it.secret.length + it.issuer.length + it.account.length }
-        for (a in e.attachments) n += a.id.length + a.name.length + a.sha256.length + a.key.length
+        n += jsonEscapedLength(e.id) + jsonEscapedLength(e.title) + jsonEscapedLength(e.username) +
+            jsonEscapedLength(e.password) + jsonEscapedLength(e.url) + jsonEscapedLength(e.notes) +
+            jsonEscapedLength(e.seedWords) + jsonEscapedLength(e.identitySeed) + jsonEscapedLength(e.card) +
+            jsonEscapedLength(e.verifiedBy)
+        for (t in e.tags) n += jsonEscapedLength(t)
+        for (h in e.passwordHistory) n += jsonEscapedLength(h.password)
+        e.totp?.let { n += jsonEscapedLength(it.secret) + jsonEscapedLength(it.issuer) + jsonEscapedLength(it.account) + jsonEscapedLength(it.algorithm) }
+        for (a in e.attachments) n += jsonEscapedLength(a.id) + jsonEscapedLength(a.name) + jsonEscapedLength(a.sha256) + jsonEscapedLength(a.key)
+    }
+    return n
+}
+
+/**
+ * The UTF-8 bytes of [s] once written inside a JSON string, without its quotes: `"` and `\`, and `\b`, `\f`, `\n`,
+ * `\r` and `\t`, take two; any other control character below U+0020 takes six (`\u00XX`); anything else its UTF-8
+ * length ([utf8Length]'s rule). The same as `appJson` writes; nothing is built.
+ */
+internal fun jsonEscapedLength(s: String): Long {
+    var n = 0L
+    var i = 0
+    while (i < s.length) {
+        val c = s[i]
+        n += when {
+            c == '"' || c == '\\' || c == '\b' || c == '\u000C' || c == '\n' || c == '\r' || c == '\t' -> 2
+            c.code < 0x20 -> 6
+            c.code < 0x80 -> 1
+            c.code < 0x800 -> 2
+            c.isHighSurrogate() && i + 1 < s.length && s[i + 1].isLowSurrogate() -> {
+                i++
+                4
+            }
+            c.isSurrogate() -> 1
+            else -> 3
+        }
+        i++
     }
     return n
 }
@@ -232,6 +282,8 @@ internal fun utf8Length(s: String): Long {
     }
     return n
 }
+
+private val SPACES = Regex("\\s+")
 
 /** Title as compared: trimmed, case ignored. */
 private fun titleKey(title: String) = title.trim().lowercase(Locale.ROOT)

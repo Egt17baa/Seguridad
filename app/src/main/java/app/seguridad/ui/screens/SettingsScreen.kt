@@ -281,7 +281,8 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
         if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
         Hint(
             "Cada copia va cifrada con la contraseña maestra que tenía la bóveda al hacerla: si la cambias, las copias anteriores " +
-                "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…), nunca " +
+                "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…) y, si " +
+                "lo pides tras cambiar la contraseña maestra, las de antes de importar (seguridad-antes-de-importar-…); nunca " +
                 "otros archivos de la carpeta.",
         )
     }

@@ -315,6 +315,16 @@ class AppContainer(
      * generation is read inside the settings' lock: an import bumps it before it forgets the list (a write that takes that
      * same lock), so a copy of the replaced vault can never put its list back, whichever of the two writes first (CADENAS-3).
      */
+    private suspend fun recordAutoBackup(result: AutoBackupResult) {
+        try {
+            settings.update { it.withAutoBackupResult(result, vault.generation) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A full disk: Ajustes just shows the previous state, and the copy just made is not rotated; never closes the app.
+        }
+    }
+
     /**
      * Lists the import copy [id] just written to [folder] (Settings.importCopies), for A6. As [recordAutoBackup], the vault's
      * generation is read inside the settings' lock, so a copy of a vault replaced meanwhile is never listed.
@@ -326,16 +336,6 @@ class AppContainer(
             throw e
         } catch (e: Exception) {
             // A full disk: the copy is there, only not listed (A6 counts it as unlisted by its name); never closes the app.
-        }
-    }
-
-    private suspend fun recordAutoBackup(result: AutoBackupResult) {
-        try {
-            settings.update { it.withAutoBackupResult(result, vault.generation) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // A full disk: Ajustes just shows the previous state, and the copy just made is not rotated; never closes the app.
         }
     }
 }

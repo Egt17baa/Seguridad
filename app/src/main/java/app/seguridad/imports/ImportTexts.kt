@@ -126,3 +126,16 @@ const val IMPORT_COPY_VAULT_PROBLEM =
         "Exporta la bóveda a mano para ver el motivo. No se ha importado nada."
 const val IMPORT_COPY_LOCKED = "La bóveda se ha bloqueado antes de hacer la copia. No se ha importado nada."
 const val IMPORT_COPY_FAILED = "No se pudo hacer la copia antes de importar. No se ha importado nada."
+
+/**
+ * The vault was replaced or deleted (a new vault, «Importar copia», «He olvidado la contraseña») while its copy was
+ * written: that complete copy stays in the folder, unlisted, and nothing is imported.
+ */
+const val IMPORT_COPY_VAULT_CHANGED =
+    "La bóveda se ha sustituido o borrado mientras se hacía la copia, así que no se ha importado nada. La copia que se " +
+        "hizo sigue en la carpeta."
+
+/** The copy was made, but the import could not be saved (a full disk): nothing of it was saved. */
+const val IMPORT_SAVE_FAILED =
+    "No se pudo guardar la importación: la bóveda no ha cambiado. ¿Queda espacio en el móvil? La copia de antes de " +
+        "importar sí se hizo."

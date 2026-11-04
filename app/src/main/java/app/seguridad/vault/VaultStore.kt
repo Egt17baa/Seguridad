@@ -30,7 +30,7 @@ import app.seguridad.imports.ApplyResult
 import app.seguridad.imports.DuplicateChoice
 import app.seguridad.imports.MergePlan
 import app.seguridad.imports.mergedEntries
-import app.seguridad.imports.plainCharsLowerBound
+import app.seguridad.imports.escapedTextBytes
 import app.seguridad.imports.utf8Length
 import java.util.UUID
 
@@ -657,17 +657,28 @@ class VaultStore(
     }
 
     /**
+     * The open vault's entries and [revision], read together under the mutex (a save raises the revision just before it
+     * shows the new entries, so reading the two apart could pair an old list with a newer revision); null when locked.
+     * The only source of an import's plan ([app.seguridad.imports.planImport]).
+     */
+    suspend fun importSnapshot(): VaultSnapshot? = mutex.withLock {
+        val entries = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock null
+        VaultSnapshot(entries, _revision.value)
+    }
+
+    /**
      * Saves the import of [plan] (spec «Confirmar: la copia y el guardado»): [mergedEntries] against the vault as it is,
      * in a single write through [modify], all or nothing (the atomic rename of [save]; once the write starts, neither a
      * lock nor leaving the screen cuts it, see [commit]). Inside the mutex, in the same critical section as the write:
      * - [ApplyResult.Stale] when [revision] is no longer the plan's (another change was saved since the preview; owner's
      *   decision (b)), or the vault is locked;
      * - [ApplyResult.TooBig] when the vault would no longer fit in a `.sgbak` ([writeBackup]'s limits, owner's decision
-     *   (a)): the attachments plus two over [BACKUP_MAX_ENTRIES] (counted first, an import adds none), the entries'
-     *   characters alone over [BACKUP_MAX_ENTRY_BYTES] in Base64 (before anything is encrypted), and then the exact
+     *   (a)): the attachments plus two over [BACKUP_MAX_ENTRIES] (counted first, an import adds none), the JSON bytes of
+     *   the entries' texts alone ([escapedTextBytes], counted without building anything) over [BACKUP_MAX_ENTRY_BYTES]
+     *   in Base64 (before anything is encoded or encrypted), and then the exact
      *   encrypted file over [BACKUP_MAX_ENTRY_BYTES] or the whole copy over [BACKUP_MAX_TOTAL_BYTES].
-     * Nothing is written in either case. The data key does not change, so the fingerprint stays on (A11 and CRY-A02
-     * untouched: no clock mark, no biometric call). A failed write throws, as [modify] does, with nothing saved. A plan
+     * Nothing is written in either case. The data key does not change, so the fingerprint stays on (A11 and CRY-A02:
+     * no clock reset, as the mark only rises, as with any save; no biometric call). A failed write throws, as [modify] does, with nothing saved. A plan
      * that changes nothing (every item skipped) is [ApplyResult.Done] with zeros and writes nothing.
      */
     suspend fun applyImport(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>): ApplyResult {
@@ -683,7 +694,7 @@ class VaultStore(
                     return@change null
                 }
                 val merged = mergedEntries(plan, default, overrides, list, now(), { UUID.randomUUID().toString() })
-                val low = (plainCharsLowerBound(merged) * 4 + 2) / 3
+                val low = (escapedTextBytes(merged) * 4 + 2) / 3
                 if (low > BACKUP_MAX_ENTRY_BYTES) {
                     result = ApplyResult.TooBig(overBytes = low - BACKUP_MAX_ENTRY_BYTES)
                     return@change null
@@ -1064,6 +1075,9 @@ private const val ONLY_ONE_IDENTITY = "Solo puede haber una identidad"
 private const val IMPORT_TOO_BIG = "El archivo pasa de 20 MB: no es una copia de la bóveda"
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"
 private const val IMPORT_DIR_PREFIX = "import-"
+
+/** What [VaultStore.importSnapshot] gives: the entries shown and the revision they belong to. */
+data class VaultSnapshot(val entries: List<VaultEntry>, val revision: Long)
 
 /** The marker entry's content in a `.sgbak` («2\n»), counted by [writeBackup] in the copy's total. */
 private const val BACKUP_MARKER_BYTES = 2L

@@ -3,13 +3,16 @@ package app.seguridad.vault
 import app.seguridad.crypto.KdfParams
 import app.seguridad.imports.IMPORT_COPY_LOCKED
 import app.seguridad.imports.IMPORT_COPY_NO_FOLDER
+import app.seguridad.imports.IMPORT_COPY_VAULT_CHANGED
 import app.seguridad.imports.IMPORT_COPY_WRITE_FAILED
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.currentImportCopies
 import app.seguridad.settings.withAutoBackupResult
 import app.seguridad.settings.withImportCopy
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -35,11 +38,16 @@ private class ImportCopyTarget : BackupTarget {
     var renames = true
     var failWrite: Exception? = null
     val created = mutableListOf<String>()
+    /** Awaited once the copy's bytes are serialised (the vault's mutex is free again), as a slow upload. */
+    var gate: CompletableDeferred<Unit>? = null
+    /** Called at each [create], before anything is written. */
+    var onCreate: (() -> Unit)? = null
 
     private fun idOf(name: String) = ids.getOrPut(name) { "doc-${next++}" }
 
     override suspend fun create(name: String): BackupFile {
         created += name
+        onCreate?.invoke()
         files[name] = ByteArray(0)
         ids[name] = "doc-${next++}"
         return object : BackupFile {
@@ -55,6 +63,7 @@ private class ImportCopyTarget : BackupTarget {
                     }
                 }
                 writer(out)
+                gate?.let { g -> gate = null; g.await() }
             }
             override fun rename(to: String) {
                 files[to] = files.remove(current)!!
@@ -248,6 +257,54 @@ class AutoBackupImportCopyTest {
         val inMemory = java.io.ByteArrayOutputStream().also { s.exportBackup(it) }.toByteArray()
         assertEquals(inMemory.size, t.files.getValue(name).size)
         assertEquals(listOf(t.idOfName(name)), settings.settings.value.importCopies)
+    }
+
+    /** M-3: a request saved before 1.3.0 (no targets) predates every import copy, which is under today's password: kept. */
+    @Test fun aRequestWithoutTargetsKeepsTheImportCopies() = runTest {
+        val s = setup()
+        val t = ImportCopyTarget()
+        val a = auto(s, t)
+        a.copyBeforeImport()
+        val imported = settings.settings.value.importCopies.single()
+        s.lock()
+        runCurrent()
+        settings.update { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = null) }
+        clock += 60_000
+        s.unlock("maestra".toCharArray())
+        runCurrent()
+        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertTrue(t.files.keys.any { copyName.matches(it) })
+        assertEquals(listOf(imported), settings.settings.value.importCopies)
+    }
+
+    /** M-6: the vault replaced or deleted while its copy was written: said as such, the copy left there, not listed. */
+    @Test fun aVaultReplacedDuringTheCopyIsSaidAsSuch() = runTest {
+        val s = setup()
+        val t = ImportCopyTarget().apply { gate = CompletableDeferred() }
+        val gate = t.gate!!
+        val a = auto(s, t)
+        val r = async { a.copyBeforeImport() }
+        runCurrent()
+        s.destroy() // «He olvidado la contraseña», while the copy is still being uploaded
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals(CopyResult.Failed(IMPORT_COPY_VAULT_CHANGED), r.await())
+        assertTrue(t.files.keys.any { copyName.matches(it) })
+        assertTrue(settings.settings.value.importCopies.isEmpty())
+    }
+
+    /** M-9: a lock that refuses the import copy schedules no automatic copy for the next unlock (nothing changed). */
+    @Test fun aLockDuringTheCopyMakesNoAutomaticCopyLater() = runTest {
+        val s = setup()
+        val t = ImportCopyTarget()
+        t.onCreate = { t.onCreate = null; s.lock() } // locked between the check and the snapshot
+        val a = auto(s, t)
+        assertEquals(CopyResult.Failed(IMPORT_COPY_LOCKED), a.copyBeforeImport())
+        assertTrue(t.files.isEmpty())
+        s.unlock("maestra".toCharArray())
+        runCurrent()
+        settle()
+        assertTrue("No copy for nothing: ${t.files.keys}", t.files.isEmpty())
     }
 
     @Test fun noFolderGivesNull() = runTest {

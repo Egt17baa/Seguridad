@@ -6,6 +6,7 @@ import app.seguridad.imports.IMPORT_COPY_FAILED
 import app.seguridad.imports.IMPORT_COPY_LOCKED
 import app.seguridad.imports.IMPORT_COPY_NO_FOLDER
 import app.seguridad.imports.IMPORT_COPY_NO_PERMISSION
+import app.seguridad.imports.IMPORT_COPY_VAULT_CHANGED
 import app.seguridad.imports.IMPORT_COPY_VAULT_PROBLEM
 import app.seguridad.imports.IMPORT_COPY_WRITE_FAILED
 import app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES
@@ -134,17 +135,19 @@ const val AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY = "La copia automática se hizo, 
 // Only what is true whatever the folder holds: the copies deleted are those the app had listed (COPIAS-2). O-2 (final
 // review of the Abogado Digital): the colon keeps «que la app tenía apuntadas» from being read as said of «contraseña».
 const val AUTO_BACKUP_REPLACED =
-    "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña: las que la app " +
-        "tenía apuntadas en esta carpeta. " +
+    "Se hizo una copia nueva y se borraron las copias automáticas y las de antes de importar hechas antes del cambio de " +
+        "contraseña: las que la app tenía apuntadas en esta carpeta. " +
         "Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
 
 /** COPIAS-2: added to [AUTO_BACKUP_REPLACED] when [n] files with a copy's name, not on the app's list, are left in the folder. */
 fun autoBackupUnlistedText(n: Int): String = if (n == 1) {
-    "En la carpeta queda 1 copia con nombre de copia automática que la app no tenía apuntada (por ejemplo, de antes de " +
+    "En la carpeta queda 1 copia con nombre de copia de la app (automática o de antes de importar) que la app no tenía " +
+        "apuntada (por ejemplo, de antes de " +
         "la versión 1.2.1 o de otra bóveda): no se ha borrado y puede que se abra con una contraseña anterior. Si no la " +
         "necesitas, bórrala a mano."
 } else {
-    "En la carpeta quedan $n copias con nombre de copia automática que la app no tenía apuntadas (por ejemplo, de antes " +
+    "En la carpeta quedan $n copias con nombre de copia de la app (automática o de antes de importar) que la app no " +
+        "tenía apuntadas (por ejemplo, de antes " +
         "de la versión 1.2.1 o de otra bóveda): no se han borrado y puede que se abran con una contraseña anterior. Si no " +
         "las necesitas, bórralas a mano."
 }
@@ -405,8 +408,9 @@ class AutoBackup(
             if (store.state.value !is VaultState.Unlocked) return CopyResult.Failed(IMPORT_COPY_LOCKED)
             // As [attempt]: a copy whose vault was replaced while it was written is never listed as this vault's.
             val generation = store.generation
-            val written = copyTo(target, now(), IMPORT_COPY_PREFIX) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
-            if (store.generation != generation) return CopyResult.Failed(IMPORT_COPY_FAILED)
+            // A lock meanwhile refuses the copy, and schedules no automatic one (nothing changed in the vault).
+            val written = copyTo(target, now(), IMPORT_COPY_PREFIX, defer = false) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
+            if (store.generation != generation) return CopyResult.Failed(IMPORT_COPY_VAULT_CHANGED)
             try {
                 onImportCopy(uri, written.id, generation)
             } catch (e: CancellationException) {
@@ -483,7 +487,8 @@ class AutoBackup(
             } else {
                 val owned = copies()
                 // A request without targets (saved before 1.3.0): every listed copy but the new one, as before (M4).
-                val targets = replace?.let { it.targets ?: (owned.filter { id -> id != written.id } + importCopies()) }
+                // No import copy there: they are all from 1.4.0, so made after that change, under the current password.
+                val targets = replace?.let { it.targets ?: owned.filter { id -> id != written.id } }
                 val rotation = try {
                     rotate(target, owned, written, targets, generation)
                 } catch (e: Exception) {
@@ -556,11 +561,11 @@ class AutoBackup(
      * Writes the copy under its temporary name, then renames it; the copy, or null if there was nothing to copy.
      * If the provider cannot rename, the copy is written again straight under its name.
      */
-    private suspend fun copyTo(folder: BackupTarget, now: Long, prefix: String = AUTO_BACKUP_PREFIX): BackupEntry? {
+    private suspend fun copyTo(folder: BackupTarget, now: Long, prefix: String = AUTO_BACKUP_PREFIX, defer: Boolean = true): BackupEntry? {
         val name = freeName(folder.list(prefix).mapTo(HashSet()) { it.name }, now, prefix)
         val temp = folder.create(name + TEMP_SUFFIX)
         if (temp.canRename) {
-            if (!fill(temp)) return null
+            if (!fill(temp, defer)) return null
             val renamed = try {
                 temp.rename(name)
                 true
@@ -574,17 +579,20 @@ class AutoBackup(
             discard(temp)
         }
         val direct = folder.create(name)
-        return if (fill(direct)) BackupEntry(direct.id, name) else null
+        return if (fill(direct, defer)) BackupEntry(direct.id, name) else null
     }
 
-    /** Writes the copy to [file]; false if there was nothing to copy. On false or a failure, [file] is deleted. */
-    private suspend fun fill(file: BackupFile): Boolean {
+    /**
+     * Writes the copy to [file]; false if there was nothing to copy. On false or a failure, [file] is deleted. With
+     * [defer], a vault locked meanwhile has an automatic copy made at the next unlock ([defer]).
+     */
+    private suspend fun fill(file: BackupFile, defer: Boolean = true): Boolean {
         try {
             var exported = false
             file.write { out -> exported = store.exportBackup(out) }
             if (!exported) {
                 file.delete() // Locked or deleted meanwhile: no empty file left.
-                defer()
+                if (defer) defer()
             }
             return exported
         } catch (e: Throwable) {

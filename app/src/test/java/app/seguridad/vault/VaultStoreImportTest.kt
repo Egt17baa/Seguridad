@@ -9,20 +9,29 @@ import app.seguridad.imports.ImportRead
 import app.seguridad.imports.ImportedItem
 import app.seguridad.imports.MergePlan
 import app.seguridad.imports.ORIGIN_TAG_AEGIS
+import app.seguridad.imports.escapedTextBytes
 import app.seguridad.imports.estimatedOverBytes
+import app.seguridad.imports.planImport
 import app.seguridad.imports.importedEntry
 import app.seguridad.imports.mergedEntries
 import app.seguridad.imports.planMerge
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import kotlin.coroutines.CoroutineContext
 
 /** 1.4.0, Task 8: [VaultStore.applyImport], the single save of an import (spec «Confirmar: la copia y el guardado»). */
 class VaultStoreImportTest {
@@ -122,12 +131,17 @@ class VaultStoreImportTest {
         assertEquals(shown, entries(s))
     }
 
+    /** What [VaultStore.applyImport] merges, with ids as long as its UUIDs. */
+    private fun merged(s: VaultStore, p: MergePlan) = mergedEntries(p, DuplicateChoice.SKIP, emptyMap(), entries(s), clock, { "u".repeat(36) })
+
     @Test fun tooBigIsRefused() = runTest {
         val s = opened()
-        // Few characters, but each is escaped as \u0001 in the JSON: only the exact measure of the file sees it.
-        val items = (0 until 20).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "\u0001".repeat(60_000)), emptyList()) }
+        // Many small entries: their texts alone fit, but with the field names the encrypted file does not, so only the
+        // exact measure of the file refuses them.
+        val items = (0 until 20_000).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "x".repeat(160)), emptyList()) }
         val p = plan(s, read(*items.toTypedArray()))
-        assertTrue("The preview says so too", estimatedOverBytes(mergedEntries(p, DuplicateChoice.SKIP, emptyMap(), entries(s), clock, { "x" })) > 0)
+        assertTrue("Passes the pre-check", (escapedTextBytes(merged(s, p)) * 4 + 2) / 3 <= BACKUP_MAX_ENTRY_BYTES)
+        assertTrue("The preview says so too", estimatedOverBytes(merged(s, p)) > 0)
         val bytes = vaultFile.readBytes()
         val revision = s.revision.value
         val r = s.applyImport(p, DuplicateChoice.SKIP, emptyMap())
@@ -135,6 +149,75 @@ class VaultStoreImportTest {
         assertArrayEquals(bytes, vaultFile.readBytes())
         assertEquals(revision, s.revision.value)
         assertEquals(1, entries(s).size)
+    }
+
+    /** I-1: text JSON escapes six times over is refused from its count, before anything is encoded or encrypted. */
+    @Test fun aHeavilyEscapedImportIsRefusedBeforeEncoding() = runTest {
+        val s = opened()
+        // About 4.7 M control characters, a CSV of about 5 MB: 28 MB of JSON if it were encoded.
+        val items = (0 until 75).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "\u0001".repeat(63_000)), emptyList()) }
+        val p = plan(s, read(*items.toTypedArray()))
+        val bytes = vaultFile.readBytes()
+        val r = s.applyImport(p, DuplicateChoice.SKIP, emptyMap())
+        // Exactly the pre-check's figure (the exact measure of an encrypted file would give a larger one).
+        assertEquals(ApplyResult.TooBig(overBytes = (escapedTextBytes(merged(s, p)) * 4 + 2) / 3 - BACKUP_MAX_ENTRY_BYTES), r)
+        assertArrayEquals(bytes, vaultFile.readBytes())
+        assertFalse(File(tmp.root, "vault.bin.tmp").exists())
+    }
+
+    /** M-2: the same file replaced twice: the second time nothing changes, so nothing is written and no copy follows. */
+    @Test fun aSecondReplaceOfTheSameFileWritesNothing() = runTest {
+        val s = opened()
+        val file = read(
+            ImportedItem(0, importedEntry(EntryType.LOGIN, "Banco", username = "ana", password = "nueva", notes = "del archivo"), emptyList()),
+            ImportedItem(1, importedEntry(EntryType.TOTP, "Correo", totp = TotpSecret("JBSWY3DPEHPK3PXP")), listOf("Trabajo")),
+        )
+        assertEquals(ApplyResult.Done(added = 1, replaced = 1), s.applyImport(plan(s, file), DuplicateChoice.REPLACE, emptyMap()))
+        val bytes = vaultFile.readBytes()
+        val revision = s.revision.value
+        assertEquals(ApplyResult.Done(added = 0, replaced = 0), s.applyImport(plan(s, file), DuplicateChoice.REPLACE, emptyMap()))
+        assertArrayEquals(bytes, vaultFile.readBytes())
+        assertEquals(revision, s.revision.value)
+    }
+
+    /** A dispatcher that holds every task until [release]: a save that waits on a slow disk, with the mutex held. */
+    private class HeldDispatcher : CoroutineDispatcher() {
+        private val held = ArrayDeque<Runnable>()
+        var open = true
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            if (open) block.run() else held += block
+        }
+        fun release() {
+            open = true
+            while (held.isNotEmpty()) held.removeFirst().run()
+        }
+    }
+
+    /** M-4: the plan's entries and revision come from one snapshot, taken under the mutex, never an old list with a newer revision. */
+    @Test fun aPlanFromTheSnapshotIsNeverPairedWithANewerRevision() = runTest {
+        val io = HeldDispatcher()
+        val s = VaultStore(vaultFile, io, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) }, elapsed = { clock })
+            .apply { load(); create("maestra".toCharArray()) }
+        val before = s.revision.value
+        io.open = false
+        val edit = launch { s.upsert(VaultEntry("x", EntryType.NOTE, "Otra", createdAt = 1, updatedAt = 1)) }
+        runCurrent() // the edit holds the mutex, its save waiting on the disk
+        val planned = async { s.planImport(fileRead()) }
+        runCurrent()
+        assertFalse("Waits for the save in progress", planned.isCompleted)
+        io.release()
+        runCurrent()
+        edit.join()
+        val p = planned.await()!!
+        assertEquals(before + 1, p.revision)
+        assertEquals(s.revision.value, p.revision)
+        // Built on the list with the edit: it applies, and the edit is there.
+        assertTrue(s.applyImport(p, DuplicateChoice.SKIP, emptyMap()) is ApplyResult.Done)
+        assertTrue(entries(s).any { it.id == "x" })
+        assertEquals(VaultSnapshot(entries(s), s.revision.value), s.importSnapshot())
+        s.lock()
+        assertNull(s.importSnapshot())
+        assertNull(s.planImport(fileRead()))
     }
 
     @Test fun aFileClearlyTooBigIsRefusedBeforeEncrypting() = runTest {
