@@ -159,11 +159,7 @@ private fun otpNameClean(text: String): String = withoutBidiControls(text.filter
  * An issuer or account from a scanned link or a Google Authenticator export, as it will be shown: [otpNameClean], and
  * at most [OTPAUTH_MAX_NAME_CHARS] code points, cut at the end of a code point.
  */
-internal fun otpName(text: String): String {
-    val t = otpNameClean(text)
-    if (t.codePointCount(0, t.length) <= OTPAUTH_MAX_NAME_CHARS) return t
-    return t.substring(0, t.offsetByCodePoints(0, OTPAUTH_MAX_NAME_CHARS))
-}
+internal fun otpName(text: String): String = takeCodePoints(otpNameClean(text), OTPAUTH_MAX_NAME_CHARS)
 
 /** If [otpName] keeps all of [text] (it does not cut it). The importer refuses a code whose names would be cut. */
 internal fun otpNameFits(text: String): Boolean = otpNameClean(text).let { it.codePointCount(0, it.length) <= OTPAUTH_MAX_NAME_CHARS }

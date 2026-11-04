@@ -42,14 +42,17 @@ const val IMPORT_CSV_TOO_MANY_CELLS = "El archivo tiene demasiadas celdas. Clave
 /** Anything else a reader could not read: never the text of the exception, which could carry a value from the file. */
 const val IMPORT_BROKEN = "El archivo está dañado o Clavero no sabe leerlo."
 
-/** A Bitwarden JSON encrypted with the account key (spec «Bitwarden protegido con contraseña»): only Bitwarden can open it. */
+/**
+ * A Bitwarden JSON encrypted with the account key (spec «Bitwarden protegido con contraseña»): only Bitwarden can
+ * open it.
+ */
 const val IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED =
     "Esta exportación está cifrada con tu cuenta de Bitwarden. Expórtala como \"JSON\" o como \"JSON (protegido con contraseña)\"."
 
 /** A JSON nested deeper than [JSON_MAX_DEPTH]: refused before it is parsed. */
 const val IMPORT_JSON_TOO_DEEP = "El archivo tiene más de 64 niveles anidados. Clavero no lo lee."
 
-/** A JSON whose parsed tree would pass [JSON_MAX_TREE_BYTES] (an estimate made before parsing): refused before it is parsed. */
+/** A JSON whose parsed tree would pass [JSON_MAX_TREE_BYTES], by an estimate made before parsing: refused unparsed. */
 const val IMPORT_JSON_TOO_MANY_VALUES = "El archivo tiene demasiados datos. Clavero no lo lee."
 
 /** The name a line of an `otpauth://` list is listed by in «no entran» when it names no service nor account. */

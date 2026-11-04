@@ -1,5 +1,6 @@
 package app.seguridad.crypto
 
+import app.seguridad.imports.wellFormed
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -173,6 +174,15 @@ class OtpMigrationTest {
         val r = parseOtpMigration(uri(payload.toByteArray()))!!
         assertEquals(listOf(false, true, true, true), r.importedNamesCut)
         assertEquals(4, r.imported.size)
+    }
+
+    @Test fun theNameInALeftOutTextIsCutWithoutSplittingAPair() {
+        // 79 letters, an emoji (two UTF-16 units) and one more letter: cut at 80 code points, the emoji stays whole.
+        val issuer = "x".repeat(79) + "🛒" + "y"
+        val r = parseOtpMigration(uri(Pb().msg(1, otp(KEY, "", issuer, type = 1)).toByteArray()))!!
+        val text = r.skipped.single()
+        assertTrue(text, text.startsWith("«" + "x".repeat(79) + "🛒»: "))
+        assertTrue(wellFormed(text))
     }
 
     @Test fun leftOutAccountsSayWhyWithoutTheText() {

@@ -14,7 +14,7 @@ data class MigrationResult(
     val skipped: List<String>,
     val batchIndex: Int,
     val batchSize: Int,
-    /** The accounts of [skipped], in the same order, with the kind of reason: for readers that must not parse the text. */
+    /** The accounts of [skipped], in the same order, with the kind of reason, for readers that must not parse it. */
     val leftOut: List<MigrationLeftOut> = emptyList(),
     /**
      * For each code of [imported], in the same order: its issuer or account was longer than [OTPAUTH_MAX_NAME_CHARS]
@@ -169,7 +169,8 @@ private fun ProtoReader.otpParameters(): Account {
         val finalIssuer = otpName(issuer).ifEmpty { labelIssuer }
         val rawIssuer = if (otpName(issuer).isNotEmpty()) issuer else name.substringBefore(':', "")
         val namesCut = !otpNameFits(rawIssuer) || !otpNameFits(name.substringAfter(':'))
-        val who = listOf(finalIssuer, account).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "Sin nombre" }.take(80)
+        // Cut by code points, so an emoji at the end is never split into a lone surrogate.
+        val who = takeCodePoints(listOf(finalIssuer, account).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "Sin nombre" }, 80)
         fun left(kind: MigrationLeftOutKind, text: String) = Account(null, MigrationLeftOut(finalIssuer, account, kind), text)
         val alg = when (algorithm) {
             0, 1 -> "SHA1" // 0 is "unspecified", which Google's own exports use for SHA-1.

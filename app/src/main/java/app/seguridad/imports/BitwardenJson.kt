@@ -43,8 +43,8 @@ internal fun readBitwarden(root: JsonObject): ReadResult {
  *   TOTP with the same title and folders, through [ImportReadBuilder.addOtpAuth]; a `steam://` code is
  *   [SkipReason.NOT_TOTP]. Passkeys (`login.fido2Credentials`) add a [SkipReason.PASSKEY]; the login still enters.
  *   A login that is `null` or missing is [SkipReason.BROKEN];
- * - 2 → a NOTE; 3 and 4 → a NOTE with a line per field ([BITWARDEN_CARD_LINES], [BITWARDEN_IDENTITY_LINES]), counted
- *   in [ImportRead.becameNotes];
+ * - 2 → a NOTE; 3 and 4 → a NOTE with a line per field ([BITWARDEN_CARD_LINES], [BITWARDEN_IDENTITY_LINES]),
+ *   counted in [ImportRead.becameNotes];
  * - 5 → [SkipReason.SSH_KEY]; any other type → [SkipReason.BROKEN].
  * `folderId` gives the folder's name; `favorite` is kept. Every value of an item is read before anything of it is
  * added, so an item is whole or listed, never half. Throws [ImportFailure] if `items` is not an array or has more
