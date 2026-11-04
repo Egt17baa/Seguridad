@@ -51,8 +51,8 @@ class ImportStateTest {
 
     private fun est(over: Long) = PreviewEstimate(over, emptySet(), 0)
 
-    /** A session that reads encrypted exports (Task 10); until then, ruling R13a: [ImportSession] says «todavía no». */
-    private fun withPasswords() = ImportSession(readsEncrypted = true)
+    /** A session at an encrypted file (Task 10 reads them: ruling R13a ended). */
+    private fun withPasswords() = ImportSession()
 
     /** A session at the preview of [read], with its run. */
     private fun atPreview(): Pair<ImportSession, Long> {
@@ -93,7 +93,7 @@ class ImportStateTest {
         assertArrayEquals(byteArrayOf(7, 7, 7), bytes)
     }
 
-    @Test fun oneAttemptThatStillNeedsAPasswordSaysNotYetAndNeverLoops() {
+    @Test fun aWrongPasswordSaysSoAndLetsTheUserTryAgain() {
         val s = withPasswords()
         val run = s.begin(uri)
         val bytes = byteArrayOf(7, 7, 7)
@@ -105,12 +105,82 @@ class ImportStateTest {
         assertEquals("contraseña", String(pw))
         assertEquals("", s.password) // The field empties at once; the caller zeroes the CharArray.
         assertEquals(ImportStep.Reading, s.step)
-        assertNull(s.onRead(run, ReadResult.NeedsPassword(ImportFormat.BITWARDEN)))
-        assertEquals(ImportStep.Pick, s.step)
-        assertEquals(IMPORT_ENCRYPTED_NOT_YET, s.error)
+        // One wrong attempt: its text, back at the password step with the bytes kept for the next one.
+        assertNull(s.onRead(run, ReadResult.Failed(IMPORT_WRONG_PASSWORD)))
+        assertEquals(ImportStep.Password(ImportFormat.BITWARDEN), s.step)
+        assertEquals(IMPORT_WRONG_PASSWORD, s.error)
+        assertSame(bytes, s.bytesFor(run))
+        assertArrayEquals(byteArrayOf(7, 7, 7), bytes)
+        // Nothing is tried again on its own: only when the user types and taps «Abrir».
+        assertNull(s.takePassword())
+        s.password = "la buena"
+        val (again, pw2) = s.takePassword()!!
+        assertEquals(run, again)
+        assertEquals("la buena", String(pw2))
+        assertNull(s.error)
+        assertSame(read, s.onRead(run, ReadResult.Ok(read)))
         assertArrayEquals(byteArrayOf(0, 0, 0), bytes)
         assertNull(s.bytesFor(run))
+    }
+
+    @Test fun aPasswordAttemptThatStillNeedsAPasswordNeverLoops() {
+        val s = withPasswords()
+        val run = s.begin(uri)
+        val bytes = byteArrayOf(7, 7, 7)
+        s.hold(run, bytes)
+        s.onRead(run, ReadResult.NeedsPassword(ImportFormat.AEGIS))
+        s.password = "x"
+        s.takePassword()!!
+        // A reader that asks again after being given a password is broken: said once, the file dropped.
+        assertNull(s.onRead(run, ReadResult.NeedsPassword(ImportFormat.AEGIS)))
+        assertEquals(ImportStep.Pick, s.step)
+        assertEquals(IMPORT_BROKEN, s.error)
+        assertArrayEquals(byteArrayOf(0, 0, 0), bytes)
         assertNull(s.takePassword())
+    }
+
+    @Test fun anyOtherFailureOfAnAttemptDropsTheFile() {
+        for (message in listOf(IMPORT_KDF_TOO_BIG, IMPORT_BROKEN, IMPORT_ENCRYPTED_TOO_BIG)) {
+            val s = withPasswords()
+            val run = s.begin(uri)
+            val bytes = byteArrayOf(4, 4)
+            s.hold(run, bytes)
+            s.onRead(run, ReadResult.NeedsPassword(ImportFormat.TWOFAS))
+            s.password = "x"
+            s.takePassword()!!
+            assertNull(s.onRead(run, ReadResult.Failed(message)))
+            assertEquals(ImportStep.Pick, s.step)
+            assertEquals(message, s.error)
+            assertArrayEquals(byteArrayOf(0, 0), bytes)
+        }
+    }
+
+    @Test fun aWrongPasswordWithoutAnAttemptIsAFailureLikeAnyOther() {
+        // Only an attempt goes back to the password step: the same text from a read without a password drops the file.
+        val s = withPasswords()
+        val run = s.begin(uri)
+        s.hold(run, byteArrayOf(1))
+        s.onRead(run, ReadResult.Failed(IMPORT_WRONG_PASSWORD))
+        assertEquals(ImportStep.Pick, s.step)
+    }
+
+    @Test fun cancelWhileThePasswordIsCheckedDropsTheLateResult() {
+        val s = withPasswords()
+        val run = s.begin(uri)
+        val bytes = byteArrayOf(3, 3)
+        s.hold(run, bytes)
+        s.onRead(run, ReadResult.NeedsPassword(ImportFormat.AEGIS))
+        s.password = "x"
+        s.takePassword()!!
+        s.cancel()
+        assertEquals(ImportStep.Pick, s.step)
+        assertArrayEquals(byteArrayOf(0, 0), bytes)
+        // The derivation could not be cut: its result arrives later and is dropped.
+        assertNull(s.onRead(run, ReadResult.Ok(read)))
+        assertNull(s.onRead(run, ReadResult.Failed(IMPORT_WRONG_PASSWORD)))
+        assertEquals(ImportStep.Pick, s.step)
+        assertNull(s.error)
+        assertNull(s.plan)
     }
 
     @Test fun noPasswordIsTakenEmptyOrOutsideThePasswordStep() {
@@ -457,17 +527,14 @@ class ImportStateTest {
         assertNull(t.error)
     }
 
-    @Test fun untilEncryptedExportsAreReadNoPasswordIsAsked() {
-        // R13a: the first NeedsPassword already says «todavía no», and the bytes go.
+    @Test fun encryptedExportsAreReadNow() {
+        // R13a ended with Task 10: the first NeedsPassword asks for the password.
         val s = ImportSession()
         val run = s.begin(uri)
-        val bytes = byteArrayOf(5, 5)
-        s.hold(run, bytes)
+        s.hold(run, byteArrayOf(5, 5))
         assertNull(s.onRead(run, ReadResult.NeedsPassword(ImportFormat.AEGIS)))
-        assertEquals(ImportStep.Pick, s.step)
-        assertEquals(IMPORT_ENCRYPTED_NOT_YET, s.error)
-        assertArrayEquals(byteArrayOf(0, 0), bytes)
-        assertFalse(IMPORT_READS_ENCRYPTED)
+        assertEquals(ImportStep.Password(ImportFormat.AEGIS), s.step)
+        assertNull(s.error)
     }
 
     @Test fun aSaveThatFailedEndsWithItsMessage() {

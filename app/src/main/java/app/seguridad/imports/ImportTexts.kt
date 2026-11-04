@@ -46,10 +46,53 @@ const val IMPORT_BROKEN = "El archivo está dañado o Clavero no sabe leerlo."
 
 /**
  * A Bitwarden JSON encrypted with the account key (spec «Bitwarden protegido con contraseña»): only Bitwarden can
- * open it.
+ * open it. Ruling R19: the options are named as Bitwarden's export screen shows them («Formato de archivo»: «.json»,
+ * «.json (Encrypted)»; «Tipo de exportación»: «Cuenta restringida» or «Protegida con contraseña»).
  */
 const val IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED =
-    "Esta exportación está cifrada con tu cuenta de Bitwarden. Expórtala como \"JSON\" o como \"JSON (protegido con contraseña)\"."
+    "Esta exportación está cifrada con tu cuenta de Bitwarden y solo Bitwarden puede abrirla. Vuelve a exportar " +
+        "con el formato «.json», o con «.json (Encrypted)» y el tipo «Protegida con contraseña» (no «Cuenta restringida»)."
+
+/*
+ * Encrypted exports (Task 10). Fixed texts: never what an exception said, never a value from the file.
+ */
+
+/**
+ * The password does not open the file, or the encrypted part was changed: the HMAC (Bitwarden) and the GCM tag (Aegis,
+ * 2FAS) cannot tell the two apart, so the text says both.
+ */
+const val IMPORT_WRONG_PASSWORD = "La contraseña no es correcta o el archivo está dañado."
+
+/** The key derivation the file asks for is outside the bounds (ImportKdf.kt): refused before any work. */
+const val IMPORT_KDF_TOO_BIG =
+    "Este archivo pide más memoria o más cálculo del que Clavero puede usar en este móvil. Vuelve a exportarlo con los " +
+        "ajustes normales de la otra app o en un formato sin cifrar."
+
+/** The encrypted part passes [IMPORT_MAX_ENCRYPTED_CHARS]: refused before it is decoded. */
+const val IMPORT_ENCRYPTED_TOO_BIG = "La parte cifrada de este archivo pasa de 8 MB. Clavero no la lee."
+
+/**
+ * Ruling R19: a `.zip` (it starts with `PK\x03\x04`), as Bitwarden's «.zip (with attachments)»: told before anything is
+ * parsed.
+ */
+const val IMPORT_ZIP =
+    "Es un archivo .zip, y Clavero no lee archivos .zip (como la exportación «.zip (with attachments)» de Bitwarden). " +
+        "Exporta en el formato «.json»: los adjuntos no se importan."
+
+/** Ruling R21: an HTML page (as Aegis's HTML export): told before anything is parsed, and never shown as a page. */
+const val IMPORT_HTML =
+    "Es una página HTML, y Clavero no lee exportaciones en HTML. Vuelve a exportar en «.json» o en «.txt» (en Aegis, " +
+        "por ejemplo, la exportación JSON o TXT)."
+
+/**
+ * Ruling R21: how to bring the codes of Google Authenticator, which exports only a QR that cannot be captured on the
+ * same phone. The buttons named are the vault's («Añadir», the type «Código 2FA» and «Escanear QR»), whose scanner
+ * already reads `otpauth-migration://`.
+ */
+const val IMPORT_GOOGLE_AUTHENTICATOR =
+    "Google Authenticator solo exporta sus códigos como un código QR, y no deja hacer captura de esa pantalla. Para " +
+        "traerlos, muestra ese QR en otro dispositivo y escanéalo con Clavero: en la bóveda, pulsa «Añadir», elige " +
+        "«Código 2FA» y luego «Escanear QR». La exportación «Google Authenticator» de Aegis funciona igual."
 
 /** A JSON nested deeper than [JSON_MAX_DEPTH]: refused before it is parsed. */
 const val IMPORT_JSON_TOO_DEEP = "El archivo tiene más de 64 niveles anidados. Clavero no lo lee."
@@ -154,9 +197,10 @@ const val IMPORT_INTRO =
     "Lee un archivo que hayas exportado de otro gestor de contraseñas, de un navegador o de una app de 2FA, y añade sus " +
         "entradas a la bóveda. Antes de cambiar nada te enseña lo que entra y te pide que lo confirmes."
 const val IMPORT_FORMATS =
-    "Lee las exportaciones en CSV de Chrome, Edge, Brave, Google Contraseñas, Firefox y Apple; el JSON de Bitwarden; " +
-        "las exportaciones sin cifrar de Aegis y 2FAS, y las listas de enlaces otpauth:// (también los de exportación de " +
-        "Google Authenticator). Las exportaciones cifradas todavía no."
+    "Lee las exportaciones en CSV de Chrome, Edge, Brave, Google Contraseñas, Firefox, Apple y Bitwarden; el JSON de " +
+        "Bitwarden, sin cifrar o «Protegida con contraseña»; el JSON de Aegis y la copia de 2FAS, cifrados o sin cifrar, " +
+        "y las listas de enlaces otpauth:// (como el TXT de Aegis, y también los enlaces de exportación de Google " +
+        "Authenticator). No lee el .zip con adjuntos de Bitwarden ni el HTML de Aegis."
 const val IMPORT_TRADEMARKS = "Los nombres de otras apps son marcas de sus titulares. Clavero no tiene relación con ellos."
 const val IMPORT_NOT_PROTECTED =
     "Clavero no protege el archivo exportado: está sin cifrar en tu móvil, y puede haber copias en la nube, en la " +
@@ -175,18 +219,18 @@ const val IMPORT_READ_FAILED = "No se pudo leer el archivo."
 /** The file chosen, by its name as the provider gives it (sanitised, then shown through plainReportText). */
 fun importFileText(name: String): String = "Archivo: $name"
 
-const val IMPORT_PASSWORD_INTRO = "Este archivo está cifrado. Escribe la contraseña con la que lo exportaste."
+/** Ruling R21: the password step says whose password it is. */
+fun importPasswordIntro(format: ImportFormat): String = when (format) {
+    ImportFormat.AEGIS ->
+        "Esta exportación de Aegis está cifrada. Escribe la contraseña de la bóveda de Aegis con la que se hizo."
+    ImportFormat.TWOFAS -> "Esta copia de 2FAS está cifrada. Escribe la contraseña que pusiste al hacerla en 2FAS."
+    ImportFormat.BITWARDEN ->
+        "Esta exportación de Bitwarden está protegida con contraseña. Escribe la contraseña que pusiste al exportarla."
+    else -> "Este archivo está cifrado. Escribe la contraseña con la que lo exportaste."
+}
 const val IMPORT_PASSWORD_LABEL = "Contraseña del archivo"
 const val IMPORT_PASSWORD_OPEN = "Abrir"
 const val IMPORT_PASSWORD_TOO_LONG = "Esa contraseña es demasiado larga: no se ha pegado."
-
-/**
- * Ruling R13: an encrypted export that still asks for its password after one attempt. This version reads no encrypted
- * export yet (Task 10), so the screen says it once and stops; it never asks again for the same file.
- */
-const val IMPORT_ENCRYPTED_NOT_YET =
-    "Esta versión de Clavero todavía no abre exportaciones cifradas. No se ha importado nada. Si exportas sin cifrar, " +
-        "borra ese archivo cuando termines."
 
 /** Another file's password is still being worked out (one at a time, SingleRun). */
 const val IMPORT_KDF_BUSY = "Todavía se está comprobando la contraseña anterior. Inténtalo dentro de unos segundos."

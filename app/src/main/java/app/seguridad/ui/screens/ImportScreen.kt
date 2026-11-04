@@ -67,6 +67,7 @@ import app.seguridad.imports.IMPORT_ENDED_TITLE
 import app.seguridad.imports.IMPORT_ESTIMATING
 import app.seguridad.imports.IMPORT_FILE_TOO_BIG
 import app.seguridad.imports.IMPORT_FORMATS
+import app.seguridad.imports.IMPORT_GOOGLE_AUTHENTICATOR
 import app.seguridad.imports.IMPORT_INTRO
 import app.seguridad.imports.IMPORT_KDF_BUSY
 import app.seguridad.imports.IMPORT_KDF_RUN
@@ -75,7 +76,6 @@ import app.seguridad.imports.IMPORT_NEW_TAGS_NONE
 import app.seguridad.imports.IMPORT_NOTHING_TO_DO
 import app.seguridad.imports.IMPORT_NOT_PROTECTED
 import app.seguridad.imports.IMPORT_NO_TITLE
-import app.seguridad.imports.IMPORT_PASSWORD_INTRO
 import app.seguridad.imports.IMPORT_PASSWORD_LABEL
 import app.seguridad.imports.IMPORT_PASSWORD_OPEN
 import app.seguridad.imports.IMPORT_PASSWORD_TOO_LONG
@@ -112,6 +112,7 @@ import app.seguridad.imports.importCopyWhereText
 import app.seguridad.imports.importDoneText
 import app.seguridad.imports.importDuplicatesText
 import app.seguridad.imports.importFileText
+import app.seguridad.imports.importPasswordIntro
 import app.seguridad.imports.importNewTagsText
 import app.seguridad.imports.importRepeatedText
 import app.seguridad.imports.importReplacedText
@@ -258,7 +259,7 @@ private class ImportViewModel(
         }
     }
 
-    /** «Abrir» with the password typed: one attempt (ruling R13), one derivation at a time in the app. */
+    /** «Abrir» with the password typed: one attempt per tap (ruling R13), one derivation at a time in the app. */
     fun submitPassword() {
         val ticket = IMPORT_KDF_RUN.start()
         if (ticket == null) {
@@ -496,6 +497,7 @@ fun ImportScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(IMPORT_INTRO)
                             Text(IMPORT_FORMATS, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(IMPORT_GOOGLE_AUTHENTICATOR, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             ErrorText(s.error)
                             Button(onClick = launchPick, modifier = Modifier.fillMaxWidth()) { Text(IMPORT_PICK) }
                         }
@@ -503,8 +505,10 @@ fun ImportScreen(
                     ImportStep.Reading -> item { Busy(IMPORT_READING, onCancel = vm::cancel) }
                     is ImportStep.Password -> item {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(IMPORT_PASSWORD_INTRO, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                            Text(importPasswordIntro(step.format), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             PasswordField(s.password, vm::typed, label = IMPORT_PASSWORD_LABEL)
+                            // A wrong password (the only failure that keeps this step) is said here, and can be typed again.
+                            ErrorText(s.error)
                             if (vm.refused) Text(IMPORT_PASSWORD_TOO_LONG, color = NegativeColor)
                             if (vm.kdfBusy) Text(IMPORT_KDF_BUSY, color = NegativeColor)
                             Button(enabled = s.password.isNotEmpty(), onClick = vm::submitPassword, modifier = Modifier.fillMaxWidth()) {

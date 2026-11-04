@@ -121,8 +121,8 @@ class ImportTextsTest {
     /** Every fixed text the screen shows, and samples of those it builds. */
     private val screenTexts = listOf(
         IMPORT_TITLE, IMPORT_INTRO, IMPORT_FORMATS, IMPORT_TRADEMARKS, IMPORT_NOT_PROTECTED, IMPORT_WIPE_NOTE, IMPORT_PICK,
-        IMPORT_PICK_OTHER, IMPORT_READING, IMPORT_CANCEL, IMPORT_READ_FAILED, IMPORT_PASSWORD_INTRO, IMPORT_PASSWORD_LABEL,
-        IMPORT_PASSWORD_OPEN, IMPORT_PASSWORD_TOO_LONG, IMPORT_ENCRYPTED_NOT_YET, IMPORT_KDF_BUSY, IMPORT_PREVIEW_TITLE,
+        IMPORT_PICK_OTHER, IMPORT_READING, IMPORT_CANCEL, IMPORT_READ_FAILED, IMPORT_PASSWORD_LABEL,
+        IMPORT_PASSWORD_OPEN, IMPORT_PASSWORD_TOO_LONG, IMPORT_KDF_BUSY, IMPORT_PREVIEW_TITLE,
         IMPORT_DUPLICATES_ALL, IMPORT_REPLACE_NOTE, IMPORT_CHOICE_SKIP, IMPORT_CHOICE_KEEP_BOTH, IMPORT_CHOICE_REPLACE,
         IMPORT_SKIPPED_TITLE, IMPORT_NO_TITLE, IMPORT_NEW_TAGS_NONE, IMPORT_CONFIRM, IMPORT_CONFIRM_NOTE, IMPORT_ESTIMATING,
         IMPORT_NOTHING_TO_DO, IMPORT_SAVING, IMPORT_CHOOSE_COPY_PLACE, IMPORT_CHOOSE_COPY_PLACE_BUTTON, IMPORT_COPY_CANCELLED,
@@ -136,7 +136,10 @@ class ImportTextsTest {
         importRepeatedText(2), importBecameNotesText(1), importNewTagsText(listOf("importado-bitwarden", "casa")),
         importCopyWhereText("copia.sgbak", inAutoFolder = true), importCopyWhereText("copia.sgbak", inAutoFolder = false),
         importSkippedLine("Banco", SkipReason.PASSKEY.text), importFileText("export.csv"),
-    )
+        // Task 10 (rulings R19, R21).
+        IMPORT_WRONG_PASSWORD, IMPORT_KDF_TOO_BIG, IMPORT_ENCRYPTED_TOO_BIG, IMPORT_ZIP, IMPORT_HTML, IMPORT_GOOGLE_AUTHENTICATOR,
+        IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED,
+    ) + ImportFormat.entries.map(::importPasswordIntro)
 
     @Test fun theScreenTextsPassTheForbiddenWordRules() {
         for (t in screenTexts) assertEquals(t, emptyList<String>(), ForbiddenWords.problems(t))
@@ -177,4 +180,41 @@ class ImportTextsTest {
     }
 
     private val SCREEN_FILE = "app/seguridad/ui/screens/ImportScreen.kt"
+
+    // ---- Task 10: rulings R19 and R21 ----
+
+    @Test fun bitwardenAccountExportNamesTheOptionsAsBitwardenShowsThem() {
+        assertEquals(
+            "Esta exportación está cifrada con tu cuenta de Bitwarden y solo Bitwarden puede abrirla. Vuelve a exportar " +
+                "con el formato «.json», o con «.json (Encrypted)» y el tipo «Protegida con contraseña» (no «Cuenta restringida»).",
+            IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED,
+        )
+    }
+
+    @Test fun theFormatsTextSaysWhatIsReadAndWhatIsNot() {
+        for (part in listOf("Bitwarden", "«Protegida con contraseña»", "cifrad", "Aegis", "2FAS", "TXT", "otpauth://", ".zip", "HTML"))
+            assertTrue(part, part in IMPORT_FORMATS)
+        assertFalse("todavía no" in IMPORT_FORMATS)
+    }
+
+    @Test fun googleAuthenticatorHelpNamesTheRealButtons() {
+        // R21: its export QR cannot be captured, so it is scanned from another device with the vault's scanner.
+        val t = IMPORT_GOOGLE_AUTHENTICATOR
+        for (part in listOf("Google Authenticator", "otro dispositivo", "«Añadir»", "«${EntryType.TOTP.label}»", "«${app.seguridad.tools.QR_SCAN}»", "Aegis"))
+            assertTrue(part, part in t)
+        val screen = mainSources()[SCREEN_FILE] ?: error("$SCREEN_FILE not found")
+        assertTrue("Text(IMPORT_GOOGLE_AUTHENTICATOR" in screen)
+        // The vault's «Añadir» button and the TOTP form's scanner are still there under those names.
+        val vault = mainSources()["app/seguridad/ui/screens/VaultScreen.kt"] ?: error("VaultScreen.kt")
+        assertTrue("\"Añadir\"" in vault)
+        val entry = mainSources()["app/seguridad/ui/screens/VaultEntryScreen.kt"] ?: error("VaultEntryScreen.kt")
+        assertTrue("ScanQrLabel()" in entry && "otpauth-migration://" in entry)
+    }
+
+    @Test fun eachFormatsPasswordPromptNamesItsPassword() {
+        assertTrue("bóveda de Aegis" in importPasswordIntro(ImportFormat.AEGIS))
+        assertTrue("2FAS" in importPasswordIntro(ImportFormat.TWOFAS))
+        assertTrue("Bitwarden" in importPasswordIntro(ImportFormat.BITWARDEN))
+        assertTrue("Text(importPasswordIntro(" in (mainSources()[SCREEN_FILE] ?: error("$SCREEN_FILE not found")))
+    }
 }

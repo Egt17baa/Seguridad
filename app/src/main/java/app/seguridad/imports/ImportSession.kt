@@ -51,12 +51,6 @@ enum class RemoveResult { REMOVED, FAILED, UNSUPPORTED }
  */
 val IMPORT_KDF_RUN = SingleRun()
 
-/**
- * Ruling R13a: this version reads no encrypted export (Task 10 brings them). Until then a file that needs a password
- * says [IMPORT_ENCRYPTED_NOT_YET] at once, and no password is asked for nothing; the password step stays ready.
- */
-const val IMPORT_READS_ENCRYPTED = false
-
 /** The name proposed for the copy before importing when it is saved by hand: the same as in the automatic folder. */
 fun importCopyFileName(at: LocalDateTime): String = IMPORT_COPY_PREFIX + COPY_STAMP.format(at) + ".sgbak"
 
@@ -75,7 +69,6 @@ private val COPY_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 class ImportSession(
     cells: CellFactory = PlainCells,
     createdAt: Long = 0L,
-    private val readsEncrypted: Boolean = IMPORT_READS_ENCRYPTED,
     private val onWipe: () -> Unit = {},
 ) : GuardedSession(createdAt) {
     private val stepCell = cells.cell<ImportStep>(ImportStep.Pick)
@@ -134,7 +127,9 @@ class ImportSession(
     private var bytes: ByteArray? = null
     private var source: Any? = null
     private var removable: Any? = null
-    private var passwordTried = false
+
+    /** The format of the password attempt being worked out, or null when none is. */
+    private var attempting: ImportFormat? = null
 
     /** The vault's entries the plan was built against (its snapshot): for the estimate, never shown. */
     var existing: List<VaultEntry> = emptyList()
@@ -175,13 +170,15 @@ class ImportSession(
 
     /**
      * The password typed, as a CharArray the caller owns and zeroes: only at the password step and with something typed.
-     * The field empties at once; the attempt is the only one (ruling R13).
+     * The field empties at once. Each attempt is the user's own (ruling R13: nothing is tried again on its own); after a
+     * wrong one the step comes back for another ([onRead]).
      */
     fun takePassword(): Pair<Long, CharArray>? {
-        if (step !is ImportStep.Password || password.isEmpty() || passwordTried || bytes == null) return null
+        val at = step as? ImportStep.Password ?: return null
+        if (password.isEmpty() || bytes == null) return null
         val pw = password.toCharArray()
         password = ""
-        passwordTried = true
+        attempting = at.format
         error = null
         step = ImportStep.Reading
         return run to pw
@@ -189,7 +186,11 @@ class ImportSession(
 
     /**
      * What [readImport] said for [run] (null: it ran out of memory, ruling R11b). [ReadResult.Ok] gives its read, for the
-     * plan; everything else returns null. The bytes are zeroed unless a password is still to be tried.
+     * plan; everything else returns null. The bytes are zeroed unless a password is still to be tried:
+     * - [ReadResult.NeedsPassword] without an attempt goes to the password step; after one it means a reader that asks
+     *   again, which is never looped on: [IMPORT_BROKEN], and the file is dropped;
+     * - [IMPORT_WRONG_PASSWORD] after an attempt goes back to the password step with that text and the bytes kept, so
+     *   the user can type it again; any other failure drops the file with its text.
      */
     fun onRead(run: Long, result: ReadResult?): ImportRead? {
         if (!isRun(run) || step != ImportStep.Reading) return null
@@ -199,16 +200,22 @@ class ImportSession(
                 return result.read
             }
             is ReadResult.NeedsPassword ->
-                if (!readsEncrypted || passwordTried) {
-                    // Rulings R13 and R13a: this version opens no encrypted export yet; said once, never asked again.
+                if (attempting != null) {
                     dropAll()
-                    error = IMPORT_ENCRYPTED_NOT_YET
+                    error = IMPORT_BROKEN
                 } else {
                     step = ImportStep.Password(result.format)
                 }
             is ReadResult.Failed -> {
-                dropAll()
-                error = result.message
+                val format = attempting
+                if (format != null && result.message == IMPORT_WRONG_PASSWORD) {
+                    attempting = null
+                    step = ImportStep.Password(format)
+                    error = result.message
+                } else {
+                    dropAll()
+                    error = result.message
+                }
             }
             null -> {
                 dropAll()
@@ -395,7 +402,7 @@ class ImportSession(
         zeroBytes()
         source = null
         removable = null
-        passwordTried = false
+        attempting = null
         password = ""
         fileName = null
         plan = null

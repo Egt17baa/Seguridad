@@ -88,4 +88,37 @@ class DetectTest {
         readImport(broken, password)
         assertTrue(broken.contentEquals(byteArrayOf(0x6E, 0xC3.toByte(), 0x28)))
     }
+
+    // ---- Task 10, rulings R19 and R21: files Clavero tells apart before reading anything ----
+
+    @Test fun aZipIsToldApartBeforeAnyParsing() {
+        val zip = byteArrayOf(0x50, 0x4B, 0x03, 0x04) + ByteArray(40) { 0xFF.toByte() }
+        assertEquals(IMPORT_ZIP, failed(readImport(zip)))
+        assertEquals(IMPORT_ZIP, failed(readImport(zip, "clave".toCharArray())))
+        // Even past the size limit: the first bytes say what it is.
+        assertEquals(IMPORT_ZIP, failed(readImport(byteArrayOf(0x50, 0x4B, 0x03, 0x04) + ByteArray(IMPORT_MAX_BYTES))))
+        // «PK» alone, or as text, is not a zip.
+        assertEquals(IMPORT_UNKNOWN, failed(readImport("PK\nhola".toByteArray())))
+    }
+
+    @Test fun anHtmlFileIsToldApartAndNeverRead() {
+        for (t in listOf(
+            "<!DOCTYPE html><html><body><table><tr><td>otpauth://totp/a?secret=JBSWY3DPEHPK3PXP</td></tr></table>",
+            "  \n<html lang=\"es\">", "<!doctype HTML>", "\uFEFF<HTML>", "\t<Html><head>",
+        )) {
+            assertEquals(t, IMPORT_HTML, failed(readImport(t.toByteArray())))
+        }
+        assertEquals(IMPORT_HTML, failed(readImport(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "<!DOCTYPE html>".toByteArray())))
+        assertEquals(IMPORT_HTML, failed(readImport(byteArrayOf(0xFF.toByte(), 0xFE.toByte()) + "<html>".toByteArray(Charsets.UTF_16LE))))
+        // Broken bytes after the start are still the HTML text: it is told before any decoding.
+        assertEquals(IMPORT_HTML, failed(readImport("<html>".toByteArray() + byteArrayOf(0xC3.toByte(), 0x28))))
+        // A text that only mentions html, or a tag later on, is not HTML.
+        assertEquals(IMPORT_UNKNOWN, failed(readImport("hola <html>".toByteArray())))
+        assertEquals(IMPORT_UNKNOWN, failed(readImport("<htmlx>".toByteArray())))
+    }
+
+    @Test fun theZipAndHtmlTextsSayWhatToDo() {
+        assertTrue(".json" in IMPORT_ZIP && "adjuntos" in IMPORT_ZIP)
+        assertTrue(".json" in IMPORT_HTML && ".txt" in IMPORT_HTML)
+    }
 }

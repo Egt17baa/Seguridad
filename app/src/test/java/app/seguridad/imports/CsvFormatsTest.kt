@@ -217,4 +217,87 @@ class CsvFormatsTest {
             assertNull(h, readCsvImport("$h\nx,y,z\n"))
         }
     }
+
+    // ---- Task 10, rulings R19, R21 and R22 ----
+
+    @Test fun googlePasswordsCsvReadsAsChromium() {
+        // «Google Passwords.csv», the only file Chrome exports (R21): the columns of chromium.csv, random data.
+        val read = ok(fixture("Google Passwords.csv"))
+        assertEquals(ImportFormat.BROWSER_CSV, read.format)
+        assertEquals(listOf("tienda.example.com", "correo.example.org", "app.example.net"), read.items.map { it.entry.title })
+        assertTrue(read.items[1].entry.password.startsWith("cl,ave\""))
+        assertEquals("Nota con\nsalto", read.items[1].entry.notes)
+        assertTrue(read.skipped.isEmpty())
+    }
+
+    @Test fun edgeCsvWithAndWithoutNotesReadsAsChromium() {
+        // R22: «Microsoft Edge Passwords.csv» has no note column; another export has it.
+        val noNote = ok(fixture("Microsoft Edge Passwords.csv"))
+        assertEquals(ImportFormat.BROWSER_CSV, noNote.format)
+        assertEquals(listOf("banco.example.com", "foro.example.org"), noNote.items.map { it.entry.title })
+        assertTrue(noNote.items.all { it.entry.notes.isEmpty() && it.entry.password.startsWith("Pw-") })
+        val withNote = ok(fixture("edge-con-notas.csv"))
+        assertEquals(ImportFormat.BROWSER_CSV, withNote.format)
+        assertEquals("Asiento junto a la ventana", withNote.items.single().entry.notes)
+    }
+
+    @Test fun bitwardenCsvIsReadByItsExactHeader() {
+        val read = ok(fixture("bitwarden.csv"))
+        assertEquals(ImportFormat.BITWARDEN, read.format)
+        assertEquals("importado-bitwarden", read.format.originTag)
+        val e = read.items.map { it.entry }
+        assertEquals(
+            listOf(
+                EntryType.LOGIN to "Correo inventado", EntryType.TOTP to "Correo inventado", EntryType.LOGIN to "Tienda",
+                EntryType.TOTP to "Tienda", EntryType.NOTE to "Nota segura", EntryType.LOGIN to "Juego",
+            ),
+            e.map { it.type to it.title },
+        )
+        val mail = e[0]
+        assertEquals("https://correo.example.com/", mail.url)
+        assertTrue(mail.username.startsWith("ana") && mail.password.startsWith("Pw-"))
+        assertTrue(mail.favorite)
+        assertTrue(mail.notes.startsWith("Nota del acceso\nPIN: "))
+        assertEquals(listOf("Trabajo"), read.items[0].folders)
+        // A bare key takes the defaults; an otpauth link is read by the strict reader.
+        assertEquals(6, e[1].totp!!.digits)
+        assertEquals("Tienda", e[3].totp!!.issuer)
+        assertEquals("Línea 1\nLínea 2", e[4].notes)
+        assertEquals(listOf("Casa"), read.items[4].folders)
+        assertEquals(0, read.becameNotes)
+        // A Steam code is not TOTP; a row with nothing is empty.
+        assertEquals(listOf("Juego" to SkipReason.NOT_TOTP, "" to SkipReason.EMPTY), read.skipped.map { it.title to it.reason })
+    }
+
+    @Test fun bitwardenOrganizationCsvTakesCollectionsAsFolders() {
+        val read = ok(fixture("bitwarden-organizacion.csv"))
+        assertEquals(ImportFormat.BITWARDEN, read.format)
+        assertEquals(listOf(EntryType.LOGIN to "Panel compartido", EntryType.NOTE to "Nota del equipo"), read.items.map { it.entry.type to it.entry.title })
+        assertEquals(listOf("Equipo"), read.items[0].folders)
+    }
+
+    @Test fun bitwardenCsvOtherTypesBecomeNotesAndBrokenTotpIsListed() {
+        val header = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n"
+        val read = ok(
+            header +
+                ",,card,Tarjeta,Texto,\"Número: 4111\",0,,,,\n" +
+                ",,login,Con 2FA raro,,,0,https://a.example/,u,p,otpauth://totp/a?secret=JBSWY3DPEHPK3PXP&digits=10\n" +
+                ",x,login,Favorito raro,,,0,https://b.example/,u,p,\n",
+        )
+        assertEquals(listOf(EntryType.NOTE, EntryType.LOGIN, EntryType.LOGIN), read.items.map { it.entry.type })
+        assertEquals("Texto\nNúmero: 4111", read.items[0].entry.notes)
+        assertEquals(1, read.becameNotes)
+        assertEquals(listOf(SkipReason.TOTP_UNSUPPORTED), read.skipped.map { it.reason })
+        assertFalse(read.items[2].entry.favorite)
+    }
+
+    @Test fun bitwardenCsvNeedsTheExactHeader() {
+        // One column more, one less or in another order: not Bitwarden's header.
+        val cols = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp"
+        assertEquals(ImportFormat.BITWARDEN, csvFormat(cols.split(',')))
+        assertEquals(ImportFormat.BITWARDEN, csvFormat(cols.uppercase().split(',')))
+        assertNull(csvFormat("$cols,extra".split(',')))
+        assertNull(csvFormat(cols.split(',').drop(1)))
+        assertNull(csvFormat(cols.split(',').reversed()))
+    }
 }
