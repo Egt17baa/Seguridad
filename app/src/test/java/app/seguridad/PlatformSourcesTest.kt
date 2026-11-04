@@ -241,14 +241,26 @@ class PlatformSourcesTest {
         assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }" in src)
         // It writes nothing: the screen only reads the vault's state and its lock count, and none of its files changes
         // the vault, the settings, the fingerprint or a copy.
-        assertEquals(setOf("state", "lockEpoch"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
+        assertEquals(setOf("state", "lockEpoch", "touch"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
+        // m3: the picker as «Importar copia»'s (VaultBackup.kt): the vault stays open while it is on top, the time away
+        // counts from the tap, and the flag goes back if the picker never opened (MainActivity.onStart takes it back).
+        assertTrue(
+            ("VaultLock.keepOpenOnce = true\n                store.touch()\n                pickerError = pick.launchOrError(arrayOf(\"*/*\"))\n" +
+                "                if (pickerError != null) VaultLock.keepOpenOnce = false") in src,
+        )
+        val importer = code("ui/screens/VaultBackup.kt").substringAfter("import = {").substringBefore("changeMaster = ")
+        assertTrue(importer, "VaultLock.keepOpenOnce = true" in importer && "store.touch()" in importer && "importer.launchOrError(arrayOf(\"*/*\"))" in importer)
+        assertEquals(1, Regex("""store\.touch\(\)""").findAll(src).count())
+        assertEquals(1, Regex("""keepOpenOnce = true""").findAll(src).count())
+        assertTrue("VaultLock.keepOpenOnce = false" in code("MainActivity.kt").substringAfter("override fun onStart()").substringBefore("override fun "))
         val files = listOf(src, code("vault/BackupCheck.kt"), code("vault/BackupCheckSession.kt"))
         val writes = listOf(
             "importReplace", "exportBackup", "upsert(", "addAll(", "addAttachment", "removeAttachment", "changeMaster", "destroy(",
             "VaultStore(", "SettingsStore", "settings", ".update(", "openOutputStream", "writeBackup", "BiometricVault", "autoBackup",
-            "AutoBackup", "keepOpenOnce", "touch()", "writeText", "writeBytes", "vault.bin",
+            "AutoBackup", "writeText", "writeBytes", "vault.bin",
         )
         for (file in files) for (w in writes) assertFalse(w, w in file)
+        for (w in listOf("keepOpenOnce", "touch()")) for (file in files.drop(1)) assertFalse(w, w in file)
         assertFalse("VaultStore" in code("vault/BackupCheck.kt") || "VaultStore" in code("vault/BackupCheckSession.kt"))
         // The row in Ajustes, the route, and the leftovers of a run cut short go at start.
         assertTrue("onClick = onCheckBackup" in code("ui/screens/SettingsScreen.kt") && "Text(BACKUP_CHECK_TITLE)" in code("ui/screens/SettingsScreen.kt"))

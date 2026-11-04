@@ -7,6 +7,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
@@ -282,6 +284,112 @@ class BackupCheckTest {
         job.join()
         assertTrue(job.isCancelled)
         assertTrue(temp.listFiles().isNullOrEmpty())
+    }
+
+    /** An Argon2id that tells when it starts and waits for [release] before running (it cannot be cut, as the real one). */
+    private inner class SlowUnlock(private val release: java.util.concurrent.CountDownLatch? = null) : (VaultFile, CharArray) -> ByteArray {
+        val events: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val keys: MutableList<ByteArray> = java.util.Collections.synchronizedList(mutableListOf<ByteArray>())
+        val started = CompletableDeferred<Unit>()
+        private val n = java.util.concurrent.atomic.AtomicInteger()
+
+        override fun invoke(file: VaultFile, pw: CharArray): ByteArray {
+            val i = n.incrementAndGet()
+            events += "empieza $i"
+            started.complete(Unit)
+            if (i == 1) release?.await()
+            // The real derivation, on a copy of the password: the caller may zero its own meanwhile (BackupCheckRuns.stop).
+            val key = VaultCrypto.unlock(file, master.toCharArray())
+            keys += key
+            events += "acaba $i"
+            return key
+        }
+    }
+
+    private fun zeroed(b: ByteArray) = b.all { it == 0.toByte() }
+
+    @Test fun cancelDuringTheDerivationZeroesTheKey() = runBlocking {
+        val zip = phoneA().backup()
+        val temp = temp()
+        val release = java.util.concurrent.CountDownLatch(1)
+        val unlock = SlowUnlock(release)
+        val job = launch(Dispatchers.Default) { checkBackup(ByteArrayInputStream(zip), master.toCharArray(), temp, unlock = unlock) }
+        unlock.started.await()
+        job.cancel() // «Cancelar», leaving the app or a lock while Argon2id runs.
+        release.countDown()
+        job.join()
+        assertTrue(job.isCancelled)
+        // The derivation ended and gave the copy's data key: it was zeroed although its result was dropped.
+        assertEquals(listOf("empieza 1", "acaba 1"), unlock.events)
+        assertTrue(zeroed(unlock.keys.single()))
+        assertTrue(temp.listFiles().isNullOrEmpty())
+        // And after a check that ends well, too.
+        val ok = SlowUnlock()
+        assertEquals(3, checkBackup(ByteArrayInputStream(zip), master.toCharArray(), temp, unlock = ok).attachmentsOk)
+        assertTrue(zeroed(ok.keys.single()))
+    }
+
+    @Test fun afterCancelTheNextDerivationWaits() = runBlocking {
+        // The screen's own path: «Comprobar», «Cancelar» during Argon2id, «Comprobar» again.
+        val zip = phoneA().backup()
+        val temp = temp()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+        val session = BackupCheckSession()
+        val runs = BackupCheckRuns(session, scope)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val unlock = SlowUnlock(release)
+        val first = master.toCharArray()
+        val second = master.toCharArray()
+        runs.start(first) { checkBackup(ByteArrayInputStream(zip), it, temp, unlock = unlock) }
+        unlock.started.await()
+        runs.stop()
+        assertTrue(first.all { it == '\u0000' }) // Zeroed at once by «Cancelar».
+        runs.start(second) { checkBackup(ByteArrayInputStream(zip), it, temp, unlock = unlock) }
+        kotlinx.coroutines.delay(300)
+        assertEquals("La segunda espera a que acabe la primera", listOf("empieza 1"), unlock.events)
+        release.countDown()
+        kotlinx.coroutines.withTimeout(10_000) { while (session.report == null) kotlinx.coroutines.delay(10) }
+        assertEquals(listOf("empieza 1", "acaba 1", "empieza 2", "acaba 2"), unlock.events)
+        assertEquals(3, session.report!!.attachmentsOk)
+        kotlinx.coroutines.withTimeout(10_000) { while (!temp.listFiles().isNullOrEmpty()) kotlinx.coroutines.delay(10) }
+        assertTrue(unlock.keys.all { zeroed(it) })
+        assertTrue(second.all { it == '\u0000' })
+        scope.cancel()
+    }
+
+    @Test fun cancelWhileTheFolderIsMadeLeavesNothing() = runBlocking {
+        val zip = phoneA().backup()
+        val temp = temp()
+        val pool = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            lateinit var job: kotlinx.coroutines.Job
+            var dispatched = 0
+            // The check and its IO share one thread. The first IO block is the one that makes the run's folder: the check
+            // is cancelled right after it ran and before the check goes on with its result (queued behind on that thread).
+            val io = object : kotlinx.coroutines.CoroutineDispatcher() {
+                override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                    val first = dispatched++ == 0
+                    pool.execute {
+                        block.run()
+                        if (first) job.cancel()
+                    }
+                }
+            }
+            job = launch(pool.asCoroutineDispatcher(), start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                checkBackup(ByteArrayInputStream(zip), master.toCharArray(), temp, io = io)
+            }
+            job.start()
+            job.join()
+            assertTrue(job.isCancelled)
+            assertTrue(dispatched >= 1)
+            assertTrue("Ninguna carpeta run-… queda", temp.listFiles().isNullOrEmpty())
+            // Nor is it kept as «in use»: a later clean-up would delete anything left, and nothing is.
+            File(temp, "run-1").mkdirs()
+            removeBackupCheckLeftovers(temp)
+            assertTrue(temp.listFiles().isNullOrEmpty())
+        } finally {
+            pool.shutdownNow()
+        }
     }
 
     @Test fun twoChecksAtOnceDoNotInterfere() = runBlocking {

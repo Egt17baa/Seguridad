@@ -68,7 +68,9 @@ const val BACKUP_CHECK_NOT_PROVEN_TITLE = "Lo que no comprueba"
 /** What a check without problems still does not prove. */
 const val BACKUP_CHECK_NOT_PROVEN =
     "No dice si es tu copia más reciente ni si tiene lo que cambiaste después de hacerla. No comprueba que quede espacio " +
-        "en este móvil para importarla. Importar una copia desactiva la huella: después tendrás que volver a activarla."
+        "en este móvil para importarla. Tampoco prueba lo que solo hace la importación: si el coste de Argon2id elegido en " +
+        "este móvil es mayor que el de la copia, al importarla se vuelve a cifrar su clave con ese coste, y eso puede " +
+        "necesitar más memoria. Importar una copia desactiva la huella: después tendrás que volver a activarla."
 
 /** Next to [app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE]: what stops a check going on. */
 const val BACKUP_CHECK_STOPS_NOTE =
