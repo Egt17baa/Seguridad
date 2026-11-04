@@ -107,6 +107,8 @@ class SettingsStore(
                     autoBackupReplacePending = before.autoBackupReplacePending,
                     autoBackupReplaceTargets = before.autoBackupReplaceTargets,
                     autoBackupReplaceTold = before.autoBackupReplaceTold,
+                    importCopies = before.importCopies,
+                    importCopiesFolder = before.importCopiesFolder,
                 )
             }
         }

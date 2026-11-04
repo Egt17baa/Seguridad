@@ -26,6 +26,13 @@ import app.seguridad.core.writeTextAtomically
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KdfParams
 import app.seguridad.crypto.randomBytes
+import app.seguridad.imports.ApplyResult
+import app.seguridad.imports.DuplicateChoice
+import app.seguridad.imports.MergePlan
+import app.seguridad.imports.mergedEntries
+import app.seguridad.imports.plainCharsLowerBound
+import app.seguridad.imports.utf8Length
+import java.util.UUID
 
 /**
  * Why the vault was last locked ([VaultStore.lastLockReason]): screens that hold their own secrets (as «PIN y códigos»)
@@ -587,14 +594,18 @@ class VaultStore(
      * Saves the change even if the vault locks meanwhile (with a copy of the key), then reopens only if it did not.
      * False if the vault was already locked, or [change] returned null (nothing to change), so nothing was saved.
      * [change] runs with the mutex held: it must never wait on anything outside the app (a document provider).
+     * [accept] sees the file about to be saved, still with the mutex held, and false refuses it (nothing saved, false).
      */
-    private suspend fun modify(change: suspend (List<VaultEntry>) -> List<VaultEntry>?): Boolean = mutex.withLock {
+    private suspend fun modify(
+        accept: suspend (VaultFile) -> Boolean = { true },
+        change: suspend (List<VaultEntry>) -> List<VaultEntry>?,
+    ): Boolean = mutex.withLock {
         val v = vault ?: return@withLock false
         val since = epoch
         val key = dek?.copyOf() ?: return@withLock false
         val current = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock false.also { key.fill(0) }
         val next = try {
-            withContext(compute) { change(current)?.let { VaultCrypto.write(v, key, it) } }
+            withContext(compute) { change(current)?.let { VaultCrypto.write(v, key, it) }?.takeIf { accept(it) } }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -643,6 +654,56 @@ class VaultStore(
         val added = entries.filter { ids.add(it.id) }
         checkCanHold(list, added)
         list + added.map { it.copy(passwordHistory = emptyList(), attachments = emptyList()) }
+    }
+
+    /**
+     * Saves the import of [plan] (spec «Confirmar: la copia y el guardado»): [mergedEntries] against the vault as it is,
+     * in a single write through [modify], all or nothing (the atomic rename of [save]; once the write starts, neither a
+     * lock nor leaving the screen cuts it, see [commit]). Inside the mutex, in the same critical section as the write:
+     * - [ApplyResult.Stale] when [revision] is no longer the plan's (another change was saved since the preview; owner's
+     *   decision (b)), or the vault is locked;
+     * - [ApplyResult.TooBig] when the vault would no longer fit in a `.sgbak` ([writeBackup]'s limits, owner's decision
+     *   (a)): the attachments plus two over [BACKUP_MAX_ENTRIES] (counted first, an import adds none), the entries'
+     *   characters alone over [BACKUP_MAX_ENTRY_BYTES] in Base64 (before anything is encrypted), and then the exact
+     *   encrypted file over [BACKUP_MAX_ENTRY_BYTES] or the whole copy over [BACKUP_MAX_TOTAL_BYTES].
+     * Nothing is written in either case. The data key does not change, so the fingerprint stays on (A11 and CRY-A02
+     * untouched: no clock mark, no biometric call). A failed write throws, as [modify] does, with nothing saved. A plan
+     * that changes nothing (every item skipped) is [ApplyResult.Done] with zeros and writes nothing.
+     */
+    suspend fun applyImport(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>): ApplyResult {
+        var result: ApplyResult = ApplyResult.Stale
+        var attachmentRefs: List<AttachmentRef> = emptyList()
+        modify(
+            change = change@{ list ->
+                if (_revision.value != plan.revision) return@change null
+                attachmentRefs = list.flatMap { it.attachments }
+                val overFiles = attachmentRefs.size + 2 - BACKUP_MAX_ENTRIES
+                if (overFiles > 0) {
+                    result = ApplyResult.TooBig(overBytes = 0, overFiles = overFiles)
+                    return@change null
+                }
+                val merged = mergedEntries(plan, default, overrides, list, now(), { UUID.randomUUID().toString() })
+                val low = (plainCharsLowerBound(merged) * 4 + 2) / 3
+                if (low > BACKUP_MAX_ENTRY_BYTES) {
+                    result = ApplyResult.TooBig(overBytes = low - BACKUP_MAX_ENTRY_BYTES)
+                    return@change null
+                }
+                val changed = merged.filterIndexed { i, e -> i >= list.size || e !== list[i] }
+                result = ApplyResult.Done(added = merged.size - list.size, replaced = changed.size - (merged.size - list.size))
+                if (changed.isEmpty()) return@change null // Everything skipped: nothing to save, no new copy.
+                checkCanHold(list, changed)
+                merged
+            },
+            accept = { next ->
+                val json = utf8Length(VaultCrypto.encodeFile(next))
+                val files = withContext(io) { attachmentRefs.sumOf { attachments.fileOf(it.id).length() } }
+                val over = maxOf(json - BACKUP_MAX_ENTRY_BYTES, BACKUP_MARKER_BYTES + json + files - BACKUP_MAX_TOTAL_BYTES)
+                if (over > 0) result = ApplyResult.TooBig(overBytes = over)
+                over <= 0
+            },
+        )
+        // Stale unless [change] ran on the plan's vault; then what it, or [accept], decided.
+        return result
     }
 
     /**
@@ -1003,6 +1064,9 @@ private const val ONLY_ONE_IDENTITY = "Solo puede haber una identidad"
 private const val IMPORT_TOO_BIG = "El archivo pasa de 20 MB: no es una copia de la bóveda"
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"
 private const val IMPORT_DIR_PREFIX = "import-"
+
+/** The marker entry's content in a `.sgbak` («2\n»), counted by [writeBackup] in the copy's total. */
+private const val BACKUP_MARKER_BYTES = 2L
 private val IMPORT_DIR = Regex("import-[0-9a-f]{16}")
 
 /** Longest entry id a copy may bring (the app makes 36-character UUIDs). */

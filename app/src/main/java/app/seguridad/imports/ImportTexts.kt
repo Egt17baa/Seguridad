@@ -101,3 +101,28 @@ const val BITWARDEN_STEAM_PREFIX = "steam://"
 
 /** The label of a custom field that has no name of its own, in the notes («Campo: valor»). */
 const val NOTE_LINE_UNNAMED_FIELD = "Campo"
+
+/**
+ * The line before the notes of the file when «Reemplazar» keeps the vault's notes and adds the file's below (spec «El
+ * plan de fusión»): «Importado el D-M-AAAA:», the day of the import, without leading zeros.
+ */
+fun importedOnHeading(day: Int, month: Int, year: Int): String = "Importado el $day-$month-$year:"
+
+/*
+ * The copy before an import (spec «Confirmar: la copia y el guardado»). Fixed texts: never a path, a URI or what an
+ * exception said. Each says that nothing was imported, as «sin copia no se importa».
+ */
+const val IMPORT_COPY_NO_PERMISSION =
+    "No se pudo hacer la copia antes de importar: la app ya no tiene permiso para usar la carpeta de la copia " +
+        "automática. Vuelve a elegirla en Ajustes. No se ha importado nada."
+const val IMPORT_COPY_NO_FOLDER =
+    "No se pudo hacer la copia antes de importar: no se encuentra la carpeta de la copia automática. Vuelve a elegirla " +
+        "en Ajustes. No se ha importado nada."
+const val IMPORT_COPY_WRITE_FAILED =
+    "No se pudo escribir la copia antes de importar en la carpeta de la copia automática. ¿Queda espacio? No se ha " +
+        "importado nada."
+const val IMPORT_COPY_VAULT_PROBLEM =
+    "No se pudo hacer la copia antes de importar: un adjunto falta o está dañado, o la bóveda no cabe en una copia. " +
+        "Exporta la bóveda a mano para ver el motivo. No se ha importado nada."
+const val IMPORT_COPY_LOCKED = "La bóveda se ha bloqueado antes de hacer la copia. No se ha importado nada."
+const val IMPORT_COPY_FAILED = "No se pudo hacer la copia antes de importar. No se ha importado nada."

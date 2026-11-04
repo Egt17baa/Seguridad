@@ -2,6 +2,12 @@ package app.seguridad.vault
 
 import app.seguridad.core.Notice
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.imports.IMPORT_COPY_FAILED
+import app.seguridad.imports.IMPORT_COPY_LOCKED
+import app.seguridad.imports.IMPORT_COPY_NO_FOLDER
+import app.seguridad.imports.IMPORT_COPY_NO_PERMISSION
+import app.seguridad.imports.IMPORT_COPY_VAULT_PROBLEM
+import app.seguridad.imports.IMPORT_COPY_WRITE_FAILED
 import app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES
 import app.seguridad.settings.AUTO_BACKUP_KEEP_DEFAULT
 import kotlinx.coroutines.CancellationException
@@ -84,6 +90,21 @@ private val TEMP_NAME = Regex("seguridad-auto-\\d{8}-\\d{6}\\.sgbak\\.tmp")
 
 /** The names of complete copies: only counted (COPIAS-2), never deleted by name (NV-2). */
 private val COPY_NAME = Regex("seguridad-auto-\\d{8}-\\d{6}\\.sgbak")
+
+/**
+ * 1.4.0: the copy made just before «Importar de otra app» ([AutoBackup.copyBeforeImport]), in the same folder, with a
+ * name of its own so the rotation never takes it for one of its copies: it is never rotated nor counted in [keep].
+ */
+const val IMPORT_COPY_PREFIX = "seguridad-antes-de-importar-"
+
+/** [TEMP_NAME] for [IMPORT_COPY_PREFIX]: a cut import copy, deleted with the automatic ones' leftovers. */
+private val IMPORT_TEMP_NAME = Regex("seguridad-antes-de-importar-\\d{8}-\\d{6}\\.sgbak\\.tmp")
+
+/** [COPY_NAME] for [IMPORT_COPY_PREFIX]: only counted by the «copias sin apuntar» notice, never deleted by name. */
+private val IMPORT_COPY_NAME = Regex("seguridad-antes-de-importar-\\d{8}-\\d{6}\\.sgbak")
+
+/** What [AUTO_BACKUP_PREFIX] and [IMPORT_COPY_PREFIX] start with: the rotation lists the folder once for both. */
+private const val COPIES_PREFIX = "seguridad-"
 
 private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 
@@ -173,7 +194,22 @@ data class AutoBackupResult(
      * counted, so the text does not claim more than was done (COPIAS-2).
      */
     val unlistedLeft: Int = 0,
+    /**
+     * 1.4.0: after a written copy, the import copies ([AutoBackup.copyBeforeImport]) still listed and still in the folder,
+     * in the order they were made: those a replacement deleted, or that are gone, are no longer on it. Null when this
+     * result says nothing about them (the list stays as saved).
+     */
+    val importCopies: List<String>? = null,
 )
+
+/** How [AutoBackup.copyBeforeImport] went. */
+sealed interface CopyResult {
+    /** The copy is complete under the name [where] (a file name, never a path or a URI). */
+    data class Saved(val where: String) : CopyResult
+
+    /** No copy; [message] is a fixed Spanish text that says nothing was imported. */
+    data class Failed(val message: String) : CopyResult
+}
 
 /**
  * Writes a `seguridad-backup` copy ([VaultStore.exportBackup], still encrypted with the master password) to the
@@ -245,6 +281,17 @@ class AutoBackup(
     /** Keeps the result before the next copy starts (it holds [AutoBackupResult.copies]); must not throw. */
     private val onResult: suspend (AutoBackupResult) -> Unit,
     private val zone: ZoneId = ZoneId.systemDefault(),
+    /**
+     * 1.4.0: the ids of the import copies made in the chosen folder ([copyBeforeImport]; Settings.currentImportCopies),
+     * oldest first. Never rotated: only a replacement after a change of master password (A6) deletes them, by id, when
+     * they are among its targets.
+     */
+    private val importCopies: () -> List<String> = { emptyList() },
+    /**
+     * Keeps the id of an import copy just written to [folder], made from the vault of [generation] (VaultStore.generation
+     * when it started); must not throw. Waited for before the next copy, as [onResult].
+     */
+    private val onImportCopy: suspend (folder: String, id: String, generation: Long) -> Unit = { _, _, _ -> },
 ) {
     private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
@@ -335,6 +382,55 @@ class AutoBackup(
         return AutoBackupResult(uri, null, if (replacePending()) AUTO_BACKUP_REPLACE_WAITS else AUTO_BACKUP_FAILED)
     }
 
+    /**
+     * The copy before «Importar de otra app» (spec «Confirmar: la copia y el guardado»), with the vault as it is: the
+     * same `seguridad-backup` copy, with the same master password, as the automatic ones ([VaultStore.exportBackup]),
+     * named `seguridad-antes-de-importar-AAAAMMDD-HHMMSS.sgbak` in the automatic copies' folder. Written like them: under
+     * a `.tmp` name and renamed once complete, or straight under its name when the provider cannot rename (deleted if
+     * that fails), so the folder never holds a cut copy with the real name. Its id goes to [onImportCopy] (the settings'
+     * list of import copies, which A6 replaces after a change of master password); it is never rotated.
+     *
+     * Null when the automatic copies have no folder (the caller asks where to save it). Otherwise [CopyResult.Saved]
+     * with its name, or [CopyResult.Failed] with a fixed text: the folder unusable, the vault locked or replaced while
+     * it was written (that copy is left unlisted), or the write failing. It runs in this class's scope and under its
+     * lock, so it never overlaps an automatic copy or its rotation, and the caller leaving cannot cut it between the
+     * rename and the list.
+     */
+    suspend fun copyBeforeImport(): CopyResult? = scope.async { lock.withLock { importCopyNow() } }.await()
+
+    private suspend fun importCopyNow(): CopyResult? {
+        val uri = folder() ?: return null
+        return try {
+            val target = open(uri) ?: return CopyResult.Failed(IMPORT_COPY_NO_FOLDER)
+            if (store.state.value !is VaultState.Unlocked) return CopyResult.Failed(IMPORT_COPY_LOCKED)
+            // As [attempt]: a copy whose vault was replaced while it was written is never listed as this vault's.
+            val generation = store.generation
+            val written = copyTo(target, now(), IMPORT_COPY_PREFIX) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
+            if (store.generation != generation) return CopyResult.Failed(IMPORT_COPY_FAILED)
+            try {
+                onImportCopy(uri, written.id, generation)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Not listed (a full disk): the copy is there all the same; A6 then counts it as unlisted, by its name.
+            }
+            CopyResult.Saved(written.name)
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            CopyResult.Failed(IMPORT_COPY_FAILED)
+        } catch (e: Throwable) {
+            CopyResult.Failed(
+                when (e) {
+                    is SecurityException -> IMPORT_COPY_NO_PERMISSION
+                    is FileNotFoundException -> IMPORT_COPY_NO_FOLDER
+                    is CryptoFailure -> IMPORT_COPY_VAULT_PROBLEM
+                    is IOException -> IMPORT_COPY_WRITE_FAILED
+                    else -> IMPORT_COPY_FAILED
+                },
+            )
+        }
+    }
+
     /** A change saved after the last copy (or no copy yet): one was due when the app was closed. */
     private fun missed(): Boolean = try {
         val changed = store.lastChangeSavedAt()
@@ -387,12 +483,12 @@ class AutoBackup(
             } else {
                 val owned = copies()
                 // A request without targets (saved before 1.3.0): every listed copy but the new one, as before (M4).
-                val targets = replace?.let { it.targets ?: owned.filter { id -> id != written.id } }
+                val targets = replace?.let { it.targets ?: (owned.filter { id -> id != written.id } + importCopies()) }
                 val rotation = try {
                     rotate(target, owned, written, targets, generation)
                 } catch (e: Exception) {
                     // The copy is there all the same; nothing was deleted for sure, so every target is still one.
-                    Rotation(AUTO_BACKUP_OLD_NOT_DELETED, owned + written.id, 0, targets, replaceDone = false)
+                    Rotation(AUTO_BACKUP_OLD_NOT_DELETED, owned + written.id, 0, targets, replaceDone = false, importsLeft = null)
                 }
                 if (rotation.mine == null) {
                     stale(uri, at, generation, replaceAll)
@@ -404,6 +500,7 @@ class AutoBackup(
                         uri, at, rotation.error, rotation.mine, replaced = replaceAll && rotation.replaceDone,
                         generation = generation, unlistedLeft = rotation.unlistedLeft,
                         replaceTargets = if (replaceAll) rotation.targetsLeft else null, newRequest = replace?.newRequest == true,
+                        importCopies = rotation.importsLeft,
                     )
                 }
             }
@@ -446,6 +543,8 @@ class AutoBackup(
         val unlistedLeft: Int,
         val targetsLeft: List<String>? = null,
         val replaceDone: Boolean = false,
+        /** The import copies still listed and in the folder; null when unknown. */
+        val importsLeft: List<String>? = null,
     )
 
     /** No vault: nothing to copy. A locked one: the copy waits for it to be opened. */
@@ -457,8 +556,8 @@ class AutoBackup(
      * Writes the copy under its temporary name, then renames it; the copy, or null if there was nothing to copy.
      * If the provider cannot rename, the copy is written again straight under its name.
      */
-    private suspend fun copyTo(folder: BackupTarget, now: Long): BackupEntry? {
-        val name = freeName(folder.list(AUTO_BACKUP_PREFIX).mapTo(HashSet()) { it.name }, now)
+    private suspend fun copyTo(folder: BackupTarget, now: Long, prefix: String = AUTO_BACKUP_PREFIX): BackupEntry? {
+        val name = freeName(folder.list(prefix).mapTo(HashSet()) { it.name }, now, prefix)
         val temp = folder.create(name + TEMP_SUFFIX)
         if (temp.canRename) {
             if (!fill(temp)) return null
@@ -504,10 +603,10 @@ class AutoBackup(
     }
 
     /** The name for [now], or (clock set back) the next second whose copy and temporary names are both free. */
-    private fun freeName(taken: Set<String>, now: Long): String {
+    private fun freeName(taken: Set<String>, now: Long, prefix: String): String {
         var at = Instant.ofEpochMilli(now)
         while (true) {
-            val name = AUTO_BACKUP_PREFIX + STAMP.format(at.atZone(zone)) + SUFFIX
+            val name = prefix + STAMP.format(at.atZone(zone)) + SUFFIX
             if (name !in taken && name + TEMP_SUFFIX !in taken) return name
             at = at.plusSeconds(1)
         }
@@ -527,7 +626,7 @@ class AutoBackup(
      * nothing (CADENAS-3).
      */
     private fun rotate(folder: BackupTarget, owned: List<String>, newest: BackupEntry, targets: List<String>?, generation: Long): Rotation {
-        val present = folder.list(AUTO_BACKUP_PREFIX)
+        val present = folder.list(COPIES_PREFIX)
         val ids = present.mapTo(HashSet()) { it.id }
         val keepN = keep().takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: AUTO_BACKUP_KEEP_DEFAULT
         // The one just written always stays; a copy already gone is forgotten.
@@ -536,11 +635,15 @@ class AutoBackup(
         val old = others.filter { it in doomed }
         val rest = others.filter { it !in doomed }
         val surplus = rest.dropLast(keepN - 1)
-        val leftovers = present.filter { TEMP_NAME.matches(it.name) }.map { it.id }
+        val leftovers = present.filter { TEMP_NAME.matches(it.name) || IMPORT_TEMP_NAME.matches(it.name) }.map { it.id }
+        // Import copies: never rotated, only deleted as targets of a replacement (A6), by id from their own list.
+        val listedImports = importCopies()
+        val imports = listedImports.filter { it in ids && it != newest.id }.distinct()
+        val oldImports = imports.filter { it in doomed }
         val notDeleted = HashSet<String>()
         var failed = false
         var leftoverLeft = false
-        for (id in old + surplus + leftovers) {
+        for (id in old + oldImports + surplus + leftovers) {
             if (store.generation != generation) return Rotation(null, null, 0)
             try {
                 folder.delete(id)
@@ -552,15 +655,19 @@ class AutoBackup(
         if (store.generation != generation) return Rotation(null, null, 0)
         val kept = rest.takeLast(keepN - 1).toHashSet()
         val mine = others.filter { it in notDeleted || it in kept } + newest.id
-        if (targets == null) return Rotation(if (failed) AUTO_BACKUP_OLD_NOT_DELETED else null, mine, 0)
+        val importsLeft = imports.filter { it !in doomed || it in notDeleted }
+        if (targets == null) return Rotation(if (failed) AUTO_BACKUP_OLD_NOT_DELETED else null, mine, 0, importsLeft = importsLeft)
         val ownedIds = owned.toHashSet()
-        val unlisted = present.count { COPY_NAME.matches(it.name) && it.id !in ownedIds && it.id != newest.id }
-        val targetsLeft = old.filter { it in notDeleted }
+        val importIds = listedImports.toHashSet()
+        val unlisted = present.count {
+            it.id != newest.id && (COPY_NAME.matches(it.name) && it.id !in ownedIds || IMPORT_COPY_NAME.matches(it.name) && it.id !in importIds)
+        }
+        val targetsLeft = (old + oldImports).filter { it in notDeleted }
         val done = targetsLeft.isEmpty() && !leftoverLeft
         // m2 (CR re-review): a replacement is said by its targets and leftovers only. Once they are all gone it is a
         // success, even if a copy beyond [keep] (made after the change, under the new password) could not be deleted:
         // that one stays listed ([mine]) and the next rotation tries it again, as any normal copy.
-        return Rotation(if (done) null else AUTO_BACKUP_OLD_NOT_DELETED, mine, unlisted, targetsLeft, replaceDone = done)
+        return Rotation(if (done) null else AUTO_BACKUP_OLD_NOT_DELETED, mine, unlisted, targetsLeft, replaceDone = done, importsLeft = importsLeft)
     }
 
     private fun messageFor(e: Throwable): String = when (e) {

@@ -68,6 +68,19 @@ class EntryQueryTest {
         assertFalse(normalizeTags("ÁB").contains("ÁB"))
     }
 
+    /** 1.4.0, Task 8: a tag is cut by code points, so an emoji at the edge is never split into a lone surrogate. */
+    @Test
+    fun normalizeTagsCutsByCodePoints() {
+        val edge = "x".repeat(23) + "😀"
+        assertEquals(listOf(edge), normalizeTags(edge + "zz"))
+        val cut = normalizeTags("x".repeat(24) + "😀").single()
+        assertEquals("x".repeat(24), cut)
+        for (t in normalizeTags("${"a".repeat(23)}😀😀, b${"😀".repeat(30)}")) {
+            assertTrue(t, t.codePoints().noneMatch { it in 0xD800..0xDFFF }) // no half of a pair left alone
+            assertTrue(t, t.codePointCount(0, t.length) <= MAX_TAG_LENGTH)
+        }
+    }
+
     @Test
     fun oldJsonWithoutNewFieldsDecodes() {
         val json = """{"id":"a","type":"LOGIN","title":"Vieja","username":"u","createdAt":1,"updatedAt":2}"""
