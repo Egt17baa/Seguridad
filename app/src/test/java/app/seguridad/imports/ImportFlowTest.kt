@@ -55,6 +55,33 @@ class ImportFlowTest {
         assertFalse((r as ImportOutcome.SaveFailed).message.contains("secreto"))
     }
 
+    /** N-2: every failure of the save, whatever it was, gives the same text, which claims only what holds on each path. */
+    @Test fun everySaveFailureGivesTheSameTrueText() = runTest {
+        for (failure in listOf(IllegalStateException("Solo puede haber una identidad"), java.io.IOException("x"), RuntimeException())) {
+            val r = ImportFlow(copy = { CopyResult.Saved("c") }, apply = { throw failure }).confirm()
+            assertEquals(ImportOutcome.SaveFailed("c", IMPORT_SAVE_FAILED), r)
+        }
+        assertFalse("Never says the vault is unchanged", IMPORT_SAVE_FAILED.contains("no ha cambiado"))
+        assertTrue(IMPORT_SAVE_FAILED.contains("sí se hizo"))
+    }
+
+    /** N-2: a full disk, through the real store: SaveFailed, and the vault on disk as it was. */
+    @Test fun aFullDiskIsASaveFailureAndTheVaultIsAsItWas() = runTest {
+        val file = File(tmp.root, "vault.bin")
+        val s = VaultStore(file, Dispatchers.Unconfined, Dispatchers.Unconfined, kdf = { KdfParams(1024, 1, 1) }).apply {
+            load()
+            create("maestra".toCharArray())
+        }
+        val read = ImportRead(ImportFormat.OTPAUTH, listOf(ImportedItem(0, importedEntry(EntryType.NOTE, "Otra", notes = "u"), emptyList())), emptyList(), 0)
+        val plan = s.planImport(read)!!
+        val bytes = file.readBytes()
+        File(tmp.root, "vault.bin.tmp").mkdir() // the temporary file cannot be written: as a full disk
+        val r = ImportFlow(copy = { CopyResult.Saved("c") }, apply = { s.applyImport(plan, DuplicateChoice.SKIP, emptyMap()) }).confirm()
+        assertEquals(ImportOutcome.SaveFailed("c", IMPORT_SAVE_FAILED), r)
+        assertArrayEquals(bytes, file.readBytes())
+        assertTrue((s.state.value as VaultState.Unlocked).entries.isEmpty())
+    }
+
     @Test fun theCopyComesFirstThenTheSave() = runTest {
         val order = mutableListOf<String>()
         val r = ImportFlow(copy = { order += "copia"; CopyResult.Saved("copia.sgbak") }, apply = { order += "guardar"; done }).confirm()

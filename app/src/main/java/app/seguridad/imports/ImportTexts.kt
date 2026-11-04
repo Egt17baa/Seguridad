@@ -135,7 +135,10 @@ const val IMPORT_COPY_VAULT_CHANGED =
     "La bóveda se ha sustituido o borrado mientras se hacía la copia, así que no se ha importado nada. La copia que se " +
         "hizo sigue en la carpeta."
 
-/** The copy was made, but the import could not be saved (a full disk): nothing of it was saved. */
+/**
+ * The copy was made, but saving the import threw (a full disk, almost always before the atomic rename, so with nothing
+ * saved). It claims only what holds on every path: the import did not finish, and the copy was made; the space is
+ * asked, not stated.
+ */
 const val IMPORT_SAVE_FAILED =
-    "No se pudo guardar la importación: la bóveda no ha cambiado. ¿Queda espacio en el móvil? La copia de antes de " +
-        "importar sí se hizo."
+    "No se ha podido terminar la importación. ¿Queda espacio en el móvil? La copia de antes de importar sí se hizo."

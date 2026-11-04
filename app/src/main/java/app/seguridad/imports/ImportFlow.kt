@@ -15,8 +15,8 @@ sealed interface ImportOutcome {
     data class NotApplied(val result: ApplyResult) : ImportOutcome
 
     /**
-     * The copy was made ([where]), but saving the import failed (a full disk): nothing was saved. [message] is the fixed
-     * [IMPORT_SAVE_FAILED], never what the exception said.
+     * The copy was made ([where]), but saving the import threw. That is almost always a full disk, with nothing saved;
+     * see [ImportFlow]. [message] is the fixed [IMPORT_SAVE_FAILED], never what the exception said.
      */
     data class SaveFailed(val where: String, val message: String = IMPORT_SAVE_FAILED) : ImportOutcome
 }
@@ -27,9 +27,11 @@ sealed interface ImportOutcome {
  * save of the import ([app.seguridad.vault.VaultStore.applyImport]). Without a copy there is no import: a copy that
  * fails, throws or is cancelled never reaches [apply]. If the process dies between the two, the vault is as it was and
  * the copy is left over; [apply]'s own write is atomic. It keeps nothing: the plan, the file and its secrets live in
- * the two lambdas the caller gives (a ViewModel's), not here. A failure of [apply] itself (a full disk, which
- * [app.seguridad.vault.VaultStore.applyImport] throws before its atomic rename, so with nothing saved) is
- * [ImportOutcome.SaveFailed]; a cancellation is thrown.
+ * the two lambdas the caller gives (a ViewModel's), not here. Any failure of [apply] itself is
+ * [ImportOutcome.SaveFailed]; a cancellation is thrown. That failure is almost always a full disk before
+ * [app.seguridad.vault.VaultStore.applyImport]'s atomic rename, with nothing saved. A failure after the rename (the
+ * entries saved could not be read back) cannot be ruled out, so [IMPORT_SAVE_FAILED] never says the vault is
+ * unchanged.
  */
 class ImportFlow(val copy: suspend () -> CopyResult, val apply: suspend () -> ApplyResult) {
     suspend fun confirm(): ImportOutcome {
