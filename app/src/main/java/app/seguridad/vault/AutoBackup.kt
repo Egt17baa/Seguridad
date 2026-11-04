@@ -487,7 +487,9 @@ class AutoBackup(
             } else {
                 val owned = copies()
                 // A request without targets (saved before 1.3.0): every listed copy but the new one, as before (M4).
-                // No import copy there: they are all from 1.4.0, so made after that change, under the current password.
+                // No import copy there: a request without targets was saved before 1.3.0, and every import copy (1.4.0)
+                // was made after it, under the current password. So none from before the change exists, and
+                // AUTO_BACKUP_REPLACED («y las de antes de importar hechas antes del cambio») stays true.
                 val targets = replace?.let { it.targets ?: owned.filter { id -> id != written.id } }
                 val rotation = try {
                     rotate(target, owned, written, targets, generation)
