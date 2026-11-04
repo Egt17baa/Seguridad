@@ -9,10 +9,16 @@ internal typealias TextReader = (text: String, password: CharArray?) -> ReadResu
 
 /**
  * The readers, in the order they are asked. The format is told by the content, never by the file's name or extension
- * (spec «Detección»). Later tasks add the JSON and `otpauth://` readers here.
+ * (spec «Detección»):
+ * - a CSV with a header Clavero knows ([readCsvImport]), asked first as before;
+ * - a JSON object of a known shape ([readJsonImport]): only a text that starts with `{`;
+ * - a list of `otpauth://` links ([readOtpAuthListImport]): only a text whose first line is a link.
+ * Task 10 adds the password to the JSON readers; until then an encrypted file only says that it needs one.
  */
 private val READERS: List<TextReader> = listOf(
     { text, _ -> readCsvImport(text)?.let { ReadResult.Ok(it) } },
+    { text, _ -> readJsonImport(text) },
+    { text, _ -> readOtpAuthListImport(text)?.let { ReadResult.Ok(it) } },
 )
 
 /**

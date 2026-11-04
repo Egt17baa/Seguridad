@@ -1,0 +1,137 @@
+{
+  "encrypted": false,
+  "folders": [
+    { "id": "f0000000-0000-4000-8000-000000000001", "name": "Trabajo/Correo" },
+    { "id": "f0000000-0000-4000-8000-000000000002", "name": "Personal" }
+  ],
+  "items": [
+    {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "organizationId": null,
+      "folderId": "f0000000-0000-4000-8000-000000000002",
+      "type": 1,
+      "reprompt": 0,
+      "name": "Correo",
+      "notes": "Cuenta principal",
+      "favorite": true,
+      "fields": [
+        { "name": "PIN", "value": "4321", "type": 1, "linkedId": null },
+        { "name": "Pregunta", "value": "color azul", "type": 0, "linkedId": null },
+        { "name": "Usuario enlazado", "value": null, "type": 3, "linkedId": 100 }
+      ],
+      "login": {
+        "uris": [
+          { "match": null, "uri": "https://mail.example.com" },
+          { "match": 1, "uri": "https://webmail.example.com/entrar" }
+        ],
+        "username": "ana.prueba@example.com",
+        "password": "clave-correo-1",
+        "totp": null,
+        "fido2Credentials": []
+      },
+      "collectionIds": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "folderId": null,
+      "type": 1,
+      "name": "Banco, cuenta \"nómina\"",
+      "notes": "Línea uno\nLínea dos\nLínea tres",
+      "favorite": false,
+      "login": {
+        "uris": [{ "match": null, "uri": "https://banco.example.net" }],
+        "username": "ana",
+        "password": "clave \"banco\", 2",
+        "totp": "otpauth://totp/Banco:ana?secret=JBSWY3DPEHPK3PXP&digits=10"
+      }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000003",
+      "type": 1,
+      "name": "Tienda 🛒",
+      "notes": null,
+      "favorite": false,
+      "login": {
+        "uris": [{ "match": null, "uri": "https://tienda.example.com" }],
+        "username": "ana",
+        "password": "clave-tienda",
+        "totp": "otpauth://totp/Tienda:ana?secret=JBSWY3DPEHPK3PXP&issuer=Tienda",
+        "fido2Credentials": [
+          { "credentialId": "c0000000-0000-4000-8000-000000000001", "keyType": "public-key", "keyAlgorithm": "ECDSA", "keyCurve": "P-256", "keyValue": "AAAA", "rpId": "tienda.example.com", "userName": "ana", "counter": "0", "discoverable": "true" }
+        ]
+      }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000004",
+      "folderId": "f0000000-0000-4000-8000-000000000001",
+      "type": 1,
+      "name": "Foro",
+      "favorite": false,
+      "login": {
+        "uris": [],
+        "username": "ana_foro",
+        "password": "clave-foro",
+        "totp": "JBSW Y3DP EHPK 3PXP"
+      }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000005",
+      "type": 1,
+      "name": "Sin web",
+      "login": { "username": "ana", "password": "clave-sin-web" }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000006",
+      "type": 2,
+      "name": "Nota de prueba",
+      "notes": "Texto de la nota",
+      "favorite": false,
+      "secureNote": { "type": 0 }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000007",
+      "type": 3,
+      "name": "Tarjeta de prueba",
+      "notes": "Solo para pruebas",
+      "card": {
+        "cardholderName": "Ana Prueba",
+        "brand": "Visa",
+        "number": "4111 1111 1111 1111",
+        "expMonth": "12",
+        "expYear": "2030",
+        "code": "123"
+      }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000008",
+      "type": 4,
+      "name": "Identidad de prueba",
+      "identity": {
+        "title": "Sra.",
+        "firstName": "Ana",
+        "middleName": null,
+        "lastName": "Prueba",
+        "address1": "Calle Falsa 1",
+        "address2": null,
+        "address3": null,
+        "city": "Madrid",
+        "state": null,
+        "postalCode": "28000",
+        "country": "ES",
+        "company": null,
+        "email": "ana.prueba@example.com",
+        "phone": null,
+        "ssn": null,
+        "username": null,
+        "passportNumber": null,
+        "licenseNumber": null
+      }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000009",
+      "type": 5,
+      "name": "Clave SSH de prueba",
+      "sshKey": { "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----", "publicKey": "ssh-ed25519 AAAA", "keyFingerprint": "SHA256:AAAA" }
+    }
+  ]
+}

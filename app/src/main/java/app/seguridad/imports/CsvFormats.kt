@@ -72,7 +72,7 @@ internal fun readCsvImport(text: String): ImportRead? {
 }
 
 /** The host of [url] (never its user or password), or "" if it has none or is not a URL. */
-private fun hostOf(url: String): String {
+internal fun hostOf(url: String): String {
     val u = url.trim()
     if (u.isEmpty() || u.length > MAX_URL) return ""
     return try {

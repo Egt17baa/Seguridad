@@ -9,7 +9,32 @@ import java.util.Base64
  * What a Google Authenticator «Transfer accounts» QR carries. [batchIndex] counts from 0; a large export is split
  * into [batchSize] QR codes, each one parsed on its own. [skipped] says, for the user, which accounts were left out and why.
  */
-data class MigrationResult(val imported: List<TotpSecret>, val skipped: List<String>, val batchIndex: Int, val batchSize: Int)
+data class MigrationResult(
+    val imported: List<TotpSecret>,
+    val skipped: List<String>,
+    val batchIndex: Int,
+    val batchSize: Int,
+    /** The accounts of [skipped], in the same order, with the kind of reason: for readers that must not parse the text. */
+    val leftOut: List<MigrationLeftOut> = emptyList(),
+)
+
+/** Why an account of a migration QR is left out. */
+enum class MigrationLeftOutKind {
+    /** MD5, an unknown algorithm or an unknown number of digits. */
+    UNSUPPORTED_SETTINGS,
+
+    /** HOTP or an unknown code type. */
+    NOT_TOTP,
+
+    /** A key under [TOTP_MIN_KEY_BYTES]. */
+    SHORT_KEY,
+}
+
+/** One account left out: its issuer and account as [otpName] keeps them (never the key), and why. */
+data class MigrationLeftOut(val issuer: String, val account: String, val kind: MigrationLeftOutKind)
+
+/** What one OtpParameters message gives: the code, or the account left out with its text for the user. */
+private class Account(val secret: TotpSecret?, val leftOut: MigrationLeftOut?, val text: String?)
 
 /** Longest otpauth-migration:// text read: Google's QR codes are far smaller; anything bigger is not one. */
 const val MIGRATION_MAX_URI_CHARS = 64 * 1024
@@ -112,7 +137,7 @@ private fun ProtoReader.smallInt(wire: Int, max: Int): Int {
 }
 
 /** One OtpParameters message: a TOTP secret, or the reason it is left out. Depth is fixed: nothing inside is a message. */
-private fun ProtoReader.otpParameters(): Pair<TotpSecret?, String?> {
+private fun ProtoReader.otpParameters(): Account {
     var secret = ByteArray(0)
     var name = ""
     var issuer = ""
@@ -138,25 +163,26 @@ private fun ProtoReader.otpParameters(): Pair<TotpSecret?, String?> {
         val account = otpName(name.substringAfter(':'))
         val finalIssuer = otpName(issuer).ifEmpty { labelIssuer }
         val who = listOf(finalIssuer, account).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "Sin nombre" }.take(80)
+        fun left(kind: MigrationLeftOutKind, text: String) = Account(null, MigrationLeftOut(finalIssuer, account, kind), text)
         val alg = when (algorithm) {
             0, 1 -> "SHA1" // 0 is "unspecified", which Google's own exports use for SHA-1.
             2 -> "SHA256"
             3 -> "SHA512"
-            4 -> return null to "«$who»: usa MD5, que esta app no admite"
-            else -> return null to "«$who»: algoritmo desconocido"
+            4 -> return left(MigrationLeftOutKind.UNSUPPORTED_SETTINGS, "«$who»: usa MD5, que esta app no admite")
+            else -> return left(MigrationLeftOutKind.UNSUPPORTED_SETTINGS, "«$who»: algoritmo desconocido")
         }
         val nDigits = when (digits) {
             0, 1 -> 6
             2 -> 8
-            else -> return null to "«$who»: número de dígitos desconocido"
+            else -> return left(MigrationLeftOutKind.UNSUPPORTED_SETTINGS, "«$who»: número de dígitos desconocido")
         }
         when (type) {
             0, 2 -> Unit // TOTP (0 is "unspecified"; Google writes 2).
-            1 -> return null to "«$who»: es HOTP (por contador), que esta app no admite"
-            else -> return null to "«$who»: tipo de código desconocido"
+            1 -> return left(MigrationLeftOutKind.NOT_TOTP, "«$who»: es HOTP (por contador), que esta app no admite")
+            else -> return left(MigrationLeftOutKind.NOT_TOTP, "«$who»: tipo de código desconocido")
         }
-        if (secret.size < TOTP_MIN_KEY_BYTES) return null to "«$who»: la clave es demasiado corta (menos de ${TOTP_MIN_KEY_BYTES * 8} bits)"
-        return TotpSecret(base32Encode(secret), issuer = finalIssuer, account = account, algorithm = alg, digits = nDigits, period = 30) to null
+        if (secret.size < TOTP_MIN_KEY_BYTES) return left(MigrationLeftOutKind.SHORT_KEY, "«$who»: la clave es demasiado corta (menos de ${TOTP_MIN_KEY_BYTES * 8} bits)")
+        return Account(TotpSecret(base32Encode(secret), issuer = finalIssuer, account = account, algorithm = alg, digits = nDigits, period = 30), null, null)
     } finally {
         secret.fill(0)
     }
@@ -218,6 +244,7 @@ private fun parsePayload(payload: ByteArray): MigrationResult {
     val r = ProtoReader(payload)
     val imported = ArrayList<TotpSecret>()
     val skipped = ArrayList<String>()
+    val leftOut = ArrayList<MigrationLeftOut>()
     var batchSize = 0
     var batchIndex = 0
     var parameters = 0
@@ -227,9 +254,10 @@ private fun parsePayload(payload: ByteArray): MigrationResult {
             1 -> {
                 r.expect(wire, 2)
                 if (++parameters > MIGRATION_MAX_PARAMETERS) throw Malformed()
-                val (secret, reason) = r.sub().otpParameters()
-                secret?.let(imported::add)
-                reason?.let(skipped::add)
+                val account = r.sub().otpParameters()
+                account.secret?.let(imported::add)
+                account.text?.let(skipped::add)
+                account.leftOut?.let(leftOut::add)
             }
             2 -> { r.expect(wire, 0); r.varint() } // version
             3 -> batchSize = r.smallInt(wire, MIGRATION_MAX_BATCH)
@@ -240,5 +268,5 @@ private fun parsePayload(payload: ByteArray): MigrationResult {
     }
     val size = batchSize.coerceAtLeast(1) // Absent (0) in single-QR exports.
     if (batchIndex >= size) throw Malformed()
-    return MigrationResult(imported, skipped, batchIndex, size)
+    return MigrationResult(imported, skipped, batchIndex, size, leftOut)
 }
