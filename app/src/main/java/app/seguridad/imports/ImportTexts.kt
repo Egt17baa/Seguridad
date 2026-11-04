@@ -221,8 +221,8 @@ const val IMPORT_CHOICE_KEEP_BOTH = "Conservar los dos"
 const val IMPORT_CHOICE_REPLACE = "Reemplazar"
 const val IMPORT_REPLACE_NOTE =
     "«Reemplazar» toma del archivo el título, el usuario, la contraseña, la web y el 2FA que no estén vacíos, y suma sus " +
-        "notas y sus etiquetas (hasta 10 por entrada) a las de la bóveda. La contraseña anterior queda en el historial; los adjuntos y el " +
-        "favorito no cambian."
+        "notas y sus etiquetas (hasta 10 por entrada) a las de la bóveda. La contraseña anterior queda en el historial; " +
+        "los adjuntos y el favorito no cambian."
 
 fun importRepeatedText(n: Int): String =
     if (n == 1) "1 elemento está repetido dentro del archivo: entra solo una vez." else "$n elementos están repetidos dentro del archivo: entra solo uno de cada."
@@ -233,17 +233,21 @@ fun importBecameNotesText(n: Int): String =
 /** Most new tags the preview names; the rest are counted ([importNewTagsText]). */
 const val IMPORT_TAGS_SHOWN = 20
 
-/** The new tags: the first [IMPORT_TAGS_SHOWN] by name, then «y N más». */
+/** The new tags: the first [IMPORT_TAGS_SHOWN] in the order given (that of the merged entries, not sorted), then «y N más». */
 fun importNewTagsText(tags: List<String>): String {
     val shown = tags.take(IMPORT_TAGS_SHOWN).joinToString(", ") { "#$it" }
     val more = tags.size - IMPORT_TAGS_SHOWN
     return "Etiquetas nuevas: " + shown + if (more > 0) " y $more más." else ""
 }
 
-/** Ruling R18: folders past [IMPORT_MAX_NEW_TAGS] new tags, whose items keep only the origin tag. */
+/**
+ * Ruling R18: [n] distinct folders (as tags normalise them) whose new tag [IMPORT_MAX_NEW_TAGS] really kept off their
+ * entries ([MergeResult.foldersNotTags]); those entries keep the origin tag and the tags that already existed.
+ */
 fun importFoldersNotTagsText(n: Int): String =
     (if (n == 1) "1 carpeta del archivo no pasa a etiqueta" else "$n carpetas del archivo no pasan a etiqueta") +
-        ": una importación crea como mucho $IMPORT_MAX_NEW_TAGS etiquetas nuevas. Esas entradas llevan solo la etiqueta de origen."
+        " en sus entradas: una importación crea como mucho $IMPORT_MAX_NEW_TAGS etiquetas nuevas. Esas entradas llevan la " +
+        "etiqueta de origen y las etiquetas que ya existían."
 const val IMPORT_NEW_TAGS_NONE = "No se crea ninguna etiqueta nueva."
 
 /** The title of «no entran», with how many. */

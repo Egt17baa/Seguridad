@@ -17,7 +17,6 @@ import app.seguridad.crypto.pk.Received
 import app.seguridad.crypto.pk.SIGNATURE_EXTENSION
 import app.seguridad.crypto.pk.decryptFileFor
 import app.seguridad.crypto.pk.decryptMessage
-import app.seguridad.imports.plainReportText
 import app.seguridad.crypto.pk.PK_VERSION
 import app.seguridad.crypto.pk.decodeStrictUtf8
 import app.seguridad.crypto.pk.detectReceivedWithBytes
@@ -29,6 +28,7 @@ import app.seguridad.crypto.pk.signText
 import app.seguridad.crypto.pk.verifyFileSignature
 import app.seguridad.crypto.pk.verifySignedText
 import app.seguridad.crypto.safeFileName
+import app.seguridad.imports.plainReportText
 import app.seguridad.tools.sameKeyContactsText
 import java.io.File
 import java.io.FileOutputStream

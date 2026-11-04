@@ -308,6 +308,14 @@ class ImportStateTest {
         assertEquals(0, s.foldersNotTags)
     }
 
+    @Test fun anEstimateWithoutTagsNamesNone() {
+        // Round 2, minor 1: after an unexpected error the tags are unknown, never «ninguna etiqueta nueva».
+        val (s, _) = atPreview()
+        s.estimated(s.plan!!, s.default, s.overrides, PreviewEstimate(0, null, 0))
+        assertNull(s.newTags)
+        assertTrue(s.canConfirm)
+    }
+
     @Test fun tappingTheChoiceAlreadyMadeKeepsTheEstimate() {
         // I-1: no state changes, so no new estimate would come; «Importar» must stay as it was.
         val (s, _) = atPreview()
