@@ -72,3 +72,16 @@ Task 4: re-review 1 sonnet a33bb8c0665473375
 Task 4: fix round 1/5 (4 addressed, 0 open; commits 0b9cb46..54161a8)
 Task 4: complete (commits 556ed66..54161a8, review clean)
 Task 4: phone tests for T12 README — Repartir un secreto: split a 12- and a 24-word phrase and recombine; one official vector; time with exponent 8 and «Cancelar»; lock/away wipes everything; TalkBack on the warning card.
+Task 5: dispatched (BASE 2db90e1, implementer opus adf266f9c07dd5775, owner decision (a)/(b) carried: bounded temp, single read / import what was checked, unique run dir)
+Task 5: implementer DONE_WITH_CONCERNS (d27b5e2). 1421 app / 1416 jvm-check green (one test-only lateinit→val after full run; BackupCheck* re-run green).
+Ruling R5 (Task 5): accept importReplace sharing checkCopyEntries/attachmentInCopy instead of calling checkBackup whole — why: calling it would need a second Argon2id or moving the KDF out of the mutex, and checkBackup deletes its temp; shared functions in the same order keep the checks from drifting. Reviewer verifies no drift and no TOCTOU. New BACKUP_MAX_READ_BYTES 110 MiB in BackupReader: reviewer must confirm every backup an earlier version could write stays readable.
+Task 5: reviewer opus a004a745505510fd9 (review-2db90e1..d27b5e2.diff)
+Task 5: review → spec ✅ (R5), quality Needs fixes (I1 data key not zeroed when cancelled during Argon2id — needs NonCancellable; I2 'never two Argon2id at once' broken after Cancelar: stop() nulls job, join cancellable; m1 empty run-… dir left if cancelled at mkdir; m2 BackupCheckReport KDoc overstates — only A8 re-wrap is import-only; ⚠️ picker without keepOpenOnce with vault open → treated as m3, follow «Importar copia» picker pattern). Fix round 1 dispatched (FIX_BASE d27b5e2, resume adf266f9c07dd5775)
+Task 5: fix round 1 implemented (22cee96); m3 adds store.touch() (inactivity + A11 mark) — re-review checks against 'writes nothing'
+Task 5: re-review 1 sonnet a6d9336810fb5dee7
+Task 5: fix round 1/5 (5 addressed, 0 open, 2 new minors — touch() may write A11 clock mark so «no toca tus ajustes»/KDoc/brief «writes nothing else» overstate; PlatformSourcesTest picker assertion whitespace-exact; commits d27b5e2..22cee96)
+Ruling R6 (Task 5): keep store.touch() (same as «Importar copia»: resets inactivity, may raise the A11 clock mark only upward); make BACKUP_CHECK_INTRO and the KDoc true instead — why: the A11 mark is a security mark, consistent with every unlock; the texts must not claim more. Cost if wrong: drop touch() later. Fix round 2 dispatched.
+Task 5: fix round 2 implemented (5958932); re-review 2 resume a6d9336810fb5dee7
+Task 5: fix round 2/5 (2 addressed, 0 open; commits 22cee96..5958932)
+Task 5: complete (commits 2db90e1..5958932, review clean)
+Task 5: phone tests for T12 README — Comprobar una copia: a real backup (size with Android zlib), wrong password, Cancelar during Argon2id then start again, pick the file with the vault open (no lock/wipe), leave the app mid-run (no temp left in cacheDir/comprobar).
