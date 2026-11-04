@@ -218,7 +218,7 @@ class PlatformSourcesTest {
         assertTrue(task, "\"slip39_english.txt\"" in task.substringAfter("val wordLists = listOf(").substringBefore(")"))
     }
 
-    @Test fun `Comprobar una copia has the guard of the other tools, stops its run and writes nothing`() {
+    @Test fun `Comprobar una copia has the guard of the other tools, stops its run and changes neither the vault nor a copy`() {
         val src = code("ui/screens/BackupCheckScreen.kt")
         // Nothing secret reaches saved state; the ViewModel wipes the session on being cleared, and a wipe stops the run.
         assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
@@ -239,14 +239,17 @@ class PlatformSourcesTest {
         // A lock of the vault and leaving the app (not a rotation) stop the run going on.
         assertTrue("if (wasOpen && !open) runs.stop()" in src)
         assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }" in src)
-        // It writes nothing: the screen only reads the vault's state and its lock count, and none of its files changes
-        // the vault, the settings, the fingerprint or a copy.
+        // The screen reads the vault's state and its lock count and, for the picker, touches it (the idle count and the
+        // A11 clock mark, as «Importar copia»); none of its files changes the vault, a setting, the fingerprint or a copy.
         assertEquals(setOf("state", "lockEpoch", "touch"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
         // m3: the picker as «Importar copia»'s (VaultBackup.kt): the vault stays open while it is on top, the time away
         // counts from the tap, and the flag goes back if the picker never opened (MainActivity.onStart takes it back).
+        // The four steps in this order, whatever the spacing and line breaks.
+        val flat = src.replace(Regex("""\s+"""), " ")
         assertTrue(
-            ("VaultLock.keepOpenOnce = true\n                store.touch()\n                pickerError = pick.launchOrError(arrayOf(\"*/*\"))\n" +
-                "                if (pickerError != null) VaultLock.keepOpenOnce = false") in src,
+            flat,
+            ("VaultLock.keepOpenOnce = true store.touch() pickerError = pick.launchOrError(arrayOf(\"*/*\")) " +
+                "if (pickerError != null) VaultLock.keepOpenOnce = false") in flat,
         )
         val importer = code("ui/screens/VaultBackup.kt").substringAfter("import = {").substringBefore("changeMaster = ")
         assertTrue(importer, "VaultLock.keepOpenOnce = true" in importer && "store.touch()" in importer && "importer.launchOrError(arrayOf(\"*/*\"))" in importer)
