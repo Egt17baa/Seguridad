@@ -41,26 +41,18 @@ internal fun csvHeader(text: String): List<String>? {
 }
 
 /**
- * «;» when the header line (the first one that is not blank, outside quotes) has more semicolons than commas, as a
- * spreadsheet in Spanish saves; «,» otherwise, also on a tie.
+ * «;» when the header line has more cells read with «;» than with «,», as a spreadsheet in Spanish saves; «,» otherwise,
+ * also on a tie. Each count is the parser's own reading of the first record that is not blank ([csvFirstRecordCells]),
+ * with its rules for quotes (a quote opens only at the start of a field), so the delimiter chosen and the parse agree.
  */
-internal fun csvDelimiter(text: String): Char {
-    var commas = 0
-    var semicolons = 0
-    var quoted = false
-    var seen = false
-    for (c in text) {
-        when {
-            c == '"' -> quoted = !quoted
-            quoted -> {}
-            c == '\n' || c == '\r' -> if (seen) break else continue
-            c == ',' -> commas++
-            c == ';' -> semicolons++
-        }
-        seen = true
-    }
-    return if (semicolons > commas) ';' else ','
-}
+internal fun csvDelimiter(text: String): Char =
+    if (csvFirstRecordCells(text, ';') > csvFirstRecordCells(text, ',')) ';' else ','
+
+/**
+ * How many cells the parser reads in the first record that is not blank with [delimiter]: nothing is stored and no
+ * limit applies (the count is at most the length of the text). An unclosed quote ends the count where the text ends.
+ */
+internal fun csvFirstRecordCells(text: String, delimiter: Char): Int = CsvReader(text, delimiter).countFirstRecord()
 
 private class CsvReader(private val text: String, private val delimiter: Char) {
     private var pos = 0
@@ -70,6 +62,21 @@ private class CsvReader(private val text: String, private val delimiter: Char) {
 
     /** The record being read; null until its first cell. */
     private var row: ArrayList<String>? = null
+
+    /** [countFirstRecord] mode: fields are only counted, in [counted], never stored or limited. */
+    private var counting = false
+    private var counted = 0
+
+    /** The cells of the first record that is not blank, by the same reading as [next], without storing them. */
+    fun countFirstRecord(): Int {
+        counting = true
+        try {
+            while (pos < text.length) record() ?: continue
+        } catch (e: ImportFailure) {
+            // An unclosed quote: what was counted up to the end of the text is the answer.
+        }
+        return counted
+    }
 
     /** The next row, or null at the end; blank lines are passed over. */
     fun next(): List<String>? {
@@ -134,14 +141,22 @@ private class CsvReader(private val text: String, private val delimiter: Char) {
         }
         if (!lineHasContent) return null
         endField()
+        if (counting) {
+            pos = text.length // the first record is all a count needs
+            return emptyList()
+        }
         return row.also { row = null }
     }
 
     private fun append(c: Char) {
-        if (field.length < CSV_MAX_FIELD_CHARS) field.append(c)
+        if (!counting && field.length < CSV_MAX_FIELD_CHARS) field.append(c)
     }
 
     private fun endField() {
+        if (counting) {
+            counted++
+            return
+        }
         val current = row ?: ArrayList<String>().also { row = it }
         if (current.size >= CSV_MAX_COLUMNS) throw ImportFailure(IMPORT_CSV_TOO_MANY_COLUMNS)
         if (++cells > CSV_MAX_CELLS) throw ImportFailure(IMPORT_CSV_TOO_MANY_CELLS)
