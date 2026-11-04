@@ -200,7 +200,8 @@ private class ImportViewModel(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    PreviewEstimate(0L, emptySet(), 0) // The save's exact check decides.
+                    // The save's exact check decides; the tags are unknown, so the preview claims nothing about them.
+                    PreviewEstimate(0L, null, 0)
                 }
                 session.estimated(plan, default, overrides, estimate)
             }

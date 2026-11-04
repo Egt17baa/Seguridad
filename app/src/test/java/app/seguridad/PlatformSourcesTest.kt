@@ -520,6 +520,8 @@ class PlatformSourcesTest {
             assertTrue(picker, screen.indexOf(picker) in 0 until lockedReturn)
         }
         assertTrue("if (uri != null && store.state.value is VaultState.Unlocked) vm.pick(uri)" in src)
+        // Round 2, minor 1: the estimate's fallback claims nothing about the tags.
+        assertTrue("PreviewEstimate(0L, null, 0)" in src && "emptySet()" !in src)
         // M-5: «Elegir otro archivo» on the password step opens the picker, as on the other steps.
         assertTrue(flat, "OutlinedButton(onClick = { vm.cancel() launchPick() }" in flat)
         // R18: the vault's tag chips are lazy.

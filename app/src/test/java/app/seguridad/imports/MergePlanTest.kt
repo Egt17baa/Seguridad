@@ -304,9 +304,37 @@ class MergePlanTest {
         assertEquals(listOf(ORIGIN_TAG_AEGIS, "casa"), budget.tagsFor(listOf("Casa"), ImportFormat.AEGIS))
         assertEquals(listOf(ORIGIN_TAG_AEGIS, "uno"), budget.tagsFor(listOf("Uno"), ImportFormat.AEGIS))
         assertEquals(listOf(ORIGIN_TAG_AEGIS, "casa", "uno"), budget.tagsFor(listOf("Casa", "Uno"), ImportFormat.AEGIS))
-        assertEquals(listOf(ORIGIN_TAG_AEGIS), budget.tagsFor(listOf("Casa", "Dos"), ImportFormat.AEGIS))
-        assertEquals(1, budget.foldersNotTags)
+        // Round 2, minor 3: over the cap only the NEW folder tag goes; «casa» (the vault's) and «uno» (created) stay.
+        assertEquals(listOf(ORIGIN_TAG_AEGIS, "casa", "uno"), budget.tagsFor(listOf("Casa", "Dos", "Uno"), ImportFormat.AEGIS))
         assertEquals(setOf(ORIGIN_TAG_AEGIS, "uno"), budget.created)
+    }
+
+    @Test fun foldersNotTagsCountsTheDistinctFoldersReallyLeftOut() {
+        // Round 2, minors 2 and 4: two folders that normalise to one tag count once; an existing tag is never counted.
+        val items = (0 until IMPORT_MAX_NEW_TAGS).map { login(it, "T$it", user = "u$it", folders = listOf("c$it")) } +
+            login(200, "X", user = "x", folders = listOf("Finanzas", "Sobra")) +
+            login(201, "Y", user = "y", folders = listOf("sobra ")) +
+            login(202, "Z", user = "z", folders = listOf("Otra"))
+        val p = plan(read(*items.toTypedArray()), listOf(bank))
+        val r = mergeImport(p, DuplicateChoice.SKIP, emptyMap(), listOf(bank), now, newId)
+        assertEquals(2, r.foldersNotTags) // «sobra» and «otra».
+        assertEquals(listOf(ORIGIN_TAG_BITWARDEN, "finanzas"), r.entries.first { it.title == "X" }.tags)
+    }
+
+    @Test fun aReplacedEntryThatCouldTakeNoTagLostNothing() {
+        // Round 2, minor 4: under «Reemplazar» an entry already at MAX_TAGS takes no tag, so the cap took nothing from it.
+        val fillers = (0 until IMPORT_MAX_NEW_TAGS).map { login(it, "T$it", user = "u$it", folders = listOf("c$it")) }
+        val full = saved("f", EntryType.LOGIN, "Lleno", user = "ana", tags = (1..MAX_TAGS).map { "t$it" })
+        val dup = login(500, "Lleno", user = "ana", folders = listOf("Nueva"))
+        val p = plan(read(*(fillers + dup).toTypedArray()), listOf(full))
+        assertEquals(1, p.duplicates.size)
+        assertEquals(0, mergeImport(p, DuplicateChoice.REPLACE, emptyMap(), listOf(full), now, newId).foldersNotTags)
+        // With room in the entry, the same folder is really left out.
+        val roomy = saved("f", EntryType.LOGIN, "Lleno", user = "ana", tags = listOf("t1"))
+        val q = plan(read(*(fillers + dup).toTypedArray()), listOf(roomy))
+        val r = mergeImport(q, DuplicateChoice.REPLACE, emptyMap(), listOf(roomy), now, newId)
+        assertEquals(1, r.foldersNotTags)
+        assertEquals(listOf("t1", ORIGIN_TAG_BITWARDEN), r.entries.first { it.id == "f" }.tags)
     }
 
     @Test fun theMergedNewTagsLeaveOutWhatAFullEntryCannotTake() {

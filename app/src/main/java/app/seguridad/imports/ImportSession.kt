@@ -441,10 +441,11 @@ fun previewCounts(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int,
 
 /**
  * What the preview shows of the vault after the import with some choices: how much it passes a copy's limit
- * ([estimatedOverBytes], 0 when it fits), the tags it creates and the folders left without one (ruling R18; M-1: from
+ * ([estimatedOverBytes], 0 when it fits), the tags it creates (null when unknown: then the preview names none and says
+ * nothing about them) and the folders left without one (ruling R18; M-1: from
  * the merged entries themselves, so a replaced entry already at 10 tags adds none).
  */
-data class PreviewEstimate(val overBytes: Long, val newTags: Set<String>, val foldersNotTags: Int)
+data class PreviewEstimate(val overBytes: Long, val newTags: Set<String>?, val foldersNotTags: Int)
 
 /**
  * The [PreviewEstimate] of the import with these choices, against [existing] (the snapshot the plan was built on), off
