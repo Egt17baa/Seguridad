@@ -475,4 +475,104 @@ class PlatformSourcesTest {
         // Review round 1, minor 1: a system trust manager it cannot take refuses every connection; the app does not close.
         assertTrue(Regex("""catch \(e: IllegalArgumentException\) \{\s*return \{ _, _, _ -> throw CertificateException\(""").containsMatchIn(src))
     }
+
+    @Test fun `Importar de otra app holds what it read in a ViewModel, reads the file once and drops all on lock or back`() {
+        val src = code("ui/screens/ImportScreen.kt")
+        val flat = src.replace(Regex("""\s+"""), " ")
+        // Nothing read, typed or planned reaches saved state; leaving the screen wipes it; a wipe stops what runs.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        assertTrue("val session: ImportSession = ImportSession(ComposeCells, SystemClock.elapsedRealtime()) { stopAll() }" in src)
+        // The guard of the other tools, plus any lock of the vault (not only the «PIN y códigos» rule).
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src && "GuardEffects(s.guard, lockAfterMs)" in src)
+        assertTrue("store.state.collect { session.vaultStateIs(it is VaultState.Unlocked) }" in flat)
+        assertTrue("session.guard.typed()" in src && "Text(IMPORT_WIPE_NOTE" in src)
+        assertTrue("usedFor(s.guard)" in flat && "touchesVault(store)" in src && "VaultIdleLock(store)" in src)
+        // Owner's decision (a): at most one byte past the limit, on IO, cancellable; (b): the document is opened once.
+        assertTrue(".readAtMost(IMPORT_MAX_BYTES + 1)" in flat && "withContext(Dispatchers.IO)" in src)
+        assertEquals(1, Regex("""openInputStream\(""").findAll(src).count())
+        assertTrue("StopOnCancel(raw) { reading.ensureActive() }" in src && "check()" in src)
+        // R11b: the reader off the main thread, and OutOfMemoryError caught around that one call only.
+        assertEquals(1, Regex("""\breadImport\(""").findAll(src).count())
+        assertEquals(1, Regex("""OutOfMemoryError""").findAll(src).count())
+        assertTrue(flat, "withContext(Dispatchers.Default) { try { readImport(bytes, pw) } catch (e: OutOfMemoryError) { null } }" in flat)
+        // The password is a CharArray zeroed however the read ends; one KDF at a time (SingleRun), released when it ends.
+        assertTrue("pw?.fill('\\u0000')" in src && "IMPORT_KDF_RUN.start()" in src && "ticket?.release()" in src)
+        assertTrue("bytes?.fill(0)" in code("imports/ImportSession.kt") || "it.fill(0)" in code("imports/ImportSession.kt"))
+        // The plan only from one snapshot (entries and revision read together, as planImport does, kept for the
+        // estimate); the confirmation only through ImportFlow, which a back or a lock does not cut.
+        assertTrue("val snap = store.importSnapshot()" in src && "planMerge(read, it.entries, it.revision)" in src)
+        assertEquals(1, Regex("""planMerge\(""").findAll(src).count())
+        assertEquals("the revision only from the snapshot", 1, Regex("""\.revision\b""").findAll(src).count())
+        assertTrue("ImportFlow(" in src && "store.applyImport(plan, default, overrides)" in src && "withContext(NonCancellable)" in src)
+        assertTrue("copyBeforeImport()" in src)
+        // Both pickers as «Importar copia»: the vault stays open while one is on top; the flag goes back if none opened.
+        assertTrue(flat, ("VaultLock.keepOpenOnce = true store.touch() pickerError = pick.launchOrError(arrayOf(\"*/*\")) " +
+            "if (pickerError != null) VaultLock.keepOpenOnce = false") in flat)
+        assertTrue(flat, ("VaultLock.keepOpenOnce = true store.touch() pickerError = createCopy.launchOrError(importCopyFileName(LocalDateTime.now())) " +
+            "if (pickerError != null) VaultLock.keepOpenOnce = false") in flat)
+        // A document created for the copy and not used (refused, failed) is deleted, never left empty.
+        assertTrue("discardDocumentNow(appContext, uri)" in src)
+        // «Quitar el archivo exportado»: the document picked in this run, once, after an import; the provider asked first.
+        assertEquals(1, Regex("""DocumentsContract\.deleteDocument\(""").findAll(src).count())
+        assertTrue("FLAG_SUPPORTS_DELETE" in src && "DocumentsContract.isDocumentUri(" in src && "session.takeRemovable()" in src)
+        // Owner's decision (c): what comes from the file is plain text; never a link, an intent, HTML or an annotation.
+        for (file in listOf(src, code("imports/ImportSession.kt"))) {
+            for (w in listOf("openUri", "UriHandler", "Linkify", "LinkAnnotation", "ACTION_VIEW", "fromHtml", "AnnotatedString", "ClickableText", "startActivity", "Log.")) {
+                assertFalse(w, w in file)
+            }
+        }
+        assertTrue(Regex("""plainReportText\(""").findAll(src).count() >= 5)
+        // The entry in the vault's menu, next to «Importar copia», and its route.
+        val vault = code("ui/screens/VaultScreen.kt")
+        assertTrue(vault.indexOf("Text(IMPORT_TITLE)") > vault.indexOf("Text(\"Importar copia\")"))
+        assertTrue("composable(\"vault/import\")" in code("ui/AppNavHost.kt"))
+        assertTrue(
+            "ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)" in
+                code("ui/AppNavHost.kt"),
+        )
+    }
+
+    /**
+     * Ruling R9: a title, user, URL, service, account or tag is stored as it was read or typed, and SHOWN through
+     * plainReportText (controls become spaces, bidi and invisible characters go) wherever it appears: the lists, the
+     * entry's header and fields, the dialogs that name it, the 2FA QR, «Salud» and the contacts. Editing fields keep
+     * the stored text.
+     */
+    @Test fun `R9 every title, user, URL, service, account and tag shown goes through plainReportText`() {
+        val pins = mapOf(
+            "ui/screens/VaultScreen.kt" to listOf(
+                "Text(plainReportText(e.title), maxLines = 1",
+                "if (sub.isNotBlank()) Text(plainReportText(sub)",
+                "label = { Text(\"#\${plainReportText(t)}\") }",
+            ),
+            "ui/screens/VaultEntryScreen.kt" to listOf(
+                "BackScaffold(\"\${typeIcon(entry.type)} \${plainReportText(entry.title)}\", onBack)",
+                "Field(\"Usuario\", entry.username, plain = true)",
+                "Field(\"Web\", entry.url, plain = true)",
+                "if (plain) plainReportText(value, value.length) else value",
+                "entry.tags.map { \"#\${plainReportText(it)}\" }",
+                "Text(\"¿Borrar «\${plainReportText(entry.title)}»?\")",
+                "\${plainReportText(entries.single().title)}",
+                "entries.joinToString(\", \") { plainReportText(it.title) }",
+            ),
+            "ui/screens/OtpQrScreen.kt" to listOf("Text(plainReportText(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(\" · \"))"),
+            "ui/screens/HealthScreen.kt" to listOf("Text(plainReportText(title).ifEmpty { \"(sin título)\" }"),
+            "ui/screens/ContactsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(e.title)), maxLines = 1"),
+            "ui/screens/ContactDetailScreen.kt" to listOf("Text(plainReportText(shownContactTitle(entry.title)), style"),
+            "ui/screens/PkActionsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(c.title)), maxLines = 1"),
+        )
+        for ((file, snippets) in pins) {
+            val src = code(file)
+            for (s in snippets) assertTrue("$file: $s", s in src)
+        }
+        // The TOTP header of the entry, twice (a code shown, a code this app does not calculate).
+        assertEquals(2, Regex(Regex.escape("Text(plainReportText(listOf(t.issuer, t.account).filter { it.isNotBlank() }.joinToString(\" · \"))")).findAll(code("ui/screens/VaultEntryScreen.kt")).count())
+        // Nowhere in the UI a stored title, user or URL, or a 2FA's names, straight into a Text or a title.
+        val raw = Regex("""(Text\(|BackScaffold\()[^\n]*?\b(e|entry|it|item|existing)\.(title|username|url)\b|Text\(listOf\(\w+\.issuer""")
+        val bad = mainDir().resolve("ui").walkTopDown().filter { it.isFile && it.extension == "kt" }.flatMap { f ->
+            code("ui/" + f.relativeTo(mainDir().resolve("ui")).invariantSeparatorsPath).lines().filter { raw.containsMatchIn(it) && "plainReportText(" !in it }.map { "${f.name}: ${it.trim()}" }
+        }.toList()
+        assertEquals(emptyList<String>(), bad)
+    }
 }

@@ -1,7 +1,10 @@
 package app.seguridad.imports
 
+import app.seguridad.tools.ForbiddenWords
 import app.seguridad.tools.kotlinLiterals
+import app.seguridad.vault.EntryType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -112,4 +115,59 @@ class ImportTextsTest {
         assertTrue(namesIn("Nombre (p. ej. «Binance» o «Ledger»)").isEmpty())
         assertTrue(namesIn("knowledge").isEmpty())
     }
+
+    // ---- Task 9: the texts of the «Importar de otra app» screen ----
+
+    /** Every fixed text the screen shows, and samples of those it builds. */
+    private val screenTexts = listOf(
+        IMPORT_TITLE, IMPORT_INTRO, IMPORT_FORMATS, IMPORT_TRADEMARKS, IMPORT_NOT_PROTECTED, IMPORT_WIPE_NOTE, IMPORT_PICK,
+        IMPORT_PICK_OTHER, IMPORT_READING, IMPORT_CANCEL, IMPORT_READ_FAILED, IMPORT_PASSWORD_INTRO, IMPORT_PASSWORD_LABEL,
+        IMPORT_PASSWORD_OPEN, IMPORT_PASSWORD_TOO_LONG, IMPORT_ENCRYPTED_NOT_YET, IMPORT_KDF_BUSY, IMPORT_PREVIEW_TITLE,
+        IMPORT_DUPLICATES_ALL, IMPORT_REPLACE_NOTE, IMPORT_CHOICE_SKIP, IMPORT_CHOICE_KEEP_BOTH, IMPORT_CHOICE_REPLACE,
+        IMPORT_SKIPPED_TITLE, IMPORT_NO_TITLE, IMPORT_NEW_TAGS_NONE, IMPORT_CONFIRM, IMPORT_CONFIRM_NOTE, IMPORT_ESTIMATING,
+        IMPORT_NOTHING_TO_DO, IMPORT_SAVING, IMPORT_CHOOSE_COPY_PLACE, IMPORT_CHOOSE_COPY_PLACE_BUTTON, IMPORT_COPY_CANCELLED,
+        IMPORT_COPY_DOCUMENT_FAILED, IMPORT_VAULT_CHANGED, IMPORT_DONE_TITLE, IMPORT_SKIPPED_DONE_TITLE, IMPORT_REMOVE,
+        IMPORT_REMOVE_EXPLAIN, IMPORT_REMOVE_DECLINE, IMPORT_REMOVING, IMPORT_REMOVED, IMPORT_REMOVE_FAILED,
+        IMPORT_REMOVE_UNSUPPORTED, IMPORT_REMOVE_DECLINED, IMPORT_ENDED_TITLE,
+        importTooBigText(5L * 1024 * 1024, 3), importDoneText(2, 1), importDoneText(0, 0),
+        previewEntersText(mapOf(EntryType.LOGIN to 2, EntryType.TOTP to 1)), importReplacedText(2), importDuplicatesText(4),
+        importRepeatedText(2), importBecameNotesText(1), importNewTagsText(listOf("importado-bitwarden", "casa")),
+        importCopyWhereText("copia.sgbak", inAutoFolder = true), importCopyWhereText("copia.sgbak", inAutoFolder = false),
+        importSkippedLine("Banco", SkipReason.PASSKEY.text), importFileText("export.csv"),
+    )
+
+    @Test fun theScreenTextsPassTheForbiddenWordRules() {
+        for (t in screenTexts) assertEquals(t, emptyList<String>(), ForbiddenWords.problems(t))
+    }
+
+    @Test fun theTrademarkLineIsVerbatimAndOnTheScreen() {
+        assertEquals("Los nombres de otras apps son marcas de sus titulares. Clavero no tiene relación con ellos.", IMPORT_TRADEMARKS)
+        val screen = mainSources()[SCREEN_FILE] ?: error("$SCREEN_FILE not found")
+        assertTrue("Text(IMPORT_TRADEMARKS" in screen)
+    }
+
+    @Test fun theScreenSaysWhatItDoesNotProtect() {
+        for (place in listOf("nube", "papelera", "otras apps")) assertTrue(place, place in IMPORT_NOT_PROTECTED)
+        assertTrue("Text(IMPORT_NOT_PROTECTED" in (mainSources()[SCREEN_FILE] ?: error("$SCREEN_FILE not found")))
+    }
+
+    @Test fun removingTheExportedFileSaysWhatItDoesNotErase() {
+        for (place in listOf("nube", "papelera", "otras apps")) assertTrue(place, place in IMPORT_REMOVE_EXPLAIN)
+        assertTrue("no garantiza" in IMPORT_REMOVE_EXPLAIN)
+        // The explanation is shown with the offer, and a failure or a provider that cannot delete says «a mano».
+        for (t in listOf(IMPORT_REMOVE_FAILED, IMPORT_REMOVE_UNSUPPORTED)) assertTrue(t, "a mano" in t)
+        val screen = mainSources()[SCREEN_FILE] ?: error("$SCREEN_FILE not found")
+        assertTrue("Text(IMPORT_REMOVE_EXPLAIN" in screen)
+    }
+
+    @Test fun theScreenNamesNoOtherProductOutsideImportTexts() {
+        val sources = mainSources()
+        assertTrue(SCREEN_FILE in sources)
+        assertEquals(emptyList<String>(), violations(mapOf(SCREEN_FILE to sources.getValue(SCREEN_FILE))))
+        // Where the screen says which formats it reads: the names are in ImportTexts.kt.
+        assertTrue(namesIn(IMPORT_FORMATS).size >= 5)
+        assertFalse(namesIn(IMPORT_TRADEMARKS).isNotEmpty())
+    }
+
+    private val SCREEN_FILE = "app/seguridad/ui/screens/ImportScreen.kt"
 }
