@@ -62,6 +62,7 @@ import app.seguridad.vault.BackupCheckRuns
 import app.seguridad.vault.BackupCheckSession
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MIN_MASTER
+import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.backupCheckAttachments
@@ -87,7 +88,9 @@ import java.io.IOException
  * left. «Comprobar» takes the password as a CharArray and empties the field; [BackupCheckRuns] zeroes it when the check
  * ends or stops. A check runs [checkBackup] in its own folder of cacheDir/comprobar/ (deleted however it ends); it stops,
  * and its result is dropped, on a new check, «Cancelar», leaving the screen, leaving the app or a lock of the vault.
- * It writes nothing else: no vault, no settings, no copy.
+ * It writes nothing else: no vault, no settings, no copy. Choosing the file is as in «Importar copia»: the picker keeps
+ * the vault open ([VaultLock.keepOpenOnce]) and `store.touch()` restarts its idle count, which is all the screen does
+ * to the store.
  */
 private class BackupCheckViewModel(
     private val appContext: Context,
@@ -213,7 +216,14 @@ fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
         // Every file: cloud providers label a .sgbak as they like; the first bytes are checked right after picking.
         OutlinedButton(
             enabled = !s.busy,
-            onClick = { pickerError = pick.launchOrError(arrayOf("*/*")) },
+            onClick = {
+                // As «Importar copia» (VaultBackup.kt): the picker keeps the vault open while it is on top, and the time
+                // away counts from here (AWAY_BACKSTOP_MS with «Al salir»); MainActivity.onStart takes the flag back.
+                VaultLock.keepOpenOnce = true
+                store.touch()
+                pickerError = pick.launchOrError(arrayOf("*/*"))
+                if (pickerError != null) VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
+            },
             modifier = Modifier.fillMaxWidth(),
         ) { Text(s.fileName ?: BACKUP_CHECK_PICK) }
         pickerError?.let { Text(it, color = NegativeColor) }

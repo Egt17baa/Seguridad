@@ -104,26 +104,6 @@ class BackupCheckSessionTest {
         assertNull(rig.session.report)
     }
 
-    @Test fun aNewRunWaitsForTheOneItStopped() = runTest {
-        val rig = Rig(this)
-        val order = mutableListOf<String>()
-        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
-        rig.runs.start(master()) {
-            // Work that cannot be cut (as Argon2id): it ignores the cancellation and ends on its own.
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { gate.await() }
-            order += "primera"
-            report
-        }
-        testScheduler.advanceUntilIdle()
-        rig.runs.start(master()) { order += "segunda"; report }
-        testScheduler.advanceUntilIdle()
-        assertEquals(emptyList<String>(), order)
-        gate.complete(Unit)
-        testScheduler.advanceUntilIdle()
-        assertEquals(listOf("primera", "segunda"), order)
-        assertEquals(report, rig.session.report)
-    }
-
     @Test fun aFailureShowsItsMessage() = runTest {
         val rig = Rig(this)
         rig.runs.start(master()) { throw CryptoFailure(BACKUP_NEWER) }

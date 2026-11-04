@@ -55,8 +55,9 @@ class BackupCheckSession(
  * CharArray it owns: zeroed when the run ends, and at once by [stop]. Only the last run started shows its report or
  * its error, and only if the vault was not locked meanwhile ([lockEpoch], VaultStore.lockEpoch, which also goes up on
  * leaving the app): [stop] (a wipe, «Cancelar», a lock, a new run) cancels the run going on, and a result that still
- * arrives later is dropped. A new run starts its work only once the one it stopped has ended. The run's temporary
- * folder is [checkBackup]'s own, deleted however it ends.
+ * arrives later is dropped. A run stopped during its Argon2id still ends that derivation (it cannot be cut), and the
+ * next run's derivation waits for it ([checkBackup] takes one derivation at a time in the process, whatever this class
+ * does). The run's temporary folder is [checkBackup]'s own, deleted however it ends.
  */
 class BackupCheckRuns(
     private val session: BackupCheckSession,
@@ -81,7 +82,6 @@ class BackupCheckRuns(
 
     /** Checks with [op], which gets [password] (owned from now on: zeroed however the run ends). */
     fun start(password: CharArray, op: suspend (CharArray) -> BackupCheckReport) {
-        val previous = job
         stop()
         val mine = ++runId
         val epoch = lockEpoch()
@@ -91,8 +91,6 @@ class BackupCheckRuns(
         session.busy = true
         job = scope.launch {
             try {
-                // A run stopped while in Argon2id ends it first (it cannot be cut): never two derivations at once.
-                previous?.join()
                 val report = op(password)
                 if (current(mine, epoch)) session.report = report
             } catch (e: CancellationException) {
