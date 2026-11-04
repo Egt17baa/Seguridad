@@ -10,6 +10,8 @@ import app.seguridad.settings.clockMarkWorthWriting
 import app.seguridad.settings.resettingClock
 import app.seguridad.settings.seeingClock
 import app.seguridad.settings.currentAutoBackupCopies
+import app.seguridad.settings.currentImportCopies
+import app.seguridad.settings.withImportCopy
 import app.seguridad.settings.withAutoBackupResult
 import app.seguridad.tools.ClipboardNoticeRequest
 import app.seguridad.tools.share.ShareTemp
@@ -279,6 +281,8 @@ class AppContainer(
         replaceTargets = { settings.settings.value.autoBackupReplaceTargets },
         replaceTold = { settings.settings.value.autoBackupReplaceTold },
         onResult = ::recordAutoBackup,
+        importCopies = { settings.settings.value.currentImportCopies },
+        onImportCopy = ::recordImportCopy,
     )
 
     /**
@@ -289,7 +293,8 @@ class AppContainer(
         appScope,
         replace = autoBackup::replaceOldCopies,
         now = System::currentTimeMillis,
-        oldCopies = { settings.settings.value.currentAutoBackupCopies },
+        // 1.4.0: the import copies too, as they are under the password of before (AutoBackup.copyBeforeImport).
+        oldCopies = { settings.settings.value.let { it.currentAutoBackupCopies + it.currentImportCopies } },
     )
 
     /**
@@ -310,6 +315,20 @@ class AppContainer(
      * generation is read inside the settings' lock: an import bumps it before it forgets the list (a write that takes that
      * same lock), so a copy of the replaced vault can never put its list back, whichever of the two writes first (CADENAS-3).
      */
+    /**
+     * Lists the import copy [id] just written to [folder] (Settings.importCopies), for A6. As [recordAutoBackup], the vault's
+     * generation is read inside the settings' lock, so a copy of a vault replaced meanwhile is never listed.
+     */
+    private suspend fun recordImportCopy(folder: String, id: String, generation: Long) {
+        try {
+            settings.update { it.withImportCopy(folder, id, generation, vault.generation) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A full disk: the copy is there, only not listed (A6 counts it as unlisted by its name); never closes the app.
+        }
+    }
+
     private suspend fun recordAutoBackup(result: AutoBackupResult) {
         try {
             settings.update { it.withAutoBackupResult(result, vault.generation) }
