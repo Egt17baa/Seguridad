@@ -71,4 +71,21 @@ class DetectTest {
         val bytes = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) + text.toByteArray(Charsets.UTF_16LE)
         assertEquals("clave", ((readImport(bytes) as ReadResult.Ok).read.items.single().entry.password))
     }
+
+    @Test fun theCallerOwnsBytesAndPassword() {
+        // The KDoc's contract: readImport neither changes nor wipes them (the caller does, in a finally), so a second
+        // call with a password can use the same bytes.
+        val text = "name,url,username,password,note\nweb,,ana,clave,\n"
+        val bytes = text.toByteArray()
+        val password = "contraseña".toCharArray()
+        val ok = readImport(bytes, password)
+        assertTrue(ok is ReadResult.Ok)
+        assertTrue(bytes.contentEquals(text.toByteArray()))
+        assertTrue(password.contentEquals("contraseña".toCharArray()))
+        assertEquals(ok, readImport(bytes, password))
+        // Also when it fails.
+        val broken = byteArrayOf(0x6E, 0xC3.toByte(), 0x28)
+        readImport(broken, password)
+        assertTrue(broken.contentEquals(byteArrayOf(0x6E, 0xC3.toByte(), 0x28)))
+    }
 }

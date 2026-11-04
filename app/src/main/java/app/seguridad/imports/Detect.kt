@@ -23,6 +23,11 @@ private val READERS: List<TextReader> = listOf(
  * Nothing escapes: an [ImportFailure] becomes [ReadResult.Failed] with its message, and any other exception becomes
  * [IMPORT_BROKEN] (its own message is never used: it could carry a value from the file). Errors such as
  * OutOfMemoryError are not caught; the limits are what prevent them.
+ *
+ * Wiping (spec «Todo lector»): the caller owns [bytes] and [password]. readImport never changes, keeps or wipes
+ * them, so the caller can ask again with a password from the same bytes; the caller zeroes both in a `finally` as
+ * soon as it is done with them (`bytes.fill(0)`, `password.fill('\u0000')`), also when the result is a failure.
+ * What readImport makes on its own (the decoder's buffer, the CSV field buffer) it wipes itself.
  */
 fun readImport(bytes: ByteArray, password: CharArray? = null): ReadResult = readImport(bytes, password, READERS)
 

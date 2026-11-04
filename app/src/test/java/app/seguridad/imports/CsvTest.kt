@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class CsvTest {
@@ -47,6 +46,14 @@ class CsvTest {
         assertEquals(listOf(listOf("name", "url", "note"), listOf("Mi web", "https://a.example", "uno, dos")), parseCsv("name;url;note\nMi web;https://a.example;uno, dos\n"))
         // A «;» inside quotes in the header does not count.
         assertEquals(listOf(listOf("a;b", "c")), parseCsv("\"a;b\",c"))
+        // And the other way round: commas inside a quoted header name do not count against the «;».
+        assertEquals(';', csvDelimiter("\"a,b\";c;d\n1;2;3"))
+        assertEquals(listOf(listOf("a,b", "c", "d"), listOf("1", "2,5", "3")), parseCsv("\"a,b\";c;d\n1;2,5;3"))
+        // A tie (or no delimiter at all) is a comma.
+        assertEquals(',', csvDelimiter("a;b,c"))
+        assertEquals(',', csvDelimiter("nombre"))
+        // Blank lines before the header are passed over, as the parser does.
+        assertEquals(';', csvDelimiter("\n\r\nname;url\n"))
     }
 
     // --- Text decoding ---
@@ -157,16 +164,20 @@ class CsvTest {
 
     /**
      * Bytes this thread allocates while [block] runs: every allocation, garbage included, so a bound on it is a bound on
-     * memory. HotSpot only; the test is skipped elsewhere. Reached by name because the Android unit-test classpath
-     * does not declare java.lang.management (the tests run on a desktop JVM that has it).
+     * memory. [block] always runs; the answer is null where the probe is missing (it is HotSpot's), and then only the
+     * memory bounds are not checked. Reached by name because the Android unit-test classpath does not declare
+     * java.lang.management (the tests run on a desktop JVM that has it).
      */
-    private fun allocated(block: () -> Unit): Long {
+    private fun allocated(block: () -> Unit): Long? {
         val bean = runCatching {
             Class.forName("java.lang.management.ManagementFactory").getMethod("getThreadMXBean").invoke(null)
         }.getOrNull()
         val type = runCatching { Class.forName("com.sun.management.ThreadMXBean") }.getOrNull()
-        assumeTrue(bean != null && type != null && type.isInstance(bean))
-        type!!.getMethod("setThreadAllocatedMemoryEnabled", Boolean::class.javaPrimitiveType).invoke(bean, true)
+        if (bean == null || type == null || !type.isInstance(bean)) {
+            block()
+            return null
+        }
+        type.getMethod("setThreadAllocatedMemoryEnabled", Boolean::class.javaPrimitiveType).invoke(bean, true)
         val get = type.getMethod("getThreadAllocatedBytes", Long::class.javaPrimitiveType)
         @Suppress("DEPRECATION") // Thread.threadId() needs Java 19; the unit tests also run on older JVMs.
         val id = Thread.currentThread().id
@@ -175,11 +186,16 @@ class CsvTest {
         return (get.invoke(bean, id) as Long) - before
     }
 
+    /** [measured] is below [limit] bytes, when the probe could measure it. */
+    private fun assertBelow(limit: Long, measured: Long?) {
+        if (measured != null) assertTrue("allocated $measured", measured < limit)
+    }
+
     @Test(timeout = 20_000)
     fun sixteenMegabytesOfCommasIsRefusedFastWithBoundedMemory() {
         // The probe itself sees an allocation (so a small number below is a real measure, not a broken probe).
         var sink: ByteArray? = null
-        assertTrue(allocated { sink = ByteArray(4 * 1024 * 1024) } >= 4L * 1024 * 1024)
+        allocated { sink = ByteArray(4 * 1024 * 1024) }?.let { assertTrue(it >= 4L * 1024 * 1024) }
         assertEquals(4 * 1024 * 1024, sink!!.size)
 
         // One line of commas: 16 million empty fields if nothing stopped it.
@@ -187,21 +203,36 @@ class CsvTest {
         var message = ""
         val bytesOneLine = allocated { message = failure { parseCsv(oneLine) } }
         assertEquals(IMPORT_CSV_TOO_MANY_COLUMNS, message)
-        assertTrue("allocated $bytesOneLine", bytesOneLine < 1024 * 1024)
+        assertBelow(1024 * 1024, bytesOneLine)
 
         // Lines of 64 empty cells: every row is allowed, the cells in all are not.
         val manyLines = (",".repeat(CSV_MAX_COLUMNS - 1) + "\n").repeat(IMPORT_MAX_BYTES / CSV_MAX_COLUMNS)
         val bytesManyLines = allocated { message = failure { parseCsv(manyLines) } }
         assertEquals(IMPORT_CSV_TOO_MANY_CELLS, message)
         // Empty cells share one string: what is left is the lists that hold them.
-        assertTrue("allocated $bytesManyLines", bytesManyLines < 64L * 1024 * 1024)
+        assertBelow(64L * 1024 * 1024, bytesManyLines)
 
         // Through readImport, from the bytes: the decoding and the parse together stay bounded too.
         val bytes = oneLine.toByteArray(Charsets.UTF_8)
         var result: ReadResult? = null
         val bytesRead = allocated { result = readImport(bytes) }
         assertTrue(result is ReadResult.Failed)
-        assertTrue("allocated $bytesRead", bytesRead < 3L * IMPORT_MAX_BYTES)
+        assertBelow(3L * IMPORT_MAX_BYTES, bytesRead)
+    }
+
+    @Test(timeout = 20_000)
+    fun sixteenMegabytesOfBlankLinesAllocateNothingPerLine() {
+        // A blank line makes no row and no list: 16 million of them, after a header, read as an empty file.
+        val header = "name,url,username,password,note\n"
+        for (eol in listOf("\n", "\r", "\r\n")) {
+            val text = header + eol.repeat((IMPORT_MAX_BYTES - header.length) / eol.length)
+            var rows: List<List<String>> = emptyList()
+            val bytes = allocated { rows = parseCsv(text) }
+            assertEquals(1, rows.size)
+            // A list per line would be about 400 MiB of garbage; the header row is all there is.
+            assertBelow(1024 * 1024, bytes)
+        }
+        assertTrue((readImport(("\n".repeat(IMPORT_MAX_BYTES - 40) + "name,url,username,password,note").toByteArray()) as ReadResult.Ok).read.items.isEmpty())
     }
 
     @Test(timeout = 20_000)
