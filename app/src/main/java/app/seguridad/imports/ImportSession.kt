@@ -51,6 +51,12 @@ enum class RemoveResult { REMOVED, FAILED, UNSUPPORTED }
  */
 val IMPORT_KDF_RUN = SingleRun()
 
+/**
+ * Ruling R13a: this version reads no encrypted export (Task 10 brings them). Until then a file that needs a password
+ * says [IMPORT_ENCRYPTED_NOT_YET] at once, and no password is asked for nothing; the password step stays ready.
+ */
+const val IMPORT_READS_ENCRYPTED = false
+
 /** The name proposed for the copy before importing when it is saved by hand: the same as in the automatic folder. */
 fun importCopyFileName(at: LocalDateTime): String = IMPORT_COPY_PREFIX + COPY_STAMP.format(at) + ".sgbak"
 
@@ -69,6 +75,7 @@ private val COPY_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 class ImportSession(
     cells: CellFactory = PlainCells,
     createdAt: Long = 0L,
+    private val readsEncrypted: Boolean = IMPORT_READS_ENCRYPTED,
     private val onWipe: () -> Unit = {},
 ) : GuardedSession(createdAt) {
     private val stepCell = cells.cell<ImportStep>(ImportStep.Pick)
@@ -108,6 +115,16 @@ class ImportSession(
     /** The estimate for the choices shown ([estimated]): how much the vault would pass a copy's limit; null until known. */
     var overBytes: Long? by overBytesCell
         private set
+    private val newTagsCell = cells.cell<Set<String>?>(null)
+
+    /** The tags the import would create with the choices shown, from the same estimate ([mergeImport]); null until known. */
+    var newTags: Set<String>? by newTagsCell
+        private set
+    private val foldersNotTagsCell = cells.cell(0)
+
+    /** How many new folder tags [IMPORT_MAX_NEW_TAGS] leaves out with the choices shown (ruling R18). */
+    var foldersNotTags: Int by foldersNotTagsCell
+        private set
     private val removalCell = cells.cell<RemoveState?>(null)
     var removal: RemoveState? by removalCell
         private set
@@ -118,7 +135,6 @@ class ImportSession(
     private var source: Any? = null
     private var removable: Any? = null
     private var passwordTried = false
-    private var vaultTags: Set<String> = emptySet()
 
     /** The vault's entries the plan was built against (its snapshot): for the estimate, never shown. */
     var existing: List<VaultEntry> = emptyList()
@@ -183,8 +199,8 @@ class ImportSession(
                 return result.read
             }
             is ReadResult.NeedsPassword ->
-                if (passwordTried) {
-                    // Ruling R13: this version opens no encrypted export yet; said once, never asked again.
+                if (!readsEncrypted || passwordTried) {
+                    // Rulings R13 and R13a: this version opens no encrypted export yet; said once, never asked again.
                     dropAll()
                     error = IMPORT_ENCRYPTED_NOT_YET
                 } else {
@@ -208,7 +224,6 @@ class ImportSession(
         if (plan == null) return dropAll()
         this.plan = plan
         this.existing = existing
-        vaultTags = existing.flatMapTo(HashSet()) { it.tags }
         skipped = plan.skipped
         default = DuplicateChoice.SKIP
         overrides = emptyMap()
@@ -227,32 +242,40 @@ class ImportSession(
     /** The option for all: every duplicate follows it (the choices made one by one go). */
     fun chooseAll(choice: DuplicateChoice) {
         if (step != ImportStep.Preview) return
+        // I-1: the chip already chosen changes no state, so no new estimate would come: nothing is reset.
+        if (choice == default && overrides.isEmpty()) return
         default = choice
         overrides = emptyMap()
-        overBytes = null
-        error = null
+        clearEstimate()
     }
 
     /** The choice for the duplicate [index] alone; an index that is not a duplicate's changes nothing. */
     fun choose(index: Int, choice: DuplicateChoice) {
         val p = plan ?: return
         if (step != ImportStep.Preview || p.duplicates.none { it.item.index == index }) return
-        overrides = if (choice == default) overrides - index else overrides + (index to choice)
+        val next = if (choice == default) overrides - index else overrides + (index to choice)
+        if (next == overrides) return // I-1, as in chooseAll.
+        overrides = next
+        clearEstimate()
+    }
+
+    private fun clearEstimate() {
         overBytes = null
+        newTags = null
+        foldersNotTags = 0
         error = null
     }
 
-    /** The estimate [over] for [plan] with [default] and [overrides]; kept only if those are still the ones shown. */
-    fun estimated(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, over: Long) {
+    /** The [estimate] for [plan] with [default] and [overrides]; kept only if those are still the ones shown. */
+    fun estimated(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, estimate: PreviewEstimate) {
         if (step != ImportStep.Preview || plan !== this.plan || default != this.default || overrides != this.overrides) return
-        overBytes = over
+        overBytes = estimate.overBytes
+        newTags = estimate.newTags
+        foldersNotTags = estimate.foldersNotTags
     }
 
     /** What the preview counts for the choices shown. */
     val counts: PreviewCounts? get() = plan?.let { previewCounts(it, default, overrides) }
-
-    /** The tags the import would create with the choices shown. */
-    val newTags: Set<String> get() = plan?.let { previewNewTags(it, vaultTags, default, overrides) } ?: emptySet()
 
     /** «Importar» can be tapped: the preview, the estimate of these choices fits, and something enters or changes. */
     val canConfirm: Boolean
@@ -309,6 +332,8 @@ class ImportSession(
                 is ApplyResult.TooBig -> {
                     step = ImportStep.Preview
                     error = importTooBigText(r.overBytes, r.overFiles)
+                    // M-2: the exact check said no: «Importar» stays off until a choice changes and a new estimate comes.
+                    overBytes = maxOf(1L, r.overBytes)
                 }
                 // A Done here would be ImportFlow's mistake: treated as a plan that no longer holds.
                 ApplyResult.Stale, is ApplyResult.Done -> {
@@ -357,8 +382,11 @@ class ImportSession(
     }
 
     override fun forget() {
+        val wasSaving = step == ImportStep.Saving
         onWipe()
         dropAll()
+        // M-4: the save goes on (it is not cut) but its result will not be shown here: the screen says so.
+        if (wasSaving) error = IMPORT_WIPED_WHILE_SAVING
     }
 
     /** Back to the first step with nothing held: the bytes zeroed, every reference dropped, the run moved on. */
@@ -372,7 +400,8 @@ class ImportSession(
         fileName = null
         plan = null
         existing = emptyList()
-        vaultTags = emptySet()
+        newTags = null
+        foldersNotTags = 0
         default = DuplicateChoice.SKIP
         overrides = emptyMap()
         skipped = emptyList()
@@ -411,23 +440,19 @@ fun previewCounts(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int,
 }
 
 /**
- * The tags the import creates ([MergePlan.newTags], those of the new items) plus those of the duplicates kept or replaced
- * (Task 8: the plan leaves them out, as it does not know the choices), that no entry of the vault has ([vaultTags]).
+ * What the preview shows of the vault after the import with some choices: how much it passes a copy's limit
+ * ([estimatedOverBytes], 0 when it fits), the tags it creates and the folders left without one (ruling R18; M-1: from
+ * the merged entries themselves, so a replaced entry already at 10 tags adds none).
  */
-fun previewNewTags(plan: MergePlan, vaultTags: Set<String>, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>): Set<String> {
-    val out = LinkedHashSet(plan.newTags)
-    for (d in plan.duplicates) {
-        if (choice(d, default, overrides) == DuplicateChoice.SKIP) continue
-        importTags(d.item.folders, plan.format).filterTo(out) { it !in vaultTags }
-    }
-    return out
-}
+data class PreviewEstimate(val overBytes: Long, val newTags: Set<String>, val foldersNotTags: Int)
 
 /**
- * The preview's estimate ([estimatedOverBytes]) of the vault after the import with these choices, against [existing]
- * (the snapshot the plan was built on). The ids are placeholders of a UUID's length; the save's exact check decides.
+ * The [PreviewEstimate] of the import with these choices, against [existing] (the snapshot the plan was built on), off
+ * the main thread. The ids are placeholders of a UUID's length; the save's exact check decides.
  */
-fun previewOverBytes(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, existing: List<VaultEntry>, now: Long): Long =
-    estimatedOverBytes(mergedEntries(plan, default, overrides, existing, now, { PLACEHOLDER_ID }))
+fun previewEstimate(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, existing: List<VaultEntry>, now: Long): PreviewEstimate {
+    val r = mergeImport(plan, default, overrides, existing, now, { PLACEHOLDER_ID })
+    return PreviewEstimate(estimatedOverBytes(r.entries), r.newTags, r.foldersNotTags)
+}
 
 private const val PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000"

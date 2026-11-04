@@ -160,7 +160,8 @@ const val IMPORT_FORMATS =
 const val IMPORT_TRADEMARKS = "Los nombres de otras apps son marcas de sus titulares. Clavero no tiene relación con ellos."
 const val IMPORT_NOT_PROTECTED =
     "Clavero no protege el archivo exportado: está sin cifrar en tu móvil, y puede haber copias en la nube, en la " +
-        "papelera o en otras apps. Al terminar, Clavero puede borrar ese archivo, pero no esas copias."
+        "papelera o en otras apps. Al terminar, Clavero puede intentar borrar ese archivo (algunas apps no lo dejan), pero " +
+        "no esas copias."
 const val IMPORT_WIPE_NOTE =
     "Lo leído del archivo, la contraseña que escribas y la vista previa se borran si vuelves atrás, si se cierra la app, " +
         "si la bóveda se bloquea o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como " +
@@ -220,7 +221,7 @@ const val IMPORT_CHOICE_KEEP_BOTH = "Conservar los dos"
 const val IMPORT_CHOICE_REPLACE = "Reemplazar"
 const val IMPORT_REPLACE_NOTE =
     "«Reemplazar» toma del archivo el título, el usuario, la contraseña, la web y el 2FA que no estén vacíos, y suma sus " +
-        "notas y sus etiquetas a las de la bóveda. La contraseña anterior queda en el historial; los adjuntos y el " +
+        "notas y sus etiquetas (hasta 10 por entrada) a las de la bóveda. La contraseña anterior queda en el historial; los adjuntos y el " +
         "favorito no cambian."
 
 fun importRepeatedText(n: Int): String =
@@ -229,7 +230,20 @@ fun importRepeatedText(n: Int): String =
 fun importBecameNotesText(n: Int): String =
     if (n == 1) "1 tarjeta o identidad entra como nota." else "$n tarjetas o identidades entran como notas."
 
-fun importNewTagsText(tags: List<String>): String = "Etiquetas nuevas: " + tags.joinToString(", ") { "#$it" }
+/** Most new tags the preview names; the rest are counted ([importNewTagsText]). */
+const val IMPORT_TAGS_SHOWN = 20
+
+/** The new tags: the first [IMPORT_TAGS_SHOWN] by name, then «y N más». */
+fun importNewTagsText(tags: List<String>): String {
+    val shown = tags.take(IMPORT_TAGS_SHOWN).joinToString(", ") { "#$it" }
+    val more = tags.size - IMPORT_TAGS_SHOWN
+    return "Etiquetas nuevas: " + shown + if (more > 0) " y $more más." else ""
+}
+
+/** Ruling R18: folders past [IMPORT_MAX_NEW_TAGS] new tags, whose items keep only the origin tag. */
+fun importFoldersNotTagsText(n: Int): String =
+    (if (n == 1) "1 carpeta del archivo no pasa a etiqueta" else "$n carpetas del archivo no pasan a etiqueta") +
+        ": una importación crea como mucho $IMPORT_MAX_NEW_TAGS etiquetas nuevas. Esas entradas llevan solo la etiqueta de origen."
 const val IMPORT_NEW_TAGS_NONE = "No se crea ninguna etiqueta nueva."
 
 /** The title of «no entran», with how many. */
@@ -246,6 +260,11 @@ const val IMPORT_CONFIRM_NOTE =
 const val IMPORT_ESTIMATING = "Comprobando que la bóveda resultante cabe en una copia…"
 const val IMPORT_NOTHING_TO_DO = "Con estas opciones no entra ni cambia nada."
 const val IMPORT_SAVING = "Haciendo la copia de antes de importar y guardando…"
+
+/** M-4: the screen was wiped (time away, another app) while the save ran: it goes on, but its result is not shown. */
+const val IMPORT_WIPED_WHILE_SAVING =
+    "Se ha borrado lo de esta pantalla mientras se guardaba: la importación puede haberse hecho. Mira la bóveda antes " +
+        "de volver a importar."
 
 /** No folder for the automatic copies: where to save the copy before importing is asked. */
 const val IMPORT_CHOOSE_COPY_PLACE =
@@ -310,9 +329,9 @@ const val IMPORT_ENDED_TITLE = "No se ha terminado la importación"
 /** «Quitar el archivo exportado» (spec «Quitar el archivo exportado»). */
 const val IMPORT_REMOVE = "Quitar el archivo exportado"
 const val IMPORT_REMOVE_EXPLAIN =
-    "El archivo que has importado sigue en tu móvil sin cifrar. Clavero puede borrar ese mismo archivo. No borra las " +
-        "copias que haya en la nube, en la papelera ni en otras apps, y no garantiza que el almacenamiento lo borre " +
-        "físicamente."
+    "El archivo que has importado sigue en tu móvil sin cifrar. Clavero puede intentar borrar ese mismo archivo; algunas " +
+        "apps no lo dejan. No borra las copias que haya en la nube, en la papelera ni en otras apps, y no garantiza que el " +
+        "almacenamiento lo borre físicamente."
 const val IMPORT_REMOVE_DECLINE = "No, déjalo"
 const val IMPORT_REMOVING = "Borrando el archivo…"
 const val IMPORT_REMOVED =

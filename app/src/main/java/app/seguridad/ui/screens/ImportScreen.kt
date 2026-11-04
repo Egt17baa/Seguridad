@@ -120,7 +120,9 @@ import app.seguridad.imports.importTooBigText
 import app.seguridad.imports.planMerge
 import app.seguridad.imports.plainReportText
 import app.seguridad.imports.previewEntersText
-import app.seguridad.imports.previewOverBytes
+import app.seguridad.imports.PreviewEstimate
+import app.seguridad.imports.importFoldersNotTagsText
+import app.seguridad.imports.previewEstimate
 import app.seguridad.imports.readImport
 import app.seguridad.tools.SingleRun
 import app.seguridad.ui.theme.BackScaffold
@@ -193,14 +195,14 @@ private class ImportViewModel(
                 val default = input.default
                 val overrides = input.overrides
                 val existing = session.existing
-                val over = try {
-                    withContext(Dispatchers.Default) { previewOverBytes(plan, default, overrides, existing, System.currentTimeMillis()) }
+                val estimate = try {
+                    withContext(Dispatchers.Default) { previewEstimate(plan, default, overrides, existing, System.currentTimeMillis()) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    0L // The save's exact check decides.
+                    PreviewEstimate(0L, emptySet(), 0) // The save's exact check decides.
                 }
-                session.estimated(plan, default, overrides, over)
+                session.estimated(plan, default, overrides, estimate)
             }
         }
     }
@@ -449,18 +451,20 @@ fun ImportScreen(
     val vm = viewModel { ImportViewModel(appContext, store, copyBeforeImport, lockAfterMs, awayInOtherApp) }
     val s = vm.session
     GuardEffects(s.guard, lockAfterMs)
+    // M-3: registered before the locked return, so a result delivered after the process died or while locked still
+    // reaches them: a file picked then is not read, and a document created then is deleted (copyTo finds no plan).
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && store.state.value is VaultState.Unlocked) vm.pick(uri)
+    }
+    val createCopy = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) vm.copyTo(uri) else vm.copyPlaceCancelled()
+    }
     // Locked: the session has already dropped everything; the screen goes back to the vault, which asks for the master.
     if (state !is VaultState.Unlocked) {
         LaunchedEffect(Unit) { onBack() }
         return
     }
     var pickerError by remember { mutableStateOf<String?>(null) }
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.pick(uri)
-    }
-    val createCopy = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        if (uri != null) vm.copyTo(uri) else vm.copyPlaceCancelled()
-    }
     // As «Importar copia» (VaultBackup.kt): the picker keeps the vault open while it is on top, and the time away counts
     // from here; MainActivity.onStart takes the flag back. Every file: the content says what it is (spec «Detección»).
     val launchPick: () -> Unit = {
@@ -505,7 +509,10 @@ fun ImportScreen(
                             Button(enabled = s.password.isNotEmpty(), onClick = vm::submitPassword, modifier = Modifier.fillMaxWidth()) {
                                 Text(IMPORT_PASSWORD_OPEN)
                             }
-                            OutlinedButton(onClick = vm::cancel, modifier = Modifier.fillMaxWidth()) { Text(IMPORT_PICK_OTHER) }
+                            OutlinedButton(onClick = {
+                                vm.cancel()
+                                launchPick()
+                            }, modifier = Modifier.fillMaxWidth()) { Text(IMPORT_PICK_OTHER) }
                         }
                     }
                     ImportStep.Preview -> preview(vm, launchPick)
@@ -552,8 +559,11 @@ private fun LazyListScope.preview(vm: ImportViewModel, launchPick: () -> Unit) {
             if (counts.replaced > 0) Text(importReplacedText(counts.replaced))
             if (plan.repeatedInFile > 0) Text(importRepeatedText(plan.repeatedInFile), color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (plan.becameNotes > 0) Text(importBecameNotesText(plan.becameNotes), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            val tags = s.newTags
-            Text(if (tags.isEmpty()) IMPORT_NEW_TAGS_NONE else importNewTagsText(tags.map { plainReportText(it) }), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // From the background estimate (M-1), at most IMPORT_TAGS_SHOWN by name (R18); null while it is made.
+            s.newTags?.let { tags ->
+                Text(if (tags.isEmpty()) IMPORT_NEW_TAGS_NONE else importNewTagsText(tags.map { plainReportText(it) }), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (s.foldersNotTags > 0) Text(importFoldersNotTagsText(s.foldersNotTags), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     item {

@@ -17,6 +17,7 @@ import app.seguridad.crypto.pk.Received
 import app.seguridad.crypto.pk.SIGNATURE_EXTENSION
 import app.seguridad.crypto.pk.decryptFileFor
 import app.seguridad.crypto.pk.decryptMessage
+import app.seguridad.imports.plainReportText
 import app.seguridad.crypto.pk.PK_VERSION
 import app.seguridad.crypto.pk.decodeStrictUtf8
 import app.seguridad.crypto.pk.detectReceivedWithBytes
@@ -120,7 +121,7 @@ fun senderLine(sender: Sender, addressedToMe: Boolean): SenderLine = when (sende
     is Sender.Contact -> {
         val note = if (addressedToMe) null else SIGNATURE_FORWARD_NOTE
         val sameKey = if (sender.sameKeyCount > 1) sameKeyContactsText(sender.sameKeyCount) else null
-        val text = senderContactText(sender.entry.verified, addressedToMe, sender.entry.title)
+        val text = senderContactText(sender.entry.verified, addressedToMe, plainReportText(sender.entry.title))
         SenderLine(text, if (sender.entry.verified) TrustLevel.GOOD else TrustLevel.CAUTION, note, sameKey)
     }
     Sender.UnknownKey -> SenderLine("Firmado por una clave que no está en tus contactos", TrustLevel.WARNING)
@@ -164,7 +165,7 @@ fun fileVerifyVerdict(sender: Sender): VerifyVerdict = when (sender) {
     Sender.Me -> VerifyVerdict(FILE_SIGNATURE_VALID, TrustLevel.GOOD)
     is Sender.Contact ->
         if (sender.entry.verified) VerifyVerdict(FILE_SIGNATURE_VALID, TrustLevel.GOOD)
-        else VerifyVerdict(fileSignatureUnverifiedText(sender.entry.title), TrustLevel.CAUTION)
+        else VerifyVerdict(fileSignatureUnverifiedText(plainReportText(sender.entry.title)), TrustLevel.CAUTION)
     Sender.UnknownKey -> VerifyVerdict(FILE_SIGNATURE_UNKNOWN_KEY, TrustLevel.WARNING)
     Sender.Unsigned -> VerifyVerdict(senderLine(Sender.Unsigned, addressedToMe = false).text, TrustLevel.WARNING)
 }

@@ -49,6 +49,11 @@ class ImportStateTest {
 
     private fun plan() = planMerge(read, existing, revision = 9)
 
+    private fun est(over: Long) = PreviewEstimate(over, emptySet(), 0)
+
+    /** A session that reads encrypted exports (Task 10); until then, ruling R13a: [ImportSession] says «todavía no». */
+    private fun withPasswords() = ImportSession(readsEncrypted = true)
+
     /** A session at the preview of [read], with its run. */
     private fun atPreview(): Pair<ImportSession, Long> {
         val s = ImportSession()
@@ -78,7 +83,7 @@ class ImportStateTest {
     }
 
     @Test fun needsPasswordGoesToThePasswordStepAndKeepsTheBytesForTheRetry() {
-        val s = ImportSession()
+        val s = withPasswords()
         val run = s.begin(uri)
         val bytes = byteArrayOf(7, 7, 7)
         assertTrue(s.hold(run, bytes))
@@ -89,7 +94,7 @@ class ImportStateTest {
     }
 
     @Test fun oneAttemptThatStillNeedsAPasswordSaysNotYetAndNeverLoops() {
-        val s = ImportSession()
+        val s = withPasswords()
         val run = s.begin(uri)
         val bytes = byteArrayOf(7, 7, 7)
         s.hold(run, bytes)
@@ -109,7 +114,7 @@ class ImportStateTest {
     }
 
     @Test fun noPasswordIsTakenEmptyOrOutsideThePasswordStep() {
-        val s = ImportSession()
+        val s = withPasswords()
         assertNull(s.takePassword())
         val run = s.begin(uri)
         s.hold(run, byteArrayOf(1))
@@ -118,7 +123,7 @@ class ImportStateTest {
     }
 
     @Test fun aLockDropsTheReadDataAndThePassword() {
-        val s = ImportSession()
+        val s = withPasswords()
         val run = s.begin(uri)
         val bytes = byteArrayOf(9, 9)
         s.hold(run, bytes)
@@ -277,24 +282,46 @@ class ImportStateTest {
         assertEquals(4, mixed.addedTotal)
     }
 
-    @Test fun previewTagsAddThoseOfDuplicatesKeptOrReplaced() {
+    @Test fun theEstimateGivesTheNewTagsOfWhatEnters() {
+        // M-1: from the merged entries; the tags of duplicates kept or replaced count, «casa» is already in the vault.
         val p = plan()
-        val had = existing.flatMapTo(HashSet()) { it.tags }
-        // Only the new items' tags with «Saltar»: the origin tag and «compras» («casa» is already in the vault).
-        assertEquals(setOf(ORIGIN_TAG_BITWARDEN, "compras"), previewNewTags(p, had, DuplicateChoice.SKIP, emptyMap()))
+        assertEquals(setOf(ORIGIN_TAG_BITWARDEN, "compras"), previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), existing, 1L).newTags)
         assertEquals(
             setOf(ORIGIN_TAG_BITWARDEN, "compras", "trabajo"),
-            previewNewTags(p, had, DuplicateChoice.SKIP, mapOf(5 to DuplicateChoice.KEEP_BOTH)),
+            previewEstimate(p, DuplicateChoice.SKIP, mapOf(5 to DuplicateChoice.KEEP_BOTH), existing, 1L).newTags,
         )
         assertEquals(
             setOf(ORIGIN_TAG_BITWARDEN, "compras", "trabajo", "dinero"),
-            previewNewTags(p, had, DuplicateChoice.REPLACE, emptyMap()),
+            previewEstimate(p, DuplicateChoice.REPLACE, emptyMap(), existing, 1L).newTags,
         )
+        assertEquals(0L, previewEstimate(p, DuplicateChoice.KEEP_BOTH, emptyMap(), existing, 1L).overBytes)
     }
 
-    @Test fun theEstimateIsComputedOnTheMergedVault() {
-        val p = plan()
-        assertEquals(0L, previewOverBytes(p, DuplicateChoice.KEEP_BOTH, emptyMap(), existing, now = 1L))
+    @Test fun theSessionShowsTheTagsOfTheEstimateForTheChoicesShown() {
+        val (s, _) = atPreview()
+        assertNull(s.newTags)
+        s.estimated(s.plan!!, s.default, s.overrides, PreviewEstimate(0, setOf("a"), 3))
+        assertEquals(setOf("a"), s.newTags)
+        assertEquals(3, s.foldersNotTags)
+        s.chooseAll(DuplicateChoice.REPLACE)
+        assertNull(s.newTags)
+        assertEquals(0, s.foldersNotTags)
+    }
+
+    @Test fun tappingTheChoiceAlreadyMadeKeepsTheEstimate() {
+        // I-1: no state changes, so no new estimate would come; «Importar» must stay as it was.
+        val (s, _) = atPreview()
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
+        assertTrue(s.canConfirm)
+        s.chooseAll(DuplicateChoice.SKIP)
+        assertTrue(s.canConfirm)
+        s.choose(5, DuplicateChoice.SKIP)
+        assertTrue(s.canConfirm)
+        s.choose(5, DuplicateChoice.REPLACE)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
+        s.choose(5, DuplicateChoice.REPLACE)
+        assertTrue(s.canConfirm)
+        assertEquals(0L, s.overBytes)
     }
 
     @Test fun confirmWaitsForTheEstimateOfTheChoicesShownAndRunsOnce() {
@@ -302,14 +329,14 @@ class ImportStateTest {
         assertFalse(s.canConfirm)
         assertNull(s.startSaving())
         // An estimate made for other choices than those shown now is ignored.
-        s.estimated(s.plan!!, DuplicateChoice.REPLACE, emptyMap(), 0)
+        s.estimated(s.plan!!, DuplicateChoice.REPLACE, emptyMap(), est(0))
         assertFalse(s.canConfirm)
-        s.estimated(s.plan!!, s.default, s.overrides, 0)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
         assertTrue(s.canConfirm)
         // A change of choice asks for a new estimate.
         s.chooseAll(DuplicateChoice.KEEP_BOTH)
         assertFalse(s.canConfirm)
-        s.estimated(s.plan!!, s.default, s.overrides, 0)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
         assertEquals(run, s.startSaving())
         assertEquals(ImportStep.Saving, s.step)
         assertTrue(s.busy)
@@ -318,7 +345,7 @@ class ImportStateTest {
 
     @Test fun aVaultThatWouldNotFitCannotBeConfirmed() {
         val (s, _) = atPreview()
-        s.estimated(s.plan!!, s.default, s.overrides, 2048)
+        s.estimated(s.plan!!, s.default, s.overrides, est(2048))
         assertFalse(s.canConfirm)
         assertEquals(2048L, s.overBytes)
     }
@@ -330,16 +357,16 @@ class ImportStateTest {
         val onlyDuplicate = ImportRead(ImportFormat.BITWARDEN, listOf(login(0, "Banco", "ana")), emptyList(), 0)
         s.onRead(run, ReadResult.Ok(onlyDuplicate))
         s.onPlan(run, planMerge(onlyDuplicate, existing, 1), existing)
-        s.estimated(s.plan!!, s.default, s.overrides, 0)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
         assertFalse(s.canConfirm)
         s.choose(0, DuplicateChoice.REPLACE)
-        s.estimated(s.plan!!, s.default, s.overrides, 0)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
         assertTrue(s.canConfirm)
     }
 
     private fun saving(): Pair<ImportSession, Long> {
         val (s, _) = atPreview()
-        s.estimated(s.plan!!, s.default, s.overrides, 0)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
         return s to s.startSaving()!!
     }
 
@@ -400,6 +427,39 @@ class ImportStateTest {
         s.onOutcome(run, ImportOutcome.NotApplied(ApplyResult.TooBig(overBytes = 3L * 1024 * 1024 / 2)), inAutoFolder = true)
         assertEquals(ImportStep.Preview, s.step)
         assertEquals(importTooBigText(3L * 1024 * 1024 / 2, 0), s.error)
+        // M-2: not again with the same choices; a change and a new estimate open it again.
+        assertFalse(s.canConfirm)
+        assertNull(s.startSaving())
+        s.chooseAll(DuplicateChoice.KEEP_BOTH)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
+        assertTrue(s.canConfirm)
+    }
+
+    @Test fun aWipeWhileSavingSaysTheImportMayHaveHappened() {
+        // M-4: the save is not cut; the screen, still shown, must not look as if nothing happened.
+        val (s, run) = saving()
+        s.wipe()
+        assertEquals(ImportStep.Pick, s.step)
+        assertEquals(IMPORT_WIPED_WHILE_SAVING, s.error)
+        s.onOutcome(run, ImportOutcome.Imported(ApplyResult.Done(1, 0), "copia"), inAutoFolder = true)
+        assertEquals(IMPORT_WIPED_WHILE_SAVING, s.error)
+        // A wipe at any other step leaves no message.
+        val (t, _) = atPreview()
+        t.wipe()
+        assertNull(t.error)
+    }
+
+    @Test fun untilEncryptedExportsAreReadNoPasswordIsAsked() {
+        // R13a: the first NeedsPassword already says «todavía no», and the bytes go.
+        val s = ImportSession()
+        val run = s.begin(uri)
+        val bytes = byteArrayOf(5, 5)
+        s.hold(run, bytes)
+        assertNull(s.onRead(run, ReadResult.NeedsPassword(ImportFormat.AEGIS)))
+        assertEquals(ImportStep.Pick, s.step)
+        assertEquals(IMPORT_ENCRYPTED_NOT_YET, s.error)
+        assertArrayEquals(byteArrayOf(0, 0), bytes)
+        assertFalse(IMPORT_READS_ENCRYPTED)
     }
 
     @Test fun aSaveThatFailedEndsWithItsMessage() {
@@ -429,7 +489,7 @@ class ImportStateTest {
         assertEquals(IMPORT_COPY_CANCELLED, s.error)
         assertNull(s.copyPlaceChosen())
         // Asked again, then chosen: saving, once.
-        s.estimated(s.plan!!, s.default, s.overrides, 0)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
         val again = s.startSaving()!!
         s.needsCopyPlace(again)
         assertEquals(again, s.copyPlaceChosen())
@@ -451,5 +511,9 @@ class ImportStateTest {
         assertEquals("Entran 3 entradas nuevas: 1 acceso, 1 nota y 1 código 2FA.", previewEntersText(mapOf(EntryType.LOGIN to 1, EntryType.NOTE to 1, EntryType.TOTP to 1)))
         assertEquals("Entran 2 entradas nuevas: 2 accesos.", previewEntersText(mapOf(EntryType.LOGIN to 2)))
         assertEquals("No entra ninguna entrada nueva.", previewEntersText(emptyMap()))
+        assertEquals("Etiquetas nuevas: #a, #b", importNewTagsText(listOf("a", "b")))
+        val many = importNewTagsText((1..25).map { "t$it" })
+        assertTrue(many, many.endsWith("#t20 y 5 más."))
+        assertFalse("#t21" in many)
     }
 }
