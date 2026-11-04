@@ -30,7 +30,8 @@ data class Duplicate(val item: ImportedItem, val existingId: String)
  * The preview of an import, built against the vault at [revision] ([app.seguridad.vault.VaultStore.revision]); saving it
  * after any other change is refused ([ApplyResult.Stale]). [newItems] are not in the vault, [duplicates] are, and
  * [repeatedInFile] counts the items equal to an earlier one of the same file (they never enter). [skipped] and
- * [becameNotes] are the reader's. [newTags] are the tags the [newItems] bring that no entry of the vault has (the
+ * [becameNotes] are the reader's. [newTags] are the tags the [newItems] bring that no entry of the vault has, within
+ * [IMPORT_MAX_NEW_TAGS] ([TagBudget]; the preview's own list comes from [mergeImport], with the choices) (the
  * duplicates may bring more, if the user chooses to add or replace them).
  */
 data class MergePlan(
@@ -87,10 +88,9 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
         val id = inVault.find(item.entry)
         if (id != null) duplicates += Duplicate(item, id) else newItems += item
     }
-    val had = existing.flatMapTo(HashSet()) { it.tags }
-    val newTags = LinkedHashSet<String>()
-    for (item in newItems) importTags(item.folders, read.format).filterTo(newTags) { it !in had }
-    return MergePlan(revision, read.format, newItems, duplicates, repeated, read.skipped, read.becameNotes, newTags)
+    val budget = TagBudget(existing.flatMapTo(HashSet()) { it.tags })
+    for (item in newItems) budget.tagsFor(item.folders, read.format)
+    return MergePlan(revision, read.format, newItems, duplicates, repeated, read.skipped, read.becameNotes, budget.created)
 }
 
 /**
@@ -100,6 +100,41 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
  * [app.seguridad.vault.VaultStore.applyImport].
  */
 suspend fun VaultStore.planImport(read: ImportRead): MergePlan? = importSnapshot()?.let { planMerge(read, it.entries, it.revision) }
+
+/**
+ * Most tags one import may create that the vault did not have (ruling R18): a hostile export can put each of its 20 000
+ * items in a folder of its own, and every tag is a filter chip of the vault. Folder tags past it are not applied (the
+ * item keeps only its origin tag, which is never dropped); [MergeResult.foldersNotTags] says how many were left out.
+ */
+const val IMPORT_MAX_NEW_TAGS = 100
+
+/**
+ * The tags given to imported items, in the file's order, with at most [max] tags created that are not in [had] (the
+ * vault's). An item whose folder tags would pass it gets only its origin tag ([ImportFormat.originTag]). [created] are
+ * the new tags given, [dropped] the distinct new folder tags left out.
+ */
+internal class TagBudget(private val had: Set<String>, private val max: Int = IMPORT_MAX_NEW_TAGS) {
+    val created = LinkedHashSet<String>()
+    private val dropped = HashSet<String>()
+    private var createdFolders = 0
+
+    /** The distinct new folder tags that were left out (and not given to a later item). */
+    val foldersNotTags: Int get() = dropped.count { it !in created }
+
+    fun tagsFor(folders: List<String>, format: ImportFormat): List<String> {
+        val full = importTags(folders, format)
+        val origin = format.originTag
+        val freshFolders = full.filter { it != origin && it !in had && it !in created }
+        val tags = if (createdFolders + freshFolders.size <= max) {
+            full
+        } else {
+            dropped += freshFolders
+            listOf(origin)
+        }
+        for (t in tags) if (t !in had && created.add(t) && t != origin) createdFolders++
+        return tags
+    }
+}
 
 /**
  * The tags of an entry imported from [format] with [folders] (spec «Etiquetas»): the origin tag first, then each folder
@@ -121,7 +156,7 @@ fun importTags(folders: List<String>, format: ImportFormat): List<String> {
  * The vault after the import of [plan] into [existing] (the list the plan was built against): [existing] in its order,
  * with the duplicates chosen for «Reemplazar» changed in place by [replaceWith], then the new entries in the file's
  * order. Each duplicate takes its choice from [overrides] (by [ImportedItem.index]) or [default]. A new entry gets
- * [newId], [now] as both dates, [importTags] and no history or attachments. Nothing else of [existing] changes: an
+ * [newId], [now] as both dates, [importTags] (within [IMPORT_MAX_NEW_TAGS], [TagBudget]) and no history or attachments. Nothing else of [existing] changes: an
  * entry is only touched when it is a duplicate chosen for «Reemplazar» of the same type, never `IDENTITY` or `CONTACT`.
  * Two duplicates of the same entry are applied in turn.
  */
@@ -133,16 +168,39 @@ fun mergedEntries(
     now: Long,
     newId: () -> String,
     zone: ZoneId = ZoneId.systemDefault(),
-): List<VaultEntry> {
+): List<VaultEntry> = mergeImport(plan, default, overrides, existing, now, newId, zone).entries
+
+/**
+ * [mergedEntries] and what the preview says of them: [newTags], the tags of [entries] that no entry of the vault had
+ * before (so a replaced entry already at [MAX_TAGS] adds none), and [foldersNotTags], the new folder tags left out by
+ * [IMPORT_MAX_NEW_TAGS].
+ */
+data class MergeResult(val entries: List<VaultEntry>, val newTags: Set<String>, val foldersNotTags: Int)
+
+/** [mergedEntries], with its [MergeResult]: the one place where an import's entries and tags are made. */
+fun mergeImport(
+    plan: MergePlan,
+    default: DuplicateChoice,
+    overrides: Map<Int, DuplicateChoice>,
+    existing: List<VaultEntry>,
+    now: Long,
+    newId: () -> String,
+    zone: ZoneId = ZoneId.systemDefault(),
+): MergeResult {
+    val had = existing.flatMapTo(HashSet()) { it.tags }
+    val budget = TagBudget(had)
     val out = existing.toMutableList()
     val position = HashMap<String, Int>(existing.size * 2)
     existing.forEachIndexed { i, e -> position.putIfAbsent(e.id, i) }
     val duplicateOf = plan.duplicates.associateBy { it.item.index }
     val added = ArrayList<VaultEntry>()
     for (item in (plan.newItems + plan.duplicates.map { it.item }).sortedBy { it.index }) {
-        val tagged = item.entry.copy(tags = importTags(item.folders, plan.format), passwordHistory = emptyList(), attachments = emptyList())
         val duplicate = duplicateOf[item.index]
-        when (if (duplicate == null) DuplicateChoice.KEEP_BOTH else overrides[item.index] ?: default) {
+        val choice = if (duplicate == null) DuplicateChoice.KEEP_BOTH else overrides[item.index] ?: default
+        if (choice == DuplicateChoice.SKIP) continue
+        // Only what enters spends the budget of new tags, in the file's order.
+        val tagged = item.entry.copy(tags = budget.tagsFor(item.folders, plan.format), passwordHistory = emptyList(), attachments = emptyList())
+        when (choice) {
             DuplicateChoice.SKIP -> Unit
             DuplicateChoice.KEEP_BOTH -> added += tagged.copy(id = newId(), createdAt = now, updatedAt = now)
             DuplicateChoice.REPLACE -> {
@@ -151,7 +209,10 @@ fun mergedEntries(
             }
         }
     }
-    return out + added
+    val entries = out + added
+    val newTags = LinkedHashSet<String>()
+    for (e in entries) for (t in e.tags) if (t !in had) newTags += t
+    return MergeResult(entries, newTags, budget.foldersNotTags)
 }
 
 /**

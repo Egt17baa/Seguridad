@@ -511,6 +511,19 @@ class PlatformSourcesTest {
             "if (pickerError != null) VaultLock.keepOpenOnce = false") in flat)
         assertTrue(flat, ("VaultLock.keepOpenOnce = true store.touch() pickerError = createCopy.launchOrError(importCopyFileName(LocalDateTime.now())) " +
             "if (pickerError != null) VaultLock.keepOpenOnce = false") in flat)
+        // M-3: both pickers are registered before the locked return (a result after process death still arrives, and a
+        // created document is then deleted); a file picked while locked is not read.
+        val screen = src.substringAfter("fun ImportScreen(")
+        val lockedReturn = screen.indexOf("if (state !is VaultState.Unlocked) {")
+        assertTrue(lockedReturn > 0)
+        for (picker in listOf("val pick = rememberDocumentPicker(", "val createCopy = rememberDocumentPicker(")) {
+            assertTrue(picker, screen.indexOf(picker) in 0 until lockedReturn)
+        }
+        assertTrue("if (uri != null && store.state.value is VaultState.Unlocked) vm.pick(uri)" in src)
+        // M-5: «Elegir otro archivo» on the password step opens the picker, as on the other steps.
+        assertTrue(flat, "OutlinedButton(onClick = { vm.cancel() launchPick() }" in flat)
+        // R18: the vault's tag chips are lazy.
+        assertTrue("LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(allTags, key = { it })" in code("ui/screens/VaultScreen.kt").replace(Regex("""\s+"""), " "))
         // A document created for the copy and not used (refused, failed) is deleted, never left empty.
         assertTrue("discardDocumentNow(appContext, uri)" in src)
         // «Quitar el archivo exportado»: the document picked in this run, once, after an import; the provider asked first.
@@ -561,6 +574,16 @@ class PlatformSourcesTest {
             "ui/screens/ContactsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(e.title)), maxLines = 1"),
             "ui/screens/ContactDetailScreen.kt" to listOf("Text(plainReportText(shownContactTitle(entry.title)), style"),
             "ui/screens/PkActionsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(c.title)), maxLines = 1"),
+            // M-6: the texts built in vault/ that name a stored contact.
+            "vault/ContactsView.kt" to listOf(
+                "Ya lo tienes: \${plainReportText(shownContactTitle(check.entry.title))}",
+                "misma clave de cifrado que \${plainReportText(shownContactTitle(check.entry.title))}",
+                "tu contacto «\${plainReportText(check.entry.title)}»",
+            ),
+            "vault/PkActions.kt" to listOf(
+                "senderContactText(sender.entry.verified, addressedToMe, plainReportText(sender.entry.title))",
+                "fileSignatureUnverifiedText(plainReportText(sender.entry.title))",
+            ),
         )
         for ((file, snippets) in pins) {
             val src = code(file)

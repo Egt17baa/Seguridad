@@ -9,6 +9,7 @@ import app.seguridad.crypto.pk.cardText
 import app.seguridad.crypto.pk.fingerprint
 import app.seguridad.crypto.pk.hasForbiddenNameCharacter
 import app.seguridad.crypto.pk.strictUtf8
+import app.seguridad.imports.plainReportText
 import java.nio.charset.CharacterCodingException
 import java.text.Normalizer
 import java.util.Locale
@@ -139,7 +140,7 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
         if (check.entry.type == EntryType.IDENTITY) {
             CardNotice(NoticeLevel.INFO, "Es tu propia tarjeta", "No hace falta añadirla: es la de tu identidad.", null)
         } else {
-            CardNotice(NoticeLevel.INFO, "Ya lo tienes: ${shownContactTitle(check.entry.title)}", "Esta tarjeta tiene las mismas claves que ese contacto.", null)
+            CardNotice(NoticeLevel.INFO, "Ya lo tienes: ${plainReportText(shownContactTitle(check.entry.title))}", "Esta tarjeta tiene las mismas claves que ese contacto.", null)
         }
     is CardCheck.SharedKem -> CardNotice(
         NoticeLevel.DANGER,
@@ -148,7 +149,7 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
             // La X-Wing es mía y solo yo tengo su clave privada: no hay duda de cuál es la copia.
             "Esta tarjeta usa la clave de cifrado de tu identidad con otra firma: es una copia falsa de tu clave. No se guarda."
         } else {
-            "Esta tarjeta usa la misma clave de cifrado que ${shownContactTitle(check.entry.title)}, con otra firma. Una de las dos es falsa: " +
+            "Esta tarjeta usa la misma clave de cifrado que ${plainReportText(shownContactTitle(check.entry.title))}, con otra firma. Una de las dos es falsa: " +
                 "compara la huella con las dos personas, en persona o por llamada. No se guarda."
         },
         null,
@@ -156,7 +157,7 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
     is CardCheck.KeysChanged -> CardNotice(
         NoticeLevel.WARNING,
         "Las claves de este contacto han cambiado",
-        "Esta tarjeta se parece a tu contacto «${check.entry.title}», pero trae otras claves. Puede que haya cambiado de móvil o " +
+        "Esta tarjeta se parece a tu contacto «${plainReportText(check.entry.title)}», pero trae otras claves. Puede que haya cambiado de móvil o " +
             "de identidad, o que alguien intente hacerse pasar por él. No sustituye a tu contacto: si la guardas, queda como un " +
             "contacto nuevo. Compara las dos huellas con él.",
         "Guardar como contacto nuevo",

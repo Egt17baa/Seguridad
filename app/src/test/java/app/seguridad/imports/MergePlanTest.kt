@@ -282,6 +282,42 @@ class MergePlanTest {
         assertEquals(setOf(ORIGIN_TAG_BITWARDEN, "casa", "trabajo"), p.newTags)
     }
 
+    @Test fun anImportCreatesAtMostAHundredNewTags() {
+        // R18: a hostile export with 20 000 items, each in a folder of its own.
+        val items = (0 until 20_000).map { login(it, "T$it", user = "u$it", folders = listOf("carpeta $it")) }
+        val p = plan(read(*items.toTypedArray()), listOf(bank))
+        assertEquals(IMPORT_MAX_NEW_TAGS + 1, p.newTags.size) // The origin tag and 100 folders.
+        val r = mergeImport(p, DuplicateChoice.SKIP, emptyMap(), listOf(bank), now, newId)
+        assertEquals(IMPORT_MAX_NEW_TAGS + 1, r.newTags.size)
+        assertEquals(p.newTags, r.newTags)
+        assertEquals(20_000 - IMPORT_MAX_NEW_TAGS, r.foldersNotTags)
+        val added = r.entries.drop(1)
+        assertEquals(20_000, added.size)
+        // The first hundred keep their folder; the rest keep only the origin tag, which is never dropped.
+        assertEquals(listOf(ORIGIN_TAG_BITWARDEN, "carpeta 99"), added[99].tags)
+        assertEquals(listOf(ORIGIN_TAG_BITWARDEN), added[100].tags)
+        assertEquals(listOf(ORIGIN_TAG_BITWARDEN), added.last().tags)
+    }
+
+    @Test fun tagsTheVaultHasAlreadyNeverSpendTheBudget() {
+        val budget = TagBudget(had = setOf("casa"), max = 1)
+        assertEquals(listOf(ORIGIN_TAG_AEGIS, "casa"), budget.tagsFor(listOf("Casa"), ImportFormat.AEGIS))
+        assertEquals(listOf(ORIGIN_TAG_AEGIS, "uno"), budget.tagsFor(listOf("Uno"), ImportFormat.AEGIS))
+        assertEquals(listOf(ORIGIN_TAG_AEGIS, "casa", "uno"), budget.tagsFor(listOf("Casa", "Uno"), ImportFormat.AEGIS))
+        assertEquals(listOf(ORIGIN_TAG_AEGIS), budget.tagsFor(listOf("Casa", "Dos"), ImportFormat.AEGIS))
+        assertEquals(1, budget.foldersNotTags)
+        assertEquals(setOf(ORIGIN_TAG_AEGIS, "uno"), budget.created)
+    }
+
+    @Test fun theMergedNewTagsLeaveOutWhatAFullEntryCannotTake() {
+        // M-1: a vault entry with 10 tags takes none of the file's on «Reemplazar», so they are not new tags.
+        val full = saved("b", EntryType.LOGIN, "Banco", user = "ana", tags = (1..MAX_TAGS).map { "t$it" })
+        val p = plan(read(login(0, "Banco", user = "ana", folders = listOf("Nueva"))), listOf(full))
+        val r = mergeImport(p, DuplicateChoice.REPLACE, emptyMap(), listOf(full), now, newId)
+        assertEquals(emptySet<String>(), r.newTags)
+        assertEquals(0, r.foldersNotTags)
+    }
+
     // ---- Two imports of the same file ----
 
     @Test fun secondImportOfSameFileAddsNothing() {

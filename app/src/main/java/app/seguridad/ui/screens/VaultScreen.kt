@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -441,8 +442,9 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
         }
         if (allTags.isNotEmpty()) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    allTags.forEach { t ->
+                // R18: lazy, so a vault with many tags composes only the chips on screen.
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(allTags, key = { it }) { t ->
                         FilterChip(selected = activeTag == t, onClick = { tag = if (activeTag == t) null else t }, label = { Text("#${plainReportText(t)}") })
                     }
                 }

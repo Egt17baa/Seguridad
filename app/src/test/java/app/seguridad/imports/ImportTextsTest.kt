@@ -129,6 +129,8 @@ class ImportTextsTest {
         IMPORT_COPY_DOCUMENT_FAILED, IMPORT_VAULT_CHANGED, IMPORT_DONE_TITLE, IMPORT_SKIPPED_DONE_TITLE, IMPORT_REMOVE,
         IMPORT_REMOVE_EXPLAIN, IMPORT_REMOVE_DECLINE, IMPORT_REMOVING, IMPORT_REMOVED, IMPORT_REMOVE_FAILED,
         IMPORT_REMOVE_UNSUPPORTED, IMPORT_REMOVE_DECLINED, IMPORT_ENDED_TITLE,
+        IMPORT_WIPED_WHILE_SAVING, importFoldersNotTagsText(1), importFoldersNotTagsText(19_900),
+        importNewTagsText((1..30).map { "t$it" }),
         importTooBigText(5L * 1024 * 1024, 3), importDoneText(2, 1), importDoneText(0, 0),
         previewEntersText(mapOf(EntryType.LOGIN to 2, EntryType.TOTP to 1)), importReplacedText(2), importDuplicatesText(4),
         importRepeatedText(2), importBecameNotesText(1), importNewTagsText(listOf("importado-bitwarden", "casa")),
@@ -154,6 +156,11 @@ class ImportTextsTest {
     @Test fun removingTheExportedFileSaysWhatItDoesNotErase() {
         for (place in listOf("nube", "papelera", "otras apps")) assertTrue(place, place in IMPORT_REMOVE_EXPLAIN)
         assertTrue("no garantiza" in IMPORT_REMOVE_EXPLAIN)
+        // M-7: some providers do not let Clavero delete: both texts say it only tries.
+        for (t in listOf(IMPORT_REMOVE_EXPLAIN, IMPORT_NOT_PROTECTED)) {
+            assertTrue(t, "puede intentar borrar" in t && "algunas apps no lo dejan" in t)
+            assertFalse(t, "Clavero puede borrar" in t)
+        }
         // The explanation is shown with the offer, and a failure or a provider that cannot delete says «a mano».
         for (t in listOf(IMPORT_REMOVE_FAILED, IMPORT_REMOVE_UNSUPPORTED)) assertTrue(t, "a mano" in t)
         val screen = mainSources()[SCREEN_FILE] ?: error("$SCREEN_FILE not found")
