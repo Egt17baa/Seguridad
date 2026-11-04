@@ -148,6 +148,34 @@ class OtpMigrationTest {
         assertEquals(1, parseOtpMigration(uri(payload.toByteArray()))!!.imported.size)
     }
 
+    @Test fun leftOutAccountsSayWhyWithoutTheText() {
+        // The same accounts as skipsHotpAndMd5WithReason, plus an unknown type and an unknown number of digits: the
+        // importer needs the kind, so it never reads the Spanish text back.
+        val payload = Pb()
+            .msg(1, otp(KEY, "Hotp:a", "Hotp", type = 1, counter = 7))
+            .msg(1, otp(KEY, "Viejo:b", "Viejo", alg = 4))
+            .msg(1, otp(ByteArray(9) { 1 }, "Corta:c", "Corta"))
+            .msg(1, otp(KEY, "Rara:d", "Rara", alg = 9))
+            .msg(1, otp(KEY, "Bien:e", "Bien"))
+            .msg(1, otp(KEY, "Tipo:f", "Tipo", type = 7))
+            .msg(1, otp(KEY, "Cifras:g", "Cifras", digits = 5))
+        val r = parseOtpMigration(uri(payload.toByteArray()))!!
+        assertEquals(
+            listOf(
+                MigrationLeftOut("Hotp", "a", MigrationLeftOutKind.NOT_TOTP),
+                MigrationLeftOut("Viejo", "b", MigrationLeftOutKind.UNSUPPORTED_SETTINGS),
+                MigrationLeftOut("Corta", "c", MigrationLeftOutKind.SHORT_KEY),
+                MigrationLeftOut("Rara", "d", MigrationLeftOutKind.UNSUPPORTED_SETTINGS),
+                MigrationLeftOut("Tipo", "f", MigrationLeftOutKind.NOT_TOTP),
+                MigrationLeftOut("Cifras", "g", MigrationLeftOutKind.UNSUPPORTED_SETTINGS),
+            ),
+            r.leftOut,
+        )
+        // One text per account left out, in the same order, as before.
+        assertEquals(r.leftOut.size, r.skipped.size)
+        assertTrue(r.skipped.zip(r.leftOut).all { (text, left) -> text.startsWith("«${left.issuer} · ${left.account}»") })
+    }
+
     @Test fun rejectsOversizedAndMalformed() {
         val good = Pb().msg(1, otp(KEY, "A:a", "A")).toByteArray()
         assertNotNull(parseOtpMigration(uri(good)))

@@ -41,3 +41,57 @@ const val IMPORT_CSV_TOO_MANY_CELLS = "El archivo tiene demasiadas celdas. Clave
 
 /** Anything else a reader could not read: never the text of the exception, which could carry a value from the file. */
 const val IMPORT_BROKEN = "El archivo está dañado o Clavero no sabe leerlo."
+
+/** A Bitwarden JSON encrypted with the account key (spec «Bitwarden protegido con contraseña»): only Bitwarden can open it. */
+const val IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED =
+    "Esta exportación está cifrada con tu cuenta de Bitwarden. Expórtala como \"JSON\" o como \"JSON (protegido con contraseña)\"."
+
+/** A JSON nested deeper than [JSON_MAX_DEPTH]: refused before it is parsed. */
+const val IMPORT_JSON_TOO_DEEP = "El archivo tiene más de 64 niveles anidados. Clavero no lo lee."
+
+/** A JSON with more than [JSON_MAX_TOKENS] values and names: refused before it is parsed. */
+const val IMPORT_JSON_TOO_MANY_VALUES = "El archivo tiene demasiados datos. Clavero no lo lee."
+
+/** The name a line of an `otpauth://` list is listed by in «no entran» when it names no service nor account. */
+fun importLineTitle(line: Int): String = "Línea $line"
+
+/** The name of the line that keeps each URI of a login after the first one, in its notes. */
+const val NOTE_LINE_URL = "URL"
+
+/** The fields of a Bitwarden card, by their JSON name, and the label of their line in the note («Titular: …»). */
+val BITWARDEN_CARD_LINES: List<Pair<String, String>> = listOf(
+    "cardholderName" to "Titular",
+    "brand" to "Marca",
+    "number" to "Número",
+    "expMonth" to "Mes de caducidad",
+    "expYear" to "Año de caducidad",
+    "code" to "Código de seguridad",
+)
+
+/** The fields of a Bitwarden identity, by their JSON name, and the label of their line in the note. */
+val BITWARDEN_IDENTITY_LINES: List<Pair<String, String>> = listOf(
+    "title" to "Tratamiento",
+    "firstName" to "Nombre",
+    "middleName" to "Segundo nombre",
+    "lastName" to "Apellidos",
+    "address1" to "Dirección",
+    "address2" to "Dirección 2",
+    "address3" to "Dirección 3",
+    "city" to "Ciudad",
+    "state" to "Provincia o estado",
+    "postalCode" to "Código postal",
+    "country" to "País",
+    "company" to "Empresa",
+    "email" to "Correo",
+    "phone" to "Teléfono",
+    "ssn" to "Número de seguridad social",
+    "username" to "Usuario",
+    "passportNumber" to "Pasaporte",
+    "licenseNumber" to "Permiso de conducir",
+)
+
+/**
+ * The start of a Steam code as Bitwarden stores it in `login.totp` (not a visible text, but it names a product, so its
+ * literal lives here, ruling R2): it is [SkipReason.NOT_TOTP].
+ */
+const val BITWARDEN_STEAM_PREFIX = "steam://"
