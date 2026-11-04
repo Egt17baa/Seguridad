@@ -79,9 +79,10 @@ class FinalLegalReviewTest {
     @Test
     fun o2AndR6TheA6TextsAreTheProposedOnes() {
         assertEquals(
-            "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña: las que la app " +
-                "tenía apuntadas en esta carpeta. Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) " +
-                "no se borran.",
+            // R15 (1.4.0, Task 8): the import copies listed in the folder are replaced too.
+            "Se hizo una copia nueva y se borraron las copias automáticas y las de antes de importar hechas antes del " +
+                "cambio de contraseña: las que la app tenía apuntadas en esta carpeta. Las que se hayan copiado a otro sitio " +
+                "(otra carpeta, la nube o su papelera) no se borran.",
             AUTO_BACKUP_REPLACED,
         )
         assertEquals(

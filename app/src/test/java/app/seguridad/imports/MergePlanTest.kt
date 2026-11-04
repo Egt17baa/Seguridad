@@ -199,11 +199,11 @@ class MergePlanTest {
 
     @Test fun replaceNeverEmptiesAFieldOfTheVault() {
         val bare = importedEntry(EntryType.LOGIN, "Banco", username = "", password = "", url = "", notes = "")
-        val r = replaceWith(bank, bare, now, ZoneOffset.UTC)
-        assertEquals(bank.copy(updatedAt = now), r)
+        // Nothing to take: the entry itself, not even a new date (M-2).
+        assertSame(bank, replaceWith(bank, bare, now, ZoneOffset.UTC))
         // Blank counts as empty too.
         val blank = importedEntry(EntryType.LOGIN, "   ", username = " ", password = "", url = "\t", notes = "\n")
-        assertEquals(bank.copy(updatedAt = now), replaceWith(bank, blank, now, ZoneOffset.UTC))
+        assertSame(bank, replaceWith(bank, blank, now, ZoneOffset.UTC))
     }
 
     @Test fun replaceNotesWhenTheVaultHasNoneOrTheyAreEqual() {
@@ -219,8 +219,27 @@ class MergePlanTest {
         val incomingCode = importedEntry(EntryType.TOTP, "Correo nuevo", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Correo", digits = 8))
         val r = replaceWith(code, incomingCode, now, ZoneOffset.UTC)
         assertEquals(8, r.totp!!.digits)
+        // M-1: the file's blank account keeps the vault's; its issuer is there and taken.
+        assertEquals("ana", r.totp!!.account)
+        assertEquals("Correo", r.totp!!.issuer)
         assertEquals("Correo nuevo", r.title)
+        val renamed = replaceWith(code, importedEntry(EntryType.TOTP, "C", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Otro", account = "eva")), now, ZoneOffset.UTC)
+        assertEquals("Otro" to "eva", renamed.totp!!.issuer to renamed.totp!!.account)
         assertTrue(r.passwordHistory.isEmpty())
+    }
+
+    /** M-2: the same file replaced twice changes the entry once: no second notes block, no new date. */
+    @Test fun replacingTwiceWithTheSameFileChangesNothingTheSecondTime() {
+        val file = importedEntry(EntryType.LOGIN, "Banco", username = "ana", password = "nueva", notes = "nota del archivo")
+            .copy(tags = listOf(ORIGIN_TAG_BITWARDEN))
+        val once = replaceWith(bank, file, now, ZoneOffset.UTC)
+        assertEquals("nota de la bóveda\n\nImportado el 4-11-2026:\nnota del archivo", once.notes)
+        assertSame(once, replaceWith(once, file, now + 86_400_000, ZoneOffset.UTC))
+        // And through the whole merge: nothing changes, so nothing is saved.
+        val vault = listOf(once, other)
+        val p = plan(read(login(0, "Banco", user = "ana", url = "https://banco.es", password = "nueva", notes = "nota del archivo")), vault)
+        val merged = mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), vault, now + 1, newId, ZoneOffset.UTC)
+        assertSame(once, merged[0])
     }
 
     @Test fun twoDuplicatesOfOneEntryAreAppliedInTurn() {
@@ -237,7 +256,9 @@ class MergePlanTest {
 
     @Test fun foldersBecomeTagsWithTheOriginTag() {
         assertEquals(listOf(ORIGIN_TAG_BITWARDEN), importTags(emptyList(), ImportFormat.BITWARDEN))
-        assertEquals(listOf(ORIGIN_TAG_AEGIS, "trabajo  casa"), importTags(listOf("Trabajo, Casa"), ImportFormat.AEGIS))
+        // M-8: commas become spaces and a run of spaces one, so «Trabajo, Casa» is the same tag as a typed «trabajo casa».
+        assertEquals(listOf(ORIGIN_TAG_AEGIS, "trabajo casa"), importTags(listOf("Trabajo, Casa"), ImportFormat.AEGIS))
+        assertEquals(listOf(ORIGIN_TAG_AEGIS, "trabajo casa"), importTags(listOf(" Trabajo ,,\t Casa "), ImportFormat.AEGIS))
         assertEquals(listOf(ORIGIN_TAG_BROWSER, "a/b"), importTags(listOf("A/B", " a/b "), ImportFormat.BROWSER_CSV))
         val nested = "Personal/Bancos/Cuentas de ahorro"
         assertEquals(listOf(ORIGIN_TAG_FIREFOX, "personal/bancos/cuentas"), importTags(listOf(nested), ImportFormat.FIREFOX_CSV))
@@ -304,6 +325,28 @@ class MergePlanTest {
         val real = VaultCrypto.encodeFile(VaultCrypto.write(file, key, entries)).toByteArray(Charsets.UTF_8).size.toLong()
         assertTrue("$real > estimate", real <= estimatedVaultFileBytes(entries))
         assertEquals(0, estimatedOverBytes(entries))
+    }
+
+    /** I-1: the escaped length is what `appJson` writes, counted without building anything. */
+    @Test fun theEscapedLengthIsTheJsonOne() {
+        val mixed = "a\"b\\c\b\u000C\n\r\t\u0001\u001F ñ € 😀 \uD800 x"
+        val json = appJson.encodeToString(mixed).toByteArray(Charsets.UTF_8).size - 2L
+        assertEquals(json, jsonEscapedLength(mixed))
+        assertEquals(6L * 1000, jsonEscapedLength("\u0001".repeat(1000)))
+        val entries = (0 until 20).map { saved("id$it", EntryType.LOGIN, "T\u0002$it", user = "\"u\"", notes = "\n".repeat(50), tags = listOf("a")) }
+        val whole = appJson.encodeToString(entries).toByteArray(Charsets.UTF_8).size.toLong()
+        assertTrue(escapedTextBytes(entries) <= whole)
+        assertTrue("Close: within the field names", whole - escapedTextBytes(entries) < 20L * 200)
+    }
+
+    /** I-1: text that JSON escapes six times over is found too big from its count alone, never encoded. */
+    @Test fun aHeavilyEscapedImportIsTooBigWithoutEncodingIt() {
+        val hostile = (0 until 75).map { saved("id$it", EntryType.NOTE, "N$it", notes = "\u0001".repeat(63_000)) }
+        val low = escapedTextBytes(hostile)
+        assertTrue(low > 75L * 63_000 * 6 - 1)
+        // The bound's own estimate: the formula on the counted bytes, not on an encoded string.
+        assertEquals((low * 4 + 2) / 3 + 4096, estimatedVaultFileBytes(hostile))
+        assertTrue(estimatedOverBytes(hostile) > 0)
     }
 
     @Test fun anEstimateOverTheLimitSaysByHowMuch() {

@@ -48,6 +48,13 @@ class ImportFlowTest {
         assertEquals(ImportOutcome.NotApplied(big), ImportFlow(copy = { CopyResult.Saved("c") }, apply = { big }).confirm())
     }
 
+    /** M-5: a save that fails says so with a fixed text, never what the exception said, and keeps where the copy went. */
+    @Test fun aSaveThatFailsIsSaidWithAFixedText() = runTest {
+        val r = ImportFlow(copy = { CopyResult.Saved("copia.sgbak") }, apply = { throw IOException("/data/secreto 1234") }).confirm()
+        assertEquals(ImportOutcome.SaveFailed("copia.sgbak", IMPORT_SAVE_FAILED), r)
+        assertFalse((r as ImportOutcome.SaveFailed).message.contains("secreto"))
+    }
+
     @Test fun theCopyComesFirstThenTheSave() = runTest {
         val order = mutableListOf<String>()
         val r = ImportFlow(copy = { order += "copia"; CopyResult.Saved("copia.sgbak") }, apply = { order += "guardar"; done }).confirm()
