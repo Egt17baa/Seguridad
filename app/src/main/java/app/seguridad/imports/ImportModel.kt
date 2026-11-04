@@ -5,7 +5,6 @@ import app.seguridad.crypto.OTPAUTH_MAX_CHARS
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.isSupported
 import app.seguridad.crypto.readOtpAuth
-import app.seguridad.crypto.withoutBidiControls
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
 
@@ -40,7 +39,7 @@ enum class SkipReason(val text: String) {
 
 /**
  * Something in the file that does not enter, listed with its [reason]. [title] is only the plain title, at most
- * [MAX_TITLE] characters and without control or bidi characters ([plainReportText]): never a password, a note or a key.
+ * [MAX_TITLE] characters, as [plainReportText] shows it: never a password, a note or a key.
  */
 data class Skipped(val index: Int, val title: String, val reason: SkipReason)
 
@@ -81,28 +80,56 @@ internal fun importedEntry(
     totp = totp, createdAt = 0, updatedAt = 0, favorite = favorite,
 )
 
+/** Most combining marks (Mn, Me) kept in a row on one base character: enough for any language's accents and tones. */
+const val MAX_COMBINING_MARKS = 3
+
 /**
- * [text] as the import report may show it (decision (c) of the owner: what comes from the file is data): every control
- * character (C0, C1, and the line and paragraph separators U+2028 and U+2029) becomes a space, and the characters that
- * turn text around (U+202A–U+202E, U+2066–U+2069, U+200E, U+200F, U+061C: [withoutBidiControls]) are dropped, so a
- * crafted title cannot make one line look like another. Then it is cut to [maxChars] UTF-16 units without splitting a
- * surrogate pair. [Skipped.title] always goes through it; the import screen uses it for anything else it shows.
+ * [text] as the import report may show it (decision (c) of the owner: what comes from the file is data, and rulings R9
+ * and I2: the same helper wherever a title, user or URL is shown). One pass by code point:
+ * - every control character (Cc: C0 and C1) and the line and paragraph separators U+2028 and U+2029 become a space;
+ * - every format character (Cf) is dropped: the bidi controls that turn text around (U+202A–U+202E, U+2066–U+2069,
+ *   U+200E, U+200F, U+061C), the invisible ones (U+00AD, U+180E, U+200B–U+200D, U+2060–U+2064, U+FEFF) and the tag
+ *   characters (the whole block U+E0000–U+E007F, its unassigned code points too). U+200D (the zero-width joiner) goes
+ *   too: an emoji sequence such as a family shows as its separate emoji, which is accepted;
+ * - also dropped, though they are not Cf: the interlinear annotation characters U+FFF9–U+FFFB, the combining grapheme
+ *   joiner U+034F and the Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), all invisible, and a lone surrogate;
+ * - after [MAX_COMBINING_MARKS] combining marks in a row (Mn, Me) on one base, the rest are dropped, so a tower of
+ *   accents cannot cover the lines around it.
+ * Then the text is cut to at most [maxChars] UTF-16 units, always at the end of a code point (a surrogate pair is never
+ * split). So «ban\u200Bco» shows as «banco» and a title cannot make one line look like another by hidden characters.
+ * It does not catch look-alike letters from other scripts (a Cyrillic «а» for a Latin «a»): no character is removed
+ * for that. Ordinary text, accents, «ñ» and emoji without a joiner come out unchanged. [Skipped.title] always goes
+ * through it.
  */
 fun plainReportText(text: String, maxChars: Int = MAX_TITLE): String {
     val out = StringBuilder(minOf(text.length, maxChars.coerceAtLeast(0)))
-    for (c in text) {
-        if (out.length >= maxChars) break
-        if (isBidiControl(c)) continue
-        out.append(if (c.isISOControl() || c == '\u2028' || c == '\u2029') ' ' else c)
+    var marks = 0
+    var i = 0
+    while (i < text.length) {
+        val cp = text.codePointAt(i)
+        i += Character.charCount(cp)
+        val type = Character.getType(cp)
+        val invisible = type == Character.FORMAT.toInt() || type == Character.SURROGATE.toInt() ||
+            cp in TAG_CHARACTERS || cp in INVISIBLE_NOT_FORMAT
+        if (invisible) continue
+        if (type == Character.NON_SPACING_MARK.toInt() || type == Character.ENCLOSING_MARK.toInt()) {
+            if (marks >= MAX_COMBINING_MARKS) continue
+            marks++
+        } else {
+            marks = 0
+        }
+        val shown = if (Character.isISOControl(cp) || cp == 0x2028 || cp == 0x2029) ' '.code else cp
+        if (out.length + Character.charCount(shown) > maxChars) break
+        out.appendCodePoint(shown)
     }
-    // A high surrogate left alone at the cut is dropped, so the text stays valid.
-    if (out.isNotEmpty() && Character.isHighSurrogate(out[out.length - 1]) && out.length == maxChars) out.setLength(out.length - 1)
     return out.toString()
 }
 
-/** The characters [withoutBidiControls] drops (the same list; `ImportModelTest` checks that they stay the same). */
-internal fun isBidiControl(c: Char): Boolean =
-    c in '\u202A'..'\u202E' || c in '\u2066'..'\u2069' || c == '\u200E' || c == '\u200F' || c == '\u061C'
+/** The whole tag block, also its unassigned code points (only U+E0001 and U+E0020–U+E007F are Cf). */
+private val TAG_CHARACTERS = 0xE0000..0xE007F
+
+/** Invisible characters that are not Cf: interlinear annotations, the combining grapheme joiner and the Hangul fillers. */
+private val INVISIBLE_NOT_FORMAT = setOf(0xFFF9, 0xFFFA, 0xFFFB, 0x034F, 0x115F, 0x1160, 0x3164, 0xFFA0)
 
 /** If [link] is an otpauth:// link of another kind than TOTP (`otpauth://hotp/…`): Clavero only has TOTP. */
 private fun isOtherOtpAuth(link: String): Boolean {

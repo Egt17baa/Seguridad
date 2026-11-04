@@ -40,19 +40,24 @@ internal fun csvHeader(text: String): List<String>? {
     }
 }
 
-/** «;» when the first line (outside quotes) has more semicolons than commas, as a spreadsheet in Spanish saves; «,» otherwise. */
+/**
+ * «;» when the header line (the first one that is not blank, outside quotes) has more semicolons than commas, as a
+ * spreadsheet in Spanish saves; «,» otherwise, also on a tie.
+ */
 internal fun csvDelimiter(text: String): Char {
     var commas = 0
     var semicolons = 0
     var quoted = false
+    var seen = false
     for (c in text) {
         when {
             c == '"' -> quoted = !quoted
             quoted -> {}
-            c == '\n' || c == '\r' -> break
+            c == '\n' || c == '\r' -> if (seen) break else continue
             c == ',' -> commas++
             c == ';' -> semicolons++
         }
+        seen = true
     }
     return if (semicolons > commas) ';' else ','
 }
@@ -63,19 +68,25 @@ private class CsvReader(private val text: String, private val delimiter: Char) {
     private var rows = 0
     private val field = StringBuilder()
 
+    /** The record being read; null until its first cell. */
+    private var row: ArrayList<String>? = null
+
     /** The next row, or null at the end; blank lines are passed over. */
     fun next(): List<String>? {
         while (pos < text.length) {
-            val row = record() ?: continue
+            val read = record() ?: continue
             if (++rows > IMPORT_MAX_ITEMS + 1) throw ImportFailure(IMPORT_TOO_MANY_ITEMS)
-            return row
+            return read
         }
         return null
     }
 
-    /** One record from [pos]; null for a line with nothing on it. */
+    /**
+     * One record from [pos]; null for a line with nothing on it. The row's list is made only at its first cell
+     * ([endField]), so a file of blank lines allocates nothing per line.
+     */
     private fun record(): List<String>? {
-        val row = ArrayList<String>()
+        row = null
         var started = false // something of the current field was read (its opening quote included)
         var quoted = false
         var lineHasContent = false
@@ -100,7 +111,7 @@ private class CsvReader(private val text: String, private val delimiter: Char) {
             }
             when (c) {
                 delimiter -> {
-                    endField(row)
+                    endField()
                     started = false
                     lineHasContent = true
                 }
@@ -122,19 +133,20 @@ private class CsvReader(private val text: String, private val delimiter: Char) {
             }
         }
         if (!lineHasContent) return null
-        endField(row)
-        return row
+        endField()
+        return row.also { row = null }
     }
 
     private fun append(c: Char) {
         if (field.length < CSV_MAX_FIELD_CHARS) field.append(c)
     }
 
-    private fun endField(row: ArrayList<String>) {
-        if (row.size >= CSV_MAX_COLUMNS) throw ImportFailure(IMPORT_CSV_TOO_MANY_COLUMNS)
+    private fun endField() {
+        val current = row ?: ArrayList<String>().also { row = it }
+        if (current.size >= CSV_MAX_COLUMNS) throw ImportFailure(IMPORT_CSV_TOO_MANY_COLUMNS)
         if (++cells > CSV_MAX_CELLS) throw ImportFailure(IMPORT_CSV_TOO_MANY_CELLS)
         // Empty cells share the one empty string: a file of commas holds no string per cell.
-        row += if (field.isEmpty()) "" else field.toString()
+        current += if (field.isEmpty()) "" else field.toString()
         field.setLength(0)
     }
 
