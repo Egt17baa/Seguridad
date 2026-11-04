@@ -1,5 +1,6 @@
 package app.seguridad.imports
 
+import app.seguridad.crypto.OTPAUTH_MAX_NAME_CHARS
 import app.seguridad.crypto.withoutBidiControls
 import app.seguridad.vault.EntryType
 import org.junit.Assert.assertEquals
@@ -69,6 +70,21 @@ class ImportModelTest {
         val s = b.build().skipped.single()
         assertEquals(MAX_TITLE, s.title.length)
         assertTrue(s.title.startsWith("ab x"))
+    }
+
+    @Test fun addTotpNeverCutsANameAndItsPartsCannotAddASetting() {
+        val b = ImportReadBuilder(ImportFormat.AEGIS)
+        b.addTotp("JBSWY3DPEHPK3PXP", "i".repeat(OTPAUTH_MAX_NAME_CHARS + 1), "a", null, null, null, "t")
+        b.addTotp("JBSWY3DPEHPK3PXP", "e", "a".repeat(OTPAUTH_MAX_NAME_CHARS + 1), null, null, null, "t")
+        b.addTotp("JBSWY3DPEHPK3PXP", "e&digits=10", "a:b c", "SHA256", 8, 60, "t")
+        val read = b.build()
+        assertEquals(listOf(SkipReason.FIELD_TOO_LONG, SkipReason.FIELD_TOO_LONG), read.skipped.map { it.reason })
+        val s = read.items.single().entry.totp!!
+        assertEquals(listOf("e&digits=10", "a:b c", "SHA256", 8, 60), listOf(s.issuer, s.account, s.algorithm, s.digits, s.period))
+        // A link whose label the reader would cut is listed too.
+        val l = ImportReadBuilder(ImportFormat.OTPAUTH)
+        l.addOtpAuth("otpauth://totp/" + "x".repeat(OTPAUTH_MAX_NAME_CHARS + 1) + "?secret=JBSWY3DPEHPK3PXP", "t")
+        assertEquals(SkipReason.FIELD_TOO_LONG, l.build().skipped.single().reason)
     }
 
     @Test(expected = IllegalArgumentException::class)

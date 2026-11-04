@@ -1,5 +1,6 @@
 package app.seguridad.imports
 
+import app.seguridad.crypto.OTPAUTH_MAX_NAME_CHARS
 import app.seguridad.vault.EntryType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -72,6 +73,30 @@ class AegisJsonTest {
             totp(extra = ""","group":"Antiguo""""),
         ))
         assertEquals(listOf(listOf("Trabajo"), listOf("Antiguo")), r2.items.map { it.folders })
+    }
+
+    @Test fun aGroupNameWithANulOrALoneSurrogateGivesNoFolder() {
+        val text = """{"version":1,"header":{},"db":{"version":3,"groups":[{"uuid":"g1","name":"a\u0000"},{"uuid":"g2","name":"\ud800"}],""" +
+            """"entries":[""" + totp(extra = ""","groups":["g1","g2"]""") + "," + totp(extra = ""","group":"x\udc00"""") + "]}}"
+        val read = ok(text)
+        assertEquals(2, read.items.size)
+        assertTrue(read.items.all { it.folders.isEmpty() })
+    }
+
+    @Test fun anIssuerOrAccountTooLongForTheCodeIsNeverCut() {
+        val emoji = "x".repeat(OTPAUTH_MAX_NAME_CHARS - 1) + "🛒" // 256 code points, 257 UTF-16 units
+        val read = ok(backup(
+            totp(issuer = "i".repeat(OTPAUTH_MAX_NAME_CHARS)),
+            totp(issuer = emoji),
+            totp(issuer = "i".repeat(OTPAUTH_MAX_NAME_CHARS + 1)),
+            totp(issuer = emoji + "y"),
+            """{"type":"totp","name":"${"c".repeat(OTPAUTH_MAX_NAME_CHARS + 1)}","issuer":"largo","info":{"secret":"JBSWY3DPEHPK3PXP"}}""",
+        ))
+        // At the bound they enter whole: the emoji is not split into a lone surrogate.
+        assertEquals(listOf("i".repeat(OTPAUTH_MAX_NAME_CHARS), emoji), read.items.map { it.entry.totp!!.issuer })
+        assertTrue(Character.isLowSurrogate(read.items[1].entry.totp!!.issuer.last()))
+        // Past it the code would keep them cut: listed instead, never imported cut.
+        assertEquals(List(3) { SkipReason.FIELD_TOO_LONG }, read.skipped.map { it.reason })
     }
 
     @Test fun favoriteIsKept() {

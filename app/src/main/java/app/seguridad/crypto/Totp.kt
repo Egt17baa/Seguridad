@@ -145,15 +145,28 @@ fun totpCode(s: TotpSecret, nowMillis: Long): Pair<String, Int>? {
     }
 }
 
-/** Longest otpauth:// link read (a real one is under 300 characters), and longest issuer or account kept from it. */
+/**
+ * Longest otpauth:// link read (a real one is under 300 characters), in UTF-16 units, and longest issuer or account
+ * kept from it, in code points (so a cut never splits a surrogate pair).
+ */
 const val OTPAUTH_MAX_CHARS = 4096
 const val OTPAUTH_MAX_NAME_CHARS = 256
 
+/** [text] without control characters nor the ones that turn text around ([withoutBidiControls]), trimmed. */
+private fun otpNameClean(text: String): String = withoutBidiControls(text.filterNot { it.isISOControl() }).trim()
+
 /**
- * An issuer or account from a scanned link or a Google Authenticator export, as it will be shown: without control
- * characters nor the ones that turn text around ([withoutBidiControls]), and at most [OTPAUTH_MAX_NAME_CHARS] characters.
+ * An issuer or account from a scanned link or a Google Authenticator export, as it will be shown: [otpNameClean], and
+ * at most [OTPAUTH_MAX_NAME_CHARS] code points, cut at the end of a code point.
  */
-internal fun otpName(text: String): String = withoutBidiControls(text.filterNot { it.isISOControl() }).trim().take(OTPAUTH_MAX_NAME_CHARS)
+internal fun otpName(text: String): String {
+    val t = otpNameClean(text)
+    if (t.codePointCount(0, t.length) <= OTPAUTH_MAX_NAME_CHARS) return t
+    return t.substring(0, t.offsetByCodePoints(0, OTPAUTH_MAX_NAME_CHARS))
+}
+
+/** If [otpName] keeps all of [text] (it does not cut it). The importer refuses a code whose names would be cut. */
+internal fun otpNameFits(text: String): Boolean = otpNameClean(text).let { it.codePointCount(0, it.length) <= OTPAUTH_MAX_NAME_CHARS }
 
 /** What [readOtpAuth] makes of a text: the one answer the editor and the QR inspector decide on (F4). */
 sealed interface OtpAuthRead {
@@ -176,7 +189,11 @@ sealed interface OtpAuthRead {
         override val names: Pair<String, String> get() = issuer to account
     }
 
-    class Usable(val secret: TotpSecret) : OtpAuthRead {
+    /**
+     * [namesCut]: the issuer or the account was longer than [OTPAUTH_MAX_NAME_CHARS] and [secret] keeps it cut. The
+     * scanner accepts that; the importer lists such a code instead (a field is never cut in silence).
+     */
+    class Usable(val secret: TotpSecret, val namesCut: Boolean = false) : OtpAuthRead {
         override val names: Pair<String, String> get() = secret.issuer to secret.account
     }
 }
@@ -206,8 +223,10 @@ fun readOtpAuth(uri: String): OtpAuthRead {
         val secret = query["secret"]?.takeIf { isUsableTotpKey(it) } ?: return OtpAuthRead.NotUsable
         val label = URLDecoder.decode((u.rawPath ?: "").removePrefix("/"), "UTF-8")
         val labelIssuer = label.substringBefore(':', "").trim()
-        val issuer = otpName(query["issuer"] ?: labelIssuer)
-        val account = otpName(label.substringAfter(':').trim())
+        val rawIssuer = query["issuer"] ?: labelIssuer
+        val rawAccount = label.substringAfter(':').trim()
+        val issuer = otpName(rawIssuer)
+        val account = otpName(rawAccount)
         // The default only when the parameter is missing; one that is there and is not a number is refused at once, and
         // one that is a number out of range, or an unknown algorithm, is refused by isSupported.
         val algorithm = (query["algorithm"] ?: "SHA1").uppercase()
@@ -215,14 +234,18 @@ fun readOtpAuth(uri: String): OtpAuthRead {
         val period = query["period"]?.let { it.toIntOrNull() ?: return OtpAuthRead.UnsupportedSettings(issuer, account) } ?: 30
         val code = TotpSecret(secret.uppercase().filter { it in BASE32 }, issuer = issuer, account = account, algorithm = algorithm, digits = digits, period = period)
         // isSupported reads an empty algorithm as SHA-1, as it must for a saved code; a link with «algorithm=» names none.
-        if (algorithm.isNotEmpty() && code.isSupported()) OtpAuthRead.Usable(code) else OtpAuthRead.UnsupportedSettings(issuer, account)
+        if (algorithm.isNotEmpty() && code.isSupported()) {
+            OtpAuthRead.Usable(code, namesCut = !otpNameFits(rawIssuer) || !otpNameFits(rawAccount))
+        } else {
+            OtpAuthRead.UnsupportedSettings(issuer, account)
+        }
     } catch (e: Exception) {
         OtpAuthRead.NotUsable
     }
 }
 
 /** Percent-encoding for otpauth:// labels and values: UTF-8, spaces as %20 (never '+', which [readOtpAuth] reads as a space). */
-private fun otpEncode(text: String) = java.net.URLEncoder.encode(text, "UTF-8").replace("+", "%20")
+internal fun otpEncode(text: String): String = java.net.URLEncoder.encode(text, "UTF-8").replace("+", "%20")
 
 /**
  * The otpauth://totp/ link of this code (Key-Uri-Format), for showing as a QR to another app; [readOtpAuth] reads it back

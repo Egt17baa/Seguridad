@@ -4,10 +4,11 @@ import app.seguridad.crypto.OtpAuthRead
 import app.seguridad.crypto.OTPAUTH_MAX_CHARS
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.isSupported
+import app.seguridad.crypto.otpEncode
+import app.seguridad.crypto.otpNameFits
 import app.seguridad.crypto.readOtpAuth
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
-import java.net.URLEncoder
 
 /** The family of a format read; [originTag] is the tag every entry imported from it gets (spec «Etiquetas»). */
 enum class ImportFormat(val originTag: String) {
@@ -178,14 +179,17 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
      * The 2FA of [link], as a TOTP entry named [title]: every code goes through [readOtpAuth] and [isSupported] (rule
      * of CRY-B02), so a setting Clavero does not calculate is refused, never changed. Otherwise a [Skipped]:
      * [SkipReason.TOTP_UNSUPPORTED] for such settings, [SkipReason.NOT_TOTP] for another otpauth kind (HOTP),
-     * [SkipReason.FIELD_TOO_LONG] past [OTPAUTH_MAX_CHARS], and [SkipReason.BROKEN] for anything else. [notes] and
+     * [SkipReason.FIELD_TOO_LONG] past [OTPAUTH_MAX_CHARS] or when the link's issuer or account would be cut
+     * ([OtpAuthRead.Usable.namesCut]: a field is never imported cut), and [SkipReason.BROKEN] for anything else. [notes] and
      * [favorite] are those of the element the code comes from (an Aegis entry), as read.
      */
     fun addOtpAuth(link: String, title: String, folders: List<String> = emptyList(), notes: String = "", favorite: Boolean = false) {
         if (link.length > OTPAUTH_MAX_CHARS) return skip(title, SkipReason.FIELD_TOO_LONG)
         when (val r = readOtpAuth(link)) {
             is OtpAuthRead.Usable ->
-                if (r.secret.isSupported()) {
+                if (r.namesCut) {
+                    skip(title, SkipReason.FIELD_TOO_LONG)
+                } else if (r.secret.isSupported()) {
                     add(importedEntry(EntryType.TOTP, title, notes = notes, totp = r.secret, favorite = favorite), folders)
                 } else {
                     skip(title, SkipReason.TOTP_UNSUPPORTED)
@@ -201,7 +205,8 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
      * (`issuer` = `x&digits=10` stays an issuer). The label is `:` + [account], so a `:` in the account never makes
      * an issuer of it. A null setting is missing and takes the default; a present one is written as given (an empty
      * [algorithm] or a [NOT_A_WHOLE_NUMBER] setting is refused by [readOtpAuth], never changed). Parts too long for a link go to
-     * [SkipReason.FIELD_TOO_LONG] before the link is built.
+     * [SkipReason.FIELD_TOO_LONG] before the link is built, and so do an issuer or an account that the code would keep
+     * cut ([otpNameFits]). The encoding is the one [readOtpAuth] reads ([otpEncode]).
      */
     fun addTotp(
         secret: String,
@@ -215,13 +220,15 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
         notes: String = "",
         favorite: Boolean = false,
     ) {
-        if (secret.length.toLong() + issuer.length + account.length + (algorithm?.length ?: 0) > OTPAUTH_MAX_CHARS) {
+        if (secret.length.toLong() + issuer.length + account.length + (algorithm?.length ?: 0) > OTPAUTH_MAX_CHARS ||
+            !otpNameFits(issuer) || !otpNameFits(account)
+        ) {
             return skip(title, SkipReason.FIELD_TOO_LONG)
         }
         val link = buildString {
-            append("otpauth://totp/:").append(linkPart(account)).append("?secret=").append(linkPart(secret))
-            if (issuer.isNotEmpty()) append("&issuer=").append(linkPart(issuer))
-            if (algorithm != null) append("&algorithm=").append(linkPart(algorithm))
+            append("otpauth://totp/:").append(otpEncode(account)).append("?secret=").append(otpEncode(secret))
+            if (issuer.isNotEmpty()) append("&issuer=").append(otpEncode(issuer))
+            if (algorithm != null) append("&algorithm=").append(otpEncode(algorithm))
             if (digits != null) append("&digits=").append(digits)
             if (period != null) append("&period=").append(period)
         }
@@ -230,9 +237,6 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
 
     fun build(): ImportRead = ImportRead(format, items.toList(), skipped.toList(), becameNotes)
 }
-
-/** [text] percent-encoded for one part of an otpauth:// link (UTF-8, a space as %20), as [readOtpAuth] decodes it. */
-private fun linkPart(text: String): String = URLEncoder.encode(text, Charsets.UTF_8.name()).replace("+", "%20")
 
 /** Refuses a file with more than [IMPORT_MAX_ITEMS] rows or elements. */
 internal fun checkItemCount(count: Int) {

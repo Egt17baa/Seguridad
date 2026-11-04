@@ -37,8 +37,9 @@ internal fun readBitwarden(root: JsonObject): ReadResult {
 
 /**
  * The elements of a plain export (spec «Entradas que se crean»), in the file's order:
- * - 1 → a LOGIN with the first URI as its URL; the notes are the item's notes, then a «URL: …» line per other URI
- *   and a «Name: value» line per custom field. `login.totp` (a link, or a bare key as the app lets one type it) adds a
+ * - 1 → a LOGIN with the first URI that is not empty as its URL; the notes are the item's notes, then a «URL: …»
+ *   line per other URI and a «Name: value» line per custom field (a field without a name is
+ *   [NOTE_LINE_UNNAMED_FIELD]). `login.totp` (a link, or a bare key as the app lets one type it) adds a
  *   TOTP with the same title and folders, through [ImportReadBuilder.addOtpAuth]; a `steam://` code is
  *   [SkipReason.NOT_TOTP]. Passkeys (`login.fido2Credentials`) add a [SkipReason.PASSKEY]; the login still enters.
  *   A login that is `null` or missing is [SkipReason.BROKEN];
@@ -114,11 +115,10 @@ private fun readFields(o: JsonObject, folders: Map<String, String>): ItemRead? {
             totp = login.text("totp")
             passkeys = (login.list("fido2Credentials")?.size ?: 0) > 0
             notes.text(ownNotes)
-            var first = true
+            // The URL is the first URI that is not empty; a null or empty one before it is passed over.
             for (u in login.list("uris").orEmpty()) {
                 val uri = (u as? JsonObject ?: throw WrongType()).text("uri")
-                if (first) url = uri else notes.line(NOTE_LINE_URL, uri)
-                first = false
+                if (url.isEmpty()) url = uri else notes.line(NOTE_LINE_URL, uri)
             }
         }
         TYPE_NOTE -> notes.text(ownNotes)
@@ -132,7 +132,7 @@ private fun readFields(o: JsonObject, folders: Map<String, String>): ItemRead? {
     for (f in o.list("fields").orEmpty()) {
         val field = f as? JsonObject ?: throw WrongType()
         // A linked field (type 3) has no value of its own: it gives no line.
-        notes.line(field.text("name"), field.textOrNull("value") ?: continue)
+        notes.line(field.text("name").ifBlank { NOTE_LINE_UNNAMED_FIELD }, field.textOrNull("value") ?: continue)
     }
     val entryType = if (type == TYPE_LOGIN) EntryType.LOGIN else EntryType.NOTE
     return ItemRead(

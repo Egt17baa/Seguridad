@@ -1,5 +1,6 @@
 package app.seguridad.imports
 
+import app.seguridad.crypto.OTPAUTH_MAX_NAME_CHARS
 import app.seguridad.vault.EntryType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -54,6 +55,25 @@ class TwoFasJsonTest {
         assertEquals(listOf(listOf("Trabajo"), emptyList()), read.items.map { it.folders })
         assertEquals(listOf(emptyList<String>()), ok(backup(service(extra = ""","groupId":"otro""""))).items.map { it.folders })
         assertEquals(listOf(emptyList<String>()), ok(backup(service(extra = ""","groupId":null"""))).items.map { it.folders })
+    }
+
+    @Test fun aGroupNameWithANulOrALoneSurrogateGivesNoFolder() {
+        val text = """{"services":[""" + service(extra = ""","groupId":"g1"""") + "," + service(extra = ""","groupId":"g2"""") + "," +
+            service(extra = ""","groupId":"g3"""") + """],"groups":[{"id":"g1","name":"a\u0000"},{"id":"g2","name":"\ud800"},{"id":"g3","name":"Bien"}]}"""
+        assertEquals(listOf(emptyList(), emptyList(), listOf("Bien")), ok(text).items.map { it.folders })
+    }
+
+    @Test fun anIssuerOrAccountTooLongForTheCodeIsNeverCut() {
+        val long = "x".repeat(OTPAUTH_MAX_NAME_CHARS + 1)
+        val read = ok(backup(
+            service(otp = """{"issuer":"$long"}"""),
+            service(otp = """{"account":"$long"}"""),
+            // Without an issuer the service's name is the issuer: a long name is listed too.
+            service(name = long, otp = "{}"),
+            service(otp = """{"account":"${"x".repeat(OTPAUTH_MAX_NAME_CHARS)}"}"""),
+        ))
+        assertEquals(listOf(OTPAUTH_MAX_NAME_CHARS), read.items.map { it.entry.totp!!.account.length })
+        assertEquals(List(3) { SkipReason.FIELD_TOO_LONG }, read.skipped.map { it.reason })
     }
 
     @Test fun aMissingSettingTakesTheDefaultAndAPresentOneIsNeverChanged() {

@@ -45,16 +45,70 @@ class ImportJsonTest {
         assertEquals(IMPORT_JSON_TOO_DEEP, failed(text))
     }
 
-    @Test(timeout = 10_000)
-    fun tooManyValuesAreRefusedBeforeParsing() {
-        val values = "{\"items\":[" + "1,".repeat(JSON_MAX_TOKENS) + "1]}"
-        assertEquals(IMPORT_JSON_TOO_MANY_VALUES, failed(values))
-        assertEquals(IMPORT_JSON_TOO_MANY_VALUES, failed("{\"a\":[" + "[],".repeat(JSON_MAX_TOKENS) + "[]]}"))
-        assertEquals(IMPORT_JSON_TOO_MANY_VALUES, failed("{\"a\":[" + "\"\",".repeat(JSON_MAX_TOKENS) + "\"\"]}"))
-        // Exactly at the bound is read (as an unknown shape here): «{», «"a"», «[» and the numbers.
-        assertEquals(IMPORT_UNKNOWN, failed("{\"a\":[" + "1,".repeat(JSON_MAX_TOKENS - 4) + "1]}"))
-        assertEquals(IMPORT_JSON_TOO_MANY_VALUES, failed("{\"a\":[" + "1,".repeat(JSON_MAX_TOKENS - 3) + "1]}"))
+    /** [n] copies of [item] in an array, comma-separated, between [prefix] and [suffix]. */
+    private fun many(prefix: String, item: String, n: Int, suffix: String) = buildString {
+        append(prefix)
+        repeat(n) { if (it > 0) append(','); append(item) }
+        append(suffix)
+    }
+
+    @Test fun theEstimateIsNeverBelowTheMeasuredTree() {
+        // Live heap after GC of the tree kotlinx-serialization-json 1.11.0 builds, per element (JDK 21, compressed
+        // references, SerialGC; the review's script and the KDoc of ImportJson.kt). Deterministic: the estimate is
+        // compared with those measured numbers, not with a heap probe.
+        val n = 10_000
+        assertTrue(jsonTreeEstimate(many("{\"a\":[", "{}", n, "]}")) >= n * 85L) // review: 84.6 MB / 999 990
+        assertTrue(jsonTreeEstimate(many("[", "1", n, "]")) >= n * 77L) // review: 76.9 MB / 1 M
+        assertTrue(jsonTreeEstimate(many("{\"a\":[", "{\"k\":1}", n, "]}")) >= n * 325L) // review: 108 MB / 333 000
+        assertTrue(jsonTreeEstimate(many("[", "[]", n, "]")) >= n * 45L)
+        assertTrue(jsonTreeEstimate(many("[", "\"\"", n, "]")) >= n * 26L)
+        // Objects whose hash table grows in steps, with null values (which cost nothing in the tree).
+        for ((members, measured) in listOf(1 to 254L, 2 to 319L, 13 to 1238L, 25 to 2291L, 49 to 4394L, 97 to 8601L)) {
+            val obj = (0 until members).joinToString(",", "{", "}") { "\"k$it\":null" }
+            assertTrue("$members", jsonTreeEstimate(many("[", obj, 1_000, "]")) >= 1_000 * measured)
+        }
+        // A long string outside Latin-1: 68 + 2·L bytes.
+        val length = 1_000_000
+        assertTrue(jsonTreeEstimate("{\"a\":\"" + "Ж".repeat(length) + "\"}") >= 68L + 2L * length)
+    }
+
+    @Test(timeout = 20_000)
+    fun aTreeOverTheBudgetIsRefusedBeforeParsing() {
+        fun numbers(n: Int) = many("{\"a\":[", "1", n, "]}")
+        val per = jsonTreeEstimate(numbers(2)) - jsonTreeEstimate(numbers(1))
+        val base = jsonTreeEstimate(numbers(1)) - per
+        val most = ((JSON_MAX_TREE_BYTES - base) / per).toInt()
+        assertEquals(JSON_MAX_TREE_BYTES - (JSON_MAX_TREE_BYTES - base) % per, jsonTreeEstimate(numbers(most)))
+        // At the budget it is read (as an unknown shape here); one more number is refused.
+        assertEquals(IMPORT_UNKNOWN, failed(numbers(most)))
+        assertEquals(IMPORT_JSON_TOO_MANY_VALUES, failed(numbers(most + 1)))
+        // Refused before parsing: the same file left open is still «too much data», not unknown.
+        assertEquals(IMPORT_JSON_TOO_MANY_VALUES, failed(many("{\"a\":[", "1", most + 1, "")))
+        assertEquals(IMPORT_JSON_TOO_MANY_VALUES, failed(many("{\"a\":[", "{\"k\":1}", 200_000, "]}")))
+        assertEquals(IMPORT_JSON_TOO_MANY_VALUES, failed(many("{\"a\":[", "{}", 300_000, "]}")))
         assertEquals("El archivo tiene demasiados datos. Clavero no lo lee.", IMPORT_JSON_TOO_MANY_VALUES)
+    }
+
+    @Test(timeout = 20_000)
+    fun aLongStringIsWithinTheBudget() {
+        // One string of 8 M characters (16 MB of tree as UTF-16) is read: the bound is on the tree, not on the file.
+        val text = "{\"a\":\"" + "x".repeat(8_000_000) + "\"}"
+        assertTrue(jsonTreeEstimate(text) < JSON_MAX_TREE_BYTES)
+        assertEquals(IMPORT_UNKNOWN, failed(text))
+    }
+
+    @Test fun theConstantsCoverTheMeasuredNodes() {
+        // The member's name is first counted as a string, then turned into a member at «:».
+        assertTrue(JSON_TREE_MEMBER_BYTES >= JSON_TREE_PRIMITIVE_BYTES)
+        assertEquals(48L * 1024 * 1024, JSON_MAX_TREE_BYTES)
+        assertEquals(JSON_TREE_OBJECT_BYTES, jsonTreeEstimate("{}"))
+        assertEquals(JSON_TREE_ARRAY_BYTES, jsonTreeEstimate("[]"))
+        assertEquals(JSON_TREE_PRIMITIVE_BYTES + 3 * JSON_TREE_CHAR_BYTES, jsonTreeEstimate("123"))
+        assertEquals(JSON_TREE_PRIMITIVE_BYTES + 2 * JSON_TREE_CHAR_BYTES, jsonTreeEstimate("\"ab\""))
+        assertEquals(
+            JSON_TREE_OBJECT_BYTES + JSON_TREE_MEMBER_BYTES + JSON_TREE_CHAR_BYTES + JSON_TREE_PRIMITIVE_BYTES + JSON_TREE_CHAR_BYTES,
+            jsonTreeEstimate("{\"k\" : 1}"),
+        )
     }
 
     @Test fun aJsonOfNoKnownShapeIsUnknown() {

@@ -152,6 +152,31 @@ class BitwardenJsonTest {
         assertEquals(listOf(emptyList(), emptyList(), listOf("Bien")), ok(text).items.map { it.folders })
     }
 
+    @Test fun aFolderNameWithANulOrALoneSurrogateGivesNoFolder() {
+        val text = """{"encrypted":false,"folders":[{"id":"f1","name":"mal\ud800"},{"id":"f2","name":"a\u0000b"},{"id":"f3","name":"bien 🛒"}],""" +
+            """"items":[{"type":2,"name":"a","notes":"n","folderId":"f1"},{"type":2,"name":"b","notes":"n","folderId":"f2"},""" +
+            """{"type":2,"name":"c","notes":"n","folderId":"f3"}]}"""
+        // The items still enter; only the folder is dropped.
+        assertEquals(listOf(emptyList(), emptyList(), listOf("bien 🛒")), ok(text).items.map { it.folders })
+    }
+
+    @Test fun theUrlIsTheFirstUriThatIsNotEmpty() {
+        val read = ok(export(
+            """{"type":1,"name":"w","login":{"username":"a","uris":[{"uri":null},{"uri":""},{"uri":"https://a.example"},{"uri":"https://b.example"}]}}""",
+        ))
+        val e = entries(read).single()
+        assertEquals("https://a.example", e.url)
+        assertEquals("URL: https://b.example", e.notes)
+        // So the title falls back to its host as well.
+        assertEquals("a.example", entries(ok(export("""{"type":1,"login":{"uris":[{"uri":null},{"uri":"https://a.example/x"}]}}"""))).single().title)
+    }
+
+    @Test fun aFieldWithoutANameGetsAGenericLabel() {
+        val read = ok(export("""{"type":2,"name":"n","fields":[{"name":"","value":"uno"},{"name":"  ","value":"dos"},{"value":"tres"},{"name":"PIN","value":"4"}]}"""))
+        assertEquals("Campo: uno\nCampo: dos\nCampo: tres\nPIN: 4", entries(read).single().notes)
+        assertEquals("Campo", NOTE_LINE_UNNAMED_FIELD)
+    }
+
     @Test fun favoriteIsKept() {
         val read = ok(fixture())
         assertEquals(listOf("Correo"), entries(read).filter { it.favorite }.map { it.title })
