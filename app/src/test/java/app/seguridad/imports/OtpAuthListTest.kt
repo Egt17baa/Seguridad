@@ -1,6 +1,7 @@
 package app.seguridad.imports
 
 import app.seguridad.crypto.MIGRATION_MAX_PARAMETERS
+import app.seguridad.crypto.OTPAUTH_MAX_NAME_CHARS
 import app.seguridad.vault.EntryType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -97,6 +98,18 @@ class OtpAuthListTest {
         )
         val all = read.items.map { it.index } + read.skipped.map { it.index }
         assertEquals((0 until all.size).toList(), all.sorted())
+    }
+
+    @Test fun aNameTooLongForTheCodeIsNeverCut() {
+        val long = "x".repeat(OTPAUTH_MAX_NAME_CHARS + 1)
+        val read = ok(
+            "otpauth://totp/Corto:ana?secret=JBSWY3DPEHPK3PXP\n" +
+                "otpauth://totp/$long?secret=JBSWY3DPEHPK3PXP\n" +
+                "otpauth://totp/a?secret=JBSWY3DPEHPK3PXP&issuer=$long\n" +
+                migration(account("Dos", "Dos:ana"), account("", "$long:b"), account(long, "x:c")) + "\n",
+        )
+        assertEquals(listOf("Corto", "Dos"), read.items.map { it.entry.title })
+        assertEquals(List(4) { SkipReason.FIELD_TOO_LONG }, read.skipped.map { it.reason })
     }
 
     @Test fun aBrokenMigrationLineIsBroken() {

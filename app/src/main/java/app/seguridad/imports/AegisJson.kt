@@ -39,7 +39,7 @@ private fun readEntry(e: JsonElement, groups: Map<String, String>, out: ImportRe
         val favorite = o.flag("favorite") ?: false
         val folders = o.list("groups")?.let { ids ->
             ids.map { id -> (id as? JsonPrimitive)?.takeIf { it.isString }?.content ?: throw WrongType() }.mapNotNull(groups::get).distinct()
-        } ?: listOfNotNull(o.textOrNull("group"))
+        } ?: listOfNotNull(o.textOrNull("group")?.takeIf(::wellFormed))
         if (!type.equals("totp", ignoreCase = true)) return out.skip(shown, SkipReason.NOT_TOTP)
         val info = o.obj("info") ?: throw WrongType()
         val secret = info.text("secret")

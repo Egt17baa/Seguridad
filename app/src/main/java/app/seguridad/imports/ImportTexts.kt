@@ -49,7 +49,7 @@ const val IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED =
 /** A JSON nested deeper than [JSON_MAX_DEPTH]: refused before it is parsed. */
 const val IMPORT_JSON_TOO_DEEP = "El archivo tiene más de 64 niveles anidados. Clavero no lo lee."
 
-/** A JSON with more than [JSON_MAX_TOKENS] values and names: refused before it is parsed. */
+/** A JSON whose parsed tree would pass [JSON_MAX_TREE_BYTES] (an estimate made before parsing): refused before it is parsed. */
 const val IMPORT_JSON_TOO_MANY_VALUES = "El archivo tiene demasiados datos. Clavero no lo lee."
 
 /** The name a line of an `otpauth://` list is listed by in «no entran» when it names no service nor account. */
@@ -95,3 +95,6 @@ val BITWARDEN_IDENTITY_LINES: List<Pair<String, String>> = listOf(
  * literal lives here, ruling R2): it is [SkipReason.NOT_TOTP].
  */
 const val BITWARDEN_STEAM_PREFIX = "steam://"
+
+/** The label of a custom field that has no name of its own, in the notes («Campo: valor»). */
+const val NOTE_LINE_UNNAMED_FIELD = "Campo"

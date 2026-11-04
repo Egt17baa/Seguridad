@@ -148,6 +148,33 @@ class OtpMigrationTest {
         assertEquals(1, parseOtpMigration(uri(payload.toByteArray()))!!.imported.size)
     }
 
+    @Test fun otpNameCutsByCodePoints() {
+        val emoji = "x".repeat(OTPAUTH_MAX_NAME_CHARS - 1) + "🛒"
+        assertEquals(emoji, otpName(emoji + "yz"))
+        assertEquals(emoji, otpName(emoji))
+        assertTrue(otpNameFits(emoji))
+        assertTrue(!otpNameFits(emoji + "y"))
+        // What otpName removes does not count: 300 control characters around a short name fit.
+        assertTrue(otpNameFits("\u0007".repeat(300) + "Banco"))
+    }
+
+    @Test fun readOtpAuthSaysWhenItCutAName() {
+        val long = "x".repeat(OTPAUTH_MAX_NAME_CHARS + 1)
+        val cut = readOtpAuth("otpauth://totp/a:$long?secret=JBSWY3DPEHPK3PXP") as OtpAuthRead.Usable
+        assertTrue(cut.namesCut)
+        assertEquals(OTPAUTH_MAX_NAME_CHARS, cut.secret.account.length)
+        assertTrue(!(readOtpAuth("otpauth://totp/a:b?secret=JBSWY3DPEHPK3PXP&issuer=${"i".repeat(OTPAUTH_MAX_NAME_CHARS)}") as OtpAuthRead.Usable).namesCut)
+        assertTrue((readOtpAuth("otpauth://totp/a:b?secret=JBSWY3DPEHPK3PXP&issuer=$long") as OtpAuthRead.Usable).namesCut)
+    }
+
+    @Test fun migrationSaysWhichCodesHaveANameCut() {
+        val long = "x".repeat(OTPAUTH_MAX_NAME_CHARS + 1)
+        val payload = Pb().msg(1, otp(KEY, "A:a", "A")).msg(1, otp(KEY, "B:$long", "B")).msg(1, otp(KEY, "$long:c", "")).msg(1, otp(KEY, "D:d", long))
+        val r = parseOtpMigration(uri(payload.toByteArray()))!!
+        assertEquals(listOf(false, true, true, true), r.importedNamesCut)
+        assertEquals(4, r.imported.size)
+    }
+
     @Test fun leftOutAccountsSayWhyWithoutTheText() {
         // The same accounts as skipsHotpAndMd5WithReason, plus an unknown type and an unknown number of digits: the
         // importer needs the kind, so it never reads the Spanish text back.

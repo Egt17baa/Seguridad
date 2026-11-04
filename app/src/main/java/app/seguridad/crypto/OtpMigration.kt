@@ -16,6 +16,11 @@ data class MigrationResult(
     val batchSize: Int,
     /** The accounts of [skipped], in the same order, with the kind of reason: for readers that must not parse the text. */
     val leftOut: List<MigrationLeftOut> = emptyList(),
+    /**
+     * For each code of [imported], in the same order: its issuer or account was longer than [OTPAUTH_MAX_NAME_CHARS]
+     * and is kept cut. The scanner accepts that; the importer lists such a code instead. Empty means none.
+     */
+    val importedNamesCut: List<Boolean> = emptyList(),
 )
 
 /** Why an account of a migration QR is left out. */
@@ -34,7 +39,7 @@ enum class MigrationLeftOutKind {
 data class MigrationLeftOut(val issuer: String, val account: String, val kind: MigrationLeftOutKind)
 
 /** What one OtpParameters message gives: the code, or the account left out with its text for the user. */
-private class Account(val secret: TotpSecret?, val leftOut: MigrationLeftOut?, val text: String?)
+private class Account(val secret: TotpSecret?, val leftOut: MigrationLeftOut?, val text: String?, val namesCut: Boolean = false)
 
 /** Longest otpauth-migration:// text read: Google's QR codes are far smaller; anything bigger is not one. */
 const val MIGRATION_MAX_URI_CHARS = 64 * 1024
@@ -162,6 +167,8 @@ private fun ProtoReader.otpParameters(): Account {
         val labelIssuer = otpName(name.substringBefore(':', ""))
         val account = otpName(name.substringAfter(':'))
         val finalIssuer = otpName(issuer).ifEmpty { labelIssuer }
+        val rawIssuer = if (otpName(issuer).isNotEmpty()) issuer else name.substringBefore(':', "")
+        val namesCut = !otpNameFits(rawIssuer) || !otpNameFits(name.substringAfter(':'))
         val who = listOf(finalIssuer, account).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "Sin nombre" }.take(80)
         fun left(kind: MigrationLeftOutKind, text: String) = Account(null, MigrationLeftOut(finalIssuer, account, kind), text)
         val alg = when (algorithm) {
@@ -182,7 +189,7 @@ private fun ProtoReader.otpParameters(): Account {
             else -> return left(MigrationLeftOutKind.NOT_TOTP, "«$who»: tipo de código desconocido")
         }
         if (secret.size < TOTP_MIN_KEY_BYTES) return left(MigrationLeftOutKind.SHORT_KEY, "«$who»: la clave es demasiado corta (menos de ${TOTP_MIN_KEY_BYTES * 8} bits)")
-        return Account(TotpSecret(base32Encode(secret), issuer = finalIssuer, account = account, algorithm = alg, digits = nDigits, period = 30), null, null)
+        return Account(TotpSecret(base32Encode(secret), issuer = finalIssuer, account = account, algorithm = alg, digits = nDigits, period = 30), null, null, namesCut)
     } finally {
         secret.fill(0)
     }
@@ -245,6 +252,7 @@ private fun parsePayload(payload: ByteArray): MigrationResult {
     val imported = ArrayList<TotpSecret>()
     val skipped = ArrayList<String>()
     val leftOut = ArrayList<MigrationLeftOut>()
+    val namesCut = ArrayList<Boolean>()
     var batchSize = 0
     var batchIndex = 0
     var parameters = 0
@@ -255,7 +263,10 @@ private fun parsePayload(payload: ByteArray): MigrationResult {
                 r.expect(wire, 2)
                 if (++parameters > MIGRATION_MAX_PARAMETERS) throw Malformed()
                 val account = r.sub().otpParameters()
-                account.secret?.let(imported::add)
+                account.secret?.let {
+                    imported += it
+                    namesCut += account.namesCut
+                }
                 account.text?.let(skipped::add)
                 account.leftOut?.let(leftOut::add)
             }
@@ -268,5 +279,5 @@ private fun parsePayload(payload: ByteArray): MigrationResult {
     }
     val size = batchSize.coerceAtLeast(1) // Absent (0) in single-QR exports.
     if (batchIndex >= size) throw Malformed()
-    return MigrationResult(imported, skipped, batchIndex, size, leftOut)
+    return MigrationResult(imported, skipped, batchIndex, size, leftOut, namesCut)
 }
