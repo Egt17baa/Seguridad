@@ -180,8 +180,8 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
      * of CRY-B02), so a setting Clavero does not calculate is refused, never changed. Otherwise a [Skipped]:
      * [SkipReason.TOTP_UNSUPPORTED] for such settings, [SkipReason.NOT_TOTP] for another otpauth kind (HOTP),
      * [SkipReason.FIELD_TOO_LONG] past [OTPAUTH_MAX_CHARS] or when the link's issuer or account would be cut
-     * ([OtpAuthRead.Usable.namesCut]: a field is never imported cut), and [SkipReason.BROKEN] for anything else. [notes] and
-     * [favorite] are those of the element the code comes from (an Aegis entry), as read.
+     * ([OtpAuthRead.Usable.namesCut]: a field is never imported cut), and [SkipReason.BROKEN] for anything else.
+     * [notes] and [favorite] are those of the element the code comes from (an Aegis entry), as read.
      */
     fun addOtpAuth(link: String, title: String, folders: List<String> = emptyList(), notes: String = "", favorite: Boolean = false) {
         if (link.length > OTPAUTH_MAX_CHARS) return skip(title, SkipReason.FIELD_TOO_LONG)
@@ -204,9 +204,9 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
      * for every code. Each part is percent-encoded into its own parameter, so no value can add or change a setting
      * (`issuer` = `x&digits=10` stays an issuer). The label is `:` + [account], so a `:` in the account never makes
      * an issuer of it. A null setting is missing and takes the default; a present one is written as given (an empty
-     * [algorithm] or a [NOT_A_WHOLE_NUMBER] setting is refused by [readOtpAuth], never changed). Parts too long for a link go to
-     * [SkipReason.FIELD_TOO_LONG] before the link is built, and so do an issuer or an account that the code would keep
-     * cut ([otpNameFits]). The encoding is the one [readOtpAuth] reads ([otpEncode]).
+     * [algorithm] or a [NOT_A_WHOLE_NUMBER] setting is refused by [readOtpAuth], never changed). Parts too long for a
+     * link go to [SkipReason.FIELD_TOO_LONG] before the link is built, and so do an issuer or an account that the code
+     * would keep cut ([otpNameFits]). The encoding is the one [readOtpAuth] reads ([otpEncode]).
      */
     fun addTotp(
         secret: String,

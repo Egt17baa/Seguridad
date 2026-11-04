@@ -22,77 +22,128 @@ import kotlinx.serialization.json.JsonPrimitive
 const val JSON_MAX_DEPTH = 64
 
 /*
- * The tree that [Json.parseToJsonElement] builds, estimated before parsing (decision (a) of the owner, ruling R11a):
- * memory is bounded by what the tree costs, not by how many values it has. Measured on kotlinx-serialization-json
- * 1.11.0 (the app's version), JDK 21 with compressed references and SerialGC, live heap after GC, per element of an
- * array (its slot in the array included). ART has smaller object headers, so these are an upper bound there:
- * - an empty object `{}`: 82 B; with its first member, 253 B (the member's hash table is made then); each further
- *   member about 88 B (the table grows in steps: 2 members 319 B, 13 members 1 237 B, 25 members 2 290 B, 49 members
- *   4 394 B, all with `null` values, which cost nothing);
- * - an empty array `[]`: 45 B;
- * - a number or `true`: 75 B (9 digits as well: a short Latin-1 string); `""`: 26 B;
- * - a string of L characters outside Latin-1: 68 + 2·L B (Latin-1 text takes one byte a character);
- * - the review's worst shapes: `{"a":[{},{},…]}` 84.6 MB for 999 990 objects (85 B each), `[1,1,…]` 76.9 MB for
- *   1 M numbers (77 B each), and `{"k":1}` × 333 000 in an array, 108 MB (325 B each).
- * The constants below are those numbers rounded up, so the estimate is never below the tree. Every character inside a
- * string, a member name or a number counts [JSON_TREE_CHAR_BYTES] (an escape such as `\u0416` counts its 6, more
- * than the one it gives).
+ * The tree that [Json.parseToJsonElement] builds, estimated before parsing (decision (a) of the owner, rulings R11a
+ * and R11c): memory is bounded by what the tree costs, not by how many values it has. The model follows how the tree
+ * is made in kotlinx-serialization-json 1.11.0 (the app's version):
+ * - an array is a `JsonArray` over an `ArrayList`: [JSON_TREE_ARRAY_BYTES], plus a backing array of references made
+ *   at its first element with room for 10 and grown by half each time it is full (10, 15, 22, 33, 49…), its unused
+ *   room included ([refArrayBytes]);
+ * - an object is a `JsonObject` over a `LinkedHashMap`: [JSON_TREE_OBJECT_BYTES], plus a table of 16 slots made at
+ *   its first member and doubled when it is more than ¾ full (13, 25, 49… members), and [JSON_TREE_MEMBER_BYTES] for
+ *   each member (its map entry and its name's string);
+ * - a string, a number, `true`, `false` or `null`: [JSON_TREE_PRIMITIVE_BYTES];
+ * - every character inside a string, a member name or a number: [JSON_TREE_CHAR_BYTES] (an escape such as `Ж`
+ *   counts its 6, more than the one it gives).
+ * The sizes are those of a 64-bit JVM with compressed references (12-byte headers, 4-byte references, 8-byte
+ * alignment), rounded up; ART has 8-byte headers and 4-byte references, so they are an upper bound there too. The
+ * estimate is checked against the live heap measured after GC (JDK 21, SerialGC) for the shapes in the table of the
+ * task 7 report, fix round 2, and in [ImportJsonTest]: it is never below the measured tree.
  */
 
-/** An object, with the hash table its first member makes (measured: 82 B empty, 253 B with one member). */
-const val JSON_TREE_OBJECT_BYTES = 176L
+/** A `JsonObject` and its empty `LinkedHashMap` (measured: `{}` 82 B with its slot in the array that holds it). */
+const val JSON_TREE_OBJECT_BYTES = 88L
 
-/** A member of an object besides its value: its entry and its name's string (measured: about 88 B, 171 B for the first). */
-const val JSON_TREE_MEMBER_BYTES = 96L
+/** One member: its `LinkedHashMap` entry (40 B) and its name's `String` and array (48 B for a short name). */
+const val JSON_TREE_MEMBER_BYTES = 88L
 
-/** An array (measured: 45 B). */
+/** A `JsonArray` and its empty `ArrayList` (measured: `[]` 45 B with its slot). */
 const val JSON_TREE_ARRAY_BYTES = 48L
 
-/** A string, a number, `true`, `false` or `null`, besides its characters (measured: 75 B for `1`, 68 B for a string). */
+/** A `JsonLiteral` and its content's `String` and array, besides the characters (measured: `1` 75 B with its slot). */
 const val JSON_TREE_PRIMITIVE_BYTES = 80L
 
 /** Each character of a string, a member name or a number (UTF-16: two bytes; measured 2.0 per character). */
 const val JSON_TREE_CHAR_BYTES = 2L
 
+/** The room an `ArrayList` makes at its first element. */
+private const val ARRAY_FIRST_CAPACITY = 10
+
+/** The table a `LinkedHashMap` makes at its first member. */
+private const val OBJECT_FIRST_TABLE = 16
+
+/** An array of [slots] references: a 16-byte header and 4 bytes a slot, aligned to 8 bytes. */
+internal fun refArrayBytes(slots: Int): Long = (16L + 4L * slots + 7) / 8 * 8
+
 /**
  * Largest estimated tree read: 48 MiB. It leaves room on a phone with a heap of 192 MB for the file's bytes, its text
- * and the app, and keeps real exports of about 8 000 to 10 000 items with history (a Bitwarden login is about 6 KB of
- * tree). A file whose tree would pass it is refused before parsing ([IMPORT_JSON_TOO_MANY_VALUES]).
+ * and the app, and keeps real exports of thousands of items (a Bitwarden login is about 6 KB of tree). A file whose
+ * tree would pass it is refused before parsing ([IMPORT_JSON_TOO_MANY_VALUES]).
  */
 const val JSON_MAX_TREE_BYTES = 48L * 1024 * 1024
 
 /**
  * Refuses [text] with [IMPORT_JSON_TOO_DEEP] past [JSON_MAX_DEPTH] levels and with [IMPORT_JSON_TOO_MANY_VALUES] when
- * its tree would pass [JSON_MAX_TREE_BYTES] ([jsonTreeEstimate]), before it is parsed. Both stop at the first character
- * that passes the bound.
+ * its tree would pass [budget] ([jsonTreeEstimate]; [JSON_MAX_TREE_BYTES] but in tests), before it is parsed. Both
+ * stop at the first character that passes the bound.
  */
-internal fun checkJsonShape(text: String) {
-    if (scanJson(text, JSON_MAX_TREE_BYTES) > JSON_MAX_TREE_BYTES) throw ImportFailure(IMPORT_JSON_TOO_MANY_VALUES)
+internal fun checkJsonShape(text: String, budget: Long = JSON_MAX_TREE_BYTES) {
+    if (scanJson(text, budget) > budget) throw ImportFailure(IMPORT_JSON_TOO_MANY_VALUES)
 }
 
 /**
- * The estimated size in bytes of the tree [text] would give (the constants above), with no bound but the depth
+ * The estimated size in bytes of the tree [text] would give (the model above), with no bound but the depth
  * ([IMPORT_JSON_TOO_DEEP]). For tests and for [checkJsonShape].
  */
 internal fun jsonTreeEstimate(text: String): Long = scanJson(text, Long.MAX_VALUE)
 
 /**
- * One linear pass with no allocation that knows about strings: a bracket inside a string does not count, nor one
- * after an escaped quote (`\"`), and an escaped backslash (`\\`) does not escape the quote that follows it. A string
- * followed by `:` is a member's name: it costs [JSON_TREE_MEMBER_BYTES] instead of [JSON_TREE_PRIMITIVE_BYTES]. It
- * stops as soon as the estimate passes [limit] and returns it; it does not check that the JSON is valid (the parser
- * does that afterwards).
+ * One linear pass that knows about strings: a bracket inside a string does not count, nor one after an escaped quote
+ * (`\"`), and an escaped backslash (`\\`) does not escape the quote that follows it. It keeps, for each open level
+ * (at most [JSON_MAX_DEPTH], in three small arrays made once), whether it is an object, how many elements or members
+ * it has and the room it has made, and adds the cost of each new backing array or table when it is made (an array's
+ * element is any value that starts in it; an object's member is a `:` in it). A string followed by `:` is a member's
+ * name: the `:` turns its cost from [JSON_TREE_PRIMITIVE_BYTES] into [JSON_TREE_MEMBER_BYTES]. It stops as soon as the
+ * estimate passes [limit] and returns it; it does not check that the JSON is valid (the parser does that afterwards).
  */
 private fun scanJson(text: String, limit: Long): Long {
+    val isObject = BooleanArray(JSON_MAX_DEPTH + 1)
+    val count = IntArray(JSON_MAX_DEPTH + 1)
+    val room = IntArray(JSON_MAX_DEPTH + 1)
     var depth = 0
     var bytes = 0L
     var inLiteral = false
+
+    /** A value starts at the current level: an element, if that level is an array. */
+    fun element() {
+        if (depth == 0 || isObject[depth]) return
+        if (++count[depth] <= room[depth]) return
+        val old = room[depth]
+        val grown = if (old == 0) ARRAY_FIRST_CAPACITY else old + (old shr 1)
+        bytes += refArrayBytes(grown) - (if (old == 0) 0 else refArrayBytes(old))
+        room[depth] = grown
+    }
+
+    /** A `:` at the current level: a member, if that level is an object. */
+    fun member() {
+        if (depth == 0 || !isObject[depth]) return
+        bytes += JSON_TREE_MEMBER_BYTES - JSON_TREE_PRIMITIVE_BYTES
+        val members = ++count[depth]
+        val table = room[depth]
+        if (table == 0) {
+            bytes += refArrayBytes(OBJECT_FIRST_TABLE)
+            room[depth] = OBJECT_FIRST_TABLE
+        } else if (members > table / 4 * 3) {
+            bytes += refArrayBytes(table * 2) - refArrayBytes(table)
+            room[depth] = table * 2
+        }
+    }
+
+    fun open(obj: Boolean) {
+        element()
+        bytes += if (obj) JSON_TREE_OBJECT_BYTES else JSON_TREE_ARRAY_BYTES
+        if (++depth > JSON_MAX_DEPTH) throw ImportFailure(IMPORT_JSON_TOO_DEEP)
+        isObject[depth] = obj
+        count[depth] = 0
+        room[depth] = 0
+    }
+
     var i = 0
     val n = text.length
     while (i < n) {
         when (text[i]) {
             '"' -> {
                 inLiteral = false
+                element()
                 val from = ++i
                 while (i < n) {
                     val c = text[i]
@@ -100,28 +151,24 @@ private fun scanJson(text: String, limit: Long): Long {
                 }
                 bytes += JSON_TREE_PRIMITIVE_BYTES + JSON_TREE_CHAR_BYTES * (minOf(i, n) - from)
             }
-            '{' -> {
+            '{', '[' -> {
                 inLiteral = false
-                bytes += JSON_TREE_OBJECT_BYTES
-                if (++depth > JSON_MAX_DEPTH) throw ImportFailure(IMPORT_JSON_TOO_DEEP)
-            }
-            '[' -> {
-                inLiteral = false
-                bytes += JSON_TREE_ARRAY_BYTES
-                if (++depth > JSON_MAX_DEPTH) throw ImportFailure(IMPORT_JSON_TOO_DEEP)
+                open(text[i] == '{')
             }
             '}', ']' -> {
                 inLiteral = false
-                depth--
+                if (depth > 0) depth--
             }
-            // The string before it was a member's name, counted as a primitive: it costs a member instead.
             ':' -> {
                 inLiteral = false
-                bytes += JSON_TREE_MEMBER_BYTES - JSON_TREE_PRIMITIVE_BYTES
+                member()
             }
             ',', ' ', '\t', '\n', '\r' -> inLiteral = false
             else -> {
-                if (!inLiteral) bytes += JSON_TREE_PRIMITIVE_BYTES
+                if (!inLiteral) {
+                    element()
+                    bytes += JSON_TREE_PRIMITIVE_BYTES
+                }
                 inLiteral = true
                 bytes += JSON_TREE_CHAR_BYTES
             }
@@ -141,11 +188,11 @@ private fun scanJson(text: String, limit: Long): Long {
  * - `db`: Aegis (an object in clear, a Base64 string when encrypted);
  * - `services` or `servicesEncrypted`: 2FAS.
  */
-internal fun readJsonImport(text: String): ReadResult? {
+internal fun readJsonImport(text: String, treeBudget: Long = JSON_MAX_TREE_BYTES): ReadResult? {
     var start = 0
     while (start < text.length && text[start].isJsonSpace()) start++
     if (start >= text.length || text[start] != '{') return null
-    checkJsonShape(text)
+    checkJsonShape(text, treeBudget)
     val root = try {
         Json.parseToJsonElement(text)
     } catch (e: SerializationException) {
@@ -233,7 +280,10 @@ internal fun JsonObject.number(key: String): Int? = when (val v = this[key]) {
     else -> throw WrongType()
 }
 
-/** If [s] is a number by the grammar of RFC 8259 §6: `-`, then `0` or digits without a leading zero, a fraction and an exponent. */
+/**
+ * If [s] is a number by the grammar of RFC 8259 §6: `-`, then `0` or digits without a leading zero, a fraction and an
+ * exponent.
+ */
 private fun isJsonNumber(s: String): Boolean {
     var i = 0
     val n = s.length
@@ -284,8 +334,8 @@ internal fun wellFormed(s: String): Boolean {
 
 /**
  * The folder or group names of a file, by their id ([idKey]) as [nameKey]. A list that is not an array, a record
- * without a string id and name, and a name with a NUL or a lone surrogate ([wellFormed]) give no folder: folders only become tags, so the elements still enter. With an id
- * written twice, the first one counts.
+ * without a string id and name, and a name with a NUL or a lone surrogate ([wellFormed]) give no folder: folders
+ * only become tags, so the elements still enter. With an id written twice, the first one counts.
  */
 internal fun folderNames(list: JsonElement?, idKey: String, nameKey: String = "name"): Map<String, String> {
     val out = HashMap<String, String>()

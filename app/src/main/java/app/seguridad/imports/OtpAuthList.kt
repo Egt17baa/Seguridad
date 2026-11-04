@@ -76,8 +76,9 @@ private fun readLine(text: String, s: Int, e: Int, quoted: Boolean, lineTitle: S
 
 /**
  * The codes of one `otpauth-migration://` line. Every code is checked again with the vault's rules ([isSupported] and
- * a usable key) before it enters, and one whose issuer or account the reader kept cut is [SkipReason.FIELD_TOO_LONG]; each account the reader leaves out is listed with its reason, by its kind, never
- * by parsing its text. A line the reader refuses is [SkipReason.BROKEN].
+ * a usable key) before it enters, and one whose issuer or account the reader kept cut is [SkipReason.FIELD_TOO_LONG].
+ * Each account the reader leaves out is listed with its reason, by its kind, never by parsing its text. A line the
+ * reader refuses is [SkipReason.BROKEN].
  */
 private fun addMigration(line: String, lineTitle: String, out: ImportReadBuilder) {
     val result = parseOtpMigration(line) ?: return out.skip(lineTitle, SkipReason.BROKEN)
