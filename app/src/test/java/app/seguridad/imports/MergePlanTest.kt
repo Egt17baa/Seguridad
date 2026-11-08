@@ -315,13 +315,15 @@ class MergePlanTest {
         val code = saved("t", EntryType.TOTP, "Correo", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Correo", account = "ana"))
         val incomingCode = importedEntry(EntryType.TOTP, "Correo nuevo", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Correo", digits = 8))
         val r = replaceWith(code, incomingCode, now, ZoneOffset.UTC)
-        assertEquals(8, r.totp!!.digits)
+        val totp = checkNotNull(r.totp)
+        assertEquals(8, totp.digits)
         // M-1: the file's blank account keeps the vault's; its issuer is there and taken.
-        assertEquals("ana", r.totp!!.account)
-        assertEquals("Correo", r.totp!!.issuer)
+        assertEquals("ana", totp.account)
+        assertEquals("Correo", totp.issuer)
         assertEquals("Correo nuevo", r.title)
         val renamed = replaceWith(code, importedEntry(EntryType.TOTP, "C", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Otro", account = "eva")), now, ZoneOffset.UTC)
-        assertEquals("Otro" to "eva", renamed.totp!!.issuer to renamed.totp!!.account)
+        val renamedTotp = checkNotNull(renamed.totp)
+        assertEquals("Otro" to "eva", renamedTotp.issuer to renamedTotp.account)
         assertTrue(r.passwordHistory.isEmpty())
     }
 

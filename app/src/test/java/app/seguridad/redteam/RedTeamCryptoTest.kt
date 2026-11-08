@@ -153,8 +153,9 @@ class RedTeamCryptoTest {
                 }
             }
             val f = share.prepare("copia-de-foto.jpg", byteArrayOf(1))
-            assertEquals(File(cache, "compartir").canonicalPath, f.parentFile.parentFile.canonicalPath)
-            assertEquals(32, f.parentFile.name.length)
+            val folder = checkNotNull(f.parentFile)
+            assertEquals(File(cache, "compartir").canonicalPath, checkNotNull(folder.parentFile).canonicalPath)
+            assertEquals(32, folder.name.length)
         } finally {
             cache.deleteRecursively()
         }
