@@ -250,6 +250,7 @@ class CsvFormatsTest {
             listOf(
                 EntryType.LOGIN to "Correo inventado", EntryType.TOTP to "Correo inventado", EntryType.LOGIN to "Tienda",
                 EntryType.TOTP to "Tienda", EntryType.NOTE to "Nota segura", EntryType.LOGIN to "Juego",
+                EntryType.LOGIN to "Dos webs",
             ),
             e.map { it.type to it.title },
         )
@@ -291,13 +292,84 @@ class CsvFormatsTest {
         assertFalse(read.items[2].entry.favorite)
     }
 
-    @Test fun bitwardenCsvNeedsTheExactHeader() {
-        // One column more, one less or in another order: not Bitwarden's header.
+    @Test fun bitwardenCsvWithSeveralUrisKeepsTheFirstAsTheUrl() {
+        // I-1: Bitwarden writes every URI of a login into the one login_uri cell, separated by commas. The first is the
+        // URL; each other one is a «URL: …» line of the notes, as the JSON reader does.
+        val twoUris = ok(fixture("bitwarden.csv")).items.map { it.entry }.single { it.title == "Dos webs" }
+        assertEquals("https://uno.example.com/", twoUris.url)
+        assertEquals("URL: https://dos.example.com/entrar", twoUris.notes)
+        assertEquals("uno.example.com", hostOf(twoUris.url))
+        // Spaces around each one are trimmed and empty ones dropped; the notes and the fields come first, as in JSON.
+        val header = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n"
+        val e = ok(header + ",,login,Tres,Nota,\"PIN: 1\",0,\" ,https://a.example/ ,, https://b.example/,https://c.example/ \",u,p,\n")
+            .items.single().entry
+        assertEquals("https://a.example/", e.url)
+        assertEquals("Nota\nURL: https://b.example/\nURL: https://c.example/\nPIN: 1", e.notes)
+    }
+
+    @Test fun bitwardenCsvAndJsonGiveTheSameLogin() {
+        val csv = ok(fixture("bitwarden.csv")).items.map { it.entry }.single { it.title == "Dos webs" }
+        val json = ok(
+            """{"encrypted":false,"folders":[],"items":[{"type":1,"name":"Dos webs","notes":null,"favorite":false,""" +
+                """"login":{"uris":[{"uri":"https://uno.example.com/"},{"uri":"https://dos.example.com/entrar"}],""" +
+                """"username":"marta7e1","password":"Pw-a4a959547aa0","totp":null}}]}""",
+        ).items.single().entry
+        assertEquals(json.type, csv.type)
+        assertEquals(json.title, csv.title)
+        assertEquals(json.url, csv.url)
+        assertEquals(json.notes, csv.notes)
+        assertEquals(json.username, csv.username)
+        assertEquals(json.password, csv.password)
+        assertEquals(json.favorite, csv.favorite)
+    }
+
+    @Test fun bitwardenCsvLimitsAreCheckedAfterTheSplit() {
+        val header = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n"
+        // The cell is longer than one URL may be, but each URL fits: the login enters.
+        val second = "https://b.example/" + "x".repeat(MAX_URL - 18)
+        val fits = ok(header + ",,login,Larga,,,0,\"https://a.example/,$second\",u,p,\n")
+        assertEquals("https://a.example/", fits.items.single().entry.url)
+        assertEquals("URL: $second", fits.items.single().entry.notes)
+        // The first URL over the limit: the whole row is listed, never cut.
+        val tooLong = ok(header + ",,login,Larga,,,0,\"https://a.example/${"x".repeat(MAX_URL)},https://b.example/\",u,p,\n")
+        assertTrue(tooLong.items.isEmpty())
+        assertEquals(listOf("Larga" to SkipReason.FIELD_TOO_LONG), tooLong.skipped.map { it.title to it.reason })
+    }
+
+    @Test fun bitwardenCsvIsFoundByItsColumnNames() {
+        // I-2: by name, in any order and case; a column Clavero does not know is passed over.
         val cols = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp"
         assertEquals(ImportFormat.BITWARDEN, csvFormat(cols.split(',')))
         assertEquals(ImportFormat.BITWARDEN, csvFormat(cols.uppercase().split(',')))
-        assertNull(csvFormat("$cols,extra".split(',')))
+        assertEquals(ImportFormat.BITWARDEN, csvFormat("$cols,extra".split(',')))
+        assertEquals(ImportFormat.BITWARDEN, csvFormat(cols.split(',').reversed()))
+        assertEquals(ImportFormat.BITWARDEN, csvFormat("collections,type,name,login_uri,login_username,login_password".split(',')))
+        // Without login_password, or without folder and collections, it is not Bitwarden's.
+        assertNull(csvFormat(cols.split(',').filter { it != "login_password" }))
         assertNull(csvFormat(cols.split(',').drop(1)))
-        assertNull(csvFormat(cols.split(',').reversed()))
+        // Extra and reordered columns read the same items as the fixture.
+        val lines = String(fixture("bitwarden.csv"), Charsets.UTF_8).split('\n')
+        val reference = ok(fixture("bitwarden.csv"))
+        val reordered = reorderCsv(lines, cols.split(',').reversed() + "extra")
+        val read = ok(reordered)
+        assertEquals(reference.items.map { it.entry }, read.items.map { it.entry })
+        assertEquals(reference.items.map { it.folders }, read.items.map { it.folders })
+        assertEquals(reference.skipped, read.skipped)
+        // A header that misses login_password says the file is not one Clavero knows.
+        val noPassword = (listOf(cols.replace("login_password", "contraseña")) + lines.drop(1)).joinToString("\n")
+        assertEquals(ReadResult.Failed(IMPORT_UNKNOWN), readImport(noPassword.toByteArray()))
+    }
+
+    /** [lines] of a CSV (header first) with its columns written in the order [order]; a name not in it is an empty column. */
+    private fun reorderCsv(lines: List<String>, order: List<String>): String {
+        val rows = parseCsv(lines.joinToString("\n"))
+        val header = rows[0]
+        fun quote(c: String) = "\"" + c.replace("\"", "\"\"") + "\""
+        return rows.joinToString("\n") { row ->
+            order.joinToString(",") { name ->
+                val i = header.indexOf(name)
+                if (row === header) name else quote(if (i in row.indices) row[i] else "")
+            }
+        } + "\n"
     }
 }

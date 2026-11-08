@@ -64,31 +64,24 @@ class AegisCryptoTest {
         master!!
         assertTrue(aegisDb(e, master, s) {}.isNotEmpty())
         var flips = 0
-        // The wrapped master key, its nonce and its tag.
-        for (part in 0..2) {
-            val bytes = listOf(slot.key, slot.nonce, slot.tag)[part]
+        // The wrapped master key with its tag, and its nonce.
+        assertEquals(32 + 16, slot.sealedKey.size)
+        for (part in 0..1) {
+            val bytes = listOf(slot.sealedKey, slot.nonce)[part]
             for (i in bytes.indices) {
                 val f = bytes.copyOf().also { it[i] = (it[i].toInt() xor 0x01).toByte() }
-                val changed = when (part) {
-                    0 -> slot.copy(key = f)
-                    1 -> slot.copy(nonce = f)
-                    else -> slot.copy(tag = f)
-                }
+                val changed = if (part == 0) slot.copy(sealedKey = f) else slot.copy(nonce = f)
                 assertNull("slot $part/$i", aegisUnwrap(changed, derived, s))
                 flips++
             }
         }
-        // The vault, its nonce and its tag.
+        // The vault with its tag, and its nonce.
         var decrypts = 0
-        for (part in 0..2) {
-            val bytes = listOf(e.db, e.nonce, e.tag)[part]
+        for (part in 0..1) {
+            val bytes = listOf(e.sealed, e.nonce)[part]
             for (i in bytes.indices) {
                 val f = bytes.copyOf().also { it[i] = (it[i].toInt() xor 0x80).toByte() }
-                val changed = when (part) {
-                    0 -> e.copy(db = f)
-                    1 -> e.copy(nonce = f)
-                    else -> e.copy(tag = f)
-                }
+                val changed = if (part == 0) e.copy(sealed = f) else e.copy(nonce = f)
                 try {
                     aegisDb(changed, master, s) { decrypts++ }
                     fail("db $part/$i accepted")
@@ -108,12 +101,15 @@ class AegisCryptoTest {
             root.withSlot("n", 1 shl 21), root.withSlot("n", 1 shl 13), root.withSlot("n", (1 shl 15) + 1),
             root.withSlot("r", 17), root.withSlot("r", 0), root.withSlot("p", 5), root.withSlot("p", 0),
             root.withSlot("n", 1 shl 20).withSlot("r", 2), // 256 MiB.
-        )
-        failedRead(cases[0].bytes())
+            root.withSlot("n", 1 shl 16).withSlot("r", 1), // RFC 7914: with r = 1, N < 2^16.
+        ).map { it.bytes() } +
+            // Not whole numbers, as a fraction and with an exponent: the bounds refuse them (NOT_A_WHOLE_NUMBER).
+            listOf("32768.5", "3.2768e4", "32768.0").map { root.withSlot("n", LITERAL_MARK).bytesWithLiteral(it) }
+        failedRead(cases[0])
         for (c in cases) {
             var message = ""
-            val ms = millis { message = failedRead(c.bytes()) }
-            assertEquals(IMPORT_KDF_TOO_BIG, message)
+            val ms = millis { message = failedRead(c) }
+            assertEquals(String(c), IMPORT_KDF_TOO_BIG, message)
             assertTrue("$ms ms", ms < 50)
         }
     }
@@ -129,6 +125,36 @@ class AegisCryptoTest {
         assertTrue("$ms ms", ms < 50)
     }
 
+    @Test fun onlyTheFirstPasswordSlotIsTried() {
+        // Ruling R24 (M-2): Aegis keeps one password per vault, so one scrypt per attempt, whatever the file says.
+        val root = jsonRoot(encrypted)
+        val good = root.slot()
+        fun withSlots(vararg slots: JsonObject) = root.with("header", root.header().with("slots", JsonArray(slots.toList())))
+        // Two slots at the bounds (128 MiB, p = 4 each): only the first is kept, so at most one derivation.
+        val maximal = good.with("n", 1 shl 17).with("r", 8).with("p", 4)
+        assertEquals(1, aegisEncrypted(withSlots(maximal, maximal)).slots.size)
+        // Two good slots and a wrong password: one derivation, then «no es correcta».
+        var derivations = 0
+        try {
+            openAegis(withSlots(good, good), "otra".toCharArray(), JSON_MAX_TREE_BYTES, onDerive = { derivations++ })
+            fail("opened")
+        } catch (e: ImportFailure) {
+            assertEquals(IMPORT_WRONG_PASSWORD, e.message)
+        }
+        assertEquals(1, derivations)
+        // The right password through the first: it opens. A first slot that does not open: the second is never tried.
+        assertSameRead(okRead(plain), okRead(withSlots(good, good).bytes(), FIXTURE_PASSWORD))
+        val otherKey = good.with("key", "00".repeat(32))
+        derivations = 0
+        try {
+            openAegis(withSlots(otherKey, good), FIXTURE_PASSWORD.toCharArray(), JSON_MAX_TREE_BYTES, onDerive = { derivations++ })
+            fail("opened through the second slot")
+        } catch (e: ImportFailure) {
+            assertEquals(IMPORT_WRONG_PASSWORD, e.message)
+        }
+        assertEquals(1, derivations)
+    }
+
     @Test fun brokenHeadersAreRefused() {
         val root = jsonRoot(encrypted)
         val noPasswordSlot = root.with("header", root.header().with("slots", JsonArray(listOf(root.slot().with("type", 2)))))
@@ -136,7 +162,7 @@ class AegisCryptoTest {
             root.withSlot("salt", "zz"), root.withSlot("key", "00"), root.withSlot("salt", 5),
             root.with("header", root.header().with("params", null)), root.with("header", root.header().with("slots", null)),
             root.with("db", "%%%"), noPasswordSlot,
-            root.with("header", root.header().with("slots", JsonArray(List(5) { root.slot() }))),
+            root.with("header", root.header().with("slots", JsonArray(List(17) { root.slot() }))),
         )
         for (c in broken) assertEquals(c.toString(), IMPORT_BROKEN, failedRead(c.bytes()))
     }
@@ -157,16 +183,29 @@ class AegisCryptoTest {
     }
 
     @Test fun passwordAndKeysAreZeroed() {
+        // M-4: the exact number of arrays on each path, and the keys and the plaintext themselves among them.
         val seen = ArrayList<ByteArray>()
         openAegis(jsonRoot(encrypted), FIXTURE_PASSWORD.toCharArray(), JSON_MAX_TREE_BYTES, Secrets(seen::add))
         // The password bytes, the scrypt key, the master key and the vault's plaintext.
-        assertAllZero(seen, min = 4)
+        assertAllZero(seen, exactly = 4)
+        val steps = ArrayList<ByteArray>()
+        val s = Secrets(steps::add)
+        val e = aegisEncrypted(jsonRoot(encrypted))
+        val derived = aegisSlotKey(e.slots.single(), FIXTURE_PASSWORD.toCharArray(), s)
+        val master = aegisUnwrap(e.slots.single(), derived, s)!!
+        val plaintext = aegisDb(e, master, s)
+        assertKept(steps, derived, master, plaintext)
+        s.wipe()
+        assertAllZero(steps, exactly = 4)
         val wrong = ArrayList<ByteArray>()
         try {
             openAegis(jsonRoot(encrypted), "otra".toCharArray(), JSON_MAX_TREE_BYTES, Secrets(wrong::add))
-        } catch (e: ImportFailure) {
-            assertEquals(IMPORT_WRONG_PASSWORD, e.message)
+            fail("opened")
+        } catch (x: ImportFailure) {
+            assertEquals(IMPORT_WRONG_PASSWORD, x.message)
         }
-        assertAllZero(wrong, min = 2)
+        // The password bytes, the scrypt key, and the unwrap's output whose tag failed (blockGcm wiped it).
+        assertAllZero(wrong, exactly = 3)
     }
+
 }

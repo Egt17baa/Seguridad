@@ -27,5 +27,6 @@ archivo cifrado va con su gemelo en claro, y la contraseña es «prueba-clavero-
 - 2fas/2fas-cifrado.2fas (PBKDF2-HMAC-SHA256, 10 000 iteraciones, y AES-256-GCM; los grupos en claro) y su gemelo
   2fas-cifrado-claro.2fas.
 
-Cuando lleguen exportaciones reales (1.4.1), se añaden con su propia prueba y se confirma lo que la tarea 10 apunta en
-«Pendiente de confirmar con exportaciones reales».
+Cuando lleguen exportaciones reales (1.4.1), se añaden con su propia prueba y se confirma lo que apunta la lista
+«Pendiente de confirmar» de docs/superpowers/handoff/sdd-1.4.0/task-10-report.md (el informe de la tarea 10,
+reconstruido por el controlador porque el original se perdió).

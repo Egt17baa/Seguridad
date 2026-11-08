@@ -202,6 +202,11 @@ class ImportTextsTest {
         val t = IMPORT_GOOGLE_AUTHENTICATOR
         for (part in listOf("Google Authenticator", "otro dispositivo", "«Añadir»", "«${EntryType.TOTP.label}»", "«${app.seguridad.tools.QR_SCAN}»", "Aegis"))
             assertTrue(part, part in t)
+        // M-7: several QR codes when there are many accounts (Google's help), the screenshot block on Android (2FAS's
+        // help), and Aegis's option by its Spanish name; each scanned one by one.
+        for (part in listOf("uno o varios códigos QR", "escanéalos uno a uno", "en Android", "«Exportar a Google Authenticator»"))
+            assertTrue(part, part in t)
+        assertFalse("como un código QR" in t)
         val screen = mainSources()[SCREEN_FILE] ?: error("$SCREEN_FILE not found")
         assertTrue("Text(IMPORT_GOOGLE_AUTHENTICATOR" in screen)
         // The vault's «Añadir» button and the TOTP form's scanner are still there under those names.

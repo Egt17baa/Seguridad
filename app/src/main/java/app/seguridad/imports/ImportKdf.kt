@@ -47,7 +47,9 @@ const val SCRYPT_MAX_P = 4
 
 /**
  * Longest encrypted part read, in Base64 characters (8 MiB): its plaintext is at most 6 MiB, thousands of entries.
- * With the file's text and the plaintext's text and tree alive at once, a bigger one would not leave room on a phone
+ * Alive at once at the peak: the file's bytes and text, the outer tree's encrypted string, the decoded ciphertext (with
+ * room for its tag, so it is not copied to add one), one plaintext array (the CBC buffer is wiped and let go once the
+ * plaintext is copied out of it), the plaintext's text and its tree. A bigger part would not leave room on a phone
  * with a heap of 192 MB. Checked before anything is decoded ([IMPORT_ENCRYPTED_TOO_BIG]).
  */
 const val IMPORT_MAX_ENCRYPTED_CHARS = 8 * 1024 * 1024
@@ -59,15 +61,18 @@ fun checkPbkdf2Iterations(n: Int) {
 
 /**
  * Refuses scrypt parameters outside the bounds, before any work: [n] a power of 2 from [SCRYPT_MIN_N] to
- * [SCRYPT_MAX_N], [r] 1 to [SCRYPT_MAX_R], [p] 1 to [SCRYPT_MAX_P], and its memory (128·N·r bytes, which Bouncy
- * Castle allocates on the Java heap) under the same bound as Argon2id ([KdfParams.checkSane]: at most 128 MiB, and
- * above 64 MiB at most ¾ of [heapKiB]).
+ * [SCRYPT_MAX_N], [r] 1 to [SCRYPT_MAX_R], [p] 1 to [SCRYPT_MAX_P], [n] under 2^(16·r) as RFC 7914 §2 asks (so at
+ * most 2^15 with r = 1; Bouncy Castle refuses more), and its memory (128·N·r bytes, which Bouncy Castle allocates on
+ * the Java heap) under the same bound as Argon2id ([KdfParams.checkSane]: at most 128 MiB, and above 64 MiB at most
+ * ¾ of [heapKiB]).
  */
 fun checkScrypt(n: Int, r: Int, p: Int, heapKiB: Long = appHeapKiB()) {
     val powerOfTwo = n > 0 && (n and (n - 1)) == 0
     if (!powerOfTwo || n !in SCRYPT_MIN_N..SCRYPT_MAX_N || r !in 1..SCRYPT_MAX_R || p !in 1..SCRYPT_MAX_P) {
         throw ImportFailure(IMPORT_KDF_TOO_BIG)
     }
+    // With r ≥ 2, 2^(16·r) is past SCRYPT_MAX_N already; the shift is only taken while it fits in an Int.
+    if (16 * r < Int.SIZE_BITS - 1 && n >= 1 shl (16 * r)) throw ImportFailure(IMPORT_KDF_TOO_BIG)
     val memoryKiB = 128L * n * r / 1024
     if (memoryKiB > MAX_KDF_MEMORY_KIB) throw ImportFailure(IMPORT_KDF_TOO_BIG)
     checkArgon2id(KdfParams(memoryKiB.toInt(), iterations = 1, parallelism = 1), heapKiB)
@@ -99,6 +104,12 @@ internal class Secrets(private val onKeep: (ByteArray) -> Unit = {}) {
     private val held = ArrayList<ByteArray>()
 
     fun bytes(size: Int): ByteArray = keep(ByteArray(size))
+
+    /**
+     * An array the caller wipes itself, at once and in a `finally`, and then lets go: it is not held until [wipe], so a
+     * large buffer does not stay alive beside its copy (M-6). [onKeep] sees it too.
+     */
+    fun scratch(size: Int): ByteArray = ByteArray(size).also(onKeep)
 
     fun keep(a: ByteArray): ByteArray {
         held += a
@@ -141,13 +152,39 @@ internal fun pbkdf2Sha256(password: ByteArray, salt: ByteArray, iterations: Int,
     return s.keep(kp.key)
 }
 
-/** scrypt (RFC 7914) of [password] and [salt], [length] bytes; the parameters checked first ([checkScrypt]). */
-internal fun scryptKey(password: ByteArray, salt: ByteArray, n: Int, r: Int, p: Int, length: Int, s: Secrets): ByteArray {
-    checkScrypt(n, r, p)
-    return s.keep(kdf { SCrypt.generate(password, salt, n, r, p, length) })
+/**
+ * scrypt (RFC 7914) of [password] and [salt], [length] bytes; the parameters checked first ([checkScrypt]; [checked]:
+ * always, but in a test). A parameter Bouncy Castle still refuses (an [IllegalArgumentException]) is the file asking
+ * what this phone cannot do, [IMPORT_KDF_TOO_BIG], never «dañado».
+ */
+internal fun scryptKey(
+    password: ByteArray,
+    salt: ByteArray,
+    n: Int,
+    r: Int,
+    p: Int,
+    length: Int,
+    s: Secrets,
+    checked: Boolean = true,
+): ByteArray {
+    if (checked) checkScrypt(n, r, p)
+    return s.keep(
+        kdf {
+            try {
+                SCrypt.generate(password, salt, n, r, p, length)
+            } catch (e: IllegalArgumentException) {
+                throw ImportFailure(IMPORT_KDF_TOO_BIG)
+            }
+        },
+    )
 }
 
-/** Argon2id (RFC 9106, version 0x13) of [password] and [salt] (any length of 8 bytes or more), [length] bytes; [params] checked first. */
+/**
+ * Argon2id (RFC 9106, version 0x13) of [password] and [salt] (any length of 8 bytes or more), [length] bytes; [params]
+ * checked first. It makes its own Bouncy Castle call instead of the app's `argon2id` (ruling R23) because that one
+ * requires a 16-byte salt and Bitwarden's Argon2id salt is a 32-byte SHA-256; the same [checkArgon2id] bound
+ * ([KdfParams.checkSane]) and the same out-of-memory guard run here.
+ */
 internal fun argon2idKey(password: ByteArray, salt: ByteArray, params: KdfParams, length: Int, s: Secrets): ByteArray {
     checkArgon2id(params)
     val p = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
@@ -181,16 +218,25 @@ internal fun aesGcmOpen(key: ByteArray, nonce: ByteArray, sealed: ByteArray, s: 
 }
 
 /**
- * The bytes of the Base64 (RFC 4648, standard alphabet, padded) in [text]. Line breaks and spaces are passed over (some
- * apps wrap their Base64). [maxChars] is checked first ([IMPORT_ENCRYPTED_TOO_BIG]); anything else that is not Base64
- * is [IMPORT_BROKEN]. Only for encrypted parts and their parameters, which are not secret.
+ * The bytes of the Base64 (RFC 4648, standard alphabet, padded) in [text], followed by [spare] zero bytes (room for a
+ * tag, so the caller need not copy the result to append it). Line breaks and spaces are passed over (some apps wrap
+ * their Base64). [maxChars] is checked first ([IMPORT_ENCRYPTED_TOO_BIG]); anything else that is not Base64 is
+ * [IMPORT_BROKEN]. Only for encrypted parts and their parameters, which are not secret.
  */
-internal fun importBase64(text: String, maxChars: Int = IMPORT_MAX_ENCRYPTED_CHARS): ByteArray {
+internal fun importBase64(text: String, maxChars: Int = IMPORT_MAX_ENCRYPTED_CHARS, spare: Int = 0): ByteArray {
     if (text.length > maxChars) throw ImportFailure(IMPORT_ENCRYPTED_TOO_BIG)
     val compact = if (text.any { it == '\n' || it == '\r' || it == ' ' }) text.filterNot { it == '\n' || it == '\r' || it == ' ' } else text
     if (compact.isEmpty() || compact.length % 4 != 0) throw ImportFailure(IMPORT_BROKEN)
     return try {
-        Base64.getDecoder().decode(compact)
+        if (spare == 0) {
+            Base64.getDecoder().decode(compact)
+        } else {
+            val size = compact.length / 4 * 3 - compact.takeLast(2).count { it == '=' }
+            val out = ByteArray(size + spare)
+            // decode(String) makes this same Latin-1 copy of the text inside; written here, the bytes land in [out].
+            if (Base64.getDecoder().decode(compact.toByteArray(Charsets.ISO_8859_1), out) != size) throw ImportFailure(IMPORT_BROKEN)
+            out
+        }
     } catch (e: IllegalArgumentException) {
         throw ImportFailure(IMPORT_BROKEN)
     }

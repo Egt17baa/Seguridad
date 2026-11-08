@@ -12,7 +12,9 @@ Todos los datos son inventados. No se ha copiado nada de ningún otro importador
   name,url,username,password,note.
 - bitwarden.csv (R19): la cabecera de la caja fuerte personal de Bitwarden, folder,favorite,type,name,notes,fields,
   reprompt,login_uri,login_username,login_password,login_totp (https://bitwarden.com/help/condition-bitwarden-import/),
-  con 2FA como clave sola, como enlace y de Steam, una nota segura y una fila vacía; bitwarden-organizacion.csv, la de
+  con 2FA como clave sola, como enlace y de Steam, una nota segura, una fila vacía y un acceso con dos URI en la celda
+  login_uri, separadas por una coma (como Bitwarden las escribe; pendiente de confirmar con una exportación real, ver
+  docs/superpowers/handoff/sdd-1.4.0/task-10-report.md); bitwarden-organizacion.csv, la de
   una organización (collections en lugar de folder y favorite). Datos al azar.
 
 Cuando lleguen las exportaciones reales del dueño (paso 5 de la tarea 6), se añaden aquí con su propia prueba.

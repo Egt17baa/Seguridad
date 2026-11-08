@@ -85,14 +85,26 @@ const val IMPORT_HTML =
         "por ejemplo, la exportación JSON o TXT)."
 
 /**
- * Ruling R21: how to bring the codes of Google Authenticator, which exports only a QR that cannot be captured on the
- * same phone. The buttons named are the vault's («Añadir», the type «Código 2FA» and «Escanear QR»), whose scanner
- * already reads `otpauth-migration://`.
+ * Ruling R21 (worded again by Task 10's review, M-7): how to bring the codes of Google Authenticator. The buttons named
+ * are the vault's («Añadir», the type «Código 2FA» and «Escanear QR»), whose scanner already reads
+ * `otpauth-migration://`. Sources, checked on 8-11-2026:
+ * - export only as QR codes, more than one for several accounts: Google's help «Transfer Google Authenticator codes to
+ *   a new phone», https://support.google.com/accounts/answer/1066447 («Transfer codes» → «Export codes»; «If you
+ *   transfer more than one account, your old device may create more than one QR code»);
+ * - no screenshot of that screen on Android (on iOS there may be): 2FAS's help,
+ *   https://2fas.com/support/2fas-auth-mobile-app/how-to-move-transfer-tokens-codes-from-google-authenticator-to-2fas/
+ *   («Android, unfortunately, doesn't allow you to take screenshots in the Google Authenticator app»);
+ * - Aegis's option «Exportar a Google Authenticator» («Genera códigos QR de exportación compatibles con Google
+ *   Authenticator»), shown as QR codes on the screen, not as a file: Aegis's Spanish interface texts
+ *   (app/src/main/res/values-es-rES/strings.xml, pref_google_auth_export_title and _descriptor, read as UI text only)
+ *   and its v3.3 release notes («QR codes exported for Google Authenticator»),
+ *   https://github.com/beemdevelopment/Aegis/releases/tag/v3.3.
  */
 const val IMPORT_GOOGLE_AUTHENTICATOR =
-    "Google Authenticator solo exporta sus códigos como un código QR, y no deja hacer captura de esa pantalla. Para " +
-        "traerlos, muestra ese QR en otro dispositivo y escanéalo con Clavero: en la bóveda, pulsa «Añadir», elige " +
-        "«Código 2FA» y luego «Escanear QR». La exportación «Google Authenticator» de Aegis funciona igual."
+    "Google Authenticator solo exporta sus códigos como uno o varios códigos QR, y en Android no deja hacer captura de " +
+        "esa pantalla. Para traerlos, muestra esos QR en otro dispositivo y escanéalos uno a uno con Clavero: en la " +
+        "bóveda, pulsa «Añadir», elige «Código 2FA» y luego «Escanear QR». La opción «Exportar a Google Authenticator» " +
+        "de Aegis también muestra códigos QR, y se escanean igual."
 
 /** A JSON nested deeper than [JSON_MAX_DEPTH]: refused before it is parsed. */
 const val IMPORT_JSON_TOO_DEEP = "El archivo tiene más de 64 niveles anidados. Clavero no lo lee."

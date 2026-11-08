@@ -51,6 +51,13 @@ internal fun JsonObject.with(key: String, value: Any?): JsonObject {
 
 internal fun JsonObject.bytes(): ByteArray = toString().toByteArray()
 
+/** Where [literal] goes in [bytesWithLiteral]: a string value no fixture has. */
+internal const val LITERAL_MARK = "@@literal@@"
+
+/** This object's bytes with the value [LITERAL_MARK] written as [literal], as it is (a number such as `6e5`). */
+internal fun JsonObject.bytesWithLiteral(literal: String): ByteArray =
+    toString().also { check("\"$LITERAL_MARK\"" in it) }.replace("\"$LITERAL_MARK\"", literal).toByteArray()
+
 /** How long [block] takes, in milliseconds. */
 internal inline fun millis(block: () -> Unit): Long {
     val t = System.nanoTime()
@@ -67,10 +74,15 @@ internal fun assertTruncationsFail(bytes: ByteArray) {
     }
 }
 
-/** Every array a reader kept in its [Secrets] is all zeros once it returned, and there was at least [min] of them. */
-internal fun assertAllZero(seen: List<ByteArray>, min: Int) {
-    assertTrue("only ${seen.size} secrets", seen.size >= min)
+/** Every array a reader kept in its [Secrets] is all zeros once it returned, and there were [exactly] of them. */
+internal fun assertAllZero(seen: List<ByteArray>, exactly: Int) {
+    assertEquals("secrets kept", exactly, seen.size)
     for (a in seen) assertArrayEquals(ByteArray(a.size), a)
+}
+
+/** Each of [arrays] is itself (not a copy) among what a [Secrets] saw, so its wipe reaches it. */
+internal fun assertKept(seen: List<ByteArray>, vararg arrays: ByteArray) {
+    for ((i, a) in arrays.withIndex()) assertTrue("array $i not kept", seen.any { it === a })
 }
 
 /** The same items, skipped elements and notes count: what an encrypted file gives must be what its plain twin gives. */
