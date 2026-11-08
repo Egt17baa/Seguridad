@@ -65,10 +65,10 @@ jobs:
           fi
 
       # gradlew runs this JAR before anything else is checked: it must be Gradle's own (the official checksum of the
-      # wrapper JAR of Gradle 8.14.5, which generated it, at gradle.org/release-checksums; the wrapper then downloads
-      # 8.14.6 and checks its SHA-256 from gradle-wrapper.properties). A new JAR means changing this line, in review.
+      # wrapper JAR of Gradle 9.6.0, which generated it, at gradle.org/release-checksums; the wrapper then downloads
+      # 9.6.0 and checks its SHA-256 from gradle-wrapper.properties). A new JAR means changing this line, in review.
       - name: Check the Gradle wrapper
-        run: echo "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
+        run: echo "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
 
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
@@ -234,7 +234,7 @@ jobs:
           persist-credentials: false
 
       - name: Check the Gradle wrapper (see the build job)
-        run: echo "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
+        run: echo "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
 
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
@@ -243,7 +243,7 @@ jobs:
             21
             17
 
-      # The wrapper (Gradle 8.14.6) runs the separate jvm-check build; the JDK 21 toolchain is the one setup-java installed.
+      # The wrapper (Gradle 9.6.0) runs the separate jvm-check build; the JDK 21 toolchain is the one setup-java installed.
       - name: JVM tests
         run: ./gradlew -p jvm-check test --no-daemon -Porg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64 -Porg.gradle.java.installations.auto-download=false
 
@@ -298,7 +298,7 @@ jobs:
           fi
 
       - name: Check the Gradle wrapper (see the build job)
-        run: echo "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
+        run: echo "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7  gradle/wrapper/gradle-wrapper.jar" | sha256sum --check --strict
 
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:

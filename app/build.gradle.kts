@@ -3,7 +3,7 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // No org.jetbrains.kotlin.android: AGP 9 compiles Kotlin itself (built-in Kotlin).
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.license.report)
@@ -75,7 +75,8 @@ android {
         buildConfig = true
     }
     androidResources {
-        // AGP's default patterns (copied from AGP 8.13) stop applying once the list is not empty, so they are kept here.
+        // AGP's default patterns (copied from AGP 8.13, the same in AGP 9.5.0) stop applying once the list is not empty, so
+        // they are kept here.
         ignoreAssetsPatterns += "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~".split(':')
         // OkHttp 5 ships Mozilla's Public Suffix List (MPL-2.0) as an asset. It reads it only to parse cookies and in
         // HttpUrl.topPrivateDomain(): the app uses CookieJar.NO_COOKIES and never calls topPrivateDomain(). Without the
@@ -127,7 +128,7 @@ licenseReport {
 
 // A10e: packaging a release APK or AAB without the upload key fails at execution time, so configuring the release
 // variant (lintRelease, checkLicense, checkAssets) still works without it. Only the packaging tasks depend on it.
-val checkReleaseKey by tasks.registering {
+val checkReleaseKey = tasks.register("checkReleaseKey") {
     group = "verification"
     description = "Falla si se empaqueta una release sin clave de subida y sin -PfirmaDePrueba=true."
     val missingKey = releaseStoreFile == null && !firmaDePrueba
@@ -147,7 +148,7 @@ tasks.matching { it.name in releasePackagingTasks }.configureEach { dependsOn(ch
 // FragmentActivity.startActivityForResult rejects the request codes of ActivityResultRegistry (>= 0x10000) with
 // "Can only use lower 16 bits for requestCode". MainActivity is a FragmentActivity (BiometricPrompt needs one), so
 // every file picker and the QR scanner failed on the phone. From 1.3.0 FragmentActivity uses the registry itself.
-val checkFragmentVersion by tasks.registering {
+val checkFragmentVersion = tasks.register("checkFragmentVersion") {
     group = "verification"
     description = "Falla si el APK llevaría androidx.fragment:fragment anterior a 1.3.0."
     val root = configurations.named("releaseRuntimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent }
@@ -187,7 +188,7 @@ val releaseAssets = objects.listProperty<Directory>()
 androidComponents.onVariants(androidComponents.selector().withBuildType("release")) { variant ->
     releaseAssets.add(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.ASSETS))
 }
-val checkAssets by tasks.registering {
+val checkAssets = tasks.register("checkAssets") {
     group = "verification"
     description = "Falla si el APK llevaría un archivo en assets/ que no sea de app/src/main/assets, " +
         "o si le faltaría una lista de palabras de la contraseña maestra o de «Repartir un secreto»."

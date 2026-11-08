@@ -214,7 +214,10 @@ class PlatformSourcesTest {
         // checkAssets fails the build if the list is not in the APK.
         var dir: File? = File(".").absoluteFile
         while (dir != null && !File(dir, "app/build.gradle.kts").isFile) dir = dir.parentFile
-        val task = File(dir, "app/build.gradle.kts").readText().substringAfter("val checkAssets by tasks.registering").substringBefore("tasks.named(\"check\")")
+        val gradle = File(dir, "app/build.gradle.kts").readText()
+        val anchor = "val checkAssets = tasks.register(\"checkAssets\")"
+        assertTrue("app/build.gradle.kts must declare $anchor", anchor in gradle)
+        val task = gradle.substringAfter(anchor).substringBefore("tasks.named(\"check\")")
         assertTrue(task, "\"slip39_english.txt\"" in task.substringAfter("val wordLists = listOf(").substringBefore(")"))
     }
 

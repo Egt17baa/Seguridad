@@ -88,7 +88,7 @@ bash scripts/check-manifest.sh app/build/outputs/apk/debug/app-debug.apk
 
 ```bash
 ./gradlew -p jvm-check test --no-daemon --max-workers=1
-# o, con un Gradle 8.14.x instalado:
+# o, con un Gradle 9.6.x instalado:
 gradle -p jvm-check test --no-daemon --max-workers=1
 ```
 
