@@ -232,6 +232,69 @@ class MasterPolicyTest {
         assertNull(newMasterProblem("Barcelona1", allWords))
     }
 
+    // ---- RT-3 (owner's decision (h), 8-11-2026): a known word in leet or in full-width letters is refused too ----
+
+    @Test fun `RT-3 the core is taken in NFKC, so full-width and styled letters are the plain ones`() {
+        assertEquals("password", masterCore("ｐａｓｓｗｏｒｄ12345"))
+        assertEquals("contrasena", masterCore("ｃｏｎｔｒａｓｅñａ2024"))
+        assertEquals("pass", masterCore("𝐩𝐚𝐬𝐬")) // mathematical bold «𝐩𝐚𝐬𝐬»
+        assertEquals("fiesta", masterCore("ﬁesta")) // the ligature «ﬁ»
+        assertEquals("", masterCore("１２３４５６７８９０")) // full-width digits are digits
+    }
+
+    @Test fun `RT-3 a known word in leet or in full-width letters is refused as a new master`() {
+        for (c in listOf(
+            "P4ssw0rd2024!", "C0ntr4s3ñ4!!", "P@\$\$w0rd1234", "Dr4g0n!2024", "Pr1nc3ss2024", "ｐａｓｓｗｏｒｄ12345", "ｃｏｎｔｒａｓｅñａ2024",
+            "1l0v3y0u2024", "4dm1n-2024!!", "!!P4SSW0RD!!", "2024-dr4g0n!", "p4ss-w0rd 99", "Ｐ４ｓｓｗ０ｒｄ２０２４",
+        )) {
+            assertTrue("«$c» passes the estimate (${estimateBits(c)} bits): only the word rule refuses it", estimateBits(c) >= WEAK_BITS)
+            assertEquals("«$c» must be refused with the lists", MASTER_TOO_WEAK, newMasterProblem(c, allWords))
+        }
+    }
+
+    @Test fun `RT-3 the substitutions, and 2 is never z`() {
+        for ((typed, letter) in listOf(
+            "0" to "o", "3" to "e", "4" to "a", "@" to "a", "5" to "s", "\$" to "s", "7" to "t", "+" to "t", "8" to "b", "6" to "g",
+            "9" to "g", "1" to "i", "1" to "l", "!" to "i", "!" to "l", "|" to "i", "|" to "l",
+        )) {
+            assertTrue("$typed as $letter", isKnownWordInLeet("x${typed}y", setOf("x${letter}y")))
+        }
+        assertFalse(isKnownWordInLeet("x2y", setOf("xzy")))
+        // «1» is read once as «i» everywhere and once as «l» everywhere, never mixed.
+        assertTrue(isKnownWordInLeet("b4110on", setOf("balloon")))
+        assertTrue(isKnownWordInLeet("1nf1ll", setOf("infill")))
+        assertFalse(isKnownWordInLeet("1nf1ll", setOf("lnfill")))
+    }
+
+    @Test fun `RT-3 only digits and symbols may be left out around the word, never a letter`() {
+        assertTrue(isKnownWordInLeet("2024!dr4g0n2024!", setOf("dragon")))
+        assertFalse("a letter before the word", isKnownWordInLeet("xdr4g0n2024", setOf("dragon")))
+        assertFalse("a letter after the word", isKnownWordInLeet("dr4g0n2024x", setOf("dragon")))
+        assertFalse("no letters: left to the estimate", isKnownWordInLeet("7357735773577357", setOf("test", "t", "e", "s")))
+        assertFalse("without the lists nothing is a word", isKnownWordInLeet("P4ssw0rd2024!", emptySet()))
+    }
+
+    @Test fun `RT-3 the leet check is bounded`() {
+        assertTrue(isKnownWordInLeet("P4ssw0rd" + "!".repeat(LEET_MAX_CODE_POINTS - 8), allWords))
+        assertFalse("past the bound it is not tried", isKnownWordInLeet("P4ssw0rd" + "!".repeat(LEET_MAX_CODE_POINTS - 7), allWords))
+        // The worst case within the bound: one letter in the middle, as many cuts as possible on each side.
+        val worst = "1".repeat(LEET_MAX_CODE_POINTS / 2 - 1) + "q" + "1".repeat(LEET_MAX_CODE_POINTS / 2)
+        val start = System.nanoTime()
+        repeat(20) { assertFalse(isKnownWordInLeet(worst, allWords)) }
+        val ms = (System.nanoTime() - start) / 1_000_000
+        assertTrue("$ms ms for 20 checks of the worst case", ms < 2_000)
+    }
+
+    @Test fun `RT-3 the accepted limits stay accepted`() {
+        // The owner accepted these (CRY-A01): a word in no list, two words together, a Generator-style random password.
+        for (c in listOf(
+            "Barcelona1", "B4rc3l0n4!!", "abandon-ability", "4b4nd0n-4b1l1ty", "casa perro luz mar sol", "Xq7#vB2!mK",
+            "Xq7#vB2!mK9\$wL4@pT1&", "k3#Tz9!Qm@4vRw7\$Lp2x",
+        )) {
+            assertNull("«$c»", newMasterProblem(c, allWords))
+        }
+    }
+
     @Test fun `without the lists newMasterProblem does what it did before`() {
         fun before(c: String) = when {
             c.length < MIN_MASTER -> MASTER_TOO_SHORT
@@ -369,10 +432,11 @@ class MasterPolicyTest {
     }
 
     /**
-     * A fixed sequence (SHA1PRNG with a seed), not SecureRandom(): with the word lists loaded, about 1 password in 61,000 of
-     * 16 characters with the four classes is refused (1 in 3,900 at 12, 1 in 1.1 million at 20), because its few letters
-     * (3 to 5) happen to spell a list word and the rest are digits and symbols (see the next test). 200 fresh draws would
-     * fail about one run in 308 by chance.
+     * A fixed sequence (SHA1PRNG with a seed), not SecureRandom(): with the word lists loaded, about 1 password in 54,000 of
+     * 16 characters with the four classes is refused (1 in 3,100 at 12, 1 in 1.1 million at 20; measured with the leet
+     * check of RT-3, see the KDoc of newMasterProblem), because its few letters (2 to 5), as they are or in leet, happen
+     * to spell a list word and the rest are digits and symbols (see the next test). 200 fresh draws would fail about one
+     * run in 270 by chance.
      */
     private fun fixedRandom(): SecureRandom = SecureRandom.getInstance("SHA1PRNG").apply { setSeed(20261101L) }
 
