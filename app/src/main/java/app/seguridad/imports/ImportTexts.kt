@@ -214,10 +214,12 @@ const val IMPORT_FORMATS =
         "y las listas de enlaces otpauth:// (como el TXT de Aegis, y también los enlaces de exportación de Google " +
         "Authenticator). No lee el .zip con adjuntos de Bitwarden ni el HTML de Aegis."
 const val IMPORT_TRADEMARKS = "Los nombres de otras apps son marcas de sus titulares. Clavero no tiene relación con ellos."
+/** R33: true for a plain export and for a password-protected one (read since Task 10). */
 const val IMPORT_NOT_PROTECTED =
-    "Clavero no protege el archivo exportado: está sin cifrar en tu móvil, y puede haber copias en la nube, en la " +
-        "papelera o en otras apps. Al terminar, Clavero puede intentar borrar ese archivo (algunas apps no lo dejan), pero " +
-        "no esas copias."
+    "Clavero no protege el archivo exportado. Si lo exportaste sin contraseña, está sin cifrar en tu móvil; si lo " +
+        "protegiste con contraseña, sus entradas siguen cifradas con esa contraseña. En los dos casos puede haber copias " +
+        "en la nube, en la papelera o en otras apps. Al terminar, Clavero puede intentar borrar ese archivo (algunas apps " +
+        "no lo dejan), pero no esas copias."
 const val IMPORT_WIPE_NOTE =
     "Lo leído del archivo, la contraseña que escribas y la vista previa se borran si vuelves atrás, si se cierra la app, " +
         "si la bóveda se bloquea o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como " +
@@ -388,10 +390,11 @@ const val IMPORT_ENDED_TITLE = "No se ha terminado la importación"
 
 /** «Quitar el archivo exportado» (spec «Quitar el archivo exportado»). */
 const val IMPORT_REMOVE = "Quitar el archivo exportado"
+/** R33: «sin cifrar» only for an export made without a password. */
 const val IMPORT_REMOVE_EXPLAIN =
-    "El archivo que has importado sigue en tu móvil sin cifrar. Clavero puede intentar borrar ese mismo archivo; algunas " +
-        "apps no lo dejan. No borra las copias que haya en la nube, en la papelera ni en otras apps, y no garantiza que el " +
-        "almacenamiento lo borre físicamente."
+    "El archivo que has importado sigue en tu móvil, sin cifrar si lo exportaste sin contraseña. Clavero puede intentar " +
+        "borrar ese mismo archivo; algunas apps no lo dejan. No borra las copias que haya en la nube, en la papelera ni en " +
+        "otras apps, y no garantiza que el almacenamiento lo borre físicamente."
 const val IMPORT_REMOVE_DECLINE = "No, déjalo"
 const val IMPORT_REMOVING = "Borrando el archivo…"
 const val IMPORT_REMOVED =
