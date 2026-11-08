@@ -183,3 +183,5 @@ Ruling R24 (Task 10, M-2): Aegis tries only the first password slot (type 1), AE
 Ruling R25 (Task 10, M-3/M-8): the «Pendiente de confirmar» list lives in task-10-report.md (controller-reconstructed, since the implementer's report was lost); the code comments and import/README.txt point there; the spec gets a dated correction note for R19/R21/R22 in this fix round; the Task 9 phone-test «todavía no» line is replaced (below).
 Task 9 phone test (replaces the «todavía no» line, per R13a's end in Task 10): an encrypted export asks for its password; a wrong one can be typed again; a .zip or HTML file says what to do instead.
 Task 10: fix round 1 dispatched (FIX_BASE 76a53d2, implementer opus aa94a944ca2824492; I-1, I-2, M-1..M-8, R23–R25)
+Task 10: fix round 1 implemented (ef52867; DONE_WITH_CONCERNS: a URI with a comma inside is split too — Bitwarden's CSV cannot tell, noted in task-10-report.md; every Aegis slot is still bounds-checked before work under R24 — stricter, accepted). 1749 app / 1744 jvm-check green.
+Task 10: re-review 1 dispatched (review-6e9f4e8..ef52867.diff)
