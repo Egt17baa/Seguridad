@@ -311,6 +311,20 @@ class Slip39Test {
         assertArrayEquals(ByteArray(16) { 6 }, slip.combineShares(parts, all.copyOf()))
     }
 
+    /**
+     * Docs part of the branch review: the official vectors go up to exponent 3, and the app splits with 1, so a part made
+     * elsewhere with a higher exponent (up to the cap, 8) is only covered here. Split and recombine with 4 and 8, with a
+     * passphrase, and the exponent travels in the part.
+     */
+    @Test fun aHighIterationExponentRoundTrips() {
+        val master = ByteArray(16) { (it * 13 + 1).toByte() }
+        for (e in listOf(4, SLIP39_MAX_EXPONENT)) {
+            val parts = slip.splitSecret(master, "clave-de-prueba".toCharArray(), 1, listOf(GroupSpec(2, 3)), iterationExponent = e)[0]
+            assertEquals(e, decoded(parts[0], 1).exponent)
+            assertArrayEquals("e = $e", master, slip.combineShares(listOf(parts[2], parts[0]), "clave-de-prueba".toCharArray()))
+        }
+    }
+
     @Test fun theIterationExponentIsCapped() {
         assertEquals(8, SLIP39_MAX_EXPONENT)
         val tooMuch = "El cálculo pedido es demasiado largo: Clavero acepta un exponente de iteraciones de 0 a 8."
