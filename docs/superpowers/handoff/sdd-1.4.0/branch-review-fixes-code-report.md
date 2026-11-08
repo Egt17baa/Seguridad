@@ -15,9 +15,9 @@ fijaciones.
 Las dos, con el wrapper (R29), en el árbol final:
 
 - `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon --max-workers=1`:
-  **BUILD SUCCESSFUL**, 1 801 tests, 0 fallos, 0 omitidos; lint 0 errores y 19 avisos (los conocidos: comprobaciones de
+  **BUILD SUCCESSFUL**, 1 803 tests (1 801 en el primer commit, `2ddc305`; +2 de R40), 0 fallos, 0 omitidos; lint 0 errores y 19 avisos (los conocidos: comprobaciones de
   versiones en línea); **0 líneas `w:`**.
-- `./gradlew -p jvm-check test --no-daemon --max-workers=1`: **BUILD SUCCESSFUL**, 1 796 tests, 0 fallos, 0 omitidos;
+- `./gradlew -p jvm-check test --no-daemon --max-workers=1`: **BUILD SUCCESSFUL**, 1 798 tests (1 796 en `2ddc305`; +2 de R40), 0 fallos, 0 omitidos;
   **0 líneas `w:`**.
 
 Antes de esta ronda: 1 789 y 1 784. La primera pasada de `jvm-check` sacó seis avisos `w:` en tests que no son de esta
@@ -187,12 +187,27 @@ el `CountDownLatch` en un `finally`.
     corto). No lo pedía la revisión, pero es el mismo fallo y el arreglo cabe en una línea.
 - PBKDF2: el de «Importar de otra app» entra porque va dentro de la misma lectura; no ocupa memoria (unos cientos de
   bytes), pero sacarlo partiría la lectura en dos. El de SLIP-0039 queda fuera por eso mismo: no ocupa memoria.
-- **Lo que no se ha hecho:** «Cifrar archivo». Su Argon2id corre dentro de `encryptStream`/`decryptStream`
-  (`crypto/FileCrypto.kt:59`, `:101`), y coger el cerrojo allí haría esperar a un desbloqueo lo que tarde un archivo
-  entero. Hay que separar la derivación del flujo (cambio en `crypto/`, con sus tests de formato); queda para el
-  controlador. El KDoc de `KdfLock` lo dice.
+- «Cifrar archivo» (decisión R40 del controlador, en un segundo commit): solo la derivación de la clave toma el cerrojo,
+  nunca el cifrado del flujo, así que un desbloqueo no espera nunca lo que tarde un archivo entero.
+  - `crypto/FileCrypto.kt:21-30`, `fileKey`: con contraseña, `KdfLock.deriveBlocking { keyForHeader(…) }`; con una clave
+    aleatoria (HKDF, sin memoria), `keyForHeader` sin esperar. Lo usan `encryptStream` (`:69`) y `decryptStream`
+    (`:111`) en el mismo sitio donde antes llamaban a `keyForHeader`: antes de escribir o leer nada del flujo.
+  - El cerrojo no va dentro de `keyForHeader`, porque también lo usan `encryptText`/`decryptText`, que «Cifrar texto»
+    ya llama bajo `KdfLock` (no es reentrante: sería un interbloqueo).
+  - `crypto/KdfLock.kt:55-68`, `deriveBlocking`: para código que no suspende y ya va fuera del hilo principal
+    (`FileCrypto` corre en `Dispatchers.IO`): `runBlocking { derive(EmptyCoroutineContext, block) }`, en el hilo de
+    quien llama. Esperar no se puede cancelar (como la derivación). En el hilo principal de Android lanza
+    `IllegalStateException`. La comprobación es por reflexión (`android.os.Looper`, `:71-81`) para que `crypto/` siga
+    compilando en `jvm-check`; allí y con los *stubs* de los tests de Android da `false`. En los tests se le pasa la
+    comprobación (`deriveBlocking({ true }) { … }`).
+  - Formato: ningún cambio, el `.sgenc` es el mismo byte a byte (mismo `keyForHeader`, misma cabecera, mismo orden de
+    escritura). Siguen en verde los tests de formato con datos anteriores: `CryptoTest` (los `.sgenc` hechos a mano como
+    una versión antigua, nombres de 1 024 bytes), `PasswordBytesTest` (lo que abría Bouncy Castle 1.80),
+    `StreamingMemoryTest`, `SeedCryptoTest` y `RedTeamCryptoTest`.
+  - Comportamiento: el mismo, salvo la espera. Una operación cancelada mientras espera deriva igual cuando le toca (ya era
+    así: la derivación no se podía cortar).
 - Orden de los cerrojos, documentado en `KdfLock`: el `mutex` de `VaultStore` y después `KdfLock`; «Comprobar una
-  copia», «Importar de otra app» y «Cifrar texto» solo toman `KdfLock`, y sus bloques nunca llaman a la bóveda. Un bloque
+  copia», «Importar de otra app», «Cifrar texto» y «Cifrar archivo» solo toman `KdfLock`, y sus bloques nunca llaman a la bóveda. Un bloque
   de `derive` es cálculo puro: no suspende ni llama a la bóveda, a los ajustes, a `KeyOpsQueue` (la fila de la huella,
   que no toma ninguno de los dos y cuyas operaciones no llaman a `VaultStore`: `BiometricVault.kt:168`, `:376`, `:540`)
   ni a otro `derive` (no es reentrante). El *ticket* `IMPORT_KDF_RUN` de importar no espera nunca (`SingleRun.start()`
@@ -203,7 +218,10 @@ el `CountDownLatch` en un `finally`.
 - Tests:
   - `crypto/KdfLockTest.kt`: `twoDerivationsAtOnceNeverOverlap` (seis a la vez, como mucho una dentro);
     `aCancelledDerivationKeepsTheLockUntilItEnds` (la segunda espera hasta que acaba la cancelada, y lo que da la
-    cancelada le llega); `aCallerCancelledWhileItWaitsNeverDerives`; `anExceptionInTheBlockReleasesTheLock`.
+    cancelada le llega); `aCallerCancelledWhileItWaitsNeverDerives`; `anExceptionInTheBlockReleasesTheLock`; y de R40,
+    `theBlockingEntryRefusesTheMainThread` y `aFileDerivationAndAnotherDerivationNeverOverlap` (con el cerrojo cogido
+    por otra derivación, cifrar y descifrar un archivo con contraseña esperan sin escribir nada; con clave aleatoria no
+    esperan; al soltarlo, los dos terminan y el archivo se abre).
   - `vault/BackupCheckTest.aCancelledCheckMakesTheUnlockWait`: el caso de la revisión entre componentes: comprobación
     cancelada a mitad de su Argon2id y `VaultStore.unlock` con la maestra, que espera (sigue bloqueada) hasta que acaba;
     la clave de la comprobación queda a cero. `afterCancelTheNextDerivationWaits` (dos comprobaciones) sigue en verde.
@@ -280,9 +298,9 @@ He recorrido `SKILL.md` y `references/cripto-moderna.md` (§3, KDF) como lista d
   `bitwardenProtected`/`aegisEncrypted`/`twoFasEncrypted`, después la KDF (`BitwardenCrypto.kt`, `AegisCrypto.kt:121`,
   `TwoFasCrypto.kt:96`). Nada se deriva antes de la contraseña.
 - **Memoria (R38):** `checkSane` sigue pensado para una derivación de hasta 128 MiB en ¾ del montón; `KdfLock` hace
-  que lo sea en todo el proceso para la bóveda, las comprobaciones, las importaciones y «Cifrar texto»
-  (`KdfLock.kt`, `VaultStore.kt:321`, `BackupCheck.kt:85`, `ImportScreen.kt:303`, `SecurityToolsScreen.kt:281`).
-  `KDF_OUT_OF_MEMORY` vuelve a decir la verdad en el caso de la revisión. Queda «Cifrar archivo» (arriba).
+  que lo sea en todo el proceso para la bóveda, las comprobaciones, las importaciones, «Cifrar texto» y «Cifrar archivo»
+  (`KdfLock.kt`, `VaultStore.kt:321`, `BackupCheck.kt:85`, `ImportScreen.kt:303`, `SecurityToolsScreen.kt:281`,
+  `FileCrypto.kt:29-30`). `KDF_OUT_OF_MEMORY` vuelve a decir la verdad.
 - **Claves a cero (BOV-3):** `KdfLock.derive` devuelve lo derivado aunque se cancele quien llama
   (`KdfLockTest.aCancelledDerivationKeepsTheLockUntilItEnds`); `BackupCheck` borra la clave en su `finally`
   (`BackupCheckTest.aCancelledCheckMakesTheUnlockWait` comprueba los ceros); `changeMaster` y `replace` borran la copia de
@@ -333,5 +351,4 @@ He aplicado `desarrollo-movil-senior` (ciclo de vida, concurrencia, rendimiento)
     65 536 caracteres; `BACKUP_CHECK_TOO_LONG` e `IMPORT_PASSWORD_TOO_LONG` no cambian.
 - `IMPORT_REPLACE_NOTE` («suma sus notas»): sigue siendo verdad; ahora no se suman las que son las mismas salvo espacios
   al principio o al final. Conviene leerlo con M-2, como pedía la revisión A.
-- `KDF_OUT_OF_MEMORY` (`crypto/Crypto.kt`): sin cambio; con R38 vuelve a ser verdad en el caso de la revisión B, salvo
-  con «Cifrar archivo» a la vez (pendiente, arriba).
+- `KDF_OUT_OF_MEMORY` (`crypto/Crypto.kt`): sin cambio; con R38 y R40 vuelve a ser verdad en el caso de la revisión B.

@@ -19,6 +19,16 @@ internal const val MAX_FILE_NAME_BYTES = 1024
 internal fun streamNonce(prefix: ByteArray, counter: Int, last: Boolean): ByteArray =
     ByteBuffer.allocate(NONCE_BYTES).put(prefix).putInt(counter).put(if (last) 1 else 0).array()
 
+/**
+ * The key of a file ([keyForHeader]). With a password it is an Argon2id, so it takes [KdfLock] (ruling R40): one large
+ * derivation at a time in the app, also against an unlock of the vault or a check of a copy. Only the derivation holds
+ * the lock, never the encryption of the stream, so an unlock never waits for a whole file. A raw key goes through HKDF
+ * (no memory) and does not wait. The caller is off the main thread ([encryptStream] and [decryptStream] read and write
+ * streams); it must not hold [KdfLock] already, which is not reentrant.
+ */
+private fun fileKey(secret: Secret, header: Header, use: PasswordUse): ByteArray =
+    if (secret is Secret.Password) KdfLock.deriveBlocking { keyForHeader(secret, header, use) } else keyForHeader(secret, header, use)
+
 /** Reads until [len] bytes are in [buf] (from [off]) or the stream ends; returns how many arrived. */
 internal fun InputStream.readFully(buf: ByteArray, len: Int = buf.size, off: Int = 0): Int {
     var n = 0
@@ -56,7 +66,7 @@ fun encryptStream(
 ) {
     val header = newHeader(Header.KIND_FILE, alg, secret, kdf, random)
     val aad = header.bytes()
-    val key = keyForHeader(secret, header, PasswordUse.NEW)
+    val key = fileKey(secret, header, PasswordUse.NEW)
     try {
         output.write(aad)
         // safeFileName keeps it within MAX_SAVED_NAME_BYTES (255); a longer one would be a bug, never cut (it could split a
@@ -98,7 +108,7 @@ fun decryptStream(input: InputStream, output: OutputStream, secret: Secret): Str
     if (pin.readFully(fixed) != fixed.size) throw CryptoFailure("No es un archivo cifrado compatible")
     val header = Header.parse(ByteBuffer.wrap(fixed), Header.KIND_FILE)
     val aad = fixed
-    val key = keyForHeader(secret, header, PasswordUse.EXISTING)
+    val key = fileKey(secret, header, PasswordUse.EXISTING)
     try {
         val lenBytes = ByteArray(2)
         if (pin.readFully(lenBytes) != 2) throw CryptoFailure()
