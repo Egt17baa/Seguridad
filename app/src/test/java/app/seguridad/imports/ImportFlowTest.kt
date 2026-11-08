@@ -8,6 +8,7 @@ import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -22,6 +23,7 @@ import java.io.File
 import java.io.IOException
 
 /** 1.4.0, Task 8: «Confirmar» (spec «Confirmar: la copia y el guardado»): no copy, no import. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ImportFlowTest {
     @get:Rule val tmp = TemporaryFolder()
 

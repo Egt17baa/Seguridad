@@ -92,6 +92,7 @@ import app.seguridad.tools.slip39.splitRequest
 import app.seguridad.tools.slip39.combineRequest
 import app.seguridad.tools.slip39.SecretShareRuns
 import app.seguridad.ui.theme.NegativeColor
+import app.seguridad.ui.theme.SECRET_TEXT_KEYBOARD
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.VaultStore
@@ -274,7 +275,6 @@ private class SecretShareViewModel(
 }
 
 /** For the secret fields, as in «Cifrar texto»: no autocorrection, and the password keyboard, which keyboards do not learn from. */
-private val SECRET_KEYBOARD = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -317,7 +317,7 @@ private fun SplitForm(context: Context, vm: SecretShareViewModel) {
         onValueChange = { v -> vm.limited(SecretShareViewModel.Field.SECRET, v, SHARE_MAX_SECRET_CHARS) { s.secretInput = it; vm.splitEdited() } },
         label = { Text(if (vm.hexInput) SHARE_HEX_LABEL else SHARE_PHRASE_LABEL) },
         minLines = 2,
-        keyboardOptions = SECRET_KEYBOARD,
+        keyboardOptions = SECRET_TEXT_KEYBOARD,
         modifier = Modifier.fillMaxWidth(),
     )
     TooLong(vm, SecretShareViewModel.Field.SECRET)
@@ -378,7 +378,7 @@ private fun CombineForm(context: Context, vm: SecretShareViewModel) {
         onValueChange = { v -> vm.limited(SecretShareViewModel.Field.PARTS, v, SHARE_MAX_PARTS_CHARS) { s.typedParts = it; vm.combineEdited() } },
         label = { Text(SHARE_PARTS_LABEL) },
         minLines = 4,
-        keyboardOptions = SECRET_KEYBOARD,
+        keyboardOptions = SECRET_TEXT_KEYBOARD,
         modifier = Modifier.fillMaxWidth(),
     )
     TooLong(vm, SecretShareViewModel.Field.PARTS)

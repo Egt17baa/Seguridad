@@ -20,6 +20,19 @@ import java.util.Locale
  */
 const val MIN_MASTER = 10
 
+/**
+ * Longest password (UTF-16 units) the fields that open something with a pasted password take: the master of a copy in
+ * «Comprobar una copia» and the password of an export in «Importar de otra app» (branch review B of 1.4.0, M-3). A
+ * paste over it is refused and said, so a whole document pasted by mistake does not freeze the field; nothing is cut.
+ * Creating the vault, changing the master, unlocking and «Importar copia» have no cap, so this one is far past any
+ * password typed or pasted from a manager (64 Ki units, a 128 KiB string; Argon2id hashes the password, so its length
+ * costs no memory there): «Comprobar una copia» then takes every master «Importar copia» takes in practice.
+ */
+const val PASSWORD_FIELD_MAX_CHARS = 65_536
+
+/** Whether a password field of [PASSWORD_FIELD_MAX_CHARS] takes [value]. */
+fun passwordFieldTakes(value: String): Boolean = value.length <= PASSWORD_FIELD_MAX_CHARS
+
 /** What the screens show while the new master has fewer than [MIN_MASTER] characters. */
 const val MASTER_TOO_SHORT = "Mínimo $MIN_MASTER caracteres"
 

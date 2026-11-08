@@ -14,8 +14,10 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * A JSON with `encrypted` or `items`:
- * - `encrypted: true` with `passwordProtected: true` → [ReadResult.NeedsPassword] without [password], and opened
- *   with it ([openBitwarden], Task 10), its content read against [treeBudget];
+ * - `encrypted: true` with `passwordProtected: true` → its header checked first ([bitwardenProtected]: a KDF out of
+ *   range is [IMPORT_KDF_TOO_BIG] and a broken header [IMPORT_BROKEN], without asking for a password no one could use,
+ *   branch review A, M-3; nothing is derived); then [ReadResult.NeedsPassword] without [password], and opened with it
+ *   ([openBitwarden], Task 10), its content read against [treeBudget];
  * - `encrypted: true` without it → [IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED]: only that account can open it;
  * - `encrypted: false` or absent → [readBitwardenPlain].
  * Any other type for these two names is [IMPORT_BROKEN].
@@ -33,7 +35,9 @@ internal fun readBitwarden(root: JsonObject, password: CharArray? = null, treeBu
         throw ImportFailure(IMPORT_BROKEN)
     }
     if (protected) {
-        return if (password == null) ReadResult.NeedsPassword(ImportFormat.BITWARDEN) else ReadResult.Ok(openBitwarden(root, password, treeBudget))
+        if (password != null) return ReadResult.Ok(openBitwarden(root, password, treeBudget))
+        bitwardenProtected(root) // Throws for a header no password can open; derives nothing.
+        return ReadResult.NeedsPassword(ImportFormat.BITWARDEN)
     }
     throw ImportFailure(IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED)
 }

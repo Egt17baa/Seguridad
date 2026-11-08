@@ -89,9 +89,13 @@ class TwoFasJsonTest {
         assertEquals(List(3) { SkipReason.TOTP_UNSUPPORTED }, read.skipped.map { it.reason })
     }
 
-    @Test fun encryptedTwoFasNeedsPassword() {
+    /**
+     * An encrypted backup asks for its password only when its parts could be used (branch review A, M-3; the real
+     * fixture asks in TwoFasCryptoTest): a 3-byte IV and salt are broken at once.
+     */
+    @Test fun encryptedTwoFasWithBrokenPartsDoesNotAskForAPassword() {
         val text = """{"services":[],"groups":[],"servicesEncrypted":"QUJD:REVG:R0hJ","schemaVersion":4}"""
-        assertEquals(ReadResult.NeedsPassword(ImportFormat.TWOFAS), readImport(text.toByteArray()))
+        assertEquals(ReadResult.Failed(IMPORT_BROKEN), readImport(text.toByteArray()))
     }
 
     @Test fun wrongTypesAreBroken() {

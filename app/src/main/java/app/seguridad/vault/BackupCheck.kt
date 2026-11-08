@@ -1,6 +1,7 @@
 package app.seguridad.vault
 
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.KdfLock
 import app.seguridad.crypto.NONCE_BYTES
 import app.seguridad.crypto.TAG_BYTES
 import kotlinx.coroutines.CoroutineDispatcher
@@ -9,8 +10,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
@@ -46,12 +45,6 @@ data class BackupCheckReport(
 )
 
 /**
- * One Argon2id of a check at a time in the process: a check stopped during its derivation (which cannot be cut) still
- * holds it until the derivation ends, so the next one waits (BackupCheckTest.afterCancelTheNextDerivationWaits).
- */
-private val derivations = Mutex()
-
-/**
  * Reads the copy from [input] (left open) into a folder of its own under [tempDir], opens its vault with [master] (which
  * is only read: the caller zeroes it) and checks its entries and every attachment, as [VaultStore.importReplace] does.
  * Throws [CryptoFailure] with the import's own message for what the import would refuse before looking at the
@@ -62,8 +55,11 @@ private val derivations = Mutex()
  * also while the folder is being made): two runs at once never share one. Bounded before any work by [BackupReader]'s
  * limits (100 MB in all, 6 MB per file, 2 000 files and [BACKUP_MAX_READ_BYTES] read) and then by the import's
  * ([checkCopyEntries]); cancellable at every read of [input] and between attachments. Argon2id ([unlock], replaceable
- * only by the tests) cannot be cut: once started it runs to its end without cancellation, one at a time ([derivations]),
- * and the copy's data key it gives is always zeroed, also when the check was cancelled meanwhile.
+ * only by the tests) cannot be cut: once started it runs to its end without cancellation, one at a time in the process
+ * ([KdfLock], ruling R38: with the vault's own derivations and those of «Importar de otra app»), so a check stopped
+ * during its derivation still holds the lock until it ends and the next derivation waits
+ * (BackupCheckTest.afterCancelTheNextDerivationWaits, aCancelledCheckMakesTheUnlockWait); the copy's data key it gives
+ * is always zeroed, also when the check was cancelled meanwhile.
  */
 suspend fun checkBackup(
     input: InputStream,
@@ -86,9 +82,7 @@ suspend fun checkBackup(
         }
         val incoming = withContext(compute) { VaultCrypto.decodeFile(contents.vaultJson) }
         currentCoroutineContext().ensureActive()
-        derivations.withLock {
-            withContext(NonCancellable) { withContext(compute) { key = unlock(incoming, master) } }
-        }
+        KdfLock.derive(compute) { key = unlock(incoming, master) }
         currentCoroutineContext().ensureActive()
         val dek = key!!
         val entries = withContext(compute) { VaultCrypto.read(incoming, dek) }

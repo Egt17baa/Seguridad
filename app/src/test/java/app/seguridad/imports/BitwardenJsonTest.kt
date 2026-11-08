@@ -240,10 +240,14 @@ class BitwardenJsonTest {
         assertEquals("", read.skipped[items.size - 1].title)
     }
 
-    @Test fun encryptedBitwardenNeedsPassword() {
+    /**
+     * A protected export asks for its password only when its header could be used (branch review A, M-3; the real
+     * fixtures ask in BitwardenCryptoTest): these cipher strings are not of the right lengths, so it is broken at once.
+     */
+    @Test fun encryptedBitwardenWithABrokenHeaderDoesNotAskForAPassword() {
         val text = """{"encrypted":true,"passwordProtected":true,"salt":"c2FsdA==","kdfType":0,"kdfIterations":600000,""" +
             """"encKeyValidation_DO_NOT_EDIT":"2.AAAA|BBBB|CCCC","data":"2.AAAA|BBBB|CCCC"}"""
-        assertEquals(ReadResult.NeedsPassword(ImportFormat.BITWARDEN), readImport(text.toByteArray()))
+        assertEquals(ReadResult.Failed(IMPORT_BROKEN), readImport(text.toByteArray()))
     }
 
     @Test fun accountEncryptedBitwardenSaysHow() {

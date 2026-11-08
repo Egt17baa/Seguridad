@@ -1,6 +1,5 @@
 package app.seguridad.crypto
 
-import java.io.InputStream
 import java.security.MessageDigest
 
 private val HEX_DIGITS = "0123456789ABCDEF".toCharArray()
@@ -46,27 +45,4 @@ fun sha1HexChars(password: CharArray): CharArray {
     } finally {
         digest.fill(0)
     }
-}
-
-/**
- * SHA-256 of a stream, as lowercase hex (how download pages publish it). [check] is the caller's cancellation checkpoint
- * (COV1-2, audit 1.3.0: `ensureActive()` on Android), called before each 64 KiB read, so a file of several GB is not read
- * to the end after the screen is gone or another file was picked.
- */
-fun sha256Hex(input: InputStream, check: () -> Unit = {}): String {
-    val md = MessageDigest.getInstance("SHA-256")
-    val buf = ByteArray(64 * 1024)
-    while (true) {
-        check()
-        val n = input.read(buf)
-        if (n < 0) break
-        md.update(buf, 0, n)
-    }
-    return hexLower(md.digest())
-}
-
-/** Compares a published hash with ours, ignoring case, spaces and colons. */
-fun sameHash(a: String, b: String): Boolean {
-    val norm = { s: String -> s.filter { it.isLetterOrDigit() }.lowercase() }
-    return norm(a).isNotEmpty() && norm(a) == norm(b)
 }

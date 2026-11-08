@@ -62,6 +62,7 @@ import app.seguridad.vault.BackupCheckRuns
 import app.seguridad.vault.BackupCheckSession
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MIN_MASTER
+import app.seguridad.vault.PASSWORD_FIELD_MAX_CHARS
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
@@ -71,6 +72,7 @@ import app.seguridad.vault.backupCheckType
 import app.seguridad.vault.backupCheckVersion
 import app.seguridad.vault.checkBackup
 import app.seguridad.vault.isBackup
+import app.seguridad.vault.passwordFieldTakes
 import app.seguridad.vault.sanitizeReceivedName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -127,13 +129,13 @@ private class BackupCheckViewModel(
         runs.stop()
     }
 
-    /** A paste over [MAX_PASSWORD_CHARS] was refused (the field keeps what it had), and the screen says so. */
+    /** A paste over [PASSWORD_FIELD_MAX_CHARS] was refused (the field keeps what it had), and the screen says so. */
     var refused by mutableStateOf(false)
         private set
 
     fun typed(value: String) {
         session.guard.typed()
-        refused = value.length > MAX_PASSWORD_CHARS
+        refused = !passwordFieldTakes(value)
         if (!refused) session.password = value
     }
 
@@ -195,9 +197,6 @@ private class BackupCheckViewModel(
         session.wipe()
     }
 }
-
-/** Far longer than any master password; keeps a huge paste out of the field. */
-private const val MAX_PASSWORD_CHARS = 1024
 
 @Composable
 fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: StateFlow<Boolean>, onBack: () -> Unit) {

@@ -601,4 +601,25 @@ class MasterPolicyTest {
         assertTrue(screens().none { Regex("""const val MIN_MASTER\b""").containsMatchIn(code(it)) })
         for (name in listOf("VaultScreen.kt", "VaultBackup.kt")) assertTrue("$name imports MIN_MASTER", "import app.seguridad.vault.MIN_MASTER" in screen(name))
     }
+
+    /**
+     * Branch review B, M-3: «Comprobar una copia» and «Importar de otra app» share one cap for a pasted password, far
+     * past any master a person types or pastes from a manager (creating the vault, changing the master and «Importar
+     * copia» have none), so a check takes the masters an import takes; a paste over it is refused, never cut.
+     */
+    @Test fun thePasswordFieldsShareOneCapFarPastAnyMaster() {
+        assertEquals(65_536, PASSWORD_FIELD_MAX_CHARS)
+        assertTrue(passwordFieldTakes(""))
+        assertTrue(passwordFieldTakes("a".repeat(1500))) // The reviewer's case: a 1 500-character master is checked now.
+        assertTrue(passwordFieldTakes("x".repeat(PASSWORD_FIELD_MAX_CHARS)))
+        assertFalse(passwordFieldTakes("x".repeat(PASSWORD_FIELD_MAX_CHARS + 1)))
+        // Counted in UTF-16 units, as the text field counts them: an emoji is two.
+        assertFalse(passwordFieldTakes("😀".repeat(PASSWORD_FIELD_MAX_CHARS / 2) + "x"))
+        // Both screens use it, and neither keeps a cap of its own.
+        for (screen in listOf("BackupCheckScreen.kt", "ImportScreen.kt")) {
+            val src = projectFile("app/src/main/java/app/seguridad/ui/screens/$screen").readText()
+            assertTrue(screen, "refused = !passwordFieldTakes(value)" in src)
+            assertFalse(screen, Regex("""MAX_(FILE_)?PASSWORD_CHARS""").containsMatchIn(src))
+        }
+    }
 }

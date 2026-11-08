@@ -140,7 +140,8 @@ class BreachSession(cells: CellFactory = PlainCells, createdAt: Long = 0L) : Gua
  * put its fingerprint under a later file's name, nor end «Calculando…» while the current one is still going.
  */
 class FileHashSession(cells: CellFactory = PlainCells) {
-    private var run = 0L
+    // Read by [isCurrent] from the reading's thread.
+    @Volatile private var run = 0L
     private val nameCell = cells.cell<String?>(null)
     var name: String? by nameCell
         private set
@@ -168,6 +169,9 @@ class FileHashSession(cells: CellFactory = PlainCells) {
         busy = true
         return run
     }
+
+    /** Whether [run] is the file picked last, not cancelled nor cleared since. */
+    fun isCurrent(run: Long): Boolean = run == this.run
 
     /** The picked file's name, for [run] only. */
     fun named(run: Long, name: String): Boolean {

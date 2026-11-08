@@ -26,7 +26,11 @@ sealed interface ImportStep {
     /** 3. The preview, with the choice for each duplicate. */
     data object Preview : ImportStep
 
-    /** 4. Confirmed: the copy before importing, then the save. Not cut by a lock or by leaving the screen. */
+    /**
+     * 4. Confirmed: the copy before importing, then the save. Leaving the screen does not cut it. A lock before the save
+     * starts cancels it (ruling R37): a lock during the copy refuses the copy, and a lock between the copy and the save
+     * gives [ApplyResult.Stale], so nothing is imported and the copy, if made, stays. A save already started finishes.
+     */
     data object Saving : ImportStep
 
     /** 4, without a folder for the automatic copies: the screen asks where to save the copy (`CREATE_DOCUMENT`). */
@@ -392,7 +396,8 @@ class ImportSession(
         val wasSaving = step == ImportStep.Saving
         onWipe()
         dropAll()
-        // M-4: the save goes on (it is not cut) but its result will not be shown here: the screen says so.
+        // M-4: the import goes on (leaving does not cut it) and, after a lock, is cancelled unless its save had started
+        // (ruling R37); either way its result will not be shown here, and the screen says it may have been done.
         if (wasSaving) error = IMPORT_WIPED_WHILE_SAVING
     }
 

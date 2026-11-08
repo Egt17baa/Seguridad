@@ -1,10 +1,17 @@
 package app.seguridad.vault
 
 import app.seguridad.crypto.KdfParams
+import app.seguridad.imports.ApplyResult
+import app.seguridad.imports.DuplicateChoice
 import app.seguridad.imports.IMPORT_COPY_LOCKED
 import app.seguridad.imports.IMPORT_COPY_NO_FOLDER
 import app.seguridad.imports.IMPORT_COPY_VAULT_CHANGED
 import app.seguridad.imports.IMPORT_COPY_WRITE_FAILED
+import app.seguridad.imports.ImportFormat
+import app.seguridad.imports.ImportRead
+import app.seguridad.imports.ImportedItem
+import app.seguridad.imports.importedEntry
+import app.seguridad.imports.planMerge
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.currentImportCopies
@@ -18,6 +25,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -305,6 +313,32 @@ class AutoBackupImportCopyTest {
         runCurrent()
         settle()
         assertTrue("No copy for nothing: ${t.files.keys}", t.files.isEmpty())
+    }
+
+    /**
+     * Ruling R37 (branch review A, M-1): a lock after the copy before importing and before the save cancels the import.
+     * [VaultStore.applyImport] gives [ApplyResult.Stale] and nothing is saved; the copy, made, stays in the folder and
+     * on the list (A6 can still remove it).
+     */
+    @Test fun aLockBetweenTheCopyAndTheSaveSavesNothing() = runTest {
+        val s = setup()
+        s.upsert(note("a"))
+        val t = ImportCopyTarget()
+        val read = ImportRead(ImportFormat.AEGIS, listOf(ImportedItem(0, importedEntry(EntryType.NOTE, "Wifi", notes = "clave"), emptyList())), emptyList(), 0)
+        val snap = checkNotNull(s.importSnapshot())
+        val plan = planMerge(read, snap.entries, snap.revision)
+        assertTrue(auto(s, t).copyBeforeImport() is CopyResult.Saved)
+        val vaultBytes = File(tmp.root, "vault.bin").readBytes()
+        val revision = s.revision.value
+        s.lock()
+        assertEquals(ApplyResult.Stale, s.applyImport(plan, DuplicateChoice.KEEP_BOTH, emptyMap()))
+        assertArrayEquals("Nothing saved", vaultBytes, File(tmp.root, "vault.bin").readBytes())
+        assertEquals(revision, s.revision.value)
+        assertTrue(t.files.keys.single().let { copyName.matches(it) })
+        assertEquals(1, settings.settings.value.importCopies.size)
+        // Opened again, the vault has only what it had before the import.
+        s.unlock("maestra".toCharArray())
+        assertEquals(listOf("a"), (s.state.value as VaultState.Unlocked).entries.map { it.id })
     }
 
     @Test fun noFolderGivesNull() = runTest {

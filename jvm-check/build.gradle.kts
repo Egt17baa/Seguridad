@@ -48,4 +48,22 @@ tasks.test {
     inputs.dir("../app/src/main/assets")
         .withPropertyName("appAssets")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // The tests that read files outside the sources: a change in only one of them reruns the tests (branch review C of
+    // 1.4.0, M-6): the published texts (PublishedTextsTest, FinalLegalReviewTest, AppNameTest, ImportTextsTest, with the
+    // Play «Novedades» drafts of the handoffs), the build, the manifest, the strings and the workflow (AppNameTest,
+    // SourceTextsTest, PlatformSourcesTest). The same list is in app/build.gradle.kts. Plain files, resolved at
+    // configuration time: configuration-cache safe.
+    inputs.files(
+        "../README.md", "../NOTICE", "../SECURITY.md",
+        "../docs/privacidad.html", "../docs/ficha-google-play.md", "../docs/PUBLICAR.md",
+        "../docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md",
+        "../.github/workflows/build-apk.yml",
+        "../app/build.gradle.kts", "../app/src/main/AndroidManifest.xml",
+    ).withPropertyName("textsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md") })
+        .withPropertyName("handoffsReadByTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("../app/src/main/res")
+        .withPropertyName("appRes")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }

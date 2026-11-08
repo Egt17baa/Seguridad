@@ -56,6 +56,7 @@ import app.seguridad.crypto.Aead
 import app.seguridad.crypto.Bip39
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.ENCRYPTED_EXTENSION
+import app.seguridad.crypto.KdfLock
 import app.seguridad.crypto.KdfParams
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.PassphraseOptions
@@ -276,7 +277,8 @@ private class TextCryptoViewModel(
         reset()
         viewModelScope.launch {
             try {
-                val result = withContext(Dispatchers.Default) {
+                // Argon2id with a password: one large derivation at a time in the app (KdfLock, ruling R38).
+                val result = KdfLock.derive(Dispatchers.Default) {
                     if (encryptNow) encryptText(plainNow, secret, algNow, kdf) else decryptText(inputNow, secret)
                 }
                 // The form stays editable while busy: a result for a mode or text the user has since changed is dropped,

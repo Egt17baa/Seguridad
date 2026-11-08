@@ -121,6 +121,54 @@ class ImportTextsTest {
         assertTrue(namesIn("Nombre (p. ej. «Correo» o «Cartera»)").isEmpty())
     }
 
+    /** The repository: four folders above `app/src/main/java` (canonical, as [mainRoot] may hold a «.»). */
+    private fun repoRoot(): File {
+        var dir = mainRoot().canonicalFile
+        repeat(4) { dir = checkNotNull(dir.parentFile) }
+        check(File(dir, "docs").isDirectory) { "$dir is not the repository" }
+        return dir
+    }
+
+    /**
+     * The one line of the Play listing that may name another product: the 1.1 sentence on Google Authenticator, which
+     * passed the 1.3.x reviews and which the Abogado Digital decides (ruling R30). Exact, so nothing else rides on it.
+     */
+    private val LISTING_ALLOWED = setOf("• Importa las cuentas exportadas desde Google Authenticator.")
+
+    /**
+     * Branch review C, M-5 (rulings R2, R7, R8, R31): the store texts of the Play listing (from «## Nombre de la app»
+     * to the end, so a «Novedades» section added there counts too) and every Play «Novedades» draft of the handoffs
+     * (the code block after «Google Play, «Novedades»») name no other product, line by line; only [LISTING_ALLOWED].
+     */
+    @Test fun thePlayListingAndItsNovedadesNameNoOtherProduct() {
+        val repo = repoRoot()
+        val listing = File(repo, "docs/ficha-google-play.md").readText()
+        val store = listing.substringAfter("## Nombre de la app", missingDelimiterValue = "")
+        assertTrue("the listing's store texts not found", store.length > 1000 && "## Descripción completa" in store)
+        val parts = mutableListOf("docs/ficha-google-play.md" to store)
+        val handoffs = File(repo, "docs/superpowers/handoff").listFiles { f -> f.name.endsWith("-traspaso.md") }.orEmpty()
+        assertTrue("handoffs not found", handoffs.isNotEmpty())
+        for (h in handoffs) {
+            val text = h.readText()
+            var at = text.indexOf("Google Play, «Novedades»")
+            while (at >= 0) {
+                val open = text.indexOf("```", at)
+                val close = text.indexOf("```", open + 3)
+                assertTrue("${h.name}: the «Novedades» block is not closed", open >= 0 && close > open)
+                parts += h.name to text.substring(open + 3, close)
+                at = text.indexOf("Google Play, «Novedades»", close)
+            }
+        }
+        assertTrue("the 1.4.0 «Novedades» draft not found", parts.size >= 2)
+        val bad = parts.flatMap { (name, text) ->
+            text.lines().filter { namesIn(it).isNotEmpty() && it.trim() !in LISTING_ALLOWED }.map { "$name: ${namesIn(it)} «${it.trim()}»" }
+        }
+        assertEquals(emptyList<String>(), bad)
+        // The exception is still there (else it goes off the list), and the check finds a name on a new line.
+        assertTrue(LISTING_ALLOWED.all { allowed -> store.lines().any { it.trim() == allowed } })
+        assertTrue(namesIn("• Importa desde Bitwarden y Aegis.").isNotEmpty())
+    }
+
     @Test fun anOrdinaryWordIsTakenOutOnlyAsAWholeWord() {
         // How an entry of [ordinaryWords] would work: the whole word is not a name, but the product glued to it or next
         // to it still is.

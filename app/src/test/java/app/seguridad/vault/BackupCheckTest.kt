@@ -357,6 +357,40 @@ class BackupCheckTest {
         scope.cancel()
     }
 
+    /**
+     * Ruling R38 (branch review B, M-4): a check stopped during its Argon2id keeps the process-wide derivation lock until
+     * that derivation ends, so the unlock with the master that comes next waits for it instead of running beside it (two
+     * «Alto» at once would run out of heap and say, falsely, that the phone has no memory for «Alto»).
+     */
+    @Test fun aCancelledCheckMakesTheUnlockWait() = runBlocking {
+        val a = phoneA()
+        val zip = a.backup()
+        a.lock()
+        val temp = temp()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val unlock = SlowUnlock(release)
+        val check = scope.launch { checkBackup(ByteArrayInputStream(zip), master.toCharArray(), temp, unlock = unlock) }
+        val opened = try {
+            unlock.started.await()
+            check.cancel()
+            val opening = scope.async { a.unlock(master.toCharArray()) }
+            kotlinx.coroutines.delay(300)
+            assertEquals("The unlock waits for the cancelled check's derivation", listOf("empieza 1"), unlock.events)
+            assertTrue(a.state.value is VaultState.Locked)
+            assertFalse(opening.isCompleted)
+            opening
+        } finally {
+            release.countDown() // Never left held: the lock is the whole process's.
+        }
+        kotlinx.coroutines.withTimeout(10_000) { opened.await() }
+        assertEquals(listOf("empieza 1", "acaba 1"), unlock.events)
+        assertTrue(a.state.value is VaultState.Unlocked)
+        check.join()
+        assertTrue(unlock.keys.all { zeroed(it) })
+        scope.cancel()
+    }
+
     @Test fun cancelWhileTheFolderIsMadeLeavesNothing() = runBlocking {
         val zip = phoneA().backup()
         val temp = temp()
