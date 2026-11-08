@@ -118,7 +118,7 @@ class ImportTextsTest {
         // The form's examples from before 1.4.0 are names now, glued or not; the generic ones that replace them are not.
         for (t in listOf("Nombre (p. ej. «Binance» o «Ledger»)", "MiBinance", "LedgerNano", "knowledge"))
             assertTrue(t, namesIn(t).isNotEmpty())
-        assertTrue(namesIn("Nombre (p. ej. «Correo del trabajo» o «Cartera principal»)").isEmpty())
+        assertTrue(namesIn("Nombre (p. ej. «Correo» o «Cartera»)").isEmpty())
     }
 
     @Test fun anOrdinaryWordIsTakenOutOnlyAsAWholeWord() {
@@ -135,7 +135,7 @@ class ImportTextsTest {
         // Final fix wave: the name field's examples are generic.
         val entry = mainSources()["app/seguridad/ui/screens/VaultEntryScreen.kt"] ?: error("VaultEntryScreen.kt")
         val lits = kotlinLiterals(entry).map { it.second }
-        assertTrue("Nombre (p. ej. «Correo del trabajo» o «Cartera principal»)" in lits)
+        assertTrue("Nombre (p. ej. «Correo» o «Cartera»)" in lits)
         assertFalse(lits.any { "Binance" in it || "Ledger" in it })
     }
 

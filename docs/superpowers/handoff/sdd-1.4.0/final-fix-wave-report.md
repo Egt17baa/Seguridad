@@ -9,7 +9,7 @@ Los cuatro puntos del registro (`progress.md:106`, `:109` y `:210`). No toca `im
 
 ### 1. Los ejemplos del nombre en el formulario de la bóveda
 
-- **`app/src/main/java/app/seguridad/ui/screens/VaultEntryScreen.kt:407`:** «Nombre (p. ej. «Binance» o «Ledger»)» pasa a **«Nombre (p. ej. «Correo del trabajo» o «Cartera principal»)»**. El campo es el nombre de cualquier tipo de entrada (Acceso, Frase semilla, Nota, Código 2FA; `vault/Vault.kt:23-27`), y el texto de antes ponía un ejemplo de acceso (una cuenta de un servicio) y uno de frase semilla (una cartera física). Los nuevos mantienen ese par sin nombrar productos.
+- **`app/src/main/java/app/seguridad/ui/screens/VaultEntryScreen.kt:407`:** «Nombre (p. ej. «Binance» o «Ledger»)» pasa a **«Nombre (p. ej. «Correo» o «Cartera»)»**. El campo es el nombre de cualquier tipo de entrada (Acceso, Frase semilla, Nota, Código 2FA; `vault/Vault.kt:23-27`), y el texto de antes ponía un ejemplo de acceso (una cuenta de un servicio) y uno de frase semilla (una cartera física). Los nuevos mantienen ese par sin nombrar productos.
 - **`ALLOWED` de `ImportTextsTest`** no lo tenía (no nombraba ninguno de la lista: «edge» solo coincidía dentro de «Ledger» y estaba exento por palabra entera), así que no hay nada que quitar de la lista. El pin que lo fijaba (`ImportTextsTest.kt:115` de antes) se sustituye; ver el punto 2.
 - **`ImportTextsTest.kt:24-27`:** «binance» y «ledger» entran en la lista de nombres, para que los ejemplos de antes no puedan volver en ningún literal fuera de `ImportTexts.kt`; **`:134-140`** (`theVaultFormNamesNoProduct`) fija el texto nuevo y que el formulario no tiene ni «Binance» ni «Ledger».
 - No hay más copias del texto en la interfaz, el README, la ficha ni la política (`grep` de «Nombre (p. ej»). Siguen nombrándolo, como historia, `task-6-report.md:264,322`, `task-12-report.md:131` y `docs/auditorias/2026-11-08-auditoria-1.4.0.md:156` (esta dice ya «ejemplos genéricos», que es lo que se ha hecho).
@@ -65,5 +65,9 @@ Repasé `references/auditoria.md` como lista para mi diff (no toca criptografía
 
 ## Textos para el Abogado Digital (revisión final)
 
-- **`VaultEntryScreen.kt:407`**, etiqueta del campo del nombre en «Nueva entrada» y «Editar»: **«Nombre (p. ej. «Correo del trabajo» o «Cartera principal»)»**. Sustituye a «Nombre (p. ej. «Binance» o «Ledger»)», que venía de antes de la 1.4.0 y nombraba dos productos fuera de la pantalla de importar. Sin nombres de terceros ni palabras prohibidas (`SourceTextsTest` y `ImportTextsTest` en verde).
+- **`VaultEntryScreen.kt:407`**, etiqueta del campo del nombre en «Nueva entrada» y «Editar»: **«Nombre (p. ej. «Correo» o «Cartera»)»**. Sustituye a «Nombre (p. ej. «Binance» o «Ledger»)», que venía de antes de la 1.4.0 y nombraba dos productos fuera de la pantalla de importar. Sin nombres de terceros ni palabras prohibidas (`SourceTextsTest` y `ImportTextsTest` en verde).
 - Ningún otro texto visible cambia (los de `Csv.kt` y los tests son comentarios).
+
+## Cambio del controlador (8-11-2026)
+
+La etiqueta pasa a «Nombre (p. ej. «Correo» o «Cartera»)», de 38 caracteres, casi la longitud de la anterior (36). Con «Correo del trabajo» o «Cartera principal» tenía 56 y, en un móvil estrecho (360 dp menos 32 dp de márgenes), la etiqueta de un `OutlinedTextField` vacío se cortaba. Mantiene el par: un acceso y una frase semilla.
