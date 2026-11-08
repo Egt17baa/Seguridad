@@ -185,3 +185,7 @@ Task 9 phone test (replaces the «todavía no» line, per R13a's end in Task 10)
 Task 10: fix round 1 dispatched (FIX_BASE 76a53d2, implementer opus aa94a944ca2824492; I-1, I-2, M-1..M-8, R23–R25)
 Task 10: fix round 1 implemented (ef52867; DONE_WITH_CONCERNS: a URI with a comma inside is split too — Bitwarden's CSV cannot tell, noted in task-10-report.md; every Aegis slot is still bounds-checked before work under R24 — stricter, accepted). 1749 app / 1744 jvm-check green.
 Task 10: re-review 1 dispatched (review-6e9f4e8..ef52867.diff)
+Task 10: re-review 1 sonnet a81b603165df07beb (task-10-rereview-1.md)
+Task 10: fix round 1/5 (10 addressed, 0 open; new minors N-1 comma inside a URI is split, N-2 IAE→KDF_TOO_BIG belt could hide a bug, N-3 no direct importBase64(spare) padding test, N-4 counts explained only in a comment, N-5 stray blank lines; commits 6e9f4e8..ef52867)
+Ruling R26 (Task 10): N-1 → split login_uri only on a comma followed by optional spaces and a URI scheme (`,\s*(?=[A-Za-z][A-Za-z0-9+.-]*:)`, so androidapp:// and https:// split, `?q=1,2` does not), test both; N-2 → keep the belt (checkScrypt runs first, so only a Bouncy Castle parameter rule can reach it) with a KDoc that says so and a comment at the catch; N-3 → direct ImportKdfTest cases for importBase64(spare) padding and sizes; N-4 → name the counts as constants in the test with one line each saying which arrays; N-5 → drop the blank lines. Cost if wrong: a few lines.
+Task 10: fix round 2 dispatched (resume aa94a944ca2824492)
