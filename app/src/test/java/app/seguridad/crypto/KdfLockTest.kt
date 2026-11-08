@@ -120,4 +120,68 @@ class KdfLockTest {
         assertFalse(KdfLock.isLocked)
         assertEquals(3, withTimeout(10_000) { KdfLock.derive(Dispatchers.Default) { 3 } })
     }
+
+    @Test fun theBlockingEntryRefusesTheMainThread() {
+        var ran = false
+        try {
+            KdfLock.deriveBlocking({ true }) { ran = true }
+            org.junit.Assert.fail("waited on the main thread")
+        } catch (e: IllegalStateException) {
+            assertFalse(ran)
+        }
+        assertFalse(KdfLock.isLocked)
+        // Off Android (these tests), the real check says no main thread, and it runs here.
+        assertEquals(5, KdfLock.deriveBlocking { 5 })
+    }
+
+    /**
+     * Ruling R40: «Cifrar archivo» takes the lock for the Argon2id of its key only. While another derivation holds it,
+     * encrypting or decrypting a file with a password waits before it writes anything; a raw key (HKDF) does not wait;
+     * and once the key is derived the stream is encrypted without the lock.
+     */
+    @Test fun aFileDerivationAndAnotherDerivationNeverOverlap() = runBlocking {
+        val s = scope()
+        val cheap = KdfParams(1024, 1, 1)
+        val plain = ByteArray(200_000) { (it % 251).toByte() }
+        val sealed = java.io.ByteArrayOutputStream().also {
+            encryptStream(java.io.ByteArrayInputStream(plain), it, "a.bin", "clave-de-prueba".toCharArray(), kdf = cheap)
+        }.toByteArray()
+        val started = CompletableDeferred<Unit>()
+        val release = CountDownLatch(1)
+        val holder = s.launch { KdfLock.derive(Dispatchers.Default) { started.complete(Unit); check(release.await(10, TimeUnit.SECONDS)) } }
+        val out = java.io.ByteArrayOutputStream()
+        val decrypted = java.io.ByteArrayOutputStream()
+        var name = ""
+        val encrypting = Thread {
+            encryptStream(java.io.ByteArrayInputStream(plain), out, "b.bin", "clave-de-prueba".toCharArray(), kdf = cheap)
+        }
+        val decrypting = Thread { name = decryptStream(java.io.ByteArrayInputStream(sealed), decrypted, "clave-de-prueba".toCharArray()) }
+        try {
+            started.await()
+            encrypting.start()
+            decrypting.start()
+            delay(300)
+            assertTrue("both wait for the lock", encrypting.isAlive && decrypting.isAlive)
+            assertEquals("nothing written before the key", 0, out.size())
+            assertEquals(0, decrypted.size())
+            // A raw key derives nothing of large memory: it does not wait.
+            val key = ByteArray(32) { 1 }
+            val raw = java.io.ByteArrayOutputStream()
+            encryptStream(java.io.ByteArrayInputStream(plain), raw, "c.bin", Secret.RawKey(key))
+            assertTrue(raw.size() > plain.size)
+        } finally {
+            release.countDown() // Never left held: the lock is the whole process's.
+        }
+        encrypting.join(10_000)
+        decrypting.join(10_000)
+        holder.join()
+        assertFalse(encrypting.isAlive || decrypting.isAlive)
+        assertEquals("a.bin", name)
+        org.junit.Assert.assertArrayEquals(plain, decrypted.toByteArray())
+        val again = java.io.ByteArrayOutputStream()
+        assertEquals("b.bin", decryptStream(java.io.ByteArrayInputStream(out.toByteArray()), again, "clave-de-prueba".toCharArray()))
+        org.junit.Assert.assertArrayEquals(plain, again.toByteArray())
+        assertFalse(KdfLock.isLocked)
+        s.cancel()
+    }
 }
