@@ -40,8 +40,8 @@ class TwoFasCryptoTest {
         } catch (e: ImportFailure) {
             assertEquals(IMPORT_WRONG_PASSWORD, e.message)
         }
-        // The GCM output buffer included: what the wrong key decrypted is wiped before the tag says no.
-        assertAllZero(seen, min = 3)
+        // The password bytes, the key, and the GCM output buffer: what the wrong key decrypted is wiped before the tag says no.
+        assertAllZero(seen, exactly = 3)
         assertEquals(IMPORT_WRONG_PASSWORD, failedRead(encrypted, "x"))
     }
 
@@ -128,7 +128,15 @@ class TwoFasCryptoTest {
     @Test fun passwordAndKeysAreZeroed() {
         val seen = ArrayList<ByteArray>()
         openTwoFas(jsonRoot(encrypted), FIXTURE_PASSWORD.toCharArray(), JSON_MAX_TREE_BYTES, Secrets(seen::add))
-        // The password bytes, the key and the plaintext.
-        assertAllZero(seen, min = 3)
+        // The password bytes, the key and the plaintext (M-4: exactly, and the key and the plaintext themselves).
+        assertAllZero(seen, exactly = 3)
+        val steps = ArrayList<ByteArray>()
+        val s = Secrets(steps::add)
+        val e = twoFasEncrypted(jsonRoot(encrypted))
+        val key = twoFasKey(e, FIXTURE_PASSWORD.toCharArray(), s)
+        val services = twoFasOpen(e, key, s)
+        assertKept(steps, key, services)
+        s.wipe()
+        assertAllZero(steps, exactly = 3)
     }
 }

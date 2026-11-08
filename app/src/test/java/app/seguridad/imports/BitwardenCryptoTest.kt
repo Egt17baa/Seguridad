@@ -98,13 +98,17 @@ class BitwardenCryptoTest {
         val cases = listOf(
             pb.with("kdfIterations", 2_000_001), pb.with("kdfIterations", 4_999), pb.with("kdfIterations", 0),
             ar.with("kdfMemory", 129), ar.with("kdfIterations", 11), ar.with("kdfParallelism", 5), ar.with("kdfIterations", 0),
-            ar.with("kdfMemory", 4_000_000_000L),
-        )
-        failedRead(cases[0].bytes()) // Warms the JSON parser and the classes up.
+            ar.with("kdfMemory", 4_000_000_000L), ar.with("kdfMemory", 0), ar.with("kdfMemory", -1),
+            ar.with("kdfParallelism", 0), ar.with("kdfParallelism", -1),
+        ).map { it.bytes() } +
+            // Not whole numbers, as a fraction and with an exponent: the bounds refuse them (NOT_A_WHOLE_NUMBER).
+            listOf("600000.5", "6e5", "6E5", "600000.0").map { pb.with("kdfIterations", LITERAL_MARK).bytesWithLiteral(it) } +
+            listOf("16.5", "1.6e1").map { ar.with("kdfMemory", LITERAL_MARK).bytesWithLiteral(it) }
+        failedRead(cases[0]) // Warms the JSON parser and the classes up.
         for (c in cases) {
             var message = ""
-            val ms = millis { message = failedRead(c.bytes()) }
-            assertEquals(c.toString(), IMPORT_KDF_TOO_BIG, message)
+            val ms = millis { message = failedRead(c) }
+            assertEquals(String(c), IMPORT_KDF_TOO_BIG, message)
             assertTrue("$ms ms", ms < 50)
         }
     }
@@ -170,23 +174,36 @@ class BitwardenCryptoTest {
     }
 
     @Test fun passwordAndKeysAreZeroed() {
-        for (file in listOf(pbkdf2, argon2)) {
+        // M-4: the exact number of arrays on each path and KDF, and the keys and the plaintext themselves among them.
+        // PBKDF2: the password bytes, the salt's, the derived key, enc and mac, the two MACs, the CBC buffer and the
+        // plaintext; Argon2id adds the salt's SHA-256. A wrong password stops at the first MAC.
+        for ((file, right, wrongCount) in listOf(Triple(pbkdf2, 9, 6), Triple(argon2, 10, 7))) {
             val seen = ArrayList<ByteArray>()
             val pw = FIXTURE_PASSWORD.toCharArray()
             openBitwarden(jsonRoot(file), pw, JSON_MAX_TREE_BYTES, Secrets(seen::add))
-            // The password bytes, the derived key, the enc and mac keys, the CBC buffer and the plaintext.
-            assertAllZero(seen, min = 6)
+            assertAllZero(seen, exactly = right)
             // The CharArray is the caller's (readImport's contract): it is left for the caller to zero.
             assertEquals(FIXTURE_PASSWORD, String(pw))
+            val steps = ArrayList<ByteArray>()
+            val s = Secrets(steps::add)
+            val p = bitwardenProtected(jsonRoot(file))
+            val keys = bitwardenKeys(p, pw, s)
+            val data = bitwardenData(p, keys, s)
+            assertEquals(plain.toString(Charsets.UTF_8), data.toString(Charsets.UTF_8))
+            assertKept(steps, keys.enc, keys.mac, data)
+            s.wipe()
+            assertAllZero(steps, exactly = right)
             val wrong = ArrayList<ByteArray>()
             try {
                 openBitwarden(jsonRoot(file), "otra".toCharArray(), JSON_MAX_TREE_BYTES, Secrets(wrong::add))
+                fail("opened")
             } catch (e: ImportFailure) {
                 assertEquals(IMPORT_WRONG_PASSWORD, e.message)
             }
-            assertAllZero(wrong, min = 4)
+            assertAllZero(wrong, exactly = wrongCount)
         }
     }
+
 }
 
 /** A type 2 cipher string of [plain] under [keys], for tests only (a random IV). */

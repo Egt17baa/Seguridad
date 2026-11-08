@@ -11,9 +11,9 @@ import kotlinx.serialization.json.JsonObject
  * - https://github.com/AlexanderQueen/2FAS-GUI-Backup-Decryption-Tool (PBKDF2-HMAC-SHA256, 10 000 iterations, a 256-bit
  *   key, AES-GCM);
  * - https://github.com/elliotwutingfeng/2fas-backup-decryptor (what it opens is the JSON array of the services).
- * Not yet confirmed against a real export (Task 10 report, «Pendiente de confirmar»): the fixed iteration count (the
- * file carries none), the IV's length (12 bytes), the salt's length, that the password is hashed in UTF-8, and that
- * `groups` stays in clear beside `servicesEncrypted`.
+ * Not yet confirmed against a real export (docs/superpowers/handoff/sdd-1.4.0/task-10-report.md, «Pendiente de
+ * confirmar»): the fixed iteration count (the file carries none), the IV's length (12 bytes), the salt's length, that
+ * the password is hashed in UTF-8, and that `groups` stays in clear beside `servicesEncrypted`.
  */
 
 /** The iterations 2FAS uses (documented in the README above); the file does not say them. */

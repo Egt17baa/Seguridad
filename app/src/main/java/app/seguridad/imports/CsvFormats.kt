@@ -11,7 +11,9 @@ import java.util.Locale
  * - Apple: Title,URL,Username,Password,Notes,OTPAuth;
  * - Bitwarden (ruling R19; https://bitwarden.com/help/condition-bitwarden-import/): the personal vault's
  *   folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp, and the
- *   organisation's, with collections in place of folder and favorite. Only that exact header, in that order (any case).
+ *   organisation's, with collections in place of folder and favorite. It is found by the names of its columns, in any
+ *   order and case ([isBitwardenCsv]); its login_uri cell holds every URI of a login, separated by commas (pending
+ *   confirmation with a real export: docs/superpowers/handoff/sdd-1.4.0/task-10-report.md, «Pendiente de confirmar»).
  * Columns are found by name, in any order and case; a column Clavero does not know is never given a meaning. The
  * mapping is fixed: nothing in the file decides which code runs.
  */
@@ -26,11 +28,9 @@ private const val COL_NOTE = "note"
 private const val COL_NOTES = "notes"
 private const val COL_OTPAUTH = "otpauth"
 
-/** Bitwarden's CSV headers, exactly (ruling R19). */
-private val BITWARDEN_CSV = listOf(
-    "folder", "favorite", "type", "name", "notes", "fields", "reprompt", "login_uri", "login_username", "login_password", "login_totp",
-)
-private val BITWARDEN_ORG_CSV = listOf("collections") + BITWARDEN_CSV.drop(2)
+/** The columns every Bitwarden CSV has (ruling R19), and one of [BITWARDEN_CSV_PLACE] (personal or organisation). */
+private val BITWARDEN_CSV_NEEDS = listOf("type", "name", "login_uri", "login_username", "login_password")
+private val BITWARDEN_CSV_PLACE = listOf("folder", "collections")
 
 /** Columns that only Firefox writes, so a header with url, username and password and one of them is Firefox's. */
 private val FIREFOX_ONLY = setOf("httprealm", "formactionorigin", "guid")
@@ -56,9 +56,8 @@ private class Columns(header: List<String>) {
 
 /** The format a CSV header belongs to, or null if it is none of those Clavero reads. */
 internal fun csvFormat(header: List<String>): ImportFormat? {
-    val names = header.map(::columnName)
-    if (names == BITWARDEN_CSV || names == BITWARDEN_ORG_CSV) return ImportFormat.BITWARDEN
     val c = Columns(header)
+    if (isBitwardenCsv(c)) return ImportFormat.BITWARDEN
     if (!(c.has(COL_URL) && c.has(COL_USERNAME) && c.has(COL_PASSWORD))) return null
     return when {
         c.has(COL_NAME) -> ImportFormat.BROWSER_CSV
@@ -67,6 +66,12 @@ internal fun csvFormat(header: List<String>): ImportFormat? {
         else -> null
     }
 }
+
+/**
+ * Bitwarden's CSV: its columns by name, in any order and case, and nothing else asked of the header (a column it adds
+ * later is passed over). The browser formats need url, username and password, which Bitwarden's has not.
+ */
+private fun isBitwardenCsv(c: Columns) = BITWARDEN_CSV_NEEDS.all(c::has) && BITWARDEN_CSV_PLACE.any(c::has)
 
 /**
  * The entries of a CSV export, or null when its header is not one Clavero knows (then nothing else is read). Throws
@@ -138,7 +143,8 @@ private fun readRow(format: ImportFormat, c: Columns, row: List<String>, out: Im
 
 /**
  * One row of Bitwarden's CSV, with the rules of its JSON reader ([readBitwardenPlain]): `type` `login` is a LOGIN
- * (title, user, password, `login_uri` as its URL, the notes and then the `fields` cell, as written) and its
+ * (title, user, password; `login_uri` split on its commas, each URI trimmed and the empty ones dropped, the first as
+ * its URL and each other one a «URL: …» line, after the notes and before the `fields` cell, as written) and its
  * `login_totp` goes through the same strict path ([addLoginTotp]: an `otpauth://` link, a bare Base32 key or a Steam
  * code); `note` and any other type are a NOTE (another type counted in [ImportRead.becameNotes]). `favorite` is `1`;
  * the folder (or the organisation's collection) is the item's folder. In order: nothing → [SkipReason.EMPTY]; a NUL or
@@ -148,7 +154,8 @@ private fun readBitwardenRow(c: Columns, row: List<String>, out: ImportReadBuild
     val type = c.cell(row, "type").trim().lowercase(Locale.ROOT)
     val login = type == "login"
     val name = c.cell(row, COL_NAME)
-    val url = if (login) c.cell(row, "login_uri") else ""
+    val uris = if (login) loginUris(c.cell(row, "login_uri")) else emptyList()
+    val url = uris.firstOrNull().orEmpty()
     val username = if (login) c.cell(row, "login_username") else ""
     val password = if (login) c.cell(row, "login_password") else ""
     val totp = if (login) c.cell(row, "login_totp") else ""
@@ -156,6 +163,7 @@ private fun readBitwardenRow(c: Columns, row: List<String>, out: ImportReadBuild
     val folder = (if (c.has("collections")) c.cell(row, "collections") else c.cell(row, "folder")).takeIf { it.isNotBlank() }
     val notes = NotesBuilder().apply {
         text(c.cell(row, COL_NOTES))
+        for (other in uris.drop(1)) line(NOTE_LINE_URL, other)
         text(fields)
     }
     if (url.isBlank() && username.isBlank() && password.isEmpty() && notes.isEmpty && totp.isBlank() && (login || name.isBlank())) {
@@ -181,3 +189,6 @@ private fun readBitwardenRow(c: Columns, row: List<String>, out: ImportReadBuild
     if (!login && type != "note") out.becameNote()
     if (totp.isNotBlank()) addLoginTotp(totp, title, folders, out)
 }
+
+/** The URIs of a `login_uri` cell: split on its commas, each trimmed, the empty ones dropped (as the JSON reader passes them over). */
+private fun loginUris(cell: String): List<String> = cell.split(',').map { it.trim() }.filter { it.isNotEmpty() }

@@ -27,8 +27,9 @@ import java.security.MessageDigest
  *   «2.iv|ct|mac» in Base64, AES-256-CBC with a 16-byte IV, HMAC-SHA256 with the MAC key over IV ‖ ciphertext, checked
  *   before decrypting;
  * - https://bitwarden.com/help/kdf-algorithms/ (PBKDF2-SHA256 or Argon2id, its memory in MiB).
- * Not yet confirmed against a real export (Task 10 report, «Pendiente de confirmar»): the Argon2id salt, SHA-256 of the
- * salt string (a Bitwarden developer's forum post), and that the salt string is used as text, not decoded.
+ * Not yet confirmed against a real export (docs/superpowers/handoff/sdd-1.4.0/task-10-report.md, «Pendiente de
+ * confirmar»): the Argon2id salt, SHA-256 of the salt string (a Bitwarden developer's forum post), and that the salt
+ * string is used as text, not decoded.
  */
 
 /** Longest `salt` and `encKeyValidation_DO_NOT_EDIT` read: far more than the 24 and about 100 characters they have. */
@@ -153,20 +154,28 @@ private fun macHolds(e: EncString, macKey: ByteArray, s: Secrets): Boolean {
     }
 }
 
-/** AES-256-CBC with PKCS#7 padding; the output buffer and the plaintext are in [s]. Only after [macHolds]. */
+/**
+ * AES-256-CBC with PKCS#7 padding; the plaintext is in [s]. Only after [macHolds]. The output buffer, as long as the
+ * ciphertext, is wiped as soon as the plaintext is copied out of it, and let go ([Secrets.scratch]), so only one
+ * plaintext-sized array stays alive while it is parsed (M-6).
+ */
 private fun aesCbcOpen(key: ByteArray, iv: ByteArray, ct: ByteArray, s: Secrets): ByteArray {
     val kp = KeyParameter(key)
     try {
         val cipher = PaddedBufferedBlockCipher(CBCBlockCipher.newInstance(AESEngine.newInstance()), PKCS7Padding())
         cipher.init(false, ParametersWithIV(kp, iv))
-        val out = s.bytes(cipher.getOutputSize(ct.size))
-        val n = try {
-            val head = cipher.processBytes(ct, 0, ct.size, out, 0)
-            head + cipher.doFinal(out, head)
-        } catch (e: InvalidCipherTextException) {
-            throw ImportFailure(IMPORT_BROKEN)
+        val out = s.scratch(cipher.getOutputSize(ct.size))
+        try {
+            val n = try {
+                val head = cipher.processBytes(ct, 0, ct.size, out, 0)
+                head + cipher.doFinal(out, head)
+            } catch (e: InvalidCipherTextException) {
+                throw ImportFailure(IMPORT_BROKEN)
+            }
+            return s.keep(out.copyOf(n))
+        } finally {
+            out.fill(0)
         }
-        return s.keep(out.copyOf(n))
     } finally {
         kp.key.fill(0)
     }

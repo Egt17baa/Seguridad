@@ -41,7 +41,8 @@ class ImportKdfTest {
         val big = 4L * 1024 * 1024 // A heap of 4 GiB: only the hard bounds count.
         checkScrypt(1 shl 14, 1, 1, big)
         checkScrypt(1 shl 15, 8, 1, big) // Aegis's default: 32 MiB.
-        checkScrypt(1 shl 20, 1, 4, big) // 128 MiB: the bound itself.
+        checkScrypt(1 shl 15, 1, 4, big) // r = 1 takes N up to 2^15 (RFC 7914: N < 2^(16·r)).
+        checkScrypt(1 shl 19, 2, 4, big) // 128 MiB: the bound itself.
         checkScrypt(1 shl 16, 16, 4, big) // 128 MiB too.
         refused { checkScrypt(1 shl 13, 8, 1, big) }
         refused { checkScrypt(1 shl 21, 1, 1, big) }
@@ -54,8 +55,18 @@ class ImportKdfTest {
         refused { checkScrypt(1 shl 20, 2, 1, big) } // 256 MiB: over MAX_KDF_MEMORY_KIB.
         refused { checkScrypt(1 shl 20, 16, 1, big) } // 2 GiB: no overflow lets it through.
         refused { checkScrypt(0, 8, 1, big) }
+        // RFC 7914 §2: N must be less than 2^(128·r/8), so with r = 1 at most 2^15 (Bouncy Castle refuses more).
+        refused { checkScrypt(1 shl 16, 1, 1, big) }
+        refused { checkScrypt(1 shl 20, 1, 4, big) }
         refused { checkScrypt(-(1 shl 15), 8, 1, big) }
         refused { checkScrypt(Int.MIN_VALUE, 8, 1, big) }
+    }
+
+    @Test fun scryptParametersBouncyCastleRefusesAreTooBigNotBroken() {
+        // The belt under checkScrypt: whatever SCrypt.generate refuses as an argument is said as too big, never as damaged.
+        val s = Secrets()
+        refused { scryptKey("x".toByteArray(), ByteArray(16), 1 shl 16, 1, 1, 32, s, checked = false) }
+        s.wipe()
     }
 
     @Test fun scryptMemoryOverTheDefaultMustFitThisHeap() {
