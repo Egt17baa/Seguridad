@@ -183,7 +183,9 @@ class MasterPolicyTest {
     /** Final review M2, F7: the build fails if any list of the rule would be missing from the APK (see checkAssets). */
     @Test fun `checkAssets fails the build when a list of the master rule is not in the APK`() {
         val gradle = projectFile("app/build.gradle.kts").readText()
-        val task = gradle.substringAfter("val checkAssets by tasks.registering")
+        val anchor = "val checkAssets = tasks.register(\"checkAssets\")"
+        assertTrue("app/build.gradle.kts must declare $anchor", anchor in gradle)
+        val task = gradle.substringAfter(anchor)
             .substringBefore("tasks.named(\"check\")")
         for (name in MASTER_WORD_LISTS) assertTrue(name, "\"$name\"" in task)
         assertTrue(task, Regex("""if \(missing\.isNotEmpty\(\)\) \{\s*throw GradleException""").containsMatchIn(task))
