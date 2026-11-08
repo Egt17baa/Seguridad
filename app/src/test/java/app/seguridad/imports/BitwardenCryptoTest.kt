@@ -124,6 +124,9 @@ class BitwardenCryptoTest {
             val ms = millis { message = failedRead(c) }
             assertEquals(String(c), IMPORT_KDF_TOO_BIG, message)
             assertTrue("$ms ms", ms < 50)
+            // Branch review A, M-3: said before the password is asked for, never «NeedsPassword» for a file no
+            // password opens.
+            assertEquals(String(c), IMPORT_KDF_TOO_BIG, failedRead(c, password = null))
         }
     }
 
@@ -138,6 +141,7 @@ class BitwardenCryptoTest {
         for (c in broken) {
             val ms = millis { assertEquals(c.toString(), IMPORT_BROKEN, failedRead(c.bytes())) }
             assertTrue("$ms ms", ms < 50)
+            assertEquals(c.toString(), IMPORT_BROKEN, failedRead(c.bytes(), password = null)) // M-3: before the password.
         }
     }
 
@@ -185,6 +189,7 @@ class BitwardenCryptoTest {
         val root = jsonRoot(pbkdf2)
         val huge = "2." + "A".repeat(24) + "|" + "A".repeat(IMPORT_MAX_ENCRYPTED_CHARS) + "|" + "A".repeat(44)
         assertEquals(IMPORT_ENCRYPTED_TOO_BIG, failedRead(root.with("data", huge).bytes()))
+        assertEquals(IMPORT_ENCRYPTED_TOO_BIG, failedRead(root.with("data", huge).bytes(), password = null)) // M-3.
     }
 
     @Test fun passwordAndKeysAreZeroed() {

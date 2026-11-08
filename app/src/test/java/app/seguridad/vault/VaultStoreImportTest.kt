@@ -17,6 +17,7 @@ import app.seguridad.imports.mergedEntries
 import app.seguridad.imports.planMerge
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -34,6 +35,7 @@ import java.io.File
 import kotlin.coroutines.CoroutineContext
 
 /** 1.4.0, Task 8: [VaultStore.applyImport], the single save of an import (spec «Confirmar: la copia y el guardado»). */
+@OptIn(ExperimentalCoroutinesApi::class)
 class VaultStoreImportTest {
     @get:Rule val tmp = TemporaryFolder()
     private var clock = 1_793_786_400_000L

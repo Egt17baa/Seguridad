@@ -224,3 +224,24 @@ val checkAssets = tasks.register("checkAssets") {
     }
 }
 tasks.named("check") { dependsOn(checkAssets) }
+
+// The unit tests that read files outside the compiled sources declare them as inputs, so a change in only one of them
+// reruns the tests instead of leaving them UP-TO-DATE (branch review C of 1.4.0, M-6): the published texts
+// (PublishedTextsTest, FinalLegalReviewTest, AppNameTest, ImportTextsTest, with the Play «Novedades» drafts of the
+// handoffs), the build, the manifest, the strings and the workflow (AppNameTest, SourceTextsTest, PlatformSourcesTest),
+// the sources read without their comments, and the assets. The same list is in jvm-check/build.gradle.kts. Plain files,
+// resolved at configuration time: configuration-cache safe.
+tasks.withType<Test>().configureEach {
+    inputs.files(
+        "../README.md", "../NOTICE", "../SECURITY.md",
+        "../docs/privacidad.html", "../docs/ficha-google-play.md", "../docs/PUBLICAR.md",
+        "../docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md",
+        "../.github/workflows/build-apk.yml",
+        "build.gradle.kts", "src/main/AndroidManifest.xml",
+    ).withPropertyName("textsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md") })
+        .withPropertyName("handoffsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("src/main/res").withPropertyName("resReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("src/main/assets").withPropertyName("assetsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("src/main/java").withPropertyName("sourcesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+}

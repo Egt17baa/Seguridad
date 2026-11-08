@@ -84,6 +84,7 @@ import app.seguridad.tools.classic.indexOfCoincidence
 import app.seguridad.tools.classic.letterCounts
 import app.seguridad.tools.classic.vigenere
 import app.seguridad.ui.theme.NegativeColor
+import app.seguridad.ui.theme.SECRET_TEXT_KEYBOARD
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.VaultStore
 import java.util.Locale
@@ -174,6 +175,7 @@ fun ClassicLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp:
                     onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.SHIFT, v, 6) { s.shift = it } },
                     label = { Text(CAESAR_SHIFT_LABEL) },
                     singleLine = true,
+                    keyboardOptions = SECRET_TEXT_KEYBOARD,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 KeyTooLong(vm, ClassicLabViewModel.Field.SHIFT)
@@ -194,6 +196,7 @@ fun ClassicLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp:
                     onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.KEY, v, MAX_CLASSIC_KEY_CHARS) { s.vigenereKey = it } },
                     label = { Text(VIGENERE_KEY_LABEL) },
                     singleLine = true,
+                    keyboardOptions = SECRET_TEXT_KEYBOARD,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 KeyTooLong(vm, ClassicLabViewModel.Field.KEY)
@@ -231,6 +234,7 @@ private fun TextInput(vm: ClassicLabViewModel, field: ClassicLabViewModel.Field,
         onValueChange = { v -> vm.limited(field, v, MAX_CLASSIC_CHARS, set) },
         label = { Text(label) },
         minLines = 3,
+        keyboardOptions = SECRET_TEXT_KEYBOARD,
         modifier = Modifier.fillMaxWidth(),
     )
     if (vm.refused == field) Text(CLASSIC_TOO_LONG, color = NegativeColor)
@@ -283,6 +287,7 @@ private fun EnigmaTab(context: android.content.Context, vm: ClassicLabViewModel)
         onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.RINGS, v, MAX_CLASSIC_KEY_CHARS) { s.rings = it } },
         label = { Text(ENIGMA_RINGS_LABEL) },
         singleLine = true,
+        keyboardOptions = SECRET_TEXT_KEYBOARD,
         modifier = Modifier.fillMaxWidth(),
     )
     KeyTooLong(vm, ClassicLabViewModel.Field.RINGS)
@@ -291,6 +296,7 @@ private fun EnigmaTab(context: android.content.Context, vm: ClassicLabViewModel)
         onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.POSITIONS, v, MAX_CLASSIC_KEY_CHARS) { s.positions = it } },
         label = { Text(ENIGMA_POSITIONS_LABEL) },
         singleLine = true,
+        keyboardOptions = SECRET_TEXT_KEYBOARD,
         modifier = Modifier.fillMaxWidth(),
     )
     KeyTooLong(vm, ClassicLabViewModel.Field.POSITIONS)
@@ -298,6 +304,7 @@ private fun EnigmaTab(context: android.content.Context, vm: ClassicLabViewModel)
         value = s.plugs,
         onValueChange = { v -> vm.limited(ClassicLabViewModel.Field.PLUGS, v, MAX_CLASSIC_KEY_CHARS) { s.plugs = it } },
         label = { Text(ENIGMA_PLUGS_LABEL) },
+        keyboardOptions = SECRET_TEXT_KEYBOARD,
         modifier = Modifier.fillMaxWidth(),
     )
     KeyTooLong(vm, ClassicLabViewModel.Field.PLUGS)

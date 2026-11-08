@@ -119,6 +119,8 @@ class AegisCryptoTest {
             val ms = millis { message = failedRead(c) }
             assertEquals(String(c), IMPORT_KDF_TOO_BIG, message)
             assertTrue("$ms ms", ms < 50)
+            // Branch review A, M-3: said before the password is asked for.
+            assertEquals(String(c), IMPORT_KDF_TOO_BIG, failedRead(c, password = null))
         }
     }
 
@@ -131,6 +133,7 @@ class AegisCryptoTest {
         failedRead(two.bytes()) // Warms the classes up.
         val ms = millis { assertEquals(IMPORT_KDF_TOO_BIG, failedRead(two.bytes())) }
         assertTrue("$ms ms", ms < 50)
+        assertEquals(IMPORT_KDF_TOO_BIG, failedRead(two.bytes(), password = null)) // M-3: before the password.
     }
 
     @Test fun onlyTheFirstPasswordSlotIsTried() {
@@ -172,7 +175,10 @@ class AegisCryptoTest {
             root.with("db", "%%%"), noPasswordSlot,
             root.with("header", root.header().with("slots", JsonArray(List(17) { root.slot() }))),
         )
-        for (c in broken) assertEquals(c.toString(), IMPORT_BROKEN, failedRead(c.bytes()))
+        for (c in broken) {
+            assertEquals(c.toString(), IMPORT_BROKEN, failedRead(c.bytes()))
+            assertEquals(c.toString(), IMPORT_BROKEN, failedRead(c.bytes(), password = null)) // M-3: before the password.
+        }
     }
 
     @Test fun truncatedFilesFail() {
@@ -188,6 +194,7 @@ class AegisCryptoTest {
     @Test fun anEncryptedPartOverTheBoundIsRefusedBeforeDecoding() {
         val root = jsonRoot(encrypted)
         assertEquals(IMPORT_ENCRYPTED_TOO_BIG, failedRead(root.with("db", "A".repeat(IMPORT_MAX_ENCRYPTED_CHARS + 4)).bytes()))
+        assertEquals(IMPORT_ENCRYPTED_TOO_BIG, failedRead(root.with("db", "A".repeat(IMPORT_MAX_ENCRYPTED_CHARS + 4)).bytes(), password = null)) // M-3.
     }
 
     @Test fun passwordAndKeysAreZeroed() {

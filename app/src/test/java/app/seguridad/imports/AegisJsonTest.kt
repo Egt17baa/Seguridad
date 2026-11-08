@@ -127,10 +127,14 @@ class AegisJsonTest {
         assertEquals(List(6) { SkipReason.TOTP_UNSUPPORTED }, read.skipped.map { it.reason })
     }
 
-    @Test fun encryptedAegisNeedsPassword() {
+    /**
+     * An encrypted export asks for its password only when its header could be used (branch review A, M-3; the real
+     * fixture asks in AegisCryptoTest): a 1-byte salt, key, nonce and tag are broken at once.
+     */
+    @Test fun encryptedAegisWithABrokenHeaderDoesNotAskForAPassword() {
         val text = """{"version":1,"header":{"slots":[{"type":1,"uuid":"x","key":"00","key_params":{"nonce":"00","tag":"00"},""" +
             """"n":32768,"r":8,"p":1,"salt":"00"}],"params":{"nonce":"00","tag":"00"}},"db":"QUJD"}"""
-        assertEquals(ReadResult.NeedsPassword(ImportFormat.AEGIS), readImport(text.toByteArray()))
+        assertEquals(ReadResult.Failed(IMPORT_BROKEN), readImport(text.toByteArray()))
     }
 
     @Test fun wrongTypesAreBroken() {

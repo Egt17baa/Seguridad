@@ -136,7 +136,9 @@ class PlatformSourcesTest {
         // The over-limit note sits under each field, the algorithm change never re-reads a file, and progress is the last run's.
         assertEquals(6, Regex("""TooLongNote\(""").findAll(src).count()) // the definition and one note per field
         assertTrue("HashLabSession(ComposeCells, SystemClock.elapsedRealtime()) { job?.cancel(); job = null }" in src)
-        assertTrue("if (run == mine && n - shown >= PROGRESS_STEP)" in src)
+        // Branch review C, M-1: only the run started last writes its progress and size; the session refuses an older one,
+        // also after a wipe (HashLabSessionTest).
+        assertTrue("session.progress(mine, n)" in src && "session.sized(mine, size)" in src && "val mine = session.startFile()" in src)
     }
 
     @Test fun `Laboratorio clasico has the guard of the other tools, bounded fields and the clearing copy`() {
@@ -498,12 +500,15 @@ class PlatformSourcesTest {
         // R11b: the reader off the main thread, and OutOfMemoryError caught around that one call only.
         assertEquals(1, Regex("""\breadImport\(""").findAll(src).count())
         assertEquals(1, Regex("""OutOfMemoryError""").findAll(src).count())
-        assertTrue(flat, "withContext(Dispatchers.Default) { try { readImport(bytes, pw) } catch (e: OutOfMemoryError) { null } }" in flat)
+        assertTrue(flat, "val read = { try { readImport(bytes, pw) } catch (e: OutOfMemoryError) { null } }" in flat)
+        // R38: with a password the read may derive a key, one large derivation at a time in the app (KdfLock).
+        assertTrue(flat, "if (pw == null) withContext(Dispatchers.Default) { read() } else KdfLock.derive(Dispatchers.Default, read)" in flat)
         // The password is a CharArray zeroed however the read ends; one KDF at a time (SingleRun), released when it ends.
         assertTrue("pw?.fill('\\u0000')" in src && "IMPORT_KDF_RUN.start()" in src && "ticket?.release()" in src)
         assertTrue("bytes?.fill(0)" in code("imports/ImportSession.kt") || "it.fill(0)" in code("imports/ImportSession.kt"))
         // The plan only from one snapshot (entries and revision read together, as planImport does, kept for the
-        // estimate); the confirmation only through ImportFlow, which a back or a lock does not cut.
+        // estimate); the confirmation only through ImportFlow, which a back does not cut (a lock before the save
+        // cancels it, ruling R37: VaultStoreImportTest and AutoBackupImportCopyTest).
         assertTrue("val snap = store.importSnapshot()" in src && "planMerge(read, it.entries, it.revision)" in src)
         assertEquals(1, Regex("""planMerge\(""").findAll(src).count())
         assertEquals("the revision only from the snapshot", 1, Regex("""\.revision\b""").findAll(src).count())
@@ -602,5 +607,50 @@ class PlatformSourcesTest {
             code("ui/" + f.relativeTo(mainDir().resolve("ui")).invariantSeparatorsPath).lines().filter { raw.containsMatchIn(it) && "plainReportText(" !in it }.map { "${f.name}: ${it.trim()}" }
         }.toList()
         assertEquals(emptyList<String>(), bad)
+    }
+
+    /** The arguments of each call to [name] in [src], up to its closing parenthesis (strings without parentheses). */
+    private fun calls(src: String, name: String): List<String> {
+        val out = ArrayList<String>()
+        var i = src.indexOf("$name(")
+        while (i >= 0) {
+            var depth = 0
+            var j = i + name.length
+            while (j < src.length) {
+                when (src[j]) {
+                    '(' -> depth++
+                    ')' -> if (--depth == 0) break
+                }
+                j++
+            }
+            out += src.substring(i, j + 1)
+            i = src.indexOf("$name(", j)
+        }
+        return out
+    }
+
+    /**
+     * Branch review B, I-1 (MASVS-STORAGE-2): every field of the «Laboratorio de hashes» and the «Laboratorio clásico»
+     * can hold a secret (their sessions wipe them by the «PIN y códigos» rule, and their texts say nothing is kept on
+     * the phone), so each uses the keyboard that neither suggests nor learns, as «Cifrar texto» and «Repartir un
+     * secreto»; the HMAC key is a [app.seguridad.ui.theme.PasswordField], hidden too.
+     */
+    @Test fun `I-1 the labs and the other secret fields use the keyboard that does not learn`() {
+        assertTrue(
+            "val SECRET_TEXT_KEYBOARD = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password)" in
+                code("ui/theme/Components.kt"),
+        )
+        for ((file, fields) in listOf("ui/screens/HashLabScreen.kt" to 4, "ui/screens/ClassicLabScreen.kt" to 6)) {
+            val found = calls(code(file), "OutlinedTextField")
+            assertEquals(file, fields, found.size)
+            for (f in found) {
+                assertTrue("$file: $f", "keyboardOptions = SECRET_TEXT_KEYBOARD," in f)
+                // Shown as typed: the keyboard type alone masks nothing, and nothing else is changed.
+                assertFalse("$file: $f", "visualTransformation" in f)
+            }
+        }
+        assertEquals(1, Regex("""PasswordField\(\s*s\.hmacKey,""").findAll(code("ui/screens/HashLabScreen.kt")).count())
+        assertEquals(2, Regex("""keyboardOptions = SECRET_TEXT_KEYBOARD,""").findAll(code("ui/screens/SecretShareScreen.kt")).count())
+        assertTrue("keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password)," in code("ui/screens/SecurityToolsScreen.kt"))
     }
 }

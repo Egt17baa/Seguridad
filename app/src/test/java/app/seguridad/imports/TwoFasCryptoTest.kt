@@ -92,6 +92,8 @@ class TwoFasCryptoTest {
         for (b in broken) {
             val ms = millis { assertEquals(b.take(20), IMPORT_BROKEN, failedRead(root.with("servicesEncrypted", b).bytes())) }
             assertTrue("$ms ms", ms < 50)
+            // Branch review A, M-3: said before the password is asked for.
+            assertEquals(b.take(20), IMPORT_BROKEN, failedRead(root.with("servicesEncrypted", b).bytes(), password = null))
         }
         assertEquals(IMPORT_BROKEN, failedRead(root.with("servicesEncrypted", 5).bytes()))
     }
@@ -130,6 +132,7 @@ class TwoFasCryptoTest {
         val (_, salt, iv) = encryptedField(root).split(':')
         val huge = "A".repeat(IMPORT_MAX_ENCRYPTED_CHARS) + ":$salt:$iv"
         assertEquals(IMPORT_ENCRYPTED_TOO_BIG, failedRead(root.with("servicesEncrypted", huge).bytes()))
+        assertEquals(IMPORT_ENCRYPTED_TOO_BIG, failedRead(root.with("servicesEncrypted", huge).bytes(), password = null)) // M-3.
     }
 
     @Test fun passwordAndKeysAreZeroed() {

@@ -25,7 +25,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -93,6 +92,7 @@ import app.seguridad.tools.hashlab.textBytes
 import app.seguridad.tools.hashlab.utf8OrNull
 import app.seguridad.tools.cipher.FileHashSession
 import app.seguridad.ui.theme.NegativeColor
+import app.seguridad.ui.theme.SECRET_TEXT_KEYBOARD
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.PositiveColor
 import app.seguridad.ui.theme.SectionCard
@@ -130,8 +130,7 @@ private class HashLabViewModel(
 ) : ViewModel() {
     val session = HashLabSession(ComposeCells, SystemClock.elapsedRealtime()) { job?.cancel(); job = null }
     var tab by mutableIntStateOf(0)
-    var algo by mutableStateOf(HashAlgo.SHA256)
-        private set
+    val algo get() = session.algo
     var hmacKeyIsHex by mutableStateOf(false)
     var codecEncode by mutableStateOf(true)
     var codecHex by mutableStateOf(false)
@@ -142,19 +141,18 @@ private class HashLabViewModel(
 
     val file get() = session.file
 
-    /** The algorithm of the result [file] holds. */
-    var fileAlgo by mutableStateOf(HashAlgo.SHA256)
-        private set
-    var readBytes by mutableLongStateOf(0L)
-        private set
-    var totalBytes by mutableLongStateOf(-1L)
-        private set
+    /** The algorithm of the result [file] holds, how much of the file was read and its size (-1: unknown). */
+    val fileAlgo get() = session.fileAlgo
+    val readBytes get() = session.readBytes
+    val totalBytes get() = session.totalBytes
 
     /** A file was chosen and not cancelled nor wiped: «Calcular otra vez» can read it again. */
     val hasFile get() = session.source != null
 
     private var job: Job? = null
-    @Volatile private var run = 0L
+
+    /** The run of the file picked last (main thread only); a wipe moves the session's on, so a cancel after it is refused. */
+    private var run = 0L
 
     init {
         watchAway(session.guard, store, lockAfterMs, awayInOtherApp)
@@ -180,7 +178,7 @@ private class HashLabViewModel(
 
     /** Only the choice: a file already hashed is not read again until «Calcular otra vez». */
     fun chooseAlgo(a: HashAlgo) {
-        algo = a
+        session.algo = a
     }
 
     fun rehash() {
@@ -191,16 +189,13 @@ private class HashLabViewModel(
         job?.cancel()
         session.source = uri
         val chosen = algo
-        fileAlgo = chosen
-        val mine = file.start()
+        val mine = session.startFile()
         run = mine
-        readBytes = 0
-        totalBytes = -1
         job = viewModelScope.launch {
             val name = withContext(Dispatchers.IO) { runCatching { displayName(appContext, uri) }.getOrDefault("archivo") }
             val size = withContext(Dispatchers.IO) { runCatching { sizeOf(appContext, uri) }.getOrDefault(-1L) }
             file.named(mine, sanitizeReceivedName(name))
-            totalBytes = size
+            session.sized(mine, size)
             val hash = try {
                 withContext(Dispatchers.IO) {
                     val input = appContext.contentResolver.openInputStream(uri) ?: throw java.io.IOException("no stream")
@@ -212,9 +207,9 @@ private class HashLabViewModel(
                                 ensureActive()
                                 // Progress: only the run started last writes it, and about once per MiB.
                                 val n = counting.count
-                                if (run == mine && n - shown >= PROGRESS_STEP) {
+                                if (n - shown >= PROGRESS_STEP) {
                                     shown = n
-                                    readBytes = n
+                                    session.progress(mine, n)
                                 }
                             },
                         )
@@ -297,6 +292,7 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
                     onValueChange = { v -> vm.limited(HashLabViewModel.Field.TEXT, v, MAX_TEXT_CHARS) { s.text = it } },
                     label = { Text(HASH_LAB_TEXT_LABEL) },
                     minLines = 3,
+                    keyboardOptions = SECRET_TEXT_KEYBOARD,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TooLongNote(vm.refused == HashLabViewModel.Field.TEXT)
@@ -347,6 +343,7 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
                     onValueChange = { v -> vm.limited(HashLabViewModel.Field.MESSAGE, v, MAX_TEXT_CHARS) { s.hmacMessage = it } },
                     label = { Text(HASH_LAB_MESSAGE_LABEL) },
                     minLines = 3,
+                    keyboardOptions = SECRET_TEXT_KEYBOARD,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TooLongNote(vm.refused == HashLabViewModel.Field.MESSAGE)
@@ -374,6 +371,7 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
                     onValueChange = { v -> vm.limited(HashLabViewModel.Field.CODEC, v, MAX_CODEC_UI_CHARS) { s.codecInput = it } },
                     label = { Text(HASH_LAB_CODEC_INPUT) },
                     minLines = 3,
+                    keyboardOptions = SECRET_TEXT_KEYBOARD,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TooLongNote(vm.refused == HashLabViewModel.Field.CODEC)
@@ -450,6 +448,7 @@ private fun ResultAndCheck(
         value = expected,
         onValueChange = onExpected,
         label = { Text(HASH_LAB_EXPECTED_LABEL) },
+        keyboardOptions = SECRET_TEXT_KEYBOARD,
         modifier = Modifier.fillMaxWidth(),
     )
     TooLongNote(expectedRefused)

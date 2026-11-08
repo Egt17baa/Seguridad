@@ -66,11 +66,16 @@ sealed interface ApplyResult {
 }
 
 /**
- * Compares [read] with [existing] (spec «Duplicado»). [existing] and [revision] must be read together: use [planImport].
- * - a `LOGIN` matches by title (trimmed, case ignored), user (trimmed) and the host of the URL (lowercase, without
- *   `www.`); when either side has no URL, title and user are enough;
+ * Compares [read] with [existing] (spec «Duplicado», with rulings R34 and R36). [existing] and [revision] must be read
+ * together, from one [VaultStore.importSnapshot] (the import screen does that, and so does [planImport]).
+ * - a `LOGIN` matches by title, user and the host of the URL. Title and user are compared as they are shown
+ *   ([compareKey]: without controls, direction marks and invisible characters, in NFC, every run of spaces as one and
+ *   none at the ends; the title without case, the user with it, since a different capital is visible), so a look-alike
+ *   is a duplicate, not a shadow entry (RT-2). The host is the one a browser connects to, read by [parseLink]
+ *   ([urlHost]: «\» ends the authority in a web link, a text without a scheme is read as `https://`, without `www.`),
+ *   so `https://evil.example\@banco.es/` is evil.example (RT-1). When either side has no URL, title and user are enough;
  * - a `TOTP` matches by its key, the rule of `totpImportEntries` ([totpKeyOf]);
- * - a `NOTE` matches by title (as a login's) and text (trimmed).
+ * - a `NOTE` matches by its title's key (as a login's) and its text trimmed.
  * Only entries of the same type are compared, so `IDENTITY`, `CONTACT` and `SEED` entries never match. The file is
  * checked against itself first: an item equal to an earlier one is only counted ([MergePlan.repeatedInFile]). Linear
  * in the size of both lists (hash maps, no pairwise comparison).
@@ -98,9 +103,11 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
 
 /**
  * The plan of [read] against the vault as it is now ([app.seguridad.vault.VaultStore.importSnapshot]: its entries and
- * revision read together, under the store's lock); null when it is locked. The only way the import screen builds a
- * plan: entries and revision read apart could pair an old list with a newer revision and pass the check of
- * [app.seguridad.vault.VaultStore.applyImport].
+ * revision read together, under the store's lock); null when it is locked. Entries and revision read apart could pair
+ * an old list with a newer revision and pass the check of [app.seguridad.vault.VaultStore.applyImport]. Used by the
+ * tests (VaultStoreImportTest, ImportFlowTest). The import screen does the same in two steps, because it keeps the
+ * snapshot's entries for the preview's estimate: `importSnapshot()`, then [planMerge] on `Dispatchers.Default` (this
+ * function runs [planMerge] on the caller's dispatcher).
  */
 suspend fun VaultStore.planImport(read: ImportRead): MergePlan? = importSnapshot()?.let { planMerge(read, it.entries, it.revision) }
 
@@ -227,8 +234,9 @@ fun mergeImport(
  * - it takes the title, user, URL and 2FA of [incoming] only where they are not empty (blank counts as empty; within
  *   the 2FA, a blank issuer or account keeps the vault's);
  * - notes: [incoming]'s if [existing] has none; if both have and they differ, [existing]'s, then a line
- *   [importedOnHeading] with the day of [now] in [zone], then [incoming]'s; not again if [existing]'s already end with
- *   them (the same file replaced twice);
+ *   [importedOnHeading] with the day of [now] in [zone], then [incoming]'s trimmed; not again if [existing]'s already
+ *   end with them (the same file replaced twice). Notes are compared trimmed, as the duplicate rule compares them, so
+ *   notes that differ only by the spaces or line breaks around them are the same (branch review A, M-2);
  * - tags: its own, then [incoming]'s it lacks, up to [MAX_TAGS] (its own are never dropped);
  * - a new non-empty password goes through [withNewPassword], so the old one goes to the history.
  * An `IDENTITY` or `CONTACT` [existing], an [incoming] of another type, or a replacement that would only change
@@ -237,12 +245,14 @@ fun mergeImport(
 fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: ZoneId = ZoneId.systemDefault()): VaultEntry {
     if (existing.type.isPersonal || incoming.type != existing.type) return existing
     val notes = when {
-        // Already there (the same file replaced again): never appended twice.
-        incoming.notes.isBlank() || incoming.notes == existing.notes || existing.notes.endsWith("\n" + incoming.notes) -> existing.notes
+        // Already there (the same notes, or the same file replaced again): never appended twice. Compared trimmed, as
+        // the duplicate rule compares them (Matcher), so a line break or a space more at either end is the same text.
+        incoming.notes.isBlank() || incoming.notes.trim() == existing.notes.trim() ||
+            existing.notes.trimEnd().endsWith("\n" + incoming.notes.trim()) -> existing.notes
         existing.notes.isBlank() -> incoming.notes
         else -> {
             val day = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
-            existing.notes + "\n\n" + importedOnHeading(day.dayOfMonth, day.monthValue, day.year) + "\n" + incoming.notes
+            existing.notes + "\n\n" + importedOnHeading(day.dayOfMonth, day.monthValue, day.year) + "\n" + incoming.notes.trim()
         }
     }
     val merged = existing.copy(
@@ -377,6 +387,23 @@ internal fun urlHost(url: String): String? {
     val key = parseLink(asLink).host?.removePrefix("www.").orEmpty()
     return key.ifEmpty { t.lowercase(Locale.ROOT) }
 }
+
+/**
+ * The line under a duplicate's title in the preview (branch review A, M-4), as plain text ([plainReportText]):
+ * - a `LOGIN`: its user and the host of its web, the one «Reemplazar» brings in ([replaceWith] takes the file's URL),
+ *   as a browser reads it ([urlHost]): «ana · banco-acceso.example». So a file that matches «Banco» / «ana» by title
+ *   and user cannot change the vault's web without the row saying where it goes;
+ * - a `TOTP`: its issuer and account;
+ * - anything else: empty.
+ * Only [entry]'s own (the file's) values; the vault's entry is not read.
+ */
+fun duplicateSubline(entry: VaultEntry): String = plainReportText(
+    when (entry.type) {
+        EntryType.LOGIN -> listOf(entry.username, urlHost(entry.url).orEmpty())
+        EntryType.TOTP -> listOf(entry.totp?.issuer.orEmpty(), entry.totp?.account.orEmpty())
+        else -> emptyList()
+    }.filter { it.isNotBlank() }.joinToString(" · "),
+)
 
 /**
  * The duplicate rules over a set of entries, with constant-time lookups. For logins, each title and user keeps the first

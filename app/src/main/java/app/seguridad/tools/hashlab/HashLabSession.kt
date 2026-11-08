@@ -8,10 +8,12 @@ import app.seguridad.tools.codes.getValue
 import app.seguridad.tools.codes.setValue
 
 /**
- * What the «Laboratorio de hashes» holds that can be a secret: the text, the HMAC key and message, the text to encode or
- * decode and the pasted hash, and the File tab's name and result. On Android it lives in the screen's ViewModel (never in saved state); [guard] applies the
- * «PIN y códigos» rule as in «Cifrar texto»: back after `max(lock time, 60 s)` away, another app with the focus, or a lock of
- * the vault, and [wipe] runs. The tab, the algorithm and the chosen file are not secrets and stay.
+ * What the «Laboratorio de hashes» holds that can be a secret: the text, the HMAC key and message, the text to encode
+ * or decode and the pasted hash, and the File tab's name and result. On Android it lives in the screen's ViewModel
+ * (never in saved state); [guard] applies the «PIN y códigos» rule as in «Cifrar texto»: back after
+ * `max(lock time, 60 s)` away, another app with the focus, or a lock of the vault, and [wipe] runs. The tab and the
+ * algorithm ([algo]) are not secrets and stay; the chosen file goes with the rest, with its result, its size, how much
+ * of it was read and the algorithm of that result (the name of a file can say something).
  */
 class HashLabSession(
     cells: CellFactory = PlainCells,
@@ -32,14 +34,64 @@ class HashLabSession(
     /** The File tab's name and result. */
     val file = FileHashSession(cells)
 
-    /** What was chosen (the screen keeps its URI here), so «Calcular otra vez» can read it again; null once wiped or cancelled. */
+    /**
+     * What was chosen (the screen keeps its URI here), so «Calcular otra vez» can read it again; null once wiped or
+     * cancelled.
+     */
     private val sourceCell = cells.cell<Any?>(null)
     var source: Any? by sourceCell
+
+    /** The algorithm chosen in the tabs that hash (not a secret: it stays). */
+    private val algoCell = cells.cell(HashAlgo.SHA256)
+    var algo: HashAlgo by algoCell
+
+    /** The algorithm of the result [file] holds (or of the reading going on). */
+    private val fileAlgoCell = cells.cell(HashAlgo.SHA256)
+    var fileAlgo: HashAlgo by fileAlgoCell
+        private set
+
+    /** How much of the file was read so far, for the progress line. */
+    private val readBytesCell = cells.cell(0L)
+    var readBytes: Long by readBytesCell
+        private set
+
+    /** The file's size as its provider gives it; -1 when unknown. */
+    private val totalBytesCell = cells.cell(-1L)
+    var totalBytes: Long by totalBytesCell
+        private set
+
+    /**
+     * A file is read with [algo]: the previous result, size and progress go ([FileHashSession.start]), and the returned
+     * run is the only one [sized], [progress] and [FileHashSession.finish] accept.
+     */
+    fun startFile(): Long {
+        fileAlgo = algo
+        readBytes = 0
+        totalBytes = -1
+        return file.start()
+    }
+
+    /** The size of [run]'s file; false, and nothing changes, once another file was picked, or after a cancel or a wipe. */
+    fun sized(run: Long, size: Long): Boolean {
+        if (!file.isCurrent(run)) return false
+        totalBytes = size
+        return true
+    }
+
+    /** How much of [run]'s file was read (called from the reading's thread); false as [sized]. */
+    fun progress(run: Long, read: Long): Boolean {
+        if (!file.isCurrent(run)) return false
+        readBytes = read
+        return true
+    }
 
     override fun forget() {
         onWipe() // the screen stops the file run going on
         file.clear()
         source = null
+        fileAlgo = algo
+        readBytes = 0
+        totalBytes = -1
         text = ""
         expected = ""
         hmacKey = ""

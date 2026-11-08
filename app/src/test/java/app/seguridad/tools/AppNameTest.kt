@@ -9,7 +9,9 @@ import app.seguridad.crypto.pk.SIGNATURE_EXTENSION
 import app.seguridad.crypto.pk.SIGNATURE_PREFIX
 import app.seguridad.vault.AUTO_BACKUP_PREFIX
 import app.seguridad.vault.BACKUP_MARKER
+import app.seguridad.vault.IMPORT_COPY_PREFIX
 import app.seguridad.vault.VaultFile
+import app.seguridad.vault.backupFileName
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -127,6 +129,10 @@ class AppNameTest {
         assertEquals("seguridad-vault", VaultFile.FORMAT)
         assertEquals("seguridad-backup", BACKUP_MARKER)
         assertEquals("seguridad-auto-", AUTO_BACKUP_PREFIX)
+        // 1.4.0 (branch review C, M-4): the copies before importing are recognised by this name in the folders where
+        // they already are («copias sin apuntar»), and the manual copy keeps its name too.
+        assertEquals("seguridad-antes-de-importar-", IMPORT_COPY_PREFIX)
+        assertEquals("seguridad-boveda-20261026.sgbak", backupFileName(java.time.LocalDate.of(2026, 10, 26)))
         assertEquals("SG1:", TEXT_PREFIX)
         assertEquals("seguridad", Dialect.SEGURIDAD.labelPrefix)
         assertEquals(listOf(Dialect.SEGURIDAD), Dialect.entries) // CriptoPanel's is not read since 1.3.1.

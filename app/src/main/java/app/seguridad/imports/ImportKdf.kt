@@ -32,7 +32,8 @@ import java.util.Base64
  *   a [Secrets] and wiped in a `finally`.
  * Only standard primitives from Bouncy Castle (PBKDF2, scrypt, Argon2id, HKDF, AES-GCM through the app's [blockGcm]),
  * on byte arrays Clavero owns, so the phone and the JVM tests derive the same keys and every copy can be wiped.
- * The derivations run where [readImport] runs: off the main thread, under [IMPORT_KDF_RUN].
+ * The derivations run where [readImport] runs: off the main thread, under [IMPORT_KDF_RUN] and the process-wide
+ * [app.seguridad.crypto.KdfLock] (ruling R38: the import screen takes both for a read with a password).
  */
 
 /** PBKDF2 iterations accepted (spec: 5 000 to 2 000 000; Bitwarden's default is 600 000, 2FAS's 10 000). */

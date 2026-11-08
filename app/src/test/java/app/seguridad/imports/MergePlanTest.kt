@@ -341,6 +341,59 @@ class MergePlanTest {
         assertSame(once, merged[0])
     }
 
+    /**
+     * Branch review A, M-2: notes that differ only by the spaces or line breaks around them are the same notes, as for
+     * the duplicate rule (trimmed), so «Reemplazar» does not append them again.
+     */
+    @Test fun notesThatDifferOnlyByTheSpacesAroundThemAreNotAppended() {
+        // Without the origin tag an import adds (a replacement that changes nothing else gives the entry itself).
+        val bare = { type: EntryType, title: String, user: String, notes: String ->
+            importedEntry(type, title, username = user, notes = notes).copy(tags = emptyList())
+        }
+        val wifi = saved("n", EntryType.NOTE, "Wifi", notes = "clave 123")
+        assertSame(wifi, replaceWith(wifi, bare(EntryType.NOTE, "Wifi", "", "clave 123\n"), now, ZoneOffset.UTC))
+        assertSame(wifi, replaceWith(wifi, bare(EntryType.NOTE, "Wifi", "", " \tclave 123 \r\n"), now, ZoneOffset.UTC))
+        val ana = saved("l", EntryType.LOGIN, "Foro", user = "ana", notes = "a")
+        assertSame(ana, replaceWith(ana, bare(EntryType.LOGIN, "Foro", "ana", " a "), now, ZoneOffset.UTC))
+        // And through the merge plan: a duplicate (trimmed) whose notes «Reemplazar» leaves as they are (it only adds the
+        // file's origin tag).
+        val vault = listOf(wifi)
+        val p = plan(read(note(0, "Wifi", "clave 123\n")), vault)
+        assertEquals(1, p.duplicates.size)
+        assertEquals("clave 123", mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), vault, now, newId, ZoneOffset.UTC)[0].notes)
+    }
+
+    /** M-2: notes appended once, trimmed, are recognised the next time even with other spaces around them. */
+    @Test fun appendedNotesAreTrimmedAndRecognisedAgain() {
+        val once = replaceWith(bank, importedEntry(EntryType.LOGIN, "Banco", notes = "\n nota del archivo \n"), now, ZoneOffset.UTC)
+        assertEquals("nota de la bóveda\n\nImportado el 4-11-2026:\nnota del archivo", once.notes)
+        assertSame(once, replaceWith(once, importedEntry(EntryType.LOGIN, "Banco", notes = "nota del archivo\n"), now + 1, ZoneOffset.UTC))
+        // The vault's notes with spaces at their end still recognise the block.
+        val spaced = once.copy(notes = once.notes + "  \n")
+        assertSame(spaced, replaceWith(spaced, importedEntry(EntryType.LOGIN, "Banco", notes = "nota del archivo"), now + 2, ZoneOffset.UTC))
+    }
+
+    /**
+     * Branch review A, M-4: a duplicate login's row shows the user and the host of the file's web, the one «Reemplazar»
+     * brings in, as a browser reads it ([urlHost]) and as plain text ([plainReportText]).
+     */
+    @Test fun aDuplicateLoginShowsTheUserAndTheHostReplaceBringsIn() {
+        val login = { user: String, url: String -> importedEntry(EntryType.LOGIN, "Banco", username = user, url = url) }
+        assertEquals("ana · banco-acceso.example", duplicateSubline(login("ana", "https://banco-acceso.example/entrar?x=1")))
+        // The host a browser goes to (RT-1), not the one after the «@».
+        assertEquals("ana · evil.example", duplicateSubline(login("ana", "https://evil.example\\@banco.es/")))
+        assertEquals("ana · banco.es", duplicateSubline(login("ana", "http://www.banco.es")))
+        assertEquals("banco.es", duplicateSubline(login("", "banco.es/login")))
+        assertEquals("ana", duplicateSubline(login("ana", "")))
+        assertEquals("", duplicateSubline(login(" ", " ")))
+        // Hidden characters go, as in every other line of the report.
+        assertEquals("ana · banco.es", duplicateSubline(login("a​na‮", "https://banco.es")))
+        // A TOTP: its issuer and account; a note: nothing.
+        val code = importedEntry(EntryType.TOTP, "C", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Correo", account = "ana"))
+        assertEquals("Correo · ana", duplicateSubline(code))
+        assertEquals("", duplicateSubline(importedEntry(EntryType.NOTE, "Wifi", notes = "clave")))
+    }
+
     @Test fun twoDuplicatesOfOneEntryAreAppliedInTurn() {
         val hostless = saved("x", EntryType.LOGIN, "Foro", user = "ana", password = "1")
         val p = plan(read(login(0, "Foro", user = "ana", url = "https://a.es", password = "2"), login(1, "Foro", user = "ana", url = "https://b.es", password = "3")), listOf(hostless))

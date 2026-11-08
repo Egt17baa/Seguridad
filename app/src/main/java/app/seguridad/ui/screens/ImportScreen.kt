@@ -47,8 +47,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.CryptoFailure
-import app.seguridad.imports.DuplicateChoice
+import app.seguridad.crypto.KdfLock
 import app.seguridad.imports.Duplicate
+import app.seguridad.imports.DuplicateChoice
 import app.seguridad.imports.IMPORT_CANCEL
 import app.seguridad.imports.IMPORT_CHOICE_KEEP_BOTH
 import app.seguridad.imports.IMPORT_CHOICE_REPLACE
@@ -103,26 +104,27 @@ import app.seguridad.imports.ImportFlow
 import app.seguridad.imports.ImportSession
 import app.seguridad.imports.ImportStep
 import app.seguridad.imports.MergePlan
+import app.seguridad.imports.PreviewEstimate
 import app.seguridad.imports.RemoveResult
 import app.seguridad.imports.RemoveState
 import app.seguridad.imports.Skipped
+import app.seguridad.imports.duplicateSubline
 import app.seguridad.imports.importBecameNotesText
 import app.seguridad.imports.importCopyFileName
 import app.seguridad.imports.importCopyWhereText
 import app.seguridad.imports.importDoneText
 import app.seguridad.imports.importDuplicatesText
 import app.seguridad.imports.importFileText
-import app.seguridad.imports.importPasswordIntro
+import app.seguridad.imports.importFoldersNotTagsText
 import app.seguridad.imports.importNewTagsText
+import app.seguridad.imports.importPasswordIntro
 import app.seguridad.imports.importRepeatedText
 import app.seguridad.imports.importReplacedText
 import app.seguridad.imports.importSkippedLine
 import app.seguridad.imports.importTooBigText
-import app.seguridad.imports.planMerge
 import app.seguridad.imports.plainReportText
+import app.seguridad.imports.planMerge
 import app.seguridad.imports.previewEntersText
-import app.seguridad.imports.PreviewEstimate
-import app.seguridad.imports.importFoldersNotTagsText
 import app.seguridad.imports.previewEstimate
 import app.seguridad.imports.readImport
 import app.seguridad.tools.SingleRun
@@ -133,10 +135,11 @@ import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.PositiveColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.CopyResult
-import app.seguridad.vault.EntryType
+import app.seguridad.vault.PASSWORD_FIELD_MAX_CHARS
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.passwordFieldTakes
 import app.seguridad.vault.sanitizeReceivedName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -161,10 +164,12 @@ import java.time.LocalDateTime
  * The chosen document is opened once, read on IO with at most [IMPORT_MAX_BYTES] + 1 bytes and a stop at the next block
  * if the read is cancelled (owner's decisions (a) and (b)); from then on only those bytes are used, and they are zeroed
  * as soon as the reader is done. [readImport] runs on Default; an OutOfMemoryError is caught around that call only
- * (ruling R11b). A password attempt holds [IMPORT_KDF_RUN] until its derivation ends, and its CharArray is zeroed
- * however it ends. The plan comes from one snapshot of the vault (entries and revision together); «Importar» goes
- * through [ImportFlow] (the copy first, then the one save) and is not cut by a lock or by leaving. What comes from the
- * file is only ever shown as plain text through plainReportText: never a link, an intent or HTML (owner's decision (c)).
+ * (ruling R11b). A password attempt holds [IMPORT_KDF_RUN] and [KdfLock] until its derivation ends, and its CharArray
+ * is zeroed however it ends. The plan comes from one snapshot of the vault (entries and revision together); «Importar» goes
+ * through [ImportFlow] (the copy first, then the one save) and is not cut by leaving the screen; a lock before the save
+ * starts cancels it and nothing is imported (the copy, if made, stays), while a save already started finishes (ruling
+ * R37). What comes from the file is only ever shown as plain text through plainReportText: never a link, an intent or
+ * HTML (owner's decision (c)).
  */
 private class ImportViewModel(
     private val appContext: Context,
@@ -178,7 +183,7 @@ private class ImportViewModel(
     /** Reading the file, trying its password, building the plan: one at a time, stopped by «Cancelar» and by any wipe. */
     private var job: Job? = null
 
-    /** A paste over [MAX_FILE_PASSWORD_CHARS] was refused (the field keeps what it had). */
+    /** A paste over [PASSWORD_FIELD_MAX_CHARS] was refused (the field keeps what it had). */
     var refused by mutableStateOf(false)
         private set
 
@@ -219,7 +224,7 @@ private class ImportViewModel(
     fun typed(value: String) {
         session.guard.typed()
         kdfBusy = false
-        refused = value.length > MAX_FILE_PASSWORD_CHARS
+        refused = !passwordFieldTakes(value)
         if (!refused) session.password = value
     }
 
@@ -280,18 +285,22 @@ private class ImportViewModel(
     /**
      * The readers over the bytes held for [run], with [pw] if given; then the plan from one snapshot of the vault. [pw]
      * is zeroed and [ticket] released when the reader ends: a derivation cannot be cut, so a cancelled run still waits
-     * for it here before it frees the next one.
+     * for it here before it frees the next one. With [pw] the read may derive a key (Argon2id, scrypt or PBKDF2), so it
+     * runs under [KdfLock] (ruling R38), one large derivation at a time in the app; without it nothing is derived and it
+     * does not wait for an unlock. A result that comes after a cancel, a wipe or another file has an old [run] and is
+     * dropped by [ImportSession.onRead].
      */
     private suspend fun decode(run: Long, pw: CharArray?, ticket: SingleRun.Ticket?) {
         val result = try {
             val bytes = session.bytesFor(run) ?: return
-            withContext(Dispatchers.Default) {
+            val read = {
                 try {
                     readImport(bytes, pw)
                 } catch (e: OutOfMemoryError) {
                     null
                 }
             }
+            if (pw == null) withContext(Dispatchers.Default) { read() } else KdfLock.derive(Dispatchers.Default, read)
         } finally {
             pw?.fill('\u0000')
             ticket?.release()
@@ -398,9 +407,6 @@ private class EstimateInput(val plan: MergePlan?, val default: DuplicateChoice, 
 
     override fun hashCode(): Int = System.identityHashCode(plan) * 31 + default.hashCode() * 17 + overrides.hashCode()
 }
-
-/** Far longer than any export password; keeps a huge paste out of the field. */
-private const val MAX_FILE_PASSWORD_CHARS = 1024
 
 /** The most read in one call, so a cancellation stops the read at the next block. */
 private const val READ_BLOCK = 64 * 1024
@@ -653,19 +659,18 @@ private fun LazyListScope.skippedList(skipped: List<Skipped>, title: String) {
     }
 }
 
-/** One duplicate: its title and user, service or account (plain text), and its own choice. */
+/**
+ * One duplicate: its title, then its user and the host of its web, or its service and account ([duplicateSubline],
+ * plain text: the web is the one «Reemplazar» brings in), and its own choice.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DuplicateRow(d: Duplicate, choice: DuplicateChoice, onChoose: (DuplicateChoice) -> Unit) {
     val e = d.item.entry
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("${typeIcon(e.type)} ${plainReportText(e.title).ifBlank { IMPORT_NO_TITLE }}")
-        val sub = when (e.type) {
-            EntryType.LOGIN -> e.username.ifBlank { e.url }
-            EntryType.TOTP -> listOf(e.totp?.issuer, e.totp?.account).filter { !it.isNullOrBlank() }.joinToString(" · ")
-            else -> ""
-        }
-        if (sub.isNotBlank()) Text(plainReportText(sub), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val sub = duplicateSubline(e)
+        if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Choices(choice, onChoose)
     }
 }

@@ -187,8 +187,11 @@ private fun scanJson(text: String, limit: Long): Long {
  * - `encrypted` or `items`: Bitwarden ([readBitwarden]);
  * - `db`: Aegis (an object in clear, a Base64 string when encrypted: [openAegis]);
  * - `services` or `servicesEncrypted`: 2FAS (`servicesEncrypted` a string when encrypted: [openTwoFas]).
- * An encrypted file without [password] is [ReadResult.NeedsPassword]; with it, it is opened (Task 10), and what it
- * holds goes through the same [checkJsonShape] with [treeBudget].
+ * An encrypted file without [password] has its header checked first ([bitwardenProtected], [aegisEncrypted],
+ * [twoFasEncrypted]: the KDF's bounds and every part's length, nothing derived), so a file no password can open says
+ * so at once ([IMPORT_KDF_TOO_BIG], [IMPORT_BROKEN], [IMPORT_ENCRYPTED_TOO_BIG]) instead of asking for one (branch
+ * review A, M-3); then it is [ReadResult.NeedsPassword]. With [password], it is opened (Task 10), and what it holds goes
+ * through the same [checkJsonShape] with [treeBudget].
  */
 internal fun readJsonImport(text: String, treeBudget: Long = JSON_MAX_TREE_BYTES, password: CharArray? = null): ReadResult? {
     var start = 0
@@ -209,7 +212,7 @@ internal fun readJsonImport(text: String, treeBudget: Long = JSON_MAX_TREE_BYTES
             is JsonObject -> ReadResult.Ok(readAegisPlain(db))
             is JsonPrimitive -> when {
                 !db.isString -> throw ImportFailure(IMPORT_BROKEN)
-                password == null -> ReadResult.NeedsPassword(ImportFormat.AEGIS)
+                password == null -> aegisEncrypted(root).let { ReadResult.NeedsPassword(ImportFormat.AEGIS) }
                 else -> ReadResult.Ok(openAegis(root, password, treeBudget))
             }
             else -> throw ImportFailure(IMPORT_BROKEN)
@@ -218,7 +221,7 @@ internal fun readJsonImport(text: String, treeBudget: Long = JSON_MAX_TREE_BYTES
             null, JsonNull -> ReadResult.Ok(readTwoFasPlain(root))
             is JsonPrimitive -> when {
                 !enc.isString -> throw ImportFailure(IMPORT_BROKEN)
-                password == null -> ReadResult.NeedsPassword(ImportFormat.TWOFAS)
+                password == null -> twoFasEncrypted(root).let { ReadResult.NeedsPassword(ImportFormat.TWOFAS) }
                 else -> ReadResult.Ok(openTwoFas(root, password, treeBudget))
             }
             else -> throw ImportFailure(IMPORT_BROKEN)

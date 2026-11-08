@@ -171,6 +171,14 @@ fun NoCopy(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
 }
 
 /**
+ * The keyboard of a field whose text can be a secret and is shown as typed (a text to encrypt or hash, an HMAC message,
+ * a key of a classic cipher): the password keyboard type with autocorrection off, so the keyboard offers no suggestions
+ * and does not learn the words into its dictionary (MASVS-STORAGE-2). It does not mask the text (no visual
+ * transformation): that is [PasswordField]'s, for the fields that are hidden.
+ */
+val SECRET_TEXT_KEYBOARD = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password)
+
+/**
  * Password field with a show/hide switch; never put in saved state. Hidden, Compose's menus offer no Copy, but after
  * «Ver» they would, and a keyboard shortcut copies it even hidden: so the field is always inside [NoCopy] (TECLADO-2,
  * F4 review M1), the master password and every other one.

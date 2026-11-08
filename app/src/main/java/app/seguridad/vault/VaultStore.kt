@@ -24,6 +24,7 @@ import java.nio.file.StandardCopyOption
 import app.seguridad.core.readAtMost
 import app.seguridad.core.writeTextAtomically
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.KdfLock
 import app.seguridad.crypto.KdfParams
 import app.seguridad.crypto.randomBytes
 import app.seguridad.imports.ApplyResult
@@ -312,11 +313,12 @@ class VaultStore(
     }
 
     /**
-     * Runs [block] on [compute] and returns what it made even if the caller was cancelled meanwhile, so a key it derives
-     * always reaches the code that wipes it (BOV-3): `withContext(compute)` alone, or with NonCancellable added to it,
-     * drops the result when it switches back to a cancelled caller.
+     * Runs the Argon2id of [block] on [compute], one at a time in the process ([KdfLock], ruling R38: with the mutex
+     * held, which is the lock order), and returns what it made even if the caller was cancelled meanwhile, so a key it
+     * derives always reaches the code that wipes it (BOV-3): `withContext(compute)` alone, or with NonCancellable added
+     * to it, drops the result when it switches back to a cancelled caller.
      */
-    private suspend fun <T> derive(block: () -> T): T = withContext(NonCancellable) { withContext(compute) { block() } }
+    private suspend fun <T> derive(block: () -> T): T = KdfLock.derive(compute, block)
 
     private suspend fun save(v: VaultFile) = withContext(io) { file.writeTextAtomically(VaultCrypto.encodeFile(v)) }
 
@@ -406,7 +408,7 @@ class VaultStore(
             if (_state.value is VaultState.NoVault) _state.value = VaultState.Locked
             throw IllegalStateException("A vault already exists")
         }
-        val (v, key) = withContext(compute) { VaultCrypto.create(master, now(), kdf()) }
+        val (v, key) = derive { VaultCrypto.create(master, now(), kdf()) }
         nextGeneration() // Before anything is turned off or written: a copy still being written is not this vault's.
         try {
             beforeCreate()
@@ -436,9 +438,9 @@ class VaultStore(
 
     private suspend fun unlockLocked(master: CharArray, since: Int) {
         val v = vault ?: return
-        val key = withContext(compute) { VaultCrypto.unlock(v, master) }
+        val key = derive { VaultCrypto.unlock(v, master) }
         val checked = try {
-            withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
+            derive { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -521,14 +523,14 @@ class VaultStore(
         val v = vault ?: return false
         if (dek == null || _state.value !is VaultState.Unlocked) return false
         val since = epoch
-        val key = withContext(compute) { VaultCrypto.unlock(v, master) }
+        val key = derive { VaultCrypto.unlock(v, master) }
         onClockReset(now())
         if (v.format == VaultFile.FORMAT && v.version == VaultFile.VERSION) {
             key.fill(0) // Only the check.
             return true
         }
         val upgraded = try {
-            withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
+            derive { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -659,7 +661,8 @@ class VaultStore(
     /**
      * The open vault's entries and [revision], read together under the mutex (a save raises the revision just before it
      * shows the new entries, so reading the two apart could pair an old list with a newer revision); null when locked.
-     * The only source of an import's plan ([app.seguridad.imports.planImport]).
+     * The only source of an import's plan: the import screen passes it to [app.seguridad.imports.planMerge] (keeping its
+     * entries for the preview's estimate), and [app.seguridad.imports.planImport] does the same for the tests.
      */
     suspend fun importSnapshot(): VaultSnapshot? = mutex.withLock {
         val entries = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock null
@@ -909,7 +912,7 @@ class VaultStore(
         val key = derive { VaultCrypto.unlock(incoming, master) }
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
-            val checked = withContext(compute) { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
+            val checked = derive { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
             val incomingEntries = withContext(compute) { VaultCrypto.read(checked, key) }
             // The rules «Comprobar una copia» checks too (BackupCheck.kt), so the two never drift apart: one identity per
             // vault (see [upsert]), and what [upsert] and [addAttachment] keep. A copy that breaks one is refused before
