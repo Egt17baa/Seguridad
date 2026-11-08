@@ -166,6 +166,24 @@ class ImportTextsTest {
         }
         // The explanation is shown with the offer, and a failure or a provider that cannot delete says «a mano».
         for (t in listOf(IMPORT_REMOVE_FAILED, IMPORT_REMOVE_UNSUPPORTED)) assertTrue(t, "a mano" in t)
+        // R33 (Task 12 review, I-3): since Task 10 a password-protected export is read too, so neither text may say
+        // the exported file is unencrypted as a fact: it is only when it was exported without a password.
+        assertEquals(
+            "Clavero no protege el archivo exportado. Si lo exportaste sin contraseña, está sin cifrar en tu móvil; si " +
+                "lo protegiste con contraseña, sus entradas siguen cifradas con esa contraseña. En los dos casos puede " +
+                "haber copias en la nube, en la papelera o en otras apps. Al terminar, Clavero puede intentar borrar ese " +
+                "archivo (algunas apps no lo dejan), pero no esas copias.",
+            IMPORT_NOT_PROTECTED,
+        )
+        assertEquals(
+            "El archivo que has importado sigue en tu móvil, sin cifrar si lo exportaste sin contraseña. Clavero puede " +
+                "intentar borrar ese mismo archivo; algunas apps no lo dejan. No borra las copias que haya en la nube, en " +
+                "la papelera ni en otras apps, y no garantiza que el almacenamiento lo borre físicamente.",
+            IMPORT_REMOVE_EXPLAIN,
+        )
+        for (t in listOf(IMPORT_REMOVE_EXPLAIN, IMPORT_NOT_PROTECTED)) {
+            assertFalse(t, "está sin cifrar en tu móvil, y" in t || "sigue en tu móvil sin cifrar" in t)
+        }
         val screen = mainSources()[SCREEN_FILE] ?: error("$SCREEN_FILE not found")
         assertTrue("Text(IMPORT_REMOVE_EXPLAIN" in screen)
     }

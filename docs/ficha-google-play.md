@@ -25,7 +25,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Salud de la bóveda: contraseñas repetidas, débiles, antiguas o sin 2FA.
 • Copias cifradas que exportas tú, y copia automática opcional a una carpeta que elijas.
 • Comprueba una copia sin importarla: que tu contraseña la abre y que cada adjunto está y coincide con lo que guarda su entrada.
-• Importa desde los archivos CSV de navegadores y desde las exportaciones de otros gestores de contraseñas y de otras apps de 2FA, también las protegidas con contraseña, y las añade a tu bóveda sin reemplazarla. Antes de guardar te enseña lo que entra, lo que ya tienes y lo que no entra, y hace una copia cifrada de tu bóveda. Al terminar te ofrece quitar el archivo exportado.
+• Importa los archivos CSV de los navegadores más usados y las exportaciones de algunos gestores de contraseñas y apps de 2FA (la lista está en la app y en el código fuente), también las protegidas con contraseña, y añade sus entradas a tu bóveda sin reemplazarla. Antes de guardar te enseña lo que entra, lo que ya tienes y lo que no entra, y hace una copia cifrada de tu bóveda. Al terminar te ofrece quitar el archivo exportado.
 
 **Códigos 2FA**
 • TOTP con escáner QR o con la clave a mano.
@@ -58,7 +58,7 @@ La bóveda se queda cifrada en tu móvil. De la app sale lo que tú exportas, gu
 • Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Clavero.
 • Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia.
 • Cambiar la contraseña maestra no cambia las copias que ya existen: se siguen abriendo con la contraseña anterior.
-• El archivo que exportas de otra app para importarlo está sin cifrar. Quitarlo con Clavero no borra sus copias en la nube, en la papelera ni en otras apps.
+• El archivo que exportas de otra app para importarlo suele estar sin cifrar, salvo si lo proteges con contraseña. Quitarlo con Clavero no borra sus copias en la nube, en la papelera ni en otras apps.
 • Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes, usa un dispositivo hardware dedicado.
 
 Gratuita, sin anuncios ni compras. Código fuente: https://github.com/Egt17baa/Seguridad
