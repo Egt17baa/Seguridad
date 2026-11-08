@@ -73,7 +73,7 @@ In `write-fresh.log`, the write passed on the first try.
 
 - **No sum of an existing artifact changed.**
   - The «changed» components only lost entries, for POMs or AARs no longer resolved.
-  - Or the KGP variant JAR was renamed `-gradle813.jar` → `-gradle96.jar`. Three of those keep the same SHA-256. `kotlin-gradle-plugin-2.4.21-gradle96.jar` is a different file, the variant built for Gradle 9.6.
+  - Or a Kotlin plugin variant JAR was renamed `-gradle813.jar` → `-gradle96.jar`. In jvm-check three of those keep the same SHA-256; in the app file four do (compose-compiler, fus-statistics, kotlin-gradle-plugin-api, kotlin-serialization). `kotlin-gradle-plugin-2.4.21-gradle96.jar` is the only different file, the variant built for Gradle 9.6 (corrected after the task review, M-2).
 - **Origin of every added sum:** each one was downloaded again from the repositories that `settings.gradle.kts` uses, and its SHA-256 was compared (`scripts/origins.sh`, output `t11/origins-all.txt`). Of the 173 added sums (169 app + 4 jvm-check):
   - 99 match `dl.google.com/dl/android/maven2` (google());
   - 74 match the Maven Central mirror `maven-central.storage-download.googleapis.com`;
@@ -88,10 +88,10 @@ In `write-fresh.log`, the write passed on the first try.
   - No app dependency is added or changed.
   - Bouncy Castle 1.80.2 is in AGP's build classpath only. The app keeps BC 1.86.
 - **Licences of the 86 new components** (`t11/licences-app.txt`, from each POM or its parent):
-  - 81 Apache-2.0;
-  - BSD-3-Clause (ASM);
-  - Bouncy Castle Licence (MIT-style; build classpath only);
-  - EPL-2.0 for the JUnit 5 Platform. That is AGP's test runner, build tooling only, like JUnit 4 (EPL-1.0), which the project already uses for tests.
+  - 72 Apache-2.0;
+  - 5 BSD-3-Clause (ASM);
+  - 4 Bouncy Castle Licence (MIT-style; build classpath only);
+  - 5 EPL-2.0, for the JUnit 5 Platform (counts corrected after the task review, M-1; `guava-parent` was missing from `t11/licences-app.txt` and is Apache-2.0). That is AGP's test runner, build tooling only, like JUnit 4 (EPL-1.0), which the project already uses for tests.
   - The parents Guava, commons and `org.apache:apache` are Apache-2.0.
 
   None is GPL, AGPL or LGPL, and none goes into the APK. `checkLicense` passes on `releaseRuntimeClasspath`.
@@ -155,7 +155,7 @@ The release `classes.dex` from this gate is byte for byte the one from the first
 
 **Opt-out experiment (`t11/gradle.properties.optout`, `t11/optout-release.log`):** the first implementer built once with `android.r8.optimizedResourceShrinking=false` and `android.r8.strictFullModeForKeepRules=false`, to measure what AGP 9's two new R8 defaults change. Result:
 - the dex differs by 484 bytes;
-- strict full mode drops only one extra class, `androidx.appcompat.widget.ActivityChooserView$InnerLayout`. Neither BASE nor the new APK contains `ActivityChooserView` itself or its layout, so nothing can inflate it;
+- strict full mode drops one extra class, `androidx.appcompat.widget.ActivityChooserView$InnerLayout` (neither BASE nor the new APK contains `ActivityChooserView` itself or its layout, so nothing can inflate it), and the no-argument constructors of `IconCompat`, `RemoteActionCompat`, `CustomVersionedParcelable` and `MinimumInteractiveModifier`. R8 inlines those constructors where the objects are created; the reflective path goes through the kept `Parcelizer.read`, and Clavero never parcels those classes, so nothing breaks (corrected after the task review, M-3);
 - the APK is 61 793 B larger without the resource shrinking.
 
 AGP 9.5 also says `optimizedResourceShrinking=false` «is deprecated». So **`gradle.properties` carries no opt-out**: the defaults are kept, and nothing is hidden.
@@ -204,7 +204,7 @@ AGP 9.5 also says `optimizedResourceShrinking=false` «is deprecated». So **`gr
   - the CI keeps the secrets only in the packaging step (`build-apk.yml`, only the checksum lines changed).
 - **APK surface:** the permissions, the manifest and `check-manifest.sh` are identical to BASE. `checkAssets` passes, so no third-party asset is in the APK.
 - **Tests:** the two test edits make them stricter (`PlatformSourcesTest.kt:219`, `MasterPolicyTest.kt:187`). They keep the master-rule and SLIP-39 list assertions and the `throw GradleException` check.
-- **R8 full mode:** strict keep rules drop nothing that the app or its libraries load by reflection (the only extra class removed is `ActivityChooserView$InnerLayout`, unreachable). `proguard-rules.pro` gives the `kotlinx.serialization` keep rules with explicit members, so the strict mode does not touch them.
+- **R8 full mode:** strict keep rules drop nothing that the app or its libraries load by reflection: the extra class removed, `ActivityChooserView$InnerLayout`, is unreachable, and the four no-argument constructors it also removes (`IconCompat`, `RemoteActionCompat`, `CustomVersionedParcelable`, `MinimumInteractiveModifier`) are inlined where used and never reached by reflection in Clavero. `proguard-rules.pro` gives the `kotlinx.serialization` keep rules with explicit members, so the strict mode does not touch them.
 
 ## Revisión Ingeniero Móvil Senior
 
