@@ -316,6 +316,15 @@ class CsvFormatsTest {
         val two = ok(header + ",,login,App,,,0,\"https://a/,androidapp://b\",u,p,\n").items.single().entry
         assertEquals("https://a/", two.url)
         assertEquals("URL: androidapp://b", two.notes)
+        // Re-review 2: a comma before something that only looks like a scheme stays; an empty URI leaves no comma.
+        val query = ok(header + ",,login,Consulta,,,0,\"https://a.example/?a=1,b:2\",u,p,\n").items.single().entry
+        assertEquals("https://a.example/?a=1,b:2", query.url)
+        assertEquals("", query.notes)
+        val empty = ok(header + ",,login,Hueco,,,0,\"https://a/ ,, https://b/\",u,p,\n").items.single().entry
+        assertEquals("https://a/", empty.url)
+        assertEquals("URL: https://b/", empty.notes)
+        val last = ok(header + ",,login,Coma,,,0,\"https://a/x,\",u,p,\n").items.single().entry
+        assertEquals("https://a/x,", last.url)
     }
 
     @Test fun bitwardenCsvAndJsonGiveTheSameLogin() {

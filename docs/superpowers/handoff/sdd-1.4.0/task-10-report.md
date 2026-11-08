@@ -83,7 +83,7 @@ The owner gives no real exports (owner decision (e)). These points come from doc
 - **Bitwarden:**
   - the Argon2id salt is SHA-256 of the UTF-8 salt string, and the salt is used as text, not Base64-decoded (`BitwardenCrypto.kt`, `bitwardenKeys`);
   - with PBKDF2, `kdfMemory` and `kdfParallelism` may be present as `null`, and they are ignored;
-  - the CSV `login_uri` cell holds every URI of a login separated by commas (fix round 1, I-1). Since fix round 2 (ruling R26) it is split only on a comma followed by optional spaces and a URI scheme (`,\s*(?=[A-Za-z][A-Za-z0-9+.-]*:)`), so a comma inside a URI (`?q=1,2`) stays in it. A comma inside a URI that is followed by something that looks like a scheme (`?a=1,b:2`) would still split.
+  - the CSV `login_uri` cell holds every URI of a login separated by commas (fix round 1, I-1). Since fix round 2 (ruling R26) it is split only on a comma followed by optional spaces and a URI scheme (`,\s*(?=[A-Za-z][A-Za-z0-9+.-]*:)`), so a comma inside a URI (`?q=1,2`) stays in it. After re-review 2 the scheme must be followed by `://` (`,\s*(?=[A-Za-z][A-Za-z0-9+.-]*://)`), so `?a=1,b:2` stays whole too, and a URI without `//` after its scheme (`mailto:`) is not split from the one before it; the commas an empty URI leaves (`a/,,https://b`) are dropped from the end of every piece but the last.
 - **Aegis:**
   - the password is hashed in UTF-8;
   - GCM takes no associated data;

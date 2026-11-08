@@ -13,7 +13,7 @@ import java.util.Locale
  *   folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp, and the
  *   organisation's, with collections in place of folder and favorite. It is found by the names of its columns, in any
  *   order and case ([isBitwardenCsv]); its login_uri cell holds every URI of a login, separated by commas, split only
- *   before a scheme ([LOGIN_URI_SEPARATOR]) (pending
+ *   before a scheme and `://` ([LOGIN_URI_SEPARATOR]) (pending
  *   confirmation with a real export: docs/superpowers/handoff/sdd-1.4.0/task-10-report.md, «Pendiente de confirmar»).
  * Columns are found by name, in any order and case; a column Clavero does not know is never given a meaning. The
  * mapping is fixed: nothing in the file decides which code runs.
@@ -192,10 +192,21 @@ private fun readBitwardenRow(c: Columns, row: List<String>, out: ImportReadBuild
 }
 
 /**
- * Where a `login_uri` cell holds the next URI (ruling R26): a comma, optional spaces, then a URI scheme («https:»,
- * «androidapp:»…). A comma inside a URI (`?q=1,2`) is not followed by a scheme, so it stays in its URI.
+ * Where a `login_uri` cell holds the next URI (ruling R26 and its re-review): a comma, optional spaces, then a URI
+ * scheme and `://` («https://», «androidapp://»…). A comma inside a URI (`?q=1,2`, `?a=1,b:2`) is not followed by
+ * a scheme and `://`, so it stays in its URI.
  */
-private val LOGIN_URI_SEPARATOR = Regex(""",\s*(?=[A-Za-z][A-Za-z0-9+.-]*:)""")
+private val LOGIN_URI_SEPARATOR = Regex(""",\s*(?=[A-Za-z][A-Za-z0-9+.-]*://)""")
 
-/** The URIs of a `login_uri` cell: split before each scheme ([LOGIN_URI_SEPARATOR]), each trimmed, the empty ones dropped (as the JSON reader passes them over). */
-private fun loginUris(cell: String): List<String> = cell.split(LOGIN_URI_SEPARATOR).map { it.trim() }.filter { it.isNotEmpty() }
+/**
+ * The URIs of a `login_uri` cell: split before each scheme followed by `://` ([LOGIN_URI_SEPARATOR]), each trimmed,
+ * the empty ones dropped (as the JSON reader passes them over). Every piece but the last also loses the commas and
+ * spaces at its end: they are what an empty URI between two others leaves (`a/,,https://b`). The last piece keeps a
+ * comma of its own. The regex runs in linear time: the spaces it backtracks over follow one comma only.
+ */
+private fun loginUris(cell: String): List<String> {
+    val pieces = cell.split(LOGIN_URI_SEPARATOR)
+    return pieces.mapIndexed { i, piece ->
+        if (i < pieces.lastIndex) piece.trimEnd { it == ',' || it.isWhitespace() }.trim() else piece.trim()
+    }.filter { it.isNotEmpty() }
+}
