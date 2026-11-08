@@ -176,3 +176,4 @@ Ruling R21 (Task 10, reconstructed from a1f7771 and its code comments): an HTML 
 Ruling R22 (Task 10, reconstructed): Edge's CSV is read with and without the note column («Microsoft Edge Passwords.csv» has none). Fixtures under app/src/test/resources/import/csv.
 Task 10: verification re-run by the controller on a1f7771 (full app gate + jvm-check), then reviewer dispatched (review-8043583..a1f7771.diff).
 Task 10: reviewer opus abc86d857b22605a2 (review-8043583..a1f7771.diff)
+Task 10: controller verification on a1f7771 — 1744 app / 1739 jvm-check green, 0 failures; assembleDebug, lintDebug, checkLicense, checkFragmentVersion, checkAssets OK.
