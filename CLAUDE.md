@@ -26,7 +26,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
    - la auditoría completa con `experto-seguridad-cripto`, `auditoria-seguridad-movil` y `auditoria-seguridad`;
    - la revisión final del Abogado Digital (punto 4), con sus cambios aplicados.
 
-## Estado actual: Clavero 1.3.1, publicada (2-11-2026)
+## Estado actual: Clavero 1.4.0, en desarrollo (8-11-2026)
 
 **Nombre:** la app se llama **Clavero** desde la 1.3.0 (antes «Seguridad»). Cambian el nombre visible, los textos, la política, la ficha, el README y los nombres de los APK publicados (`Clavero-<etiqueta>.apk`). **No cambian**, y `AppNameTest` lo comprueba:
 - el `applicationId` `io.github.egt17baa.seguridad` y el paquete `app.seguridad`;
@@ -35,28 +35,31 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - los nombres de los formatos (`seguridad-vault`, `seguridad-backup`, `SG1:`…) y los prefijos de las copias (`seguridad-auto-`, `seguridad-boveda-`);
 - el nombre del repositorio, que el dueño puede cambiar si quiere.
 
+
 **Fase:**
-- **La 1.3.0 está publicada:** etiqueta `v1.3.0` en `b6ea21b` (`main`), con `Clavero-v1.3.0.apk` en *Releases*, firmado con la clave de subida. Su registro está en `docs/superpowers/handoff/sdd-1.3.0/progress.md` y su auditoría en `docs/auditorias/2026-10-31-auditoria-1.3.0.md`.
-- **La 1.3.1 es una versión de mantenimiento:** corrige los cinco hallazgos de la revisión criptográfica (`auditoria/04-cripto.md`) y quita CriptoPanel. Se trabajó en la rama `ccr-a1a6eabb-765f9g`, desde `main` en `9504ce3`. El código se cerró en `284d206`, y el PR #13 se fusionó en `main` el 1-11-2026 (`f9259bd`).
-- **La 1.3.1 está publicada:** etiqueta `v1.3.1` en `889d595` (`main`, tras el PR #14, solo de documentos), con `Clavero-v1.3.1.apk` y su `.sha256` en *Releases* (2-11-2026). El APK publicado está firmado con la clave de subida (huella `746398ea…9df9e`, comprobada con `apksigner` el 3-11-2026), su `versionCode` es 94 y tiene los mismos permisos que la 1.2.2. El dueño hizo las pruebas de la 1.3.1 en el móvil, sin problemas (3-11-2026).
-- **Dónde está:** el registro en `docs/superpowers/handoff/sdd-1.3.1/progress.md` (en la misma carpeta, los informes de cada tarea, de las revisiones, de la auditoría del cambio y del Abogado Digital), la auditoría en `docs/auditorias/2026-11-01-auditoria-1.3.1.md` y el traspaso en `docs/superpowers/handoff/2026-11-01-clavero-1.3.1-traspaso.md`.
+- **Publicadas:** la 1.3.0 (etiqueta `v1.3.0` en `b6ea21b`) y la **1.3.1**, la última: etiqueta `v1.3.1` en `889d595`, con `Clavero-v1.3.1.apk` y su `.sha256` en *Releases* (2-11-2026), firmada con la clave de subida (huella `746398ea…9df9e`), `versionCode` 94 y los mismos permisos que la 1.2.2. El dueño la probó en el móvil sin problemas (3-11-2026). Su historia: registro `docs/superpowers/handoff/sdd-1.3.1/progress.md`, auditoría `docs/auditorias/2026-11-01-auditoria-1.3.1.md` y traspaso `docs/superpowers/handoff/2026-11-01-clavero-1.3.1-traspaso.md` (la 1.3.0, en `sdd-1.3.0/` y `docs/auditorias/2026-10-31-auditoria-1.3.0.md`).
+- **La 1.4.0** añade «Importar de otra app» (fusiona en la bóveda, con vista previa y una copia antes), tres herramientas («Laboratorio de hashes», que sustituye a la huella SHA-256 de archivos, «Laboratorio clásico» y «Repartir un secreto», SLIP-0039) y «Comprobar una copia»; pone todas las operaciones de `BiometricVault` en una sola fila y pasa a AGP 9.5.0 (R8 9.5.28) y Gradle 9.6.0. No cambia ningún formato de Clavero ni añade permisos, componentes exportados, hosts ni dependencias del APK.
+  - Diseño `docs/superpowers/specs/2026-11-03-clavero-1.4.0-design.md` (aprobado el 3-11-2026) y plan `docs/superpowers/plans/2026-11-03-clavero-1.4.0.md`.
+  - Base: `main` en `7c8dea7` (PR #16). Las tareas 1 a 10 se hicieron en la rama `ccr-a1a6eabb-765f9g` (hasta `a1f7771`); el trabajo se reanudó el 8-11-2026 en la rama **`ccr-d1e75160-p5f4wc`**, desde `a1f7771`, con la revisión de la tarea 10 y las tareas 11 y 12.
+  - Registro `docs/superpowers/handoff/sdd-1.4.0/progress.md` (en la misma carpeta, los informes y las revisiones de cada tarea), auditoría `docs/auditorias/2026-11-08-auditoria-1.4.0.md` (sus secciones de la revisión final están por llenar) y traspaso `docs/superpowers/handoff/2026-11-08-clavero-1.4.0-traspaso.md`.
 - `main` está protegida desde el 1-11-2026: todo cambio entra por un PR, con **build** y **jvm-check** en verde.
 
-| Paso de la 1.3.1 | Estado |
+| Paso de la 1.4.0 | Estado |
 |---|---|
-| Tareas 1 a 5: CRY-B01, CRY-A01, CRY-A02, CRY-A03 y CRY-B02 | Terminadas y revisadas |
-| Tarea 6: fuera CriptoPanel | Terminada y revisada |
-| Tarea 7: `versionName` 1.3.1 (el R8 nuevo se probó y se quitó) | Terminada |
-| Revisión final: revisión de la rama, auditoría del cambio, `code-review` y `security-review` | Hechas |
-| Ronda de arreglos de la revisión final (F1 a F9, de `37d50f2` a `95ddc44`) | Hecha, con su repaso acotado hecho y sus dos detalles menores arreglados (`284d206`) |
-| Documentos de la publicación (auditoría, README, `CLAUDE.md`, plantilla del PR, traspaso) | Hechos y repasados, y puestos al día con los cambios del Abogado Digital |
-| Revisión final del Abogado Digital | Hecha (1-11-2026): «se puede publicar, con cambios»; ninguna norma exige cambios; O-1 y R-1 a R-4 aplicados (`284d206` y los documentos) |
-| Comprobación corta de la última tanda (`284d206` y sus documentos) | Hecha, sin nada abierto |
-| PR a `main` (#13, `f9259bd`) | Fusionado (1-11-2026) |
-| APK firmado, prueba del dueño en el móvil y etiqueta `v1.3.1` | Hechos: la etiqueta en `889d595` y la release el 2-11-2026; la prueba en el móvil, sin problemas (el dueño, 3-11-2026) |
-| Puesta al día de los documentos tras publicar (estado, auditoría, traspaso y fecha de la política) | Hecha (3-11-2026) |
+| Tarea 1: `BiometricVault` en una sola fila (`KeyOpsQueue`) | Terminada y revisada |
+| Tareas 2 a 4: Laboratorio de hashes, Laboratorio clásico y Repartir un secreto | Terminadas y revisadas |
+| Tarea 5: Comprobar una copia | Terminada y revisada |
+| Tareas 6 a 10: los lectores (CSV, JSON, cifrados), el plan de fusión con la copia previa y la pantalla de importar | Terminadas y revisadas |
+| Tarea 11: AGP 9.5.0 y el R8 nuevo | Terminada y revisada |
+| Tarea 12: `versionName` 1.4.0 y los documentos | Hecha; se revisa con la revisión final |
+| Ronda final de arreglos (las líneas «Final fix wave» del registro) | Pendiente |
+| Revisión de la rama entera y su ronda de arreglos | Pendiente |
+| Ataque sobre toda la app (decisiones (d) y (f)), con sus arreglos y su repaso | Pendiente |
+| `code-review`, `security-review` y la auditoría completa | Pendientes |
+| Revisión final del Abogado Digital, con sus cambios | Pendiente |
+| PR a `main`, APK firmado, prueba del dueño en el móvil y etiqueta `v1.4.0` | Pendientes |
 
-**Decisiones del dueño y del controlador que siguen vigentes** (el detalle está en `progress.md`, en las líneas «Ruling» y «Owner decision»):
+**Decisiones del dueño y del controlador de la 1.3.x que siguen vigentes** (el detalle está en `docs/superpowers/handoff/sdd-1.3.0/progress.md` y `sdd-1.3.1/progress.md`, en las líneas «Ruling» y «Owner decision»):
 - **Detalles menores:** se arreglan todos, no se aplazan.
 - **Nombre de salida de Limpiar foto:** `copia-de-foto.<ext>`, y no `foto-limpia`, porque «limpio» es una palabra prohibida. Tachar sigue con `imagen-tachada.<ext>`.
 - **Estado que sobrevive al giro:** la imagen y los recuadros de Tachar, la copia de Limpiar foto, el PIN, los códigos, las respuestas, el diálogo de A6, el texto pendiente del QR y el formulario de una entrada viven en un ViewModel o en `AppContainer`, **nunca** en `rememberSaveable` ni en un `Bundle` si son secretos o imágenes. Se pierden si Android cierra la app, y eso se acepta.
@@ -82,13 +85,38 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Prueba de palabras prohibidas:** `SourceTextsTest` revisa todas las cadenas de `app/src/main/java`, no solo `ToolTexts.kt`.
 - **Fusiones con el botón de GitHub:** firman con el correo de la cuenta del dueño. Las de los PR #9 a #14 llevan su correo personal; desde el 3-11-2026 la cuenta lo tiene privado, así que las siguientes usan la dirección `noreply` de GitHub. Las seis que ya existen no se reescriben: haría falta un force-push a `main`, que rompe las etiquetas y las copias descargadas.
 
+
+**Decisiones de la 1.4.0** (el detalle, en `docs/superpowers/handoff/sdd-1.4.0/progress.md`, en las líneas «Owner decision» y «Ruling»):
+- **(a) Entradas enormes (dueño, 3-11-2026):** en toda entrada de datos, topes antes de leer o reservar, lectura por partes con búferes acotados, nada de leer un archivo entero sin tope ni de analizar sin límite de profundidad o de número, y el trabajo largo fuera del hilo principal y cancelable.
+- **(b) Carreras entre comprobar y usar (dueño):** se usa lo que se comprobó (una sola lectura), un bloqueo o un borrado a mitad no deja un resultado tardío, y los secretos se comparan en tiempo constante.
+- **(c) Lo importado es dato hostil (dueño, 4-11-2026):** solo se muestra como texto plano y se guarda tal cual; nunca se ejecuta, se interpreta, se abre ni se convierte en enlace o en `Intent`; sin deserializar tipos del archivo.
+- **(d) Ataque (dueño):** después de la revisión de la rama y su ronda, un agente atacante sobre **toda** la app, con pruebas de concepto como tests que fallan en el repositorio; cada hallazgo se arregla y su test pasa a verde y se queda en la suite. Informe en `docs/auditorias/2026-11-XX-ataque-1.4.0.md`.
+- **(f) Agente atacante dedicado (dueño, 8-11-2026):** amplía (d): ataca cada entrada (archivos y copias importados, `SG1:` y `.sgenc`, QR, *intents* y componentes exportados, portapapeles, otras apps y carpetas compartidas, la copia del sistema, la red y TLS, el bloqueo y la huella, la memoria y la muerte del proceso) con pruebas de concepto como tests; corre en la revisión final, después de la tarea 12 y antes del PR, y el mismo agente vuelve a comprobar cada arreglo.
+- **(e) Sin exportaciones reales (dueño, 4-11-2026):** los archivos de prueba son sintéticos, escritos desde la documentación pública; los cifrados, con un generador independiente en Python (`scripts/import-fixtures/gen_encrypted.py`). El dueño prueba con sus apps después de publicar; lo que falle va a la 1.4.1. Lo que falta confirmar está en «Pendiente de confirmar» de `sdd-1.4.0/task-10-report.md`.
+- **Nombres de otras apps (R2, R7, R8):** solo en literales de `imports/ImportTexts.kt` y en el README, con la línea «Los nombres de otras apps son marcas de sus titulares. Clavero no tiene relación con ellos.»; nunca en la ficha de Play. `ImportTextsTest` lo comprueba, con una lista exacta de literales anteriores permitidos (los «Google Authenticator» de la 1.1, «la copia de Google» y la atribución de Guava). El aviso de SLIP-0039 no nombra marcas y dice «cartera» (R3, R3a).
+- **Mostrar sin suplantar (R9, R10):** los títulos, usuarios y URL se guardan tal cual; al mostrarlos en listas, cabeceras y el informe de importar se quitan los controles, las marcas de dirección y los invisibles (`plainReportText`), en cualquier entrada.
+- **JSON (R11a, R11c, R11b):** antes de analizarlo se estima el tamaño del árbol (con el crecimiento de las listas y los mapas) y se rechaza por encima de 48 MiB (`JSON_MAX_TREE_BYTES`); `readImport` va fuera del hilo principal y un `OutOfMemoryError` solo se captura ahí, como última defensa.
+- **Contraseña de una exportación (fin de R13a):** se pide; una equivocada se puede volver a escribir y nada se reintenta solo.
+- **Lo que cabe (R12, R14):** como mucho 20 000 elementos por archivo, contando los que no entran; la bóveda resultante tiene que caber en una copia (adjuntos + 2 ≤ `BACKUP_MAX_ENTRIES`, y el tamaño codificado exacto).
+- **A6 y las copias de antes de importar (R15):** A6 también borra las copias de antes de importar que la app tiene apuntadas en la carpeta; sus textos y la política lo dicen. La copia guardada con el diálogo no está en la lista y no se borra.
+- **Un plan de importar viejo no se aplica (R16):** el plan se hace sobre una instantánea (entradas y revisión) tomada bajo el mutex, y se rechaza si la bóveda cambió; un fallo al guardar da un texto fijo.
+- **Pantalla de importar (R17):** confirmada la importación, la copia y el guardado terminan aunque se bloquee la bóveda, y el resultado no se enseña después del bloqueo; con la carpeta de la copia automática sin permiso sale su error y no se pasa al diálogo (sin copia no se importa).
+- **Etiquetas (R18):** como mucho 100 etiquetas nuevas por importación (`IMPORT_MAX_NEW_TAGS`); la vista previa enseña 20 y «y N más».
+- **Formatos (R19, R21, R22):** Bitwarden: su CSV, su JSON en claro y «Protegida con contraseña»; «Cuenta restringida» y el `.zip` tienen su texto. Una página HTML se reconoce antes de leerla y nunca se muestra; el TXT de Aegis entra como lista de `otpauth://`; Google Authenticator tiene un texto de ayuda; el CSV de Edge se lee con y sin la columna de notas.
+- **Aegis (R24):** solo se prueba la primera ranura de contraseña (una derivación por intento).
+- **URI del CSV de Bitwarden (R26, R27):** la celda `login_uri` se parte solo por una coma seguida de un esquema con `://`; la primera es la URL y las demás van a las notas.
+- **AGP 9.5.0 (R28):** se queda en 9.5.0 aunque haya salido la 9.5.1. EPL-2.0 (JUnit Platform) y las partes GPL-CE/LGPL de R8 son solo de compilación y no van en el APK.
+- **jvm-check (R29):** siempre con el wrapper, `./gradlew -p jvm-check test` (Gradle 9.6); un Gradle 8 instalado falla la verificación de dependencias, y las sumas `-gradle813` no se vuelven a añadir.
+- **`BiometricVault` (tarea 1):** todas sus operaciones van en `KeyOpsQueue`, sobre un dispatcher de un solo hilo, cada una entera (activar: de crear la clave a `doFinal` y las preferencias, con el diálogo dentro); `disable` es `suspend` y sus seis llamadas lo esperan; un `disable` cancela la activación en curso. La fila no es reentrante.
+
 **Más decisiones del 1-11-2026:**
 - **«Importar copia»** deja elegir cualquier archivo y mira su cabecera antes de pedir la contraseña (`mayBeVaultImport`).
 - **Un archivo restaurado se guarda con el tipo de su extensión** (`restoredFileMime`): imagen salvo SVG, vídeo, audio, texto plano y PDF; lo demás, `application/octet-stream`.
 - **Zoom en «Tachar»:** un segundo dedo antes de que el primero se mueva es zoom, y una cancelación del sistema no deja ningún bloque.
-- **Los avisos de R8 sobre los metadatos de Kotlin** quedan para la 1.4.0, con un AGP 9 que traiga ese R8. En la 1.3.1 se probó a fijar el R8 9.1.31 y el dueño decidió quitarlo («Quitarlo», `94ddb7f`): la compilación sigue como la de la 1.3.0, ya probada en el móvil.
+- **Los avisos de R8 sobre los metadatos de Kotlin:** resueltos en la 1.4.0 con AGP 9.5.0 y su R8 9.5.28 (tarea 11: de 78 avisos a 0). En la 1.3.1 se había probado a fijar el R8 9.1.31 y el dueño lo quitó (`94ddb7f`).
 
-**Decisiones de la 1.3.1 (1-11-2026):**
+
+**Decisiones de la 1.3.1 (1-11-2026), siguen vigentes:**
 - **CriptoPanel (dueño):** Clavero deja de leer `CP1:`, `.cpenc` y `criptopanel-vault`, y el nombre sale de la interfaz. Lo de CriptoPanel recibe el mismo error que cualquier dato que no es de Clavero. El dueño no tenía ninguna bóveda en CriptoPanel.
 - **Maestra nueva (CRY-A01, dueño):** solo al crear la bóveda y al cambiar la maestra. Abrir la bóveda, la huella e importar una copia no cambian (la contraseña de una copia sigue pidiendo solo 10 caracteres). Una maestra nueva necesita:
   - 10 caracteres contados de las dos maneras: unidades UTF-16 y puntos de código en NFC sin caracteres de formato (Cf);
@@ -100,18 +128,20 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Un archivo que esta versión no abre** (otro formato, o una versión 1, 4…): la huella no se ofrece ni prueba la clave (`BiometricRefusal.UNSUPPORTED`, sin aviso), y la maestra dice «No es una bóveda compatible» en lugar de «Contraseña incorrecta».
 - **TOTP (CRY-B02):** fuera de 6 a 8 dígitos, de 10 a 120 s o de SHA1, SHA256 y SHA512, el código se rechaza, no se cambia. El editor y el Inspector de QR lo dicen, y el Inspector no ofrece «Añadir a la bóveda». La lista dice «2FA no admitido» y la ficha explica por qué. Solo un parámetro que falta toma el valor por defecto.
 - **Revisión del Abogado Digital (1-11-2026):** «se puede publicar, con cambios». Con los hechos que da por ciertos (particular sin ánimo de lucro, gratuita, sin anuncios ni donaciones, sin recibir datos), ninguna norma exige cambios. Se aplicaron O-1 (`FINGERPRINT_STALE`, obligatorio por la regla de veracidad de este proyecto), R-1 (la nota de CriptoPanel del README, con la salida por la 1.3.0), R-2 (el ejemplo de User-Agent de la política), R-3 (la nota de la EFF en Licencias) y R-4 (una frase de la auditoría). Las notas de la versión de GitHub y de Play no están en el repositorio: deben decir que la 1.3.1 deja de abrir los formatos de CriptoPanel, no presentar la regla de la maestra como algo que hace fuerte la contraseña y no usar palabras prohibidas (borrador en el traspaso de la 1.3.1).
-- **`BiometricVault.disable` en el hilo principal:** sigue ahí en la 1.3.1, en sus seis llamadas (es una llamada al Keystore). En la 1.4.0, todas las operaciones de `BiometricVault` pasan a un dispatcher de un solo hilo: mover solo `disable`, sin ponerlas en fila, podría borrar la clave que `enable` acaba de crear con el mismo alias, o saltarse `disable` al cancelar.
+- **`BiometricVault` en un solo hilo:** hecho en la 1.4.0 (tarea 1, abajo).
 - **Cada subida de `targetSdk`:** se repite en el móvil «¿Filtrada?» y «Comprobar filtraciones» con red. La segunda validación TLS de CRY-B01 no recibe el OCSP grapado ni las SCT de la extensión TLS, y podría rechazar de más si Android llega a exigir Certificate Transparency (N-04).
 
 **Pendientes, del dueño** (`docs/PUBLICAR.md` §3.7 y README, «Entorno de firma»):
-1. **1.3.1, las notas de la versión:** la release `v1.3.1` de GitHub se publicó sin notas. Hay que pegarlas a mano (*Releases → v1.3.1 → Edit*), porque las herramientas de Claude no pueden editar una release. El texto, revisado con la guía del Abogado Digital, está en el traspaso de la 1.3.1, §3, punto 5. Lo mismo en Play, si publica allí.
-2. **CriptoPanel:** retirar su app o su repositorio, si quiere; es decisión suya.
-3. **Borrar los secretos `SEGURIDAD_*` del repositorio**, si ya están en el entorno `firma`.
-4. **La comprobación del paso 7** con la rama `claude/prueba-secretos`, que debe dar `VACIO`.
-5. **Buscar las marcas** CLAVERO, CLAVIS y CLAVISTER en la clase 9 (TMview, OEPM, WIPO), y registrarla si quiere.
-6. **Las respuestas de Play Console**, y subir el AAB `Clavero-google-play-aab` de la ejecución de la etiqueta `v1.3.1` (#94) si publica en Google Play. La fecha de la política de la 1.3.1 ya está puesta (2-11-2026) y GitHub Pages la publica al fusionar en `main`.
-7. **Una copia propia de la clave de subida y de sus contraseñas** (el `.jks`), fuera del móvil y en un gestor de contraseñas, si no la tiene: la CI firma con los secretos de GitHub, que no se pueden leer. Si se perdiera, `docs/PUBLICAR.md` §4 explica cómo cambiarla.
-8. **Las pruebas en el móvil que siguen pendientes en el informe de la 1.3.0 (§4):** `adb`, TalkBack, la ventana flotante de MagicOS, el teclado de Honor y la colaboración con el PC.
+1. **1.4.0, después de fusionar el PR en `main`:** *Actions → Build APK → Run workflow* desde `main`, aprobar **build-firma** y descargar `Clavero.apk`; hacer las pruebas P-1 a P-20 del README («Pruebas de la 1.4.0»); poner la fecha de `docs/privacidad.html` el día que se publique (GitHub Pages la publica al fusionar en `main`); poner la etiqueta `v1.4.0` desde Termux cuando la prueba esté bien; pegar las notas de la versión en GitHub (y en Play), con el borrador del traspaso de la 1.4.0, y subir el AAB de esa ejecución si publica en Google Play. Los pasos, en el traspaso de la 1.4.0, §3.
+2. **1.4.0, exportaciones reales (decisión (e)):** después de publicar, importar una exportación de cada app que use (P-1 a P-3); lo que no entre bien va a la 1.4.1.
+3. **1.3.1, las notas de la versión:** la release `v1.3.1` de GitHub se publicó sin notas. Hay que pegarlas a mano (*Releases → v1.3.1 → Edit*), porque las herramientas de Claude no pueden editar una release. El texto, revisado con la guía del Abogado Digital, está en el traspaso de la 1.3.1, §3, punto 5. Lo mismo en Play, si publica allí.
+4. **CriptoPanel:** retirar su app o su repositorio, si quiere; es decisión suya.
+5. **Borrar los secretos `SEGURIDAD_*` del repositorio**, si ya están en el entorno `firma`.
+6. **La comprobación del paso 7** con la rama `claude/prueba-secretos`, que debe dar `VACIO`.
+7. **Buscar las marcas** CLAVERO, CLAVIS y CLAVISTER en la clase 9 (TMview, OEPM, WIPO), y registrarla si quiere.
+8. **Las respuestas de Play Console**, si publica en Google Play (la 1.3.1: el AAB `Clavero-google-play-aab` de la ejecución de la etiqueta `v1.3.1`, #94).
+9. **Una copia propia de la clave de subida y de sus contraseñas** (el `.jks`), fuera del móvil y en un gestor de contraseñas, si no la tiene: la CI firma con los secretos de GitHub, que no se pueden leer. Si se perdiera, `docs/PUBLICAR.md` §4 explica cómo cambiarla.
+10. **Las pruebas en el móvil que siguen pendientes en el informe de la 1.3.0 (§4):** `adb`, TalkBack, la ventana flotante de MagicOS, el teclado de Honor y la colaboración con el PC.
 
 ## Reglas del proyecto
 
@@ -120,11 +150,12 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Solo dependencias gratuitas y de licencia permisiva** (Apache-2.0, MIT, BSD, ISC, y CC BY para datos). Nada propietario ni copyleft (GPL, AGPL ni LGPL): la app se publica con licencia **Apache-2.0** y cualquier dependencia tiene que ser compatible con ella.
 - Red: solo `api.pwnedpasswords.com`, con el cliente que bloquea los certificados de eMudhra. Sin logs con datos. `FLAG_SECURE` en toda la app.
 - Interfaz en español.
+- **Nombres de otras apps** (1.4.0): solo en la pantalla de importar (`imports/ImportTexts.kt`) y en el README, para decir qué formato se lee, sin logotipos y con la línea de marcas; nunca en la ficha de Google Play. **Nunca se copia código**, tests ni archivos de prueba de otras apps ni de otros importadores: los lectores se escriben desde la documentación pública.
 
 ## Compilar y probar
 
 ```bash
 export ANDROID_HOME=/opt/android-sdk     # en las sesiones en la nube
-./gradlew :app:assembleDebug :app:lintDebug --no-daemon --max-workers=1
-./gradlew -p jvm-check test --no-daemon --max-workers=1   # el wrapper (Gradle 9.6); un Gradle 8 instalado falla la verificación de dependencias
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon --max-workers=1
+./gradlew -p jvm-check test --no-daemon --max-workers=1   # el wrapper (Gradle 9.6), nunca un gradle instalado (R29): un Gradle 8 falla la verificación de dependencias
 ```

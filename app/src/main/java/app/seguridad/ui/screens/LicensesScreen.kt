@@ -32,7 +32,7 @@ private val components = listOf(
     Component("Jetpack Compose y Material 3", "Apache-2.0", "https://developer.android.com/jetpack/compose", "apache-2.0.txt"),
     Component("OkHttp y Okio", "Apache-2.0", "https://square.github.io/okhttp/", "apache-2.0.txt"),
     Component("ZXing y ZXing Android Embedded", "Apache-2.0", "https://github.com/journeyapps/zxing-android-embedded", "apache-2.0.txt", "Lectura de códigos QR con la cámara. Incluye código de Barcode4J: Copyright 2002-2010 Jeremias Märki, Copyright 2005-2006 Dietmar Bürkle. Portions of this software were contributed under section 5 of the Apache License."),
-    Component("Bouncy Castle", "MIT", "https://www.bouncycastle.org/", "bouncycastle.txt", "Algoritmos criptográficos: Argon2id, ChaCha20-Poly1305, Twofish, Serpent, Camellia, Ed25519, HPKE y el cifrado híbrido X-Wing."),
+    Component("Bouncy Castle", "MIT", "https://www.bouncycastle.org/", "bouncycastle.txt", "Algoritmos criptográficos: Argon2id, scrypt, ChaCha20-Poly1305, Twofish, Serpent, Camellia, SHA-3, BLAKE2b, BLAKE3, Ed25519, HPKE y el cifrado híbrido X-Wing."),
     Component("Lista de palabras BIP-39", "MIT", "https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md", "bip39.txt", "Las 2.048 palabras en inglés y las 2.048 en español, sin cambios."),
     // Task 4 of 1.4.0: data only (the list in the app, the vectors in the tests), never code. MIT asks for the notice.
     Component("Lista de palabras SLIP-0039", "MIT", "https://github.com/trezor/python-shamir-mnemonic", "slip39.txt", "Las 1.024 palabras en inglés de SLIP-0039, sin cambios, de python-shamir-mnemonic (Copyright 2019 SatoshiLabs). «Repartir un secreto» las usa para las partes. Solo se usan los datos, no el código."),
