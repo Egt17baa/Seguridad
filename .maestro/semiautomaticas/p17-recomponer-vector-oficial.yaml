@@ -1,0 +1,66 @@
+# P-17 (en parte, tarea 4): recomponer las partes de un vector oficial de SLIP-0039, el n.º 4 («Basic
+# sharing 2-of-3 (128 bits)»), que está en app/src/test/resources/vectors/slip39.json. Tiene que salir el
+# secreto b43ceb7e57a0ea8766221624d01b0864.
+# No borra datos: se puede usar en tu móvil.
+# Los vectores oficiales usan una contraseña fija, la de VECTOR_PASSPHRASE en
+# app/src/test/java/app/seguridad/tools/slip39/Slip39Test.kt. No se escribe aquí: pásala al ejecutar,
+#   maestro test -e CONTRASENA_VECTOR=<esa contraseña> .maestro/semiautomaticas/p17-recomponer-vector-oficial.yaml
+appId: io.github.egt17baa.seguridad
+name: "P-17 Repartir un secreto: un vector oficial de SLIP-0039"
+tags:
+  - clavero-1.4.0
+  - semiautomatica
+  - necesita-variable
+---
+- assertTrue: ${typeof CONTRASENA_VECTOR !== 'undefined' && CONTRASENA_VECTOR.length > 0}
+- runFlow: ../comun/abrir-app.yaml
+- runFlow:
+    file: ../comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Repartir un secreto.*'
+- tapOn: "Recomponer"
+- tapOn: "Partes, una por línea"
+- inputText: "shadow pistol academic always adequate wildlife fancy gross oasis cylinder mustang wrist rescue view short owner flip making coding armed"
+- pressKey: Enter
+- inputText: "shadow pistol academic acid actress prayer class unknown daughter sweater depict flip twice unkind craft early superior advocate guest smoking"
+- hideKeyboard
+- tapOn: 'Contraseña \(opcional\)'
+- inputText: ${CONTRASENA_VECTOR}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Recomponer"
+      below:
+        text: 'Solo caracteres ASCII imprimibles, como pide SLIP-0039.*'
+    direction: DOWN
+- tapOn:
+    text: "Recomponer"
+    below:
+      text: 'Solo caracteres ASCII imprimibles, como pide SLIP-0039.*'
+- extendedWaitUntil:
+    visible: "b43ceb7e57a0ea8766221624d01b0864"
+    timeout: 60000
+
+# Sin la contraseña sale otro secreto, sin ningún error (SLIP-0039 no avisa).
+- scrollUntilVisible:
+    element:
+      text: 'Contraseña \(opcional\)|•+'
+    direction: UP
+- tapOn: 'Contraseña \(opcional\)|•+'
+- eraseText: 40
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Recomponer"
+      below:
+        text: 'Solo caracteres ASCII imprimibles, como pide SLIP-0039.*'
+    direction: DOWN
+- tapOn:
+    text: "Recomponer"
+    below:
+      text: 'Solo caracteres ASCII imprimibles, como pide SLIP-0039.*'
+- extendedWaitUntil:
+    visible: 'Si la contraseña no es la que se usó al repartir, este es otro secreto distinto: SLIP-0039 no avisa\.'
+    timeout: 60000
+- assertNotVisible: "b43ceb7e57a0ea8766221624d01b0864"
+- tapOn: "Atrás"

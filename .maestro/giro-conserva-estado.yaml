@@ -1,0 +1,103 @@
+# Girar el móvil conserva lo escrito y el resultado (el estado vive en un ViewModel, no en
+# rememberSaveable; decisión de la 1.3.x «Estado que sobrevive al giro»): Laboratorio de hashes,
+# Laboratorio clásico y Repartir un secreto. P-15 a P-17 no lo piden aparte; P-18 (la huella al girar)
+# es manual.
+# Necesita el comando setOrientation de Maestro (versiones recientes). Si tu Maestro no lo tiene, gira el
+# dispositivo a mano o sáltate este flujo.
+# No borra datos: se puede usar en tu móvil (deja la pantalla en vertical al terminar).
+appId: io.github.egt17baa.seguridad
+name: "Giro: las herramientas nuevas conservan lo escrito"
+tags:
+  - clavero-1.4.0
+  - automatica
+---
+- setOrientation: PORTRAIT
+- runFlow: comun/abrir-app.yaml
+
+# Laboratorio de hashes.
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio de hashes.*'
+- tapOn: 'Texto \(se calcula en UTF-8\)'
+- inputText: "abc"
+- hideKeyboard
+- setOrientation: LANDSCAPE_LEFT
+- extendedWaitUntil:
+    visible: "Laboratorio de hashes"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    direction: DOWN
+- setOrientation: PORTRAIT
+- scrollUntilVisible:
+    element:
+      text: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    direction: DOWN
+- tapOn: "Atrás"
+
+# Laboratorio clásico.
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio clásico.*'
+- tapOn: "Texto"
+- inputText: "Hola Mundo"
+- hideKeyboard
+- setOrientation: LANDSCAPE_LEFT
+- extendedWaitUntil:
+    visible: "Laboratorio clásico"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "Krod Pxqgr"
+    direction: DOWN
+- assertVisible: "Hola Mundo"
+- setOrientation: PORTRAIT
+- tapOn: "Atrás"
+
+# Repartir un secreto: las partes siguen después de girar.
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Repartir un secreto.*'
+- tapOn: 'Frase BIP-39 \(12, 15, 18, 21 o 24 palabras en inglés\)'
+- inputText: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Repartir"
+      below:
+        text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
+      enabled: true
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    text: "Repartir"
+    below:
+      text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
+- extendedWaitUntil:
+    visible: "Parte 1"
+    timeout: 60000
+- copyTextFrom:
+    text: '([a-z]+ ){19}[a-z]+'
+    below:
+      text: "Parte 1"
+- evalScript: ${output.antes = maestro.copiedText}
+- setOrientation: LANDSCAPE_LEFT
+- extendedWaitUntil:
+    visible: "Repartir un secreto"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "Parte 1"
+    direction: DOWN
+    centerElement: true
+- copyTextFrom:
+    text: '([a-z]+ ){19}[a-z]+'
+    below:
+      text: "Parte 1"
+- assertTrue: ${maestro.copiedText == output.antes}
+- setOrientation: PORTRAIT
+- tapOn: "Atrás"

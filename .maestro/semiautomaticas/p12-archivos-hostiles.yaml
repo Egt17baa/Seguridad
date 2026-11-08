@@ -1,0 +1,98 @@
+# BORRA TODOS LOS DATOS DE CLAVERO (clearState): solo en el emulador o en un móvil sin tu bóveda real.
+# Crea una bóveda de PRUEBA con una maestra de prueba escrita aquí (MAESTRA), nunca la tuya.
+# Antes: python3 .maestro/datos/preparar_archivos.py (escribe clavero-listas.json y clavero-rlo.csv y los
+# copia a Descargas).
+#
+# P-12 (decisiones del dueño (a) y (c), tareas 7 y 9):
+# - un JSON de unos 3 MB con muchas listas pequeñas dice «El archivo tiene demasiados datos. Clavero no lo
+#   lee.» y la app no se cierra;
+# - un CSV de navegador con el título «Banco», U+202E y «gpj.exe» (sin el arreglo se vería «Bancoexe.jpg»)
+#   se ve «Bancogpj.exe» en la vista previa, en la lista de la bóveda y en el detalle;
+# - la URL importada no se abre al tocarla: Clavero sigue en primer plano.
+appId: io.github.egt17baa.seguridad
+name: "P-12 Importar: archivos hechos a mala fe"
+tags:
+  - clavero-1.4.0
+  - semiautomatica
+  - borra-datos
+env:
+  MAESTRA: nube-ladera-pino-ancla-trigo-prueba
+---
+- runFlow: ../comun/inicio-desde-cero.yaml
+- runFlow:
+    file: ../comun/crear-boveda.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+- runFlow: ../comun/abrir-importar.yaml
+
+# El JSON de 3 MB con 700 000 listas.
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-listas.json"
+- extendedWaitUntil:
+    visible: "El archivo tiene demasiados datos. Clavero no lo lee."
+    timeout: 120000
+- assertVisible: "Elegir archivo"
+- assertVisible: "Importar de otra app"
+
+# El título con U+202E.
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-rlo.csv"
+- extendedWaitUntil:
+    visible: "Vista previa"
+    timeout: 30000
+- assertVisible: "Entra 1 entrada nueva: 1 acceso."
+- scrollUntilVisible:
+    element:
+      text: '.*Bancogpj\.exe'
+    direction: DOWN
+- assertNotVisible: '.*Bancoexe\.jpg.*'
+- scrollUntilVisible:
+    element:
+      text: "Importar"
+      enabled: true
+    direction: UP
+    timeout: 30000
+- tapOn: "Importar"
+- extendedWaitUntil:
+    visible: "Elegir dónde guardarla"
+    timeout: 30000
+- tapOn: "Elegir dónde guardarla"
+- runFlow: ../comun/guardar-en-selector.yaml
+- extendedWaitUntil:
+    visible: "Importación terminada"
+    timeout: 120000
+- assertVisible: "Ha entrado 1 entrada nueva."
+- scrollUntilVisible:
+    element:
+      text: "No, déjalo"
+    direction: DOWN
+- tapOn: "No, déjalo"
+- tapOn: "Atrás"
+
+# En la lista de la bóveda y en el detalle.
+- extendedWaitUntil:
+    visible: '.*Bancogpj\.exe.*'
+    timeout: 15000
+- assertNotVisible: '.*Bancoexe\.jpg.*'
+- tapOn: '.*Bancogpj\.exe.*'
+- extendedWaitUntil:
+    visible: '.*Bancogpj\.exe'
+    timeout: 10000
+- assertNotVisible: '.*Bancoexe\.jpg.*'
+
+# La URL no se abre al tocarla.
+- scrollUntilVisible:
+    element:
+      text: 'https://banco\.example\.com/'
+    direction: DOWN
+- tapOn: 'https://banco\.example\.com/'
+- waitForAnimationToEnd
+- assertVisible: '.*Bancogpj\.exe'
+- assertVisible: "Atrás"
+- tapOn: "Atrás"

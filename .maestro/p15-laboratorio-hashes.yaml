@@ -1,0 +1,203 @@
+# P-15, Laboratorio de hashes (tarea 2): las pestañas Texto, HMAC y Base64/hex, la comparación con una
+# huella esperada (con espacios y en mayúsculas), el tamaño equivocado y el borrado al volver atrás.
+# La pestaña Archivo está en semiautomaticas/p15-laboratorio-hashes-archivo.yaml, y el borrado al
+# bloquear, en borra-datos/p15-p16-p17-bloquear-borra.yaml.
+# No borra datos: se puede usar en tu móvil. Solo escribe valores de prueba públicos.
+# Valores esperados (calculados con hashlib y hmac de Python, independientes de la app):
+#   SHA-256("")    = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+#   SHA-256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+#   SHA-512("abc") empieza por ddaf35a193617aba
+#   HMAC-SHA256(clave «key», «The quick brown fox jumps over the lazy dog»)
+#                  = f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8
+#   Base64("abc") = YWJj; hex("abc") = 616263; hex 486f6c61 = «Hola»
+appId: io.github.egt17baa.seguridad
+name: "P-15 Laboratorio de hashes: texto, HMAC y Base64/hex"
+tags:
+  - clavero-1.4.0
+  - automatica
+---
+- runFlow: comun/abrir-app.yaml
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio de hashes.*'
+- assertVisible: "Laboratorio de hashes"
+- assertVisible: 'Calcula la huella de un texto o de un archivo y compárala con la que publica su autor.*'
+- assertVisible: "Texto"
+- assertVisible: "Archivo"
+- assertVisible: "HMAC"
+- assertVisible: "Base64/hex"
+- assertVisible: "SHA-512"
+- assertVisible: "SHA3-256"
+- assertVisible: "BLAKE2b-512"
+- assertVisible: "BLAKE3-256"
+
+# Texto: sin escribir nada, la huella del texto vacío; con «abc», la de «abc».
+- scrollUntilVisible:
+    element:
+      text: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    direction: DOWN
+- tapOn: 'Texto \(se calcula en UTF-8\)'
+- inputText: "abc"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    direction: DOWN
+
+# La huella esperada, en mayúsculas y con espacios: coincide.
+- scrollUntilVisible:
+    element:
+      text: 'Huella esperada \(hex o Base64\)'
+    direction: DOWN
+- tapOn: 'Huella esperada \(hex o Base64\)'
+- inputText: "BA7816BF 8F01CFEA 414140DE 5DAE2223 B00361A3 96177A9C B410FF61 F20015AD"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "✓ Coincide"
+    direction: DOWN
+
+# Otra huella del mismo tamaño: no coincide.
+- tapOn: 'BA7816BF 8F01CFEA.*'
+- eraseText: 120
+- inputText: "0000000000000000000000000000000000000000000000000000000000000000"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "✗ No coincide"
+    direction: DOWN
+
+# Algo que no es hex ni Base64 de 32 o 64 bytes.
+- tapOn: '0{64}'
+- eraseText: 120
+- inputText: "no-es-una-huella"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'La huella esperada no es válida: tiene que ser hex o Base64 de 32 o de 64 bytes\.'
+    direction: DOWN
+
+# Una huella de 64 bytes con SHA-256: dice el tamaño en lugar de «No coincide».
+- tapOn: "no-es-una-huella"
+- eraseText: 40
+- inputText: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'Esta huella tiene 64 bytes, el tamaño de SHA-512 o BLAKE2b-512\. Elige uno de esos algoritmos\.'
+    direction: DOWN
+
+# Con SHA-512, la huella de «abc» es otra y ya tiene el tamaño: «No coincide».
+- scrollUntilVisible:
+    element:
+      text: "SHA-512"
+    direction: UP
+- tapOn: "SHA-512"
+- scrollUntilVisible:
+    element:
+      text: 'ddaf35a193617aba.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "✗ No coincide"
+    direction: DOWN
+- tapOn: '0{128}'
+- eraseText: 200
+- hideKeyboard
+
+# HMAC: sin clave lo pide; «key» en hex no vale; en texto da el HMAC conocido.
+- scrollUntilVisible:
+    element:
+      text: "HMAC"
+    direction: UP
+- tapOn: "HMAC"
+- assertVisible: 'HMAC-SHA256 con una clave que escribes\..*'
+- assertVisible: "Escribe una clave."
+- tapOn: "Clave"
+- inputText: "key"
+- hideKeyboard
+- tapOn: 'Mensaje \(UTF-8\)'
+- inputText: "The quick brown fox jumps over the lazy dog"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Clave en hex"
+    direction: UP
+- tapOn: "Clave en hex"
+- assertVisible: "La clave en hex no es válida."
+- tapOn: "Clave en texto"
+- scrollUntilVisible:
+    element:
+      text: "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+    direction: DOWN
+
+# Base64/hex: codificar y decodificar.
+- scrollUntilVisible:
+    element:
+      text: "Base64/hex"
+    direction: UP
+- tapOn: "Base64/hex"
+- tapOn: "Entrada"
+- inputText: "abc"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "YWJj"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Hex"
+    direction: UP
+- tapOn: "Hex"
+- scrollUntilVisible:
+    element:
+      text: "616263"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Decodificar"
+    direction: UP
+- tapOn: "Decodificar"
+- scrollUntilVisible:
+    element:
+      text: "La entrada no es válida para ese formato."
+    direction: DOWN
+- tapOn: "abc"
+- eraseText: 10
+- inputText: "486f6c61"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Hola"
+    direction: DOWN
+
+# Lo que no protege y el aviso de borrado.
+- scrollUntilVisible:
+    element:
+      text: "Lo que no protege"
+    direction: DOWN
+- assertVisible: 'Que la huella coincida solo dice que el archivo es el mismo que el de la huella\..*'
+- scrollUntilVisible:
+    element:
+      text: 'Lo que escribes aquí y el resultado se borran si vuelves atrás.*'
+    direction: DOWN
+
+# Volver atrás lo borra todo: al entrar otra vez, la pestaña Texto está vacía.
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio de hashes.*'
+- assertNotVisible: "YWJj"
+- assertNotVisible: "486f6c61"
+- scrollUntilVisible:
+    element:
+      text: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    direction: DOWN
+- assertNotVisible: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+- tapOn: "Atrás"

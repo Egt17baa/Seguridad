@@ -1,0 +1,170 @@
+# BORRA TODOS LOS DATOS DE CLAVERO (clearState): solo en el emulador o en un móvil sin tu bóveda real.
+# Crea una bóveda de PRUEBA con una maestra de prueba escrita aquí (MAESTRA), nunca la tuya.
+# Antes: python3 .maestro/datos/preparar_archivos.py (copia los archivos de prueba a Descargas).
+#
+# P-7 (en parte): sin copia automática, cancelar el diálogo de la copia de antes de importar no importa
+# nada; con la copia guardada, el resultado dice dónde está y que Clavero no la borrará.
+# P-10 (en parte): «No, déjalo».
+# P-9 (en parte): el mismo archivo otra vez: con «Saltar» no entra nada; «Conservar los dos» y
+# «Reemplazar» cambian el recuento; volver a tocar la opción ya elegida deja «Importar» activo.
+# La carpeta de la copia automática sin permiso (P-7) y el historial de «Reemplazar» (P-9) son manuales.
+appId: io.github.egt17baa.seguridad
+name: "P-7, P-9 y P-10 La copia de antes de importar y los duplicados"
+tags:
+  - clavero-1.4.0
+  - semiautomatica
+  - borra-datos
+env:
+  MAESTRA: nube-ladera-pino-ancla-trigo-prueba
+---
+- runFlow: ../comun/inicio-desde-cero.yaml
+- runFlow:
+    file: ../comun/crear-boveda.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+- runFlow: ../comun/abrir-importar.yaml
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-navegador.csv"
+- extendedWaitUntil:
+    visible: "Vista previa"
+    timeout: 30000
+- assertVisible: 'Entran \d+ entradas nuevas: \d+ accesos\.'
+- scrollUntilVisible:
+    element:
+      text: "Importar"
+      enabled: true
+    direction: DOWN
+    timeout: 30000
+
+# P-7: cancelar el diálogo de la copia: no se importa nada.
+- tapOn: "Importar"
+- extendedWaitUntil:
+    visible: "Elegir dónde guardarla"
+    timeout: 30000
+- tapOn: "Cancelar"
+- extendedWaitUntil:
+    visible: "Sin la copia de antes de importar no se importa: no se ha importado nada."
+    timeout: 15000
+- assertVisible: "Vista previa"
+
+# Ahora sí: la copia se guarda con el diálogo y se importa.
+- scrollUntilVisible:
+    element:
+      text: "Importar"
+      enabled: true
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Importar"
+- extendedWaitUntil:
+    visible: "Elegir dónde guardarla"
+    timeout: 30000
+- tapOn: "Elegir dónde guardarla"
+- runFlow: ../comun/guardar-en-selector.yaml
+- extendedWaitUntil:
+    visible: "Importación terminada"
+    timeout: 120000
+- assertVisible: 'Han entrado \d+ entradas nuevas\.'
+- assertVisible: 'La copia de antes de importar es «seguridad-antes-de-importar-.*», donde la guardaste\. Clavero no la borra si cambias la contraseña maestra: bórrala tú cuando ya no la necesites\.'
+
+# P-10: «No, déjalo».
+- scrollUntilVisible:
+    element:
+      text: "No, déjalo"
+    direction: DOWN
+- tapOn: "No, déjalo"
+- extendedWaitUntil:
+    visible: "De acuerdo. Clavero no lo vuelve a preguntar: bórralo a mano cuando ya no lo necesites."
+    timeout: 10000
+- assertNotVisible: "Quitar el archivo exportado"
+
+# P-9: el mismo archivo otra vez.
+- scrollUntilVisible:
+    element:
+      text: "Elegir otro archivo"
+    direction: DOWN
+- tapOn: "Elegir otro archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-navegador.csv"
+- extendedWaitUntil:
+    visible: "Vista previa"
+    timeout: 30000
+- assertVisible: "No entra ninguna entrada nueva."
+- extendedWaitUntil:
+    visible: "Con estas opciones no entra ni cambia nada."
+    timeout: 30000
+- assertVisible:
+    text: "Importar"
+    enabled: false
+- scrollUntilVisible:
+    element:
+      text: "Para todos:"
+    direction: DOWN
+- assertVisible: '\d+ ya están en la bóveda'
+# «Conservar los dos» para todos: entran todas otra vez.
+- tapOn:
+    text: "Conservar los dos"
+    below:
+      text: "Para todos:"
+- scrollUntilVisible:
+    element:
+      text: 'Entran \d+ entradas nuevas: \d+ accesos\.'
+    direction: UP
+- extendedWaitUntil:
+    visible:
+      text: "Importar"
+      enabled: true
+    timeout: 30000
+# Volver a tocar la opción ya elegida: «Importar» sigue activo.
+- scrollUntilVisible:
+    element:
+      text: "Para todos:"
+    direction: DOWN
+- tapOn:
+    text: "Conservar los dos"
+    below:
+      text: "Para todos:"
+- scrollUntilVisible:
+    element:
+      text: "Importar"
+    direction: UP
+- extendedWaitUntil:
+    visible:
+      text: "Importar"
+      enabled: true
+    timeout: 30000
+# «Reemplazar» para todos: no entra ninguna nueva y se reemplazan las que ya estaban.
+- scrollUntilVisible:
+    element:
+      text: "Para todos:"
+    direction: DOWN
+- tapOn:
+    text: "Reemplazar"
+    below:
+      text: "Para todos:"
+- scrollUntilVisible:
+    element:
+      text: 'Se reemplazan? \d+ entradas? de la bóveda\.'
+    direction: UP
+- assertVisible: "No entra ninguna entrada nueva."
+# «Saltar» otra vez: nada que hacer.
+- scrollUntilVisible:
+    element:
+      text: "Para todos:"
+    direction: DOWN
+- tapOn:
+    text: "Saltar"
+    below:
+      text: "Para todos:"
+- scrollUntilVisible:
+    element:
+      text: "No entra ninguna entrada nueva."
+    direction: UP
+- extendedWaitUntil:
+    visible: "Con estas opciones no entra ni cambia nada."
+    timeout: 30000
+- tapOn: "Atrás"

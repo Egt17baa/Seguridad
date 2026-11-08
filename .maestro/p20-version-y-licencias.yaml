@@ -1,0 +1,68 @@
+# P-20, versión y licencias: Ajustes → Acerca de dice «Clavero 1.4.0», y en «Ver licencias» se abren las
+# de la lista de SLIP-0039 y de Bouncy Castle, con scrypt, SHA-3, BLAKE2b y BLAKE3 en su nota.
+# No borra datos: se puede usar en tu móvil.
+appId: io.github.egt17baa.seguridad
+name: "P-20 Versión y licencias"
+tags:
+  - clavero-1.4.0
+  - automatica
+---
+- runFlow: comun/abrir-app.yaml
+- tapOn: "Ajustes"
+- scrollUntilVisible:
+    element:
+      text: "Acerca de, licencias y avisos"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Acerca de, licencias y avisos"
+- extendedWaitUntil:
+    visible: "Clavero 1.4.0"
+    timeout: 15000
+- assertVisible: "Acerca de"
+- scrollUntilVisible:
+    element:
+      text: "Ver licencias"
+    direction: DOWN
+- tapOn: "Ver licencias"
+- extendedWaitUntil:
+    visible: "Licencias"
+    timeout: 15000
+- assertVisible: "Clavero solo usa componentes de código abierto con licencia libre y gratuita."
+
+# Bouncy Castle: su nota nombra scrypt, SHA-3, BLAKE2b y BLAKE3, y su licencia se abre.
+- scrollUntilVisible:
+    element:
+      text: "Bouncy Castle"
+    direction: DOWN
+    centerElement: true
+- assertVisible: '.*scrypt.*SHA-3, BLAKE2b, BLAKE3.*'
+- tapOn:
+    text: "Ver el texto de la licencia"
+    below:
+      text: "Bouncy Castle"
+- scrollUntilVisible:
+    element:
+      text: '.*The Legion of the Bouncy Castle Inc\..*'
+    direction: DOWN
+
+# La lista de palabras SLIP-0039: su licencia (MIT) se abre.
+- scrollUntilVisible:
+    element:
+      text: "Lista de palabras SLIP-0039"
+    direction: DOWN
+    centerElement: true
+- assertVisible: 'Las 1\.024 palabras en inglés de SLIP-0039, sin cambios.*'
+- tapOn:
+    text: "Ver el texto de la licencia"
+    below:
+      text: "Lista de palabras SLIP-0039"
+- scrollUntilVisible:
+    element:
+      text: '.*SLIP-0039 English wordlist \(slip39_english\.txt\).*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: '.*Permission is hereby granted, free of charge.*'
+    direction: DOWN
+- tapOn: "Atrás"
+- tapOn: "Atrás"
