@@ -216,10 +216,10 @@ const val IMPORT_FORMATS =
 const val IMPORT_TRADEMARKS = "Los nombres de otras apps son marcas de sus titulares. Clavero no tiene relación con ellos."
 /** R33: true for a plain export and for a password-protected one (read since Task 10). */
 const val IMPORT_NOT_PROTECTED =
-    "Clavero no protege el archivo exportado. Si lo exportaste sin contraseña, está sin cifrar en tu móvil; si lo " +
-        "protegiste con contraseña, sus entradas siguen cifradas con esa contraseña. En los dos casos puede haber copias " +
-        "en la nube, en la papelera o en otras apps. Al terminar, Clavero puede intentar borrar ese archivo (algunas apps " +
-        "no lo dejan), pero no esas copias."
+    "Clavero no protege el archivo exportado. Un archivo exportado sin contraseña suele estar sin cifrar en tu móvil; " +
+        "si lo protegiste con contraseña, sus entradas siguen cifradas con esa contraseña. En los dos casos puede haber " +
+        "copias en la nube, en la papelera o en otras apps. Al terminar, Clavero puede intentar borrar ese archivo " +
+        "(algunas apps no lo dejan), pero no esas copias."
 const val IMPORT_WIPE_NOTE =
     "Lo leído del archivo, la contraseña que escribas y la vista previa se borran si vuelves atrás, si se cierra la app, " +
         "si la bóveda se bloquea o si estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como " +

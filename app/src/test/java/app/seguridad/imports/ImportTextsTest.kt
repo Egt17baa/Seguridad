@@ -167,10 +167,12 @@ class ImportTextsTest {
         // The explanation is shown with the offer, and a failure or a provider that cannot delete says «a mano».
         for (t in listOf(IMPORT_REMOVE_FAILED, IMPORT_REMOVE_UNSUPPORTED)) assertTrue(t, "a mano" in t)
         // R33 (Task 12 review, I-3): since Task 10 a password-protected export is read too, so neither text may say
-        // the exported file is unencrypted as a fact: it is only when it was exported without a password.
+        // the exported file is unencrypted as a fact: it is only when it was exported without a password. Re-review
+        // N-1: IMPORT_NOT_PROTECTED is shown on every step, also next to the «Cuenta restringida» error (a file that is
+        // encrypted without a password), so it says «suele», as the Play listing does.
         assertEquals(
-            "Clavero no protege el archivo exportado. Si lo exportaste sin contraseña, está sin cifrar en tu móvil; si " +
-                "lo protegiste con contraseña, sus entradas siguen cifradas con esa contraseña. En los dos casos puede " +
+            "Clavero no protege el archivo exportado. Un archivo exportado sin contraseña suele estar sin cifrar en tu " +
+                "móvil; si lo protegiste con contraseña, sus entradas siguen cifradas con esa contraseña. En los dos casos puede " +
                 "haber copias en la nube, en la papelera o en otras apps. Al terminar, Clavero puede intentar borrar ese " +
                 "archivo (algunas apps no lo dejan), pero no esas copias.",
             IMPORT_NOT_PROTECTED,
