@@ -50,7 +50,11 @@ internal fun csvDelimiter(text: String): Char =
 
 /**
  * How many cells the parser reads in the first record that is not blank with [delimiter]: nothing is stored and no
- * limit applies (the count is at most the length of the text). An unclosed quote ends the count where the text ends.
+ * limit applies (the count is at most the length of the text). A quote that never closes ends the count where the text
+ * ends, with the open cell counted as one, as if the quote closed there: `a;"b` is two cells with «;». Such a file never
+ * gives rows, whichever delimiter is chosen: if the chosen one meets the open quote, [parseCsv] throws
+ * [IMPORT_CSV_UNCLOSED_QUOTE]; if it does not (`a,b;"c` read with «,» is two cells, the quote in the middle of one), the
+ * file has no open quote for the parser.
  */
 internal fun csvFirstRecordCells(text: String, delimiter: Char): Int = CsvReader(text, delimiter).countFirstRecord()
 
@@ -73,7 +77,11 @@ private class CsvReader(private val text: String, private val delimiter: Char) {
         try {
             while (pos < text.length) record() ?: continue
         } catch (e: ImportFailure) {
-            // An unclosed quote: what was counted up to the end of the text is the answer.
+            // The only failure here is a quote that never closes, inside the first record that is not blank (a blank
+            // line holds no quote): the cell it opened was being read when the text ended, so it counts. Without it,
+            // `a;"b` would be one cell with «;» against one with «,», the tie would choose «,» and the file would be read
+            // as one column instead of failing with IMPORT_CSV_UNCLOSED_QUOTE.
+            counted++
         }
         return counted
     }

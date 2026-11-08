@@ -88,6 +88,40 @@ class CsvTest {
         }
     }
 
+    @Test fun aCellLeftOpenByAQuoteCountsForTheDelimiter() {
+        // Final fix wave: the cell an unclosed quote opened is counted, as if the quote closed where the text ends.
+        assertEquals(2, csvFirstRecordCells("a;\"b", ';'))
+        assertEquals(1, csvFirstRecordCells("a;\"b", ','))
+        assertEquals(1, csvFirstRecordCells("\"", ','))
+        // So adding the closing quote never changes the count of a record that has a cell.
+        val random = java.util.Random(7)
+        val alphabet = "ab,;\" \n\r"
+        repeat(20_000) {
+            val text = String(CharArray(random.nextInt(14)) { alphabet[random.nextInt(alphabet.length)] })
+            for (d in listOf(',', ';')) {
+                val cells = csvFirstRecordCells(text, d)
+                if (cells > 0) assertEquals("$d «$text»", cells, csvFirstRecordCells(text + "\"", d))
+            }
+        }
+    }
+
+    @Test fun anUnclosedQuoteEndsInItsErrorWhateverTheDelimiter() {
+        // A quote that the chosen delimiter's reading leaves open is IMPORT_CSV_UNCLOSED_QUOTE, never rows.
+        // With «;» (two cells against one) the quote opens a field.
+        assertEquals(';', csvDelimiter("a;\"b\n1;2"))
+        assertEquals(IMPORT_CSV_UNCLOSED_QUOTE, failure { parseCsv("a;\"b\n1;2") })
+        // At the start of the text both readings open it.
+        for (text in listOf("\"a,b;c", "\"a;b;c,d\n1;2", "\"a,b,c;d\n1,2"))
+            assertEquals(text, IMPORT_CSV_UNCLOSED_QUOTE, failure { parseCsv(text) })
+        // In a later row, with either delimiter.
+        assertEquals(IMPORT_CSV_UNCLOSED_QUOTE, failure { parseCsv("a;b;c\n1;\"2;3\n") })
+        assertEquals(IMPORT_CSV_UNCLOSED_QUOTE, failure { parseCsv("a,b,c\n1,\"2,3\n") })
+        // The header alone, to tell the format, cannot be read either.
+        assertNull(csvHeader("a;\"b"))
+        // The comma reading of «a,b;"c» has the quote in the middle of a cell: it opens nothing, two cells (tie with «;»).
+        assertEquals(listOf(listOf("a", "b;\"c")), parseCsv("a,b;\"c"))
+    }
+
     // --- Text decoding ---
 
     @Test fun utf8WithAndWithoutBom() {
