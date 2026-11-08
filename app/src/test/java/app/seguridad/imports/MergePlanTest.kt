@@ -2,6 +2,7 @@ package app.seguridad.imports
 
 import app.seguridad.core.appJson
 import app.seguridad.crypto.TotpSecret
+import app.seguridad.tools.qr.parseLink
 import app.seguridad.vault.AttachmentRef
 import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
 import app.seguridad.vault.EntryType
@@ -11,10 +12,13 @@ import app.seguridad.vault.VaultCrypto
 import app.seguridad.vault.VaultEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneOffset
+import java.util.Locale
+import java.util.Random
 
 /** 1.4.0, Task 8: the merge plan (spec «El plan de fusión») and the merged list it gives. */
 class MergePlanTest {
@@ -58,7 +62,7 @@ class MergePlanTest {
             read(
                 login(0, "  BANCO ", user = " ana ", url = "http://banco.ES/otra"),
                 login(1, "Banco", user = "ana", url = "https://otro.es/"),
-                login(2, "Banco", user = "Ana", url = "https://banco.es/"), // the user is only trimmed, never folded
+                login(2, "Banco", user = "Ana", url = "https://banco.es/"), // the user keeps its case: a capital is visible (R34)
                 login(3, "Banca", user = "ana", url = "https://banco.es/"),
                 login(4, "Banco", user = "ana", url = "https://user:clave@WWW.banco.es:8443/x"),
             ),
@@ -73,6 +77,99 @@ class MergePlanTest {
         assertEquals(ImportFormat.BITWARDEN, p.format)
         assertEquals(2, p.becameNotes)
         assertEquals(listOf(99), p.skipped.map { it.index })
+    }
+
+    // ---- RT-1 (ruling R34): the host is the one a browser goes to ----
+
+    @Test fun theHostIsTheOneABrowserGoesTo() {
+        // In a web link «\» ends the authority like «/» (URL Standard), so what follows the «@» is the path.
+        for (url in listOf(
+            "https://evil.example\\@banco.es/login",
+            "https://evil.example\\banco.es",
+            "https:\\\\evil.example\\@banco.es",
+            "https:/\\evil.example\\@banco.es",
+            "HTTPS://Evil.Example\\@Banco.ES/",
+            "http://www.evil.example:8080\\@banco.es",
+            "https://ana:clave@evil.example\\@banco.es/",
+            "evil.example\\@banco.es/login", // no scheme: read as an address bar reads it
+            "https://evil.example\t\\@banco.es",
+            "wss://evil.example\\@banco.es",
+        )) {
+            assertEquals(url, "evil.example", urlHost(url))
+        }
+        // The user info still ends at the last «@» before the end of the authority.
+        assertEquals("banco.es", urlHost("https://ana:x@banco.es\\@evil.example/"))
+        assertEquals("banco.es", urlHost("https://evil.example@banco.es/"))
+        // What it compared before still compares the same: www., case, user, port, path, query and fragment go.
+        for (url in listOf(
+            "https://www.Banco.es/login?x=1", "http://banco.ES/otra", "https://user:clave@WWW.banco.es:8443/x", "banco.es",
+            "banco.es:8443/x", "//banco.es/", "https://banco.es#x", "https://banco.es.",
+        )) {
+            assertEquals(url, "banco.es", urlHost(url))
+        }
+        assertEquals("localhost", urlHost("localhost:8080"))
+        assertEquals("[::1]", urlHost("https://[::1]:443/"))
+        assertEquals("com.example.app", urlHost("androidapp://com.example.app"))
+        // No host: the whole text, trimmed and in lower case; no URL: null.
+        assertEquals("https://", urlHost(" HTTPS:// "))
+        assertNull(urlHost("   "))
+    }
+
+    @Test fun theHostAgreesWithTheQrReaderForEveryWebLink() {
+        val random = Random(20261108L)
+        val parts = listOf(
+            "https:", "http:", "//", "\\", "/", "@", ":", "a", "b.es", "www.", "ana", "?", "#", "%40", "\t", " ", "[", "]",
+            "Ｂ", "​", "8443", "\uD800",
+        )
+        repeat(20_000) {
+            val url = "https://" + (0 until random.nextInt(10)).joinToString("") { parts[random.nextInt(parts.size)] }
+            val browser = parseLink(url).host?.removePrefix("www.")
+            assertEquals(url, browser?.ifEmpty { null } ?: url.trim().lowercase(Locale.ROOT), urlHost(url))
+        }
+    }
+
+    @Test fun aUrlOfAnotherSiteIsNotADuplicateAndReplaceCannotTakeIt() {
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", password = "la-buena")
+        val p = plan(read(login(0, "Banco", user = "ana", url = "https://evil.example\\@banco.es/login", password = "otra")), listOf(bank))
+        assertTrue(p.duplicates.isEmpty())
+        assertEquals(listOf(0), p.newItems.map { it.index })
+        val merged = mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId)
+        assertEquals(bank, merged.single { it.id == "b" }) // the vault's entry is never touched
+    }
+
+    // ---- RT-2 (ruling R34): what looks the same is a duplicate ----
+
+    @Test fun aTitleOrUserThatLooksTheSameIsADuplicate() {
+        val bank = saved("b", EntryType.LOGIN, "Café Banco", user = "ana", url = "https://banco.es/")
+        val looks = listOf(
+            "Café Ban​co" to "ana", "Café Banco" to "ana", "‮Café Banco" to "ana", "Café  Banco" to "ana",
+            "Café Banco\u0000" to "ana", "CAFÉ BANCO" to "an­a", "Café Banco" to "﻿ana⁠", "Café Banco" to "a͏na ",
+        )
+        for ((title, user) in looks) {
+            val p = plan(read(login(0, title, user = user, url = "https://banco.es/")), listOf(bank))
+            assertEquals("«$title» / «$user»", listOf("b"), p.duplicates.map { it.existingId })
+        }
+        // What is visible still counts: a capital in the user, another letter, a space inside a word, full-width letters.
+        for ((title, user) in listOf("Café Banco" to "Ana", "Cafe Banco" to "ana", "Café Ban co" to "ana", "Ｃａｆé Ｂａｎｃｏ" to "ana", "Café Banco" to "a na")) {
+            val p = plan(read(login(0, title, user = user, url = "https://banco.es/")), listOf(bank))
+            assertTrue("«$title» / «$user»", p.duplicates.isEmpty())
+        }
+    }
+
+    @Test fun aNoteWhoseTitleLooksTheSameIsADuplicateAndItsTextIsComparedAsBefore() {
+        val memo = saved("m", EntryType.NOTE, "Wifi casa", notes = "clave 123")
+        val p = plan(read(note(0, "Wifi​ casa", "clave 123"), note(1, "Wifi casa", "clave​ 123")), listOf(memo))
+        assertEquals(listOf(0), p.duplicates.map { it.item.index })
+        assertEquals(listOf(1), p.newItems.map { it.index })
+    }
+
+    @Test fun aLookAlikeIsStoredAsItCameWhenTheUserKeepsBoth() {
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/")
+        val p = plan(read(login(0, "Ban​co", user = "an­a", url = "https://banco.es/")), listOf(bank))
+        val merged = mergedEntries(p, DuplicateChoice.KEEP_BOTH, emptyMap(), listOf(bank), now, newId)
+        val added = merged.single { it.id != "b" }
+        assertEquals("Ban​co", added.title) // R9: stored as it was read; only the comparison changed
+        assertEquals("an­a", added.username)
     }
 
     @Test fun withoutAUrlOnEitherSideTitleAndUserAreEnough() {

@@ -18,8 +18,11 @@ private val DANGEROUS_SCHEMES = setOf("javascript", "data", "file", "intent")
 /** Schemes whose «scheme:» alone, with no «//», is already a link (a browser or the system opens them). */
 internal val LINK_SCHEMES = setOf("http", "https", "ftp", "ftps", "ws", "wss") + DANGEROUS_SCHEMES
 
-/** Schemes a browser reads with the host after any number of «/» or «\», so «http:evil.com» goes to evil.com. */
-private val SPECIAL_SCHEMES = setOf("http", "https", "ftp", "ws", "wss")
+/**
+ * Schemes a browser reads with the host after any number of «/» or «\», so «http:evil.com» goes to evil.com. Also the
+ * merge of «Importar de otra app» (`urlHost`) uses it, so both read a link the same way.
+ */
+internal val SPECIAL_SCHEMES = setOf("http", "https", "ftp", "ws", "wss")
 
 private val DEFAULT_PORTS = mapOf("http" to 80, "https" to 443, "ftp" to 21, "ftps" to 990, "ws" to 80, "wss" to 443)
 
