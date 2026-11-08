@@ -64,34 +64,44 @@ class HashLabSession(
      * A file is read with [algo]: the previous result, size and progress go ([FileHashSession.start]), and the returned
      * run is the only one [sized], [progress] and [FileHashSession.finish] accept.
      */
-    fun startFile(): Long {
+    fun startFile(): Long = synchronized(fileState) {
+        // The new run first, so a reading of the old one can no longer write; then its figures go (re-review B, N-2).
+        val run = file.start()
         fileAlgo = algo
         readBytes = 0
         totalBytes = -1
-        return file.start()
+        run
     }
 
     /** The size of [run]'s file; false, and nothing changes, once another file was picked, or after a cancel or a wipe. */
-    fun sized(run: Long, size: Long): Boolean {
+    fun sized(run: Long, size: Long): Boolean = synchronized(fileState) {
         if (!file.isCurrent(run)) return false
         totalBytes = size
-        return true
+        true
     }
 
-    /** How much of [run]'s file was read (called from the reading's thread); false as [sized]. */
-    fun progress(run: Long, read: Long): Boolean {
+    /**
+     * How much of [run]'s file was read (called from the reading's thread); false as [sized]. The check and the write go
+     * under the same lock as [startFile] and [forget], so an old reading never leaves its figure on a new file.
+     */
+    fun progress(run: Long, read: Long): Boolean = synchronized(fileState) {
         if (!file.isCurrent(run)) return false
         readBytes = read
-        return true
+        true
     }
 
+    /** Guards the file's run check and its figures ([readBytes], [totalBytes], [fileAlgo]) against the reading's thread. */
+    private val fileState = Any()
+
     override fun forget() {
-        onWipe() // the screen stops the file run going on
-        file.clear()
+        onWipe() // the screen stops the file run going on; outside the lock, so it never waits for the reading
+        synchronized(fileState) {
+            file.clear()
+            fileAlgo = algo
+            readBytes = 0
+            totalBytes = -1
+        }
         source = null
-        fileAlgo = algo
-        readBytes = 0
-        totalBytes = -1
         text = ""
         expected = ""
         hmacKey = ""

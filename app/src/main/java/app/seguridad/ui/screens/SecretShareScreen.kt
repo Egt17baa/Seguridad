@@ -274,8 +274,6 @@ private class SecretShareViewModel(
     }
 }
 
-/** For the secret fields, as in «Cifrar texto»: no autocorrection, and the password keyboard, which keyboards do not learn from. */
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SecretShareScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: StateFlow<Boolean>, onBack: () -> Unit) {
