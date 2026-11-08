@@ -126,5 +126,5 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 ```bash
 export ANDROID_HOME=/opt/android-sdk     # en las sesiones en la nube
 ./gradlew :app:assembleDebug :app:lintDebug --no-daemon --max-workers=1
-gradle -p jvm-check test --no-daemon --max-workers=1
+./gradlew -p jvm-check test --no-daemon --max-workers=1   # el wrapper (Gradle 9.6); un Gradle 8 instalado falla la verificación de dependencias
 ```
