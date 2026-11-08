@@ -1,6 +1,6 @@
 # Flujos de Maestro de Clavero 1.4.0
 
-Pruebas de interfaz para las «Pruebas de la 1.4.0» del README del repositorio (P-1 a P-20), según la decisión del dueño (g) del 8-11-2026: se ejecutan en tu ordenador con el plugin «Android qa libre» (Mobile MCP y Maestro), en el emulador de Android Studio o con el móvil por USB. En el contenedor de la nube no hay emulador, así que estos flujos se han escrito a partir de los textos del código y **no se han ejecutado todavía**: la primera vez, alguno puede necesitar un ajuste (ver «Lo que puede fallar la primera vez»).
+Pruebas de interfaz para las «Pruebas de la 1.4.0» del README del repositorio (P-1 a P-26; las seis últimas, del ataque, son manuales), según la decisión del dueño (g) del 8-11-2026: se ejecutan en tu ordenador con el plugin «Android qa libre» (Mobile MCP y Maestro), en el emulador de Android Studio o con el móvil por USB. En el contenedor de la nube no hay emulador, así que estos flujos se han escrito a partir de los textos del código y **no se han ejecutado todavía**: la primera vez, alguno puede necesitar un ajuste (ver «Lo que puede fallar la primera vez»).
 
 ## Carpetas
 
@@ -66,8 +66,8 @@ Con el plugin: la skill `android-tests` (`/android-qa-libre:android-tests`) comp
 | P-5, códigos que se exportan como QR | `borra-datos/p05-ayuda-codigos-qr.yaml`: la ayuda de la primera pantalla y los botones que nombra | Escanear los QR de otro móvil con la cámara y comparar los códigos. |
 | P-6, la copia de antes de importar con copia automática | Manual | Pide elegir la carpeta con el selector de carpetas del sistema, mirar sus archivos, hacer más de 3 cambios y abrir la copia con la maestra de antes. |
 | P-7, la copia de antes de importar con el diálogo | En parte: `semiautomaticas/p07-p09-p10-copia-y-duplicados.yaml` y `p04` (cancelar el diálogo no importa nada; guardada, el resultado dice dónde y que no se borra) | La carpeta de la copia automática con el permiso revocado en los ajustes del sistema. |
-| P-8, bloquear y salir en cada paso | En parte: `semiautomaticas/p08-volver-atras-borra.yaml` (atrás con la contraseña escrita y con la vista previa) | Inicio y volver pasado el bloqueo (esperar 1 minuto o más), bloquear justo mientras se hace la copia (depende del momento exacto) y «Cancelar» con un archivo de 15 MB. |
-| P-9, duplicados | En parte: `semiautomaticas/p07-p09-p10-copia-y-duplicados.yaml` («Saltar», «Conservar los dos» y «Reemplazar» para todos, volver a tocar la opción elegida, el mismo archivo dos veces) | La opción de una sola entrada y la contraseña anterior en el historial después de «Reemplazar». |
+| P-8, bloquear y salir en cada paso | En parte: `semiautomaticas/p08-volver-atras-borra.yaml` (atrás con la contraseña escrita y con la vista previa) | Inicio y volver pasado el bloqueo (esperar 1 minuto o más), bloquear justo mientras se hace la copia (depende del momento exacto; al desbloquear, o la bóveda está como antes o la importación está entera, regla R37) y «Cancelar» con un archivo de 15 MB. |
+| P-9, duplicados | En parte: `semiautomaticas/p07-p09-p10-copia-y-duplicados.yaml` («Saltar», «Conservar los dos» y «Reemplazar» para todos, volver a tocar la opción elegida, el mismo archivo dos veces) | La opción de una sola entrada, la contraseña anterior en el historial después de «Reemplazar» y el dominio de la web en la fila de un acceso repetido («ana · banco-acceso.example»; el flujo no lo comprueba). |
 | P-10, quitar el archivo exportado | En parte: `p04` (desde Descargas se borra y lo dice) y `p07-p09-p10` («No, déjalo») | Google Drive y su papelera. |
 | P-11, cambiar la maestra después de importar | Manual | Necesita la huella y lo de P-6. |
 | P-12, archivos hechos a mala fe | `semiautomaticas/p12-archivos-hostiles.yaml` (borra datos): el JSON de 3 MB, el título con U+202E en la vista previa, la lista y el detalle, y la URL que no se abre | Nada más. |
@@ -75,10 +75,18 @@ Con el plugin: la skill `android-tests` (`/android-qa-libre:android-tests`) comp
 | P-14, «Comprobar una copia» | `p14-comprobar-una-copia-pantalla.yaml` y `semiautomaticas/p14-comprobar-una-copia-archivo.yaml` (la copia real de la 1.1.1: contraseña equivocada, resultado, un archivo que no es copia) | «Cancelar» mientras deriva Argon2id y volver a empezar en seguida (depende del momento exacto), salir a mitad y `adb shell run-as … ls cache/comprobar`. |
 | P-15, Laboratorio de hashes | `p15-laboratorio-hashes.yaml`, `semiautomaticas/p15-laboratorio-hashes-archivo.yaml`, `borra-datos/p15-p16-p17-bloquear-borra.yaml` y `giro-conserva-estado.yaml` | El archivo de varios GB con su progreso y «Cancelar», y salir más tiempo que el bloqueo. |
 | P-16, Laboratorio clásico | `p16-laboratorio-clasico.yaml` (con Operation Barbarossa), `borra-datos/p15-p16-p17-bloquear-borra.yaml` y `giro-conserva-estado.yaml` | Pegar desde el portapapeles un texto largo en la clave (el flujo escribe 201 caracteres, que da la misma nota) y salir más tiempo que el bloqueo. |
-| P-17, Repartir un secreto | `p17-repartir-un-secreto.yaml` (12 palabras, 2 de 3, una parte sola no basta), `semiautomaticas/p17-recomponer-vector-oficial.yaml`, `borra-datos/p15-p16-p17-bloquear-borra.yaml` y `giro-conserva-estado.yaml` | La frase de 24 palabras del Generador, el exponente 8 con su tiempo y «Cancelar», salir más tiempo que el bloqueo y TalkBack. |
+| P-17, Repartir un secreto | `p17-repartir-un-secreto.yaml` (12 palabras, 2 de 3, una parte sola no basta), `semiautomaticas/p17-recomponer-vector-oficial.yaml`, `borra-datos/p15-p16-p17-bloquear-borra.yaml` y `giro-conserva-estado.yaml` | La frase de 24 palabras del Generador, el vector n.º 42 (exponente 3) con su tiempo y «Cancelar», salir más tiempo que el bloqueo y TalkBack. Un exponente de 4 a 8 no se puede repartir desde la app (los repartos nuevos usan el 1, `Slip39.kt:41`) ni está en los vectores oficiales. |
 | P-18, la huella | Manual | Pide la huella (y girar con el diálogo de la huella abierto). |
-| P-19, el APK minificado | En parte: `p19-recorrer-herramientas.yaml`, `borra-datos/p19-crear-boveda-maestra-nueva.yaml` (también la regla de la maestra nueva: «corta», «P4ssw0rd2024!» y «Password1!») y todas las carpetas con el APK firmado | Importar una copia, el escáner QR, la huella, el aviso de abajo (*snackbar*), compartir un archivo, «¿Filtrada?» con red, «Tachar» y «Limpiar foto» con una imagen. |
+| P-19, el APK minificado | En parte: `p19-recorrer-herramientas.yaml`, `borra-datos/p19-crear-boveda-maestra-nueva.yaml` (también la regla de la maestra nueva: «corta», «P4ssw0rd2024!» y «Password1!») y todas las carpetas con el APK firmado | «ｐａｓｓｗｏｒｄ12345» en ancho completo (Maestro solo escribe ASCII), importar una copia, el escáner QR, la huella, el aviso de abajo (*snackbar*), compartir un archivo, «¿Filtrada?» con red, «Tachar» y «Limpiar foto» con una imagen. |
 | P-20, versión y licencias | `p20-version-y-licencias.yaml` | Nada. |
+| P-21, un enlace con `\` en el navegador | Manual | Es en Chrome y en Firefox, fuera de Clavero. |
+| P-22, capturas en importar | Manual | Se mira a ojo que la captura y Recientes salen en negro; los flujos no hacen capturas. |
+| P-23, toques ocultos | Manual | Necesita otra app que pinte encima. |
+| P-24, el portapapeles en Android 13 o posterior | Manual | Es lo que enseña el teclado, fuera de Clavero. |
+| P-25, la muerte del proceso a mitad | Manual | `adb shell am force-stop` en el momento justo y `adb shell run-as … ls`. |
+| P-26, las copias del sistema | Manual | `adb backup` y la transferencia a otro móvil. |
+
+Los nombres de otras apps de esta tabla son marcas de sus titulares. Clavero no tiene relación con ellos.
 
 `giro-conserva-estado.yaml` comprueba además que girar la pantalla conserva lo escrito y el resultado en las tres herramientas nuevas.
 

@@ -128,12 +128,11 @@ Todo con nombres ajenos está en este archivo, en la misma pantalla que la líne
 
 ### H. Nombres ajenos anteriores a la 1.4.0 (R8, R8a) y ronda final
 - Permitidos por su literal exacto en `ImportTextsTest`: los tres «Google Authenticator» de `ui/screens/VaultEntryScreen.kt`, «la copia de Google» de `tools/ToolTexts.kt` y la atribución `github.com/google/guava` de `LicensesScreen.kt:31`.
-- Pendiente de la ronda final: «Nombre (p. ej. «Binance» o «Ledger»)» del formulario de la bóveda, que se cambia por ejemplos genéricos; el texto nuevo llegará a esta revisión.
+- Ronda final (R35): la etiqueta del nombre del formulario de la bóveda, «Nombre (p. ej. «Binance» o «Ledger»)», que nombraba dos productos, es ahora **«Nombre (p. ej. «Correo» o «Cartera»)»** (`ui/screens/VaultEntryScreen.kt:407`; `ImportTextsTest.theVaultFormNamesNoProduct`). Un acceso y una frase semilla, como antes, sin productos.
 - La línea de la ficha con «Google Authenticator» (Inquietudes, punto 1).
 
 ### I. Sin textos nuevos
 Tarea 1 (la huella: solo cambia cuándo sale `FINGERPRINT_ENABLE_INTERRUPTED`) y tarea 11 (una línea técnica del README, `:91`, y otra de `CLAUDE.md`). Para la revisión de licencias, la tarea 11 deja anotadas las de compilación (EPL-2.0 de JUnit Platform, la licencia de Bouncy Castle 1.80.2 del classpath de AGP, las partes GPL-CE/LGPL de R8), ninguna en el APK (R28), con las cuentas de `task-11-report.md:91-94`.
-
 
 ## Ronda 1 de arreglos (revisión `task-12-review.md`, reglas R31 a R33 y decisión (g))
 
@@ -163,3 +162,25 @@ Sobre `ee30fee`. Cada hallazgo, con dónde queda:
 - **(g):** `CLAUDE.md:69` (decisión) y `:140` (pendiente 1), `README.md:338`, el traspaso §3 (paso 2 del dueño) y §4, y la auditoría §10.
 
 **Verificación, ronda 1** (con `export ANDROID_HOME=/opt/android-sdk`): el gate entero de la app → BUILD SUCCESSFUL, **1751 tests, 0 fallos** (los asertos nuevos de R33 van en un test que ya existía), lint 0 errores y los mismos 19 avisos; `./gradlew -p jvm-check test --no-daemon --max-workers=2` → BUILD SUCCESSFUL, **1746 tests, 0 fallos**. Palabras prohibidas: ninguna en las líneas añadidas (lo comprobé con el criterio de `ForbiddenWords`).
+
+## Puesta al día de la lista, revisión de la rama (8-11-2026)
+
+Añadido en la ronda de arreglos de la revisión de la rama (parte de documentos, área C, M-7), con lo que mandaron las secciones «Textos para el Abogado Digital» de la ronda final, del ataque, de las tres revisiones de la rama, de sus repasos y de los informes de sus arreglos. Lo de arriba sigue valiendo, con estos cambios y añadidos:
+
+1. **R35, el texto final:** «Nombre (p. ej. «Correo» o «Cartera»)» (punto H, arriba).
+2. **`IMPORT_NOT_PROTECTED`, la versión final (N-1 del repaso de la tarea 12):** es la del punto B: «Clavero no protege el archivo exportado. Un archivo exportado sin contraseña suele estar sin cifrar en tu móvil; si lo protegiste con contraseña, sus entradas siguen cifradas con esa contraseña. En los dos casos puede haber copias en la nube, en la papelera o en otras apps. Al terminar, Clavero puede intentar borrar ese archivo (algunas apps no lo dejan), pero no esas copias.» (`imports/ImportTexts.kt:218-222`).
+3. **2FAS, los grupos en claro** (`task-12-rereview-1.md:73`): en una copia de 2FAS protegida con contraseña, los nombres de los grupos quedan en claro en el archivo; lo cifrado son sus entradas. Afecta a «sus entradas siguen cifradas» de `IMPORT_NOT_PROTECTED`, que dice la verdad sobre las entradas: el Abogado decide si el texto tiene que decir lo de los grupos.
+4. **La fila de un duplicado** en la vista previa de «Importar de otra app» enseña ahora, debajo del título, el usuario y el host de la web del archivo, la que traería «Reemplazar»: «ana · banco-acceso.example» (`duplicateSubline`, `imports/MergePlan.kt:400`; área A, M-4). Sin literal nuevo: el separador « · » ya se usaba. Enseñar también la web de la bóveda, o decir que no tiene, sería un texto nuevo en `imports/ImportTexts.kt`.
+5. **`IMPORT_REPLACE_NOTE`** («…y suma sus notas y sus etiquetas…»): sigue siendo verdad; desde el arreglo A M-2, unas notas que solo cambian en los espacios de los extremos no se suman. Conviene leerlo junto a ese arreglo.
+6. **Lo que cambia sin texto nuevo:**
+   - un archivo cifrado que Clavero no puede abrir (KDF fuera de rango, cabecera rota, parte cifrada demasiado grande) da su texto de siempre (`IMPORT_KDF_TOO_BIG`, `IMPORT_BROKEN`, `IMPORT_ENCRYPTED_TOO_BIG`) antes de pedir la contraseña (área A, M-3);
+   - los campos de los laboratorios usan el teclado sin sugerencias ni aprendizaje, así que `HASH_LAB_HMAC_INTRO` («La clave y el mensaje no se guardan en el móvil») y `CLASSIC_NOT_SAVED` («Lo que escribes no se guarda en el móvil») vuelven a ser verdad sin cambiarlos (área B, I-1);
+   - el tope de una contraseña pegada en «Comprobar una copia» y en la de una exportación pasa de 1 024 a 65 536 caracteres; `BACKUP_CHECK_TOO_LONG` («Ese texto es demasiado largo y no se ha pegado.») e `IMPORT_PASSWORD_TOO_LONG` («Esa contraseña es demasiado larga: no se ha pegado.») no cambian y no dicen el número (área B, M-3).
+7. **`KDF_OUT_OF_MEMORY`** («Este móvil no tiene memoria suficiente para el coste «Alto» de Argon2id», `crypto/Crypto.kt:81`): no cambia. La revisión de la rama (área B, M-4) vio un caso en que era falso (dos Argon2id a la vez tras cancelar una comprobación); con el cerrojo de derivación de R38 y R40 vuelve a ser verdad.
+8. **La regla de la maestra nueva (decisión (h), RT-3):** `MASTER_TOO_WEAK` no cambia. Ni la política ni la ficha describen la regla. El README tampoco la describe en «Funciones»; solo la nombran dos pruebas del móvil: la de la 1.3.1 (CRY-A01, sin cambios) y P-19, que ahora dice que «P4ssw0rd2024!» y «ｐａｓｓｗｏｒｄ12345» dan «Esta contraseña es fácil de adivinar…».
+9. **README, textos nuevos o cambiados en esta ronda:**
+   - «Importar de otra app» (`README.md:35`): la fila de cada acceso repetido enseña el usuario y la web (solo su dominio) que traería «Reemplazar»; los parámetros de la clave de un archivo cifrado se comprueban «antes de calcular nada y antes de pedir su contraseña»;
+   - las tres herramientas nuevas (`:52`): sus campos de texto usan el teclado sin sugerencias ni aprendizaje, como «Cifrar texto»;
+   - «Pruebas de la 1.4.0» (`:338-367`): la entrada apunta a `.maestro/` y a `.maestro/README.md`; P-8 (un bloqueo durante la copia, regla R37), P-9 (la fila del duplicado), P-17 (los vectores oficiales n.º 4 y n.º 42, en lugar de repartir con el exponente 8, que la app no hace), P-19 (el APK firmado, la desinstalación y la maestra en *leet*), y las nuevas **P-21 a P-26**, las del ataque, que nombran Chrome, Firefox, Gboard y la copia de Google, con la línea de marcas debajo.
+10. **El informe del ataque publicado** (`docs/auditorias/2026-11-08-ataque-1.4.0.md`, R39): es un documento público del repositorio, nombra productos (Bitwarden, Chrome, Firefox) y dominios de ejemplo (`evil.example`, `banco.es`) y lleva la línea de marcas. También la llevan ahora la tabla de `.maestro/README.md` y el `README.md` bajo P-26.
+11. **`CLAUDE.md`, el traspaso, el diseño, el plan y la auditoría:** puestos al día (estado, decisión (h), R34 a R40, notas de corrección fechadas). Son documentos técnicos y no cambian ningún texto de la interfaz.
