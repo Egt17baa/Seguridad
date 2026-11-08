@@ -1,0 +1,9 @@
+# Subflujo: en el selector del sistema para guardar un archivo (el de «Elegir dónde guardarla»),
+# lo guarda con el nombre que propone Clavero, en la carpeta que el selector abra (normalmente Descargas).
+# Los textos del botón dependen del idioma del dispositivo: se prueban en español y en inglés.
+appId: io.github.egt17baa.seguridad
+---
+- extendedWaitUntil:
+    visible: 'Guardar|GUARDAR|Save|SAVE'
+    timeout: 15000
+- tapOn: 'Guardar|GUARDAR|Save|SAVE'

@@ -1,0 +1,22 @@
+# Subflujo: BORRA TODOS LOS DATOS DE CLAVERO (clearState) y lo abre como recién instalado.
+# Solo para el emulador o un móvil sin tu bóveda real: se pierden la bóveda, los ajustes y la huella.
+appId: io.github.egt17baa.seguridad
+---
+- launchApp:
+    appId: io.github.egt17baa.seguridad
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Antes de empezar"
+    timeout: 20000
+- assertVisible: "Sin recuperación de la contraseña maestra"
+- assertVisible: "Sin auditoría independiente"
+- scrollUntilVisible:
+    element:
+      text: "Entendido"
+    direction: DOWN
+    timeout: 15000
+- tapOn: "Entendido"
+- extendedWaitUntil:
+    visible: "Crea tu bóveda"
+    timeout: 20000

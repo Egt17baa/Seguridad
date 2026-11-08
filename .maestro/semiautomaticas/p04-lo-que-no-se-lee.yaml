@@ -1,0 +1,146 @@
+# BORRA TODOS LOS DATOS DE CLAVERO (clearState): solo en el emulador o en un móvil sin tu bóveda real.
+# Crea una bóveda de PRUEBA con una maestra de prueba escrita aquí (MAESTRA), nunca la tuya.
+# Antes: python3 .maestro/datos/preparar_archivos.py (copia los archivos de prueba a Descargas). Este flujo
+# BORRA del dispositivo clavero-gestor-uri.csv al final (P-10, «Quitar el archivo exportado»): vuelve a
+# ejecutar el script antes de repetirlo.
+#
+# P-4 (tareas 9 y 10): lo que no se lee dice qué pasa y no enseña nada del archivo: una foto, una frase
+# cualquiera, una página HTML, un .zip y una exportación cifrada con la cuenta. Después, un CSV con la
+# cabecera de la caja fuerte personal: un acceso con dos URI (la primera es la URL; la otra va a las notas
+# como «URL: …») y otro cuya URL lleva una coma, que se queda entera.
+# P-10 (en parte): «Quitar el archivo exportado» con el archivo en Descargas lo borra y lo dice.
+# P-7 (en parte): sin copia automática, la copia de antes de importar se guarda con el diálogo del sistema.
+# Los textos que se comprueban son los literales de imports/ImportTexts.kt; donde nombran otra app, la
+# expresión regular la cambia por «.*».
+appId: io.github.egt17baa.seguridad
+name: "P-4 Importar: lo que no se lee y las URI del CSV"
+tags:
+  - clavero-1.4.0
+  - semiautomatica
+  - borra-datos
+env:
+  MAESTRA: nube-ladera-pino-ancla-trigo-prueba
+---
+- runFlow: ../comun/inicio-desde-cero.yaml
+- runFlow:
+    file: ../comun/crear-boveda.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+- runFlow: ../comun/abrir-importar.yaml
+
+# Una foto (bytes que no son texto).
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-foto.jpg"
+- extendedWaitUntil:
+    visible: "El archivo está dañado o no es texto."
+    timeout: 30000
+
+# Una frase cualquiera.
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-frase.txt"
+- extendedWaitUntil:
+    visible: "Clavero no reconoce este archivo."
+    timeout: 30000
+- assertNotVisible: '.*frase cualquiera para la prueba.*'
+
+# Una página HTML: se dice qué hacer y no se enseña nada de ella.
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-pagina.html"
+- extendedWaitUntil:
+    visible: 'Es una página HTML, y Clavero no lee exportaciones en HTML\..*'
+    timeout: 30000
+- assertNotVisible: '.*Contenido de la pagina de prueba.*'
+
+# Un .zip.
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-adjuntos.zip"
+- extendedWaitUntil:
+    visible: 'Es un archivo \.zip, y Clavero no lee archivos \.zip.*Exporta en el formato «\.json»: los adjuntos no se importan\.'
+    timeout: 30000
+
+# Una exportación cifrada con la cuenta («Cuenta restringida»).
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-cuenta-restringida.json"
+- extendedWaitUntil:
+    visible: 'Esta exportación está cifrada con tu cuenta de .* y solo .* puede abrirla\. Vuelve a exportar.*«Protegida con contraseña» \(no «Cuenta restringida»\)\.'
+    timeout: 30000
+
+# El CSV con dos URI y con una coma en la URL.
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-gestor-uri.csv"
+- extendedWaitUntil:
+    visible: "Vista previa"
+    timeout: 30000
+- assertVisible: "Archivo: clavero-gestor-uri.csv"
+- assertVisible: "Entran 2 entradas nuevas: 2 accesos."
+- scrollUntilVisible:
+    element:
+      text: "Importar"
+      enabled: true
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Importar"
+# Sin copia automática, la copia de antes de importar va donde diga el diálogo del sistema (P-7).
+- extendedWaitUntil:
+    visible: "Elegir dónde guardarla"
+    timeout: 30000
+- tapOn: "Elegir dónde guardarla"
+- runFlow: ../comun/guardar-en-selector.yaml
+- extendedWaitUntil:
+    visible: "Importación terminada"
+    timeout: 120000
+- assertVisible: "Han entrado 2 entradas nuevas."
+- assertVisible: 'La copia de antes de importar es «seguridad-antes-de-importar-.*», donde la guardaste\. Clavero no la borra si cambias la contraseña maestra.*'
+# P-10: quitar el archivo exportado.
+- scrollUntilVisible:
+    element:
+      text: "Quitar el archivo exportado"
+    direction: DOWN
+- assertVisible: 'El archivo que has importado sigue en tu móvil, sin cifrar si lo exportaste sin contraseña\..*'
+- tapOn: "Quitar el archivo exportado"
+- extendedWaitUntil:
+    visible: 'Archivo borrado\. Mira si queda alguna copia en la nube, en la papelera o en otras apps\.|La app donde está el archivo no deja que Clavero lo borre\..*'
+    timeout: 30000
+- tapOn: "Atrás"
+
+# Las dos entradas en la bóveda.
+- extendedWaitUntil:
+    visible: '.*Dos webs.*'
+    timeout: 15000
+- tapOn: '.*Dos webs.*'
+- extendedWaitUntil:
+    visible: "Web"
+    timeout: 10000
+- assertVisible: "https://uno.example.com/"
+- scrollUntilVisible:
+    element:
+      text: '.*URL: https://dos\.example\.com/entrar.*'
+    direction: DOWN
+- tapOn: "Atrás"
+- extendedWaitUntil:
+    visible: '.*Con coma.*'
+    timeout: 10000
+- tapOn: '.*Con coma.*'
+- extendedWaitUntil:
+    visible: "Web"
+    timeout: 10000
+- assertVisible: 'https://ejemplo\.es/\?q=1,2'
+- tapOn: "Atrás"

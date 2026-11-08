@@ -1,0 +1,27 @@
+# Subflujo: crea una bóveda de PRUEBA en la pantalla «Crea tu bóveda» (después de comun/inicio-desde-cero.yaml).
+# La maestra llega en MAESTRA: es una contraseña de prueba escrita en el flujo, nunca la tuya.
+appId: io.github.egt17baa.seguridad
+---
+- assertVisible: "Crea tu bóveda"
+- tapOn: 'Contraseña maestra \(mínimo 10 caracteres\)'
+- inputText: ${MAESTRA}
+- tapOn: "Repítela"
+- inputText: ${MAESTRA}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'Entiendo que si olvido la contraseña maestra.*'
+    direction: DOWN
+    timeout: 15000
+- tapOn: 'Entiendo que si olvido la contraseña maestra.*'
+- scrollUntilVisible:
+    element:
+      text: "Crear bóveda"
+      enabled: true
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Crear bóveda"
+# Argon2id con el coste del perfil: unos segundos en un móvil, algo más en el emulador.
+- extendedWaitUntil:
+    visible: "Bloquear"
+    timeout: 120000

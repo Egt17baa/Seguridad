@@ -1,0 +1,19 @@
+# Subflujo: en el selector de archivos del sistema, elige ARCHIVO de la carpeta Descargas.
+# Antes, datos/preparar_archivos.py lo ha copiado a /sdcard/Download del dispositivo.
+# El selector es otra app (la de Archivos del sistema) y sus textos dependen del idioma del dispositivo
+# y de la versión de Android: se prueban en español y en inglés. Si tu selector usa otros, cámbialos aquí.
+appId: io.github.egt17baa.seguridad
+---
+- extendedWaitUntil:
+    visible: 'Mostrar raíces|Show roots|Descargas|Downloads|Recientes|Recent|${ARCHIVO}'
+    timeout: 15000
+- runFlow:
+    when:
+      notVisible: ${ARCHIVO}
+    commands:
+      - tapOn: 'Mostrar raíces|Show roots'
+      - tapOn: 'Descargas|Downloads'
+- extendedWaitUntil:
+    visible: ${ARCHIVO}
+    timeout: 15000
+- tapOn: ${ARCHIVO}

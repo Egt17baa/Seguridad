@@ -1,0 +1,15 @@
+# Subflujo: abre una herramienta de la pestaña «Herramientas».
+# HERRAMIENTA es una expresión regular del título de su tarjeta (la tarjeta lleva también el subtítulo,
+# por eso termina en «.*»), por ejemplo 'Laboratorio de hashes.*' o '¿Filtrada\?.*'.
+appId: io.github.egt17baa.seguridad
+---
+- tapOn: "Herramientas"
+- scrollUntilVisible:
+    element:
+      text: ${HERRAMIENTA}
+    direction: DOWN
+    timeout: 20000
+- tapOn: ${HERRAMIENTA}
+- extendedWaitUntil:
+    visible: "Atrás"
+    timeout: 15000

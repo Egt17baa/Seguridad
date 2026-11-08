@@ -1,0 +1,83 @@
+# P-19 (en parte), el APK minificado con el R8 nuevo (tarea 11): abre cada herramienta y vuelve, sin
+# escribir nada, y comprueba que la app no se cierra. Con el APK firmado (release) es la prueba de humo
+# de las pantallas; con el debug solo comprueba la navegación.
+# No borra datos: se puede usar en tu móvil. No pulsa nada dentro de las herramientas: no abre la cámara,
+# ni el selector de archivos, ni la red.
+appId: io.github.egt17baa.seguridad
+name: "P-19 Recorrer todas las herramientas"
+tags:
+  - clavero-1.4.0
+  - automatica
+---
+- runFlow: comun/abrir-app.yaml
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Cifrar texto.*'
+- assertVisible: "Cifrar texto"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Cifrar archivo.*'
+- assertVisible: "Cifrar archivos"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Generador.*'
+- assertVisible: "Generador"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: '¿Filtrada\?.*'
+- assertVisible: '¿Contraseña filtrada\?'
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio de hashes.*'
+- assertVisible: "Laboratorio de hashes"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio clásico.*'
+- assertVisible: "Laboratorio clásico"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Repartir un secreto.*'
+- assertVisible: "Repartir un secreto"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Limpiar foto.*'
+- assertVisible: "Limpiar foto"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Tachar en imagen.*'
+- assertVisible: "Tachar en imagen"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Inspector de QR.*'
+- assertVisible: "Inspector de QR"
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'PIN y códigos.*'
+- assertVisible: "PIN y códigos"
+- tapOn: "Atrás"
+- scrollUntilVisible:
+    element:
+      text: "Cómo protegemos tus datos"
+    direction: DOWN
+

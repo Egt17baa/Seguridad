@@ -1,0 +1,227 @@
+# P-16, Laboratorio clásico (tarea 3): César, Vigenère, Enigma (con el mensaje de Operation Barbarossa,
+# 1941) y Análisis; la nota de un valor demasiado largo en el campo de la clave y el borrado al volver atrás.
+# El borrado al bloquear está en borra-datos/p15-p16-p17-bloquear-borra.yaml.
+# No borra datos: se puede usar en tu móvil.
+# Resultados esperados, calculados con el algoritmo de la app (tools/classic/Caesar.kt y Vigenere.kt) y
+# con los tests del repositorio (ClassicTest.kt):
+#   César 3 de «Hola Mundo» = «Krod Pxqgr»; descifrar 3 = «Elix Jrkal»; César 13 = «Ubyn Zhaqb».
+#   Vigenère «ATTACKATDAWN» con la clave «LEMON» = «LXFOPVEFRNHR»; descifrar = «PPHMPZWHPNLJ».
+#   Enigma I, rotores I II III, reflector B, anillos 1 1 1, posición AAA: «AAAAA» = «BDZGO», y los
+#   rotores acaban en AAF.
+#   Operation Barbarossa, parte 1: rotores II IV V, reflector B, anillos 2 21 12, posición BLA, tablero
+#   AV BS CG DL FU HZ IN KM OW RX (historicalMessage de ClassicTest.kt).
+#   Análisis de «ATTACKATDAWN»: 12 letras, índice 18/132 = 0,1364.
+appId: io.github.egt17baa.seguridad
+name: "P-16 Laboratorio clásico: César, Vigenère, Enigma y Análisis"
+tags:
+  - clavero-1.4.0
+  - automatica
+---
+- runFlow: comun/abrir-app.yaml
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio clásico.*'
+- assertVisible: "Laboratorio clásico"
+- assertVisible: 'Son cifrados históricos, rotos desde hace décadas: no protegen nada\..*'
+- assertVisible: "Lo que escribes no se guarda en el móvil y la bóveda no interviene."
+- assertVisible: "César"
+- assertVisible: "Vigenère"
+- assertVisible: "Enigma"
+- assertVisible: "Análisis"
+
+# César, desplazamiento 3 (el de entrada).
+- tapOn: "Texto"
+- inputText: "Hola Mundo"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Krod Pxqgr"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Descifrar"
+    direction: UP
+- tapOn: "Descifrar"
+- scrollUntilVisible:
+    element:
+      text: "Elix Jrkal"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Cifrar"
+    direction: UP
+- tapOn: "Cifrar"
+# Un desplazamiento fuera de 0 a 25 se rechaza; 13 da el ROT13.
+- scrollUntilVisible:
+    element:
+      text: 'Desplazamiento \(0 a 25\)|3'
+    direction: DOWN
+- tapOn: 'Desplazamiento \(0 a 25\)|3'
+- eraseText: 6
+- inputText: "30"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'El desplazamiento tiene que ser un número entero de 0 a 25\.'
+    direction: DOWN
+- tapOn: "30"
+- eraseText: 6
+- inputText: "13"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Ubyn Zhaqb"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Solo se cambian las letras A-Z\..*'
+    direction: DOWN
+
+# Vigenère: sin clave lo dice; con «LEMON», el ejemplo clásico.
+- scrollUntilVisible:
+    element:
+      text: "Vigenère"
+    direction: UP
+- tapOn: "Vigenère"
+- scrollUntilVisible:
+    element:
+      text: "La clave necesita al menos una letra de la A a la Z."
+    direction: DOWN
+- tapOn: "Texto"
+- inputText: "ATTACKATDAWN"
+- hideKeyboard
+- tapOn: 'Clave \(letras A-Z\)'
+- inputText: "LEMON"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "LXFOPVEFRNHR"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Descifrar"
+    direction: UP
+- tapOn: "Descifrar"
+- scrollUntilVisible:
+    element:
+      text: "PPHMPZWHPNLJ"
+    direction: DOWN
+# Una clave de más de 200 caracteres no se pega: sale la nota y la clave no cambia de golpe.
+- tapOn: "LEMON"
+- eraseText: 10
+- inputText: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Ese valor es demasiado largo y no se ha pegado."
+    direction: DOWN
+- assertVisible: 'Las letras de la clave se repiten a lo largo del texto.*'
+
+# Enigma con los ajustes de entrada: «AAAAA» da «BDZGO».
+- scrollUntilVisible:
+    element:
+      text: "Enigma"
+    direction: UP
+- tapOn: "Enigma"
+- assertVisible: 'Enigma I y M3 con sus cableados históricos\..*'
+- scrollUntilVisible:
+    element:
+      text: "Texto"
+    direction: DOWN
+- tapOn: "Texto"
+- inputText: "AAAAA"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "BDZGO"
+    direction: DOWN
+- assertVisible: "Posición de los rotores al terminar: AAF"
+- tapOn: "AAAAA"
+- eraseText: 10
+- hideKeyboard
+
+# Operation Barbarossa (1941), parte 1. Los rotores: la primera fila de botones es la del rotor izquierdo,
+# la segunda la del central y la tercera la del derecho (index 0, 1 y 2). Las tres filas tienen que verse
+# a la vez en la pantalla para que los índices sean los de cada fila.
+- scrollUntilVisible:
+    element:
+      text: 'Rotores \(Walzenlage\), de izquierda a derecha'
+    direction: UP
+    centerElement: true
+- assertVisible: "Izquierdo"
+- assertVisible: "Central"
+- assertVisible: "Derecho"
+- tapOn:
+    text: "II"
+    index: 0
+- tapOn:
+    text: "IV"
+    index: 1
+- tapOn:
+    text: "V"
+    index: 2
+- assertNotVisible: "Cada rotor solo puede usarse una vez."
+- scrollUntilVisible:
+    element:
+      text: "1 1 1"
+    direction: DOWN
+- tapOn: "1 1 1"
+- eraseText: 10
+- inputText: "2 21 12"
+- hideKeyboard
+- tapOn: "AAA"
+- eraseText: 10
+- inputText: "BLA"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'Tablero de conexiones \(Steckerbrett\), por ejemplo AV BS CG'
+    direction: DOWN
+- tapOn: 'Tablero de conexiones \(Steckerbrett\), por ejemplo AV BS CG'
+- inputText: "AV BS CG DL FU HZ IN KM OW RX"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Texto"
+    direction: DOWN
+- tapOn: "Texto"
+- inputText: "EDPUD NRGYS ZRCXN UYTPO MRMBO FKTBZ REZKM LXLVE FGUEY SIOZV EQMIK UBPMM YLKLT TDEIS MDICA GYKUA CTCDO MOHWX MUUIA UBSTS LRNBZ SZWNR FXWFY SSXJZ VIJHI DISHP RKLKA YUPAD TXQSP INQMA TLPIF SVKDA SCTAC DPBOP VHJK"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'AUFKL XABTE ILUNG XVONX KURTI NOWAX KURTI NOWAX NORDW ESTLX SEBEZ XSEBE ZXUAF FLIEG ERSTR ASZER IQTUN GXDUB ROWKI XDUBR OWKIX OPOTS CHKAX OPOTS CHKAX UMXEI NSAQT DREIN ULLXU HRANG ETRET ENXAN GRIFF XINFX RGTX'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Para descifrar, escribe el texto cifrado con los mismos ajustes: Enigma deshace lo que hizo\.'
+    direction: DOWN
+
+# Análisis.
+- scrollUntilVisible:
+    element:
+      text: "Análisis"
+    direction: UP
+- tapOn: "Análisis"
+- assertVisible: "Hacen falta al menos dos letras A-Z para medir el índice de coincidencia."
+- tapOn: "Texto a analizar"
+- inputText: "ATTACKATDAWN"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Letras A-Z: 12"
+    direction: DOWN
+- assertVisible: "Índice de coincidencia: 0,1364"
+- assertVisible: 'Se parece al de un texto normal: es lo que da un texto sin cifrar.*'
+- assertVisible: "Letras, de la más a la menos frecuente"
+
+# Volver atrás lo borra todo: al entrar otra vez, César está vacío y con el desplazamiento de entrada.
+- tapOn: "Atrás"
+- runFlow:
+    file: comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio clásico.*'
+- assertNotVisible: "Hola Mundo"
+- assertNotVisible: "Ubyn Zhaqb"
+- assertNotVisible: "30"
+- tapOn: "Atrás"
