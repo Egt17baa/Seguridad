@@ -19,6 +19,14 @@ import org.junit.Test
  * N = 2^15, r = 8, p = 1.
  */
 class AegisCryptoTest {
+    private companion object {
+        /** Password bytes, scrypt key, master key and the vault's plaintext. */
+        const val OPEN_KEPT = 4
+
+        /** A wrong password: password bytes, scrypt key and the unwrap's output whose tag failed (blockGcm wiped it). */
+        const val WRONG_KEPT = 3
+    }
+
     private val plain = resource("aegis/aegis-cifrado-claro.json")
     private val encrypted = resource("aegis/aegis-cifrado.json")
 
@@ -186,8 +194,7 @@ class AegisCryptoTest {
         // M-4: the exact number of arrays on each path, and the keys and the plaintext themselves among them.
         val seen = ArrayList<ByteArray>()
         openAegis(jsonRoot(encrypted), FIXTURE_PASSWORD.toCharArray(), JSON_MAX_TREE_BYTES, Secrets(seen::add))
-        // The password bytes, the scrypt key, the master key and the vault's plaintext.
-        assertAllZero(seen, exactly = 4)
+        assertAllZero(seen, exactly = OPEN_KEPT)
         val steps = ArrayList<ByteArray>()
         val s = Secrets(steps::add)
         val e = aegisEncrypted(jsonRoot(encrypted))
@@ -196,7 +203,7 @@ class AegisCryptoTest {
         val plaintext = aegisDb(e, master, s)
         assertKept(steps, derived, master, plaintext)
         s.wipe()
-        assertAllZero(steps, exactly = 4)
+        assertAllZero(steps, exactly = OPEN_KEPT)
         val wrong = ArrayList<ByteArray>()
         try {
             openAegis(jsonRoot(encrypted), "otra".toCharArray(), JSON_MAX_TREE_BYTES, Secrets(wrong::add))
@@ -204,8 +211,6 @@ class AegisCryptoTest {
         } catch (x: ImportFailure) {
             assertEquals(IMPORT_WRONG_PASSWORD, x.message)
         }
-        // The password bytes, the scrypt key, and the unwrap's output whose tag failed (blockGcm wiped it).
-        assertAllZero(wrong, exactly = 3)
+        assertAllZero(wrong, exactly = WRONG_KEPT)
     }
-
 }

@@ -69,6 +69,26 @@ class ImportKdfTest {
         s.wipe()
     }
 
+    @Test fun base64WithSpareBytesKeepsTheSizeAndLeavesTheSpareZero() {
+        // R26 (N-3): the decoded bytes, then [spare] zero bytes; broken padding is broken, as without spare.
+        for ((text, bytes) in listOf("AA==" to 1, "AAA=" to 2, "AAAA" to 3, "/w==" to 1, "//8=" to 2, "////" to 3)) {
+            val out = importBase64(text, spare = 16)
+            assertEquals(text, bytes + 16, out.size)
+            assertArrayEquals(text, java.util.Base64.getDecoder().decode(text), out.copyOf(bytes))
+            assertArrayEquals(text, ByteArray(16), out.copyOfRange(bytes, out.size))
+        }
+        for (text in listOf("", "=", "A===", "AA=A", "====", "A", "AAA")) {
+            for (spare in listOf(0, 16)) {
+                try {
+                    importBase64(text, spare = spare)
+                    fail("«$text» with spare $spare accepted")
+                } catch (e: ImportFailure) {
+                    assertEquals(text, IMPORT_BROKEN, e.message)
+                }
+            }
+        }
+    }
+
     @Test fun scryptMemoryOverTheDefaultMustFitThisHeap() {
         // The rule of checkSane: up to 64 MiB always; above it, at most ¾ of what the app may use.
         checkScrypt(1 shl 16, 8, 1, heapKiB = 1) // 64 MiB.

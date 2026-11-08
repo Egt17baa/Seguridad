@@ -15,6 +15,14 @@ import java.util.Base64
  * design and two published READMEs, with [FIXTURE_PASSWORD].
  */
 class TwoFasCryptoTest {
+    private companion object {
+        /** Password bytes, PBKDF2 key and the services' plaintext. */
+        const val OPEN_KEPT = 3
+
+        /** A wrong password: password bytes, PBKDF2 key and the GCM output, wiped before the tag says no. */
+        const val WRONG_KEPT = 3
+    }
+
     private val plain = resource("2fas/2fas-cifrado-claro.2fas")
     private val encrypted = resource("2fas/2fas-cifrado.2fas")
 
@@ -40,8 +48,7 @@ class TwoFasCryptoTest {
         } catch (e: ImportFailure) {
             assertEquals(IMPORT_WRONG_PASSWORD, e.message)
         }
-        // The password bytes, the key, and the GCM output buffer: what the wrong key decrypted is wiped before the tag says no.
-        assertAllZero(seen, exactly = 3)
+        assertAllZero(seen, exactly = WRONG_KEPT)
         assertEquals(IMPORT_WRONG_PASSWORD, failedRead(encrypted, "x"))
     }
 
@@ -128,8 +135,8 @@ class TwoFasCryptoTest {
     @Test fun passwordAndKeysAreZeroed() {
         val seen = ArrayList<ByteArray>()
         openTwoFas(jsonRoot(encrypted), FIXTURE_PASSWORD.toCharArray(), JSON_MAX_TREE_BYTES, Secrets(seen::add))
-        // The password bytes, the key and the plaintext (M-4: exactly, and the key and the plaintext themselves).
-        assertAllZero(seen, exactly = 3)
+        // M-4: exactly, and the key and the plaintext themselves.
+        assertAllZero(seen, exactly = OPEN_KEPT)
         val steps = ArrayList<ByteArray>()
         val s = Secrets(steps::add)
         val e = twoFasEncrypted(jsonRoot(encrypted))
@@ -137,6 +144,6 @@ class TwoFasCryptoTest {
         val services = twoFasOpen(e, key, s)
         assertKept(steps, key, services)
         s.wipe()
-        assertAllZero(steps, exactly = 3)
+        assertAllZero(steps, exactly = OPEN_KEPT)
     }
 }
