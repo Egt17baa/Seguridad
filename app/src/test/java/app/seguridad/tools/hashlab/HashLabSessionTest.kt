@@ -56,4 +56,30 @@ class HashLabSessionTest {
         assertTrue(s.progress(second, 20))
         assertEquals(20L, s.readBytes)
     }
+
+    /**
+     * Re-review B, N-2: a reading of the old file, on its own thread, never leaves its progress on the new one. Before the
+     * fix, [HashLabSession.progress] could pass the run check, [HashLabSession.startFile] reset the figure, and the old
+     * reading then write it back.
+     */
+    @Test fun anOldReadingNeverWritesItsProgressOnTheNewFile() {
+        val s = HashLabSession()
+        repeat(2_000) { round ->
+            val old = s.startFile()
+            val go = java.util.concurrent.CountDownLatch(1)
+            val reader = Thread {
+                go.await()
+                var read = 1L
+                while (s.progress(old, read)) read++
+            }
+            reader.start()
+            go.countDown()
+            Thread.yield()
+            val new = s.startFile()
+            reader.join()
+            assertEquals("round $round", 0L, s.readBytes)
+            assertTrue(s.progress(new, 7))
+            assertEquals(7L, s.readBytes)
+        }
+    }
 }
