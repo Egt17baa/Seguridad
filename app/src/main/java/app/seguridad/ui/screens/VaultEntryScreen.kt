@@ -404,7 +404,7 @@ fun VaultEntryEditScreen(
                         VAULT_ENTRY_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${typeIcon(t)} ${t.label}") }) }
                     }
                 }
-                OutlinedTextField(title, { title = it }, label = { Text("Nombre (p. ej. «Binance» o «Ledger»)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(title, { title = it }, label = { Text("Nombre (p. ej. «Correo del trabajo» o «Cartera principal»)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 when (type) {
                     EntryType.LOGIN -> {
                         OutlinedTextField(username, { username = it }, label = { Text("Usuario o correo") }, singleLine = true, modifier = Modifier.fillMaxWidth())

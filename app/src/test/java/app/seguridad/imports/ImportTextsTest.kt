@@ -18,16 +18,20 @@ import java.io.File
 class ImportTextsTest {
     /**
      * Product names, found in any case as a part of a literal, so a name glued to other letters («GoogleDrive»,
-     * «misBitwarden») is caught too. None of them is part of an ordinary Spanish word.
+     * «misBitwarden», «MiEdge») is caught too: the formats the import screen reads, and the two products the vault form
+     * named as examples before 1.4.0 («Binance» and «Ledger»), so they cannot come back.
      */
-    private val names = listOf("bitwarden", "aegis", "2fas", "firefox", "mozilla", "apple", "safari", "icloud", "chrome", "chromium", "brave", "steam", "keepass", "google", "microsoft", "msedge")
+    private val names = listOf(
+        "bitwarden", "aegis", "2fas", "firefox", "mozilla", "apple", "safari", "icloud", "chrome", "chromium", "brave", "steam",
+        "keepass", "google", "microsoft", "edge", "binance", "ledger",
+    )
 
     /**
-     * Names that are part of ordinary words, so they are found only as a whole word: «edge» is inside «Ledger» (a
-     * hardware wallet the vault form names as an example) and «knowledge». A glued «MicrosoftEdge» or «msedge» is
-     * still caught through [names].
+     * Ordinary words that contain a name of [names] and are not that product, found as whole words and taken out before
+     * the search. Empty: no literal of the app has one today («edge» was only inside «Ledger», now gone). A word joins
+     * this list only when a real text needs it, written here in lower case.
      */
-    private val wholeWordNames = listOf("edge")
+    private val ordinaryWords = emptyList<String>()
 
     /** The only file where any literal may name another product. */
     private val TEXTS_FILE = "app/seguridad/imports/ImportTexts.kt"
@@ -65,10 +69,10 @@ class ImportTextsTest {
             .associate { it.relativeTo(java).invariantSeparatorsPath to it.readText() }
     }
 
-    private fun namesIn(text: String): List<String> {
-        val lower = text.lowercase()
-        return names.filter { it in lower } +
-            wholeWordNames.filter { Regex("(?<![\\p{L}\\p{N}])${Regex.escape(it)}(?![\\p{L}\\p{N}])").containsMatchIn(lower) }
+    private fun namesIn(text: String, exceptions: List<String> = ordinaryWords): List<String> {
+        var lower = text.lowercase()
+        for (w in exceptions) lower = Regex("(?<![\\p{L}\\p{N}])${Regex.escape(w)}(?![\\p{L}\\p{N}])").replace(lower, " ")
+        return names.filter { it in lower }
     }
 
     /** Each literal of [sources] that names another product and is neither in [TEXTS_FILE] nor in [ALLOWED]. */
@@ -108,12 +112,31 @@ class ImportTextsTest {
         assertTrue(namesIn("importado-2fas").isNotEmpty())
         assertTrue(namesIn("GOOGLE").isNotEmpty())
         assertTrue(namesIn("importado-navegador").isEmpty())
-        // Glued to other letters or digits, in any case.
-        for (t in listOf("GoogleDrive", "misBitwarden", "copia2FASx", "iCloudDrive", "MicrosoftEdge", "msedge.exe", "Edge"))
+        // Glued to other letters or digits, in any case: no name is matched as a whole word only.
+        for (t in listOf("GoogleDrive", "misBitwarden", "copia2FASx", "iCloudDrive", "MicrosoftEdge", "msedge.exe", "Edge", "EdgeBrowser", "MiEdge", "mi_edge", "EDGE2"))
             assertTrue(t, namesIn(t).isNotEmpty())
-        // «edge» inside an ordinary word is not a name.
-        assertTrue(namesIn("Nombre (p. ej. «Binance» o «Ledger»)").isEmpty())
-        assertTrue(namesIn("knowledge").isEmpty())
+        // The form's examples from before 1.4.0 are names now, glued or not; the generic ones that replace them are not.
+        for (t in listOf("Nombre (p. ej. «Binance» o «Ledger»)", "MiBinance", "LedgerNano", "knowledge"))
+            assertTrue(t, namesIn(t).isNotEmpty())
+        assertTrue(namesIn("Nombre (p. ej. «Correo del trabajo» o «Cartera principal»)").isEmpty())
+    }
+
+    @Test fun anOrdinaryWordIsTakenOutOnlyAsAWholeWord() {
+        // How an entry of [ordinaryWords] would work: the whole word is not a name, but the product glued to it or next
+        // to it still is.
+        val words = listOf("knowledge")
+        assertTrue(namesIn("knowledge", words).isEmpty())
+        assertTrue(namesIn("Knowledge base", words).isEmpty())
+        for (t in listOf("knowledgeEdge", "MiEdge knowledge", "knowledge, Edge", "knowledges"))
+            assertTrue(t, namesIn(t, words).isNotEmpty())
+    }
+
+    @Test fun theVaultFormNamesNoProduct() {
+        // Final fix wave: the name field's examples are generic.
+        val entry = mainSources()["app/seguridad/ui/screens/VaultEntryScreen.kt"] ?: error("VaultEntryScreen.kt")
+        val lits = kotlinLiterals(entry).map { it.second }
+        assertTrue("Nombre (p. ej. «Correo del trabajo» o «Cartera principal»)" in lits)
+        assertFalse(lits.any { "Binance" in it || "Ledger" in it })
     }
 
     // ---- Task 9: the texts of the «Importar de otra app» screen ----
