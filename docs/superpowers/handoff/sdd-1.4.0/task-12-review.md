@@ -133,7 +133,7 @@ Ninguno.
 
 ## Revisión experto-seguridad-cripto
 
-- Nada en los documentos promete más protección que el código. Las únicas afirmaciones falsas exageran el riesgo (I-3) o la cobertura (I-4, I-5), no la protección. Las notas no dicen «fuerte» ni «seguro», y cada herramienta dice lo que no protege (`README.md:48-50`; ficha `:46-48`; `SHARE_WARNING` y `CLASSIC_NOTICE`).
+- Nada en los documentos promete más protección que el código. Las únicas afirmaciones falsas exageran el riesgo (I-3) o la cobertura (I-4, I-5), no la protección. Las notas no dicen «fuerte» ni «seguro», y cada herramienta dice lo que no protege (`README.md:48-50`; ficha `:48-50`; `SHARE_WARNING` y `CLASSIC_NOTICE`).
 - Los topes de las KDF de los archivos importados son los que dicen la auditoría y el README (`imports/ImportKdf.kt:39-46,57-97`), y el HMAC de Bitwarden se compara en tiempo constante (`imports/BitwardenCrypto.kt:151`). La comparación de huellas usa `MessageDigest.isEqual` (`tools/hashlab/HashLab.kt:98`).
 - I-2: tal como está, la prueba en el móvil de la decisión (a) para JSON no llega al estimador (`imports/ImportJson.kt:196` corta antes). El archivo corregido sí lo ejercita.
 - La política dice exactamente lo que borra A6 (`docs/privacidad.html:36`, fijado en `FinalLegalReviewTest.kt:67-79`, con el `assertFalse` de la frase anterior).
