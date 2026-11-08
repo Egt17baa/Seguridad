@@ -299,12 +299,23 @@ class CsvFormatsTest {
         assertEquals("https://uno.example.com/", twoUris.url)
         assertEquals("URL: https://dos.example.com/entrar", twoUris.notes)
         assertEquals("uno.example.com", hostOf(twoUris.url))
-        // Spaces around each one are trimmed and empty ones dropped; the notes and the fields come first, as in JSON.
+        // Spaces around each one are trimmed and an empty one dropped; the notes come first and the fields last, as in JSON.
         val header = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n"
-        val e = ok(header + ",,login,Tres,Nota,\"PIN: 1\",0,\" ,https://a.example/ ,, https://b.example/,https://c.example/ \",u,p,\n")
+        val e = ok(header + ",,login,Tres,Nota,\"PIN: 1\",0,\" ,https://a.example/ , https://b.example/,https://c.example/ \",u,p,\n")
             .items.single().entry
         assertEquals("https://a.example/", e.url)
         assertEquals("Nota\nURL: https://b.example/\nURL: https://c.example/\nPIN: 1", e.notes)
+    }
+
+    @Test fun bitwardenCsvSplitsOnlyBeforeAScheme() {
+        // R26 (N-1): a comma inside a URI is kept; a comma before another URI's scheme splits.
+        val header = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n"
+        val one = ok(header + ",,login,Mapa,,,0,\"https://a.example/x?q=1,2\",u,p,\n").items.single().entry
+        assertEquals("https://a.example/x?q=1,2", one.url)
+        assertEquals("", one.notes)
+        val two = ok(header + ",,login,App,,,0,\"https://a/,androidapp://b\",u,p,\n").items.single().entry
+        assertEquals("https://a/", two.url)
+        assertEquals("URL: androidapp://b", two.notes)
     }
 
     @Test fun bitwardenCsvAndJsonGiveTheSameLogin() {

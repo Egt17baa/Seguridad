@@ -12,7 +12,8 @@ import java.util.Locale
  * - Bitwarden (ruling R19; https://bitwarden.com/help/condition-bitwarden-import/): the personal vault's
  *   folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp, and the
  *   organisation's, with collections in place of folder and favorite. It is found by the names of its columns, in any
- *   order and case ([isBitwardenCsv]); its login_uri cell holds every URI of a login, separated by commas (pending
+ *   order and case ([isBitwardenCsv]); its login_uri cell holds every URI of a login, separated by commas, split only
+ *   before a scheme ([LOGIN_URI_SEPARATOR]) (pending
  *   confirmation with a real export: docs/superpowers/handoff/sdd-1.4.0/task-10-report.md, «Pendiente de confirmar»).
  * Columns are found by name, in any order and case; a column Clavero does not know is never given a meaning. The
  * mapping is fixed: nothing in the file decides which code runs.
@@ -143,7 +144,7 @@ private fun readRow(format: ImportFormat, c: Columns, row: List<String>, out: Im
 
 /**
  * One row of Bitwarden's CSV, with the rules of its JSON reader ([readBitwardenPlain]): `type` `login` is a LOGIN
- * (title, user, password; `login_uri` split on its commas, each URI trimmed and the empty ones dropped, the first as
+ * (title, user, password; `login_uri` split on the commas before a scheme, each URI trimmed and the empty ones dropped, the first as
  * its URL and each other one a «URL: …» line, after the notes and before the `fields` cell, as written) and its
  * `login_totp` goes through the same strict path ([addLoginTotp]: an `otpauth://` link, a bare Base32 key or a Steam
  * code); `note` and any other type are a NOTE (another type counted in [ImportRead.becameNotes]). `favorite` is `1`;
@@ -190,5 +191,11 @@ private fun readBitwardenRow(c: Columns, row: List<String>, out: ImportReadBuild
     if (totp.isNotBlank()) addLoginTotp(totp, title, folders, out)
 }
 
-/** The URIs of a `login_uri` cell: split on its commas, each trimmed, the empty ones dropped (as the JSON reader passes them over). */
-private fun loginUris(cell: String): List<String> = cell.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+/**
+ * Where a `login_uri` cell holds the next URI (ruling R26): a comma, optional spaces, then a URI scheme («https:»,
+ * «androidapp:»…). A comma inside a URI (`?q=1,2`) is not followed by a scheme, so it stays in its URI.
+ */
+private val LOGIN_URI_SEPARATOR = Regex(""",\s*(?=[A-Za-z][A-Za-z0-9+.-]*:)""")
+
+/** The URIs of a `login_uri` cell: split before each scheme ([LOGIN_URI_SEPARATOR]), each trimmed, the empty ones dropped (as the JSON reader passes them over). */
+private fun loginUris(cell: String): List<String> = cell.split(LOGIN_URI_SEPARATOR).map { it.trim() }.filter { it.isNotEmpty() }

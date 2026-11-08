@@ -14,6 +14,20 @@ import java.io.File
  * the salt hashed with SHA-256, from documentation, not yet confirmed against a real export).
  */
 class BitwardenCryptoTest {
+    private companion object {
+        /** Password bytes, salt bytes, PBKDF2 key, enc, mac, the two MACs, the CBC buffer and the plaintext. */
+        const val PBKDF2_KEPT = 9
+
+        /** The same as [PBKDF2_KEPT] plus the salt's SHA-256, which Argon2id takes as its salt. */
+        const val ARGON2_KEPT = 10
+
+        /** A wrong password with PBKDF2: password bytes, salt bytes, PBKDF2 key, enc, mac and the first MAC (it fails). */
+        const val PBKDF2_WRONG_KEPT = 6
+
+        /** The same as [PBKDF2_WRONG_KEPT] plus the salt's SHA-256. */
+        const val ARGON2_WRONG_KEPT = 7
+    }
+
     private val plain = resource("bitwarden/bitwarden-protegido-claro.json")
     private val pbkdf2 = resource("bitwarden/bitwarden-protegido-pbkdf2.json")
     private val argon2 = resource("bitwarden/bitwarden-protegido-argon2id.json")
@@ -175,9 +189,7 @@ class BitwardenCryptoTest {
 
     @Test fun passwordAndKeysAreZeroed() {
         // M-4: the exact number of arrays on each path and KDF, and the keys and the plaintext themselves among them.
-        // PBKDF2: the password bytes, the salt's, the derived key, enc and mac, the two MACs, the CBC buffer and the
-        // plaintext; Argon2id adds the salt's SHA-256. A wrong password stops at the first MAC.
-        for ((file, right, wrongCount) in listOf(Triple(pbkdf2, 9, 6), Triple(argon2, 10, 7))) {
+        for ((file, right, wrongCount) in listOf(Triple(pbkdf2, PBKDF2_KEPT, PBKDF2_WRONG_KEPT), Triple(argon2, ARGON2_KEPT, ARGON2_WRONG_KEPT))) {
             val seen = ArrayList<ByteArray>()
             val pw = FIXTURE_PASSWORD.toCharArray()
             openBitwarden(jsonRoot(file), pw, JSON_MAX_TREE_BYTES, Secrets(seen::add))
@@ -203,7 +215,6 @@ class BitwardenCryptoTest {
             assertAllZero(wrong, exactly = wrongCount)
         }
     }
-
 }
 
 /** A type 2 cipher string of [plain] under [keys], for tests only (a random IV). */

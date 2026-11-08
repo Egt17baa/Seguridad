@@ -83,7 +83,7 @@ The owner gives no real exports (owner decision (e)). These points come from doc
 - **Bitwarden:**
   - the Argon2id salt is SHA-256 of the UTF-8 salt string, and the salt is used as text, not Base64-decoded (`BitwardenCrypto.kt`, `bitwardenKeys`);
   - with PBKDF2, `kdfMemory` and `kdfParallelism` may be present as `null`, and they are ignored;
-  - the CSV `login_uri` cell holds every URI of a login separated by commas (fix round 1, I-1). A URI that itself contains a comma would be split too.
+  - the CSV `login_uri` cell holds every URI of a login separated by commas (fix round 1, I-1). Since fix round 2 (ruling R26) it is split only on a comma followed by optional spaces and a URI scheme (`,\s*(?=[A-Za-z][A-Za-z0-9+.-]*:)`), so a comma inside a URI (`?q=1,2`) stays in it. A comma inside a URI that is followed by something that looks like a scheme (`?a=1,b:2`) would still split.
 - **Aegis:**
   - the password is hashed in UTF-8;
   - GCM takes no associated data;
@@ -99,6 +99,6 @@ The owner gives no real exports (owner decision (e)). These points come from doc
 
 ## For Task 12 (README, phone tests)
 
-- One real export per format: Bitwarden protected with PBKDF2 and with Argon2id, the Bitwarden CSV (with a login with two URIs), Aegis encrypted, and 2FAS encrypted. Each opens with its password and gives the same entries as the source app.
+- One real export per format: Bitwarden protected with PBKDF2 and with Argon2id, the Bitwarden CSV (with a login with two URIs, and one whose URL has a comma, such as `?q=1,2`), Aegis encrypted, and 2FAS encrypted. Each opens with its password and gives the same entries as the source app.
 - How long PBKDF2 takes at Bitwarden's 600 000 iterations on a mid-range phone (the informative note of the review).
 - The phone test that replaces Task 9's «todavía no» line: an encrypted export asks for its password; a wrong one can be typed again; a `.zip` or HTML file says what to do instead.

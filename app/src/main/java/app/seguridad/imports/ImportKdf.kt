@@ -155,7 +155,9 @@ internal fun pbkdf2Sha256(password: ByteArray, salt: ByteArray, iterations: Int,
 /**
  * scrypt (RFC 7914) of [password] and [salt], [length] bytes; the parameters checked first ([checkScrypt]; [checked]:
  * always, but in a test). A parameter Bouncy Castle still refuses (an [IllegalArgumentException]) is the file asking
- * what this phone cannot do, [IMPORT_KDF_TOO_BIG], never «dañado».
+ * what this phone cannot do, [IMPORT_KDF_TOO_BIG], never «dañado». That mapping is only true because [checkScrypt]
+ * runs first (ruling R26): every caller must check the parameters before, so only a Bouncy Castle rule about N, r or
+ * p can reach the catch, never a wrong [length] or a bug.
  */
 internal fun scryptKey(
     password: ByteArray,
@@ -173,6 +175,7 @@ internal fun scryptKey(
             try {
                 SCrypt.generate(password, salt, n, r, p, length)
             } catch (e: IllegalArgumentException) {
+                // checkScrypt ran first (above), so this is only a Bouncy Castle rule on N, r or p, never a caller's bug.
                 throw ImportFailure(IMPORT_KDF_TOO_BIG)
             }
         },
