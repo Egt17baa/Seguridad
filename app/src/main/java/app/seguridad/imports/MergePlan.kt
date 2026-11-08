@@ -1,6 +1,9 @@
 package app.seguridad.imports
 
 import app.seguridad.core.appJson
+import app.seguridad.tools.qr.SPECIAL_SCHEMES
+import app.seguridad.tools.qr.parseLink
+import app.seguridad.tools.qr.schemeOf
 import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MAX_TAGS
@@ -349,23 +352,29 @@ internal fun utf8Length(s: String): Long {
 
 private val SPACES = Regex("\\s+")
 
-/** Title as compared: trimmed, case ignored. */
-private fun titleKey(title: String) = title.trim().lowercase(Locale.ROOT)
+/** Title as compared: as it is shown ([compareKey]), case ignored ([Locale.ROOT]). */
+private fun titleKey(title: String) = compareKey(title).lowercase(Locale.ROOT)
+
+/** User as compared: as it is shown ([compareKey]); a different capital is visible, so it still counts (ruling R34). */
+private fun userKey(username: String) = compareKey(username)
 
 /**
- * The host of [url] as compared: lowercase, without scheme, user, port, path or `www.`; null for no URL. A URL whose
- * host comes out empty is compared whole (trimmed, lowercase). Plain string work, never a parser that could throw or
- * resolve anything.
+ * The host of [url] as compared: the one a browser connects to, read by [parseLink] (RT-1, ruling R34), without `www.`;
+ * null for no URL. So the authority ends where a browser ends it: at «/», «?», «#» and, in a web link (http, https,
+ * ftp, ws, wss), also at «\», and the user info goes up to the last «@» before that end. `https://evil.example\@banco.es/`
+ * is evil.example, as the URL Standard (WHATWG) that browsers follow reads it, not banco.es. The scheme and the port do not count. A text with no «://»
+ * that does not start with a web scheme («banco.es/login», «banco.es:8443») is read as a web link, as an address bar
+ * would. A URL whose host comes out empty («https://», «@») is compared whole (trimmed, lowercase).
+ *
+ * [parseLink] is plain string work: it never throws, never resolves a name and never opens anything (the IDN step only
+ * maps a non-ASCII label to its `xn--` form, as the browser does).
  */
 internal fun urlHost(url: String): String? {
     val t = url.trim()
     if (t.isEmpty()) return null
-    val scheme = t.indexOf("://")
-    val rest = if (scheme >= 0) t.substring(scheme + 3) else t
-    val end = rest.indexOfFirst { it == '/' || it == '?' || it == '#' }
-    val authority = (if (end >= 0) rest.substring(0, end) else rest).substringAfterLast('@')
-    val host = if (authority.startsWith('[')) authority.substringBefore(']') + "]" else authority.substringBefore(':')
-    val key = host.lowercase(Locale.ROOT).removePrefix("www.")
+    val scheme = schemeOf(t)
+    val asLink = if (scheme != null && (scheme in SPECIAL_SCHEMES || t.startsWith("//", scheme.length + 1))) t else "https://$t"
+    val key = parseLink(asLink).host?.removePrefix("www.").orEmpty()
     return key.ifEmpty { t.lowercase(Locale.ROOT) }
 }
 
@@ -386,7 +395,7 @@ private class Matcher<T : Any> {
     fun add(e: VaultEntry, value: T) {
         when (e.type) {
             EntryType.LOGIN -> {
-                val group = logins.getOrPut(titleKey(e.title) to e.username.trim()) { Logins(value) }
+                val group = logins.getOrPut(titleKey(e.title) to userKey(e.username)) { Logins(value) }
                 val host = urlHost(e.url)
                 if (host == null) {
                     if (group.hostless == null) group.hostless = value
@@ -401,7 +410,7 @@ private class Matcher<T : Any> {
     }
 
     fun find(e: VaultEntry): T? = when (e.type) {
-        EntryType.LOGIN -> logins[titleKey(e.title) to e.username.trim()]?.let { g ->
+        EntryType.LOGIN -> logins[titleKey(e.title) to userKey(e.username)]?.let { g ->
             val host = urlHost(e.url)
             if (host == null) g.any else g.byHost[host] ?: g.hostless
         }

@@ -39,16 +39,19 @@ val MASTER_WORD_LISTS = listOf(EFF_WORD_LIST, BIP39_ENGLISH_LIST, "bip39_spanish
 private val COMBINING_MARKS = Regex("\\p{Mn}+")
 
 /**
- * What is left of [candidate] when only its letters count: lower case ([Locale.ROOT], so the phone's language does not
- * matter), without accents (NFD with the combining marks removed, so «ñ» is «n» and «Á» is «a») and with no digits, symbols
- * or spaces. «Contraseña2024!» is «contrasena»; «Ábaco-12345» is «abaco». It is the form in which [masterWords] holds the
- * lists, and the one compared against them.
+ * What is left of [candidate] when only its letters count: in NFKC (so full-width or styled letters, «ｐａｓｓ» or «𝐩𝐚𝐬𝐬»,
+ * are the plain ones, RT-3), lower case ([Locale.ROOT], so the phone's language does not matter), without accents (NFD
+ * with the combining marks removed, so «ñ» is «n» and «Á» is «a») and with no digits, symbols or spaces.
+ * «Contraseña2024!» is «contrasena»; «Ábaco-12345» is «abaco». It is the form in which [masterWords] holds the lists, and
+ * the one compared against them (NFKC changes nothing in the lists, which are plain letters).
  *
- * It makes copies of the text (lower case, decomposed, filtered) that cannot be zeroed, like the one [estimateBits] makes
- * for the same typed password: the password is already an immutable `String` in the state of the text field.
+ * It makes copies of the text (normalized, lower case, decomposed, filtered) that cannot be zeroed, like the one
+ * [estimateBits] makes for the same typed password: the password is already an immutable `String` in the state of the
+ * text field.
  */
 fun masterCore(candidate: String): String {
-    val folded = COMBINING_MARKS.replace(Normalizer.normalize(candidate.lowercase(Locale.ROOT), Normalizer.Form.NFD), "")
+    val compatible = Normalizer.normalize(candidate, Normalizer.Form.NFKC)
+    val folded = COMBINING_MARKS.replace(Normalizer.normalize(compatible.lowercase(Locale.ROOT), Normalizer.Form.NFD), "")
     val core = StringBuilder(folded.length)
     var i = 0
     while (i < folded.length) {
@@ -57,6 +60,65 @@ fun masterCore(candidate: String): String {
         i += Character.charCount(cp)
     }
     return core.toString()
+}
+
+/**
+ * Masters longer than this many code points (in NFKC) skip [isKnownWordInLeet]: that is far beyond one word with a few
+ * symbols around it, and it keeps the check, which runs on every keystroke, bounded.
+ */
+const val LEET_MAX_CODE_POINTS = 128
+
+/**
+ * The letter a usual «leet» substitution stands for (RT-3): 0 o, 3 e, 4 and @ a, 5 and $ s, 7 and + t, 8 b, 6 and 9 g,
+ * and 1, ! and | as [oneAs] (tried once as «i» and once as «l»). Not 2 for z: it would turn every year («2024») into
+ * letters. Null for any other character.
+ */
+private fun leetLetter(cp: Int, oneAs: Char): Char? = when (cp) {
+    '0'.code -> 'o'
+    '3'.code -> 'e'
+    '4'.code, '@'.code -> 'a'
+    '5'.code, '$'.code -> 's'
+    '7'.code, '+'.code -> 't'
+    '8'.code -> 'b'
+    '6'.code, '9'.code -> 'g'
+    '1'.code, '!'.code, '|'.code -> oneAs
+    else -> null
+}
+
+/**
+ * Whether [candidate] is ONE known word of [words] written in leet (RT-3, owner's decision (h), 8-11-2026: «P4ssw0rd2024!»,
+ * «C0ntr4s3ñ4!!», «Dr4g0n!2024»). In NFKC, it looks for a split `lead + middle + tail` where `lead` and `tail` have no
+ * letters at all (digits, symbols, spaces, or nothing) and `middle`, with the substitutions of [leetLetter] turned back
+ * into letters and the rest as [masterCore] leaves it, has its core in [words]. Since `lead` and `tail` have no letters,
+ * `middle` always holds every letter of the password: only where it starts before the first letter and ends after the
+ * last one is tried, so a year or a few symbols at the ends («2024!») stay out of the word and a random password, whose
+ * letters are spread over it, very rarely gives a short core. A password without letters is never a word here (digits
+ * only are left to the estimate).
+ *
+ * Bounded: nothing past [LEET_MAX_CODE_POINTS], and at most (first letter + 1) × (n − last letter) cores per reading of
+ * «1», each built by appending to the previous one, a few thousand set lookups at worst; no regular expression.
+ */
+internal fun isKnownWordInLeet(candidate: String, words: Set<String>): Boolean {
+    if (words.isEmpty()) return false
+    val cps = Normalizer.normalize(candidate, Normalizer.Form.NFKC).codePoints().toArray()
+    if (cps.size > LEET_MAX_CODE_POINTS) return false
+    val first = cps.indexOfFirst { Character.isLetter(it) }
+    if (first < 0) return false
+    val last = cps.indexOfLast { Character.isLetter(it) }
+    val core = StringBuilder()
+    for (oneAs in charArrayOf('i', 'l')) {
+        val pieces = Array(cps.size) { k -> leetLetter(cps[k], oneAs)?.toString() ?: masterCore(String(Character.toChars(cps[k]))) }
+        for (start in 0..first) {
+            core.setLength(0)
+            for (k in start..last) core.append(pieces[k])
+            if (core.toString() in words) return true
+            for (end in last + 1 until cps.size) {
+                core.append(pieces[end])
+                if (core.toString() in words) return true
+            }
+        }
+    }
+    return false
 }
 
 /**
@@ -130,8 +192,10 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
  * [words] is what [loadMasterWords] returns: the cores ([masterCore]) of the common list of «Salud» and of the EFF,
  * BIP-39 English and BIP-39 Spanish lists. A candidate whose core is in it is a single known word with capitals, accents,
  * digits or symbols around it («contraseña123», «Password1!», «Ábaco12345»), which the estimate alone lets through.
- * Without [words] (the default, or an empty set because the lists could not be read) the rule is the length and the
- * estimate, as it was.
+ * Since RT-3 (owner's decision (h), 8-11-2026) also a known word in full-width letters («ｐａｓｓｗｏｒｄ12345», through
+ * the NFKC of [masterCore]) or in leet, with digits and symbols for some letters and more of them around it
+ * («P4ssw0rd2024!», «C0ntr4s3ñ4!!», «Dr4g0n!2024»: [isKnownWordInLeet]). Without [words] (the default, or an empty set
+ * because the lists could not be read) the rule is the length and the estimate, as it was.
  *
  * Only for a password that is being chosen: creating the vault and changing the master. Opening the vault, the
  * fingerprint and importing a copy never come through here, so no vault or copy that exists stops opening, and neither
@@ -146,20 +210,26 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
  * gives about 59 bits and passes, because «barcelona» is in no list. A word with an enye or an accent gets a large bonus
  * in the estimate (one character outside ASCII adds 100 symbols to the pool of the whole password), which is why the
  * word check exists. Its limit: it is about the WHOLE core being one word. Two words together («abandon-ability») are not
- * «una sola palabra» and pass if the estimate reaches, and so does any word that is in none of the lists. The rule does
- * not guarantee that a master is strong.
+ * «una sola palabra» and pass if the estimate reaches, and so does any word that is in none of the lists. The leet check
+ * only knows the usual substitutions of [isKnownWordInLeet], with «1» read all as «i» or all as «l»; any other spelling
+ * of a word passes if the estimate reaches. It is an estimate: the rule does not guarantee that a master is strong.
  *
  * What the Generator proposes with its usual options passes in the tests: a phrase of 5 words (at least 15 letters, and no
- * known word has more than 10: «contrasena», from «Salud»; the lists have 9 at most), with any separator and list, and a
- * password of 16 characters. A password of digits only is sometimes refused up to about 24 characters (a sequence such as
- * «123» counts as one character). With [words], a password of the Generator with the four classes of characters is refused
- * when its few letters (3 to 5) are a word of the lists: about 1 time in 3,900 at 12 characters, 1 in 61,000 at 16 and 1 in
- * 1.1 million at 20 (the default length); asking the Generator for another one solves it.
+ * known word has more than 10: «contrasena», from «Salud»; the lists have 9 at most; the leet reading can only add letters
+ * to a core, never remove them), with any separator and list, and a password of 16 characters. A password of digits only
+ * is sometimes refused up to about 24 characters (a sequence such as «123» counts as one character); the leet check never
+ * looks at a password without letters. With [words], a password of the Generator with the four classes of characters is
+ * refused when its few letters (2 to 5), read as they are or in leet, are a word of the lists. Measured on 8-11-2026
+ * (a million draws for each count of letters, weighted as the Generator draws them): about 1 time in 3,100 at 12
+ * characters, 1 in 54,000 at 16 and 1 in 1.1 million at 20 (the default length), against 1 in 3,800, 1 in 60,000 and 1 in
+ * 1.1 million with the rule before RT-3. The estimate alone, besides, very rarely refuses a random one whose letters
+ * hold a keyboard run or repeats (fewer than 1 in 500,000 with 16 letters only). Asking the Generator for another one
+ * solves it.
  */
 fun newMasterProblem(candidate: String, words: Set<String> = emptySet()): String? = when {
     candidate.length < MIN_MASTER || strengthForm(candidate).let { it.codePointCount(0, it.length) } < MIN_MASTER ->
         MASTER_TOO_SHORT
     estimateBits(candidate) < WEAK_BITS -> MASTER_TOO_WEAK
-    words.isNotEmpty() && masterCore(candidate) in words -> MASTER_TOO_WEAK
+    words.isNotEmpty() && (masterCore(candidate) in words || isKnownWordInLeet(candidate, words)) -> MASTER_TOO_WEAK
     else -> null
 }

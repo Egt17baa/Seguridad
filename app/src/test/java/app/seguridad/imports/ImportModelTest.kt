@@ -64,6 +64,33 @@ class ImportModelTest {
         assertEquals("", plainReportText("abc", maxChars = 0))
     }
 
+    // ---- RT-2 (ruling R34): the key the merge compares ----
+
+    @Test fun compareKeyIsWhatIsShownInNfcWithTheSpacesFolded() {
+        assertEquals("Banco", compareKey("Ban​co"))
+        assertEquals("Banco", compareKey("‮Banco⁠﻿"))
+        assertEquals("Café", compareKey("Café"))
+        assertEquals("Café", compareKey("Café"))
+        assertEquals("ana", compareKey("an­a"))
+        assertEquals("Mi banco", compareKey("  Mi  banco\u0000 "))
+        assertEquals("Mi banco", compareKey("Mi\nbanco"))
+        assertEquals("ANA", compareKey("ANA")) // the case is kept: the title's key lowers it, the user's does not
+        assertEquals("Ｂａｎｃｏ", compareKey("Ｂａｎｃｏ")) // full-width letters look different, so they stay
+        assertEquals("", compareKey("​​ "))
+        assertEquals("", compareKey(""))
+    }
+
+    @Test fun compareKeyIsNotCutNeverThrowsAndIsCheap() {
+        assertEquals(5_000, compareKey("x".repeat(5_000)).length) // unlike what is shown, the key is never cut
+        assertEquals("ab", compareKey("a\uD800b\uDC00")) // lone surrogates
+        val titles = List(40_000) { "Entrada número $it con acentos é ñ ​" }
+        val start = System.nanoTime()
+        val keys = titles.map(::compareKey)
+        val ms = (System.nanoTime() - start) / 1_000_000
+        assertEquals("Entrada número 7 con acentos é ñ", keys[7])
+        assertTrue("$ms ms for 40 000 keys", ms < 5_000)
+    }
+
     @Test fun skippedTitlesAlwaysGoThroughThePlainText() {
         val b = ImportReadBuilder(ImportFormat.BROWSER_CSV)
         b.skip("a\u202Eb\n" + "x".repeat(5000), SkipReason.BROKEN)
