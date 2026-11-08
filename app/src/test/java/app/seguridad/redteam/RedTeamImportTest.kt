@@ -32,7 +32,6 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
-import org.junit.Ignore
 import org.junit.Test
 import java.text.Normalizer
 import java.time.ZoneOffset
@@ -42,8 +41,9 @@ import java.util.Base64
  * Red team of Clavero 1.4.0 (owner's decision (f), 8-11-2026): attacks on «Importar de otra app» with a file the
  * attacker gets the user to import. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-report.md.
  *
- * A test named rtN_… asserts the SAFE behaviour: it fails while finding RT-N is open, and is @Ignore'd only so the
- * branch gate stays green. A test named resists… documents an attack the app resists today (a regression test).
+ * A test named rtN_… asserts the SAFE behaviour: it failed while finding RT-N was open (then @Ignore'd so the branch gate
+ * stayed green) and passes since the fix of 8-11-2026 (report, «Arreglos»). A test named resists… documents an attack
+ * the app resists (a regression test).
  */
 class RedTeamImportTest {
     private fun failed(r: ReadResult): String = (r as? ReadResult.Failed)?.message ?: error("not refused: $r")
@@ -68,12 +68,11 @@ class RedTeamImportTest {
 
     /**
      * RT-1. A browser (WHATWG URL, and Clavero's own QR parser that follows it, `parseLink`) reads «\» as «/» in an
-     * http(s) link, so `https://evil.example\@banco.es/` goes to evil.example. The merge's `urlHost` stops the authority
-     * only at «/?#» and takes what follows the last «@»: banco.es. The file's entry is then a DUPLICATE of the vault's
-     * «Banco», and the preview row shows only the user («ana»), not the URL. With «Reemplazar» (one tap for all), the
-     * vault entry silently takes the attacker's URL and password.
+     * http(s) link, so `https://evil.example\@banco.es/` goes to evil.example. Before the fix, the merge's `urlHost`
+     * stopped the authority only at «/?#» and took what follows the last «@»: banco.es. The file's entry was then a
+     * DUPLICATE of the vault's «Banco», and the preview row shows only the user («ana»), not the URL. With «Reemplazar»
+     * (one tap for all), the vault entry silently took the attacker's URL and password.
      */
-    @Ignore("RT-1: open, see report")
     @Test fun rt1_aUrlThatGoesToAnotherSiteIsNotADuplicate() {
         val evil = "https://evil.example\\@banco.es/login"
         assertEquals("a browser goes to evil.example", "evil.example", parseLink(evil).host)
@@ -82,17 +81,15 @@ class RedTeamImportTest {
         assertTrue("the file's entry must not be a duplicate of banco.es", plan.duplicates.isEmpty())
     }
 
-    /** What RT-1 lets through today (passes while open; documents the impact for the report). */
-    @Test fun rt1Impact_replaceTakesTheAttackersUrlAndPassword() {
+    /** What RT-1 let through, now closed: «Reemplazar» for all cannot give the vault's entry the attacker's URL and password. */
+    @Test fun rt1Impact_replaceCannotTakeTheAttackersUrlAndPassword() {
         val evil = "https://evil.example\\@banco.es/login"
         val vault = vaultLogin("Banco", "ana", "https://banco.es/")
         val plan = planMerge(read(fileLogin(0, "Banco", "ana", evil)), listOf(vault), revision = 1)
-        if (plan.duplicates.isEmpty()) return // RT-1 fixed: nothing to show.
+        assertTrue(plan.duplicates.isEmpty())
         val merged = mergedEntries(plan, DuplicateChoice.REPLACE, emptyMap(), listOf(vault), now = 2, newId = { "n" }, zone = ZoneOffset.UTC)
-        assertEquals(1, merged.size)
-        assertEquals(evil, merged[0].url)
-        assertEquals("la-del-atacante", merged[0].password)
-        assertEquals("la-buena", merged[0].passwordHistory.single().password)
+        assertEquals(vault, merged.single { it.id == "v1" })
+        assertEquals(evil, merged.single { it.id == "n" }.url) // it enters as a new entry, stored as it was read (R9)
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -101,11 +98,10 @@ class RedTeamImportTest {
 
     /**
      * RT-2. Every screen shows a title through `plainReportText`, which drops invisible characters, and the font draws
-     * «é» the same whether it is one code point or «e» + U+0301. The merge compares titles and users raw (trim and
-     * lower case only), so «Ban\u200Bco» / «ana» and «Cafe\u0301» enter as NEW entries next to «Banco» / «Café», shown
-     * exactly like them: a shadow entry with the attacker's password or 2FA that the user cannot tell apart.
+     * «é» the same whether it is one code point or «e» + U+0301. Before the fix, the merge compared titles and users raw
+     * (trim and lower case only), so «Ban\u200Bco» / «ana» and «Cafe\u0301» entered as NEW entries next to «Banco» /
+     * «Café», shown exactly like them: a shadow entry with the attacker's password or 2FA that the user cannot tell apart.
      */
-    @Ignore("RT-2: open, see report")
     @Test fun rt2_aTitleOrUserThatLooksTheSameIsADuplicate() {
         val cases = listOf(
             Triple("Banco", "Ban\u200Bco", "ana"),

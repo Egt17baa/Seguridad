@@ -28,7 +28,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
-import org.junit.Ignore
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -41,7 +40,8 @@ private fun appAsset(name: String): List<String> =
 
 /*
  * Red team of Clavero 1.4.0: crypto formats, file names, SLIP-0039, the fingerprint's clock rule and the rule of a new
- * master password. Same naming as RedTeamImportTest: rtN_… fails while RT-N is open (@Ignore'd), resists… passes.
+ * master password. Same naming as RedTeamImportTest: rtN_… failed while RT-N was open and passes since its fix,
+ * resists… passes.
  */
 class RedTeamCryptoTest {
     // ---------------------------------------------------------------------------------------------------------------
@@ -51,14 +51,14 @@ class RedTeamCryptoTest {
     private val known by lazy { masterWords(MASTER_WORD_LISTS.map(::appAsset)) }
 
     /**
-     * RT-3. `masterCore` keeps only the letters, so a digit or a symbol written for a letter («4» for «a», «0» for «o»,
-     * «3» for «e», «@» for «a», «$» for «s», «1» for «i» or «l») takes the letter out: «P4ssw0rd2024!» becomes «psswrd»,
-     * which is in no list, and the estimate gives it about 60 bits. These are the first variants every cracking tool
-     * tries (the «leet» rules of hashcat and John the Ripper), so the «una sola palabra conocida» rule of CRY-A01 misses them.
-     * The same with the word typed in full-width letters («ｐａｓｓｗｏｒｄ12345»): `masterCore` does not apply NFKC, so
-     * «ｐａｓｓｗｏｒｄ» is in no list, and each full-width letter counts as a non-ASCII symbol in the estimate.
+     * RT-3. Before the fix, `masterCore` kept only the letters, so a digit or a symbol written for a letter («4» for
+     * «a», «0» for «o», «3» for «e», «@» for «a», «$» for «s», «1» for «i» or «l») took the letter out: «P4ssw0rd2024!»
+     * became «psswrd», which is in no list, and the estimate gives it about 60 bits. These are the first variants every
+     * cracking tool tries (the «leet» rules of hashcat and John the Ripper), so the «una sola palabra conocida» rule of
+     * CRY-A01 missed them. The same with the word typed in full-width letters («ｐａｓｓｗｏｒｄ12345»): `masterCore` did
+     * not apply NFKC, so «ｐａｓｓｗｏｒｄ» was in no list, and each full-width letter counts as a non-ASCII symbol in the
+     * estimate.
      */
-    @Ignore("RT-3: open, see report")
     @Test fun rt3_aKnownWordInLeetIsRefusedAsANewMaster() {
         for (candidate in listOf("P4ssw0rd2024!", "C0ntr4s3ñ4!!", "P@\$\$w0rd1234", "Dr4g0n!2024", "Pr1nc3ss2024", "ｐａｓｓｗｏｒｄ12345", "ｃｏｎｔｒａｓｅñａ2024")) {
             assertEquals("«$candidate» is one known word", MASTER_TOO_WEAK, newMasterProblem(candidate, known))

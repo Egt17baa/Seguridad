@@ -9,6 +9,7 @@ import app.seguridad.crypto.otpNameFits
 import app.seguridad.crypto.readOtpAuth
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
+import java.text.Normalizer
 
 /** The family of a format read; [originTag] is the tag every entry imported from it gets (spec «Etiquetas»). */
 enum class ImportFormat(val originTag: String) {
@@ -123,6 +124,30 @@ fun plainReportText(text: String, maxChars: Int = MAX_TITLE): String {
         val shown = if (Character.isISOControl(cp) || cp == 0x2028 || cp == 0x2029) ' '.code else cp
         if (out.length + Character.charCount(shown) > maxChars) break
         out.appendCodePoint(shown)
+    }
+    return out.toString()
+}
+
+/**
+ * [text] as the merge compares it (RT-2, ruling R34): what [plainReportText] shows, without its cut, in NFC, with every
+ * run of spaces (a no-break space, or a control that it shows as a space, included) as one space and none at the ends.
+ * So «Ban\u200Bco», «Banco\u2060», «Cafe\u0301» and « Banco\u00A0» compare as «Banco» and «Café», the way they look,
+ * and a look-alike cannot enter as a new entry next to the one it copies. Case is kept (the title's key lowers it, the
+ * user's does not). Only for comparing: the stored text is never changed (R9, R10). One pass plus NFC (whose quick
+ * check makes ordinary text cheap), so it does for 20 000 entries; it never throws (a lone surrogate is already gone).
+ */
+fun compareKey(text: String): String {
+    val shown = Normalizer.normalize(plainReportText(text, Int.MAX_VALUE), Normalizer.Form.NFC)
+    val out = StringBuilder(shown.length)
+    var space = false
+    for (c in shown) {
+        if (c.isWhitespace()) {
+            space = out.isNotEmpty()
+        } else {
+            if (space) out.append(' ')
+            space = false
+            out.append(c)
+        }
     }
     return out.toString()
 }
