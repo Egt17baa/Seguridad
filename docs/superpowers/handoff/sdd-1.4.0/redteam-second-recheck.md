@@ -245,3 +245,131 @@ En `RedTeamRecheckTest`:
 - **RT-10** no cambia textos: el Inspector enseña más marcas con el formato de siempre, «⟨U+XXXX⟩», y la alerta y el aviso al copiar son los mismos.
 - **RT-11:** si el dueño amplía la regla de la maestra y la política, el README o la ficha la describen (R36), que digan lo mismo que el código o no entren en ese detalle. `MASTER_TOO_WEAK` no cambia.
 - **Comportamiento que puede describirse:** si el README («Importar de otra app») explica cuándo un elemento es duplicado, con RT-8 arreglado una URL `http` o de otro esquema ya no es duplicado de una entrada sin web.
+
+## Tercera comprobación (db42d3e, ce6b0f9)
+
+**Qué es.** La decisión (f) otra vez: el equipo rojo vuelve a atacar los arreglos de RT-8, RT-9, RT-10, RT-12 y RT-13, con las decisiones R45 a R49, R51 y R52 (`progress.md`). RT-11 pasó a la lista del dueño para la 1.4.1 (R50), así que aquí no se mira. Sigo sin cambiar código de producción y sin hacer commits.
+
+Los tests nuevos están en `RedTeamRecheckTest.kt`, a partir de `:318`. Rutas de Kotlin relativas a `app/src/main/java/app/seguridad/`.
+
+### Resumen de la tercera comprobación
+
+| RT | Decisión | Veredicto |
+|---|---|---|
+| RT-8 | R48 (con R45) | **No se sostiene.** Con las formas normales de escribir https sí aguanta. Pero un tabulador o un salto de línea dentro del esquema, o un control C0 delante, seguidos de una «@», saltan R48 y también R41 y R45: es **RT-14** (Baja). |
+| RT-9 | R49 | **Se sostiene.** La lista coincide con los datos de Unicode 15.0, 16.0 y 17.0, y con todo lo que el JDK llama Cf. Los sustitutos sueltos se quitan. |
+| RT-10 | R46 | **Se sostiene.** El Inspector marca cada punto de `drawsNothing`, solo o detrás de un emoji, y sus excepciones de emoji no dejan pasar nada más. |
+| RT-12 | R51 | **Se sostiene.** Sin host, solo se pliega el esquema; lo de detrás se compara exacto y la fila lo enseña tal como está escrito. |
+| RT-13 | R49 y R52 | **Se sostiene.** Los trece signos que preceden a una cifra se ven en las listas, separan claves y el Inspector no los marca. Los nombres de archivo los siguen quitando. |
+| R45 (fila) | — | **Se sostiene** con todas las formas de información de usuario, salvo la vía de RT-14. |
+
+Recuento: **1 hallazgo nuevo, RT-14, de severidad baja**. No hay ninguno crítico, alto, medio ni informativo nuevo.
+
+`RedTeamRecheckTest` tiene ahora 20 tests: 19 pasan y uno, `rt14_`, lleva `@Ignore`. Lo comprobé sin el `@Ignore` y falla. Las otras clases del equipo rojo siguen en verde, sin omitidos: `RedTeamImportTest` 12, `RedTeamCryptoTest` 8 y `RedTeamSecondAttackTest` 13.
+
+Lo ejecuté con `./gradlew -p jvm-check test --tests 'app.seguridad.redteam.*' --no-daemon --max-workers=1`: **BUILD SUCCESSFUL**, 0 fallos y ningún aviso `w:`.
+
+### RT-14 [Baja] Un tabulador o un control en el esquema esconde `http:` o `javascript:`: duplicado de banco.es
+
+**Cómo lo he atacado.** En la bóveda está «Banco» / «ana», una vez con `https://banco.es/` y otra sin URL. En un CSV de navegador, la misma fila trae en la columna `url` uno de estos valores:
+- `ht<TAB>tp:@banco.es`;
+- `<U+0001>http:@banco.es`;
+- `HT<LF>TP:x@banco.es/login`;
+- `http<TAB>:@banco.es`;
+- `java<TAB>script:alert(1)<!--@banco.es`;
+- `<U+0001>javascript:alert(1)<!--@banco.es`.
+
+El lector de CSV los guarda tal cual: el test lo comprueba con `readImport`.
+
+**Lo que pasa:**
+- `urlHost`, `urlKey` y `shownUrl` (`imports/MergePlan.kt:389`, `:406` y `:445`) dan a `comparedLink` (`:429`) el texto sin limpiar;
+- su `schemeOf` (`tools/qr/LinkSignals.kt:119`) no ve un esquema con un tabulador o un salto de línea dentro, ni con un control delante, así que pone `https://` delante;
+- `parseLink` sí quita los tabuladores y los saltos de línea y recorta los controles, como hace el navegador (`LinkSignals.kt:63`). Pero entonces ya va detrás de `https://`, y el esquema que leería el navegador queda como el principio de la autoridad;
+- la «@» manda el host a banco.es. La clave es «hhttps://banco.es» y la fila, «ana · banco.es»;
+- un navegador hace al revés: primero quita los tabuladores y los controles, y después lee `http://banco.es/`, o un `javascript:` cuyo «<!--» abre un comentario (ECMAScript, anexo B, en un script clásico).
+
+Así se saltan tres decisiones a la vez:
+- **R41 (RT-4):** es duplicado de la entrada `https`;
+- **R48 (RT-8):** es duplicado de la entrada sin URL;
+- **R45:** la fila no enseña el esquema.
+
+Con «Reemplazar», la entrada guarda ese texto. Además, `ht<TAB>tps://banco.es`, que es https, sale en la fila como «ana · https», con un host que no es el de verdad.
+
+Corrige lo que dije en el primer repaso («del lado seguro: `java\tscript://…`, `ht\ttps://…`, `\u0001https://…`»): es verdad solo mientras no haya una «@» detrás.
+
+**Evidencia:** `rt14_aTabOrALeadingControlDoesNotHideTheScheme` (`RedTeamRecheckTest.kt:336`). Sin el `@Ignore` falla con: `duplicates whose row hides what the browser opens: «ht\ttp:@banco.es» vault «https://banco.es/»: row «ana · banco.es»; «ht\ttp:@banco.es» vault «»: row «ana · banco.es»; «\u0001http:@banco.es» … ; «java\tscript:alert(1)<!--@banco.es» vault «https://banco.es/»: row «ana · banco.es»; … ; «ht\ttps://banco.es» vault «»: row «ana · https»`.
+
+El test comprueba antes, con `parseLink`, que el navegador lee esas URL como `http`, `javascript` o `https`.
+
+**Impacto.** Bajo, como RT-4 y RT-8. CVSS 3.1: 2,5 (`AV:L/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N`).
+- Hace falta que el usuario importe el archivo del atacante y elija «Reemplazar».
+- Clavero no abre ningún enlace (decisión (c)).
+- Para llegar a `http://` o a `javascript:`, el usuario tiene que copiar la URL y abrirla en un navegador que quite el tabulador o el control al pegar. No sé si la barra de Chrome en Android lo hace o si busca el texto: queda para el móvil.
+- La contraseña de antes queda en el historial.
+
+**Arreglo:** que la comparación y la fila lean el texto como lo lee el navegador antes de buscar el esquema:
+1. sacar la primera línea de `parseLink` a una función compartida en `tools/qr/LinkSignals.kt`, por ejemplo:
+   ```kotlin
+   internal fun asBrowserReadsIt(s: String) = s.filterNot { it == '\t' || it == '\n' || it == '\r' }.trim { it <= ' ' || it.isWhitespace() }
+   ```
+2. usarla en `urlHost`, `urlKey` y `shownUrl` en lugar de `url.trim()`, y en la clave «t» de R51.
+
+Entonces `ht<TAB>tp:@banco.es` es `http:@banco.es`: la clave es «hhttp://banco.es», no es duplicado y la fila dice «ana · http://banco.es». `java<TAB>script:…` es una clave «t» y no es duplicado de nada web.
+
+**Ojo:** con el arreglo, dos URL de `resistsSchemeAndAuthorityVariantsAroundTheRt4Fix` que yo puse entre las que no son duplicado, `ht\ttps://banco.es` y `\u0001https://banco.es`, pasan a serlo. Es correcto, porque el navegador abre https en banco.es: hay que moverlas a la lista de duplicados.
+
+**Test que lo dará por arreglado:** `rt14_…`, sin el `@Ignore`. Acepta que no haya duplicado o que la fila diga lo que abre el navegador.
+
+### Ataques de la tercera comprobación intentados y resistidos
+
+Todos en `RedTeamRecheckTest`:
+1. **R48, con todas las formas de https frente a una entrada sin URL** (`resistsTheRt8FixVariants`, `:361`):
+   - son duplicado, con la fila «ana · banco.es», y «Reemplazar» trae su URL: `HTTPS:banco.es`, `https:/banco.es`, `https:\\banco.es`, `https://ana:clave@banco.es/`, `banco.es`, `//banco.es/x`, con `www.`, puerto, consulta y fragmento, y con espacios alrededor;
+   - entran como entradas nuevas y la entrada sin URL no cambia: `http`, `HTTP:`, `http:\\`, `ftp`, `ws`, `wss`, `javascript:x@`, `javascript://`, `mailto:`, `https://`, `intent://`, `ana:clave@banco.es`, `data:` y `file:///`;
+   - con la entrada `https` y otra sin URL, `http` no va a ninguna de las dos.
+2. **R45, la información de usuario en la fila** (`resistsTheRowShowingUserInfo`, `:388`). Ninguna de 21 formas enseña «clave»:
+   - con host: `a@clave@host` (cuenta la última «@»), `%40`, `:clave@`, `clave:@`, todo en mayúsculas con puerto, `https:\\`, `//`, `http`, `ftp`, `sftp` con «\» y `javascript://`;
+   - sin host: `ana:`, `ana:1234@`, `mailto:`, `MAILTO:a@clave@…?cc=x`, `https://clave@`, `https://ana:clave@/x`, y un U+200B o un U+202E dentro de la información de usuario;
+   - con una sola letra y dos puntos (`x:clave@banco.es`): no es un esquema (sería la letra de una unidad), se lee como https y la fila dice «ana · banco.es».
+3. **R51** (`resistsTheRt12FixVariants`, `:408`):
+   - son duplicado de lo mismo: `DATA:`, `Data:` y espacios alrededor;
+   - no lo son: otro Base64, `TEXT/plain` en mayúsculas, un carácter de menos o un control delante;
+   - la fila enseña el Base64 tal como está escrito.
+4. **R49, frente a los datos de Unicode** (`resistsTheRt9FixAgainstTheUnicodeData`, `:425`):
+   - descargué `DerivedCoreProperties.txt` y `extracted/DerivedGeneralCategory.txt` de 15.0.0, 16.0.0 y **17.0.0**: los rangos de Default_Ignorable_Code_Point y de Cf son idénticos en las tres;
+   - el test fija esos rangos: todo Default_Ignorable está en `drawsNothing`, y todo Cf de Unicode 17.0 está en `drawsNothing` o es uno de los trece signos (y no los dos a la vez);
+   - recorre todo el Unicode del JDK 21 (15.0): ningún Cf queda fuera de las dos listas, y lo que `drawsNothing` añade a Default_Ignorable es exactamente U+2800, U+FFF9–U+FFFB y U+13430–U+1343F;
+   - los sustitutos U+D800–U+DFFF no están en la lista, y lo que se enseña y lo que se compara los quitan sueltos. Un nombre de archivo escribe «?», como siempre ha escrito UTF-8.
+
+   Con la lista fija, un punto de código que añada una versión futura de Unicode y no se dibuje necesita que alguien lo añada a los datos; en 17.0 no hay ninguno.
+5. **Los trece signos, en los nombres y en lo que se enseña** (`resistsTheThirteenMarksInNamesAndDisplay`, `:449`): con cada uno de ellos, «Banco ؀12» se enseña tal cual y no compara igual que «Banco 12»; «factura ؀12.pdf» se guarda como «factura 12.pdf» (R52); el Inspector no los marca.
+6. **R46, el Inspector** (`resistsTheRt10FixWithEveryPointAndTheEmojiExceptions`, `:463`):
+   - en todo Unicode, cada punto de `drawsNothing` detrás de «a» sale como una sola marca «⟨U+XXXX⟩», y detrás de «❤» también se marca (salvo U+FE0E y U+FE0F);
+   - no se marcan solo las excepciones: «❤️», «❤︎», «©️», «😀️» y los *keycaps* «1️⃣» y «#️⃣»;
+   - sí se marcan U+FE0F detrás de ASCII o de una letra CJK, «1» + U+FE0E + U+20E3, «1» + U+FE0F suelto, dos U+FE0F seguidos, U+FE00 o U+E0100 detrás de un emoji, U+FE0F al principio, y U+2800 + U+FE0F;
+   - en un host cuenta cualquier selector.
+7. **Sin regresión:** los 13 tests del primer repaso de esta clase y las otras tres clases del equipo rojo siguen en verde.
+
+### Necesita prueba en el móvil (tercera comprobación)
+
+1. **RT-14:** copiar de Clavero una URL `ht<TAB>tp:@banco.es` y otra `<U+0001>http:@banco.es`, pegarlas en Chrome y en el navegador del fabricante, y apuntar qué abren: `http://banco.es/`, una búsqueda o nada. Eso decide si el impacto es real o solo de presentación.
+2. Siguen las de los arreglos anteriores (P-9 y las de RT-9, RT-10 y RT-13, en el informe del ataque y en el README).
+
+### Revisión experto-seguridad-cripto (tercera comprobación)
+
+- **RT-14** es un desajuste entre el analizador y el navegador (CWE-436, *interpretation conflict*). `parseLink` sigue el URL Standard, que primero quita los tabuladores y los saltos de línea y recorta los controles C0 y los espacios, y después lee el esquema. `comparedLink` lee el esquema antes de hacerlo. Al aplicar la misma limpieza antes de `schemeOf`, `urlKey`, `urlHost` y `shownUrl` leen igual que el navegador. No toca primitivas ni formatos: lo guardado sigue siendo el texto tal como llegó (R9 y R10).
+- **R49:** comparé los datos con Unicode 17.0 (la última versión publicada). La lista fija es la base correcta (UAX #44; UTS #39 la usa para lo que no se ve), y deja de depender de la ICU de cada móvil.
+- **R45:** con host, la fila solo escribe el host. Sin host, tapa hasta la última «@» antes de «/», «?» o «#». No he encontrado ninguna forma que enseñe la información de usuario.
+- **Sin logs ni secretos:** los tests usan contraseñas inventadas («clave», «la-del-atacante») y no escriben nada fuera del árbol de tests.
+
+### Revisión Ingeniero Móvil Senior (tercera comprobación)
+
+- **MASVS:** RT-14 es MASVS-CODE-4, por la validación de lo importado; lo que enseña la fila es MASVS-PLATFORM-3.
+- **El arreglo propuesto** es Kotlin puro en `imports/` y `tools/qr/`, y se prueba en `jvm-check`. No toca Compose, el estado ni la concurrencia: `planMerge` sigue en `Dispatchers.Default`.
+- **Coste:** la limpieza es una pasada más por cada URL comparada, igual que la que ya hace `parseLink`.
+- **Los tests de todo Unicode** que añado (`:425` y `:463`) tardan menos de un segundo cada uno en `jvm-check`.
+- **El archivo de test:** ningún aviso `w:`, y `internal` solo se usa dentro del módulo (`drawsNothing`, `VISIBLE_PREPENDED_MARKS`, `isHiddenInName`, `parseLink`).
+
+### Textos para el Abogado Digital (tercera comprobación)
+
+- **Ningún texto nuevo.** Con RT-14 arreglado, la fila de una URL como `ht<TAB>tp:@banco.es` dirá «ana · http://banco.es», que es la forma que ya fija R45 (`task-12-report.md`, punto 12). El README (P-9) no necesita cambiar.
