@@ -145,8 +145,9 @@ internal class TagBudget(private val had: Set<String>, private val max: Int = IM
 
 /**
  * The tags of an entry imported from [format] with [folders] (spec «Etiquetas»): the origin tag first, then each folder
- * through [normalizeTags] (its commas become spaces and a run of spaces one, so a folder stays one tag, «Trabajo, Casa»
- * is «trabajo casa», and `a/b` stays `a/b`), cut to
+ * read as it shows ([plainReportText]: what draws nothing goes, a control is a space; ruling R60, RT-17), then through
+ * [normalizeTags] (its commas become spaces and a run of spaces one, so a folder stays one tag, «Trabajo, Casa» is
+ * «trabajo casa», and `a/b` stays `a/b`); a folder that shows nothing gives no tag. Cut to
  * [app.seguridad.vault.MAX_TAG_LENGTH] code points. At most [MAX_TAGS]: over it, the last folders go, never the origin tag.
  */
 fun importTags(folders: List<String>, format: ImportFormat): List<String> {
@@ -154,7 +155,10 @@ fun importTags(folders: List<String>, format: ImportFormat): List<String> {
     tags += format.originTag
     for (folder in folders) {
         if (tags.size >= MAX_TAGS) break
-        normalizeTags(SPACES.replace(folder.replace(',', ' '), " ")).firstOrNull()?.let { tags += it }
+        // Ruling R60: the folder as it shows (what draws nothing goes, a control is a space), so it is never an empty
+        // chip nor a second «#banco» that only differs by an invisible character.
+        val shown = plainReportText(folder, Int.MAX_VALUE)
+        normalizeTags(SPACES.replace(shown.replace(',', ' '), " ")).firstOrNull()?.let { tags += it }
     }
     return tags.toList()
 }
@@ -236,11 +240,13 @@ fun mergeImport(
 /**
  * [existing] after «Reemplazar» with [incoming] (spec «Las opciones», so that replacing never loses anything):
  * - it keeps its id, type, `createdAt`, favourite and attachments;
- * - it takes the title, user, URL and 2FA of [incoming] only where they are not empty, with the duplicate rule's own
- *   notion of empty (ruling R55): a title or a user that shows nothing (its [compareKey] is empty), and a URL a browser
- *   reads as nothing ([isNoUrl]: only controls, spaces, tabs and line breaks); within the 2FA, a blank issuer or account
- *   keeps the vault's (they are not compared);
- * - notes: [incoming]'s if [existing] has none; if both have and they differ, [existing]'s, then a line
+ * - it keeps its title and user when their keys ([compareKey]; the title without case) are the vault's, since they
+ *   are what made it a duplicate (ruling R58, RT-15): a title that differs only in case or by what draws nothing keeps
+ *   the vault's spelling. Otherwise (a 2FA, which matches by its key) it takes [incoming]'s, unless it shows nothing;
+ * - it takes the URL and 2FA of [incoming] only where they are not empty, with the duplicate rule's own notion of empty
+ *   (rulings R55, R57, R59): a URL a browser reads as nothing ([isNoUrl]: only controls, spaces, tabs and line breaks),
+ *   and, within the 2FA, an issuer or account that shows nothing keeps the vault's;
+ * - notes: nothing if [incoming]'s show nothing (R59: no «Importado el …» line for them); [incoming]'s if [existing] has none; if both have and they differ, [existing]'s, then a line
  *   [importedOnHeading] with the day of [now] in [zone], then [incoming]'s trimmed; not again if [existing]'s already
  *   end with them (the same file replaced twice). Notes are compared trimmed, as the duplicate rule compares them, so
  *   notes that differ only by the spaces or line breaks around them are the same (branch review A, M-2);
@@ -254,7 +260,8 @@ fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: Zon
     val notes = when {
         // Already there (the same notes, or the same file replaced again): never appended twice. Compared trimmed, as
         // the duplicate rule compares them (Matcher), so a line break or a space more at either end is the same text.
-        incoming.notes.isBlank() || incoming.notes.trim() == existing.notes.trim() ||
+        // Ruling R59: notes that show nothing are not brought in, and add no «Importado el …» line.
+        showsNothing(incoming.notes) || incoming.notes.trim() == existing.notes.trim() ||
             existing.notes.trimEnd().endsWith("\n" + incoming.notes.trim()) -> existing.notes
         existing.notes.isBlank() -> incoming.notes
         else -> {
@@ -263,13 +270,16 @@ fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: Zon
         }
     }
     val merged = existing.copy(
-        // Ruling R55: empty as the duplicate rule sees it (what shows nothing, a URL a browser reads as nothing).
-        title = if (showsNothing(incoming.title)) existing.title else incoming.title,
-        username = if (showsNothing(incoming.username)) existing.username else incoming.username,
+        // Ruling R58: the title and user whose keys match the vault's (what made it a duplicate) stay the vault's;
+        // R55: what shows nothing never replaces them.
+        title = if (showsNothing(incoming.title) || titleKey(incoming.title) == titleKey(existing.title)) existing.title else incoming.title,
+        username = if (showsNothing(incoming.username) || userKey(incoming.username) == userKey(existing.username)) existing.username else incoming.username,
         url = if (isNoUrl(incoming.url)) existing.url else incoming.url,
-        // The code's settings from the file; its issuer and account only where the file has them.
+        // The code's settings from the file; its issuer and account only where the file's show something (R57, R59).
         totp = incoming.totp?.let { t ->
-            existing.totp?.let { e -> t.copy(issuer = t.issuer.ifBlank { e.issuer }, account = t.account.ifBlank { e.account }) } ?: t
+            existing.totp?.let { e ->
+                t.copy(issuer = if (showsNothing(t.issuer)) e.issuer else t.issuer, account = if (showsNothing(t.account)) e.account else t.account)
+            } ?: t
         } ?: existing.totp,
         notes = notes,
         tags = (existing.tags + incoming.tags.filter { it !in existing.tags }).distinct().take(maxOf(MAX_TAGS, existing.tags.size)),
@@ -505,7 +515,7 @@ fun duplicateSubline(entry: VaultEntry): String = plainReportText(
         EntryType.LOGIN -> listOf(entry.username, shownUrl(entry.url))
         EntryType.TOTP -> listOf(entry.totp?.issuer.orEmpty(), entry.totp?.account.orEmpty())
         else -> emptyList()
-    }.filter { it.isNotBlank() }.joinToString(" · "),
+    }.filterNot { showsNothing(it) }.joinToString(" · "), // R57: no « · » before or after what shows nothing.
 )
 
 /**

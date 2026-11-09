@@ -17,6 +17,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.time.ZoneOffset
 import java.util.Locale
@@ -351,6 +352,113 @@ class MergePlanTest {
     }
 
     /**
+     * Ruling R58 (RT-15): «Reemplazar» keeps the vault's title and user whenever their keys match, the keys that made it a
+     * duplicate; it brings in the rest. A title that differs only in case keeps the vault's spelling.
+     */
+    @Test fun replaceKeepsATitleAndUserWhoseKeysMatch() {
+        val bank = saved("b", EntryType.LOGIN, "Café Banco", user = "ana", url = "https://banco.es/", password = "la-buena")
+        for ((title, user) in listOf("CAFÉ BANCO" to "ana", "Cafe\u0301 Ban\u200Bco" to "an\u00ADa", "Café\u00A0Banco " to "ana\uFEFF")) {
+            val p = plan(read(login(0, title, user = user, url = "https://banco.es/", password = "otra")), listOf(bank))
+            assertEquals(title, listOf("b"), p.duplicates.map { it.existingId })
+            val after = mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId).single { it.id == "b" }
+            assertEquals(title, listOf("Café Banco", "ana", "otra"), listOf(after.title, after.username, after.password))
+        }
+        // A 2FA matches by its key, not by its title: a title that is really another one is still brought in.
+        val code = saved("t", EntryType.TOTP, "Correo", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Correo", account = "ana"))
+        assertEquals("Correo nuevo", replaceWith(code, importedEntry(EntryType.TOTP, "Correo nuevo", totp = TotpSecret("JBSWY3DPEHPK3PXP")), now).title)
+    }
+
+    /**
+     * Rulings R57 and R59 (review N-6, RT-16): every field «Reemplazar» takes from the file is empty when it shows nothing:
+     * a 2FA's issuer and account, and a login's notes (notes that show nothing add no «Importado el …» line).
+     */
+    @Test fun replaceTakesNoFieldThatShowsNothing() {
+        val code = saved("t", EntryType.TOTP, "Correo", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Correo", account = "ana"))
+        for (blank in listOf("\u0001", "\u200B", "\u2800", "\u3164", " \t")) {
+            val after = replaceWith(code, importedEntry(EntryType.TOTP, "Correo", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = blank, account = blank)), now)
+            assertEquals(blank, listOf("Correo", "ana"), listOf(after.totp?.issuer, after.totp?.account))
+        }
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", notes = "mis notas")
+        for (blank in listOf("\u200B\u2800", "\u0001", "\u00AD\n\u3164")) {
+            assertEquals(blank, "mis notas", replaceWith(bank, importedEntry(EntryType.LOGIN, "Banco", username = "ana", notes = blank, password = "otra"), now).notes)
+        }
+    }
+
+    /** Ruling R57 (Info of re-review 3): the row drops « · » when its second part shows nothing. */
+    @Test fun theRowHasNoSeparatorBeforeWhatShowsNothing() {
+        assertEquals("ana", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "\u200B")))
+        assertEquals("banco.es", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "\u200B\u0001", url = "https://banco.es")))
+    }
+
+    /**
+     * Ruling R60 (RT-17): a folder name is read as it shows before it becomes a tag: what draws nothing goes, and a
+     * folder that shows nothing gives no tag; «Banco» + U+200B is the vault's «banco».
+     */
+    @Test fun aFolderIsReadAsItShows() {
+        for (folder in listOf("\u200B", "\u2800", "\u3164", "\u0001", "\u00AD\uFEFF")) {
+            assertEquals(folder, listOf(ORIGIN_TAG_BROWSER), importTags(listOf(folder), ImportFormat.BROWSER_CSV))
+        }
+        for (folder in listOf("Banco\u200B", "Ban\u00ADco", "\u2060BANCO", "Ban\u0001co")) {
+            val expected = if ('\u0001' in folder) "ban co" else "banco"
+            assertEquals(folder, listOf(ORIGIN_TAG_BROWSER, expected), importTags(listOf(folder), ImportFormat.BROWSER_CSV))
+        }
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", tags = listOf("banco"))
+        val p = plan(read(login(0, "Banco", user = "ana", url = "https://banco.es/", folders = listOf("Banco\u200B")), format = ImportFormat.BROWSER_CSV), listOf(bank))
+        val after = mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId).single { it.id == "b" }
+        assertEquals(listOf("banco", ORIGIN_TAG_BROWSER), after.tags)
+    }
+
+    /**
+     * Rulings R55 and R57 to R60 as a property: 20 000 files whose title, user, issuer, account, notes and folder are
+     * built from letters, spaces, controls and what draws nothing, replaced over a vault login and a vault 2FA. «Reemplazar»
+     * never changes a title or user whose key matches, never writes a field that shows nothing over one that shows
+     * something, and never adds a tag that shows nothing.
+     */
+    @Test fun replaceNeverWritesWhatShowsNothing() {
+        val random = Random(20261110L)
+        val parts = listOf("", "Banco", "banco", "ana", "ANA", "x", " ", "\t", "\n", "\u0001", "\u001F", "\u00A0", "\u200B", "\u00AD", "\u2800", "\u3164", "\uFEFF", "\u2060", "\u0301")
+        fun text() = (0 until random.nextInt(4)).joinToString("") { parts[random.nextInt(parts.size)] }
+        fun shows(t: String) = compareKey(t).isNotEmpty()
+        val secret = "JBSWY3DPEHPK3PXP"
+        repeat(20_000) {
+            val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", notes = "mis notas", tags = listOf("banco"))
+            val code = saved("t", EntryType.TOTP, "Correo", totp = TotpSecret(secret, issuer = "Correo", account = "ana"), notes = "nota")
+            // Half the time the title and user are the vault's with what shows nothing around them, so they are duplicates.
+            val title = (if (random.nextBoolean()) "Banco" else "") + text()
+            val user = (if (random.nextBoolean()) "ana" else "") + text()
+            val notes = text(); val folder = text(); val issuer = text(); val account = text()
+            val file = read(
+                item(0, importedEntry(EntryType.LOGIN, title, username = user, url = "https://banco.es/", notes = notes, password = "otra"), listOf(folder)),
+                item(1, importedEntry(EntryType.TOTP, title, notes = notes, totp = TotpSecret(secret, issuer = issuer, account = account)), listOf(folder)),
+                format = ImportFormat.BROWSER_CSV,
+            )
+            val vault = listOf(bank, code)
+            val after = mergedEntries(plan(file, vault), DuplicateChoice.REPLACE, emptyMap(), vault, now, newId)
+            val all = "«${title}» «${user}» «${notes}» «${folder}» «${issuer}» «${account}»"
+            for (e in after) {
+                val before = vault.firstOrNull { it.id == e.id }
+                for (t in e.tags) assertTrue("$all: tag «$t»", shows(t))
+                if (before == null) continue
+                for ((name, old, new) in listOf(
+                    Triple("title", before.title, e.title), Triple("user", before.username, e.username), Triple("url", before.url, e.url),
+                    Triple("notes", before.notes, e.notes), Triple("issuer", before.totp?.issuer.orEmpty(), e.totp?.issuer.orEmpty()),
+                    Triple("account", before.totp?.account.orEmpty(), e.totp?.account.orEmpty()),
+                )) {
+                    if (shows(old) && !shows(new)) fail("$all: $name «$old» → «$new»")
+                }
+                // The notes only grow by something that shows.
+                if (e.notes != before.notes) assertTrue("$all: notes «${e.notes}»", shows(notes) && e.notes.endsWith(notes.trim()))
+                if (e.type == EntryType.LOGIN) {
+                    // A duplicate login: its keys matched, so its title and user stay as they were (R58).
+                    assertEquals(all, listOf(before.title, before.username), listOf(e.title, e.username))
+                } else if (compareKey(title).lowercase(Locale.ROOT) == compareKey(before.title).lowercase(Locale.ROOT) || !shows(title)) {
+                    assertEquals(all, before.title, e.title)
+                }
+            }
+        }
+    }
+
+    /**
      * Rulings R53 and R54, as a property over 20 000 random links built from schemes, «:», «//», «@», digits, «.»,
      * tabs, line breaks, C0 controls and spaces: nothing throws; a link whose scheme, once cleaned as a browser cleans
      * it, is not https (and is not a host such as «banco.es» or `localhost`) never gets an https key; and a row never
@@ -548,8 +656,9 @@ class MergePlanTest {
         assertTrue(r.favorite)
         assertEquals(withExtras.attachments, r.attachments)
         assertEquals(now, r.updatedAt)
+        // Kept too (ruling R58): the title, whose key («BANCO» against «Banco», case aside) made it a duplicate.
+        assertEquals("Banco", r.title)
         // Taken from the file, as they are not empty there.
-        assertEquals("BANCO", r.title)
         assertEquals("https://banco.es/entrar", r.url)
         assertEquals("nueva", r.password)
         // The old password goes to the history (withNewPassword).
