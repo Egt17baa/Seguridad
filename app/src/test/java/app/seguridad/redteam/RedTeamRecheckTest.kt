@@ -10,13 +10,16 @@ import app.seguridad.imports.DuplicateChoice
 import app.seguridad.imports.ImportFormat
 import app.seguridad.imports.ImportRead
 import app.seguridad.imports.ImportedItem
+import app.seguridad.imports.ReadResult
 import app.seguridad.imports.compareKey
 import app.seguridad.imports.duplicateSubline
 import app.seguridad.imports.importedEntry
 import app.seguridad.imports.mergedEntries
 import app.seguridad.imports.planMerge
 import app.seguridad.imports.plainReportText
+import app.seguridad.imports.readImport
 import app.seguridad.tools.qr.hasHiddenChars
+import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.visibleText
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MASTER_TOO_WEAK
@@ -28,6 +31,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 
@@ -43,7 +47,8 @@ private fun str(cp: Int) = String(Character.toChars(cp))
  * the fixes of RT-4 to RT-7 (rulings R41 to R44) and the QR Inspector's own list. Same naming as before: rtN_… asserts
  * the SAFE behaviour and failed while RT-N was open (@Ignore'd only for the gate then); resists… passes. RT-8, RT-9,
  * RT-10, RT-12 and RT-13 are fixed (rulings R45 to R49 and R51). RT-11's PoC left this class (ruling R50: the owner
- * decides for 1.4.1; its passwords stay in the report). Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
+ * decides for 1.4.1; its passwords stay in the report). The third check (db42d3e, ce6b0f9) adds the tests from
+ * «Third check» down. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
  */
 class RedTeamRecheckTest {
     private val known by lazy { masterWords(MASTER_WORD_LISTS.map(::recheckAssetLines)) }
@@ -309,5 +314,167 @@ class RedTeamRecheckTest {
             assertTrue(cpName(cp), visibleText("Casa${str(cp)}").endsWith("\u27E9"))
         }
         for (t in listOf("Casa ❤️", "1️⃣", "#️⃣", "🇪🇸", "👍🏽", "☎️")) assertFalse(t, hasHiddenChars(t))
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Third check (db42d3e, ce6b0f9): the fixes of RT-8, RT-9, RT-10, RT-12 and RT-13 (rulings R45 to R49, R51, R52).
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /**
+     * RT-14. `urlHost`, `urlKey` and `shownUrl` (imports/MergePlan.kt:389, :406, :445) give the raw text to
+     * `comparedLink` (:429), whose `schemeOf` (tools/qr/LinkSignals.kt:119) refuses a scheme with a tab or a line break
+     * inside or a C0 control in front. The text then gets `https://` in front, and `parseLink` (which drops the tabs and
+     * trims the controls, as a browser does, LinkSignals.kt:63) reads what the browser takes as the scheme as the start of
+     * the authority; a «@» after it moves the host to banco.es. So `ht\ttp:@banco.es` and `\u0001http:@banco.es`, which a
+     * browser opens as http://banco.es/, have the key «hhttps://banco.es»: a DUPLICATE of the vault's https entry (RT-4
+     * again) and of a URL-less one (R48 again), with the row «ana · banco.es» (R45 again). The same with
+     * `java\tscript:alert(1)<!--@banco.es` (a classic script: «<!--» starts a comment, Annex B of ECMAScript).
+     * `ht\ttps://banco.es` is https, but its row says «ana · https». Safe behaviour: no duplicate unless the browser opens
+     * https on banco.es, or the row shows what the browser opens.
+     */
+    @Ignore("RT-14: open (Low), a tab or a leading control in the scheme makes http: or javascript: a duplicate shown as banco.es")
+    @Test fun rt14_aTabOrALeadingControlDoesNotHideTheScheme() {
+        // (URL, the scheme a browser reads after dropping tabs and line breaks and trimming C0 controls and spaces).
+        val cases = listOf(
+            "ht\ttp:@banco.es" to "http", "\u0001http:@banco.es" to "http", "HT\nTP:x@banco.es/login" to "http",
+            "http\t:@banco.es" to "http", "java\tscript:alert(1)<!--@banco.es" to "javascript",
+            "\u0001javascript:alert(1)<!--@banco.es" to "javascript", "ht\ttps://banco.es" to "https",
+        )
+        val wrong = mutableListOf<String>()
+        for ((url, scheme) in cases) {
+            assertEquals("the browser's reading of «$url»", scheme, parseLink(url).scheme)
+            val row = duplicateSubline(fileLogin(url).entry)
+            for (vault in listOf(listOf(vaultLogin("https://banco.es/")), listOf(vaultLogin("")))) {
+                val dup = plan(fileLogin(url), vault).duplicates.isNotEmpty()
+                val rowTells = if (scheme == "https") row == "ana · banco.es" else "$scheme:" in row
+                if (dup && !rowTells) wrong += "«${url.replace("\t", "\\t").replace("\n", "\\n").replace("\u0001", "\\u0001")}» vault «${vault[0].url}»: row «$row»"
+            }
+        }
+        // A browser CSV carries both as they are, so the attack comes in through «Importar de otra app».
+        val csv = "name,url,username,password,note\nBanco,\"ht\ttp:@banco.es\",ana,x,\nBanco,\"\u0001http:@banco.es\",ana,y,\n"
+        val read = (readImport(csv.toByteArray()) as ReadResult.Ok).read
+        assertEquals(listOf("ht\ttp:@banco.es", "\u0001http:@banco.es"), read.items.map { it.entry.url })
+        assertTrue("duplicates whose row hides what the browser opens: " + wrong.joinToString("; "), wrong.isEmpty())
+    }
+
+    /** R48 with every https spelling against a URL-less entry, and what must stay a new entry; the row hides user info. */
+    @Test fun resistsTheRt8FixVariants() {
+        val bare = listOf(vaultLogin(""))
+        for ((url, row) in listOf(
+            "HTTPS:banco.es" to "ana · banco.es", "https:/banco.es" to "ana · banco.es", "https:\\\\banco.es" to "ana · banco.es",
+            "https://ana:clave@banco.es/" to "ana · banco.es", "banco.es" to "ana · banco.es", "//banco.es/x" to "ana · banco.es",
+            "https://www.banco.es:8443/x?y#z" to "ana · banco.es", "  https://banco.es  " to "ana · banco.es",
+        )) {
+            assertTrue("«$url»", plan(fileLogin(url), bare).duplicates.isNotEmpty())
+            assertEquals("«$url»", row, duplicateSubline(fileLogin(url).entry))
+            assertEquals("«$url»", url, replaced(fileLogin(url), bare).single().url)
+        }
+        for (url in listOf(
+            "http://banco.es/", "HTTP:banco.es", "http:\\\\banco.es", "ftp://banco.es", "ws://banco.es", "wss://banco.es",
+            "javascript:x@banco.es/", "javascript://banco.es/%0Aalert(1)", "mailto:ana@banco.es", "https://", "intent://banco.es/#Intent;end",
+            "ana:clave@banco.es", "data:text/plain,banco.es", "file:///sdcard/x",
+        )) {
+            assertTrue("«$url» is a duplicate of a URL-less entry", plan(fileLogin(url), bare).duplicates.isEmpty())
+            assertEquals("«$url»", listOf("", url), replaced(fileLogin(url), bare).map { it.url })
+        }
+        // The https entry and a URL-less one: http goes to neither; https to the https one; no URL to the first.
+        val both = listOf(vaultLogin("https://banco.es/"), vaultLogin("").copy(id = "v2"))
+        assertTrue(plan(fileLogin("http://banco.es/"), both).duplicates.isEmpty())
+        assertEquals("v1", plan(fileLogin("https://banco.es/x"), both).duplicates.single().existingId)
+        assertEquals("v1", plan(fileLogin(""), both).duplicates.single().existingId)
+    }
+
+    /** R45: the row never shows user info, whatever its form, and shows a scheme that is not https. */
+    @Test fun resistsTheRowShowingUserInfo() {
+        for ((url, row) in listOf(
+            "https://ana:clave@banco.es" to "ana · banco.es", "https://a@clave@banco.es" to "ana · banco.es",
+            "https://ana%40x:clave@banco.es" to "ana · banco.es", "https://:clave@banco.es" to "ana · banco.es",
+            "https://clave:@banco.es" to "ana · banco.es", "HTTPS://ANA:CLAVE@BANCO.ES:8443/X" to "ana · banco.es",
+            "https:\\\\ana:clave@banco.es" to "ana · banco.es", "//ana:clave@banco.es" to "ana · banco.es",
+            "http://ana:clave@banco.es" to "ana · http://banco.es", "ftp://ana:clave@banco.es" to "ana · ftp://banco.es",
+            "sftp://ana:cla\\ve@banco.es" to "ana · sftp://banco.es", "javascript://clave@banco.es/" to "ana · javascript://banco.es",
+            "ana:clave@banco.es" to "ana · ana:…@banco.es", "ana:1234@banco.es" to "ana · ana:…@banco.es",
+            "mailto:clave@banco.es" to "ana · mailto:…@banco.es", "MAILTO:a@clave@banco.es?cc=x" to "ana · MAILTO:…@banco.es?cc=x",
+            "https://clave@" to "ana · https://…@", "https://ana:clave@/x" to "ana · https://…@/x",
+            "xy:cl\u200Bave@banco.es" to "ana · xy:…@banco.es", "xy:\u202Eclave@banco.es" to "ana · xy:…@banco.es",
+            // One letter and a colon is no scheme (a drive letter): read as https, so the user info goes with the rest.
+            "x:clave@banco.es" to "ana · banco.es",
+        )) {
+            assertEquals("«$url»", row, duplicateSubline(fileLogin(url).entry))
+        }
+    }
+
+    /** R51: without a host only the scheme is folded; the text after it is compared exactly. */
+    @Test fun resistsTheRt12FixVariants() {
+        val vault = listOf(vaultLogin("data:text/plain;base64,SGVsbG8="))
+        for (url in listOf("DATA:text/plain;base64,SGVsbG8=", " data:text/plain;base64,SGVsbG8= ", "Data:text/plain;base64,SGVsbG8=")) {
+            assertTrue("«$url»", plan(fileLogin(url), vault).duplicates.isNotEmpty())
+        }
+        for (url in listOf("data:text/plain;base64,sGVSbG8=", "data:TEXT/plain;base64,SGVsbG8=", "data:text/plain;base64,SGVsbG8", "\u0001data:text/plain;base64,SGVsbG8=")) {
+            assertTrue("«$url»", plan(fileLogin(url), vault).duplicates.isEmpty())
+        }
+        assertEquals("ana · data:text/plain;base64,SGVsbG8=", duplicateSubline(fileLogin("data:text/plain;base64,SGVsbG8=").entry))
+    }
+
+    /**
+     * R49: the fixed list is Unicode's. Default_Ignorable_Code_Point and the format characters (Cf) of Unicode 17.0
+     * (DerivedCoreProperties.txt and extracted/DerivedGeneralCategory.txt, the same ranges as in 15.0 and 16.0) are all in
+     * [drawsNothing] or in the visible prepended marks; nothing the JDK calls Cf is outside both; surrogate halves are not
+     * in the list, and what is shown and compared drops them (a file name writes «?», as UTF-8 always did).
+     */
+    @Test fun resistsTheRt9FixAgainstTheUnicodeData() {
+        val di = listOf(0x00AD..0x00AD, 0x034F..0x034F, 0x061C..0x061C, 0x115F..0x1160, 0x17B4..0x17B5, 0x180B..0x180F,
+            0x200B..0x200F, 0x202A..0x202E, 0x2060..0x206F, 0x3164..0x3164, 0xFE00..0xFE0F, 0xFEFF..0xFEFF, 0xFFA0..0xFFA0,
+            0xFFF0..0xFFF8, 0x1BCA0..0x1BCA3, 0x1D173..0x1D17A, 0xE0000..0xE0FFF)
+        val cf17 = listOf(0x00AD..0x00AD, 0x0600..0x0605, 0x061C..0x061C, 0x06DD..0x06DD, 0x070F..0x070F, 0x0890..0x0891,
+            0x08E2..0x08E2, 0x180E..0x180E, 0x200B..0x200F, 0x202A..0x202E, 0x2060..0x2064, 0x2066..0x206F, 0xFEFF..0xFEFF,
+            0xFFF9..0xFFFB, 0x110BD..0x110BD, 0x110CD..0x110CD, 0x13430..0x1343F, 0x1BCA0..0x1BCA3, 0x1D173..0x1D17A,
+            0xE0001..0xE0001, 0xE0020..0xE007F)
+        for (r in di) for (cp in r) assertTrue(cpName(cp), drawsNothing(cp))
+        for (r in cf17) for (cp in r) assertTrue(cpName(cp), drawsNothing(cp) != (cp in VISIBLE_PREPENDED_MARKS))
+        for (cp in 0..0x10FFFF) {
+            if (Character.getType(cp) == Character.FORMAT.toInt()) assertTrue(cpName(cp), drawsNothing(cp) || cp in VISIBLE_PREPENDED_MARKS)
+        }
+        val inDi = { cp: Int -> di.any { cp in it } }
+        val extra = (0..0x10FFFF).filter { drawsNothing(it) && !inDi(it) }
+        assertEquals((listOf(0x2800) + (0xFFF9..0xFFFB) + (0x13430..0x1343F)).map(::cpName), extra.map(::cpName))
+        for (cp in 0xD800..0xDFFF) assertFalse(cpName(cp), drawsNothing(cp))
+        for (t in listOf("Ban\uD800co", "Ban\uDFFFco")) {
+            assertEquals("Banco", plainReportText(t))
+            assertEquals(compareKey("Banco"), compareKey(t))
+        }
+    }
+
+    /** R49 and R52: the thirteen prepended marks show in the lists, compare apart, are not marked, and leave names. */
+    @Test fun resistsTheThirteenMarksInNamesAndDisplay() {
+        assertEquals(13, VISIBLE_PREPENDED_MARKS.size)
+        for (cp in VISIBLE_PREPENDED_MARKS) {
+            val m = str(cp)
+            assertEquals(cpName(cp), "Banco ${m}12", plainReportText("Banco ${m}12"))
+            assertTrue(cpName(cp), compareKey("Banco ${m}12") != compareKey("Banco 12"))
+            assertTrue(cpName(cp), isHiddenInName(cp))
+            assertEquals(cpName(cp), "factura 12.pdf", safeFileName("factura ${m}12.pdf"))
+            assertFalse(cpName(cp), hasHiddenChars("Casa ${m}12"))
+            assertEquals(cpName(cp), "Casa ${m}12", visibleText("Casa ${m}12"))
+        }
+    }
+
+    /** R46: the Inspector marks every point of [drawsNothing], also right after an emoji, but for its emoji exceptions. */
+    @Test fun resistsTheRt10FixWithEveryPointAndTheEmojiExceptions() {
+        val unmarked = mutableListOf<Int>()
+        for (cp in 0..0x10FFFF) {
+            if (!drawsNothing(cp)) continue
+            val c = str(cp)
+            if (!hasHiddenChars("a$c") || visibleText("a$c") != "a⟨${cpName(cp)}⟩") unmarked += cp
+            if (cp != 0xFE0E && cp != 0xFE0F && !hasHiddenChars("❤$c")) unmarked += cp
+        }
+        assertTrue("unmarked: " + unmarked.take(20).joinToString { cpName(it) }, unmarked.isEmpty())
+        // The exceptions: after an emoji or a symbol, and the keycap; and only those.
+        for (t in listOf("❤\uFE0F", "❤\uFE0E", "©\uFE0F", "😀\uFE0F", "1\uFE0F\u20E3", "#\uFE0F\u20E3")) assertFalse(t, hasHiddenChars(t))
+        for (t in listOf("a\uFE0F", "1\uFE0E\u20E3", "1\uFE0F", "❤\uFE0F\uFE0F", "❤\uFE00", "❤\uDB40\uDD00", "文\uFE0F", "\uFE0F❤", "\u2800\uFE0F")) {
+            assertTrue(t, hasHiddenChars(t))
+        }
+        // In a host every selector counts.
+        assertTrue(hasHiddenChars("❤\uFE0F", allowEmojiVariation = false))
     }
 }
