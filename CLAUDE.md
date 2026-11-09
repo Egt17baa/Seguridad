@@ -57,7 +57,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | Revisión de la rama entera, en tres partes (A importar, B herramientas y bóveda, C compilación y documentos) | Hecha (`6e43a08`, `96c1d6e`, `e33a4d3`) |
 | Su ronda de arreglos | Hecha: el código (`2ddc305`, `45c2660`; R37 a R40, `branch-review-fixes-code-report.md`) y los documentos (`branch-review-fixes-docs-report.md`) |
 | Los repasos de esa ronda | Hechos: A (`55ddb62`, `2a5ae49`), B (`cf3e574`, `970359e`) y C (`41a585a`, con sus dos menores arreglados) |
-| Segundo ataque, sobre el código final, después de esa ronda (R32), con sus arreglos y su repaso | Ataque hecho (`59725c8`, unido en `865d353`): RT-4 a RT-7 (3 bajos y 1 informativo), decisiones R41 a R44; sus arreglos, en marcha; después, el repaso del mismo agente. Por dónde seguir: `docs/superpowers/handoff/2026-11-09-clavero-1.4.0-continuar.md` |
+| Segundo ataque, sobre el código final, después de esa ronda (R32), con sus arreglos y su repaso | Ataque hecho (`59725c8`, unido en `865d353`): RT-4 a RT-7 (3 bajos y 1 informativo), decisiones R41 a R44; arreglados en `bf04f45`; falta su revisión y el repaso del equipo rojo. Por dónde seguir: `docs/superpowers/handoff/2026-11-09-clavero-1.4.0-continuar.md` |
 | `code-review`, `security-review` y la auditoría completa | Pendientes |
 | Revisión final del Abogado Digital, con sus cambios | Pendiente |
 | PR a `main`, APK firmado, prueba del dueño en el móvil y etiqueta `v1.4.0` | Pendientes |
