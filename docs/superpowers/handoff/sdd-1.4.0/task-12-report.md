@@ -184,3 +184,16 @@ Añadido en la ronda de arreglos de la revisión de la rama (parte de documentos
    - «Pruebas de la 1.4.0» (`:338-367`): la entrada apunta a `.maestro/` y a `.maestro/README.md`; P-8 (un bloqueo durante la copia, regla R37), P-9 (la fila del duplicado), P-17 (los vectores oficiales n.º 4 y n.º 42, en lugar de repartir con el exponente 8, que la app no hace), P-19 (el APK firmado, la desinstalación y la maestra en *leet*), y las nuevas **P-21 a P-26**, las del ataque, que nombran Chrome, Firefox, Gboard y la copia de Google, con la línea de marcas debajo.
 10. **El informe del ataque publicado** (`docs/auditorias/2026-11-08-ataque-1.4.0.md`, R39): es un documento público del repositorio, nombra productos (Bitwarden, Chrome, Firefox) y dominios de ejemplo (`evil.example`, `banco.es`) y lleva la línea de marcas. También la llevan ahora la tabla de `.maestro/README.md` y el `README.md` bajo P-26.
 11. **`CLAUDE.md`, el traspaso, el diseño, el plan y la auditoría:** puestos al día (estado, decisión (h), R34 a R40, notas de corrección fechadas). Son documentos técnicos y no cambian ningún texto de la interfaz.
+
+## Puesta al día de la lista, repaso del equipo rojo (9-11-2026)
+
+Añadido en la ronda de arreglos del repaso del equipo rojo (RT-8 a RT-13, decisiones R45 a R51; `redteam-recheck-fixes-report.md`):
+
+12. **La fila de un duplicado cambia otra vez (R45, R47 y R51):** sin literal nuevo, pero lo que enseña es otro (`duplicateSubline` y `shownUrl`, `imports/MergePlan.kt`):
+   - con un esquema que no es https, lo pone delante del host: «ana · http://banco.es», «ana · javascript://banco.es»; con https, o sin esquema, sigue «ana · banco.es»;
+   - una URL sin host se enseña tal como está escrita, sin pasar a minúsculas lo que va detrás del esquema;
+   - nunca enseña la información de usuario de la web: se escribe «…» en su lugar («ana · mailto:…@banco.es», «ana · ana:…@banco.es»). El carácter «…» es el único que aparece nuevo.
+13. **README, en esta ronda:** «Importar de otra app» (`README.md:35`, la fila enseña «su dominio, con el esquema delante cuando no es https, y nunca el usuario ni la contraseña que lleve la web») y P-9 (`README.md:348`, los dos ejemplos y que un `http://` frente a una entrada sin web sale como entrada nueva); la misma frase en la tabla de `.maestro/README.md` (P-9).
+14. **Lo que cambia sin texto (R48 y R49):** con una entrada de la bóveda sin web, un archivo con una web que no es https ya no sale como repetido, sino como entrada nueva; los signos que preceden a una cifra (U+0600–U+0605, U+06DD…) se ven ahora en las listas, en los nombres de archivo y en el Inspector de QR, y el Inspector marca más caracteres invisibles con el formato de siempre, «⟨U+XXXX⟩». Ningún mensaje cambia.
+15. **El informe del ataque publicado** (`docs/auditorias/2026-11-08-ataque-1.4.0.md`) gana la sección de la comprobación (RT-8 a RT-13, R45 a R51), con dominios de ejemplo (`banco.es`) y sin nombres de productos nuevos; sus frases de que la fila no cambiaba están corregidas.
+16. **RT-11 (R50):** la regla de la maestra nueva no cambia en la 1.4.0; `MASTER_TOO_WEAK` tampoco. Si el dueño la amplía en la 1.4.1 y algún texto la describe, que diga lo mismo que el código (R36).

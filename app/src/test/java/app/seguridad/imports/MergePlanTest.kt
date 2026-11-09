@@ -11,13 +11,13 @@ import app.seguridad.vault.PasswordChange
 import app.seguridad.vault.VaultCrypto
 import app.seguridad.vault.VaultEntry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneOffset
-import java.util.Locale
 import java.util.Random
 
 /** 1.4.0, Task 8: the merge plan (spec «El plan de fusión») and the merged list it gives. */
@@ -111,7 +111,7 @@ class MergePlanTest {
         assertEquals("localhost", urlHost("localhost:8080"))
         assertEquals("[::1]", urlHost("https://[::1]:443/"))
         assertEquals("com.example.app", urlHost("androidapp://com.example.app"))
-        // No host: the whole text, trimmed and in lower case; no URL: null.
+        // No host: the whole text, trimmed, with only the scheme in lower case (ruling R51); no URL: null.
         assertEquals("https://", urlHost(" HTTPS:// "))
         assertNull(urlHost("   "))
     }
@@ -125,7 +125,8 @@ class MergePlanTest {
         repeat(20_000) {
             val url = "https://" + (0 until random.nextInt(10)).joinToString("") { parts[random.nextInt(parts.size)] }
             val browser = parseLink(url).host?.removePrefix("www.")
-            assertEquals(url, browser?.ifEmpty { null } ?: url.trim().lowercase(Locale.ROOT), urlHost(url))
+            // Without a host: the text trimmed, with only its scheme in lower case (ruling R51; here it is already).
+            assertEquals(url, browser?.ifEmpty { null } ?: url.trim(), urlHost(url))
         }
     }
 
@@ -187,9 +188,83 @@ class MergePlanTest {
         assertEquals("banco.es", urlHost("banco.es:8443"))
         assertEquals("localhost", urlHost("localhost:8080/"))
         assertEquals("localhost", urlHost("localhost:8080?x"))
-        // The row keeps «usuario · host» (R41): the scheme is not shown.
-        assertEquals("ana · banco.es", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "http://banco.es/")))
-        assertEquals("ana · mailto:ana@banco.es", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "mailto:ana@banco.es")))
+        // The row shows a scheme that is not https (ruling R45), and never the user info.
+        assertEquals("ana · http://banco.es", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "http://banco.es/")))
+        assertEquals("ana · mailto:…@banco.es", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "mailto:ana@banco.es")))
+    }
+
+    /**
+     * Ruling R47 (review M-1): a «word:» in front is a scheme, also in «ana:clave@banco.es» (what closes
+     * `javascript:x@banco.es/`, as the URL Standard reads it), so it is not a duplicate of `https://banco.es/`; and its
+     * row hides the user info (R45), so the password in it is never shown.
+     */
+    @Test fun aWordAndAColonInFrontIsAScheme() {
+        assertEquals("tana:clave@banco.es", urlKey("ana:clave@banco.es"))
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", password = "la-buena")
+        assertTrue(plan(read(login(0, "Banco", user = "ana", url = "ana:clave@banco.es")), listOf(bank)).duplicates.isEmpty())
+        for (url in listOf("ana:clave@banco.es", "https://ana:clave@banco.es/", "http://ana:clave@banco.es/", "ANA:clave@banco.es/x", "clave@", "https://ana:clave@")) {
+            val row = duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = url))
+            assertFalse("«$url» → «$row»", "clave" in row)
+        }
+        assertEquals("ana · ana:…@banco.es", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "ana:clave@banco.es")))
+    }
+
+    /**
+     * Ruling R45: the duplicate's row shows «esquema://host» when the scheme is not https, the host alone for https or no
+     * scheme, a URL without a host as written (trimmed), and never the user info («…@» in its place).
+     */
+    @Test fun theRowShowsASchemeThatIsNotHttpsAndNeverTheUserInfo() {
+        val row = { url: String -> duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = url)) }
+        assertEquals("ana · banco.es", row("https://ana:x@www.banco.es:8443/x"))
+        assertEquals("ana · banco.es", row("banco.es/login"))
+        assertEquals("ana · http://banco.es", row("HTTP://ana:x@banco.es/"))
+        assertEquals("ana · javascript://banco.es", row("javascript://banco.es/%0Aalert(1)"))
+        assertEquals("ana · intent://banco.es", row("intent://banco.es/#Intent;scheme=https;package=com.example.evil;end"))
+        assertEquals("ana · file://banco.es", row("file://banco.es/sdcard/x.html"))
+        // Without a host: as written, through plainReportText, the user info hidden.
+        assertEquals("ana · MAILTO:…@banco.es", row(" MAILTO:Ana@banco.es "))
+        assertEquals("ana · javascript:…@banco.es/", row("javascript:x@banco.es/"))
+        assertEquals("ana · data:text/plain;base64,SGVsbG8=", row("data:text/plain;base64,SGVsbG8="))
+        assertEquals("ana · https://", row("https://"))
+        assertEquals("ana · mailto:…@banco.es", row("mailto:ana\u202E@banco.es"))
+        assertEquals("ana · mailto:…@banco.es", row("mailto:a\u200Bna@banco.es"))
+    }
+
+    /**
+     * Ruling R51 (RT-12): a URL without a host is compared by its trimmed text with only its scheme in lower case, so two
+     * texts that differ in case after the scheme (Base64 in `data:`) are not duplicates.
+     */
+    @Test fun aUrlWithoutAHostKeepsItsCaseAfterTheScheme() {
+        assertEquals("tdata:text/plain;base64,SGVsbG8=", urlKey(" DATA:text/plain;base64,SGVsbG8= "))
+        assertEquals("tmailto:Ana@banco.es", urlKey("MAILTO:Ana@banco.es"))
+        val data = saved("d", EntryType.LOGIN, "Banco", user = "ana", url = "data:text/plain;base64,SGVsbG8=")
+        assertTrue(plan(read(login(0, "Banco", user = "ana", url = "data:text/plain;base64,sGVSbg8=")), listOf(data)).duplicates.isEmpty())
+        assertEquals(listOf("d"), plan(read(login(0, "Banco", user = "ana", url = "DATA:text/plain;base64,SGVsbG8=")), listOf(data)).duplicates.map { it.existingId })
+    }
+
+    /**
+     * Ruling R48 (RT-8, review M-2): a vault entry without a URL is a duplicate only of an item without a URL or with an
+     * https one; any other scheme is a new entry, so «Reemplazar» cannot give it that URL. And `https://banco.es` with
+     * `http://banco.es` in one file no longer make two duplicates of the same entry.
+     */
+    @Test fun anEntryWithoutAUrlIsADuplicateOnlyOfHttpsOrNoUrl() {
+        val bare = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "", password = "la-buena")
+        for (url in listOf("", "https://banco.es/", "banco.es", "HTTPS://www.banco.es/login")) {
+            assertEquals(url, listOf("b"), plan(read(login(0, "Banco", user = "ana", url = url)), listOf(bare)).duplicates.map { it.existingId })
+        }
+        for (url in listOf("http://banco.es/", "javascript://banco.es/%0Aalert(1)", "intent://banco.es/#Intent;end", "file://banco.es/x",
+            "ftp://banco.es", "mailto:ana@banco.es", "https://", "ana:clave@banco.es")) {
+            val p = plan(read(login(0, "Banco", user = "ana", url = url, password = "otra")), listOf(bare))
+            assertTrue(url, p.duplicates.isEmpty())
+            assertEquals(url, bare, mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bare), now, newId).single { it.id == "b" })
+        }
+        // With an https entry and a URL-less one of the same title and user, http falls to neither.
+        val both = listOf(saved("h", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/"), bare)
+        assertTrue(plan(read(login(0, "Banco", user = "ana", url = "http://banco.es/")), both).duplicates.isEmpty())
+        // Review M-2: https and http of one host in one file, against the URL-less entry: one duplicate, one new entry.
+        val p = plan(read(login(0, "Banco", user = "ana", url = "https://banco.es"), login(1, "Banco", user = "ana", url = "http://banco.es")), listOf(bare))
+        assertEquals(listOf(0), p.duplicates.map { it.item.index })
+        assertEquals(listOf(1), p.newItems.map { it.index })
     }
 
     // ---- RT-2 (ruling R34): what looks the same is a duplicate ----
@@ -440,7 +515,7 @@ class MergePlanTest {
         assertEquals("ana · banco-acceso.example", duplicateSubline(login("ana", "https://banco-acceso.example/entrar?x=1")))
         // The host a browser goes to (RT-1), not the one after the «@».
         assertEquals("ana · evil.example", duplicateSubline(login("ana", "https://evil.example\\@banco.es/")))
-        assertEquals("ana · banco.es", duplicateSubline(login("ana", "http://www.banco.es")))
+        assertEquals("ana · http://banco.es", duplicateSubline(login("ana", "http://www.banco.es")))
         assertEquals("banco.es", duplicateSubline(login("", "banco.es/login")))
         assertEquals("ana", duplicateSubline(login("ana", "")))
         assertEquals("", duplicateSubline(login(" ", " ")))

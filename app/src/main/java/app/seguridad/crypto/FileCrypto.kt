@@ -160,12 +160,13 @@ const val MAX_SAVED_NAME_BYTES = 255
 /**
  * CIFRADO-2 (audit 1.3.0): a code point no name that is shown or saved keeps, the one list of [safeFileName] and
  * `sanitizeReceivedName` (they used to differ). Taken out:
- *  - everything that draws nothing ([drawsNothing], the list `plainReportText` also uses, ruling R43): the format
- *    characters (Cf, such as the bidi controls, U+200B, U+200C or U+0600–0605), plane 14 (the tags and the supplementary
- *    variation selectors), CGJ U+034F, the Hangul fillers, the Khmer inherent vowels U+17B4/17B5, the Mongolian free
- *    variation selectors U+180B–180D and U+180F, the Braille blank U+2800 and the variation selectors U+FE00–FE0E;
- *    except the zero-width joiner, which is left to [withoutLooseJoiners], and U+FE0F, the emoji one, which is left to
- *    [withoutLooseSelectors];
+ *  - everything that draws nothing ([drawsNothing], the list `plainReportText` and the QR Inspector also use, rulings
+ *    R43 and R49): Unicode's default ignorables (such as the bidi controls, U+200B, U+200C, U+2065, U+FFF0–FFF8, CGJ
+ *    U+034F, the Hangul fillers, the Khmer inherent vowels U+17B4/17B5, the Mongolian free variation selectors
+ *    U+180B–180F, the variation selectors U+FE00–FE0E and plane 14, the tags and the supplementary variation
+ *    selectors), the Braille blank U+2800, U+FFF9–FFFB and U+13430–1343F; except the zero-width joiner, which is left
+ *    to [withoutLooseJoiners], and U+FE0F, the emoji one, which is left to [withoutLooseSelectors]. The prepended
+ *    concatenation marks (U+0600–0605, U+06DD…) are drawn, so a name keeps them, as the lists show them (RT-13);
  *  - everything the fixed list of card names forbids (`isForbiddenNameCodePoint`, `crypto/pk/Card.kt`): C0, DEL, C1,
  *    U+2028/2029, the soft hyphen, zero width, LRM/RLM and the bidi controls, U+2060–206F, U+FEFF, U+FFF0–FFFB,
  *    U+FFFE/FFFF, lone surrogates, private use, and U+E0000–E0FFF;

@@ -94,17 +94,18 @@ const val MAX_COMBINING_MARKS = 3
  * [text] as the import report may show it (decision (c) of the owner: what comes from the file is data, and rulings R9
  * and I2: the same helper wherever a title, user or URL is shown). One pass by code point:
  * - every control character (Cc: C0 and C1) and the line and paragraph separators U+2028 and U+2029 become a space;
- * - every code point that draws nothing is dropped ([drawsNothing], the one list that the names of files also use,
- *   `isHiddenInName`, ruling R43): the format characters (Cf), such as the bidi controls that turn text around
- *   (U+202A–U+202E, U+2066–U+2069, U+200E, U+200F, U+061C), the invisible ones (U+00AD, U+180E, U+200B–U+200D,
- *   U+2060–U+2064, U+FEFF) and the interlinear annotations U+FFF9–U+FFFB; the whole of plane 14 (the tag characters
- *   and the supplementary variation selectors U+E0100–U+E01EF); the combining grapheme joiner U+034F and the Hangul
- *   fillers (U+115F, U+1160, U+3164, U+FFA0); and, since RT-6, the Braille blank U+2800, the Khmer inherent vowels
- *   U+17B4 and U+17B5, the Mongolian free variation selectors U+180B–U+180D and U+180F, and the variation selectors
- *   U+FE00–U+FE0F. U+200D (the zero-width joiner) goes too: an emoji sequence such as a family shows as its separate
- *   emoji, which is accepted (a file name keeps it between two emoji). U+FE0F stays only where the names of files keep
- *   it ([emojiSelectorShows]: after a non-ASCII code point that is not a space, an emoji in practice, or in a keycap,
- *   «1️⃣»), so «❤️» keeps its emoji look; [compareKey] drops it anyway;
+ * - every code point that draws nothing is dropped ([drawsNothing], the one list that the names of files and the QR
+ *   Inspector also use, rulings R43 and R49): Unicode's default ignorables, such as the bidi controls that turn text
+ *   around (U+202A–U+202E, U+2066–U+2069, U+200E, U+200F, U+061C), the invisible ones (U+00AD, U+034F, U+180B–U+180F,
+ *   U+200B–U+200D, U+2060–U+206F, U+FEFF), the Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), the Khmer inherent
+ *   vowels U+17B4 and U+17B5, the variation selectors U+FE00–U+FE0F, U+FFF0–U+FFF8 and the whole of plane 14 (the tag
+ *   characters and the supplementary variation selectors U+E0100–U+E01EF); and the Braille blank U+2800, the
+ *   interlinear annotations U+FFF9–U+FFFB and the Egyptian hieroglyph format controls U+13430–U+1343F. The prepended
+ *   concatenation marks (U+0600–U+0605, U+06DD, U+070F, U+0890, U+0891, U+08E2, U+110BD, U+110CD) are format
+ *   characters that are drawn, so they stay (RT-13). U+200D (the zero-width joiner) goes: an emoji sequence such as a
+ *   family shows as its separate emoji, which is accepted (a file name keeps it between two emoji). U+FE0F stays only
+ *   where the names of files keep it ([emojiSelectorShows]: after a non-ASCII code point that is not a space, an emoji
+ *   in practice, or in a keycap, «1️⃣»), so «❤️» keeps its emoji look; [compareKey] drops it anyway;
  * - a lone surrogate is dropped;
  * - after [MAX_COMBINING_MARKS] combining marks in a row (Mn, Me) on one base, the rest are dropped, so a tower of
  *   accents cannot cover the lines around it.
@@ -159,10 +160,10 @@ private fun nextForSelector(text: String, from: Int): Int {
 }
 
 /**
- * [text] as the merge compares it (RT-2, ruling R34; RT-6 and RT-7, rulings R43 and R44): what [plainReportText] shows,
+ * [text] as the merge compares it (RT-2, ruling R34; RT-6, RT-7 and RT-9, rulings R43, R44 and R49): what [plainReportText] shows,
  * without its cut, in NFKC, without the U+FE0F it keeps after an emoji (nor anything else of [drawsNothing]), with every
  * run of spaces (a no-break space, or a control that it shows as a space, included) as one space and none at the ends.
- * So «Ban\u200Bco», «Banco\u2060», «Banco\u2800», «Cafe\u0301» and « Banco\u00A0» compare as «Banco» and «Café», the
+ * So «Ban\u200Bco», «Banco\u2060», «Banco\u2065», «Banco\u2800», «Cafe\u0301» and « Banco\u00A0» compare as «Banco» and «Café», the
  * way they look, and a look-alike cannot enter as a new entry next to the one it copies. NFKC also folds the
  * compatibility forms: the ligature «ﬁ» is «fi», «Ⅱ» is «II», and full-width and mathematical letters («Ｂａｎｃｏ»,
  * «𝐁anco») are the plain ones; «²» is «2». Case is kept (the title's key lowers it, the user's does not). Only for

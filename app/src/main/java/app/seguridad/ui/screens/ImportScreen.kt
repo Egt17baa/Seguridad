@@ -660,8 +660,9 @@ private fun LazyListScope.skippedList(skipped: List<Skipped>, title: String) {
 }
 
 /**
- * One duplicate: its title, then its user and the host of its web, or its service and account ([duplicateSubline],
- * plain text: the web is the one «Reemplazar» brings in), and its own choice.
+ * One duplicate: its title, then its user and the host of its web (with the scheme when it is not https, never the user
+ * info), or its service and account ([duplicateSubline], plain text: the web is the one «Reemplazar» brings in), and its
+ * own choice.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
