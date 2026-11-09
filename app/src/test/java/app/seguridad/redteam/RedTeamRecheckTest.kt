@@ -18,6 +18,8 @@ import app.seguridad.imports.mergedEntries
 import app.seguridad.imports.planMerge
 import app.seguridad.imports.plainReportText
 import app.seguridad.imports.readImport
+import app.seguridad.imports.urlKey
+import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.hasHiddenChars
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.visibleText
@@ -33,6 +35,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.util.SplittableRandom
 
 private fun recheckAssetLines(name: String): List<String> =
     listOf("src/main/assets", "../app/src/main/assets").map { File(it, name) }.first { it.exists() }.readLines().filter { it.isNotBlank() }
@@ -47,7 +50,7 @@ private fun str(cp: Int) = String(Character.toChars(cp))
  * the SAFE behaviour and failed while RT-N was open (@Ignore'd only for the gate then); resists… passes. RT-8, RT-9,
  * RT-10, RT-12 and RT-13 are fixed (rulings R45 to R49 and R51), and RT-14 of the third check (rulings R53 and R54). RT-11's PoC left this class (ruling R50: the owner
  * decides for 1.4.1; its passwords stay in the report). The third check (db42d3e, ce6b0f9) adds the tests from
- * «Third check» down. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
+ * «Third check» down, the fourth (f6148bb) from «Fourth check» down. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
  */
 class RedTeamRecheckTest {
     private val known by lazy { masterWords(MASTER_WORD_LISTS.map(::recheckAssetLines)) }
@@ -476,5 +479,146 @@ class RedTeamRecheckTest {
         }
         // In a host every selector counts.
         assertTrue(hasHiddenChars("❤\uFE0F", allowEmojiVariation = false))
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Fourth check (f6148bb): the shared pre-pass asBrowserReadsIt (R54) and «word:digits» (R53).
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private fun esc(s: String) = buildString {
+        for (c in s) if (c < ' ' || c.code in 0x7F..0xA0 || c == '　' || c == '：' || c == '​') append("\\u%04X".format(c.code)) else append(c)
+    }
+
+    /**
+     * What the basic URL parser of the WHATWG URL Standard does before and during the scheme state: every C0 control
+     * and space at either end, and every tab, LF and CR anywhere, in any case of the scheme. Each of them gives the key a
+     * browser's reading gives (`asBrowserReadsIt`, tools/qr/LinkSignals.kt:62), so http and javascript never meet https,
+     * and the row says the scheme.
+     */
+    @Test fun resistsTheRt14FixAgainstThePrePass() {
+        val https = listOf(vaultLogin("https://banco.es/"))
+        val bare = listOf(vaultLogin(""))
+        val forms = mutableListOf<String>()
+        for (c in (0x00..0x20).map { it.toChar() }) { forms += "${c}http:@banco.es"; forms += "http:@banco.es$c" }
+        for (c in listOf('\t', '\n', '\r')) for (i in 0.."http:".length) forms += "http:".substring(0, i) + c + "http:".substring(i) + "@banco.es"
+        forms += listOf("hTtP\t:@banco.es", "\t\n\r\u0000 HtTp:\t/\n/x@banco.es", "h\tt\nt\rp:\\\\@banco.es", "\u001F http:@banco.es\u0000\u001F")
+        for (u in forms) {
+            assertEquals(esc(u), "hhttp://banco.es", urlKey(u))
+            assertTrue(esc(u), plan(fileLogin(u), https).duplicates.isEmpty() && plan(fileLogin(u), bare).duplicates.isEmpty())
+            assertEquals(esc(u), "ana · http://banco.es", duplicateSubline(fileLogin(u).entry))
+        }
+        for (u in listOf("JAVA\tSCRIPT:alert(1)<!--@banco.es", "\u0000j\na\rv\ta script:alert(1)<!--@banco.es".replace(" ", ""), "javascript\t:alert(1)<!--@banco.es")) {
+            assertTrue(esc(u), urlKey(u)!!.startsWith("tjavascript:"))
+            assertTrue(esc(u), plan(fileLogin(u), https).duplicates.isEmpty() && plan(fileLogin(u), bare).duplicates.isEmpty())
+            assertEquals(esc(u), "ana · javascript:…@banco.es", duplicateSubline(fileLogin(u).entry).lowercase())
+        }
+    }
+
+    /**
+     * Characters the pre-pass leaves alone because the URL Standard does too: a no-break space, U+3000, U+200B, a C0
+     * control inside the scheme, and the full-width colon «：». A browser's parser finds no scheme in any of them
+     * (`parseLink(u).scheme` is empty, as for a text without a scheme), so it never opens them as http or javascript; the
+     * merge reads them as a text without a scheme, https. What an address bar does when they are pasted (it may fix them
+     * up) is a phone check, not a parser one.
+     */
+    @Test fun resistsWhatTheUrlStandardDoesNotTakeAsAScheme() {
+        for (u in listOf(
+            "ht tp:@banco.es", "http :@banco.es", "ht　tp:@banco.es", "ht​tp:@banco.es", "ht\u0001tp:@banco.es",
+            "http\u0000:@banco.es", "http：@banco.es", "http：//banco.es", "ｈｔｔｐ:@banco.es", "java­script:alert(1)<!--@banco.es",
+        )) {
+            assertEquals(esc(u), "", parseLink(u).scheme)
+            val k = urlKey(u)!!
+            assertFalse(esc(u) + " → $k", k.startsWith("hhttp://") || k.startsWith("tjavascript:"))
+        }
+    }
+
+    /** R53: «word:digits» is host and port only with a «.» or `localhost`; IPv4 and bracketed IPv6 forms; schemes with a dot. */
+    @Test fun resistsTheR53HostAndPortRule() {
+        for ((u, key) in listOf(
+            "localhost:8080" to "hhttps://localhost", "LOCALHOST:80" to "hhttps://localhost", "localhost.:8080" to "hhttps://localhost",
+            "banco.es:8443" to "hhttps://banco.es", "Banco.ES:443/x" to "hhttps://banco.es", "a.b:1/" to "hhttps://a.b",
+            "0x7f.1:80" to "hhttps://127.0.0.1", "127.1:80" to "hhttps://127.0.0.1", "[::1]:8080" to "hhttps://[::1]",
+            "javascript:1/alert(1)" to "tjavascript:1/alert(1)", "data:1/x" to "tdata:1/x", "intranet:8080" to "tintranet:8080",
+            "JavaScript:1" to "tjavascript:1", "localhostx:80" to "tlocalhostx:80",
+        )) {
+            assertEquals(esc(u), key, urlKey(u))
+        }
+        // A word with a dot before digits is read as a host: never javascript, never banco.es unless the word is it.
+        assertEquals("javascript.", parseLink("javascript.:1/alert(1)").scheme)
+        assertEquals("hhttps://javascript", urlKey("javascript.:1/alert(1)"))
+        assertEquals("hhttps://com.evil.app", urlKey("com.evil.app:1/@banco.es"))
+        assertTrue(urlKey("com.evil.app:1@banco.es")!!.startsWith("t"))
+        assertFalse(urlKey("[fe80::1%25eth0]:80")!!.contains("banco.es"))
+        val bare = listOf(vaultLogin(""))
+        for (u in listOf("javascript:1/alert(1)", "data:1/x", "intranet:8080", "javascript.:1/alert(1)")) {
+            assertTrue(u, plan(fileLogin(u), listOf(vaultLogin("https://banco.es/"))).duplicates.isEmpty())
+        }
+        assertTrue(plan(fileLogin("javascript:1/alert(1)"), bare).duplicates.isEmpty())
+    }
+
+    /**
+     * Property, over 300 000 strings from an alphabet of the characters that matter (scheme letters, «:», «/», «\», «@»,
+     * «.», digits, tab, LF, CR, C0 controls, spaces, NBSP, U+3000, U+200B, «：», «%», «#», «?», «[», «]», «<!--»): whenever
+     * the merge reads a URL as https on banco.es (a duplicate of the https entry, and the one key a URL-less entry takes),
+     * a browser's parser reads it as https on banco.es too, or finds no scheme at all (it is not a link it opens). And the
+     * row never shows a scheme the browser does not read.
+     */
+    @Test fun resistsAPropertyOverRandomLinks() {
+        val pieces = listOf(
+            "h", "t", "p", "s", "j", "a", "v", "c", "r", "i", "f", "l", "e", "x", ":", ":", "/", "/", "\\", "@", "@", ".", "0", "1", "8",
+            "\t", "\n", "\r", "\u0001", "\u0000", " ", " ", "　", "​", "：", "%", "#", "?", "[", "]", "<!--",
+            "http", "https", "javascript", "banco.es", "banco.es", "www.", "localhost",
+        )
+        val rnd = SplittableRandom(20261109)
+        val wrong = mutableListOf<String>()
+        var hits = 0
+        repeat(300_000) {
+            val u = buildString { repeat(1 + rnd.nextInt(12)) { append(pieces[rnd.nextInt(pieces.size)]) } }
+            val key = urlKey(u) ?: return@repeat
+            if (key != "hhttps://banco.es") return@repeat
+            hits++
+            val b = parseLink(u)
+            val ok = b.scheme == "" || (b.scheme == "https" && b.host?.removePrefix("www.") == "banco.es") ||
+                // A word with a dot before a port: the merge reads it as a host, «banco.es:443».
+                ('.' in b.scheme || b.scheme == "localhost")
+            if (!ok && wrong.size < 10) wrong += "${esc(u)} → browser ${b.scheme}://${b.host}"
+            val row = duplicateSubline(fileLogin(u).entry)
+            if (row != "ana · banco.es" && wrong.size < 10) wrong += "${esc(u)} → row «$row»"
+        }
+        assertTrue(wrong.joinToString("; "), wrong.isEmpty())
+        // The draw reaches the case often enough to mean something.
+        assertTrue("$hits", hits > 2_000)
+    }
+
+    /** R45 with N-1: the row hides everything up to the last «@», also with «/», «?», «#», tabs or a control before it. */
+    @Test fun resistsTheRowWithTheLastAtRule() {
+        for ((u, row) in listOf(
+            "ana:cla/ve@banco.es" to "ana · ana:…@banco.es", "ana:cl?ave@banco.es" to "ana · ana:…@banco.es",
+            "ana:cl#ave@banco.es" to "ana · ana:…@banco.es", "mailto:a@b.es?cc=clave@d.es" to "ana · mailto:…@d.es",
+            "ma\til\tto:cl\tave@banco.es" to "ana · mailto:…@banco.es", "\u0001mailto:clave@banco.es" to "ana · mailto:…@banco.es",
+            "https://cl\tave@banco.es" to "ana · banco.es", "\u0000http://clave:x@banco.es" to "ana · http://banco.es",
+            "javascript:alert('clave')//@banco.es" to "ana · javascript:…@banco.es", "data:clave@" to "ana · data:…@",
+        )) {
+            assertEquals(esc(u), row, duplicateSubline(fileLogin(u).entry))
+        }
+    }
+
+    /**
+     * parseLink and the QR Inspector did not change: the pre-pass is the expression parseLink had (50b0d51,
+     * LinkSignals.kt), it is idempotent, and parseLink reads a text and its pre-passed form the same.
+     */
+    @Test fun resistsAChangeInParseLink() {
+        val old = { s: String -> s.filterNot { it == '\t' || it == '\n' || it == '\r' }.trim { it <= ' ' || it.isWhitespace() } }
+        val rnd = SplittableRandom(4)
+        val alphabet = "\t\n\r\u0000\u0001\u001F  　 ​https:/\\@banco.es[]%#?"
+        repeat(50_000) {
+            val u = buildString { repeat(rnd.nextInt(16)) { append(alphabet[rnd.nextInt(alphabet.length)]) } }
+            val pre = asBrowserReadsIt(u)
+            assertEquals(esc(u), old(u), pre)
+            assertEquals(esc(u), pre, asBrowserReadsIt(pre))
+            val a = parseLink(u)
+            val b = parseLink(pre)
+            assertEquals(esc(u), listOf(a.scheme, a.host, a.port, a.hasUserInfo, a.isIp, a.hostHidden), listOf(b.scheme, b.host, b.port, b.hasUserInfo, b.isIp, b.hostHidden))
+        }
     }
 }

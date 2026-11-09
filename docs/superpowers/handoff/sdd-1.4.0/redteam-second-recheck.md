@@ -373,3 +373,81 @@ Todos en `RedTeamRecheckTest`:
 ### Textos para el Abogado Digital (tercera comprobación)
 
 - **Ningún texto nuevo.** Con RT-14 arreglado, la fila de una URL como `ht<TAB>tp:@banco.es` dirá «ana · http://banco.es», que es la forma que ya fija R45 (`task-12-report.md`, punto 12). El README (P-9) no necesita cambiar.
+
+## Cuarta comprobación (f6148bb)
+
+**Qué es.** La decisión (f) otra vez, sobre `f6148bb`: los arreglos de RT-14 (R54) y del I-1 de la revisión (R53). Hay tres cambios:
+- **El paso previo común** `asBrowserReadsIt` (`tools/qr/LinkSignals.kt:62-63`). Lo usan `parseLink`, `urlHost`, `urlKey`, la clave de R51 y `shownUrl` (`imports/MergePlan.kt:393`, `:411` y `:456`).
+- **La regla de R53:** «palabra:cifras» es host y puerto solo si la palabra lleva «.» o es `localhost` (`imports/MergePlan.kt:439`).
+- **La fila,** que oculta hasta la última «@» (`:463`).
+
+Sigo sin cambiar código de producción y sin hacer commits. Los tests nuevos están en `RedTeamRecheckTest.kt`, a partir de `:485`.
+
+### Veredictos
+
+| RT / decisión | Veredicto |
+|---|---|
+| **RT-14 (R54)** | **Se sostiene.** El paso previo hace lo mismo que el URL Standard antes del estado del esquema: recorta los controles C0 y los espacios de los dos extremos y quita todo tabulador, LF y CR. Una URL que el navegador lee como `http:` o `javascript:` nunca coincide con `https`, ni con una entrada sin URL, y la fila dice el esquema. |
+| **RT-8 (R48)** | **Se sostiene.** Con el paso previo, la vía de RT-14 está cerrada. Una entrada sin URL solo toma lo que el navegador abre como https en banco.es, o lo que no tiene esquema. |
+| **R53** | **Se sostiene.** `localhost`, `localhost.`, una palabra con «.», IPv4 en hexadecimal o corto, e IPv6 entre corchetes se leen como host. Cualquier otra palabra es un esquema, también delante de cifras (`javascript:1/alert(1)`, `data:1/x`). |
+| **R45 con N-1 (la fila)** | **Se sostiene.** La información de usuario no sale con «/», «?» o «#» delante de la «@», ni con tabuladores o controles. |
+| **`parseLink` y el Inspector de QR** | **Sin cambios de comportamiento.** El paso previo es la misma expresión que tenía `parseLink` en `50b0d51`, no cambia si se aplica dos veces, y `parseLink` lee igual un texto y su forma ya limpia. |
+
+**Hallazgos nuevos: ninguno.** `RedTeamRecheckTest` tiene ahora 26 tests y pasan los 26. No queda ningún `@Ignore`: `rt14_` ya pasa sin él desde `f6148bb`.
+
+Lo ejecuté con `./gradlew -p jvm-check test --tests 'app.seguridad.redteam.*' --no-daemon --max-workers=1`: **BUILD SUCCESSFUL**, 0 fallos, 0 omitidos y ningún aviso `w:`. Las otras clases del equipo rojo siguen igual: `RedTeamImportTest` 12, `RedTeamCryptoTest` 8 y `RedTeamSecondAttackTest` 13.
+
+### Ataques intentados y resistidos (cuarta comprobación)
+
+1. **El paso previo frente al URL Standard** (`resistsTheRt14FixAgainstThePrePass`, `:498`):
+   - cada control C0 y el espacio (U+0000 a U+0020) delante y detrás de `http:@banco.es`;
+   - un tabulador, un LF o un CR en cada posición de `http:`;
+   - mayúsculas y minúsculas mezcladas (`hTtP\t:`, `HtTp:\t/\n/x@`) y `h\tt\nt\rp:\\\\@banco.es`.
+
+   Todos dan la clave «hhttp://banco.es», no son duplicado de la entrada `https` ni de la que no tiene URL, y la fila dice «ana · http://banco.es». Lo mismo con `javascript:` escrito con tabuladores, saltos de línea, un NUL delante o en mayúsculas: la clave es «tjavascript:…» y la fila, «javascript:…@banco.es».
+2. **Lo que el URL Standard no toma como esquema** (`resistsWhatTheUrlStandardDoesNotTakeAsAScheme`, `:524`): un NBSP, un U+3000, un U+200B, un U+00AD o un control C0 dentro del esquema, NUL antes de «:», los dos puntos de ancho completo «：» y `ｈｔｔｐ` en ancho completo. El analizador del navegador no encuentra esquema en ninguno (`parseLink(u).scheme` vacío), así que no los abre como `http` ni como `javascript`. La fusión los lee como texto sin esquema, es decir, https, y su clave nunca es `hhttp://` ni `tjavascript:`. Qué hace la barra de direcciones al pegarlos queda para el móvil (abajo).
+3. **R53** (`resistsTheR53HostAndPortRule`, `:536`):
+   - se leen como host: `localhost:8080`, `LOCALHOST:80`, `localhost.:8080`, `banco.es:8443`, `Banco.ES:443/x`, `a.b:1/`, `0x7f.1:80` y `127.1:80` (los dos son 127.0.0.1) y `[::1]:8080`;
+   - se leen como esquema: `javascript:1/alert(1)`, `data:1/x`, `intranet:8080` (el coste que acepta R53), `JavaScript:1` y `localhostx:80`;
+   - `javascript.:1/alert(1)` se lee como el host «javascript». El navegador lo lee como el esquema «javascript.», que no es `javascript`;
+   - `com.evil.app:1/@banco.es` tiene el host com.evil.app, no banco.es, y `com.evil.app:1@banco.es` es una clave «t»;
+   - IPv6 con zona (`[fe80::1%25eth0]:80`) nunca es banco.es;
+   - ninguno es duplicado de banco.es ni de una entrada sin URL.
+4. **Propiedad sobre 300 000 URL al azar** (`resistsAPropertyOverRandomLinks`, `:566`), con un alfabeto de los caracteres que importan: letras de esquema, «:», «/», «\», «@», «.», cifras, tabulador, LF, CR, controles, espacios, NBSP, U+3000, U+200B, «：», «%», «#», «?», «[», «]», «<!--», `http`, `https`, `javascript`, `banco.es`, `www.` y `localhost`. Cada vez que la fusión lee una URL como https en banco.es (más de 2 000 veces en la tanda), se cumple que:
+   - el navegador también la lee como https en banco.es, o no le encuentra esquema, o es una palabra con «.» delante de un puerto;
+   - la fila dice «ana · banco.es».
+5. **La fila con la última «@»** (`resistsTheRowWithTheLastAtRule`, `:594`):
+   - «/», «?» o «#» dentro de la contraseña;
+   - `mailto:a@b.es?cc=clave@d.es`, que da «mailto:…@d.es»;
+   - tabuladores dentro de `mailto` y de la contraseña, y un control o un NUL delante;
+   - `javascript:alert('clave')//@banco.es` y `data:clave@`.
+
+   Ninguna enseña «clave».
+6. **`parseLink` no cambia** (`resistsAChangeInParseLink`, `:610`): con 50 000 textos al azar de tabuladores, controles, espacios Unicode, U+2028 y U+200B, `asBrowserReadsIt` da lo mismo que la expresión de `50b0d51`, aplicarlo dos veces da lo mismo, y `parseLink(u)` coincide con `parseLink(asBrowserReadsIt(u))` en esquema, host, puerto, usuario, IP y host oculto. El Inspector de QR usa `parseLink` y `hasHiddenChars`, que no cambian, y `resistsTheQrInspectorsOwnList` y `resistsTheRt10FixWithEveryPointAndTheEmojiExceptions` siguen en verde.
+7. **Los anteriores** siguen en verde: `rt14_` sin `@Ignore`, y `resistsSchemeAndAuthorityVariantsAroundTheRt4Fix` con `ht\ttps://banco.es` y `\u0001https://banco.es` ya entre los duplicados (R54).
+
+**Diferencias con el URL Standard, aceptadas y del lado seguro:**
+- el paso previo también recorta los espacios Unicode de los extremos (NBSP, U+3000), como una barra de direcciones. El navegador no los recorta y entonces no encuentra esquema, así que la fusión no lee nunca un esquema que el navegador no lea;
+- una sola letra delante de «:» no es esquema para Clavero (la letra de una unidad): `x:@banco.es` se lee como https. El navegador lo lee como el esquema «x», que no abre nada.
+
+### Necesita prueba en el móvil (cuarta comprobación)
+
+1. **Pegar en la barra.** Pegar en Chrome y en el navegador del fabricante, copiadas de Clavero, `ht<NBSP>tp:@banco.es`, `ht<U+0001>tp:@banco.es`, `http：@banco.es` (los dos puntos de ancho completo) y `ht<U+200B>tp:@banco.es`. El analizador del navegador no ve esquema en ellas y la fusión las trata como https en banco.es. Si alguna barra las «arregla» al pegar y abre `http://banco.es`, se abre un hallazgo nuevo, informativo o bajo: la fusión tendría que comparar entero un texto con esos caracteres antes de los dos puntos.
+2. Siguen las de las rondas anteriores (RT-14 con tabulador y control, P-9 y P-27 del README).
+
+### Revisión experto-seguridad-cripto (cuarta comprobación)
+
+- **R54** cierra la clase de RT-14 donde nacía: hay una sola lectura del texto, la del URL Standard (pasos de recorte y de quitar tabuladores y saltos de línea del analizador básico), antes de `schemeOf` (`tools/qr/LinkSignals.kt:62-63`, `imports/MergePlan.kt:393`, `:411` y `:456`). Ya no hay una lectura para la clave y otra para el navegador (CWE-436). La propiedad sobre 300 000 URL lo fija para lo que importa: la fusión no lee https en banco.es donde el navegador lee otro esquema.
+- **R53** (`imports/MergePlan.kt:439`) quita la lectura de host y puerto a cualquier palabra sin «.» que no sea `localhost`, así que `javascript:1/…` ya no puede pasar por web.
+- **La fila** (`:463`) oculta de más antes que de menos: hasta la última «@» del texto.
+- **Nada toca primitivas, formatos ni lo guardado** (R9 y R10). Sin logs ni secretos: los tests usan textos inventados («clave»).
+
+### Revisión Ingeniero Móvil Senior (cuarta comprobación)
+
+- **MASVS-CODE-4** (validación de lo importado) y **MASVS-PLATFORM-3** (la fila). Es Kotlin puro en `imports/` y `tools/qr/`, probado en `jvm-check`. No cambia Compose, el estado ni la concurrencia.
+- **Coste:** el paso previo es una pasada más por URL comparada; antes `parseLink` ya la hacía. Los tests de propiedad tardan menos de un segundo (`resistsAPropertyOverRandomLinks`, 0,7 s en este contenedor).
+- **El archivo de test:** ningún aviso `w:`, con semillas fijas de `SplittableRandom` para que cada ejecución sea igual. `internal` solo se usa dentro del módulo (`urlKey`, `asBrowserReadsIt` y `parseLink`).
+
+### Textos para el Abogado Digital (cuarta comprobación)
+
+Ninguno. R53 y R54 no cambian ningún texto. La fila sigue la forma de R45, y ahora oculta más («mailto:…@d.es»): eso ya está apuntado en `task-12-report.md`.
