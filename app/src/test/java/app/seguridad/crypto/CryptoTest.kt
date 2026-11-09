@@ -381,8 +381,10 @@ class CryptoTest {
     @Test fun safeFileNameDropsTheBlankAndInvisibleCharactersOfTheNameList() {
         // CIFRADO-2 (audit 1.3.0): the Hangul fillers, CGJ, the Khmer inherent vowels, U+FE00–FE0E, the supplementary
         // selectors, private use, noncharacters and the plane-14 tags go, as in sanitizeReceivedName.
+        // RT-6 (ruling R43): also the Braille blank U+2800 and the Mongolian free variation selectors U+180B–180D, U+180F.
         val hidden = listOf(0x3164, 0x115F, 0x1160, 0xFFA0, 0x034F, 0x17B4, 0x17B5, 0xFE00, 0xFE0E, 0xE0100, 0xE01EF,
-            0xE000, 0xF8FF, 0xF0000, 0x10FFFD, 0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, 0x1FFFE, 0x10FFFF, 0xE0000, 0xE0080, 0x180E, 0x2065)
+            0xE000, 0xF8FF, 0xF0000, 0x10FFFD, 0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, 0x1FFFE, 0x10FFFF, 0xE0000, 0xE0080, 0x180E, 0x2065,
+            0x2800, 0x180B, 0x180C, 0x180D, 0x180F)
         for (cp in hidden) {
             val c = String(Character.toChars(cp))
             assertEquals("cp=${cp.toString(16)}", "factura.pdf", safeFileName("fac${c}tura$c$c.pdf"))

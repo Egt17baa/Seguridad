@@ -83,18 +83,21 @@ const val LEET_MAX_CODE_POINTS = 128
 
 /**
  * The letter a usual «leet» substitution stands for (RT-3): 0 o, 3 e, 4 and @ a, 5 and $ s, 7 and + t, 8 b, 6 and 9 g,
- * and 1, ! and | as [oneAs] (tried once as «i» and once as «l»). Not 2 for z: it would turn every year («2024») into
- * letters. Null for any other character.
+ * and 1, ! and | as [oneAs] (tried once as «i» and once as «l»). Since RT-5 (ruling R42) also what a Spanish keyboard
+ * or a phone's long press puts at hand: ¡ i (a key of its own), € e (AltGr+E) and ø and Ø o. The candidate is in NFKC,
+ * which keeps the case, so «Ø» is listed apart. «º» and «ª» need nothing here: NFKC already turns them into «o» and «a».
+ * Not 2 for z: it would turn every year («2024») into letters. Null for any other character.
  */
 private fun leetLetter(cp: Int, oneAs: Char): Char? = when (cp) {
-    '0'.code -> 'o'
-    '3'.code -> 'e'
+    '0'.code, 'ø'.code, 'Ø'.code -> 'o'
+    '3'.code, '€'.code -> 'e'
     '4'.code, '@'.code -> 'a'
     '5'.code, '$'.code -> 's'
     '7'.code, '+'.code -> 't'
     '8'.code -> 'b'
     '6'.code, '9'.code -> 'g'
     '1'.code, '!'.code, '|'.code -> oneAs
+    '¡'.code -> 'i'
     else -> null
 }
 
@@ -207,8 +210,9 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
  * digits or symbols around it («contraseña123», «Password1!», «Ábaco12345»), which the estimate alone lets through.
  * Since RT-3 (owner's decision (h), 8-11-2026) also a known word in full-width letters («ｐａｓｓｗｏｒｄ12345», through
  * the NFKC of [masterCore]) or in leet, with digits and symbols for some letters and more of them around it
- * («P4ssw0rd2024!», «C0ntr4s3ñ4!!», «Dr4g0n!2024»: [isKnownWordInLeet]). Without [words] (the default, or an empty set
- * because the lists could not be read) the rule is the length and the estimate, as it was.
+ * («P4ssw0rd2024!», «C0ntr4s3ñ4!!», «Dr4g0n!2024»: [isKnownWordInLeet]), and since RT-5 (ruling R42) with the symbols
+ * of a Spanish keyboard for letters («Pr¡nc3ss2024», «C0ntra$€na2024!», «Dr4gøn!2024»). Without [words] (the default, or
+ * an empty set because the lists could not be read) the rule is the length and the estimate, as it was.
  *
  * Only for a password that is being chosen: creating the vault and changing the master. Opening the vault, the
  * fingerprint and importing a copy never come through here, so no vault or copy that exists stops opening, and neither
@@ -235,9 +239,11 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
  * refused when its few letters (2 to 5), read as they are or in leet, are a word of the lists. Measured on 8-11-2026
  * (a million draws for each count of letters, weighted as the Generator draws them): about 1 time in 3,100 at 12
  * characters, 1 in 54,000 at 16 and 1 in 1.1 million at 20 (the default length), against 1 in 3,800, 1 in 60,000 and 1 in
- * 1.1 million with the rule before RT-3. The estimate alone, besides, very rarely refuses a random one whose letters
- * hold a keyboard run or repeats (fewer than 1 in 500,000 with 16 letters only). Asking the Generator for another one
- * solves it.
+ * 1.1 million with the rule before RT-3. Measured again on 9-11-2026 after RT-5 (ruling R42), the same way and with the
+ * same draws before and after: the same figures (1 in 3,200, 55,000 and 1.1 million in that run), because the Generator
+ * only draws ASCII and «¡», «€» and «ø» are not among its characters. The estimate alone, besides, very rarely refuses
+ * a random one whose letters hold a keyboard run or repeats (fewer than 1 in 500,000 with 16 letters only). Asking the
+ * Generator for another one solves it.
  */
 fun newMasterProblem(candidate: String, words: Set<String> = emptySet()): String? = when {
     candidate.length < MIN_MASTER || strengthForm(candidate).let { it.codePointCount(0, it.length) } < MIN_MASTER ->

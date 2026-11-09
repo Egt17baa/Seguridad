@@ -66,7 +66,7 @@ class ImportModelTest {
 
     // ---- RT-2 (ruling R34): the key the merge compares ----
 
-    @Test fun compareKeyIsWhatIsShownInNfcWithTheSpacesFolded() {
+    @Test fun compareKeyIsWhatIsShownInNfkcWithTheSpacesFolded() {
         assertEquals("Banco", compareKey("Ban​co"))
         assertEquals("Banco", compareKey("‮Banco⁠﻿"))
         assertEquals("Café", compareKey("Café"))
@@ -75,9 +75,57 @@ class ImportModelTest {
         assertEquals("Mi banco", compareKey("  Mi  banco\u0000 "))
         assertEquals("Mi banco", compareKey("Mi\nbanco"))
         assertEquals("ANA", compareKey("ANA")) // the case is kept: the title's key lowers it, the user's does not
-        assertEquals("Ｂａｎｃｏ", compareKey("Ｂａｎｃｏ")) // full-width letters look different, so they stay
+        assertEquals("Banco", compareKey("Ｂａｎｃｏ")) // RT-7 (R44): NFKC folds full-width letters
         assertEquals("", compareKey("​​ "))
         assertEquals("", compareKey(""))
+    }
+
+    // ---- RT-6 (ruling R43): what draws nothing is never shown nor compared ----
+
+    @Test fun plainReportTextDropsWhatDrawsNothing() {
+        for (c in listOf(0x2800, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180F, 0xFE00, 0xFE0E, 0xFE0F, 0xE0100, 0xE01EF)) {
+            val s = String(Character.toChars(c))
+            assertEquals("U+%04X".format(c), "banco", plainReportText("ban${s}co"))
+            assertEquals("U+%04X".format(c), "banco", plainReportText("banco$s"))
+            assertEquals("U+%04X".format(c), "banco", compareKey("${s}ban${s}co$s"))
+        }
+        // The variation selectors are dropped whole, never half a pair, also after a cut.
+        val selectors = (0xE0100..0xE01EF).joinToString("") { String(Character.toChars(it)) }
+        assertEquals("ab", plainReportText("a${selectors}b", maxChars = 10_000))
+        // Only blanks: nothing is shown.
+        assertEquals("", plainReportText("\u2800\u2800\u17B5\uFE0F"))
+    }
+
+    @Test fun anEmojiKeepsItsSelectorWhereAFileNameKeepsIt() {
+        // As safeFileName (withoutLooseSelectors): after an emoji or a symbol, and in a keycap.
+        for (t in listOf("❤\uFE0F", "Banco ❤\uFE0F", "1\uFE0F\u20E3 Banco", "#\uFE0F\u20E3", "☎\uFE0F casa")) assertEquals(t, plainReportText(t))
+        // Anywhere else it draws nothing and goes: at the start, after ASCII, a space, a joiner or another selector.
+        assertEquals("Banco", plainReportText("\uFE0FBanco"))
+        assertEquals("Banco 1", plainReportText("Banco 1\uFE0F"))
+        assertEquals("a b", plainReportText("a \uFE0Fb"))
+        assertEquals("❤\uFE0F", plainReportText("❤\uFE0F\uFE0F"))
+        assertEquals("👨👩", plainReportText("👨\u200D\uFE0F👩"))
+        // U+FE0E (the text look) always goes, as in a file name.
+        assertEquals("❤", plainReportText("❤\uFE0E"))
+        // The comparison drops it even where it is shown: one emoji with and without it is the same picture.
+        assertEquals(compareKey("❤ Banco"), compareKey("❤\uFE0F Banco"))
+        assertEquals(compareKey("Café"), compareKey("Café\uFE0F"))
+        assertEquals(compareKey("Café"), compareKey("Cafe\uFE0F\u0301"))
+    }
+
+    // ---- RT-7 (ruling R44): the compatibility forms compare as the plain ones ----
+
+    @Test fun compareKeyFoldsTheCompatibilityForms() {
+        for ((a, b) in listOf(
+            "Proﬁle" to "Profile", "Cuenta Ⅱ" to "Cuenta II", "Ｂanco" to "Banco", "𝐁anco" to "Banco", "Cuenta²" to "Cuenta2",
+            "ｶﾞ" to "ガ", "Banco\u2003X" to "Banco X", "㎏" to "kg",
+        )) {
+            assertEquals("«$a» vs «$b»", compareKey(b), compareKey(a))
+        }
+        // Look-alikes that NFKC does not fold stay apart (the report notes them): another script, dashes, «'».
+        for ((a, b) in listOf("Bаnco" to "Banco", "Banco‐X" to "Banco-X", "Ana’s" to "Ana's")) assertTrue("«$a»", compareKey(a) != compareKey(b))
+        // Only the comparison: what is shown keeps the form it came in.
+        assertEquals("Proﬁle", plainReportText("Proﬁle"))
     }
 
     @Test fun compareKeyIsNotCutNeverThrowsAndIsCheap() {

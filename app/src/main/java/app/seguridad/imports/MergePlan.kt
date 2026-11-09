@@ -68,12 +68,14 @@ sealed interface ApplyResult {
 /**
  * Compares [read] with [existing] (spec «Duplicado», with rulings R34 and R36). [existing] and [revision] must be read
  * together, from one [VaultStore.importSnapshot] (the import screen does that, and so does [planImport]).
- * - a `LOGIN` matches by title, user and the host of the URL. Title and user are compared as they are shown
- *   ([compareKey]: without controls, direction marks and invisible characters, in NFC, every run of spaces as one and
+ * - a `LOGIN` matches by title, user and the scheme and host of the URL. Title and user are compared as they are shown
+ *   ([compareKey]: without controls, direction marks and what draws nothing, in NFKC, every run of spaces as one and
  *   none at the ends; the title without case, the user with it, since a different capital is visible), so a look-alike
- *   is a duplicate, not a shadow entry (RT-2). The host is the one a browser connects to, read by [parseLink]
- *   ([urlHost]: «\» ends the authority in a web link, a text without a scheme is read as `https://`, without `www.`),
- *   so `https://evil.example\@banco.es/` is evil.example (RT-1). When either side has no URL, title and user are enough;
+ *   is a duplicate, not a shadow entry (RT-2, RT-6, RT-7). The host is the one a browser connects to, read by
+ *   [parseLink] ([urlHost]: «\» ends the authority in a web link, a text without a scheme is read as `https://`, without
+ *   `www.`), so `https://evil.example\@banco.es/` is evil.example (RT-1); the scheme counts too ([urlKey], RT-4), so
+ *   `http://banco.es/` or `javascript://banco.es/` is not a duplicate of `https://banco.es/`. When either side has no
+ *   URL, title and user are enough;
  * - a `TOTP` matches by its key, the rule of `totpImportEntries` ([totpKeyOf]);
  * - a `NOTE` matches by its title's key (as a login's) and its text trimmed.
  * Only entries of the same type are compared, so `IDENTITY`, `CONTACT` and `SEED` entries never match. The file is
@@ -369,12 +371,14 @@ private fun titleKey(title: String) = compareKey(title).lowercase(Locale.ROOT)
 private fun userKey(username: String) = compareKey(username)
 
 /**
- * The host of [url] as compared: the one a browser connects to, read by [parseLink] (RT-1, ruling R34), without `www.`;
- * null for no URL. So the authority ends where a browser ends it: at «/», «?», «#» and, in a web link (http, https,
- * ftp, ws, wss), also at «\», and the user info goes up to the last «@» before that end. `https://evil.example\@banco.es/`
- * is evil.example, as the URL Standard (WHATWG) that browsers follow reads it, not banco.es. The scheme and the port do not count. A text with no «://»
- * that does not start with a web scheme («banco.es/login», «banco.es:8443») is read as a web link, as an address bar
- * would. A URL whose host comes out empty («https://», «@») is compared whole (trimmed, lowercase).
+ * The host of [url] as a browser connects to it, read by [parseLink] (RT-1, ruling R34), without `www.`; null for no
+ * URL. It is what the duplicate's row shows ([duplicateSubline]) and, with the scheme, what [urlKey] compares. So the
+ * authority ends where a browser ends it: at «/», «?», «#» and, in a web link (http, https, ftp, ws, wss), also at «\»,
+ * and the user info goes up to the last «@» before that end. `https://evil.example\@banco.es/` is evil.example, as the
+ * URL Standard (WHATWG) that browsers follow reads it, not banco.es. The port does not count. A text without a scheme
+ * is read as a web link, as an address bar would ([comparedLink]): «banco.es/login», «banco.es:8443», «//banco.es».
+ * A URL whose host comes out empty («https://», «@», «mailto:ana@banco.es», «javascript:alert(1)») is the whole text,
+ * trimmed and in lower case.
  *
  * [parseLink] is plain string work: it never throws, never resolves a name and never opens anything (the IDN step only
  * maps a non-ASCII label to its `xn--` form, as the browser does).
@@ -382,17 +386,48 @@ private fun userKey(username: String) = compareKey(username)
 internal fun urlHost(url: String): String? {
     val t = url.trim()
     if (t.isEmpty()) return null
-    val scheme = schemeOf(t)
-    val asLink = if (scheme != null && (scheme in SPECIAL_SCHEMES || t.startsWith("//", scheme.length + 1))) t else "https://$t"
-    val key = parseLink(asLink).host?.removePrefix("www.").orEmpty()
+    val key = parseLink(comparedLink(t)).host?.removePrefix("www.").orEmpty()
     return key.ifEmpty { t.lowercase(Locale.ROOT) }
+}
+
+/**
+ * The URL of a login as the merge compares it (RT-4, ruling R41): its scheme and [urlHost], «https://banco.es»; null for
+ * no URL. So `http://banco.es/` and `https://banco.es/` are not duplicates, nor is a link of any other scheme
+ * (`javascript://banco.es/…`, `intent://banco.es/…`, `file://banco.es/…`, `ftp://banco.es/`): «Reemplazar» can never
+ * change the scheme of a vault's URL without the user seeing it as a new entry. A text without a scheme is read as
+ * `https://` ([comparedLink]), as before, so «banco.es» and «https://www.banco.es/login» still match. A URL whose host
+ * comes out empty is compared whole, as [urlHost] gives it; the two kinds of key never meet («h» and «t» in front).
+ */
+internal fun urlKey(url: String): String? {
+    val t = url.trim()
+    if (t.isEmpty()) return null
+    val link = parseLink(comparedLink(t))
+    val host = link.host?.removePrefix("www.").orEmpty()
+    return if (host.isEmpty()) "t" + t.lowercase(Locale.ROOT) else "h" + link.scheme + "://" + host
+}
+
+/**
+ * [t] (trimmed, not empty) as the link [urlHost] and [urlKey] read: as it is when it starts with a scheme, and with
+ * `https://` in front when it does not, as an address bar reads «banco.es/login». «banco.es:8443/x» and
+ * «localhost:8080» look like a scheme to [schemeOf] but are a host and a port (only digits after the «:», up to the end
+ * or to «/», «?», «#» or «\», after a scheme that is not a web one), so they are read as web links too. Any other scheme counts as one, as the URL Standard
+ * reads it: «mailto:ana@banco.es» and «javascript:x@banco.es/» are not read as `https://…@banco.es`.
+ */
+private fun comparedLink(t: String): String {
+    val scheme = schemeOf(t) ?: return "https://$t"
+    if (scheme in SPECIAL_SCHEMES) return t
+    var i = scheme.length + 1
+    while (i < t.length && t[i] in '0'..'9') i++
+    val hostAndPort = i > scheme.length + 1 && (i == t.length || t[i] == '/' || t[i] == '?' || t[i] == '#' || t[i] == '\\')
+    return if (hostAndPort) "https://$t" else t
 }
 
 /**
  * The line under a duplicate's title in the preview (branch review A, M-4), as plain text ([plainReportText]):
  * - a `LOGIN`: its user and the host of its web, the one «Reemplazar» brings in ([replaceWith] takes the file's URL),
  *   as a browser reads it ([urlHost]): «ana · banco-acceso.example». So a file that matches «Banco» / «ana» by title
- *   and user cannot change the vault's web without the row saying where it goes;
+ *   and user cannot change the vault's web without the row saying where it goes. The scheme is not shown (ruling R41):
+ *   when both sides have a URL, a duplicate has the vault's scheme ([urlKey]);
  * - a `TOTP`: its issuer and account;
  * - anything else: empty.
  * Only [entry]'s own (the file's) values; the vault's entry is not read.
@@ -423,7 +458,7 @@ private class Matcher<T : Any> {
         when (e.type) {
             EntryType.LOGIN -> {
                 val group = logins.getOrPut(titleKey(e.title) to userKey(e.username)) { Logins(value) }
-                val host = urlHost(e.url)
+                val host = urlKey(e.url)
                 if (host == null) {
                     if (group.hostless == null) group.hostless = value
                 } else {
@@ -438,7 +473,7 @@ private class Matcher<T : Any> {
 
     fun find(e: VaultEntry): T? = when (e.type) {
         EntryType.LOGIN -> logins[titleKey(e.title) to userKey(e.username)]?.let { g ->
-            val host = urlHost(e.url)
+            val host = urlKey(e.url)
             if (host == null) g.any else g.byHost[host] ?: g.hostless
         }
         EntryType.TOTP -> e.totp?.let { totpKeyOf(it.secret) }?.let { codes[it] }

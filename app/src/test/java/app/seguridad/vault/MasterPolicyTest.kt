@@ -266,6 +266,32 @@ class MasterPolicyTest {
         assertFalse(isKnownWordInLeet("1nf1ll", setOf("lnfill")))
     }
 
+    // ---- RT-5 (ruling R42, extends decision (h)): the symbols of a Spanish keyboard for letters ----
+
+    @Test fun `RT-5 the substitutions of a Spanish keyboard`() {
+        for ((typed, letter) in listOf("¡" to "i", "€" to "e", "ø" to "o", "Ø" to "o")) {
+            assertTrue("$typed as $letter", isKnownWordInLeet("x${typed}y", setOf("x${letter}y")))
+        }
+        // «¡» is only «i» (it is not read as «l», unlike «1», «!» and «|»).
+        assertFalse(isKnownWordInLeet("x¡y", setOf("xly")))
+        // «º» and «ª» (the key left of «1») need no entry: NFKC already gives «o» and «a».
+        assertEquals("dragon", masterCore("Drªgºn"))
+        assertEquals("contrasena", masterCore("Contrªseñª"))
+        // The other look-alikes of the report are not single letters, and stay as they are: «æ», «œ» and «ß» are two.
+        assertFalse(isKnownWordInLeet("mæster", setOf("maester", "mster", "master")))
+    }
+
+    @Test fun `RT-5 a known word in Spanish keyboard leet is refused as a new master`() {
+        for (c in listOf(
+            "Pr¡nc3ss2024", "C0ntra\$€na2024!", "C0ntr4s€ñ4!!", "Dr4gøn!2024", "P4\$\$wørd2024", "PASSWØRD2024!!", "Dr4gºn!2024", "¡¡Pr¡nc€ss!!77",
+        )) {
+            assertTrue("«$c» passes the estimate (${estimateBits(c)} bits): only the word rule refuses it", estimateBits(c) >= WEAK_BITS)
+            assertEquals("«$c» must be refused with the lists", MASTER_TOO_WEAK, newMasterProblem(c, allWords))
+        }
+        // A password with these symbols that is no word still passes.
+        for (c in listOf("k€7¡Tz9øQm@4vR", "¡Hola€mundo-ø-7341")) assertNull("«$c»", newMasterProblem(c, allWords))
+    }
+
     @Test fun `RT-3 only digits and symbols may be left out around the word, never a letter`() {
         assertTrue(isKnownWordInLeet("2024!dr4g0n2024!", setOf("dragon")))
         assertFalse("a letter before the word", isKnownWordInLeet("xdr4g0n2024", setOf("dragon")))
@@ -434,9 +460,9 @@ class MasterPolicyTest {
     /**
      * A fixed sequence (SHA1PRNG with a seed), not SecureRandom(): with the word lists loaded, about 1 password in 54,000 of
      * 16 characters with the four classes is refused (1 in 3,100 at 12, 1 in 1.1 million at 20; measured with the leet
-     * check of RT-3, see the KDoc of newMasterProblem), because its few letters (2 to 5), as they are or in leet, happen
-     * to spell a list word and the rest are digits and symbols (see the next test). 200 fresh draws would fail about one
-     * run in 270 by chance.
+     * check of RT-3, and again with RT-5, see the KDoc of newMasterProblem), because its few letters (2 to 5), as they
+     * are or in leet, happen to spell a list word and the rest are digits and symbols (see the next test). 200 fresh
+     * draws would fail about one run in 270 by chance.
      */
     private fun fixedRandom(): SecureRandom = SecureRandom.getInstance("SHA1PRNG").apply { setSeed(20261101L) }
 

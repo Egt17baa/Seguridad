@@ -1,5 +1,9 @@
 package app.seguridad.imports
 
+import app.seguridad.core.EMOJI_SELECTOR
+import app.seguridad.core.ZERO_WIDTH_JOINER
+import app.seguridad.core.drawsNothing
+import app.seguridad.core.emojiSelectorShows
 import app.seguridad.crypto.OtpAuthRead
 import app.seguridad.crypto.OTPAUTH_MAX_CHARS
 import app.seguridad.crypto.TotpSecret
@@ -90,12 +94,18 @@ const val MAX_COMBINING_MARKS = 3
  * [text] as the import report may show it (decision (c) of the owner: what comes from the file is data, and rulings R9
  * and I2: the same helper wherever a title, user or URL is shown). One pass by code point:
  * - every control character (Cc: C0 and C1) and the line and paragraph separators U+2028 and U+2029 become a space;
- * - every format character (Cf) is dropped: the bidi controls that turn text around (U+202A–U+202E, U+2066–U+2069,
- *   U+200E, U+200F, U+061C), the invisible ones (U+00AD, U+180E, U+200B–U+200D, U+2060–U+2064, U+FEFF) and the tag
- *   characters (the whole block U+E0000–U+E007F, its unassigned code points too). U+200D (the zero-width joiner) goes
- *   too: an emoji sequence such as a family shows as its separate emoji, which is accepted;
- * - also dropped, though they are not Cf: the interlinear annotation characters U+FFF9–U+FFFB, the combining grapheme
- *   joiner U+034F and the Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), all invisible, and a lone surrogate;
+ * - every code point that draws nothing is dropped ([drawsNothing], the one list that the names of files also use,
+ *   `isHiddenInName`, ruling R43): the format characters (Cf), such as the bidi controls that turn text around
+ *   (U+202A–U+202E, U+2066–U+2069, U+200E, U+200F, U+061C), the invisible ones (U+00AD, U+180E, U+200B–U+200D,
+ *   U+2060–U+2064, U+FEFF) and the interlinear annotations U+FFF9–U+FFFB; the whole of plane 14 (the tag characters
+ *   and the supplementary variation selectors U+E0100–U+E01EF); the combining grapheme joiner U+034F and the Hangul
+ *   fillers (U+115F, U+1160, U+3164, U+FFA0); and, since RT-6, the Braille blank U+2800, the Khmer inherent vowels
+ *   U+17B4 and U+17B5, the Mongolian free variation selectors U+180B–U+180D and U+180F, and the variation selectors
+ *   U+FE00–U+FE0F. U+200D (the zero-width joiner) goes too: an emoji sequence such as a family shows as its separate
+ *   emoji, which is accepted (a file name keeps it between two emoji). U+FE0F stays only where the names of files keep
+ *   it ([emojiSelectorShows]: after a non-ASCII code point that is not a space, an emoji in practice, or in a keycap,
+ *   «1️⃣»), so «❤️» keeps its emoji look; [compareKey] drops it anyway;
+ * - a lone surrogate is dropped;
  * - after [MAX_COMBINING_MARKS] combining marks in a row (Mn, Me) on one base, the rest are dropped, so a tower of
  *   accents cannot cover the lines around it.
  * Then the text is cut to at most [maxChars] UTF-16 units, always at the end of a code point (a surrogate pair is never
@@ -107,14 +117,18 @@ const val MAX_COMBINING_MARKS = 3
 fun plainReportText(text: String, maxChars: Int = MAX_TITLE): String {
     val out = StringBuilder(minOf(text.length, maxChars.coerceAtLeast(0)))
     var marks = 0
+    var previous = -1
     var i = 0
     while (i < text.length) {
         val cp = text.codePointAt(i)
         i += Character.charCount(cp)
         val type = Character.getType(cp)
-        val invisible = type == Character.FORMAT.toInt() || type == Character.SURROGATE.toInt() ||
-            cp in TAG_CHARACTERS || cp in INVISIBLE_NOT_FORMAT
-        if (invisible) continue
+        if (type == Character.SURROGATE.toInt()) continue
+        if (drawsNothing(cp) && !(cp == EMOJI_SELECTOR && emojiSelectorShows(previous, nextForSelector(text, i)))) {
+            // As in a file name, where the joiner is still there when the selectors are looked at: none right after it.
+            if (cp == ZERO_WIDTH_JOINER) previous = cp
+            continue
+        }
         if (type == Character.NON_SPACING_MARK.toInt() || type == Character.ENCLOSING_MARK.toInt()) {
             if (marks >= MAX_COMBINING_MARKS) continue
             marks++
@@ -124,20 +138,47 @@ fun plainReportText(text: String, maxChars: Int = MAX_TITLE): String {
         val shown = if (Character.isISOControl(cp) || cp == 0x2028 || cp == 0x2029) ' '.code else cp
         if (out.length + Character.charCount(shown) > maxChars) break
         out.appendCodePoint(shown)
+        previous = shown
     }
     return out.toString()
 }
 
 /**
- * [text] as the merge compares it (RT-2, ruling R34): what [plainReportText] shows, without its cut, in NFC, with every
+ * The code point from [from] on that a U+FE0F before it sits next to once the rest of what draws nothing is gone (a
+ * zero-width joiner and another U+FE0F count, as in a file name, where they are still there), or -1 at the end.
+ */
+private fun nextForSelector(text: String, from: Int): Int {
+    var j = from
+    while (j < text.length) {
+        val cp = text.codePointAt(j)
+        val dropped = drawsNothing(cp) || Character.getType(cp) == Character.SURROGATE.toInt()
+        if (cp == ZERO_WIDTH_JOINER || cp == EMOJI_SELECTOR || !dropped) return cp
+        j += Character.charCount(cp)
+    }
+    return -1
+}
+
+/**
+ * [text] as the merge compares it (RT-2, ruling R34; RT-6 and RT-7, rulings R43 and R44): what [plainReportText] shows,
+ * without its cut, in NFKC, without the U+FE0F it keeps after an emoji (nor anything else of [drawsNothing]), with every
  * run of spaces (a no-break space, or a control that it shows as a space, included) as one space and none at the ends.
- * So «Ban\u200Bco», «Banco\u2060», «Cafe\u0301» and « Banco\u00A0» compare as «Banco» and «Café», the way they look,
- * and a look-alike cannot enter as a new entry next to the one it copies. Case is kept (the title's key lowers it, the
- * user's does not). Only for comparing: the stored text is never changed (R9, R10). One pass plus NFC (whose quick
- * check makes ordinary text cheap), so it does for 20 000 entries; it never throws (a lone surrogate is already gone).
+ * So «Ban\u200Bco», «Banco\u2060», «Banco\u2800», «Cafe\u0301» and « Banco\u00A0» compare as «Banco» and «Café», the
+ * way they look, and a look-alike cannot enter as a new entry next to the one it copies. NFKC also folds the
+ * compatibility forms: the ligature «ﬁ» is «fi», «Ⅱ» is «II», and full-width and mathematical letters («Ｂａｎｃｏ»,
+ * «𝐁anco») are the plain ones; «²» is «2». Case is kept (the title's key lowers it, the user's does not). Only for
+ * comparing: the stored text is never changed (R9, R10). One pass plus NFKC (whose quick check makes ordinary text
+ * cheap), so it does for 20 000 entries; it never throws (a lone surrogate is already gone). NFKC can lengthen a text
+ * (one code point can become up to 18), which only costs memory while the key lives.
  */
 fun compareKey(text: String): String {
-    val shown = Normalizer.normalize(plainReportText(text, Int.MAX_VALUE), Normalizer.Form.NFC)
+    var shown = Normalizer.normalize(plainReportText(text, Int.MAX_VALUE), Normalizer.Form.NFKC)
+    if (shown.codePoints().anyMatch(::drawsNothing)) {
+        // The U+FE0F kept after an emoji: one emoji with and without it is the same picture. Normalised again, so a mark
+        // that the selector kept apart from its base composes with it.
+        val visible = StringBuilder(shown.length)
+        shown.codePoints().forEach { if (!drawsNothing(it)) visible.appendCodePoint(it) }
+        shown = Normalizer.normalize(visible, Normalizer.Form.NFKC)
+    }
     val out = StringBuilder(shown.length)
     var space = false
     for (c in shown) {
@@ -151,12 +192,6 @@ fun compareKey(text: String): String {
     }
     return out.toString()
 }
-
-/** The whole tag block, also its unassigned code points (only U+E0001 and U+E0020–U+E007F are Cf). */
-private val TAG_CHARACTERS = 0xE0000..0xE007F
-
-/** Invisible characters that are not Cf: interlinear annotations, the combining grapheme joiner and the Hangul fillers. */
-private val INVISIBLE_NOT_FORMAT = setOf(0xFFF9, 0xFFFA, 0xFFFB, 0x034F, 0x115F, 0x1160, 0x3164, 0xFFA0)
 
 /** If [link] is an otpauth:// link of another kind than TOTP (`otpauth://hotp/…`): Clavero only has TOTP. */
 private fun isOtherOtpAuth(link: String): Boolean {

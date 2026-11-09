@@ -40,7 +40,6 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
-import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 import java.util.Collections
@@ -55,7 +54,8 @@ private fun appAssetLines(name: String): List<String> =
  * Second attack of the red team (R32, owner's decisions (d) and (f)), on the code after the whole-branch review's fix
  * round (b1902ed): fresh attacks around the fixes of RT-1 to RT-3, the new code (KdfLock, the checks before an export's
  * password, the duplicate row, the 65 536 cap, the Hash lab race) and a regression sweep. Same naming as before: rtN_…
- * asserts the SAFE behaviour and fails while RT-N is open (@Ignore'd only for the gate); resists… passes.
+ * asserts the SAFE behaviour and failed while RT-N was open (@Ignore'd only for the gate then); resists… passes. RT-4 to
+ * RT-7 are fixed (rulings R41 to R44, the second attack's fix round): every test here runs in the gate.
  * Report: docs/superpowers/handoff/sdd-1.4.0/redteam-report.md, «Segundo ataque (8-11-2026)».
  */
 class RedTeamSecondAttackTest {
@@ -83,7 +83,6 @@ class RedTeamSecondAttackTest {
      * takes a URL of another scheme: a downgrade to plain http, or a link that is not a web page at all.
      * Safe behaviour (either fix): not a duplicate, or the row shows the scheme that comes in.
      */
-    @Ignore("RT-4: open, see report")
     @Test fun rt4_aUrlOfAnotherSchemeIsNotTakenSilentlyForTheWebOne() {
         val vault = vaultLogin("https://banco.es/")
         for ((url, scheme) in listOf(
@@ -108,7 +107,6 @@ class RedTeamSecondAttackTest {
      * the word loses a letter; «ø» is a letter that is in no word. «Pr¡nc3ss2024», «C0ntra$€na2024!» and «Dr4gøn!2024» are
      * accepted as new masters.
      */
-    @Ignore("RT-5: open, see report")
     @Test fun rt5_aKnownWordInSpanishKeyboardLeetIsRefused() {
         for (c in listOf("Pr¡nc3ss2024", "C0ntra\$€na2024!", "C0ntr4s€ñ4!!", "Dr4gøn!2024", "P4\$\$wørd2024")) {
             assertEquals("«$c» is one known word", MASTER_TOO_WEAK, newMasterProblem(c, known))
@@ -127,7 +125,6 @@ class RedTeamSecondAttackTest {
      * «Banco»: RT-2's shadow entry, with another character. `isHiddenInName` (FileCrypto.kt) already drops 17B4/17B5 and
      * FE00–FE0E from file names.
      */
-    @Ignore("RT-6: open, see report")
     @Test fun rt6_invisibleCodePointsAreNotShownNorKeptApart() {
         for (c in listOf("⠀", "\u17B4", "\u17B5", "\uFE00", "\uFE0F", "\uDB40\uDD00", "\u180B", "\u180F")) {
             val cp = "U+%04X".format(c.codePointAt(0))
@@ -147,7 +144,6 @@ class RedTeamSecondAttackTest {
      * NFKC either, and so only in the report: other scripts' look-alikes (Cyrillic «а»), dash variants (U+2010, U+2212),
      * U+2024 for «.», U+2019 for «'».
      */
-    @Ignore("RT-7: open (Info, the controller decides), see report")
     @Test fun rt7_compatibilityLookAlikesCompareEqual() {
         for ((a, b) in listOf("Proﬁle" to "Profile", "Cuenta Ⅱ" to "Cuenta II", "Ｂanco" to "Banco", "𝐁anco" to "Banco")) {
             assertEquals("«$a» vs «$b»", compareKey(b), compareKey(a))

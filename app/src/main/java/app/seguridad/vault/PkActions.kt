@@ -192,7 +192,8 @@ fun actionErrorMessage(e: Throwable, fallback: String): String =
  * sanea: se queda con el último trozo no vacío tras separar por `/` y `\` (nunca una ruta); se quita todo lo de la
  * lista de `safeFileName` (`withoutHiddenNameCharacters`, CIFRADO-2: una sola lista para los dos), es decir, los
  * controles (Cc: C0, DEL y C1), los de formato y de dirección del texto, la lista fija de nombres de tarjeta
- * (`hasForbiddenNameCharacter`: rellenos de Hangul, uso privado, etiquetas…), U+FE00–FE0E y los no caracteres; el
+ * (`hasForbiddenNameCharacter`: rellenos de Hangul, uso privado, etiquetas…), lo que no se dibuja (`drawsNothing`, la
+ * misma lista que `plainReportText`, R43: también U+2800, U+180B–180D, U+180F y U+FE00–FE0E) y los no caracteres; el
  * unidor de anchura cero (U+200D) solo se queda entre dos emoji (dos puntos de código que no son ASCII ni espacios) y
  * U+FE0F solo detrás de un emoji o un símbolo, o en un keycap («1️⃣»), como en `safeFileName` (`withoutLooseJoiners`,
  * `withoutLooseSelectors`), también tras los cortes; se recortan los espacios y los puntos de los extremos (así `.` y

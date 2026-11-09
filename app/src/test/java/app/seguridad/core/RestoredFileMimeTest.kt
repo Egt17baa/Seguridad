@@ -30,17 +30,17 @@ class RestoredFileMimeTest {
         // At most 8 characters of extension.
         assertEquals("image/x-ocho", mime("a.abcdefgh"))
         // The phone's language does not change a lowercase extension, nor an upper-case one without «I».
-        assertEquals("image/heic", mime("IMG_0001.heic", Locale("tr")))
-        assertEquals("image/jpeg", mime("FOTO.JPG", Locale("tr")))
-        assertEquals("image/gif", mime("ANIMADA.GIF", Locale("es")))
+        assertEquals("image/heic", mime("IMG_0001.heic", Locale.forLanguageTag("tr")))
+        assertEquals("image/jpeg", mime("FOTO.JPG", Locale.forLanguageTag("tr")))
+        assertEquals("image/gif", mime("ANIMADA.GIF", Locale.forLanguageTag("es")))
     }
 
     @Test fun anUpperCaseIInTurkishOrAzeriStaysPlainBytes() {
         // Android lowercases the extension with the phone's language («HEIC» → «heıc»): it would not match image/heic
         // and the provider would add a second extension («IMG.HEIC.heic»).
-        assertEquals(OCTET_STREAM, mime("IMG_0001.HEIC", Locale("tr")))
-        assertEquals(OCTET_STREAM, mime("ANIMADA.GIF", Locale("az")))
-        assertEquals("image/heic", mime("IMG_0001.HEIC", Locale("es")))
+        assertEquals(OCTET_STREAM, mime("IMG_0001.HEIC", Locale.forLanguageTag("tr")))
+        assertEquals(OCTET_STREAM, mime("ANIMADA.GIF", Locale.forLanguageTag("az")))
+        assertEquals("image/heic", mime("IMG_0001.HEIC", Locale.forLanguageTag("es")))
     }
 
     @Test fun anythingElseStaysPlainBytes() {
