@@ -6,6 +6,7 @@ import app.seguridad.crypto.isHiddenInName
 import app.seguridad.crypto.safeFileName
 import app.seguridad.health.WEAK_BITS
 import app.seguridad.health.estimateBits
+import app.seguridad.crypto.TotpSecret
 import app.seguridad.imports.DuplicateChoice
 import app.seguridad.imports.ImportFormat
 import app.seguridad.imports.ImportRead
@@ -13,26 +14,31 @@ import app.seguridad.imports.ImportedItem
 import app.seguridad.imports.ReadResult
 import app.seguridad.imports.compareKey
 import app.seguridad.imports.duplicateSubline
+import app.seguridad.imports.importTags
 import app.seguridad.imports.importedEntry
 import app.seguridad.imports.mergedEntries
 import app.seguridad.imports.planMerge
 import app.seguridad.imports.plainReportText
 import app.seguridad.imports.readImport
+import app.seguridad.imports.replaceWith
 import app.seguridad.imports.urlKey
 import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.hasHiddenChars
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.visibleText
+import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MASTER_WORD_LISTS
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.masterWords
 import app.seguridad.vault.newMasterProblem
+import app.seguridad.vault.query
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 import java.util.SplittableRandom
@@ -50,7 +56,7 @@ private fun str(cp: Int) = String(Character.toChars(cp))
  * the SAFE behaviour and failed while RT-N was open (@Ignore'd only for the gate then); resists… passes. RT-8, RT-9,
  * RT-10, RT-12 and RT-13 are fixed (rulings R45 to R49 and R51), and RT-14 of the third check (rulings R53 and R54). RT-11's PoC left this class (ruling R50: the owner
  * decides for 1.4.1; its passwords stay in the report). The third check (db42d3e, ce6b0f9) adds the tests from
- * «Third check» down, the fourth (f6148bb) from «Fourth check» down. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
+ * «Third check» down, the fourth (f6148bb) from «Fourth check» down, the fifth (fd9bd4b) from «Fifth check» down. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
  */
 class RedTeamRecheckTest {
     private val known by lazy { masterWords(MASTER_WORD_LISTS.map(::recheckAssetLines)) }
@@ -203,11 +209,11 @@ class RedTeamRecheckTest {
 
     /** What must still show: emoji with their selector, keycaps, flags, skin tones; and they compare as without it. */
     @Test fun resistsEmojiThatMustStillShow() {
-        for (t in listOf("❤️", "1️⃣", "#️⃣", "*️⃣", "1⃣", "🇪🇸", "👍🏽", "©️", "‼️", "☎️", "↔️", "🏳️", "Café ❤️ Banco")) {
+        for (t in listOf("❤\uFE0F", "1\uFE0F\u20E3", "#\uFE0F\u20E3", "*\uFE0F\u20E3", "1\u20E3", "🇪🇸", "👍🏽", "©\uFE0F", "‼\uFE0F", "☎\uFE0F", "↔\uFE0F", "🏳\uFE0F", "Café ❤\uFE0F Banco")) {
             assertEquals(t, t, plainReportText(t))
             assertEquals(t, safeFileName("a $t b").contains('\uFE0F'), plainReportText("a $t b").contains('\uFE0F'))
         }
-        assertEquals(compareKey("❤ Banco"), compareKey("❤️ Banco"))
+        assertEquals(compareKey("❤ Banco"), compareKey("❤\uFE0F Banco"))
         assertEquals(compareKey("Café"), compareKey("Café\uFE0F"))
         // Accepted (R9, R43): a ZWJ sequence shows as its separate emoji, a tag flag as the black flag.
         assertEquals("👨👩👧", plainReportText("👨\u200D👩\u200D👧"))
@@ -316,7 +322,7 @@ class RedTeamRecheckTest {
             assertTrue(cpName(cp), hasHiddenChars("Casa${str(cp)}"))
             assertTrue(cpName(cp), visibleText("Casa${str(cp)}").endsWith("\u27E9"))
         }
-        for (t in listOf("Casa ❤️", "1️⃣", "#️⃣", "🇪🇸", "👍🏽", "☎️")) assertFalse(t, hasHiddenChars(t))
+        for (t in listOf("Casa ❤\uFE0F", "1\uFE0F\u20E3", "#\uFE0F\u20E3", "🇪🇸", "👍🏽", "☎\uFE0F")) assertFalse(t, hasHiddenChars(t))
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -486,7 +492,11 @@ class RedTeamRecheckTest {
     // ---------------------------------------------------------------------------------------------------------------
 
     private fun esc(s: String) = buildString {
-        for (c in s) if (c < ' ' || c.code in 0x7F..0xA0 || c == '　' || c == '：' || c == '​') append("\\u%04X".format(c.code)) else append(c)
+        for (c in s) {
+            val odd = c < ' ' || c.code in 0x7F..0xA0 || c == '：' || drawsNothing(c.code) || (Character.isSpaceChar(c) && c != ' ') || c.code == 0x2800 ||
+                c.code == 0x3164 || Character.getType(c) == Character.NON_SPACING_MARK.toInt()
+            if (odd) append("\\u%04X".format(c.code)) else append(c)
+        }
     }
 
     /**
@@ -523,8 +533,8 @@ class RedTeamRecheckTest {
      */
     @Test fun resistsWhatTheUrlStandardDoesNotTakeAsAScheme() {
         for (u in listOf(
-            "ht tp:@banco.es", "http :@banco.es", "ht　tp:@banco.es", "ht​tp:@banco.es", "ht\u0001tp:@banco.es",
-            "http\u0000:@banco.es", "http：@banco.es", "http：//banco.es", "ｈｔｔｐ:@banco.es", "java­script:alert(1)<!--@banco.es",
+            "ht\u00A0tp:@banco.es", "http\u00A0:@banco.es", "ht\u3000tp:@banco.es", "ht\u200Btp:@banco.es", "ht\u0001tp:@banco.es",
+            "http\u0000:@banco.es", "http：@banco.es", "http：//banco.es", "ｈｔｔｐ:@banco.es", "java\u00ADscript:alert(1)<!--@banco.es",
         )) {
             assertEquals(esc(u), "", parseLink(u).scheme)
             val k = urlKey(u)!!
@@ -566,7 +576,7 @@ class RedTeamRecheckTest {
     @Test fun resistsAPropertyOverRandomLinks() {
         val pieces = listOf(
             "h", "t", "p", "s", "j", "a", "v", "c", "r", "i", "f", "l", "e", "x", ":", ":", "/", "/", "\\", "@", "@", ".", "0", "1", "8",
-            "\t", "\n", "\r", "\u0001", "\u0000", " ", " ", "　", "​", "：", "%", "#", "?", "[", "]", "<!--",
+            "\t", "\n", "\r", "\u0001", "\u0000", " ", "\u00A0", "\u3000", "\u200B", "：", "%", "#", "?", "[", "]", "<!--",
             "http", "https", "javascript", "banco.es", "banco.es", "www.", "localhost",
         )
         val rnd = SplittableRandom(20261109)
@@ -610,7 +620,7 @@ class RedTeamRecheckTest {
     @Test fun resistsAChangeInParseLink() {
         val old = { s: String -> s.filterNot { it == '\t' || it == '\n' || it == '\r' }.trim { it <= ' ' || it.isWhitespace() } }
         val rnd = SplittableRandom(4)
-        val alphabet = "\t\n\r\u0000\u0001\u001F  　 ​https:/\\@banco.es[]%#?"
+        val alphabet = "\t\n\r\u0000\u0001\u001F \u00A0\u3000\u2028\u200Bhttps:/\\@banco.es[]%#?"
         repeat(50_000) {
             val u = buildString { repeat(rnd.nextInt(16)) { append(alphabet[rnd.nextInt(alphabet.length)]) } }
             val pre = asBrowserReadsIt(u)
@@ -619,6 +629,130 @@ class RedTeamRecheckTest {
             val a = parseLink(u)
             val b = parseLink(pre)
             assertEquals(esc(u), listOf(a.scheme, a.host, a.port, a.hasUserInfo, a.isIp, a.hostHidden), listOf(b.scheme, b.host, b.port, b.hasUserInfo, b.isIp, b.hostHidden))
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Fifth check (fd9bd4b): «Reemplazar» end to end (R55, R56).
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private fun fileItem(title: String, user: String, url: String, notes: String = "") =
+        ImportedItem(0, importedEntry(EntryType.LOGIN, title, username = user, password = "la-del-atacante", url = url, notes = notes), emptyList())
+
+    /**
+     * RT-15. The matcher finds a duplicate when title and user are the SAME as the vault's for `compareKey` (titleKey,
+     * userKey: what draws nothing gone, NFKC, spaces folded and trimmed), but `replaceWith` (imports/MergePlan.kt:267-268)
+     * only keeps the vault's when the file's shows NOTHING (R55). So with «Reemplazar», «ana» + U+200B, «ana» + U+3000 at
+     * the end, «Cafe» + U+0301 or «Ban» + U+2800 + «co» overwrite the vault's own user and title. Nothing changes on
+     * screen (the row and the lists show `plainReportText`), but «Copiar» copies the stored text (VaultEntryScreen.kt:106,
+     * `copySensitive(context, value)`), so the user pastes «ana» + an invisible character into the site, and the search
+     * («fé banco») no longer finds «Café Ban\u2800co» (`query`, vault/EntryQuery.kt:25-34, compares the raw text). Safe behaviour: when
+     * the matcher says they are the same, the vault's title and user stay.
+     */
+    @Ignore("RT-15: open (Low), «Reemplazar» writes a title or user that only differs by what draws nothing over the vault's")
+    @Test fun rt15_replaceKeepsATitleAndUserTheMatcherFoundTheSame() {
+        val vault = listOf(vaultLogin("https://banco.es/").copy(title = "Café Banco"))
+        val wrong = mutableListOf<String>()
+        for ((title, user) in listOf(
+            "Café Ban\u2800co" to "ana\u200B", "Cafe\u0301 Banco" to "ana\u3000", "Café\u00A0Banco" to "\u3164ana",
+            "Café Banco\u034F" to "an\u00ADa", "  Café   Banco " to "ana\uFEFF",
+        )) {
+            val item = fileItem(title, user, "https://banco.es/")
+            assertTrue(esc(title), plan(item, vault).duplicates.isNotEmpty())
+            assertEquals("the row looks like the vault's user", "ana · banco.es", compareKey(duplicateSubline(item.entry)))
+            val after = replaced(item, vault).single()
+            if (after.title != "Café Banco" || after.username != "ana") wrong += "«${esc(after.title)}» / «${esc(after.username)}»"
+        }
+        // What that does: the search for the title misses the replaced entry.
+        val shadowed = replaced(fileItem("Café Ban\u2800co", "ana", "https://banco.es/"), vault)
+        if (shadowed.query(EntryFilter(text = "fé banco")).isEmpty()) wrong += "search «fé banco» finds nothing"
+        assertTrue("replaced with what only differs invisibly: " + wrong.joinToString("; "), wrong.isEmpty())
+    }
+
+    /**
+     * RT-16 (Info). The other fields of `replaceWith` still use `isBlank`, not «shows nothing» (R55): a 2FA issuer or
+     * account of U+200B, U+2800 or U+3164 (imports/MergePlan.kt:272, `ifBlank`) takes the place of the vault's, so the 2FA
+     * list (VaultScreen.kt:475) shows the code without its service; and a login's notes of only U+200B are appended
+     * with the «importado el…» line and nothing visible after it. The 2FA case needs the code's secret (a TOTP matches
+     * by its key), so it is a hostile file that already knows the secret. Safe behaviour: what shows nothing is empty.
+     */
+    @Ignore("RT-16: open (Info), «Reemplazar» takes a 2FA issuer or account, or notes, that show nothing")
+    @Test fun rt16_replaceTreatsWhatShowsNothingAsEmptyInEveryField() {
+        val code = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Banco", account = "ana")
+        val vaultTotp = VaultEntry("t1", EntryType.TOTP, "Banco", totp = code, createdAt = 1, updatedAt = 1)
+        val wrong = mutableListOf<String>()
+        for (blank in listOf("\u200B", "\u2800", "\u3164", "\u0001")) {
+            val incoming = importedEntry(EntryType.TOTP, "Banco", totp = code.copy(issuer = blank, account = blank))
+            val after = replaceWith(vaultTotp, incoming, 2).totp!!
+            if (after.issuer != "Banco" || after.account != "ana") wrong += "2FA ${esc(blank)}: «${esc(after.issuer)}» / «${esc(after.account)}»"
+        }
+        val login = vaultLogin("https://banco.es/").copy(notes = "mis notas")
+        val notes = replaceWith(login, fileItem("Banco", "ana", "https://banco.es/", notes = "\u200B\u2800").entry, 2).notes
+        if (notes != "mis notas") wrong += "notes «${esc(notes)}»"
+        assertTrue(wrong.joinToString("; "), wrong.isEmpty())
+    }
+
+    /**
+     * RT-17 (Info). A folder's tag keeps what draws nothing (`importTags`, imports/MergePlan.kt:152, through
+     * `normalizeTags`, vault/EntryQuery.kt, which only trims spaces): a folder «\u200B» gives a chip «#» with nothing
+     * after it, and «Banco\u200B» a chip «#banco» next to the vault's own «#banco» (the chips show `plainReportText`,
+     * VaultScreen.kt:448), two filters that look the same; «Reemplazar» adds it to the vault's entry (`replaceWith` adds
+     * the tags it lacks, compared raw). Safe behaviour: a folder name is read as it shows.
+     */
+    @Ignore("RT-17: open (Info), a folder tag keeps what draws nothing: an empty chip, or one that looks like another")
+    @Test fun rt17_aFolderTagIsReadAsItShows() {
+        val wrong = mutableListOf<String>()
+        for (folder in listOf("\u200B", "\u2800", "\u3164", "Banco\u200B", "Ban\u00ADco")) {
+            val tags = importTags(listOf(folder), ImportFormat.BROWSER_CSV).drop(1)
+            if (tags.any { plainReportText(it).isBlank() || (plainReportText(it) == "banco" && it != "banco") }) wrong += "${esc(folder)} → ${tags.map(::esc)}"
+        }
+        assertTrue(wrong.joinToString("; "), wrong.isEmpty())
+    }
+
+    /** R55: a URL, title or user of only controls, spaces or what draws nothing is empty for the matcher AND for «Reemplazar». */
+    @Test fun resistsTheR55EmptyFields() {
+        val vault = listOf(vaultLogin("https://banco.es/"))
+        for (url in listOf("\u0001", "\u0000\u001F", " \t\n\r ", "\u0001\t\u0002")) {
+            assertTrue(esc(url), plan(fileItem("Banco", "ana", url), vault).duplicates.isNotEmpty())
+            assertEquals(esc(url), "https://banco.es/", replaced(fileItem("Banco", "ana", url), vault).single().url)
+        }
+        // A title or user that shows nothing never overwrites the vault's; a vault entry of only controls stays itself.
+        val bare = listOf(VaultEntry("v1", EntryType.LOGIN, "\u0001", username = "\u200B", url = "\u0002", createdAt = 1, updatedAt = 1))
+        for ((t, u) in listOf("\u200B" to "\u2800", "\u0001\u0001" to "", " " to "\u3164")) {
+            val item = fileItem(t, u, "")
+            assertTrue(esc(t), plan(item, bare).duplicates.isNotEmpty())
+            val after = replaced(item, bare).single()
+            assertEquals(listOf("\u0001", "\u200B", "\u0002"), listOf(after.title, after.username, after.url))
+        }
+        // A vault URL of only controls is «no URL»: it takes an https one (R48), not an http one.
+        assertEquals("https://banco.es/x", replaced(fileItem("\u0001", "\u200B", "https://banco.es/x"), bare).single().url)
+        assertEquals(listOf("\u0002", "http://banco.es/"), replaced(fileItem("\u0001", "\u200B", "http://banco.es/"), bare).map { it.url })
+    }
+
+    /** R56: a host that shows nothing is no host, so its URL is compared whole and never taken by a URL-less entry. */
+    @Test fun resistsTheR56HostsThatShowNothing() {
+        val bare = listOf(vaultLogin(""))
+        for (url in listOf(
+            "httpshttp@ /1HTTPS", "https://%C2%A0", "https://%E3%80%80/x", "https://\u00A0/", "https://%E2%80%8B",
+            "https://\u200B\u200B", "https://%20%20@%20",
+        )) {
+            val key = urlKey(url)!!
+            assertFalse(esc(url) + " → " + esc(key), key.startsWith("hhttps://"))
+            assertTrue(esc(url), plan(fileLogin(url), bare).duplicates.isEmpty())
+            assertTrue(esc(url), duplicateSubline(fileLogin(url).entry).length > "ana · ".length)
+        }
+    }
+
+    /**
+     * A host of a Hangul filler (U+3164) or the Braille blank (U+2800) is not «nothing» after the IDN step: it becomes
+     * «xn--psd» or «xn--6ii», which the row shows.
+     * A host of combining marks alone («https://%CC%81»): it shows a mark on nothing, which a browser refuses as a host
+     * (UTS #46: a label cannot start with a mark). Recorded as it is: the row is not empty, and no browser opens it.
+     */
+    @Test fun resistsAHostOfCombiningMarksAlone() {
+        for (url in listOf("https://%CC%81", "https://\u0301\u0301", "https://\u3164", "https://%E2%A0%80")) {
+            val row = duplicateSubline(fileLogin(url).entry)
+            assertTrue(esc(url) + " → «$row»", row.removePrefix("ana · ").isNotEmpty())
         }
     }
 }
