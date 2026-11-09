@@ -432,22 +432,18 @@ class CryptoTest {
 
     @Test fun nothingTheCardNameListForbidsSurvivesSafeFileName() {
         // The whole of Unicode, one code point at a time between two letters: whatever the fixed list of card names
-        // forbids, and every format character but the joiner and the prepended concatenation marks (Cf with a glyph,
-        // shown as lists show them since ruling R49), never reaches a file name.
-        val prependedMarks = (0x0600..0x0605) + listOf(0x06DD, 0x070F, 0x0890, 0x0891, 0x08E2, 0x110BD, 0x110CD)
+        // forbids, and every format character but the joiner, never reaches a file name.
         val survivors = mutableListOf<Int>()
         for (cp in 0..0x10FFFF) {
             // A lone surrogate is visible («�») and becomes «?», as UTF-8 writes it (safeFileNameWritesALoneSurrogateAsAQuestionMark).
             if (cp == 0x200D || cp == '/'.code || cp == '\\'.code || cp in 0xD800..0xDFFF) continue
             val listed = app.seguridad.crypto.pk.hasForbiddenNameCharacter(String(Character.toChars(cp)))
-            val format = Character.getType(cp) == Character.FORMAT.toInt() && cp !in prependedMarks
+            val format = Character.getType(cp) == Character.FORMAT.toInt()
             val selector = cp in 0xFE00..0xFE0E || cp in 0xE0100..0xE01EF
             val nonchar = cp in 0xFDD0..0xFDEF || (cp and 0xFFFE) == 0xFFFE
             if ((listed || format || selector || nonchar) && safeFileName("a${String(Character.toChars(cp))}b") != "ab") survivors += cp
         }
         assertTrue("survivors: " + survivors.take(20).joinToString { it.toString(16) }, survivors.isEmpty())
-        // And those marks are kept: they draw (R49, RT-13).
-        for (cp in prependedMarks) assertEquals(cp.toString(16), "a${String(Character.toChars(cp))}b", safeFileName("a${String(Character.toChars(cp))}b"))
     }
 
     @Test fun safeFileNameKeepsTheJoinerOnlyBetweenEmoji() {
