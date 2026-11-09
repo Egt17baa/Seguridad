@@ -451,3 +451,127 @@ Lo ejecuté con `./gradlew -p jvm-check test --tests 'app.seguridad.redteam.*' -
 ### Textos para el Abogado Digital (cuarta comprobación)
 
 Ninguno. R53 y R54 no cambian ningún texto. La fila sigue la forma de R45, y ahora oculta más («mailto:…@d.es»): eso ya está apuntado en `task-12-report.md`.
+
+## Quinta comprobación (fd9bd4b)
+
+**Qué es.** La decisión (f) otra vez, sobre `fd9bd4b`: los arreglos de I-2 (R55) y del hueco que encontró su test de propiedad (R56). Hay tres piezas nuevas en `imports/MergePlan.kt`:
+- `isNoUrl` (`:428`): una URL está vacía cuando no queda nada después de leerla como el navegador;
+- `showsNothing` (`:434`): un título o un usuario está vacío cuando no enseña nada;
+- `hostOf` (`:441`): un host que no enseña nada no cuenta como host.
+
+He atacado «Reemplazar» de punta a punta, campo por campo, buscando dónde el que busca duplicados (`Matcher`) y `replaceWith` no están de acuerdo en qué está vacío o en qué es lo mismo. Sigo sin cambiar código de producción y sin hacer commits.
+
+Los tests nuevos están en `RedTeamRecheckTest.kt`, a partir de «Fifth check». En esta ronda he cambiado también los caracteres invisibles que quedaban escritos tal cual en el archivo (U+200B, U+2800, NBSP…) por su forma `\uXXXX`: el test no cambia, pero se ve qué carácter es.
+
+### Veredictos
+
+| Arreglo | Veredicto |
+|---|---|
+| **R55 (I-2): una URL vacía** | **Se sostiene.** Una URL que solo tiene controles, espacios, tabuladores o saltos de línea es «sin URL» para los dos. «Reemplazar» conserva la URL `https` de la bóveda, y una entrada de la bóveda cuya URL solo tiene controles toma una `https` y no una `http` (R48). |
+| **R55: un título o un usuario vacío** | **Se sostiene en el sentido de «vacío», pero no en el de «lo mismo»: RT-15** (Baja). Un título o un usuario que no enseña nada no sustituye al de la bóveda. Pero uno que el que busca duplicados da por **igual** (con un invisible más, un espacio de ancho completo, un acento descompuesto…) sí sustituye al de la bóveda. |
+| **R56: un host que no enseña nada** | **Se sostiene.** `httpshttp@ /1HTTPS`, un NBSP, U+3000, U+200B o espacios codificados como host: la URL se compara entera, no la toma una entrada sin URL y la fila enseña algo. U+3164 y U+2800 como host pasan por IDN y salen como «xn--psd» y «xn--6ii», que la fila enseña. Una marca combinante sola sale como una marca, y ningún navegador la abre. |
+| **RT-8, RT-14, R45 y R53** | **Se sostienen.** Todos los tests anteriores de la clase siguen en verde. |
+
+**Hallazgos nuevos: RT-15 (Baja), RT-16 (Informativa) y RT-17 (Informativa).**
+
+`RedTeamRecheckTest` tiene ahora 32 tests: 29 pasan y 3 llevan `@Ignore` (`rt15_`, `rt16_` y `rt17_`). Comprobé que fallan sin el `@Ignore` y después lo volví a poner.
+
+Lo ejecuté con `./gradlew -p jvm-check test --tests 'app.seguridad.redteam.*' --no-daemon --max-workers=1`: **BUILD SUCCESSFUL**, 0 fallos y ningún aviso `w:`. Las otras clases del equipo rojo siguen igual: `RedTeamImportTest` 12, `RedTeamCryptoTest` 8 y `RedTeamSecondAttackTest` 13.
+
+### RT-15 [Baja] «Reemplazar» escribe sobre el título y el usuario de la bóveda uno que solo cambia en lo que no se ve
+
+**Cómo lo he atacado.** En la bóveda está «Café Banco» / «ana» / `https://banco.es/`. En el archivo, la misma URL con títulos y usuarios que se ven igual:
+- «Café Ban» + U+2800 + «co» / «ana» + U+200B;
+- «Cafe» + U+0301 + « Banco» / «ana» + U+3000;
+- «Café» + NBSP + «Banco» / U+3164 + «ana»;
+- «Café Banco» + U+034F / «an» + U+00AD + «a»;
+- «  Café   Banco » / «ana» + U+FEFF.
+
+**Lo que pasa:**
+- el que busca duplicados compara con `compareKey`: quita lo que no se dibuja, pasa a NFKC y junta y recorta los espacios. Los cinco son duplicados, y la fila se ve como «ana · banco.es»;
+- `replaceWith` (`imports/MergePlan.kt:267-268`) solo conserva el título y el usuario de la bóveda cuando el del archivo **no enseña nada** (R55). Si enseña algo, aunque sea lo mismo para el que busca duplicados, se queda con el del archivo. Tras «Reemplazar», la entrada de la bóveda guarda «ana» + U+200B o «Café Ban» + U+2800 + «co»;
+- en pantalla no cambia nada, porque las listas y la ficha enseñan `plainReportText`;
+- pero «Copiar» copia el texto guardado (`ui/screens/VaultEntryScreen.kt:106`, `copySensitive(context, value)`). El usuario pega en la web «ana» con un carácter invisible, y entrar falla;
+- la búsqueda compara el texto guardado (`vault/EntryQuery.kt:25-34`): «fé banco» ya no encuentra la entrada.
+
+**Evidencia:** `rt15_replaceKeepsATitleAndUserTheMatcherFoundTheSame`. Sin el `@Ignore` falla con: `replaced with what only differs invisibly: «Café Ban⠀co» / «ana​»; «Café Banco» / «ana　»; «Café Banco» / «ㅤana»; «Café Banco͏» / «an­a»; «  Café   Banco » / «ana﻿»; search «fé banco» finds nothing`.
+
+**Impacto.** Bajo. CVSS 3.1: 3,3 (`AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N`).
+- Hace falta que el usuario importe el archivo y elija «Reemplazar».
+- La entrada de la bóveda cambia sin que se vea: el usuario que se copia ya no sirve, y la entrada deja de salir en la búsqueda.
+- No da acceso a nada. «Reemplazar» ya trae la contraseña del archivo (la de antes queda en el historial); esto añade que cambie también lo que la vista previa enseña como igual.
+
+**Arreglo:** en `replaceWith`, que «igual para el que busca duplicados» sea también «igual al reemplazar»:
+```kotlin
+title = if (showsNothing(incoming.title) || titleKey(incoming.title) == titleKey(existing.title)) existing.title else incoming.title,
+username = if (showsNothing(incoming.username) || userKey(incoming.username) == userKey(existing.username)) existing.username else incoming.username,
+```
+En un duplicado de un `LOGIN`, el título y el usuario de la bóveda se quedan siempre, porque son iguales por definición. Un `TOTP` (que se busca por su clave) y una `NOTE` (por título y texto) siguen tomando el título del archivo cuando se ve distinto.
+
+Habrá que mirar los tests de `MergePlanTest` que esperan que «Reemplazar» traiga un título que solo cambia en mayúsculas o en espacios.
+
+**Test que lo dará por arreglado:** `rt15_…`, sin el `@Ignore`.
+
+### RT-16 [Informativa] Los demás campos de «Reemplazar» siguen usando `isBlank`
+
+**Cómo lo he atacado:**
+- un `TOTP` con el mismo secreto que el de la bóveda, y como servicio y cuenta U+200B, U+2800, U+3164 o U+0001;
+- un `LOGIN` duplicado cuyas notas son solo U+200B + U+2800.
+
+**Lo que pasa:**
+- `t.issuer.ifBlank { e.issuer }` (`imports/MergePlan.kt:272`) solo conserva el servicio y la cuenta de la bóveda cuando el archivo trae espacios. Con un invisible, la lista de 2FA (`VaultScreen.kt:475`) enseña el código sin su servicio;
+- las notas solo de invisibles no son «en blanco» (`:257`), así que se añaden detrás de la línea «Importado el …», que queda sin nada visible debajo.
+
+**Evidencia:** `rt16_replaceTreatsWhatShowsNothingAsEmptyInEveryField`. Sin el `@Ignore` falla con: `2FA ​: «​» / «​»; 2FA ⠀: … ; 2FA ㅤ: … ; 2FA \u0001: … ; notes «mis notas\u000A\u000AImportado el 1-1-1970:\u000A​⠀»`.
+
+**Impacto.** Informativo. En el caso del 2FA, el archivo tiene que conocer ya el secreto del código, que es lo que lo protege. El de las notas solo deja una línea vacía.
+
+**Arreglo:** usar `showsNothing` para el servicio, la cuenta y las notas en `replaceWith` (las notas, con `plainReportText` por líneas, o `compareKey` vacío). Es la misma idea de vacío que R55.
+
+### RT-17 [Informativa] La etiqueta de una carpeta conserva lo que no se dibuja
+
+**Cómo lo he atacado.** Carpetas llamadas U+200B, U+2800, U+3164, «Banco» + U+200B y «Ban» + U+00AD + «co».
+
+**Lo que pasa:** `importTags` (`imports/MergePlan.kt:152`) pasa por `normalizeTags`, que solo recorta los espacios. Por eso:
+- U+200B, U+2800 o U+3164 dan una etiqueta cuyo chip enseña «#» y nada más (los chips usan `plainReportText`, `VaultScreen.kt:448`);
+- «Banco» + U+200B da un chip «#banco» junto al «#banco» de la bóveda: dos filtros que se ven iguales y filtran cosas distintas;
+- «Reemplazar» añade esa etiqueta a la entrada de la bóveda, porque compara las etiquetas tal cual (`:275`).
+
+**Evidencia:** `rt17_aFolderTagIsReadAsItShows`. Sin el `@Ignore` falla con: `​ → [​]; ⠀ → [⠀]; ㅤ → [ㅤ]; Banco​ → [banco​]; Ban­co → [ban­co]`.
+
+**Impacto.** Informativo. Solo crea filtros confusos o vacíos: no esconde ni cambia ninguna entrada.
+
+**Arreglo:** en `importTags`, leer el nombre de la carpeta como se ve antes de `normalizeTags`: quitar lo de `drawsNothing` y juntar los espacios, por ejemplo con `compareKey` sin NFKC. Si no queda nada, la carpeta no da etiqueta.
+
+### Ataques intentados y resistidos (quinta comprobación)
+
+1. **R55, campos vacíos** (`resistsTheR55EmptyFields`):
+   - URL de solo U+0001, de NUL y U+001F, o de espacios, tabuladores y saltos de línea: es duplicado por título y usuario, y «Reemplazar» conserva la URL `https` de la bóveda;
+   - un título o un usuario de solo U+200B, U+2800, controles, un espacio o U+3164 no sustituye a los de la bóveda;
+   - una entrada de la bóveda cuyo título, usuario y URL son solo controles o invisibles se queda como estaba;
+   - si su URL es solo controles, toma una URL `https` y no una `http`.
+2. **R56, hosts que no enseñan nada** (`resistsTheR56HostsThatShowNothing`): `httpshttp@ /1HTTPS`, `https://%C2%A0`, `https://%E3%80%80/x`, `https://` + NBSP, `https://%E2%80%8B`, `https://` + dos U+200B y `https://%20%20@%20`. La clave no es `https`, la entrada sin URL no los toma y la fila enseña algo.
+3. **Hosts que se ven después de IDN, o marcas solas** (`resistsAHostOfCombiningMarksAlone`): U+3164 y U+2800 salen como «xn--psd» y «xn--6ii»; `%CC%81` y dos U+0301 salen como una marca. La fila nunca queda vacía. Que una entrada sin URL tome esos `xn--` es lo que R48 permite para `https`: ninguno sirve para hacerse pasar por banco.es.
+4. **RT-8, RT-14, R45 y R53:** los 26 tests anteriores de la clase siguen en verde, incluida la propiedad sobre 300 000 URL.
+
+### Necesita prueba en el móvil (quinta comprobación)
+
+1. **RT-15:** importar un CSV con «Banco» / «ana» + U+200B / la misma web, elegir «Reemplazar», pulsar «Copiar» en el usuario y pegarlo en un campo que enseñe los caracteres (por ejemplo, «Inspector de QR» → texto): hoy sale el invisible. Buscar el título con el invisible dentro.
+2. Siguen las de las rondas anteriores (P-9 y P-27 del README, con la de pegar en la barra de direcciones).
+
+### Revisión experto-seguridad-cripto (quinta comprobación)
+
+- **R55 y R56** cierran bien lo que decían: una sola idea de URL vacía (`isNoUrl`, `:428`) y de host vacío (`hostOf`, `:441`) para buscar duplicados, para reemplazar y para la fila.
+- **RT-15** es la otra mitad de la misma regla: si buscar duplicados dice «es lo mismo», reemplazar no debe escribir lo que solo se diferencia en lo invisible (CWE-451: la interfaz no enseña lo que cambia; CWE-180: se valida antes de normalizar). Se arregla con la misma clave de comparación (`titleKey`, `userKey`), sin texto nuevo ni cambio de formato.
+- **RT-16 y RT-17** son de la misma familia, informativos: un campo que no enseña nada debe contar como vacío en todas partes.
+- **Nada toca primitivas ni formatos.** Lo guardado de una entrada nueva sigue tal cual (R9 y R10). Lo que cambia con el arreglo de RT-15 es que «Reemplazar» deja de escribir en una entrada que ya existe.
+
+### Revisión Ingeniero Móvil Senior (quinta comprobación)
+
+- **MASVS:** MASVS-CODE-4 (lo importado) y MASVS-PLATFORM-3 (lo que se enseña frente a lo que se copia: `VaultEntryScreen.kt:104` enseña `plainReportText` y `:106` copia el valor guardado).
+- **Los arreglos propuestos** son Kotlin puro en `imports/` y se prueban en `jvm-check`. No tocan Compose ni el estado: la vista previa y el guardado siguen en `Dispatchers.Default` como antes.
+- **El archivo de test:** ningún aviso `w:`. Los invisibles están escritos como `\uXXXX`, así que el archivo no tiene caracteres que no se ven, y `esc` los enseña también en los mensajes.
+
+### Textos para el Abogado Digital (quinta comprobación)
+
+Ninguno. Los arreglos propuestos para RT-15, RT-16 y RT-17 no cambian ningún texto. El README (`README.md:35` y P-9, `:348`) no dice que «Reemplazar» traiga el título o el usuario del archivo, así que tampoco cambia.
