@@ -2,6 +2,7 @@ package app.seguridad.imports
 
 import app.seguridad.core.appJson
 import app.seguridad.tools.qr.SPECIAL_SCHEMES
+import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.schemeOf
 import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
@@ -373,21 +374,23 @@ private fun userKey(username: String) = compareKey(username)
 
 /**
  * The host of [url] as a browser connects to it, read by [parseLink] (RT-1, ruling R34), without `www.`; null for no
- * URL. With the scheme it is what [urlKey] compares, and what the duplicate's row shows ([duplicateSubline]). So the
+ * URL. The text is first read as a browser reads it ([asBrowserReadsIt], ruling R54, RT-14: tabs and line breaks go,
+ * C0 controls and spaces at the ends go), so a tab inside the scheme or a control in front cannot hide it. With the scheme it is what [urlKey] compares, and what the duplicate's row shows ([duplicateSubline]). So the
  * authority ends where a browser ends it: at «/», «?», «#» and, in a web link (http, https, ftp, ws, wss), also at «\»,
  * and the user info goes up to the last «@» before that end. `https://evil.example\@banco.es/` is evil.example, as the
  * URL Standard (WHATWG) that browsers follow reads it, not banco.es. The port does not count. A text without a scheme
- * is read as a web link, as an address bar would ([comparedLink]): «banco.es/login», «banco.es:8443», «//banco.es».
+ * is read as a web link, as an address bar would ([comparedLink]): «banco.es/login», «banco.es:8443», «//banco.es»;
+ * «word:digits» only when the word looks like a host (ruling R53).
  * A text that starts with a word and a colon has that word as its scheme (ruling R47), also «ana:clave@banco.es». A URL
  * whose host comes out empty («https://», «@», «mailto:ana@banco.es», «javascript:alert(1)», «ana:clave@banco.es») is
- * the whole text, trimmed, with only its scheme in lower case (ruling R51, RT-12: «data:…;base64,SGVsbG8=» keeps the
- * case of what follows).
+ * the whole text as the browser reads it, with only its scheme in lower case (ruling R51, RT-12:
+ * «data:…;base64,SGVsbG8=» keeps the case of what follows).
  *
  * [parseLink] is plain string work: it never throws, never resolves a name and never opens anything (the IDN step only
  * maps a non-ASCII label to its `xn--` form, as the browser does).
  */
 internal fun urlHost(url: String): String? {
-    val t = url.trim()
+    val t = asBrowserReadsIt(url)
     if (t.isEmpty()) return null
     val key = parseLink(comparedLink(t)).host?.removePrefix("www.").orEmpty()
     return key.ifEmpty { withLowerScheme(t) }
@@ -395,16 +398,17 @@ internal fun urlHost(url: String): String? {
 
 /**
  * The URL of a login as the merge compares it (RT-4, ruling R41): its scheme and [urlHost], «https://banco.es»; null for
- * no URL. So `http://banco.es/` and `https://banco.es/` are not duplicates, nor is a link of any other scheme
+ * no URL, read through [asBrowserReadsIt] (ruling R54). So `http://banco.es/` and `https://banco.es/` are not duplicates, nor is a link of any other scheme
  * (`javascript://banco.es/…`, `intent://banco.es/…`, `file://banco.es/…`, `ftp://banco.es/`): «Reemplazar» can never
  * change the scheme of a vault's URL without the user seeing it as a new entry. A text without a scheme is read as
  * `https://` ([comparedLink]), as before, so «banco.es» and «https://www.banco.es/login» still match; a word and a colon
- * in front are a scheme (R47), so «ana:clave@banco.es» is «tana:clave@banco.es», not banco.es. A URL whose host comes
+ * in front are a scheme (R47), so «ana:clave@banco.es» is «tana:clave@banco.es», not banco.es, and so is
+ * `javascript:1/alert(1)` (R53); `ht\ttp:@banco.es` is «hhttp://banco.es» (R54). A URL whose host comes
  * out empty is compared whole, as [urlHost] gives it (only the scheme in lower case, R51); the two kinds of key never
  * meet («h» and «t» in front).
  */
 internal fun urlKey(url: String): String? {
-    val t = url.trim()
+    val t = asBrowserReadsIt(url)
     if (t.isEmpty()) return null
     val link = parseLink(comparedLink(t))
     val host = link.host?.removePrefix("www.").orEmpty()
@@ -418,10 +422,12 @@ private const val HTTPS_KEY = "hhttps://"
 private fun withLowerScheme(t: String): String = schemeOf(t)?.let { it + t.substring(it.length) } ?: t
 
 /**
- * [t] (trimmed, not empty) as the link [urlHost] and [urlKey] read: as it is when it starts with a scheme, and with
- * `https://` in front when it does not, as an address bar reads «banco.es/login». «banco.es:8443/x» and
- * «localhost:8080» look like a scheme to [schemeOf] but are a host and a port (only digits after the «:», up to the end
- * or to «/», «?», «#» or «\», after a scheme that is not a web one), so they are read as web links too. Any other scheme
+ * [t] (already through [asBrowserReadsIt], not empty) as the link [urlHost] and [urlKey] read: as it is when it starts
+ * with a scheme, and with `https://` in front when it does not, as an address bar reads «banco.es/login».
+ * «banco.es:8443/x» and «localhost:8080» look like a scheme to [schemeOf] but are a host and a port, so they are read as
+ * web links too; only when the word has a «.» or is `localhost`, and only digits follow the «:», up to the end or to
+ * «/», «?», «#» or «\» (ruling R53). A bracketed IPv6 literal, «[::1]:8080», has no scheme for [schemeOf] and is read
+ * as a web link anyway. Any other word is a scheme, also before digits (`javascript:1/alert(1)`, `data:1/x`). Any other scheme
  * counts as one, as the URL Standard reads it (ruling R47): «mailto:ana@banco.es», «javascript:x@banco.es/» and
  * «ana:clave@banco.es» are not read as `https://…@banco.es`. That is what a browser does, and what keeps
  * `javascript:x@banco.es/` from being a duplicate of banco.es; the two cannot be told apart without a list of schemes.
@@ -429,6 +435,8 @@ private fun withLowerScheme(t: String): String = schemeOf(t)?.let { it + t.subst
 private fun comparedLink(t: String): String {
     val scheme = schemeOf(t) ?: return "https://$t"
     if (scheme in SPECIAL_SCHEMES) return t
+    // Ruling R53: only a word that looks like a host («banco.es», `localhost`) can be a host before a port.
+    if ('.' !in scheme && scheme != "localhost") return t
     var i = scheme.length + 1
     while (i < t.length && t[i] in '0'..'9') i++
     val hostAndPort = i > scheme.length + 1 && (i == t.length || t[i] == '/' || t[i] == '?' || t[i] == '#' || t[i] == '\\')
@@ -439,20 +447,20 @@ private fun comparedLink(t: String): String {
  * The web of a duplicate as its row shows it (rulings R45 and R51), never with its user info:
  * - with a host: the host alone when the scheme is https (or there is none, read as https), and «esquema://host» for any
  *   other scheme, «http://banco.es», «javascript://banco.es»;
- * - without a host: the text as written, trimmed, with what goes from after the scheme (and its «//») to the last «@»
- *   before «/», «?» or «#» written as «…»: «mailto:…@banco.es», «ana:…@banco.es».
+ * - without a host: the text as the browser reads it ([asBrowserReadsIt], ruling R54), with what goes from after the
+ *   scheme (and its «//») to the last «@» of the whole text written as «…» (re-review N-1: a password with «/», «?» or
+ *   «#» is hidden too): «mailto:…@banco.es», «ana:…@banco.es». It hides more rather than less: «mailto:a@b.es?cc=c@d.es»
+ *   is «mailto:…@d.es».
  */
 private fun shownUrl(url: String): String {
-    val t = url.trim()
+    val t = asBrowserReadsIt(url)
     if (t.isEmpty()) return ""
     val link = parseLink(comparedLink(t))
     val host = link.host?.removePrefix("www.").orEmpty()
     if (host.isNotEmpty()) return if (link.scheme == "https") host else link.scheme + "://" + host
     var start = schemeOf(t)?.let { it.length + 1 } ?: 0
     while (start < t.length && (t[start] == '/' || t[start] == '\\')) start++
-    var end = start
-    while (end < t.length && t[end] != '/' && t[end] != '?' && t[end] != '#') end++
-    val at = t.lastIndexOf('@', end - 1)
+    val at = t.lastIndexOf('@')
     return if (at > start) t.substring(0, start) + "…" + t.substring(at) else t
 }
 
@@ -461,7 +469,8 @@ private fun shownUrl(url: String): String {
  * - a `LOGIN`: its user and the web «Reemplazar» brings in ([replaceWith] takes the file's URL), as a browser reads it
  *   ([shownUrl]): «ana · banco-acceso.example». So a file that matches «Banco» / «ana» by title and user cannot change
  *   the vault's web without the row saying where it goes. The scheme is shown when it is not https (ruling R45):
- *   «ana · http://banco.es»; a URL without a host is shown as written, and the user info never is: «ana · mailto:…@banco.es»;
+ *   «ana · http://banco.es»; a URL without a host is shown as the browser reads it, and the user info never is:
+ *   «ana · mailto:…@banco.es»;
  * - a `TOTP`: its issuer and account;
  * - anything else: empty.
  * Only [entry]'s own (the file's) values; the vault's entry is not read.
