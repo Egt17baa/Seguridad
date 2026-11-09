@@ -336,3 +336,221 @@ Los tres hallazgos están arreglados en la misma rama, con TDD: primero se quit�
   - La tasa de rechazo del Generador, medida de nuevo: con 20 caracteres (la longitud por defecto) sigue en torno a 1 de cada 1,1 millones, lejos del límite de 1 de cada 100 000. Las cifras están en el KDoc de `newMasterProblem` (`:222-227`) y en el informe de los arreglos.
 
 La puerta de la rama, con los arreglos y sin ningún test ignorado: `:app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets` en verde (1 785 tests) y `./gradlew -p jvm-check test` en verde (1 780 tests).
+
+## Segundo ataque (8-11-2026)
+
+**Alcance.** La segunda ronda de R32 (decisiones (d) y (f) del dueño) ataca el código final de la rama, en `b1902ed`, después de la ronda de arreglos de la revisión de la rama:
+1. vuelvo a atacar, con ataques nuevos, cada arreglo de RT-1 a RT-3 (`0089b90`);
+2. ataco el código nuevo de esa ronda:
+   - `crypto/KdfLock` y `deriveBlocking` (R38 y R40);
+   - las comprobaciones de la cabecera antes de pedir la contraseña de una exportación (A M-3);
+   - la fila del duplicado, con «usuario · host» (A M-4, `duplicateSubline`);
+   - el tope de 65 536 caracteres (`PASSWORD_FIELD_MAX_CHARS`);
+   - la carrera del progreso del Laboratorio de hashes (B N-2);
+3. repaso rápido todas las entradas del primer informe.
+
+Los tests nuevos están en `app/src/test/java/app/seguridad/redteam/RedTeamSecondAttackTest.kt`, con el mismo criterio que antes: un `rtN_…` falla mientras el hallazgo siga abierto y lleva `@Ignore` solo para la puerta; un `resists…` pasa. He comprobado que los cuatro `rtN_` nuevos fallan sin el `@Ignore`, con `jvm-check`, y he copiado sus mensajes abajo.
+
+### Resumen del segundo ataque
+
+| RT | Superficie | Hallazgo | Severidad (CVSS 3.1) | MASVS | Estado |
+|---|---|---|---|---|---|
+| RT-4 | Importar (plan de fusión y fila del duplicado) | Una URL de otro esquema (`javascript://banco.es/…`, `intent://banco.es/…`, `file://banco.es/…`, `http://banco.es/`) es duplicado de `https://banco.es/`, y la fila enseña lo mismo para todas («ana · banco.es»). Con «Reemplazar», la entrada pasa en silencio a otro esquema | Baja: 2,5 (`AV:L/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N`) | MASVS-CODE-4 | Explotado (test) |
+| RT-5 | Maestra nueva (RT-3, decisión (h)) | El *leet* con las teclas de un teclado español se acepta: «Pr¡nc3ss2024», «C0ntra$€na2024!», «C0ntr4s€ñ4!!», «Dr4gøn!2024» y «P4$$wørd2024». `leetLetter` solo conoce cifras ASCII y `@ $ + ! \|` | Baja (sin CVSS, como RT-3) | MASVS-AUTH-1 | Explotado (test) |
+| RT-6 | Mostrar y comparar (RT-2, R9 y R10) | Hay puntos de código que no se dibujan y que `plainReportText` conserva, así que `compareKey` tampoco los iguala: U+2800 (Braille en blanco), U+17B4 y U+17B5, los selectores de variante U+FE00–U+FE0F y U+E0100–U+E01EF, y U+180B–U+180D y U+180F. La entrada sombra de RT-2 vuelve, con otro carácter | Baja: 3,3 (`AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N`, como RT-2) | MASVS-CODE-4, MASVS-PLATFORM-3 | Explotado (test) |
+| RT-7 | Comparar (RT-2) | Informativa, a decidir por el controlador: NFC no pliega los caracteres de compatibilidad que se ven igual, como la ligadura «ﬁ» y «fi», o «Ⅱ» y «II». NFKC los plegaría. Otras parecidas que tampoco pliega NFKC solo se anotan aquí | Informativa | MASVS-CODE-4 | Anotado (test) |
+
+Recuento del segundo ataque: **3 hallazgos explotados de severidad baja (RT-4, RT-5 y RT-6) y 1 informativo (RT-7)**, y ninguno crítico, alto ni medio. Hay 9 tests nuevos de ataques resistidos. Los arreglos de RT-1, RT-2 y RT-3 aguantan contra todo lo que he probado alrededor; lo que encuentro son huecos al lado, no regresiones.
+
+### RT-4 [Baja] Una URL de otro esquema pasa por duplicado de la web, y la fila no lo dice
+
+**Cómo lo he atacado.** En la bóveda está «Banco» / «ana» / `https://banco.es/`, y en el archivo, la misma fila con uno de estos valores en la columna `url`:
+- `javascript://banco.es/%0Aalert(1)`;
+- `intent://banco.es/#Intent;scheme=https;package=com.example.evil;end`;
+- `file://banco.es/sdcard/x.html`;
+- `http://banco.es/login`.
+
+**Lo que pasa:**
+- `urlHost` (`imports/MergePlan.kt:382-389`) solo se queda con el host;
+- `parseLink` lee como jerárquico cualquier `esquema://` (`tools/qr/LinkSignals.kt:70`), así que las cuatro URL tienen el host `banco.es` y todas son **duplicado** de la entrada de la bóveda;
+- `duplicateSubline` (`MergePlan.kt:400-406`) enseña «ana · banco.es» para las cuatro;
+- con «Reemplazar», `replaceWith` toma la URL del archivo, y la entrada pasa de `https` a `http`, o a un enlace que ni siquiera es una página web.
+
+**Evidencia:** `RedTeamSecondAttackTest.rt4_aUrlOfAnotherSchemeIsNotTakenSilentlyForTheWebOne`, sin el `@Ignore`, falla con: `«javascript://banco.es/%0Aalert(1)»: a duplicate whose row «ana · banco.es» hides the scheme`.
+
+**Impacto.** Bajo, como RT-1:
+- Clavero no abre ningún enlace (decisión (c)), y los navegadores quitan `javascript:` al pegar en la barra de direcciones;
+- el caso más real es bajar de `https` a `http`. Quien copie la URL y la abra en una red hostil, con un dominio que no esté en la lista HSTS precargada, puede acabar en una página falsa;
+- hace falta que el usuario importe el archivo del atacante y elija «Reemplazar». La contraseña buena queda en el historial.
+
+**Arreglo**, en `imports/MergePlan.kt` (cualquiera de las dos cosas, o las dos):
+1. **En la comparación:** que el esquema forme parte de la clave cuando no es `http` ni `https`, para que una URL de otro esquema nunca sea duplicado de una web:
+   ```kotlin
+   val web = scheme == null || scheme == "http" || scheme == "https"
+   val host = parseLink(asLink).host?.removePrefix("www.").orEmpty()
+   return if (web) host.ifEmpty { t.lowercase(Locale.ROOT) } else "$scheme://$host"
+   ```
+2. **En la fila:** que `duplicateSubline` enseñe el esquema cuando no es `https` («ana · http://banco.es», «ana · javascript://banco.es»).
+
+Si se decide que `http` y `https` sigan contando como el mismo sitio, la fila tiene que decir `http://`. Cambiar la fila es texto de la interfaz, así que va a la lista del Abogado.
+
+**Test que lo da por arreglado:** `rt4_…`, sin el `@Ignore`. Admite cualquiera de los dos arreglos: que no haya duplicado, o que la fila diga el esquema.
+
+### RT-5 [Baja] El *leet* de un teclado español: «¡», «€» y «ø»
+
+**Cómo lo he atacado.** He creado una maestra nueva con «Pr¡nc3ss2024», «C0ntra$€na2024!», «C0ntr4s€ñ4!!», «Dr4gøn!2024» y «P4$$wørd2024».
+
+**Lo que pasa:**
+- `leetLetter` (`vault/MasterPolicy.kt:89-99`) solo convierte `0 3 4 5 6 7 8 9`, `@ $ +` y `1 ! |`;
+- «¡» (tecla propia en el teclado español) y «€» (AltGr+E) no son letras, así que `masterCore` los quita y la palabra pierde una letra: «prncess», «contrasna»;
+- «ø» es una letra que no está en ninguna palabra;
+- la estimación da más de 50 bits a todas, y `isKnownWordInLeet` no encuentra la palabra. La maestra se acepta.
+
+**Evidencia:** `RedTeamSecondAttackTest.rt5_aKnownWordInSpanishKeyboardLeetIsRefused`, sin el `@Ignore`, falla con: `«Pr¡nc3ss2024» is one known word expected:<Esta contraseña es fácil de adivinar…> but was:<null>`.
+
+**Impacto.** El mismo que RT-3: debilita una defensa contra un diccionario con reglas que ataque sin conexión una copia robada. «€» por «e» y «¡» por «i» están en las tablas de *leet* habituales, y en una app en español están a una tecla.
+
+**Arreglo** (en `MasterPolicy.kt:89-99`):
+- añadir `'¡'.code -> 'i'`, `'€'.code -> 'e'`, y `'ø'.code` y `'Ø'.code -> 'o'`. Hay que mirar «Ø» antes de NFKC y de pasar a minúsculas: los pedazos se hacen sobre el texto en NFKC, que conserva las mayúsculas;
+- hay que medir otra vez la tasa de rechazo del Generador solo si su alfabeto tiene alguno de estos caracteres. Si es solo ASCII, las cifras no cambian.
+
+Las sustituciones de varios caracteres («()» por «o», «vv» por «w», «|<» por «k») no las cubre la regla de un punto de código por letra. Las anoto como informativas: cubrirlas obliga a cambiar el algoritmo, y lo decide el dueño (decisión (h)).
+
+**Test que lo da por arreglado:** `rt5_…`, sin el `@Ignore`, más los tests del Generador en `MasterPolicyTest`.
+
+### RT-6 [Baja] Caracteres invisibles que `plainReportText` conserva: la entrada sombra con otro carácter
+
+**Cómo lo he atacado.** En el archivo: «Banco» seguido de, o con dentro, U+2800, U+17B4, U+17B5, U+FE00, U+FE0F, U+E0100, U+180B o U+180F, con el usuario y la URL de la bóveda.
+
+**Lo que pasa:**
+- `plainReportText` (`imports/ImportModel.kt:107`) quita la categoría Cf y una lista fija (`INVISIBLE_NOT_FORMAT`, `:159`), y conserva hasta tres marcas combinantes;
+- U+2800 es un símbolo (So) y los demás son marcas combinantes (Mn): ninguno se quita, y ninguno se dibuja;
+- «Banco» con cualquiera de ellos se ve como «Banco» y no es duplicado de «Banco». Es la entrada sombra de RT-2;
+- la lista de nombres de archivo, `isHiddenInName` (`crypto/FileCrypto.kt`), ya quita U+17B4, U+17B5 y U+FE00–U+FE0E. Las dos listas no coinciden.
+
+**Evidencia:** `RedTeamSecondAttackTest.rt6_invisibleCodePointsAreNotShownNorKeptApart`, sin el `@Ignore`, falla con: `U+2800 is shown expected:<Banco[]> but was:<Banco[⠀]>`.
+
+**Impacto:** el mismo que RT-2.
+
+**Arreglo** (en `imports/ImportModel.kt:159`):
+- añadir 0x2800, 0x17B4 y 0x17B5 a `INVISIBLE_NOT_FORMAT`;
+- tratar como invisibles los rangos 0xFE00–0xFE0F, 0xE0100–0xE01EF, 0x180B–0x180D y 0x180F.
+
+U+FE0F (presentación de emoji) se puede dejar solo detrás de un emoji, como `withoutLooseSelectors` en `FileCrypto.kt`, o quitar siempre: sin él, un emoji se dibuja como texto, igual que ya se acepta al quitar el ZWJ. Mejor todavía es una sola lista de invisibles para los nombres y para lo que se enseña (CIFRADO-2 y R9).
+
+**Test que lo da por arreglado:** `rt6_…`, sin el `@Ignore`, más `ImportModelTest` y `MergePlanTest`.
+
+### RT-7 [Informativa] Caracteres de compatibilidad que se ven igual (a decidir por el controlador)
+
+`compareKey` (`imports/ImportModel.kt:139-153`) normaliza con NFC, que conserva los caracteres de compatibilidad:
+- la ligadura «ﬁ» (U+FB01) se ve como «fi»;
+- «Ⅱ» (U+2161) se ve como «II».
+
+Con NFKC, como ya hace `masterCore` desde RT-3, compararían igual, y también las letras de ancho completo y las matemáticas (`𝐁`). Esas dos últimas se ven distintas, pero no hay motivo para separarlas. El precio es que «²» pase a ser «2», sin consecuencias porque solo cambia la comparación (R9 sigue guardando el texto tal cual).
+
+Ni NFC ni NFKC pliegan otras parecidas, y solo las anoto: las letras de otras escrituras («а» cirílica), las variantes del guion (U+2010 y U+2212), U+2024 en lugar de «.» y U+2019 en lugar de «'». La regla R9 ya acepta las letras de otras escrituras.
+
+Test: `RedTeamSecondAttackTest.rt7_compatibilityLookAlikesCompareEqual`, con `@Ignore("RT-7: open (Info, the controller decides), …")`, que falla con `«Proﬁle» vs «Profile» expected:<Pro[fi]le> but was:<Pro[ﬁ]le>`. Si el controlador decide no plegarlas, se borra el test.
+
+### Ataques del segundo ataque intentados y resistidos
+
+Todos están en `RedTeamSecondAttackTest`.
+
+**Alrededor del arreglo de RT-1:**
+- **Confusiones de la autoridad:** `\` (también en mayúsculas, con `\\` y con puerto), `%5C`, tabuladores, `%09` y saltos de línea dentro, U+3000, el punto ideográfico, `#@`, `?@`, `/@`, la información de usuario sin esquema y con `//`, `%63`, el host en ancho completo, `WWW.` con punto final, IDN con «а» cirílica (sale `xn--`) y `%40` en el host. `urlHost` da siempre el host al que va el navegador, y solo hay duplicado cuando ese host es banco.es. `resistsAuthorityConfusionsAroundTheRt1Fix`.
+
+**Fila del duplicado:**
+- **Suplantar con el host:** el host se enseña en ASCII (`xn--`), sin bidi ni invisibles, y es el que lee el navegador. Un usuario que trae « · banco.es» deja la fila terminada en « · evil.example», el host real; además, solo hay fila de duplicado cuando el usuario coincide con el de la bóveda. `resistsDuplicateRowSpoofing`.
+
+**Alrededor del arreglo de RT-2:**
+- **Lo que `compareKey` ya pliega:** U+200B, U+00AD, U+2062, U+180E, los rellenos de Hangul, U+034F, U+061C, U+200E, la etiqueta U+E0020, el tabulador, U+3000, NBSP y el acento descompuesto. `resistsLookAlikesThatCompareKeyFolds`.
+
+**Alrededor del arreglo de RT-3:**
+- **El *leet* que la regla ya ve:** «1» por «i» y por «l» en la misma palabra («M1ll1on», «Br1ll1ant», «L1b3rty», «F4m1l1a»), invisibles y guiones dentro, mayúsculas y ancho completo mezclado;
+- **sin rechazos de más:** tres contraseñas al azar y una frase pasan.
+
+`resistsLeetAroundTheRt3Fix`.
+
+**`KdfLock` (R38 y R40):**
+- **Inanición y cancelación:**
+  - con el cerrojo cogido por una «importación hostil» cuyo llamador se cancela, el cerrojo sigue cogido hasta que la derivación termina por dentro;
+  - después entran, en el orden en que llegaron, el desbloqueo y la comprobación: el `Mutex` es justo;
+  - un llamador cancelado mientras espera no ejecuta nunca su bloque.
+
+  `resistsKdfLockStarvationAndCancellation`.
+- **`deriveBlocking` en el hilo principal:** lanza `IllegalStateException` sin esperar ni ejecutar el bloque. `resistsDeriveBlockingOnTheMainThread`.
+- **Una importación hostil que se queda con el cerrojo:** el coste lo acotan `checkPbkdf2Iterations`, `checkScrypt` y `checkSane` antes de calcular, y se llega como mucho a una derivación por intento (`IMPORT_KDF_RUN`). Medido en este contenedor (JDK 21, 4 núcleos, 512 MiB de montón) con los valores más altos que se admiten:
+  - PBKDF2 con 2 000 000 de iteraciones: 1,27 s;
+  - scrypt con N = 2^17, r = 8 y p = 4: 1,61 s;
+  - Argon2id con 128 MiB, t = 10 y p = 4: 1,22 s.
+
+  En un móvil serán varias veces más, unos segundos. Durante ese tiempo un desbloqueo espera, y es el coste aceptado en R38. Lo anoto como informativo y no le doy número.
+- **Lectura de un JSON grande dentro del cerrojo:** con contraseña, todo `readImport` corre dentro de `KdfLock` (`ui/screens/ImportScreen.kt:303`), análisis incluido. Está acotado por los 16 MB del archivo, los 8 MiB de la parte cifrada y los 48 MiB del árbol. Informativo.
+
+**Comprobaciones antes de la contraseña (A M-3):**
+- un KDF fuera de rango (PBKDF2 2·10⁹, Argon2id de 100 000 MiB, scrypt de 2 GiB en Aegis) y una parte de más de 8 MiB se rechazan **sin pedir la contraseña** y sin calcular nada;
+- la parte más grande que se admite (unos 6 MB de bloques AES) solo se decodifica una vez y lleva a `NeedsPassword`, en menos de 5 s en total y sin coger `KdfLock`.
+
+`resistsWorkBeforeTheExportPassword`.
+
+**El tope de 65 536 caracteres:**
+- `passwordFieldTakes` admite exactamente 65 536 caracteres y rechaza 65 537;
+- una contraseña en el tope, de caracteres de 3 bytes (192 KiB en UTF-8), cuesta en PBKDF2 lo mismo que una corta, porque HMAC resume una vez la clave larga, y sus bytes se ponen a cero.
+
+`resistsThePasswordFieldCap`.
+
+**La carrera del Laboratorio de hashes (B N-2):**
+- un hilo escribe sin parar el progreso de una lectura vieja mientras se empiezan 20 000 archivos nuevos: nunca aparece el progreso viejo en uno nuevo;
+- `finish` y `startFile` corren los dos en el hilo principal (`ui/screens/HashLabScreen.kt:188-224`), así que el resultado de un archivo viejo no puede caer en uno nuevo.
+
+`resistsTheHashLabProgressRace`.
+
+**Barrido de regresión de las entradas del primer informe:**
+- los 20 tests de `RedTeamImportTest` y `RedTeamCryptoTest` siguen en verde: los resistidos de entonces y los `rt1_`, `rt2_` y `rt3_`, ya sin `@Ignore`;
+- a mano, he vuelto a mirar:
+  - el manifiesto: `scripts/check-manifest.sh` sigue en CI, y no cambian los componentes exportados ni los permisos;
+  - `FLAG_SECURE` y el filtro de toques en los diálogos de importar y de «Comprobar una copia»;
+  - el teclado seguro en los laboratorios: `SECRET_TEXT_KEYBOARD`, comprobado en `PlatformSourcesTest`;
+  - que no hay `Log.*` ni `rememberSaveable` con secretos en el código nuevo (búsqueda hecha sobre `b1902ed`);
+  - la red y TLS, que no han cambiado;
+  - la CI, sin cambios en `.github/workflows/`.
+
+### Necesita prueba en el móvil (segundo ataque)
+
+7. **RT-4:** comprobar con «Android qa libre» que la fila de un duplicado cuya URL es `http://banco.es/` enseña ahora el esquema, una vez arreglado.
+8. **RT-6:** en la lista de la bóveda, una entrada importada como «Banco» + U+2800 debe verse distinta o ser duplicado, una vez arreglado. Hoy se ve como «Banco».
+9. **`KdfLock`:** con el APK de depuración, importar un JSON de Bitwarden protegido con Argon2id de 128 MiB, t = 10 y p = 4 (de `scripts/import-fixtures/gen_encrypted.py`, con esos valores), salir de la app mientras calcula, volver y desbloquear, y medir cuánto espera el desbloqueo en el móvil del dueño.
+
+### Revisión experto-seguridad-cripto (segundo ataque)
+
+- **`KdfLock`:** el `Mutex` es justo y no es reentrante, y `NonCancellable` solo envuelve el bloque, así que el cerrojo nunca se queda cogido después de que termine la derivación (`crypto/KdfLock.kt`). Ningún bloque que corre dentro de `derive` vuelve a cogerlo:
+  - `encryptText` y `decryptText` llaman a `keyForHeader` directamente;
+  - `fileKey` (`crypto/FileCrypto.kt:29`) solo se llama desde `encryptStream` y `decryptStream`, que nadie usa dentro de `derive`.
+- **Antes de la contraseña** no se deriva nada: `bitwardenProtected`, `aegisEncrypted` y `twoFasEncrypted` solo leen la cabecera y decodifican Base64 hasta `IMPORT_MAX_ENCRYPTED_CHARS` (`imports/BitwardenJson.kt:39`, `imports/ImportJson.kt:215` y `:224`).
+- **RT-4, RT-6 y RT-7** son de comparación (`imports/MergePlan.kt:382-406`, `imports/ImportModel.kt:107-159`), y **RT-5** es de política (`vault/MasterPolicy.kt:89-99`). Ninguno toca una primitiva ni un formato, y sus arreglos no cambian nada guardado.
+
+### Revisión Ingeniero Móvil Senior (segundo ataque)
+
+- **`deriveBlocking`** rechaza el hilo principal de Android, que mira por reflexión (`crypto/KdfLock.kt`). Sus únicos llamadores corren en `Dispatchers.IO` (`ui/screens/SecurityToolsScreen.kt:661` y `:694`).
+- **La importación** coge `KdfLock` en `Dispatchers.Default` y suelta el *ticket* y pone a cero la contraseña en un `finally` (`ui/screens/ImportScreen.kt:296-307`). Un resultado viejo se descarta con el *run token*.
+- **El Laboratorio de hashes:** `progress` se comprueba y se escribe dentro del mismo cerrojo que `startFile` y `forget`. `finish` corre en el hilo principal (`tools/hashlab/HashLabSession.kt`, `ui/screens/HashLabScreen.kt:223`).
+- **El arreglo de RT-4** (si se enseña el esquema) y el de RT-6 son Kotlin puro en `imports/`. Se prueban en `jvm-check`, y solo la línea de la fila cambia en pantalla.
+
+### Textos para el Abogado Digital (segundo ataque)
+
+- **RT-4:** si se arregla en la fila, cambia lo que enseña la línea del duplicado («ana · http://banco.es»).
+- **RT-5 y RT-7:** no cambian textos (`MASTER_TOO_WEAK` es el mismo). Si la política, el README o la ficha describen la regla de la maestra, que digan lo mismo que el código (R36).
+
+### Puerta del segundo ataque
+
+Ejecutada en el *worktree* el 9-11-2026, sobre `b1902ed` más `RedTeamSecondAttackTest`, con el *wrapper* (R29) y `--max-workers=1`:
+- `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon --max-workers=1`: **BUILD SUCCESSFUL**, con 1 818 tests, 0 fallos y 4 omitidos (los `@Ignore` de RT-4 a RT-7);
+- `./gradlew -p jvm-check test --no-daemon --max-workers=1`: **BUILD SUCCESSFUL**, con 1 813 tests, 0 fallos y 4 omitidos;
+- ningún aviso `w:` del compilador.
+
+Los tests del equipo rojo dan lo mismo en las dos suites:
+- `RedTeamImportTest`: 12 tests, 0 omitidos y 0 fallos;
+- `RedTeamCryptoTest`: 8 tests, 0 omitidos y 0 fallos;
+- `RedTeamSecondAttackTest`: 13 tests (4 `rtN_` y 9 `resists…`), 4 omitidos y 0 fallos.
+
+Sin el `@Ignore`, los cuatro `rtN_` nuevos fallan con los mensajes citados arriba.
