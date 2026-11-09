@@ -355,12 +355,21 @@ Los tests nuevos están en `app/src/test/java/app/seguridad/redteam/RedTeamSecon
 
 | RT | Superficie | Hallazgo | Severidad (CVSS 3.1) | MASVS | Estado |
 |---|---|---|---|---|---|
-| RT-4 | Importar (plan de fusión y fila del duplicado) | Una URL de otro esquema (`javascript://banco.es/…`, `intent://banco.es/…`, `file://banco.es/…`, `http://banco.es/`) es duplicado de `https://banco.es/`, y la fila enseña lo mismo para todas («ana · banco.es»). Con «Reemplazar», la entrada pasa en silencio a otro esquema | Baja: 2,5 (`AV:L/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N`) | MASVS-CODE-4 | Explotado (test) |
-| RT-5 | Maestra nueva (RT-3, decisión (h)) | El *leet* con las teclas de un teclado español se acepta: «Pr¡nc3ss2024», «C0ntra$€na2024!», «C0ntr4s€ñ4!!», «Dr4gøn!2024» y «P4$$wørd2024». `leetLetter` solo conoce cifras ASCII y `@ $ + ! \|` | Baja (sin CVSS, como RT-3) | MASVS-AUTH-1 | Explotado (test) |
-| RT-6 | Mostrar y comparar (RT-2, R9 y R10) | Hay puntos de código que no se dibujan y que `plainReportText` conserva, así que `compareKey` tampoco los iguala: U+2800 (Braille en blanco), U+17B4 y U+17B5, los selectores de variante U+FE00–U+FE0F y U+E0100–U+E01EF, y U+180B–U+180D y U+180F. La entrada sombra de RT-2 vuelve, con otro carácter | Baja: 3,3 (`AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N`, como RT-2) | MASVS-CODE-4, MASVS-PLATFORM-3 | Explotado (test) |
-| RT-7 | Comparar (RT-2) | Informativa, a decidir por el controlador: NFC no pliega los caracteres de compatibilidad que se ven igual, como la ligadura «ﬁ» y «fi», o «Ⅱ» y «II». NFKC los plegaría. Otras parecidas que tampoco pliega NFKC solo se anotan aquí | Informativa | MASVS-CODE-4 | Anotado (test) |
+| RT-4 | Importar (plan de fusión y fila del duplicado) | Una URL de otro esquema (`javascript://banco.es/…`, `intent://banco.es/…`, `file://banco.es/…`, `http://banco.es/`) es duplicado de `https://banco.es/`, y la fila enseña lo mismo para todas («ana · banco.es»). Con «Reemplazar», la entrada pasa en silencio a otro esquema | Baja: 2,5 (`AV:L/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N`) | MASVS-CODE-4 | Arreglado en la ronda de arreglos del segundo ataque (R41): `imports/MergePlan.kt:401-423`, `:461` y `:476` |
+| RT-5 | Maestra nueva (RT-3, decisión (h)) | El *leet* con las teclas de un teclado español se acepta: «Pr¡nc3ss2024», «C0ntra$€na2024!», «C0ntr4s€ñ4!!», «Dr4gøn!2024» y «P4$$wørd2024». `leetLetter` solo conoce cifras ASCII y `@ $ + ! \|` | Baja (sin CVSS, como RT-3) | MASVS-AUTH-1 | Arreglado en la ronda de arreglos del segundo ataque (R42): `vault/MasterPolicy.kt:91-102` |
+| RT-6 | Mostrar y comparar (RT-2, R9 y R10) | Hay puntos de código que no se dibujan y que `plainReportText` conserva, así que `compareKey` tampoco los iguala: U+2800 (Braille en blanco), U+17B4 y U+17B5, los selectores de variante U+FE00–U+FE0F y U+E0100–U+E01EF, y U+180B–U+180D y U+180F. La entrada sombra de RT-2 vuelve, con otro carácter | Baja: 3,3 (`AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N`, como RT-2) | MASVS-CODE-4, MASVS-PLATFORM-3 | Arreglado en la ronda de arreglos del segundo ataque (R43): `core/Invisible.kt:32-51`, `imports/ImportModel.kt:117-144`, `crypto/FileCrypto.kt:175-179` |
+| RT-7 | Comparar (RT-2) | Informativa, a decidir por el controlador: NFC no pliega los caracteres de compatibilidad que se ven igual, como la ligadura «ﬁ» y «fi», o «Ⅱ» y «II». NFKC los plegaría. Otras parecidas que tampoco pliega NFKC solo se anotan aquí | Informativa | MASVS-CODE-4 | Arreglado en la ronda de arreglos del segundo ataque (R44): `imports/ImportModel.kt:173-194` |
 
 Recuento del segundo ataque: **3 hallazgos explotados de severidad baja (RT-4, RT-5 y RT-6) y 1 informativo (RT-7)**, y ninguno crítico, alto ni medio. Hay 9 tests nuevos de ataques resistidos. Los arreglos de RT-1, RT-2 y RT-3 aguantan contra todo lo que he probado alrededor; lo que encuentro son huecos al lado, no regresiones.
+
+### Arreglos del segundo ataque (9-11-2026)
+
+Hechos en la ronda de arreglos del segundo ataque, con las decisiones R41 a R44 del controlador (`progress.md`). Los cuatro `rtN_` fallaron primero sin el `@Ignore` y ahora pasan; ya no hay ningún `@Ignore` en `RedTeamSecondAttackTest`. El detalle, con los tests nuevos y las medidas, está en `redteam-second-fixes-report.md`.
+- **RT-4 (R41), arreglado en la comparación:** el esquema forma parte siempre de la clave (`urlKey`, `imports/MergePlan.kt:401-407`; la usa `Matcher` en `:461` y `:476`). `http` y `https` del mismo host son sitios distintos, y también cualquier otro esquema. Una URL sin esquema se sigue leyendo como `https://` (`comparedLink`, `:416-423`); «banco.es:8443» y «localhost:8080» se leen como host y puerto. Un esquema que no es web y no lleva `//` (`mailto:ana@banco.es`, `javascript:x@banco.es/`) ya no se lee como `https://…@banco.es`: es un hueco del mismo tipo, visto al arreglar RT-4 y cerrado con él. La fila no cambia («usuario · host», R41).
+- **RT-5 (R42):** `leetLetter` (`vault/MasterPolicy.kt:91-102`) añade ¡→i, €→e, ø/Ø→o. «º» y «ª» ya los pasaba a «o» y «a» el NFKC de `masterCore`. No añado «æ», «œ» ni «ß» (son dos letras) ni «ł» (no está en el informe ni en el teclado español). La tasa del Generador no cambia (solo usa ASCII).
+- **RT-6 (R43):** una sola lista, `drawsNothing` (`core/Invisible.kt:32-39`), en `plainReportText` (`imports/ImportModel.kt:117-144`), `compareKey` y `isHiddenInName` (`crypto/FileCrypto.kt:175-179`), y una sola regla para U+FE0F detrás de un emoji (`emojiSelectorShows`, `core/Invisible.kt:51`).
+- **RT-7 (R44):** NFKC en `compareKey` (`imports/ImportModel.kt:173-194`), solo para comparar.
+- **Textos para el Abogado:** ninguno cambia; la fila del duplicado sigue igual.
 
 ### RT-4 [Baja] Una URL de otro esquema pasa por duplicado de la web, y la fila no lo dice
 
@@ -396,6 +405,8 @@ Si se decide que `http` y `https` sigan contando como el mismo sitio, la fila ti
 
 **Test que lo da por arreglado:** `rt4_…`, sin el `@Ignore`. Admite cualquiera de los dos arreglos: que no haya duplicado, o que la fila diga el esquema.
 
+**Estado:** arreglado en la ronda de arreglos del segundo ataque, con el arreglo 1 aplicado a todos los esquemas (R41): `imports/MergePlan.kt:401-423`.
+
 ### RT-5 [Baja] El *leet* de un teclado español: «¡», «€» y «ø»
 
 **Cómo lo he atacado.** He creado una maestra nueva con «Pr¡nc3ss2024», «C0ntra$€na2024!», «C0ntr4s€ñ4!!», «Dr4gøn!2024» y «P4$$wørd2024».
@@ -417,6 +428,8 @@ Si se decide que `http` y `https` sigan contando como el mismo sitio, la fila ti
 Las sustituciones de varios caracteres («()» por «o», «vv» por «w», «|<» por «k») no las cubre la regla de un punto de código por letra. Las anoto como informativas: cubrirlas obliga a cambiar el algoritmo, y lo decide el dueño (decisión (h)).
 
 **Test que lo da por arreglado:** `rt5_…`, sin el `@Ignore`, más los tests del Generador en `MasterPolicyTest`.
+
+**Estado:** arreglado en la ronda de arreglos del segundo ataque (R42): `vault/MasterPolicy.kt:91-102`.
 
 ### RT-6 [Baja] Caracteres invisibles que `plainReportText` conserva: la entrada sombra con otro carácter
 
@@ -440,6 +453,8 @@ U+FE0F (presentación de emoji) se puede dejar solo detrás de un emoji, como `w
 
 **Test que lo da por arreglado:** `rt6_…`, sin el `@Ignore`, más `ImportModelTest` y `MergePlanTest`.
 
+**Estado:** arreglado en la ronda de arreglos del segundo ataque (R43), con una sola lista para los nombres y lo que se enseña: `core/Invisible.kt:32-51`, `imports/ImportModel.kt:117-144`, `crypto/FileCrypto.kt:175-179`.
+
 ### RT-7 [Informativa] Caracteres de compatibilidad que se ven igual (a decidir por el controlador)
 
 `compareKey` (`imports/ImportModel.kt:139-153`) normaliza con NFC, que conserva los caracteres de compatibilidad:
@@ -450,7 +465,9 @@ Con NFKC, como ya hace `masterCore` desde RT-3, compararían igual, y también l
 
 Ni NFC ni NFKC pliegan otras parecidas, y solo las anoto: las letras de otras escrituras («а» cirílica), las variantes del guion (U+2010 y U+2212), U+2024 en lugar de «.» y U+2019 en lugar de «'». La regla R9 ya acepta las letras de otras escrituras.
 
-Test: `RedTeamSecondAttackTest.rt7_compatibilityLookAlikesCompareEqual`, con `@Ignore("RT-7: open (Info, the controller decides), …")`, que falla con `«Proﬁle» vs «Profile» expected:<Pro[fi]le> but was:<Pro[ﬁ]le>`. Si el controlador decide no plegarlas, se borra el test.
+Test: `RedTeamSecondAttackTest.rt7_compatibilityLookAlikesCompareEqual`, con `@Ignore("RT-7: open (Info, the controller decides), …")`, que falla con `«Proﬁle» vs «Profile» expected:<Pro[fi]le> but was:<Pro[ﬁ]le>`. Si el controlador decide no plegarlas, se borra el test. El controlador decidió plegarlas (R44).
+
+**Estado:** arreglado en la ronda de arreglos del segundo ataque (R44): `imports/ImportModel.kt:173-194`.
 
 ### Ataques del segundo ataque intentados y resistidos
 

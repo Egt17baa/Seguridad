@@ -165,7 +165,7 @@ class ClassicTest {
         val ok = buildEnigma(listOf(Rotor.I, Rotor.II, Rotor.III), Reflector.B, " 1, 1 1", "aaa", "av bs, cg")
         assertEquals(null, ok.error)
         assertEquals(listOf('A' to 'V', 'B' to 'S', 'C' to 'G'), ok.settings!!.plugs)
-        assertEquals("AAA", ok.settings!!.positions)
+        assertEquals("AAA", ok.settings.positions)
         val r = listOf(Rotor.I, Rotor.II, Rotor.III)
         assertEquals(ENIGMA_REPEATED_ROTOR, buildEnigma(listOf(Rotor.I, Rotor.I, Rotor.III), Reflector.B, "1 1 1", "AAA", "").error)
         assertEquals(ENIGMA_RINGS_INVALID, buildEnigma(r, Reflector.B, "1 1", "AAA", "").error)

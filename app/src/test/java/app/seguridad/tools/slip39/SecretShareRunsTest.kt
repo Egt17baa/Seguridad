@@ -18,7 +18,7 @@ import java.io.File
  */
 class SecretShareRunsTest {
     private class Rig(scope: TestScope) {
-        lateinit var runs: SecretShareRuns
+        val runs: SecretShareRuns
         val session = SecretShareSession { runs.stop() }
 
         init {

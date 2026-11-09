@@ -60,17 +60,18 @@ class MergePlanTest {
         val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://www.Banco.es/login?x=1")
         val p = plan(
             read(
-                login(0, "  BANCO ", user = " ana ", url = "http://banco.ES/otra"),
+                login(0, "  BANCO ", user = " ana ", url = "HTTPS://banco.ES/otra"),
                 login(1, "Banco", user = "ana", url = "https://otro.es/"),
                 login(2, "Banco", user = "Ana", url = "https://banco.es/"), // the user keeps its case: a capital is visible (R34)
                 login(3, "Banca", user = "ana", url = "https://banco.es/"),
                 login(4, "Banco", user = "ana", url = "https://user:clave@WWW.banco.es:8443/x"),
+                login(5, "Banco", user = "ana", url = "http://banco.es/"), // another scheme: not a duplicate (RT-4, R41)
             ),
             listOf(bank),
         )
         assertEquals(listOf(0), p.duplicates.map { it.item.index })
         assertEquals("b", p.duplicates.single().existingId)
-        assertEquals(listOf(1, 2, 3), p.newItems.map { it.index })
+        assertEquals(listOf(1, 2, 3, 5), p.newItems.map { it.index })
         // Item 4 has the same title, user and host as item 0: repeated inside the file.
         assertEquals(1, p.repeatedInFile)
         assertEquals(7, p.revision)
@@ -137,6 +138,60 @@ class MergePlanTest {
         assertEquals(bank, merged.single { it.id == "b" }) // the vault's entry is never touched
     }
 
+    // ---- RT-4 (ruling R41): the scheme is part of the key ----
+
+    @Test fun theSchemeOfTheUrlIsPartOfTheKey() {
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", password = "la-buena")
+        // A text without a scheme is read as https, as before; case, www., port, path and slashes still do not count.
+        for (url in listOf(
+            "banco.es", "banco.es/login", "banco.es:8443/x", "//banco.es/", "HTTPS://WWW.BANCO.ES/", "https:banco.es",
+            "https:\\\\banco.es", "  https://ana@banco.es:443/x?y#z ",
+        )) {
+            assertEquals(url, listOf("b"), plan(read(login(0, "Banco", user = "ana", url = url)), listOf(bank)).duplicates.map { it.existingId })
+        }
+        // Another scheme of the same host is another site: never a duplicate, so «Reemplazar» cannot change the scheme.
+        for (url in listOf(
+            "http://banco.es/", "HTTP://www.banco.es", "http:banco.es", "javascript://banco.es/%0Aalert(1)",
+            "intent://banco.es/#Intent;scheme=https;package=com.example.evil;end", "file://banco.es/sdcard/x.html", "ftp://banco.es/",
+            "wss://banco.es", "androidapp://banco.es", "javascript:x@banco.es/", "mailto:ana@banco.es", "data:text/html,banco.es",
+        )) {
+            val p = plan(read(login(0, "Banco", user = "ana", url = url, password = "otra")), listOf(bank))
+            assertTrue(url, p.duplicates.isEmpty())
+            assertEquals(bank, mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId).single { it.id == "b" })
+        }
+        // Same scheme, same host: a duplicate, also for plain http.
+        val plain = saved("h", EntryType.LOGIN, "Foro", user = "ana", url = "http://foro.es/")
+        assertEquals(listOf("h"), plan(read(login(0, "Foro", user = "ana", url = "HTTP://www.foro.es/x")), listOf(plain)).duplicates.map { it.existingId })
+        assertTrue(plan(read(login(0, "Foro", user = "ana", url = "https://foro.es/")), listOf(plain)).duplicates.isEmpty())
+        assertTrue(plan(read(login(0, "Foro", user = "ana", url = "foro.es")), listOf(plain)).duplicates.isEmpty())
+    }
+
+    @Test fun aUrlWithoutAHostIsComparedWholeAndNeverMeetsAHost() {
+        assertEquals("hhttps://banco.es", urlKey("banco.es"))
+        assertEquals("hhttp://banco.es", urlKey("http://www.banco.es/x"))
+        assertEquals("hjavascript://banco.es", urlKey("javascript://banco.es/%0Aalert(1)"))
+        assertEquals("tmailto:ana@banco.es", urlKey(" MAILTO:ana@banco.es "))
+        assertEquals("tjavascript:x@banco.es/", urlKey("javascript:x@banco.es/"))
+        assertNull(urlKey("  "))
+        // Two URLs without a host match only when they are the same text.
+        val mail = saved("m", EntryType.LOGIN, "Correo", user = "ana", url = "mailto:ana@banco.es")
+        assertEquals(listOf("m"), plan(read(login(0, "Correo", user = "ana", url = "MAILTO:ana@banco.es")), listOf(mail)).duplicates.map { it.existingId })
+        assertTrue(plan(read(login(0, "Correo", user = "ana", url = "mailto:otra@banco.es")), listOf(mail)).duplicates.isEmpty())
+    }
+
+    @Test fun aSchemeThatIsNotWebIsNotReadAsHttps() {
+        // A scheme that is not a web one keeps its own reading: its «x@» is not a user before a web host.
+        assertEquals("mailto:ana@banco.es", urlHost("mailto:ana@banco.es"))
+        assertEquals("javascript:x@banco.es/", urlHost("JavaScript:x@banco.es/"))
+        // A host and a port look like a scheme, and are read as a web link, as an address bar does.
+        assertEquals("banco.es", urlHost("banco.es:8443"))
+        assertEquals("localhost", urlHost("localhost:8080/"))
+        assertEquals("localhost", urlHost("localhost:8080?x"))
+        // The row keeps «usuario · host» (R41): the scheme is not shown.
+        assertEquals("ana · banco.es", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "http://banco.es/")))
+        assertEquals("ana · mailto:ana@banco.es", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "mailto:ana@banco.es")))
+    }
+
     // ---- RT-2 (ruling R34): what looks the same is a duplicate ----
 
     @Test fun aTitleOrUserThatLooksTheSameIsADuplicate() {
@@ -144,13 +199,16 @@ class MergePlanTest {
         val looks = listOf(
             "Café Ban​co" to "ana", "Café Banco" to "ana", "‮Café Banco" to "ana", "Café  Banco" to "ana",
             "Café Banco\u0000" to "ana", "CAFÉ BANCO" to "an­a", "Café Banco" to "﻿ana⁠", "Café Banco" to "a͏na ",
+            // RT-6 (R43): what draws nothing; RT-7 (R44): the compatibility forms, which NFKC folds.
+            "Café Banco\u2800" to "ana", "Café Ban\u17B4co" to "an\uFE00a", "Café\u180B Banco" to "ana\uDB40\uDD00",
+            "Ｃａｆé Ｂａｎｃｏ" to "ana", "Café 𝐁anco" to "ａｎａ",
         )
         for ((title, user) in looks) {
             val p = plan(read(login(0, title, user = user, url = "https://banco.es/")), listOf(bank))
             assertEquals("«$title» / «$user»", listOf("b"), p.duplicates.map { it.existingId })
         }
         // What is visible still counts: a capital in the user, another letter, a space inside a word, full-width letters.
-        for ((title, user) in listOf("Café Banco" to "Ana", "Cafe Banco" to "ana", "Café Ban co" to "ana", "Ｃａｆé Ｂａｎｃｏ" to "ana", "Café Banco" to "a na")) {
+        for ((title, user) in listOf("Café Banco" to "Ana", "Cafe Banco" to "ana", "Café Ban co" to "ana", "Café Banco" to "a na")) {
             val p = plan(read(login(0, title, user = user, url = "https://banco.es/")), listOf(bank))
             assertTrue("«$title» / «$user»", p.duplicates.isEmpty())
         }
