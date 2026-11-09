@@ -169,7 +169,7 @@ Con `isNoUrl` y `showsNothing` en `replaceWith` pasaron los dos primeros. El tes
   - las **etiquetas** no se comparan.
 - **El test de propiedad** (`MergePlanTest.kt:360`): por cada uno de los 20 000 textos, `planMerge` y «Reemplazar» contra una entrada con `https://banco.es/` y contra otra sin web. Si la web cambia, la nueva tiene que dar `hhttps://banco.es` (la primera), o una clave https cuyo host es el que enseña la fila (la segunda).
 - **N-4:** README P-27 (`README.md:366`) pide tres CSV de una fila, uno por carácter, y dice qué saldría con un solo CSV (el primero como repetido, los otros dos como «repetidos dentro del archivo»); `.maestro/README.md:88`, igual.
-- **N-5:** `redteam-recheck-fixes-report.md:157` dice «hasta la última «@» de todo el texto (ronda 3, N-1)». Este informe ya no usa «limpia», «limpio» ni «de verdad».
+- **N-5:** `redteam-recheck-fixes-report.md:192` (antes `:157`) dice «hasta la última «@» de todo el texto (ronda 3, N-1)». Este informe ya no usa las tres palabras que señaló el repaso.
 - **La prueba en el móvil de la cuarta comprobación:** P-27 pide además pegar en Chrome y en el navegador de Honor `http:@banco.es` con un NBSP, U+3000, U+200B o un control dentro del esquema, o con «：», y apuntar como RT-15 para la 1.4.1 si alguna barra abre `http://banco.es`. Desde aquí no se puede probar.
 - **Documentos:** el informe del ataque, en el estado (`:10`) y en la sección «Cuarta comprobación y segundo repaso» (`:311`), con I-2 y R55.
 
@@ -180,6 +180,63 @@ Con `isNoUrl` y `showsNothing` en `replaceWith` pasaron los dos primeros. El tes
 **Revisión Ingeniero Móvil Senior (ronda 4):** Kotlin puro en `imports/`, probado en `jvm-check`; no cambia ninguna pantalla, estado ni concurrencia. `showsNothing` llama a `compareKey`, que ya se calcula para la regla, una vez por título y por usuario de cada elemento reemplazado, y una vez por host en `hostOf`. Los 20 000 casos con «Reemplazar» tardan menos de un segundo en `jvm-check`.
 
 **Textos para el Abogado Digital (ronda 4):** ningún texto de la interfaz cambia. README P-27 y `.maestro/README.md:88` cambian (tres CSV, y la prueba del pegado con NBSP, U+3000, U+200B, un control o «：»), con los nombres de navegadores bajo la línea de marcas que ya hay.
+
+## Ronda 5 (R57 a R60)
+
+**Decisiones del controlador** (`progress.md:288-292`): **R57** (N-6 del tercer repaso y su Info): el emisor y la cuenta de un 2FA usan «no enseña nada», y la fila no deja « · » colgando. **R58** (RT-15): «Reemplazar» conserva el título y el usuario de la bóveda siempre que sus claves coincidan. **R59** (RT-16): todo campo que «Reemplazar» toma del archivo está vacío cuando no enseña nada. **R60** (RT-17): una carpeta se lee como se ve antes de ser etiqueta. Es la última ronda que permite el ciclo sobre este punto, así que en lugar de los casos repasé todo el camino de la fusión: cada campo que se lee de una importación, con cómo se decide «vacío» y «lo mismo» (la tabla de abajo).
+
+**TDD.** Quité el `@Ignore` de `rt15_`, `rt16_` y `rt17_` (y el `import org.junit.Ignore`) y escribí los tests nuevos de `imports/MergePlanTest.kt`. Sobre el código de `fd9bd4b` fallaron los ocho:
+- `rt15_replaceKeepsATitleAndUserTheMatcherFoundTheSame` (`RedTeamRecheckTest.kt:651`): `replaced with what only differs invisibly: «Café Ban\u2800co» / «ana\u200B»; «Cafe\u0301 Banco» / «ana\u3000»; …; search «fé banco» finds nothing`;
+- `rt16_replaceTreatsWhatShowsNothingAsEmptyInEveryField` (`:677`): `2FA \u200B: «\u200B» / «\u200B»; …; notes «mis notas\n\nImportado el 1-1-1970:\n\u200B\u2800»`;
+- `rt17_aFolderTagIsReadAsItShows` (`:699`): `\u200B → [\u200B]; \u2800 → [\u2800]; \u3164 → [\u3164]; Banco\u200B → [banco\u200B]; Ban\u00ADco → [ban\u00ADco]`;
+- `MergePlanTest.replaceKeepsATitleAndUserWhoseKeysMatch` (`:358`): `CAFÉ BANCO expected:<[Café Banco, ana, otra]> but was:<[CAFÉ BANCO, ana, otra]>`;
+- `replaceTakesNoFieldThatShowsNothing` (`:375`): `expected:<[Correo, ana]> but was:<[\u0001, \u0001]>`;
+- `theRowHasNoSeparatorBeforeWhatShowsNothing` (`:388`): `expected:<ana[]> but was:<ana[ · ]>`;
+- `aFolderIsReadAsItShows` (`:397`): `\u200b expected:<[importado-navegador]> but was:<[importado-navegador, \u200b]>`;
+- `replaceNeverWritesWhatShowsNothing` (`:417`), el test de propiedad nuevo: `«ㅤ» «aná» «» «» «\u2060» «»: issuer «Correo» → «\u2060»`.
+
+Con el arreglo pasan. Un test de antes cambió a propósito por R58: `MergePlanTest.replaceFollowsTheRule` (`:645`) esperaba que «BANCO» del archivo sustituyera a «Banco» de la bóveda; ahora se queda «Banco», porque es la clave del título (sin mayúsculas) la que hizo el duplicado.
+
+**Cambios** (`imports/MergePlan.kt`):
+- **R58** (`:275-276`): el título se queda el de la bóveda si el del archivo no enseña nada **o** si `titleKey` coincide, y el usuario, si no enseña nada **o** si `userKey` coincide. En un acceso o una nota, que solo son duplicado si esas claves coinciden, el título y el usuario no cambian nunca. En un 2FA, que lo es por la clave del secreto, se trae el título del archivo si es otro y se ve.
+- **R57 y R59** (`:263-264`, `:281`): las notas del archivo que no enseñan nada no se traen (ni la línea «Importado el …»), y el emisor y la cuenta del 2FA que no enseñan nada conservan los de la bóveda.
+- **R57, la fila** (`:518`): `duplicateSubline` quita cada parte que no enseña nada antes de unirlas, así que no deja « · » ni delante ni detrás.
+- **R60** (`importTags`, `:153-164`): la carpeta pasa por `plainReportText` (lo que no se dibuja se va, un control es un espacio) antes de `normalizeTags`. Una carpeta que no enseña nada no da etiqueta, y «Banco» + U+200B o «Ban» + U+00AD + «co» dan «banco», la de la bóveda. Los nombres de carpeta no se guardan como valores del archivo, así que R9 y R10 no se aplican.
+- **KDocs:** `replaceWith` (`:240-257`) e `importTags` (`:146-152`).
+
+**Cada campo que se lee de una importación, en el camino de la fusión** (entrada nueva y «Reemplazar»). «Clave» es lo que compara la regla de duplicados (`Matcher`); «vacío» y «lo mismo» son las pruebas de `replaceWith`. Una entrada nueva guarda todo tal cual (R9 y R10), salvo las etiquetas.
+
+| Campo | Regla de duplicados | «Reemplazar»: vacío | «Reemplazar»: lo mismo |
+|---|---|---|---|
+| Título (acceso, nota, 2FA) | `titleKey` = `compareKey` sin mayúsculas (acceso y nota) | `showsNothing` (`compareKey` vacío) | `titleKey` igual → se queda el de la bóveda (R58) |
+| Usuario | `userKey` = `compareKey` (acceso) | `showsNothing` | `userKey` igual → se queda el de la bóveda (R58) |
+| URL | `urlKey` (lectura del navegador, `isNoUrl`, `hostOf`, esquema y host; sin host, el texto con el esquema en minúsculas) | `isNoUrl` (R55) | se trae la del archivo; solo llega aquí con la misma clave https, la misma clave de texto, o sin URL en la bóveda y https en el archivo (R48), y la fila lo enseña |
+| Contraseña | no se compara | `isEmpty` | no se compara: una nueva no vacía pasa por `withNewPassword` y la anterior va al historial. Es el único campo que se toma tal cual: es el secreto, se guarda como llega (R9) y la anterior no se pierde. Una contraseña de solo espacios es una contraseña |
+| Notas de un acceso o un 2FA | no se comparan | `showsNothing` (R59) | `trim()` igual, o las de la bóveda ya terminan con ellas → no se añaden |
+| Notas de una nota | `notes.trim()` | `showsNothing` | las de la regla (`trim()` igual): una nota duplicada nunca añade nada |
+| Secreto del 2FA | `totpKeyOf` (la clave del secreto) | no hay 2FA → se queda el de la bóveda | el duplicado tiene la misma clave; se traen los ajustes del archivo (dígitos, periodo, algoritmo), ya comprobados por el lector (CRY-B02) |
+| Emisor y cuenta del 2FA | no se comparan | `showsNothing` (R57, R59) | se trae el del archivo si enseña algo |
+| Etiquetas (carpetas) | no se comparan | `importTags` lee la carpeta como se ve: una que no enseña nada no da etiqueta (R60) | se añaden las que la entrada no tiene (comparadas tras `importTags`), hasta `MAX_TAGS` |
+| Favorito, adjuntos, `createdAt`, historial | no se comparan | — | se quedan los de la bóveda; una entrada nueva no trae historial ni adjuntos |
+| Tipo | solo se comparan entradas del mismo tipo | — | otro tipo, o una identidad o un contacto de la bóveda, no se cambian |
+
+Las semillas, identidades, contactos y tarjetas no se importan como tales (las tarjetas y las identidades entran como notas), así que no tienen campos propios en este camino.
+
+**El test de propiedad nuevo** (`MergePlanTest.replaceNeverWritesWhatShowsNothing`, `:417`): 20 000 archivos de dos elementos (un acceso y un 2FA con el secreto de la bóveda), con título, usuario, notas, carpeta, emisor y cuenta hechos de letras, espacios, NBSP, tabulador, LF, U+0001, U+001F, U+200B, U+00AD, U+2800, U+3164, U+FEFF, U+2060 y U+0301 (la mitad de las veces, el título y el usuario de la bóveda con eso alrededor, para que sean duplicado), contra una bóveda con «Banco» / «ana» / `https://banco.es/` y el 2FA «Correo» / «ana», todo con «Reemplazar». Comprueba que:
+- ninguna etiqueta de ninguna entrada deja de enseñar algo;
+- ningún título, usuario, URL, notas, emisor ni cuenta que enseñaba algo pasa a no enseñar nada;
+- las notas solo crecen con algo que se ve, y al final;
+- el título y el usuario del acceso no cambian nunca, y el del 2FA solo si el del archivo es otro y se ve.
+
+**Documentos:** el informe del ataque, en el estado (`:11`) y en la sección «Quinta comprobación y tercer repaso» (`:329`), con RT-15 a RT-17 y R57 a R60. README P-9 (`README.md:348`) dice que el título y el usuario se quedan como los tenía la bóveda, y P-27 (`README.md:366`) y `.maestro/README.md:88`, la prueba en el móvil de RT-15 («Copiar» el usuario tras «Reemplazar») y de RT-17 (la carpeta «Banco» + U+200B). La referencia de N-5 de este informe apunta ya a `:192`. `task-12-report.md`, punto 18, para el Abogado.
+
+**Puerta de la ronda 5:** con el *wrapper*, `ANDROID_HOME=/opt/android-sdk`, `--max-workers=1` y `--rerun-tasks` (después de los últimos cambios de documentos), las dos órdenes de la puerta dan **BUILD SUCCESSFUL**: la app, **1 886 tests, 0 fallos y 0 omitidos** (1 875 + los 6 de la quinta comprobación + 5 nuevos de `MergePlanTest`), y `jvm-check`, **1 881, 0 fallos y 0 omitidos**; 0 avisos `w:` en las dos salidas; lint con 0 errores y 17 avisos (los mismos); `scripts/check-manifest.sh` **OK**. Ningún `@Ignore` en las clases del equipo rojo.
+
+**Revisión experto-seguridad-cripto (ronda 5):** RT-15 a RT-17 y N-6 son la misma clase que I-2: dos lectores del mismo campo que no coinciden (CWE-436), ahora en lo que escribe «Reemplazar». La regla queda fijada para todos los campos con la tabla de arriba y con el test de propiedad, que prueba el camino de escritura de punta a punta. Lo que hizo duplicado una entrada (título y usuario) ya no lo cambia el archivo, así que una importación hostil no puede dejar en la bóveda un usuario que «Copiar» lleva con un invisible ni un título que la búsqueda no encuentra. La contraseña es la excepción documentada: el usuario eligió «Reemplazar» y la anterior queda en el historial. Nada toca primitivas ni formatos.
+
+**Revisión Ingeniero Móvil Senior (ronda 5):** Kotlin puro en `imports/`, probado en `jvm-check`. No cambia ninguna pantalla, estado ni concurrencia. `replaceWith` calcula ahora `titleKey` y `userKey` de los dos lados (dos NFKC más por elemento reemplazado), e `importTags` pasa cada carpeta por `plainReportText`: los dos son lineales y corren donde corrían (`Dispatchers.Default`). Los 20 000 archivos del test tardan unos segundos en `jvm-check`.
+
+**Textos para el Abogado Digital (ronda 5):** ningún texto de la interfaz cambia. Cambia lo que se guarda y lo que se ve: el título y el usuario se quedan los de la bóveda al reemplazar, un emisor, una cuenta o unas notas que no se ven no se traen, la fila no deja « · » colgando y una carpeta con invisibles no crea otra etiqueta. README P-9 y P-27 y `.maestro/README.md:88` lo dicen. Apuntado en `task-12-report.md`, punto 18.
 
 ## No hecho
 

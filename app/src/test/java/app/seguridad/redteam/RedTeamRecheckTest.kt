@@ -38,7 +38,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 import java.util.SplittableRandom
@@ -649,7 +648,6 @@ class RedTeamRecheckTest {
      * («fé banco») no longer finds «Café Ban\u2800co» (`query`, vault/EntryQuery.kt:25-34, compares the raw text). Safe behaviour: when
      * the matcher says they are the same, the vault's title and user stay.
      */
-    @Ignore("RT-15: open (Low), «Reemplazar» writes a title or user that only differs by what draws nothing over the vault's")
     @Test fun rt15_replaceKeepsATitleAndUserTheMatcherFoundTheSame() {
         val vault = listOf(vaultLogin("https://banco.es/").copy(title = "Café Banco"))
         val wrong = mutableListOf<String>()
@@ -676,7 +674,6 @@ class RedTeamRecheckTest {
      * with the «importado el…» line and nothing visible after it. The 2FA case needs the code's secret (a TOTP matches
      * by its key), so it is a hostile file that already knows the secret. Safe behaviour: what shows nothing is empty.
      */
-    @Ignore("RT-16: open (Info), «Reemplazar» takes a 2FA issuer or account, or notes, that show nothing")
     @Test fun rt16_replaceTreatsWhatShowsNothingAsEmptyInEveryField() {
         val code = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Banco", account = "ana")
         val vaultTotp = VaultEntry("t1", EntryType.TOTP, "Banco", totp = code, createdAt = 1, updatedAt = 1)
@@ -699,7 +696,6 @@ class RedTeamRecheckTest {
      * VaultScreen.kt:448), two filters that look the same; «Reemplazar» adds it to the vault's entry (`replaceWith` adds
      * the tags it lacks, compared raw). Safe behaviour: a folder name is read as it shows.
      */
-    @Ignore("RT-17: open (Info), a folder tag keeps what draws nothing: an empty chip, or one that looks like another")
     @Test fun rt17_aFolderTagIsReadAsItShows() {
         val wrong = mutableListOf<String>()
         for (folder in listOf("\u200B", "\u2800", "\u3164", "Banco\u200B", "Ban\u00ADco")) {
