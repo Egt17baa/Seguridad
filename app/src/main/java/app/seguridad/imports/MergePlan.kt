@@ -1,6 +1,7 @@
 package app.seguridad.imports
 
 import app.seguridad.core.appJson
+import app.seguridad.tools.qr.ParsedLink
 import app.seguridad.tools.qr.SPECIAL_SCHEMES
 import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
@@ -235,8 +236,10 @@ fun mergeImport(
 /**
  * [existing] after «Reemplazar» with [incoming] (spec «Las opciones», so that replacing never loses anything):
  * - it keeps its id, type, `createdAt`, favourite and attachments;
- * - it takes the title, user, URL and 2FA of [incoming] only where they are not empty (blank counts as empty; within
- *   the 2FA, a blank issuer or account keeps the vault's);
+ * - it takes the title, user, URL and 2FA of [incoming] only where they are not empty, with the duplicate rule's own
+ *   notion of empty (ruling R55): a title or a user that shows nothing (its [compareKey] is empty), and a URL a browser
+ *   reads as nothing ([isNoUrl]: only controls, spaces, tabs and line breaks); within the 2FA, a blank issuer or account
+ *   keeps the vault's (they are not compared);
  * - notes: [incoming]'s if [existing] has none; if both have and they differ, [existing]'s, then a line
  *   [importedOnHeading] with the day of [now] in [zone], then [incoming]'s trimmed; not again if [existing]'s already
  *   end with them (the same file replaced twice). Notes are compared trimmed, as the duplicate rule compares them, so
@@ -260,9 +263,10 @@ fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: Zon
         }
     }
     val merged = existing.copy(
-        title = incoming.title.ifBlank { existing.title },
-        username = incoming.username.ifBlank { existing.username },
-        url = incoming.url.ifBlank { existing.url },
+        // Ruling R55: empty as the duplicate rule sees it (what shows nothing, a URL a browser reads as nothing).
+        title = if (showsNothing(incoming.title)) existing.title else incoming.title,
+        username = if (showsNothing(incoming.username)) existing.username else incoming.username,
+        url = if (isNoUrl(incoming.url)) existing.url else incoming.url,
         // The code's settings from the file; its issuer and account only where the file has them.
         totp = incoming.totp?.let { t ->
             existing.totp?.let { e -> t.copy(issuer = t.issuer.ifBlank { e.issuer }, account = t.account.ifBlank { e.account }) } ?: t
@@ -392,7 +396,7 @@ private fun userKey(username: String) = compareKey(username)
 internal fun urlHost(url: String): String? {
     val t = asBrowserReadsIt(url)
     if (t.isEmpty()) return null
-    val key = parseLink(comparedLink(t)).host?.removePrefix("www.").orEmpty()
+    val key = hostOf(parseLink(comparedLink(t)))
     return key.ifEmpty { withLowerScheme(t) }
 }
 
@@ -408,12 +412,33 @@ internal fun urlHost(url: String): String? {
  * meet («h» and «t» in front).
  */
 internal fun urlKey(url: String): String? {
+    if (isNoUrl(url)) return null
     val t = asBrowserReadsIt(url)
-    if (t.isEmpty()) return null
     val link = parseLink(comparedLink(t))
-    val host = link.host?.removePrefix("www.").orEmpty()
+    val host = hostOf(link)
     return if (host.isEmpty()) "t" + withLowerScheme(t) else "h" + link.scheme + "://" + host
 }
+
+/**
+ * Whether [url] is no URL (ruling R55, re-review I-2): nothing is left once it is read as a browser reads it
+ * ([asBrowserReadsIt]: only C0 controls, spaces, tabs and line breaks). The one notion of «no URL» of the merge: [urlKey]
+ * gives null for it, so it is a duplicate by title and user, and [replaceWith] keeps the vault's URL for it, so
+ * «Reemplazar» never empties a web the row did not mention.
+ */
+internal fun isNoUrl(url: String): Boolean = asBrowserReadsIt(url).isEmpty()
+
+/**
+ * Whether [text] (a title or a user) shows nothing (ruling R55): its [compareKey], which the duplicate rule compares,
+ * is empty (only controls, spaces or what draws nothing). [replaceWith] keeps the vault's one for it.
+ */
+private fun showsNothing(text: String): Boolean = compareKey(text).isEmpty()
+
+/**
+ * The host of [link] as the merge compares and shows it, without `www.`; empty when there is none or when it shows
+ * nothing (ruling R55: a host of only spaces or what draws nothing, which no browser connects to, would give an https
+ * key with an empty row; such a URL is compared and shown as its whole text instead).
+ */
+private fun hostOf(link: ParsedLink): String = link.host?.removePrefix("www.")?.takeUnless { showsNothing(it) }.orEmpty()
 
 /** The key [urlKey] gives an https link, the only one a vault entry without a URL may take (ruling R48). */
 private const val HTTPS_KEY = "hhttps://"
@@ -456,7 +481,7 @@ private fun shownUrl(url: String): String {
     val t = asBrowserReadsIt(url)
     if (t.isEmpty()) return ""
     val link = parseLink(comparedLink(t))
-    val host = link.host?.removePrefix("www.").orEmpty()
+    val host = hostOf(link)
     if (host.isNotEmpty()) return if (link.scheme == "https") host else link.scheme + "://" + host
     var start = schemeOf(t)?.let { it.length + 1 } ?: 0
     while (start < t.length && (t[start] == '/' || t[start] == '\\')) start++

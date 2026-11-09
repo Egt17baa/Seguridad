@@ -126,7 +126,8 @@ class MergePlanTest {
         )
         repeat(20_000) {
             val url = "https://" + (0 until random.nextInt(10)).joinToString("") { parts[random.nextInt(parts.size)] }
-            val browser = parseLink(url).host?.removePrefix("www.")
+            // A host that shows nothing counts as none (ruling R55).
+            val browser = parseLink(url).host?.removePrefix("www.")?.takeUnless { compareKey(it).isEmpty() }
             // Without a host: the text as the browser reads it (ruling R54), with only its scheme in lower case (ruling R51;
             // here it is already).
             assertEquals(url, browser?.ifEmpty { null } ?: asBrowserReadsIt(url), urlHost(url))
@@ -319,10 +320,42 @@ class MergePlanTest {
     }
 
     /**
+     * Ruling R55 (re-review I-2): one notion of «no URL», the browser's: a URL that is only controls, spaces, tabs and line
+     * breaks is no URL for the duplicate rule and for «Reemplazar», which keeps the vault's URL.
+     */
+    @Test fun aUrlOfOnlyControlsIsNoUrlForReplaceToo() {
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", password = "la-buena")
+        for (url in listOf("\u0001", "\u0000\u001F", "\t\u0001\n", " ")) {
+            val p = plan(read(login(0, "Banco", user = "ana", url = url, password = "otra")), listOf(bank))
+            assertEquals(url, listOf("b"), p.duplicates.map { it.existingId })
+            assertEquals(url, "ana", duplicateSubline(p.duplicates.single().item.entry))
+            assertEquals(url, "https://banco.es/", mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId).single { it.id == "b" }.url)
+        }
+    }
+
+    /**
+     * Ruling R55, the other fields the duplicate rule compares: a title or a user that shows nothing (only controls or
+     * what draws nothing) keys as empty, so «Reemplazar» keeps the vault's, as it keeps it for a blank one.
+     */
+    @Test fun aTitleOrUserThatShowsNothingKeepsTheVaults() {
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "", url = "https://banco.es/")
+        for (user in listOf("\u0001", "\u200B", "\u0000\u2060")) {
+            val p = plan(read(login(0, "Banco", user = user, url = "https://banco.es/", password = "otra")), listOf(bank))
+            assertEquals(user, listOf("b"), p.duplicates.map { it.existingId })
+            assertEquals(user, "", mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId).single { it.id == "b" }.username)
+        }
+        val untitled = saved("u", EntryType.LOGIN, "", user = "ana")
+        for (title in listOf("\u0001", "\u200B\u00AD")) {
+            assertEquals(title, "", replaceWith(untitled, importedEntry(EntryType.LOGIN, title, username = "ana", password = "otra"), now).title)
+        }
+    }
+
+    /**
      * Rulings R53 and R54, as a property over 20 000 random links built from schemes, «:», «//», «@», digits, «.»,
      * tabs, line breaks, C0 controls and spaces: nothing throws; a link whose scheme, once cleaned as a browser cleans
      * it, is not https (and is not a host such as «banco.es» or `localhost`) never gets an https key; and a row never
-     * shows the user info that a sentinel «:Zq…» before the last «@» stands for.
+     * shows the user info that a sentinel «:Zq…» before the last «@» stands for. Ruling R55: it also runs «Reemplazar»
+     * end to end against a vault entry with `https://banco.es/` and one without a URL.
      */
     @Test fun noCleanedSchemeButHttpsGivesAnHttpsKeyAndNoRowShowsTheUserInfo() {
         val random = Random(20261109L)
@@ -337,6 +370,20 @@ class MergePlanTest {
             val cleaned = s.filterNot { it == '\t' || it == '\n' || it == '\r' }.trim { it <= ' ' || it.isWhitespace() }
             val key = urlKey(s)
             urlHost(s)
+            // Ruling R55, end to end: «Reemplazar» changes the vault's https URL only for a text that keys as https on the
+            // same host, and gives a URL-less entry only an https URL, the one its row shows.
+            for (vaultUrl in listOf("https://banco.es/", "")) {
+                val vault = saved("v", EntryType.LOGIN, "Banco", user = "ana", url = vaultUrl, password = "la-buena")
+                val p = plan(read(login(0, "Banco", user = "ana", url = s, password = "otra")), listOf(vault))
+                val after = mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(vault), now, newId).single { it.id == "v" }.url
+                if (after == vaultUrl) continue
+                val row = duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = after))
+                if (vaultUrl.isEmpty()) {
+                    assertTrue("«$s» → «$after», row «$row»", urlKey(after).orEmpty().startsWith("hhttps://") && row == plainReportText("ana · " + urlHost(after)))
+                } else {
+                    assertEquals("«$s» replaced «$vaultUrl» with «$after»", "hhttps://banco.es", urlKey(after))
+                }
+            }
             val scheme = app.seguridad.tools.qr.schemeOf(cleaned)
             if (scheme != null && scheme != "https" && '.' !in scheme && scheme != "localhost") {
                 assertFalse("«$s» → $key", key.orEmpty().startsWith("hhttps://"))
