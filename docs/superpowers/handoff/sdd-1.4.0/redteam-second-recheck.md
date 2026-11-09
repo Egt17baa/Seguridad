@@ -113,6 +113,8 @@ No hay rechazos de más: «¡Q7x€zø#Kp2m», «ø€¡ vTq9#Lm2!Rz», «R7#q¡
 
 Las letras de otras escrituras siguen fuera en cualquier caso: R9 ya las acepta como parecidas.
 
+**Después (R50, 9-11-2026):** RT-11 pasa a la lista del dueño para la 1.4.1, y su prueba `rt11_otherLeetAndLookAlikeLettersAreRefused` sale de `RedTeamRecheckTest` para que la puerta siga sin omitidos; las once contraseñas de arriba son su registro.
+
 ## RT-6 (R43): no se sostiene del todo
 
 **Lo que sí se sostiene**, con evidencia en `resistsInvisiblesAroundTheRt6Fix` (`RedTeamRecheckTest.kt:194`) y `resistsEmojiThatMustStillShow` (`:215`):

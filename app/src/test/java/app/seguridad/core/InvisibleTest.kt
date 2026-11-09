@@ -9,9 +9,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** RT-6 (ruling R43): one list of what draws nothing, for what is shown, what is compared and the names of files. */
+/** RT-6, RT-9 and RT-13 (rulings R43 and R49): one list of what draws nothing, for what is shown, what is compared and the names of files. */
 class InvisibleTest {
     private fun s(cp: Int) = String(Character.toChars(cp))
+
+    private fun cpName(cp: Int) = "U+%04X".format(cp)
+
+    /** Prepended_Concatenation_Mark of Unicode 15.0 (PropList.txt): Cf, and drawn. */
+    private val prependedMarks = (0x0600..0x0605) + listOf(0x06DD, 0x070F, 0x0890, 0x0891, 0x08E2, 0x110BD, 0x110CD)
 
     @Test fun theCodePointsOfRt6DrawNothing() {
         for (cp in listOf(0x2800, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x180F, 0xFE00, 0xFE0E, 0xFE0F, 0xE0100, 0xE01EF)) {
@@ -27,6 +32,71 @@ class InvisibleTest {
         for (t in listOf("a", "Z", "0", " ", " ", "　", "ñ", "́", "⃣", "€", "¡", "😀", "❤", "文", "а", "\u0000", " ", "￼")) {
             assertFalse("«$t»", drawsNothing(t.codePointAt(0)))
         }
+        // RT-13 (ruling R49): the prepended concatenation marks are Cf but have a glyph, so they are not in the list.
+        for (cp in prependedMarks) assertFalse(cpName(cp), drawsNothing(cp))
+    }
+
+    /** RT-9 (ruling R49): the unassigned default ignorables draw nothing (HarfBuzz hides them), as the names drop them. */
+    @Test fun theUnassignedDefaultIgnorablesDrawNothing() {
+        for (cp in listOf(0x2065) + (0xFFF0..0xFFF8)) {
+            assertTrue(cpName(cp), drawsNothing(cp))
+            assertEquals(cpName(cp), "Banco", plainReportText("Ban${s(cp)}co"))
+            assertEquals(cpName(cp), "Banco", compareKey("Banco${s(cp)}"))
+        }
+        // The Egyptian hieroglyph format controls are Cf without a glyph of their own, and stay in the list.
+        for (cp in 0x13430..0x1343F) assertTrue(cpName(cp), drawsNothing(cp))
+    }
+
+    /** RT-13 (ruling R49): a prepended concatenation mark is shown, compared and kept in a name, as it draws. */
+    @Test fun thePrependedConcatenationMarksAreShown() {
+        for (cp in prependedMarks) {
+            val c = s(cp)
+            assertEquals(cpName(cp), "Banco ${c}1", plainReportText("Banco ${c}1"))
+            assertTrue(cpName(cp), c in compareKey("Banco ${c}1"))
+            assertTrue(cpName(cp), compareKey("Banco ${c}1") != compareKey("Banco 1"))
+            assertEquals(cpName(cp), "a${c}b", safeFileName("a${c}b"))
+        }
+    }
+
+    /**
+     * Ruling R49: every format character of the JDK's Unicode (Cf) is in the list or is a prepended concatenation mark,
+     * and the list differs from the one before R49 (Cf, plane 14 and the fixed ranges of RT-6) by exactly U+2065 and
+     * U+FFF0–U+FFF8 more and the prepended marks fewer.
+     */
+    @Test fun theListIsTheDefaultIgnorablesWithTheDecidedInvisibles() {
+        val before = { cp: Int ->
+            Character.getType(cp) == Character.FORMAT.toInt() || cp in 0xE0000..0xE0FFF ||
+                cp == 0x034F || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 ||
+                cp == 0x17B4 || cp == 0x17B5 || cp in 0x180B..0x180F || cp == 0x2800 || cp in 0xFE00..0xFE0F || cp in 0xFFF9..0xFFFB
+        }
+        val gained = mutableListOf<Int>()
+        val lost = mutableListOf<Int>()
+        val formatOutside = mutableListOf<Int>()
+        for (cp in 0..0x10FFFF) {
+            if (drawsNothing(cp) && !before(cp)) gained += cp
+            if (!drawsNothing(cp) && before(cp)) lost += cp
+            if (Character.getType(cp) == Character.FORMAT.toInt() && !drawsNothing(cp) && cp !in prependedMarks) formatOutside += cp
+        }
+        assertEquals((listOf(0x2065) + (0xFFF0..0xFFF8)).map(::cpName), gained.map(::cpName))
+        assertEquals(prependedMarks.sorted().map(::cpName), lost.map(::cpName))
+        assertTrue(formatOutside.joinToString { cpName(it) }, formatOutside.isEmpty())
+    }
+
+    /**
+     * Ruling R49, the other direction: whatever a file name drops is dropped from what is shown and from the key too,
+     * except what each shows on purpose: a control and U+2028/U+2029 (a space), private use and the noncharacters
+     * (drawn as a box).
+     */
+    @Test fun whatANameDropsIsDroppedFromWhatIsShownAndCompared() {
+        val shown = mutableListOf<Int>()
+        for (cp in 0..0x10FFFF) {
+            if (cp in 0xD800..0xDFFF || !isHiddenInName(cp) && cp != ZERO_WIDTH_JOINER && cp != EMOJI_SELECTOR) continue
+            if (Character.isISOControl(cp) || cp == 0x2028 || cp == 0x2029) continue
+            if (Character.getType(cp) == Character.PRIVATE_USE.toInt() || cp in 0xFDD0..0xFDEF || (cp and 0xFFFE) == 0xFFFE) continue
+            val c = s(cp)
+            if (plainReportText("a${c}b") != "ab" || compareKey("Ban${c}co") != "Banco" || !drawsNothing(cp)) shown += cp
+        }
+        assertTrue("dropped from names, shown or compared: " + shown.take(20).joinToString { cpName(it) }, shown.isEmpty())
     }
 
     @Test fun whatIsShownWhatIsComparedAndTheNamesOfFilesAgree() {

@@ -27,7 +27,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 
@@ -41,8 +40,9 @@ private fun str(cp: Int) = String(Character.toChars(cp))
 /*
  * Re-check of the second attack's fixes (owner's decision (f)), on bf04f45: a fresh red-team agent tries to get around
  * the fixes of RT-4 to RT-7 (rulings R41 to R44) and the QR Inspector's own list. Same naming as before: rtN_… asserts
- * the SAFE behaviour and fails while RT-N is open (@Ignore'd only for the gate); resists… passes.
- * Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
+ * the SAFE behaviour and failed while RT-N was open (@Ignore'd only for the gate then); resists… passes. RT-8, RT-9,
+ * RT-10, RT-12 and RT-13 are fixed (rulings R45 to R49 and R51). RT-11's PoC left this class (ruling R50: the owner
+ * decides for 1.4.1; its passwords stay in the report). Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
  */
 class RedTeamRecheckTest {
     private val known by lazy { masterWords(MASTER_WORD_LISTS.map(::recheckAssetLines)) }
@@ -115,7 +115,6 @@ class RedTeamRecheckTest {
      * to the URL-less one (`g.byHost[host] ?: g.hostless`). Safe behaviour (as rt4_): not a duplicate, or the row shows
      * the scheme that comes in.
      */
-    @Ignore("RT-8: open (Low), a vault entry without a URL takes a URL of any scheme and the row shows only the host")
     @Test fun rt8_aUrlOfAnySchemeDoesNotEnterSilentlyAnEntryWithoutUrl() {
         val bare = vaultLogin("")
         val both = listOf(vaultLogin("https://banco.es/"), bare.copy(id = "v2"))
@@ -141,7 +140,6 @@ class RedTeamRecheckTest {
      * does not show the text that comes in. Safe behaviour: the whole-text key keeps the case after the scheme, and the
      * row shows what comes in.
      */
-    @Ignore("RT-12: open (Info), a URL without a host is compared and shown in lower case")
     @Test fun rt12_aUrlWithoutAHostKeepsItsCase() {
         val vault = listOf(vaultLogin("data:text/plain;base64,SGVsbG8="))
         val incoming = "data:text/plain;base64,sGVSbg8="
@@ -167,23 +165,6 @@ class RedTeamRecheckTest {
         for (c in listOf("¡Q7x€zø#Kp2m", "ø€¡ vTq9#Lm2!Rz", "R7#q¡Xv2€Lm9\$Tzø", "cactus-tímido-lunes-vapor-oruga")) {
             assertNull("«$c»", newMasterProblem(c, known))
         }
-    }
-
-    /**
-     * RT-11 (Info). The leet reading still has gaps that a dictionary with rules tries, each above the estimate and
-     * accepted as a new master: other one-character substitutions in the usual leet tables («(», «<», «©» for c; «§» for
-     * s; «°» for o; «#» for h), a letter of another script or a styled letter that NFKC does not fold («ı» dotless i, small
-     * capitals «ᴘʀɪɴᴄᴇss», a Cyrillic «а», the negative squared letters «🅿🅰🆂🆂🆆🅾🆁🅳», which are symbols, so the core
-     * has no letters), and «1» read once as «i» and once as «l» in the same word (documented limit of
-     * `isKnownWordInLeet`, MasterPolicy.kt:230-231). Safe behaviour: refused.
-     */
-    @Ignore("RT-11: open (Info), other leet substitutions and styled or foreign look-alike letters are accepted")
-    @Test fun rt11_otherLeetAndLookAlikeLettersAreRefused() {
-        val accepted = listOf(
-            "Pr1n(3ss2024!", "Pr1n<3ss2024!", "Pr1n©3ss2024", "P4§§w0rd2024", "P4ssw°rd2024!", "#3ll0!2024!!",
-            "Prıncess2024!", "ᴘʀɪɴᴄᴇss2024!", "Pаssword2024!", "🅿🅰🆂🆂🆆🅾🆁🅳2024", "M1|l1on2024!",
-        ).filter { newMasterProblem(it, known) == null }
-        assertTrue("accepted: " + accepted.joinToString { "«$it» (%.0f bits)".format(estimateBits(it)) }, accepted.isEmpty())
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -232,7 +213,6 @@ class RedTeamRecheckTest {
      * names of files drop them (`isHiddenInName`, crypto/FileCrypto.kt:175-179, through the card list,
      * crypto/pk/Card.kt:243-244), what is shown does not.
      */
-    @Ignore("RT-9: open (Low), U+2065 and U+FFF0–U+FFF8 draw nothing but are shown and kept apart; names drop them")
     @Test fun rt9_unassignedDefaultIgnorablesAreNotShownNorKeptApart() {
         val missed = (listOf(0x2065) + (0xFFF0..0xFFF8)).filter { cp ->
             plainReportText("Banco${str(cp)}") != "Banco" || compareKey("Ban${str(cp)}co") != compareKey("Banco")
@@ -255,7 +235,6 @@ class RedTeamRecheckTest {
      * and two titles that look different compare equal (a false duplicate, the user chooses). Safe behaviour: what draws
      * is shown.
      */
-    @Ignore("RT-13: open (Info), format characters that draw (U+0600–U+0605, U+06DD…) are dropped from what is shown")
     @Test fun rt13_formatCharactersThatDrawAreShown() {
         val dropped = listOf(0x0600, 0x0601, 0x0605, 0x06DD, 0x070F, 0x08E2, 0x110BD).filter { cp ->
             plainReportText("Banco ${str(cp)}1") == "Banco 1"
@@ -313,7 +292,6 @@ class RedTeamRecheckTest {
      * shown without a mark, with no «caracteres ocultos» alert and no notice when copied (`QrView.kt:115`, `:203`, `:206`):
      * «Casa» + U+2800 passes for the network «Casa». Safe behaviour: marked.
      */
-    @Ignore("RT-10: open (Low), the QR Inspector does not mark U+2800, U+034F, U+17B4/5, U+180B–U+180F and other invisibles")
     @Test fun rt10_theQrInspectorMarksEverythingThatDrawsNothing() {
         val cps = listOf(0x034F, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180F, 0x2800, 0x2065, 0x206A, 0x206F, 0xFFF0,
             0xFFF9, 0xFFFA, 0xFFFB, 0x1BCA0, 0x1D173, 0xE0080, 0xE01F0)

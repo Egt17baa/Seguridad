@@ -155,6 +155,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 8. **Las respuestas de Play Console** y subir el AAB `Clavero-google-play-aab` de la ejecución de la etiqueta (de la 1.3.1, la #94; de la 1.4.0, la de `v1.4.0`), si publica en Google Play.
 9. **Una copia propia de la clave de subida y de sus contraseñas** (el `.jks`), fuera del móvil y en un gestor de contraseñas, si no la tiene: la CI firma con los secretos de GitHub, que no se pueden leer. Si se perdiera, `docs/PUBLICAR.md` §4 explica cómo cambiarla.
 10. **Las pruebas en el móvil que siguen pendientes en el informe de la 1.3.0 (§4):** `adb`, TalkBack, la ventana flotante del sistema, el teclado del fabricante y la colaboración con el PC.
+11. **1.4.1, la regla de la maestra nueva (RT-11, R50):** decidir si lee más sustituciones (`(`, `<`, `©`, `§`, `°`, `#`) y letras parecidas («ı», versalitas). «(», «<» y «#» están en el Generador, así que habría que volver a medir su tasa de rechazo. Las contraseñas de prueba están en `docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md`, RT-11.
 
 ## Reglas del proyecto
 

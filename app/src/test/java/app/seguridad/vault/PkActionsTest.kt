@@ -276,7 +276,7 @@ class PkActionsTest {
     @Test fun elNombreRecibidoQuitaLoMismoQueSafeFileName() {
         // CIFRADO-2: una sola lista. Lo que safeFileName quita, sanitizeReceivedName también (y al revés).
         for (cp in listOf(0x3164, 0x115F, 0x1160, 0xFFA0, 0x034F, 0x17B4, 0x17B5, 0xFE00, 0xFE0E, 0xE0100, 0xE000, 0xFDD0,
-            0xFFFE, 0x1FFFE, 0xE0001, 0x200C, 0x0600, 0x180E)) {
+            0xFFFE, 0x1FFFE, 0xE0001, 0x200C, 0x1BCA0, 0x180E, 0x2065, 0xFFF0)) {
             val c = String(Character.toChars(cp))
             assertEquals("cp=${cp.toString(16)}", "ab.txt", sanitizeReceivedName("a${c}b$c.txt"))
             assertEquals("cp=${cp.toString(16)}", "archivo-recibido", sanitizeReceivedName(c))
@@ -289,6 +289,9 @@ class PkActionsTest {
             assertEquals("cp=${cp.toString(16)}", app.seguridad.crypto.safeFileName(name), sanitizeReceivedName(name))
         }
         assertEquals("ab.txt", sanitizeReceivedName("a\uD800b.txt"))
+        // A prepended concatenation mark (U+0600, U+06DD…) has a glyph: kept, as lists show it (ruling R49).
+        assertEquals("a\u0600b.txt", sanitizeReceivedName("a\u0600b.txt"))
+        assertEquals("a\u06DDb.txt", app.seguridad.crypto.safeFileName("a\u06DDb.txt"))
     }
 
     @Test fun unNombreNuncaEsUnaRuta() {

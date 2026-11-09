@@ -380,6 +380,26 @@ class QrContentTest {
         assertTrue(classifyQr("www.") is QrKind.PlainText)
     }
 
+    /**
+     * RT-10 (rulings R46 and R49): the Inspector marks everything the shared list says draws nothing
+     * (`core/Invisible.kt`, `drawsNothing`), the whole of Unicode, after an ASCII letter (no emoji exception there).
+     */
+    @Test
+    fun visibleTextMarksEverythingThatDrawsNothing() {
+        val unmarked = mutableListOf<Int>()
+        for (cp in 0..0x10FFFF) {
+            if (cp in 0xD800..0xDFFF || !app.seguridad.core.drawsNothing(cp)) continue
+            val s = String(Character.toChars(cp))
+            if (visibleText("a${s}b") != "a\u27E8U+%04X\u27E9b".format(cp) || !hasHiddenChars("a${s}b") || hiddenMarks("a${s}b").size != 1) unmarked += cp
+        }
+        assertTrue("unmarked: " + unmarked.take(20).joinToString { "U+%04X".format(it) }, unmarked.isEmpty())
+        // The emoji exceptions still come first: «❤️», a keycap, and U+FE0E after a symbol.
+        for (t in listOf("Casa ❤️", "1️⃣", "#️⃣", "☎︎")) {
+            assertEquals(t, t, visibleText(t))
+            assertFalse(t, hasHiddenChars(t))
+        }
+    }
+
     @Test
     fun visibleTextMarksTheOtherInvisibleCharacters() {
         // Each of these is in an explicit list or range of isHiddenCodePoint (Visible.kt), not found through
@@ -390,8 +410,8 @@ class QrContentTest {
             assertEquals("\u27E8U+%04X\u27E9".format(cp), visibleText("a${s}b").removePrefix("a").removeSuffix("b"))
             assertTrue(cp.toString(), hasHiddenChars(s))
         }
-        // Just outside the ranges.
-        for (cp in listOf(0x00AC, 0x00AE, 0x2065, 0xFE10, 0xE00FF, 0xE01F0)) {
+        // Just outside: visible, so not marked (a prepended concatenation mark draws, ruling R49).
+        for (cp in listOf(0x00AC, 0x00AE, 0xFE10, 0x2801, 0x0600, 0x06DD, 0x110BD)) {
             val s = String(Character.toChars(cp))
             assertEquals(cp.toString(), s, visibleText(s))
         }
