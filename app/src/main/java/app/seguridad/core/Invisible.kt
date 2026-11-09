@@ -58,6 +58,16 @@ private fun isDefaultIgnorable(cp: Int): Boolean {
 }
 
 /**
+ * The prepended concatenation marks of Unicode 15.0 (Prepended_Concatenation_Mark, PropList.txt; the same in 16.0):
+ * format characters (Cf) that are drawn, spanning the digits or the letters after them (U+0600 ARABIC NUMBER SIGN,
+ * U+06DD ARABIC END OF AYAH…). So [drawsNothing] leaves them out and the lists show them (ruling R49, RT-13), while a
+ * file name still drops them (`isHiddenInName`, ruling R52, CIFRADO-2): they reshape how the number after them reads.
+ * The one list of them.
+ */
+internal val VISIBLE_PREPENDED_MARKS: Set<Int> =
+    ((0x0600..0x0605) + listOf(0x06DD, 0x070F, 0x0890, 0x0891, 0x08E2, 0x110BD, 0x110CD)).toSet()
+
+/**
  * Whether [cp] draws nothing, whatever is around it (ruling R49):
  * - Unicode's Default_Ignorable_Code_Point ([DEFAULT_IGNORABLE]): U+00AD, the combining grapheme joiner U+034F, U+061C,
  *   the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the Khmer inherent vowels U+17B4 and U+17B5, the Mongolian
@@ -68,14 +78,16 @@ private fun isDefaultIgnorable(cp: Int): Boolean {
  * - the invisibles already decided that are not default ignorable: the Braille pattern blank U+2800, a symbol drawn as
  *   an empty cell; the interlinear annotation marks U+FFF9–U+FFFB, which can hide the text of an annotation; and the
  *   other format characters (Cf) without a glyph, the Egyptian hieroglyph format controls U+13430–U+1343F.
- * Not in it: the prepended concatenation marks U+0600–U+0605, U+06DD, U+070F, U+0890, U+0891, U+08E2, U+110BD and
- * U+110CD, which are Cf but are drawn (Unicode leaves them out of the default ignorables), so they are shown (RT-13).
+ * Not in it: the prepended concatenation marks ([VISIBLE_PREPENDED_MARKS]: U+0600–U+0605, U+06DD, U+070F, U+0890,
+ * U+0891, U+08E2, U+110BD and U+110CD), which are Cf but are drawn (Unicode leaves them out of the default ignorables),
+ * so they are shown and compared (RT-13); a file name drops them all the same (ruling R52).
  * U+FE0F after an emoji is its normal look: the callers that keep it there ask [emojiSelectorShows]; the zero-width
  * joiner's own rule is each caller's. It does not cover look-alike letters of other scripts, nor the spaces (they are
  * visible as a gap), nor the controls (Cc), which each caller already turns into a space or drops.
  */
 internal fun drawsNothing(cp: Int): Boolean =
-    cp >= 0x00AD && (isDefaultIgnorable(cp) || cp == 0x2800) || cp in 0xFFF9..0xFFFB || cp in 0x13430..0x1343F
+    (cp >= 0x00AD && (isDefaultIgnorable(cp) || cp == 0x2800) || cp in 0xFFF9..0xFFFB || cp in 0x13430..0x1343F) &&
+        cp !in VISIBLE_PREPENDED_MARKS
 
 /** A code point a kept zero-width joiner may touch: not ASCII, not a space, not another joiner (an emoji, in practice). */
 internal fun canJoin(cp: Int) =

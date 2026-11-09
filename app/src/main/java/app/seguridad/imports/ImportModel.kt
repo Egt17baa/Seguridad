@@ -102,7 +102,7 @@ const val MAX_COMBINING_MARKS = 3
  *   characters and the supplementary variation selectors U+E0100–U+E01EF); and the Braille blank U+2800, the
  *   interlinear annotations U+FFF9–U+FFFB and the Egyptian hieroglyph format controls U+13430–U+1343F. The prepended
  *   concatenation marks (U+0600–U+0605, U+06DD, U+070F, U+0890, U+0891, U+08E2, U+110BD, U+110CD) are format
- *   characters that are drawn, so they stay (RT-13). U+200D (the zero-width joiner) goes: an emoji sequence such as a
+ *   characters that are drawn, so they stay (RT-13; a file name still drops them, ruling R52). U+200D (the zero-width joiner) goes: an emoji sequence such as a
  *   family shows as its separate emoji, which is accepted (a file name keeps it between two emoji). U+FE0F stays only
  *   where the names of files keep it ([emojiSelectorShows]: after a non-ASCII code point that is not a space, an emoji
  *   in practice, or in a keycap, «1️⃣»), so «❤️» keeps its emoji look; [compareKey] drops it anyway;

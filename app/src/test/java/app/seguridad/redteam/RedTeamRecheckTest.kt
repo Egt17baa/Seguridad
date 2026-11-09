@@ -1,5 +1,6 @@
 package app.seguridad.redteam
 
+import app.seguridad.core.VISIBLE_PREPENDED_MARKS
 import app.seguridad.core.drawsNothing
 import app.seguridad.crypto.isHiddenInName
 import app.seguridad.crypto.safeFileName
@@ -222,7 +223,9 @@ class RedTeamRecheckTest {
         val namesOnly = (0..0x10FFFF).filter { cp ->
             cp !in 0xD800..0xDFFF && isHiddenInName(cp) && !drawsNothing(cp) && !Character.isISOControl(cp) &&
                 Character.getType(cp) != Character.PRIVATE_USE.toInt() && !(cp in 0xFDD0..0xFDEF || (cp and 0xFFFE) == 0xFFFE) &&
-                cp != 0x2028 && cp != 0x2029 && cp != 0x200D && cp != 0xFE0F
+                cp != 0x2028 && cp != 0x2029 && cp != 0x200D && cp != 0xFE0F &&
+                // Ruling R52: a name drops the prepended concatenation marks, which the lists show (RT-13).
+                cp !in VISIBLE_PREPENDED_MARKS
         }
         assertTrue("dropped from names, shown in lists: " + namesOnly.joinToString { cpName(it) }, namesOnly.isEmpty())
     }
