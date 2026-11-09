@@ -1,6 +1,6 @@
 # Flujos de Maestro de Clavero 1.4.0
 
-Pruebas de interfaz para las «Pruebas de la 1.4.0» del README del repositorio (P-1 a P-26; las seis últimas, del ataque, son manuales), según la decisión del dueño (g) del 8-11-2026: se ejecutan en tu ordenador con el plugin «Android qa libre» (Mobile MCP y Maestro), en el emulador de Android Studio o con el móvil por USB. En el contenedor de la nube no hay emulador, así que estos flujos se han escrito a partir de los textos del código y **no se han ejecutado todavía**: la primera vez, alguno puede necesitar un ajuste (ver «Lo que puede fallar la primera vez»).
+Pruebas de interfaz para las «Pruebas de la 1.4.0» del README del repositorio (P-1 a P-27; las siete últimas, de los ataques, son manuales), según la decisión del dueño (g) del 8-11-2026: se ejecutan en tu ordenador con el plugin «Android qa libre» (Mobile MCP y Maestro), en el emulador de Android Studio o con el móvil por USB. En el contenedor de la nube no hay emulador, así que estos flujos se han escrito a partir de los textos del código y **no se han ejecutado todavía**: la primera vez, alguno puede necesitar un ajuste (ver «Lo que puede fallar la primera vez»).
 
 ## Carpetas
 
@@ -85,6 +85,7 @@ Con el plugin: la skill `android-tests` (`/android-qa-libre:android-tests`) comp
 | P-24, el portapapeles en Android 13 o posterior | Manual | Es lo que enseña el teclado, fuera de Clavero. |
 | P-25, la muerte del proceso a mitad | Manual | `adb shell am force-stop` en el momento justo y `adb shell run-as … ls`. |
 | P-26, las copias del sistema | Manual | `adb backup` y la transferencia a otro móvil. |
+| P-27, lo que no se ve y los enlaces raros | Manual | Un CSV de prueba con U+2800, U+2065, U+FFF0 y «۝» en los títulos, un QR de Wi-Fi con «Casa» + U+2800, y pegar `ht<TAB>tp:@banco.es` en la barra de Chrome y del navegador de Honor. |
 
 Los nombres de otras apps de esta tabla son marcas de sus titulares. Clavero no tiene relación con ellos.
 

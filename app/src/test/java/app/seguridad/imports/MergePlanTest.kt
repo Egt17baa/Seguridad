@@ -2,6 +2,7 @@ package app.seguridad.imports
 
 import app.seguridad.core.appJson
 import app.seguridad.crypto.TotpSecret
+import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.vault.AttachmentRef
 import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
@@ -18,6 +19,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneOffset
+import java.util.Locale
 import java.util.Random
 
 /** 1.4.0, Task 8: the merge plan (spec «El plan de fusión») and the merged list it gives. */
@@ -125,8 +127,9 @@ class MergePlanTest {
         repeat(20_000) {
             val url = "https://" + (0 until random.nextInt(10)).joinToString("") { parts[random.nextInt(parts.size)] }
             val browser = parseLink(url).host?.removePrefix("www.")
-            // Without a host: the text trimmed, with only its scheme in lower case (ruling R51; here it is already).
-            assertEquals(url, browser?.ifEmpty { null } ?: url.trim(), urlHost(url))
+            // Without a host: the text as the browser reads it (ruling R54), with only its scheme in lower case (ruling R51;
+            // here it is already).
+            assertEquals(url, browser?.ifEmpty { null } ?: asBrowserReadsIt(url), urlHost(url))
         }
     }
 
@@ -265,6 +268,89 @@ class MergePlanTest {
         val p = plan(read(login(0, "Banco", user = "ana", url = "https://banco.es"), login(1, "Banco", user = "ana", url = "http://banco.es")), listOf(bare))
         assertEquals(listOf(0), p.duplicates.map { it.item.index })
         assertEquals(listOf(1), p.newItems.map { it.index })
+    }
+
+    /**
+     * Ruling R53 (re-review I-1): «word:digits» is a host and a port only when the word has a «.», is `localhost` or is a
+     * bracketed IPv6 literal; any other word is a scheme, so `javascript:1/alert(1)` is never read as https.
+     */
+    @Test fun aWordAndDigitsIsAHostAndPortOnlyWhenTheWordLooksLikeAHost() {
+        assertEquals("tjavascript:1/alert(1)", urlKey("javascript:1/alert(1)"))
+        assertEquals("tdata:1/x", urlKey("data:1/x"))
+        assertEquals("tintent:1/#Intent;package=com.example.evil;end", urlKey("intent:1/#Intent;package=com.example.evil;end"))
+        assertEquals("tintranet:8080", urlKey("intranet:8080"))
+        assertEquals("hhttps://banco.es", urlKey("banco.es:8443/x"))
+        assertEquals("hhttps://localhost", urlKey("LOCALHOST:8080"))
+        assertEquals("hhttps://[::1]", urlKey("[::1]:8080/x"))
+        val bare = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "", password = "la-buena")
+        for (url in listOf("javascript:1/alert(1)", "javascript:1/%0Aalert(1)", "data:1/x", "intent:1/#Intent;package=com.example.evil;end")) {
+            val p = plan(read(login(0, "Banco", user = "ana", url = url, password = "otra")), listOf(bare))
+            assertTrue(url, p.duplicates.isEmpty())
+            assertEquals(url, bare, mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bare), now, newId).single { it.id == "b" })
+        }
+        assertEquals("ana · javascript:1/alert(1)", duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = "javascript:1/alert(1)")))
+    }
+
+    /** Re-review N-1: without a host, the row hides everything up to the last «@» of the whole text. */
+    @Test fun withoutAHostTheRowHidesUpToTheLastAt() {
+        val row = { url: String -> duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = url)) }
+        for (url in listOf("ana:cl/ave@banco.es", "ana:cla?ve@banco.es", "ana:clave#1@banco.es", "ana:clave@banco.es")) {
+            assertEquals(url, "ana · ana:…@banco.es", row(url))
+        }
+        assertEquals("ana · mailto:…@d.es", row("mailto:a@b.es?cc=c@d.es"))
+    }
+
+    /**
+     * Ruling R54 (RT-14): the text is read as a browser reads it before the scheme is looked for (WHATWG URL: tabs and
+     * line breaks go, C0 controls and spaces at the ends go), so a tab inside the scheme or a control in front of it
+     * cannot hide `http:` or `javascript:`.
+     */
+    @Test fun theSchemeIsReadAfterTheBrowsersCleaning() {
+        assertEquals("hhttp://banco.es", urlKey("ht\ttp:@banco.es"))
+        assertEquals("hhttp://banco.es", urlKey("\u0001http:@banco.es"))
+        assertEquals("hhttp://banco.es", urlKey("HT\nTP:x@banco.es/login"))
+        assertEquals("tjavascript:alert(1)<!--@banco.es", urlKey("java\tscript:alert(1)<!--@banco.es"))
+        assertEquals("hhttps://banco.es", urlKey("ht\ttps://banco.es"))
+        assertEquals("tdata:text/plain;base64,SGVsbG8=", urlKey("\u0001da\tta:text/plain;base64,SGVs\r\nbG8= \u0002"))
+        val row = { url: String -> duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "ana", url = url)) }
+        assertEquals("ana · http://banco.es", row("ht\ttp:@banco.es"))
+        assertEquals("ana · banco.es", row("ht\ttps://banco.es"))
+        assertEquals("ana · javascript:…@banco.es", row("\u0001javascript:alert(1)<!--@banco.es"))
+    }
+
+    /**
+     * Rulings R53 and R54, as a property over 20 000 random links built from schemes, «:», «//», «@», digits, «.»,
+     * tabs, line breaks, C0 controls and spaces: nothing throws; a link whose scheme, once cleaned as a browser cleans
+     * it, is not https (and is not a host such as «banco.es» or `localhost`) never gets an https key; and a row never
+     * shows the user info that a sentinel «:Zq…» before the last «@» stands for.
+     */
+    @Test fun noCleanedSchemeButHttpsGivesAnHttpsKeyAndNoRowShowsTheUserInfo() {
+        val random = Random(20261109L)
+        val parts = listOf(
+            "https", "http", "HTTPS", "javascript", "data", "intent", "mailto", "ana", "banco.es", "localhost", "x", ":", "//",
+            "@", "1", "80", ".", "\t", "\n", "\r", "\u0001", "\u001F", " ", "/", "banco", "es",
+        )
+        val secretParts = listOf(":", ".", "1", "ana", "/", "?", "#", "\\", "es")
+        fun pick(list: List<String>, n: Int) = (0 until n).joinToString("") { list[random.nextInt(list.size)] }
+        repeat(20_000) {
+            val s = pick(parts, random.nextInt(9))
+            val cleaned = s.filterNot { it == '\t' || it == '\n' || it == '\r' }.trim { it <= ' ' || it.isWhitespace() }
+            val key = urlKey(s)
+            urlHost(s)
+            val scheme = app.seguridad.tools.qr.schemeOf(cleaned)
+            if (scheme != null && scheme != "https" && '.' !in scheme && scheme != "localhost") {
+                assertFalse("«$s» → $key", key.orEmpty().startsWith("hhttps://"))
+            }
+            // A sentinel user info: «:Zq» and parts that end no authority, before the last «@».
+            val secret = ":Zq" + pick(secretParts.filter { it.none { c -> c in "/?#\\" } }, random.nextInt(4))
+            val withSecret = s + secret + "@" + pick(parts.filter { '@' !in it }, random.nextInt(5))
+            val row = duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "", url = withSecret))
+            assertFalse("«$withSecret» → «$row»", "zq" in row.lowercase(Locale.ROOT))
+            // And a secret with «/», «?», «#» or «\» in it, after a scheme that is not a web one (no host): hidden too.
+            val opaque = "ana" + secret + pick(secretParts, random.nextInt(4)) + "@banco.es"
+            val opaqueRow = duplicateSubline(importedEntry(EntryType.LOGIN, "Banco", username = "", url = opaque))
+            assertFalse("«$opaque» → «$opaqueRow»", "zq" in opaqueRow.lowercase(Locale.ROOT))
+        }
     }
 
     // ---- RT-2 (ruling R34): what looks the same is a duplicate ----

@@ -31,7 +31,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 
@@ -46,7 +45,7 @@ private fun str(cp: Int) = String(Character.toChars(cp))
  * Re-check of the second attack's fixes (owner's decision (f)), on bf04f45: a fresh red-team agent tries to get around
  * the fixes of RT-4 to RT-7 (rulings R41 to R44) and the QR Inspector's own list. Same naming as before: rtN_… asserts
  * the SAFE behaviour and failed while RT-N was open (@Ignore'd only for the gate then); resists… passes. RT-8, RT-9,
- * RT-10, RT-12 and RT-13 are fixed (rulings R45 to R49 and R51). RT-11's PoC left this class (ruling R50: the owner
+ * RT-10, RT-12 and RT-13 are fixed (rulings R45 to R49 and R51), and RT-14 of the third check (rulings R53 and R54). RT-11's PoC left this class (ruling R50: the owner
  * decides for 1.4.1; its passwords stay in the report). The third check (db42d3e, ce6b0f9) adds the tests from
  * «Third check» down. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
  */
@@ -72,8 +71,8 @@ class RedTeamRecheckTest {
     /**
      * Scheme and authority tricks around `urlKey` (MergePlan.kt:401-407) and `comparedLink` (:416-423): only a URL that a
      * browser opens as https on banco.es is a duplicate of `https://banco.es/`, and «Reemplazar» never changes the vault's
-     * scheme. A URL a browser would also read as https://banco.es but the key does not (a leading control, a tab inside
-     * the scheme) is a new entry: the safe side. `evil.example%2F@banco.es`: an encoded «/» does not end the authority, so
+     * scheme. A leading control or a tab inside the scheme is dropped first, as a browser drops it (ruling R54, RT-14),
+     * so `ht\ttps://banco.es` is https on banco.es and a duplicate. `evil.example%2F@banco.es`: an encoded «/» does not end the authority, so
      * it is user info and the browser goes to banco.es, a duplicate as it should be.
      */
     @Test fun resistsSchemeAndAuthorityVariantsAroundTheRt4Fix() {
@@ -83,6 +82,8 @@ class RedTeamRecheckTest {
             "banco.es/login", "banco.es:8443/x", "  https://banco.es  ", "https://ana@banco.es/", "https://ana:x@banco.es/",
             "https://banco.es./", "https://%62anco.es", "https://ｂａｎｃｏ.ｅｓ", "https://banco.es。", "https://banco.es:443",
             "https://banco.es:8443", "https://BANCO.ES#x", "https://banco.es?q=1", "https://evil.example%2F@banco.es",
+            // Ruling R54 (RT-14): a browser drops the tab and the leading control, and opens https on banco.es.
+            "ht\ttps://banco.es", "\u0001https://banco.es",
         )
         val notDuplicates = listOf(
             "http://banco.es/", "HTTP://BANCO.ES", "http:banco.es", "http:\\\\banco.es", "ftp://banco.es", "ws://banco.es",
@@ -91,8 +92,7 @@ class RedTeamRecheckTest {
             "javascript:https://banco.es", "blob:https://banco.es/1", "view-source:https://banco.es/", "content://banco.es/x",
             "https+x://banco.es", "mailto:ana@banco.es", "javascript:x@banco.es/", "data:text/html,banco.es",
             "https://banco.es@evil.example", "https://evil.example\\@banco.es", "https://banco.es.evil.example",
-            "https://bаnco.es", "https://banco.es..", "java\tscript://banco.es/", "ht\ttps://banco.es", "\u0001https://banco.es",
-            "banco.es:8443@evil.example",
+            "https://bаnco.es", "https://banco.es..", "java\tscript://banco.es/", "banco.es:8443@evil.example",
         )
         val vault = listOf(vaultLogin("https://banco.es/"))
         for (url in duplicates) assertTrue("«$url» should be a duplicate", plan(fileLogin(url), vault).duplicates.isNotEmpty())
@@ -332,7 +332,6 @@ class RedTeamRecheckTest {
      * `ht\ttps://banco.es` is https, but its row says «ana · https». Safe behaviour: no duplicate unless the browser opens
      * https on banco.es, or the row shows what the browser opens.
      */
-    @Ignore("RT-14: open (Low), a tab or a leading control in the scheme makes http: or javascript: a duplicate shown as banco.es")
     @Test fun rt14_aTabOrALeadingControlDoesNotHideTheScheme() {
         // (URL, the scheme a browser reads after dropping tabs and line breaks and trimming C0 controls and spaces).
         val cases = listOf(
@@ -407,10 +406,11 @@ class RedTeamRecheckTest {
     /** R51: without a host only the scheme is folded; the text after it is compared exactly. */
     @Test fun resistsTheRt12FixVariants() {
         val vault = listOf(vaultLogin("data:text/plain;base64,SGVsbG8="))
-        for (url in listOf("DATA:text/plain;base64,SGVsbG8=", " data:text/plain;base64,SGVsbG8= ", "Data:text/plain;base64,SGVsbG8=")) {
+        // A leading control goes first, as a browser drops it (ruling R54, RT-14).
+        for (url in listOf("DATA:text/plain;base64,SGVsbG8=", " data:text/plain;base64,SGVsbG8= ", "Data:text/plain;base64,SGVsbG8=", "\u0001data:text/plain;base64,SGVsbG8=")) {
             assertTrue("«$url»", plan(fileLogin(url), vault).duplicates.isNotEmpty())
         }
-        for (url in listOf("data:text/plain;base64,sGVSbG8=", "data:TEXT/plain;base64,SGVsbG8=", "data:text/plain;base64,SGVsbG8", "\u0001data:text/plain;base64,SGVsbG8=")) {
+        for (url in listOf("data:text/plain;base64,sGVSbG8=", "data:TEXT/plain;base64,SGVsbG8=", "data:text/plain;base64,SGVsbG8")) {
             assertTrue("«$url»", plan(fileLogin(url), vault).duplicates.isEmpty())
         }
         assertEquals("ana · data:text/plain;base64,SGVsbG8=", duplicateSubline(fileLogin("data:text/plain;base64,SGVsbG8=").entry))
