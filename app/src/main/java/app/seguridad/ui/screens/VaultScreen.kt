@@ -402,6 +402,8 @@ private fun UnlockVault(store: VaultStore) {
                     scope.launch {
                         // CRY-A02: the fingerprint is off before the vault is deleted.
                         BiometricVault.disable(context)
+                        // 1.4.2: where the file pickers opened goes with the vault.
+                        pickerPlaces(context)?.forgetAll()
                         store.destroy()
                     }
                 }) { Text("Borrar bóveda", color = NegativeColor) }

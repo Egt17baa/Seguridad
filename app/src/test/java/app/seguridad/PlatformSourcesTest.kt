@@ -40,6 +40,26 @@ class PlatformSourcesTest {
     }
 
     /**
+     * 1.4.2, the owner's request: every file picker says which place it is ([PickerPlace]), so it opens where it was
+     * used last; «Importar de otra app» is the place kept only while the app runs; the folder of the automatic copies
+     * opens on that folder; deleting the vault forgets every place.
+     */
+    @Test fun `every file picker opens where it was used last`() {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/java/app/seguridad").isDirectory) dir = dir.parentFile
+        val calls = File(dir, "app/src/main/java/app/seguridad").walk().filter { it.isFile && it.name.endsWith(".kt") }.flatMap { f ->
+            Regex("""rememberDocumentPicker\(([^\n]*)""").findAll(f.readText()).map { f.name to it.groupValues[1] }
+        }.filterNot { (_, args) -> args.isBlank() }.toList()
+        assertEquals(28, calls.size)
+        for ((file, args) in calls) assertTrue("$file: $args", Regex("""place = (PickerPlace\.[A-Z_]+|null)""").containsMatchIn(args))
+        assertTrue("place = PickerPlace.IMPORT_OTHER" in code("ui/screens/ImportScreen.kt"))
+        val settings = code("ui/screens/SettingsScreen.kt")
+        assertTrue("OpenDocumentTree(), place = null" in settings && "picker.launchOrError(folderStart(folder))" in settings)
+        val vault = code("ui/screens/VaultScreen.kt")
+        assertTrue(vault.indexOf("pickerPlaces(context)?.forgetAll()") in 0 until vault.indexOf("store.destroy()"))
+    }
+
+    /**
      * 1.4.2 (F-5): the notice of an interrupted «Activar huella» is marked as seen only once it was shown. Marked first,
      * a second re-creation while it was on screen lost it.
      */

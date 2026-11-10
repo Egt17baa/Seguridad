@@ -2,6 +2,7 @@ package app.seguridad.ui.screens
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.text.format.Formatter
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,6 +38,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.copySensitive
+import app.seguridad.core.PickerPlace
+import app.seguridad.crypto.hexLower
+import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
+import app.seguridad.tools.cipher.FileHashSession
+import app.seguridad.tools.hashlab.HASH_LAB_ALGO_CHANGED
 import app.seguridad.tools.hashlab.HASH_LAB_CANCEL
 import app.seguridad.tools.hashlab.HASH_LAB_CODEC_INPUT
 import app.seguridad.tools.hashlab.HASH_LAB_CODEC_INVALID
@@ -68,6 +74,7 @@ import app.seguridad.tools.hashlab.HASH_LAB_TEXT_LABEL
 import app.seguridad.tools.hashlab.HASH_LAB_TITLE
 import app.seguridad.tools.hashlab.HASH_LAB_TOO_LONG
 import app.seguridad.tools.hashlab.HashAlgo
+import app.seguridad.tools.hashlab.HashLabSession
 import app.seguridad.tools.hashlab.MAX_CODEC_UI_CHARS
 import app.seguridad.tools.hashlab.MAX_KEY_CHARS
 import app.seguridad.tools.hashlab.MAX_TEXT_CHARS
@@ -75,27 +82,20 @@ import app.seguridad.tools.hashlab.base64Decode
 import app.seguridad.tools.hashlab.base64Encode
 import app.seguridad.tools.hashlab.digest
 import app.seguridad.tools.hashlab.hashLabBusy
-import app.seguridad.tools.hashlab.hexDecode
-import app.seguridad.crypto.hexLower
-import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
-import app.seguridad.tools.hashlab.HASH_LAB_ALGO_CHANGED
-import app.seguridad.tools.hashlab.HashLabSession
 import app.seguridad.tools.hashlab.hashLabRecalc
 import app.seguridad.tools.hashlab.hashLabWrongSize
-import app.seguridad.vault.VaultStore
-import kotlinx.coroutines.flow.StateFlow
-import android.os.SystemClock
+import app.seguridad.tools.hashlab.hexDecode
 import app.seguridad.tools.hashlab.hmacSha256
 import app.seguridad.tools.hashlab.parseExpected
 import app.seguridad.tools.hashlab.sameDigest
 import app.seguridad.tools.hashlab.textBytes
 import app.seguridad.tools.hashlab.utf8OrNull
-import app.seguridad.tools.cipher.FileHashSession
 import app.seguridad.ui.theme.NegativeColor
-import app.seguridad.ui.theme.SECRET_TEXT_KEYBOARD
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.PositiveColor
+import app.seguridad.ui.theme.SECRET_TEXT_KEYBOARD
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.vault.VaultStore
 import app.seguridad.vault.sanitizeReceivedName
 import java.io.FilterInputStream
 import java.io.InputStream
@@ -103,6 +103,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -265,7 +266,7 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
     val s = vm.session
     GuardEffects(s.guard, lockAfterMs)
     var pickerError by remember { mutableStateOf<String?>(null) }
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.HASH_FILE) { uri ->
         if (uri != null) vm.pick(uri)
     }
     ToolColumn(HASH_LAB_TITLE, onBack, s.guard) {

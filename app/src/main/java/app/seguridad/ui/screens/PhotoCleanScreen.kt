@@ -20,11 +20,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,9 +35,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.heifToJpeg
 import app.seguridad.android.shareImage
+import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
 import app.seguridad.tools.ImageTooBig
-import app.seguridad.tools.imageOpenFailureText
 import app.seguridad.tools.MAX_IMAGE_BYTES
 import app.seguridad.tools.PHOTO_ANALYSING
 import app.seguridad.tools.PHOTO_EXPLANATION
@@ -53,8 +53,8 @@ import app.seguridad.tools.PHOTO_SHARE_FAILED
 import app.seguridad.tools.PHOTO_TOOL_TITLE
 import app.seguridad.tools.PHOTO_TOO_BIG
 import app.seguridad.tools.PHOTO_TOO_LARGE
-import app.seguridad.tools.photoUnsupportedText
 import app.seguridad.tools.SHARE
+import app.seguridad.tools.imageOpenFailureText
 import app.seguridad.tools.photo.PHOTO_DAMAGED
 import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoCleaner
@@ -65,6 +65,7 @@ import app.seguridad.tools.photo.detectFormat
 import app.seguridad.tools.photoDoneMessage
 import app.seguridad.tools.photoFoundLines
 import app.seguridad.tools.photoLocationNote
+import app.seguridad.tools.photoUnsupportedText
 import app.seguridad.tools.share.PHOTO_FILE_BASE
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.ui.theme.BackScaffold
@@ -338,11 +339,11 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     }
 
     val onSaveTarget: (Uri?) -> Unit = { dest -> if (dest != null) vm.save(dest) }
-    val saveJpg = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/jpeg"), onSaveTarget)
-    val savePng = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/png"), onSaveTarget)
-    val saveWebp = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/webp"), onSaveTarget)
+    val saveJpg = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/jpeg"), place = PickerPlace.PHOTO_SAVE, onResult = onSaveTarget)
+    val savePng = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/png"), place = PickerPlace.PHOTO_SAVE, onResult = onSaveTarget)
+    val saveWebp = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/webp"), place = PickerPlace.PHOTO_SAVE, onResult = onSaveTarget)
 
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.PHOTO_OPEN) { uri ->
         if (uri != null) vm.open(uri)
     }
 

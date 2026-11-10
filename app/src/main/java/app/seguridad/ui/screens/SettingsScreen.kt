@@ -161,7 +161,7 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
     // COV2-1: where the copies go and how many are kept change only with the vault open, or with none.
     val editable = settingsEditable(vaultState)
 
-    val picker = rememberDocumentPicker(ActivityResultContracts.OpenDocumentTree()) { uri ->
+    val picker = rememberDocumentPicker(ActivityResultContracts.OpenDocumentTree(), place = null) { uri ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
         if (uri != null) scope.launch {
             // Checked again on return: the vault may have locked while the picker was open (COV2-1). No permission taken.
@@ -204,7 +204,7 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
         if (!settingsEditable(vault.state.value)) return@choose
         VaultLock.keepOpenOnce = true
         vault.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-        picker.launchOrError(null)?.let { failure ->
+        picker.launchOrError(folderStart(folder))?.let { failure ->
             VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
             scope.launch { snackbar.showSnackbar(failure) }
         }

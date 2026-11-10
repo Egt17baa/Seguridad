@@ -69,6 +69,7 @@ import app.seguridad.android.RedactSource
 import app.seguridad.android.decodeForRedaction
 import app.seguridad.android.renderRedacted
 import app.seguridad.android.shareImage
+import app.seguridad.core.PickerPlace
 import app.seguridad.tools.ImageOutOfMemory
 import app.seguridad.tools.PHOTO_DONE_SHORT
 import app.seguridad.tools.PHOTO_SAVE_COPY
@@ -97,6 +98,7 @@ import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoFailure
 import app.seguridad.tools.photo.PhotoFormat
 import app.seguridad.tools.photoUnsupportedText
+import app.seguridad.tools.redact.Box as RedactBox
 import app.seguridad.tools.redact.RedactHistory
 import app.seguridad.tools.redact.RedactZoom
 import app.seguridad.tools.redact.ViewRect
@@ -113,6 +115,8 @@ import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.SectionCard
+import java.io.File
+import kotlin.math.max
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -120,9 +124,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import kotlin.math.max
-import app.seguridad.tools.redact.Box as RedactBox
 
 /** Longest side of the bitmap the screen draws: a full 24 MP one may be too big for the GPU to show. */
 private const val PREVIEW_MAX_SIDE = 2048
@@ -485,10 +486,10 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     }
 
     val onSaveTarget: (Uri?) -> Unit = { dest -> if (dest != null) vm.save(dest) }
-    val savePng = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/png"), onSaveTarget)
-    val saveJpg = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/jpeg"), onSaveTarget)
+    val savePng = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/png"), place = PickerPlace.REDACT_SAVE, onResult = onSaveTarget)
+    val saveJpg = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/jpeg"), place = PickerPlace.REDACT_SAVE, onResult = onSaveTarget)
 
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.REDACT_OPEN) { uri ->
         if (uri != null) vm.open(uri)
     }
 

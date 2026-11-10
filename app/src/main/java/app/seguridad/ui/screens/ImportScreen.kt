@@ -45,6 +45,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KdfLock
@@ -141,6 +142,9 @@ import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.passwordFieldTakes
 import app.seguridad.vault.sanitizeReceivedName
+import java.io.FilterInputStream
+import java.io.InputStream
+import java.time.LocalDateTime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -151,9 +155,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.FilterInputStream
-import java.io.InputStream
-import java.time.LocalDateTime
 
 /**
  * «Importar de otra app» (spec «Interfaz») for its navigation entry: what was read, the password typed, the plan and the
@@ -466,10 +467,10 @@ fun ImportScreen(
     GuardEffects(s.guard, lockAfterMs)
     // M-3: registered before the locked return, so a result delivered after the process died or while locked still
     // reaches them: a file picked then is not read, and a document created then is deleted (copyTo finds no plan).
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.IMPORT_OTHER) { uri ->
         if (uri != null && store.state.value is VaultState.Unlocked) vm.pick(uri)
     }
-    val createCopy = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+    val createCopy = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.IMPORT_COPY_BEFORE) { uri ->
         if (uri != null) vm.copyTo(uri) else vm.copyPlaceCancelled()
     }
     // Locked: the session has already dropped everything; the screen goes back to the vault, which asks for the master.

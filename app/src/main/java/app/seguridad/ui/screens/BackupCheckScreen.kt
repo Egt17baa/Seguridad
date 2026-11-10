@@ -33,6 +33,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
 import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
 import app.seguridad.ui.theme.NegativeColor
@@ -74,14 +75,14 @@ import app.seguridad.vault.checkBackup
 import app.seguridad.vault.isBackup
 import app.seguridad.vault.passwordFieldTakes
 import app.seguridad.vault.sanitizeReceivedName
+import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
 
 /**
  * «Comprobar una copia» (Ajustes) for its navigation entry: the password typed, the copy chosen and the report are in
@@ -208,7 +209,7 @@ fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
     GuardEffects(s.guard, lockAfterMs)
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }
     var pickerError by remember { mutableStateOf<String?>(null) }
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.BACKUP_CHECK) { uri ->
         if (uri != null) vm.pick(uri)
     }
     ToolColumn(BACKUP_CHECK_TITLE, onBack, s.guard) {

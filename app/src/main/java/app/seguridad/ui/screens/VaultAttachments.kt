@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.FilterObscuredTouches
+import app.seguridad.core.PickerPlace
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.safeFileName
 import app.seguridad.ui.theme.NegativeColor
@@ -32,10 +33,10 @@ import app.seguridad.vault.AttachmentRef
 import app.seguridad.vault.MAX_ATTACHMENTS_TOTAL_BYTES
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultStore
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 /** «1,5 MB», «820 KB» or «12 B». */
 private fun sizeText(bytes: Long): String = when {
@@ -58,7 +59,7 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
     // Only the random id of the attachment being saved, never its content.
     var pendingSave by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.ATTACHMENT_ADD) { uri ->
         if (uri == null) return@rememberDocumentPicker
         busy = true
         scope.launch {
@@ -78,7 +79,7 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
         }
     }
 
-    val save = rememberDocumentPicker(CreateRestoredDocument()) { dest ->
+    val save = rememberDocumentPicker(CreateRestoredDocument(), place = PickerPlace.ATTACHMENT_SAVE) { dest ->
         val id = pendingSave
         pendingSave = null
         if (dest == null || id == null) return@rememberDocumentPicker

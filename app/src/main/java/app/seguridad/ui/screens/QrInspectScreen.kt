@@ -34,8 +34,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,9 +44,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -54,7 +54,7 @@ import app.seguridad.android.QrImageUnreadable
 import app.seguridad.android.copySensitive
 import app.seguridad.android.decodeQrFromImage
 import app.seguridad.android.scanQrOptions
-import app.seguridad.tools.imageOpenFailureText
+import app.seguridad.core.PickerPlace
 import app.seguridad.tools.LatestOnly
 import app.seguridad.tools.QR_ADD_CONTACT
 import app.seguridad.tools.QR_ADD_TOTP
@@ -81,6 +81,7 @@ import app.seguridad.tools.QR_TEXT_HIDDEN_PASSWORD
 import app.seguridad.tools.QR_TOOL_TITLE
 import app.seguridad.tools.QR_TOO_BIG
 import app.seguridad.tools.codes.ScreenAway
+import app.seguridad.tools.imageOpenFailureText
 import app.seguridad.tools.qr.QrAction
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.tools.qr.QrPendingText
@@ -93,8 +94,8 @@ import app.seguridad.tools.qrHostReading
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
-import app.seguridad.ui.theme.SectionCard
 import app.seguridad.ui.theme.ScanQrLabel
+import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
@@ -194,7 +195,7 @@ fun QrInspectScreen(
     }
 
     // Like «Limpiar foto»: the picker does not keep the vault open (this screen does not need it).
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.QR_IMAGE) { uri ->
         if (uri == null) return@rememberDocumentPicker
         view = null // The previous result goes before the next image is read.
         error = null
