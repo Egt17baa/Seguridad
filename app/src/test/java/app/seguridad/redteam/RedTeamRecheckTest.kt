@@ -38,7 +38,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 import java.util.SplittableRandom
@@ -783,7 +782,6 @@ class RedTeamRecheckTest {
      * issuer) no longer finds «banco». It needs a file with the code's secret (a 2FA is a duplicate by its key). Safe
      * behaviour: an issuer or account whose `compareKey` is the vault's keeps the vault's.
      */
-    @Ignore("RT-19: open (Info), «Reemplazar» writes a 2FA issuer or account that only differs invisibly from the vault's")
     @Test fun rt19_replaceKeepsA2faIssuerAndAccountThatAreTheSame() {
         val code = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Banco", account = "ana")
         val vault = listOf(VaultEntry("t1", EntryType.TOTP, "Banco", totp = code, createdAt = 1, updatedAt = 1))
@@ -833,7 +831,6 @@ class RedTeamRecheckTest {
      * shows nothing; «Copiar» copies the invisible characters. The row does say «ana · xn--psd796i». Safe behaviour: a URL
      * that shows nothing is no URL (`showsNothing`), as R55 and R59 decided for the other fields.
      */
-    @Ignore("RT-20: open (Info), a URL of only invisible characters is not «no URL»: a URL-less entry takes it")
     @Test fun rt20_aUrlThatShowsNothingIsNoUrl() {
         val bare = listOf(vaultLogin(""))
         val taken = listOf("\u200B\u2800\u3164", "\u2800", "\u3164", "\u2800\u2800", "\u3164\u034F", "\uFFA0", "\u115F", "\u200B\u2800").filter { url ->
@@ -851,7 +848,6 @@ class RedTeamRecheckTest {
      * second «#banco» R60 meant to close, with a character that is not invisible but looks like another. Safe behaviour:
      * a folder that looks like an existing tag is that tag.
      */
-    @Ignore("RT-18: open (Info), a folder with a no-break space or a decomposed accent gives a second tag that looks like another")
     @Test fun rt18_aFolderThatLooksLikeATagIsThatTag() {
         val wrong = mutableListOf<String>()
         for ((folder, same) in listOf(

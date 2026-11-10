@@ -402,6 +402,11 @@ class MergePlanTest {
             val expected = if ('\u0001' in folder) "ban co" else "banco"
             assertEquals(folder, listOf(ORIGIN_TAG_BROWSER, expected), importTags(listOf(folder), ImportFormat.BROWSER_CSV))
         }
+        // Rulings R61 and R64 (N-9, RT-18): read as the duplicate rule compares (compareKey: NFKC, spaces as one), so a
+        // no-break space, a decomposed accent or full-width letters give the tag that looks the same.
+        assertEquals(importTags(listOf("Ban co"), ImportFormat.BROWSER_CSV), importTags(listOf("Ban\u00A0co"), ImportFormat.BROWSER_CSV))
+        assertEquals(listOf(ORIGIN_TAG_BROWSER, "banco"), importTags(listOf("Ｂanco"), ImportFormat.BROWSER_CSV))
+        assertEquals(listOf(ORIGIN_TAG_BROWSER, "café"), importTags(listOf("Cafe\u0301"), ImportFormat.BROWSER_CSV))
         val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", tags = listOf("banco"))
         val p = plan(read(login(0, "Banco", user = "ana", url = "https://banco.es/", folders = listOf("Banco\u200B")), format = ImportFormat.BROWSER_CSV), listOf(bank))
         val after = mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId).single { it.id == "b" }
