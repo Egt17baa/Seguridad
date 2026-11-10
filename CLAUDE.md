@@ -129,7 +129,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Prueba del APK firmado:** se fusiona en `main` sin etiqueta; el dueño lanza Actions → Build APK → Run workflow desde `main`, lo aprueba y descarga `Clavero.apk`. Los arreglos van de la rama a `main`. La etiqueta de la versión (`v1.3.0`, `v1.3.1`) solo cuando la prueba esté bien.
 - **Protección de `main`:** el dueño la pone justo después de la fusión y antes de la etiqueta, con la lista «Entorno de firma» del README.
 - **Prueba de palabras prohibidas:** `SourceTextsTest` revisa todas las cadenas de `app/src/main/java`, no solo `ToolTexts.kt`.
-- **Fusiones con el botón de GitHub:** firman con el correo de la cuenta del dueño. Las de los PR #9 a #14 llevan su correo personal; desde el 3-11-2026 la cuenta lo tiene privado, así que las siguientes usan la dirección `noreply` de GitHub. Las seis que ya existen no se reescriben: haría falta un force-push a `main`, que rompe las etiquetas y las copias descargadas.
+- **Fusiones con el botón de GitHub:** firman con el correo de la cuenta del dueño. Las de los PR #9 a #14 llevan su correo personal; desde el 3-11-2026 la cuenta lo tiene privado, así que las siguientes usan la dirección `noreply` de GitHub. El 10-11-2026, con su permiso, el historial se reescribió y esas seis fusiones llevan ya su dirección `noreply` (regla «Privacidad del dueño», abajo).
 
 **Más decisiones del 1-11-2026 (1.3.1), siguen vigentes:**
 - **«Importar copia»** deja elegir cualquier archivo y mira su cabecera antes de pedir la contraseña (`mayBeVaultImport`).
