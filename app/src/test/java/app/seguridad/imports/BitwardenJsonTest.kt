@@ -98,7 +98,8 @@ class BitwardenJsonTest {
             """{"type":1,"name":"Roto","login":{"username":"a","password":"p","totp":"no es base32 !"}}""",
         ))
         assertEquals(listOf("Juego", "Viejo", "Roto"), entries(read2).map { it.title })
-        assertEquals(listOf(SkipReason.NOT_TOTP, SkipReason.NOT_TOTP, SkipReason.BROKEN), read2.skipped.map { it.reason })
+        // A 2FA that is not read says the login entered (1.4.2, the owner's phone test).
+        assertEquals(listOf(SkipReason.NOT_TOTP, SkipReason.NOT_TOTP, SkipReason.LOGIN_TOTP_BROKEN), read2.skipped.map { it.reason })
     }
 
     @Test fun secureNoteIsANote() {

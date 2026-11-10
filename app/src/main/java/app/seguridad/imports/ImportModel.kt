@@ -44,6 +44,9 @@ enum class SkipReason(val text: String) {
     NOT_TOTP(SKIP_NOT_TOTP),
     FIELD_TOO_LONG("Un campo pasa del tamaño máximo"),
     BROKEN("Fila o elemento dañado"),
+
+    /** The 2FA of a login that is not read: only the 2FA stays out (1.4.2: [BROKEN] read as if the login had too). */
+    LOGIN_TOTP_BROKEN(SKIP_LOGIN_TOTP_BROKEN),
     EMPTY("Vacío"),
 }
 
@@ -244,10 +247,18 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
      * of CRY-B02), so a setting Clavero does not calculate is refused, never changed. Otherwise a [Skipped]:
      * [SkipReason.TOTP_UNSUPPORTED] for such settings, [SkipReason.NOT_TOTP] for another otpauth kind (HOTP),
      * [SkipReason.FIELD_TOO_LONG] past [OTPAUTH_MAX_CHARS] or when the link's issuer or account would be cut
-     * ([OtpAuthRead.Usable.namesCut]: a field is never imported cut), and [SkipReason.BROKEN] for anything else.
+     * ([OtpAuthRead.Usable.namesCut]: a field is never imported cut), and [SkipReason.BROKEN] for anything else, or
+     * [SkipReason.LOGIN_TOTP_BROKEN] when [ofLogin] (the 2FA of a login, which enters without it).
      * [notes] and [favorite] are those of the element the code comes from (an Aegis entry), as read.
      */
-    fun addOtpAuth(link: String, title: String, folders: List<String> = emptyList(), notes: String = "", favorite: Boolean = false) {
+    fun addOtpAuth(
+        link: String,
+        title: String,
+        folders: List<String> = emptyList(),
+        notes: String = "",
+        favorite: Boolean = false,
+        ofLogin: Boolean = false,
+    ) {
         if (link.length > OTPAUTH_MAX_CHARS) return skip(title, SkipReason.FIELD_TOO_LONG)
         when (val r = readOtpAuth(link)) {
             is OtpAuthRead.Usable ->
@@ -259,7 +270,14 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
                     skip(title, SkipReason.TOTP_UNSUPPORTED)
                 }
             is OtpAuthRead.UnsupportedSettings -> skip(title, SkipReason.TOTP_UNSUPPORTED)
-            OtpAuthRead.NotUsable -> skip(title, if (isOtherOtpAuth(link)) SkipReason.NOT_TOTP else SkipReason.BROKEN)
+            OtpAuthRead.NotUsable -> skip(
+                title,
+                when {
+                    isOtherOtpAuth(link) -> SkipReason.NOT_TOTP
+                    ofLogin -> SkipReason.LOGIN_TOTP_BROKEN // [ofLogin]: the 2FA of a login, which enters anyway.
+                    else -> SkipReason.BROKEN
+                },
+            )
         }
     }
 
@@ -283,6 +301,7 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
         folders: List<String> = emptyList(),
         notes: String = "",
         favorite: Boolean = false,
+        ofLogin: Boolean = false,
     ) {
         if (secret.length.toLong() + issuer.length + account.length + (algorithm?.length ?: 0) > OTPAUTH_MAX_CHARS ||
             !otpNameFits(issuer) || !otpNameFits(account)
@@ -296,7 +315,7 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
             if (digits != null) append("&digits=").append(digits)
             if (period != null) append("&period=").append(period)
         }
-        addOtpAuth(link, title, folders, notes, favorite)
+        addOtpAuth(link, title, folders, notes, favorite, ofLogin)
     }
 
     fun build(): ImportRead = ImportRead(format, items.toList(), skipped.toList(), becameNotes)

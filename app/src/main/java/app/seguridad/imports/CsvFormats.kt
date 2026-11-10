@@ -148,7 +148,7 @@ private fun readRow(format: ImportFormat, c: Columns, row: List<String>, out: Im
     }
     val folders = listOfNotNull(folder.takeIf { it.isNotBlank() })
     out.add(importedEntry(EntryType.LOGIN, title, username = username, password = password, url = url, notes = notes), folders)
-    if (otpauth.isNotBlank()) out.addOtpAuth(otpauth, title)
+    if (otpauth.isNotBlank()) out.addOtpAuth(otpauth, title, ofLogin = true)
     if (totp.isNotBlank()) addLoginTotp(totp, title, folders, out)
 }
 

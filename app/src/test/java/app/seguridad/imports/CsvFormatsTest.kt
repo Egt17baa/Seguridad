@@ -80,7 +80,9 @@ class CsvFormatsTest {
         assertEquals(listOf(listOf("Trabajo"), emptyList(), listOf("Casa"), listOf("Trabajo")), logins.map { it.folders })
         val codes = read.items.filter { it.entry.type == EntryType.TOTP }
         assertEquals(listOf(listOf("Trabajo"), listOf("Casa")), codes.map { it.folders })
-        assertEquals(1, read.skipped.size)
+        // Only Banco's 2FA stays out, and its reason says the login entered (1.4.2: it read «Fila o elemento dañado»).
+        assertEquals(listOf("Banco de prueba" to SkipReason.LOGIN_TOTP_BROKEN), read.skipped.map { it.title to it.reason })
+        assertEquals("2FA dañado o no válido (el acceso sí entra)", SkipReason.LOGIN_TOTP_BROKEN.text)
     }
 
     /** Only one of the two columns is enough; without both it stays the browsers' CSV. */
@@ -160,7 +162,10 @@ class CsvFormatsTest {
         assertEquals(links.size, logins(read).size)
         assertTrue(read.items.none { it.entry.type == EntryType.TOTP })
         assertEquals(
-            listOf(SkipReason.BROKEN, SkipReason.BROKEN, SkipReason.BROKEN, SkipReason.TOTP_UNSUPPORTED, SkipReason.TOTP_UNSUPPORTED, SkipReason.FIELD_TOO_LONG, SkipReason.BROKEN),
+            listOf(
+                SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.TOTP_UNSUPPORTED,
+                SkipReason.TOTP_UNSUPPORTED, SkipReason.FIELD_TOO_LONG, SkipReason.LOGIN_TOTP_BROKEN,
+            ),
             read.skipped.map { it.reason },
         )
     }
