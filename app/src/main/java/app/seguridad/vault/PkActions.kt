@@ -28,6 +28,7 @@ import app.seguridad.crypto.pk.signText
 import app.seguridad.crypto.pk.verifyFileSignature
 import app.seguridad.crypto.pk.verifySignedText
 import app.seguridad.crypto.safeFileName
+import app.seguridad.imports.plainReportText
 import app.seguridad.tools.sameKeyContactsText
 import java.io.File
 import java.io.FileOutputStream
@@ -120,7 +121,7 @@ fun senderLine(sender: Sender, addressedToMe: Boolean): SenderLine = when (sende
     is Sender.Contact -> {
         val note = if (addressedToMe) null else SIGNATURE_FORWARD_NOTE
         val sameKey = if (sender.sameKeyCount > 1) sameKeyContactsText(sender.sameKeyCount) else null
-        val text = senderContactText(sender.entry.verified, addressedToMe, sender.entry.title)
+        val text = senderContactText(sender.entry.verified, addressedToMe, plainReportText(sender.entry.title))
         SenderLine(text, if (sender.entry.verified) TrustLevel.GOOD else TrustLevel.CAUTION, note, sameKey)
     }
     Sender.UnknownKey -> SenderLine("Firmado por una clave que no está en tus contactos", TrustLevel.WARNING)
@@ -164,7 +165,7 @@ fun fileVerifyVerdict(sender: Sender): VerifyVerdict = when (sender) {
     Sender.Me -> VerifyVerdict(FILE_SIGNATURE_VALID, TrustLevel.GOOD)
     is Sender.Contact ->
         if (sender.entry.verified) VerifyVerdict(FILE_SIGNATURE_VALID, TrustLevel.GOOD)
-        else VerifyVerdict(fileSignatureUnverifiedText(sender.entry.title), TrustLevel.CAUTION)
+        else VerifyVerdict(fileSignatureUnverifiedText(plainReportText(sender.entry.title)), TrustLevel.CAUTION)
     Sender.UnknownKey -> VerifyVerdict(FILE_SIGNATURE_UNKNOWN_KEY, TrustLevel.WARNING)
     Sender.Unsigned -> VerifyVerdict(senderLine(Sender.Unsigned, addressedToMe = false).text, TrustLevel.WARNING)
 }
@@ -191,7 +192,8 @@ fun actionErrorMessage(e: Throwable, fallback: String): String =
  * sanea: se queda con el último trozo no vacío tras separar por `/` y `\` (nunca una ruta); se quita todo lo de la
  * lista de `safeFileName` (`withoutHiddenNameCharacters`, CIFRADO-2: una sola lista para los dos), es decir, los
  * controles (Cc: C0, DEL y C1), los de formato y de dirección del texto, la lista fija de nombres de tarjeta
- * (`hasForbiddenNameCharacter`: rellenos de Hangul, uso privado, etiquetas…), U+FE00–FE0E y los no caracteres; el
+ * (`hasForbiddenNameCharacter`: rellenos de Hangul, uso privado, etiquetas…), lo que no se dibuja (`drawsNothing`, la
+ * misma lista que `plainReportText`, R43: también U+2800, U+180B–180D, U+180F y U+FE00–FE0E) y los no caracteres; el
  * unidor de anchura cero (U+200D) solo se queda entre dos emoji (dos puntos de código que no son ASCII ni espacios) y
  * U+FE0F solo detrás de un emoji o un símbolo, o en un keycap («1️⃣»), como en `safeFileName` (`withoutLooseJoiners`,
  * `withoutLooseSelectors`), también tras los cortes; se recortan los espacios y los puntos de los extremos (así `.` y

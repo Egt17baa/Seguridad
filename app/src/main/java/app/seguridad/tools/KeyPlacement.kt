@@ -54,6 +54,13 @@ fun shouldMarkStrongBoxFailed(failure: StrongBoxFailure, retry: RetryOutcome): B
     StrongBoxFailure.AUTH_OR_FINAL -> retry == RetryOutcome.STORED
 }
 
+/**
+ * M-4: whether the new activity says «Activar huella» was cut short (FINGERPRINT_ENABLE_INTERRUPTED, which says nothing
+ * was stored). Decided once the enable's operation has ended: [recreated] when the activity was re-created before its
+ * outcome was known, [stored] whether the key was stored all the same (doFinal and the prefs write may still finish).
+ */
+fun shouldSayEnableInterrupted(recreated: Boolean, stored: Boolean): Boolean = recreated && !stored
+
 // androidx.biometric.BiometricPrompt.ERROR_* (the platform's BiometricConstants), mirrored so the JVM tests can use them.
 const val PROMPT_ERROR_HW_UNAVAILABLE = 1
 const val PROMPT_ERROR_UNABLE_TO_PROCESS = 2

@@ -183,7 +183,9 @@ class MasterPolicyTest {
     /** Final review M2, F7: the build fails if any list of the rule would be missing from the APK (see checkAssets). */
     @Test fun `checkAssets fails the build when a list of the master rule is not in the APK`() {
         val gradle = projectFile("app/build.gradle.kts").readText()
-        val task = gradle.substringAfter("val checkAssets by tasks.registering")
+        val anchor = "val checkAssets = tasks.register(\"checkAssets\")"
+        assertTrue("app/build.gradle.kts must declare $anchor", anchor in gradle)
+        val task = gradle.substringAfter(anchor)
             .substringBefore("tasks.named(\"check\")")
         for (name in MASTER_WORD_LISTS) assertTrue(name, "\"$name\"" in task)
         assertTrue(task, Regex("""if \(missing\.isNotEmpty\(\)\) \{\s*throw GradleException""").containsMatchIn(task))
@@ -228,6 +230,95 @@ class MasterPolicyTest {
         assertNull(newMasterProblem("Xq7#vB2!mK", allWords))
         assertFalse("«barcelona» is now in a word list: use another city in this example", "barcelona" in allWords)
         assertNull(newMasterProblem("Barcelona1", allWords))
+    }
+
+    // ---- RT-3 (owner's decision (h), 8-11-2026): a known word in leet or in full-width letters is refused too ----
+
+    @Test fun `RT-3 the core is taken in NFKC, so full-width and styled letters are the plain ones`() {
+        assertEquals("password", masterCore("ｐａｓｓｗｏｒｄ12345"))
+        assertEquals("contrasena", masterCore("ｃｏｎｔｒａｓｅñａ2024"))
+        assertEquals("pass", masterCore("𝐩𝐚𝐬𝐬")) // mathematical bold «𝐩𝐚𝐬𝐬»
+        assertEquals("fiesta", masterCore("ﬁesta")) // the ligature «ﬁ»
+        assertEquals("", masterCore("１２３４５６７８９０")) // full-width digits are digits
+    }
+
+    @Test fun `RT-3 a known word in leet or in full-width letters is refused as a new master`() {
+        for (c in listOf(
+            "P4ssw0rd2024!", "C0ntr4s3ñ4!!", "P@\$\$w0rd1234", "Dr4g0n!2024", "Pr1nc3ss2024", "ｐａｓｓｗｏｒｄ12345", "ｃｏｎｔｒａｓｅñａ2024",
+            "1l0v3y0u2024", "4dm1n-2024!!", "!!P4SSW0RD!!", "2024-dr4g0n!", "p4ss-w0rd 99", "Ｐ４ｓｓｗ０ｒｄ２０２４",
+        )) {
+            assertTrue("«$c» passes the estimate (${estimateBits(c)} bits): only the word rule refuses it", estimateBits(c) >= WEAK_BITS)
+            assertEquals("«$c» must be refused with the lists", MASTER_TOO_WEAK, newMasterProblem(c, allWords))
+        }
+    }
+
+    @Test fun `RT-3 the substitutions, and 2 is never z`() {
+        for ((typed, letter) in listOf(
+            "0" to "o", "3" to "e", "4" to "a", "@" to "a", "5" to "s", "\$" to "s", "7" to "t", "+" to "t", "8" to "b", "6" to "g",
+            "9" to "g", "1" to "i", "1" to "l", "!" to "i", "!" to "l", "|" to "i", "|" to "l",
+        )) {
+            assertTrue("$typed as $letter", isKnownWordInLeet("x${typed}y", setOf("x${letter}y")))
+        }
+        assertFalse(isKnownWordInLeet("x2y", setOf("xzy")))
+        // «1» is read once as «i» everywhere and once as «l» everywhere, never mixed.
+        assertTrue(isKnownWordInLeet("b4110on", setOf("balloon")))
+        assertTrue(isKnownWordInLeet("1nf1ll", setOf("infill")))
+        assertFalse(isKnownWordInLeet("1nf1ll", setOf("lnfill")))
+    }
+
+    // ---- RT-5 (ruling R42, extends decision (h)): the symbols of a Spanish keyboard for letters ----
+
+    @Test fun `RT-5 the substitutions of a Spanish keyboard`() {
+        for ((typed, letter) in listOf("¡" to "i", "€" to "e", "ø" to "o", "Ø" to "o")) {
+            assertTrue("$typed as $letter", isKnownWordInLeet("x${typed}y", setOf("x${letter}y")))
+        }
+        // «¡» is only «i» (it is not read as «l», unlike «1», «!» and «|»).
+        assertFalse(isKnownWordInLeet("x¡y", setOf("xly")))
+        // «º» and «ª» (the key left of «1») need no entry: NFKC already gives «o» and «a».
+        assertEquals("dragon", masterCore("Drªgºn"))
+        assertEquals("contrasena", masterCore("Contrªseñª"))
+        // The other look-alikes of the report are not single letters, and stay as they are: «æ», «œ» and «ß» are two.
+        assertFalse(isKnownWordInLeet("mæster", setOf("maester", "mster", "master")))
+    }
+
+    @Test fun `RT-5 a known word in Spanish keyboard leet is refused as a new master`() {
+        for (c in listOf(
+            "Pr¡nc3ss2024", "C0ntra\$€na2024!", "C0ntr4s€ñ4!!", "Dr4gøn!2024", "P4\$\$wørd2024", "PASSWØRD2024!!", "Dr4gºn!2024", "¡¡Pr¡nc€ss!!77",
+        )) {
+            assertTrue("«$c» passes the estimate (${estimateBits(c)} bits): only the word rule refuses it", estimateBits(c) >= WEAK_BITS)
+            assertEquals("«$c» must be refused with the lists", MASTER_TOO_WEAK, newMasterProblem(c, allWords))
+        }
+        // A password with these symbols that is no word still passes.
+        for (c in listOf("k€7¡Tz9øQm@4vR", "¡Hola€mundo-ø-7341")) assertNull("«$c»", newMasterProblem(c, allWords))
+    }
+
+    @Test fun `RT-3 only digits and symbols may be left out around the word, never a letter`() {
+        assertTrue(isKnownWordInLeet("2024!dr4g0n2024!", setOf("dragon")))
+        assertFalse("a letter before the word", isKnownWordInLeet("xdr4g0n2024", setOf("dragon")))
+        assertFalse("a letter after the word", isKnownWordInLeet("dr4g0n2024x", setOf("dragon")))
+        assertFalse("no letters: left to the estimate", isKnownWordInLeet("7357735773577357", setOf("test", "t", "e", "s")))
+        assertFalse("without the lists nothing is a word", isKnownWordInLeet("P4ssw0rd2024!", emptySet()))
+    }
+
+    @Test fun `RT-3 the leet check is bounded`() {
+        assertTrue(isKnownWordInLeet("P4ssw0rd" + "!".repeat(LEET_MAX_CODE_POINTS - 8), allWords))
+        assertFalse("past the bound it is not tried", isKnownWordInLeet("P4ssw0rd" + "!".repeat(LEET_MAX_CODE_POINTS - 7), allWords))
+        // The worst case within the bound: one letter in the middle, as many cuts as possible on each side.
+        val worst = "1".repeat(LEET_MAX_CODE_POINTS / 2 - 1) + "q" + "1".repeat(LEET_MAX_CODE_POINTS / 2)
+        val start = System.nanoTime()
+        repeat(20) { assertFalse(isKnownWordInLeet(worst, allWords)) }
+        val ms = (System.nanoTime() - start) / 1_000_000
+        assertTrue("$ms ms for 20 checks of the worst case", ms < 2_000)
+    }
+
+    @Test fun `RT-3 the accepted limits stay accepted`() {
+        // The owner accepted these (CRY-A01): a word in no list, two words together, a Generator-style random password.
+        for (c in listOf(
+            "Barcelona1", "B4rc3l0n4!!", "abandon-ability", "4b4nd0n-4b1l1ty", "casa perro luz mar sol", "Xq7#vB2!mK",
+            "Xq7#vB2!mK9\$wL4@pT1&", "k3#Tz9!Qm@4vRw7\$Lp2x",
+        )) {
+            assertNull("«$c»", newMasterProblem(c, allWords))
+        }
     }
 
     @Test fun `without the lists newMasterProblem does what it did before`() {
@@ -367,10 +458,11 @@ class MasterPolicyTest {
     }
 
     /**
-     * A fixed sequence (SHA1PRNG with a seed), not SecureRandom(): with the word lists loaded, about 1 password in 61,000 of
-     * 16 characters with the four classes is refused (1 in 3,900 at 12, 1 in 1.1 million at 20), because its few letters
-     * (3 to 5) happen to spell a list word and the rest are digits and symbols (see the next test). 200 fresh draws would
-     * fail about one run in 308 by chance.
+     * A fixed sequence (SHA1PRNG with a seed), not SecureRandom(): with the word lists loaded, about 1 password in 54,000 of
+     * 16 characters with the four classes is refused (1 in 3,100 at 12, 1 in 1.1 million at 20; measured with the leet
+     * check of RT-3, and again with RT-5, see the KDoc of newMasterProblem), because its few letters (2 to 5), as they
+     * are or in leet, happen to spell a list word and the rest are digits and symbols (see the next test). 200 fresh
+     * draws would fail about one run in 270 by chance.
      */
     private fun fixedRandom(): SecureRandom = SecureRandom.getInstance("SHA1PRNG").apply { setSeed(20261101L) }
 
@@ -520,7 +612,11 @@ class MasterPolicyTest {
     @Test fun `no screen but the dialog itself checks only the length of a master`() {
         val lengthOnly = Regex("""\blength\s*>=\s*MIN_MASTER""")
         val hits = screens().flatMap { f -> lengthOnly.findAll(code(f)).map { f.name }.toList() }
-        assertEquals("only PasswordDialog (the import) keeps the length check: $hits", listOf("VaultBackup.kt"), hits)
+        // The password of an existing copy (CRY-A01: never a new master) keeps the length check: the import's dialog and
+        // «Comprobar una copia» (1.4.0), which asks for the same password.
+        assertEquals("only PasswordDialog (the import) and the copy check keep the length check: $hits", listOf("BackupCheckScreen.kt", "VaultBackup.kt"), hits.sorted())
+        assertEquals(1, lengthOnly.findAll(screen("BackupCheckScreen.kt")).count())
+        assertTrue("session.password.length >= MIN_MASTER" in screen("BackupCheckScreen.kt"))
         val backup = screen("VaultBackup.kt")
         val dialog = backup.substring(backup.indexOf("fun PasswordDialog("))
         assertEquals(1, lengthOnly.findAll(dialog).count())
@@ -530,5 +626,26 @@ class MasterPolicyTest {
     @Test fun `MIN_MASTER has one definition, in vault`() {
         assertTrue(screens().none { Regex("""const val MIN_MASTER\b""").containsMatchIn(code(it)) })
         for (name in listOf("VaultScreen.kt", "VaultBackup.kt")) assertTrue("$name imports MIN_MASTER", "import app.seguridad.vault.MIN_MASTER" in screen(name))
+    }
+
+    /**
+     * Branch review B, M-3: «Comprobar una copia» and «Importar de otra app» share one cap for a pasted password, far
+     * past any master a person types or pastes from a manager (creating the vault, changing the master and «Importar
+     * copia» have none), so a check takes the masters an import takes; a paste over it is refused, never cut.
+     */
+    @Test fun thePasswordFieldsShareOneCapFarPastAnyMaster() {
+        assertEquals(65_536, PASSWORD_FIELD_MAX_CHARS)
+        assertTrue(passwordFieldTakes(""))
+        assertTrue(passwordFieldTakes("a".repeat(1500))) // The reviewer's case: a 1 500-character master is checked now.
+        assertTrue(passwordFieldTakes("x".repeat(PASSWORD_FIELD_MAX_CHARS)))
+        assertFalse(passwordFieldTakes("x".repeat(PASSWORD_FIELD_MAX_CHARS + 1)))
+        // Counted in UTF-16 units, as the text field counts them: an emoji is two.
+        assertFalse(passwordFieldTakes("😀".repeat(PASSWORD_FIELD_MAX_CHARS / 2) + "x"))
+        // Both screens use it, and neither keeps a cap of its own.
+        for (screen in listOf("BackupCheckScreen.kt", "ImportScreen.kt")) {
+            val src = projectFile("app/src/main/java/app/seguridad/ui/screens/$screen").readText()
+            assertTrue(screen, "refused = !passwordFieldTakes(value)" in src)
+            assertFalse(screen, Regex("""MAX_(FILE_)?PASSWORD_CHARS""").containsMatchIn(src))
+        }
     }
 }

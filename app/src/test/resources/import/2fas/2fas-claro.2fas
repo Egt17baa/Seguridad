@@ -1,0 +1,42 @@
+{
+  "services": [
+    {
+      "name": "Prueba SHA1",
+      "secret": "JBSWY3DPEHPK3PXP",
+      "updatedAt": 1762300000000,
+      "otp": { "label": "Prueba SHA1:ana.prueba@example.com", "account": "ana.prueba@example.com", "issuer": "Prueba SHA1", "digits": 6, "period": 30, "algorithm": "SHA1", "tokenType": "TOTP", "source": "Manual" },
+      "order": { "position": 0 },
+      "icon": { "selected": "Label", "label": { "text": "PR", "backgroundColor": "Default" } },
+      "groupId": "g0000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "Prueba SHA256",
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "updatedAt": 1762300000000,
+      "otp": { "account": "ana", "digits": 8, "period": 60, "algorithm": "SHA256", "tokenType": "TOTP", "source": "Manual" },
+      "order": { "position": 1 }
+    },
+    {
+      "name": "Prueba HOTP",
+      "secret": "JBSWY3DPEHPK3PXP",
+      "updatedAt": 1762300000000,
+      "otp": { "account": "ana", "digits": 6, "counter": 3, "algorithm": "SHA1", "tokenType": "HOTP", "source": "Manual" },
+      "order": { "position": 2 }
+    },
+    {
+      "name": "Prueba Steam",
+      "secret": "JBSWY3DPEHPK3PXP",
+      "updatedAt": 1762300000000,
+      "otp": { "account": "ana", "digits": 5, "period": 30, "algorithm": "SHA1", "tokenType": "STEAM", "source": "Manual" },
+      "order": { "position": 3 }
+    }
+  ],
+  "groups": [
+    { "id": "g0000000-0000-4000-8000-000000000001", "name": "Trabajo", "isExpanded": true }
+  ],
+  "updatedAt": 1762300000000,
+  "schemaVersion": 4,
+  "appVersionCode": 5000000,
+  "appVersionName": "5.0.0",
+  "appOrigin": "android"
+}

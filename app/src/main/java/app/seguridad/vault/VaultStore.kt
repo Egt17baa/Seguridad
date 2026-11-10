@@ -24,10 +24,16 @@ import java.nio.file.StandardCopyOption
 import app.seguridad.core.readAtMost
 import app.seguridad.core.writeTextAtomically
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.KdfLock
 import app.seguridad.crypto.KdfParams
-import app.seguridad.crypto.NONCE_BYTES
-import app.seguridad.crypto.TAG_BYTES
 import app.seguridad.crypto.randomBytes
+import app.seguridad.imports.ApplyResult
+import app.seguridad.imports.DuplicateChoice
+import app.seguridad.imports.MergePlan
+import app.seguridad.imports.mergedEntries
+import app.seguridad.imports.escapedTextBytes
+import app.seguridad.imports.utf8Length
+import java.util.UUID
 
 /**
  * Why the vault was last locked ([VaultStore.lastLockReason]): screens that hold their own secrets (as «PIN y códigos»)
@@ -86,8 +92,9 @@ fun biometricUnlockError(e: Exception): String = when (e) {
  * Only [StaleBiometricKey] turns the fingerprint off: the key does not authenticate the vault's entries under any
  * version the file may be, so the blob the fingerprint guards is another vault's (CRY-A02), or the entries' blob is
  * damaged, which AES-GCM cannot tell apart and the master password cannot open either. Then [onWrongKey] runs once (the
- * screen turns the fingerprint off) and [onError] gets [FINGERPRINT_STALE]. [onWrongKey] is not expected to throw, but
- * if it does the text is shown all the same and the exception does not reach the caller's scope. Nothing else reaches
+ * screen turns the fingerprint off; it is suspend, so that has ended before the text) and [onError] gets
+ * [FINGERPRINT_STALE]. [onWrongKey] is not expected to throw, but if it does the text is shown all the same and the
+ * exception does not reach the caller's scope. Nothing else reaches
  * [onWrongKey]: a key that authenticates but whose entries do not decode ([CryptoFailure], final review F1),
  * [MasterRequired] (the 7-day rule, the clock, or a file this version cannot open, whose key is never tried) and any
  * other failure go to [onError] with [biometricUnlockError], and the fingerprint stays. For a file that states its
@@ -101,7 +108,7 @@ fun biometricUnlockError(e: Exception): String = when (e) {
 fun CoroutineScope.launchUnlockWithKey(
     store: VaultStore,
     key: ByteArray,
-    onWrongKey: () -> Unit = {},
+    onWrongKey: suspend () -> Unit = {},
     onError: (String) -> Unit,
 ): Job =
     launch(start = CoroutineStart.ATOMIC) {
@@ -306,11 +313,12 @@ class VaultStore(
     }
 
     /**
-     * Runs [block] on [compute] and returns what it made even if the caller was cancelled meanwhile, so a key it derives
-     * always reaches the code that wipes it (BOV-3): `withContext(compute)` alone, or with NonCancellable added to it,
-     * drops the result when it switches back to a cancelled caller.
+     * Runs the Argon2id of [block] on [compute], one at a time in the process ([KdfLock], ruling R38: with the mutex
+     * held, which is the lock order), and returns what it made even if the caller was cancelled meanwhile, so a key it
+     * derives always reaches the code that wipes it (BOV-3): `withContext(compute)` alone, or with NonCancellable added
+     * to it, drops the result when it switches back to a cancelled caller.
      */
-    private suspend fun <T> derive(block: () -> T): T = withContext(NonCancellable) { withContext(compute) { block() } }
+    private suspend fun <T> derive(block: () -> T): T = KdfLock.derive(compute, block)
 
     private suspend fun save(v: VaultFile) = withContext(io) { file.writeTextAtomically(VaultCrypto.encodeFile(v)) }
 
@@ -400,7 +408,7 @@ class VaultStore(
             if (_state.value is VaultState.NoVault) _state.value = VaultState.Locked
             throw IllegalStateException("A vault already exists")
         }
-        val (v, key) = withContext(compute) { VaultCrypto.create(master, now(), kdf()) }
+        val (v, key) = derive { VaultCrypto.create(master, now(), kdf()) }
         nextGeneration() // Before anything is turned off or written: a copy still being written is not this vault's.
         try {
             beforeCreate()
@@ -430,9 +438,9 @@ class VaultStore(
 
     private suspend fun unlockLocked(master: CharArray, since: Int) {
         val v = vault ?: return
-        val key = withContext(compute) { VaultCrypto.unlock(v, master) }
+        val key = derive { VaultCrypto.unlock(v, master) }
         val checked = try {
-            withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
+            derive { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -515,14 +523,14 @@ class VaultStore(
         val v = vault ?: return false
         if (dek == null || _state.value !is VaultState.Unlocked) return false
         val since = epoch
-        val key = withContext(compute) { VaultCrypto.unlock(v, master) }
+        val key = derive { VaultCrypto.unlock(v, master) }
         onClockReset(now())
         if (v.format == VaultFile.FORMAT && v.version == VaultFile.VERSION) {
             key.fill(0) // Only the check.
             return true
         }
         val upgraded = try {
-            withContext(compute) { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
+            derive { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -588,14 +596,18 @@ class VaultStore(
      * Saves the change even if the vault locks meanwhile (with a copy of the key), then reopens only if it did not.
      * False if the vault was already locked, or [change] returned null (nothing to change), so nothing was saved.
      * [change] runs with the mutex held: it must never wait on anything outside the app (a document provider).
+     * [accept] sees the file about to be saved, still with the mutex held, and false refuses it (nothing saved, false).
      */
-    private suspend fun modify(change: suspend (List<VaultEntry>) -> List<VaultEntry>?): Boolean = mutex.withLock {
+    private suspend fun modify(
+        accept: suspend (VaultFile) -> Boolean = { true },
+        change: suspend (List<VaultEntry>) -> List<VaultEntry>?,
+    ): Boolean = mutex.withLock {
         val v = vault ?: return@withLock false
         val since = epoch
         val key = dek?.copyOf() ?: return@withLock false
         val current = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock false.also { key.fill(0) }
         val next = try {
-            withContext(compute) { change(current)?.let { VaultCrypto.write(v, key, it) } }
+            withContext(compute) { change(current)?.let { VaultCrypto.write(v, key, it) }?.takeIf { accept(it) } }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -644,6 +656,74 @@ class VaultStore(
         val added = entries.filter { ids.add(it.id) }
         checkCanHold(list, added)
         list + added.map { it.copy(passwordHistory = emptyList(), attachments = emptyList()) }
+    }
+
+    /**
+     * The open vault's entries and [revision], read together under the mutex (a save raises the revision just before it
+     * shows the new entries, so reading the two apart could pair an old list with a newer revision); null when locked.
+     * The only source of an import's plan: the import screen passes it to [app.seguridad.imports.planMerge] (keeping its
+     * entries for the preview's estimate), and [app.seguridad.imports.planImport] does the same for the tests.
+     */
+    suspend fun importSnapshot(): VaultSnapshot? = mutex.withLock {
+        val entries = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock null
+        VaultSnapshot(entries, _revision.value)
+    }
+
+    /**
+     * Saves the import of [plan] (spec «Confirmar: la copia y el guardado»): [mergedEntries] against the vault as it is,
+     * in a single write through [modify], all or nothing (the atomic rename of [save]; once the write starts, neither a
+     * lock nor leaving the screen cuts it, see [commit]). Inside the mutex, in the same critical section as the write:
+     * - [ApplyResult.Stale] when [revision] is no longer the plan's (another change was saved since the preview; owner's
+     *   decision (b)), or the vault is locked, or [sinceLock] is given and [lockEpoch] is no longer it (ruling R66, R37:
+     *   the screen gives the epoch of when saving started, so a lock during the copy before importing cancels the
+     *   import even if the vault is opened again before this runs; the copy, if made, stays);
+     * - [ApplyResult.TooBig] when the vault would no longer fit in a `.sgbak` ([writeBackup]'s limits, owner's decision
+     *   (a)): the attachments plus two over [BACKUP_MAX_ENTRIES] (counted first, an import adds none), the JSON bytes of
+     *   the entries' texts alone ([escapedTextBytes], counted without building anything) over [BACKUP_MAX_ENTRY_BYTES]
+     *   in Base64 (before anything is encoded or encrypted), and then the exact
+     *   encrypted file over [BACKUP_MAX_ENTRY_BYTES] or the whole copy over [BACKUP_MAX_TOTAL_BYTES].
+     * Nothing is written in either case. The data key does not change, so the fingerprint stays on (A11 and CRY-A02:
+     * no clock reset, as the mark only rises, as with any save; no biometric call). A failed write throws, as [modify] does, with nothing saved. A plan
+     * that changes nothing (every item skipped) is [ApplyResult.Done] with zeros and writes nothing.
+     * Accepted cost (ruling R69, code-review 5): the vault is encoded twice under the mutex ([accept]'s exact size check
+     * and the write), bounded by [BACKUP_MAX_ENTRY_BYTES] and only on «Importar».
+     */
+    suspend fun applyImport(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, sinceLock: Int? = null): ApplyResult {
+        var result: ApplyResult = ApplyResult.Stale
+        var attachmentRefs: List<AttachmentRef> = emptyList()
+        modify(
+            change = change@{ list ->
+                if (_revision.value != plan.revision) return@change null
+                // Ruling R66 (R37): a lock since saving started cancels the import, even if the vault was opened again.
+                if (sinceLock != null && epoch != sinceLock) return@change null
+                attachmentRefs = list.flatMap { it.attachments }
+                val overFiles = attachmentRefs.size + 2 - BACKUP_MAX_ENTRIES
+                if (overFiles > 0) {
+                    result = ApplyResult.TooBig(overBytes = 0, overFiles = overFiles)
+                    return@change null
+                }
+                val merged = mergedEntries(plan, default, overrides, list, now(), { UUID.randomUUID().toString() })
+                val low = (escapedTextBytes(merged) * 4 + 2) / 3
+                if (low > BACKUP_MAX_ENTRY_BYTES) {
+                    result = ApplyResult.TooBig(overBytes = low - BACKUP_MAX_ENTRY_BYTES)
+                    return@change null
+                }
+                val changed = merged.filterIndexed { i, e -> i >= list.size || e !== list[i] }
+                result = ApplyResult.Done(added = merged.size - list.size, replaced = changed.size - (merged.size - list.size))
+                if (changed.isEmpty()) return@change null // Everything skipped: nothing to save, no new copy.
+                checkCanHold(list, changed)
+                merged
+            },
+            accept = { next ->
+                val json = utf8Length(VaultCrypto.encodeFile(next))
+                val files = withContext(io) { attachmentRefs.sumOf { attachments.fileOf(it.id).length() } }
+                val over = maxOf(json - BACKUP_MAX_ENTRY_BYTES, BACKUP_MARKER_BYTES + json + files - BACKUP_MAX_TOTAL_BYTES)
+                if (over > 0) result = ApplyResult.TooBig(overBytes = over)
+                over <= 0
+            },
+        )
+        // Stale unless [change] ran on the plan's vault; then what it, or [accept], decided.
+        return result
     }
 
     /**
@@ -838,16 +918,19 @@ class VaultStore(
         val key = derive { VaultCrypto.unlock(incoming, master) }
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
-            val checked = withContext(compute) { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
+            val checked = derive { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
             val incomingEntries = withContext(compute) { VaultCrypto.read(checked, key) }
-            // Only one identity per vault (see [upsert]): a copy with more is refused before anything changes.
-            if (incomingEntries.count { it.type == EntryType.IDENTITY } > 1) throw CryptoFailure(SEVERAL_IDENTITIES)
-            checkRestorable(incomingEntries)
+            // The rules «Comprobar una copia» checks too (BackupCheck.kt), so the two never drift apart: one identity per
+            // vault (see [upsert]), and what [upsert] and [addAttachment] keep. A copy that breaks one is refused before
+            // anything changes.
+            checkCopyEntries(incomingEntries)
             val refs = incomingEntries.flatMap { it.attachments }
             if (backup == null) {
                 if (refs.isNotEmpty()) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
             } else {
-                withContext(io) { refs.forEach { checkInBackup(it, backup.first) } }
+                // Each file, in the temporary folder the copy was read into, is the one moved into place below: what is
+                // checked here is what is imported, from a single read of the document.
+                withContext(io) { refs.forEach { if (attachmentInCopy(it, backup.first) != CopyAttachment.OK) throw CryptoFailure(attachmentNotInCopy(it.name)) } }
             }
             checked to refs
         } catch (e: Exception) {
@@ -906,34 +989,6 @@ class VaultStore(
             prepared.undo()
         } catch (e: Exception) {
             // The old vault's copies stay unlisted: never deleted, only no longer rotated.
-        }
-    }
-
-    /**
-     * What [upsert] and [addAttachment] keep for entries added here holds for a copy too, or it is refused before
-     * anything changes: no two entries with the same id, no attachments or password history in an identity or a
-     * contact, and the attachments within [MAX_ATTACHMENT_BYTES] each and [MAX_ATTACHMENTS_TOTAL_BYTES] in all.
-     * A copy this app made always passes; one written by hand (with its master password) may not.
-     */
-    private fun checkRestorable(entries: List<VaultEntry>) {
-        // The id goes, encoded, into the screens' routes (AppNavHost): only an id nothing could ever show or route is
-        // refused, so a copy of a vault that 1.0 to 1.2.x let in with any other id still restores (LIBRE-1).
-        if (entries.any { !isEntryId(it.id) }) throw CryptoFailure(COPY_DAMAGED)
-        if (entries.map { it.id }.distinct().size != entries.size) throw CryptoFailure(COPY_DAMAGED)
-        if (entries.any { it.type.isPersonal && (it.attachments.isNotEmpty() || it.passwordHistory.isNotEmpty()) }) throw CryptoFailure(COPY_DAMAGED)
-        val refs = entries.flatMap { it.attachments }
-        if (refs.any { it.size !in 0..MAX_ATTACHMENT_BYTES.toLong() } || attachments.totalBytes(refs) > MAX_ATTACHMENTS_TOTAL_BYTES) {
-            throw CryptoFailure(ATTACHMENTS_TOTAL_TOO_BIG)
-        }
-    }
-
-    /** [ref] has its file in the copy, with the SHA-256 the entry records (authenticated by the copy's data key). */
-    private fun checkInBackup(ref: AttachmentRef, contents: BackupContents) {
-        val file = contents.attachments[ref.id]
-        val limit = MAX_ATTACHMENT_BYTES.toLong() + NONCE_BYTES + TAG_BYTES
-        // The file is nonce + content + tag: its length proves the size the entry declares (and [checkRestorable] counts).
-        if (!isAttachmentId(ref.id) || file == null || file.length() != ref.size + NONCE_BYTES + TAG_BYTES || !fileMatchesSha256(file, ref.sha256, limit)) {
-            throw CryptoFailure("La copia está incompleta o dañada: falta o no coincide el adjunto «${ref.name}»")
         }
     }
 
@@ -1014,8 +1069,6 @@ class VaultStore(
 const val VAULT_IMPORT_MAX_BYTES = 20 * 1024 * 1024
 
 private const val NEEDS_MASTER_FOR_CONTACTS = "Hace falta la contraseña maestra para guardar la identidad o los contactos"
-private const val SEVERAL_IDENTITIES = "La copia tiene más de una identidad: no se puede importar"
-private const val COPY_DAMAGED = "La copia está dañada: no se puede importar"
 private const val REPLACE_NEEDS_OPEN = "Abre la bóveda antes de importar una copia"
 
 /** The settings could not record, before the import, that the old vault's automatic copies are not the new one's. */
@@ -1031,6 +1084,12 @@ private const val ONLY_ONE_IDENTITY = "Solo puede haber una identidad"
 private const val IMPORT_TOO_BIG = "El archivo pasa de 20 MB: no es una copia de la bóveda"
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"
 private const val IMPORT_DIR_PREFIX = "import-"
+
+/** What [VaultStore.importSnapshot] gives: the entries shown and the revision they belong to. */
+data class VaultSnapshot(val entries: List<VaultEntry>, val revision: Long)
+
+/** The marker entry's content in a `.sgbak` («2\n»), counted by [writeBackup] in the copy's total. */
+private const val BACKUP_MARKER_BYTES = 2L
 private val IMPORT_DIR = Regex("import-[0-9a-f]{16}")
 
 /** Longest entry id a copy may bring (the app makes 36-character UUIDs). */

@@ -68,20 +68,24 @@ class FinalLegalReviewTest {
         val p = policy()
         assertTrue(
             p,
-            ("Puedes pedir que se haga una copia nueva y se borren las copias automáticas de antes del cambio que la app " +
-                "tiene apuntadas en esa carpeta. No se borran las que no tenga apuntadas (por ejemplo, las de antes de la " +
-                "versión 1.2.1 o las de otra bóveda) ni las que se hayan copiado a otro sitio (otra carpeta, la nube o su " +
+            // R15 (1.4.0, Task 8 and Task 12): A6 also deletes the listed copies made before an import.
+            ("Puedes pedir que se haga una copia nueva y se borren las copias automáticas y las de antes de importar " +
+                "hechas antes del cambio: las que la app tiene apuntadas en esa carpeta. No se borran las que no tenga " +
+                "apuntadas (por ejemplo, las de antes de la versión 1.2.1, las de otra bóveda o las de antes de importar " +
+                "que guardaste en otro sitio) ni las que se hayan copiado a otro sitio (otra carpeta, la nube o su " +
                 "papelera).") in p,
         )
         assertFalse("que la app hizo en esa carpeta" in p)
+        assertFalse("se borren las copias automáticas de antes del cambio que la app" in p)
     }
 
     @Test
     fun o2AndR6TheA6TextsAreTheProposedOnes() {
         assertEquals(
-            "Se hizo una copia nueva y se borraron las copias automáticas de antes del cambio de contraseña: las que la app " +
-                "tenía apuntadas en esta carpeta. Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) " +
-                "no se borran.",
+            // R15 (1.4.0, Task 8): the import copies listed in the folder are replaced too.
+            "Se hizo una copia nueva y se borraron las copias automáticas y las de antes de importar hechas antes del " +
+                "cambio de contraseña: las que la app tenía apuntadas en esta carpeta. Las que se hayan copiado a otro sitio " +
+                "(otra carpeta, la nube o su papelera) no se borran.",
             AUTO_BACKUP_REPLACED,
         )
         assertEquals(

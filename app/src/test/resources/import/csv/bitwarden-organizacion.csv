@@ -1,0 +1,3 @@
+collections,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp
+Equipo,login,Panel compartido,,,0,https://panel.example.com/,equipo,Pw-5d9c3157ddb0,
+,note,Nota del equipo,Texto,,0,,,,

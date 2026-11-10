@@ -32,6 +32,7 @@ import app.seguridad.health.HealthItem
 import app.seguridad.health.Issue
 import app.seguridad.health.uniquePasswords
 import app.seguridad.health.vaultHealth
+import app.seguridad.imports.plainReportText
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
@@ -193,7 +194,7 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
 private fun HealthRow(item: HealthItem, title: String, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title.ifEmpty { "(sin título)" }, style = MaterialTheme.typography.titleMedium)
+            Text(plainReportText(title).ifEmpty { "(sin título)" }, style = MaterialTheme.typography.titleMedium)
             Text(item.issues.sortedBy { it.ordinal }.joinToString(" · ") { it.label() }, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Editar", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
         }

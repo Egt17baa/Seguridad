@@ -82,15 +82,40 @@ data class Settings(
      * there (this file, or the vault), and false from the moment it is shown, or for a new install.
      */
     val renameNoticePending: Boolean? = null,
+    /**
+     * 1.4.0: the document ids of the copies made just before «Importar de otra app» in [importCopiesFolder], oldest
+     * first ([app.seguridad.vault.AutoBackup.copyBeforeImport]). Never rotated and not in [autoBackupCopies]; they are
+     * encrypted with the master password of their moment, so a request to replace the old copies after a change of it
+     * (A6) takes those of the chosen folder among its targets ([withAutoBackupResult]). Forgotten with a new or an
+     * imported vault, as [autoBackupCopies]. With defaults, so an older settings.json still reads.
+     */
+    val importCopies: List<String> = emptyList(),
+    val importCopiesFolder: String? = null,
 )
 
 /** [Settings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */
 val Settings.currentAutoBackupCopies: List<String>
     get() = if (autoBackupUri != null && autoBackupCopiesFolder == autoBackupUri) autoBackupCopies else emptyList()
 
-/** Settings with no automatic copy listed as this app's (see [Settings.autoBackupCopies]). */
+/** [Settings.importCopies] if they are in the folder chosen now; none otherwise. */
+val Settings.currentImportCopies: List<String>
+    get() = if (autoBackupUri != null && importCopiesFolder == autoBackupUri) importCopies else emptyList()
+
+/** Settings with no automatic copy, nor import copy, listed as this app's (see [Settings.autoBackupCopies]). */
 fun Settings.forgettingAutoBackupCopies(): Settings =
-    copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null).withoutReplaceRequest()
+    copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null, importCopies = emptyList(), importCopiesFolder = null)
+        .withoutReplaceRequest()
+
+/**
+ * These settings with the import copy [id] just written to [folder] added to [Settings.importCopies]: only if [folder] is
+ * still the chosen one, and (as [withAutoBackupResult]) only if the copy's vault, [generation], is still [current]. A list
+ * of another folder is replaced.
+ */
+fun Settings.withImportCopy(folder: String, id: String, generation: Long? = null, current: Long? = null): Settings {
+    if (autoBackupUri != folder || (generation != null && current != null && generation != current)) return this
+    val kept = if (importCopiesFolder == folder) importCopies else emptyList()
+    return copy(importCopies = (kept + id).distinct(), importCopiesFolder = folder)
+}
 
 /** These settings with no request to replace the old copies: its targets and what it told go with it. */
 fun Settings.withoutReplaceRequest(): Settings =
@@ -124,25 +149,37 @@ const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al
  */
 fun Settings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null): Settings {
     val stale = r.generation != null && generation != null && r.generation != generation
-    return recording(if (stale) r.copy(copies = null, replaced = false, replaceTargets = null) else r)
+    return recording(if (stale) r.copy(copies = null, replaced = false, replaceTargets = null, importCopies = null) else r)
 }
 
 private fun Settings.recording(r: AutoBackupResult): Settings = when {
     autoBackupUri != r.folder -> this
     // Asked while the vault was locked: the request, its targets (M4) and nothing told yet; what Ajustes shows about the
     // last copy does not change.
+    // 1.4.0: the import copies of this folder were made under the master password of before too, so they are targets.
     r.replaceRequested ->
-        copy(autoBackupReplacePending = true, autoBackupReplaceTargets = r.replaceTargets, autoBackupReplaceTold = emptyList())
+        copy(
+            autoBackupReplacePending = true,
+            autoBackupReplaceTargets = r.replaceTargets?.let { (it + importCopiesIn(r.folder)).distinct() },
+            autoBackupReplaceTold = emptyList(),
+        )
     r.writtenAt != null && r.copies != null ->
         copy(
             lastAutoBackupError = r.error,
             lastAutoBackupAt = r.writtenAt,
             autoBackupCopies = r.copies,
             autoBackupCopiesFolder = r.folder,
-        ).replaceAfter(r)
+        ).withImportCopiesLeft(r).replaceAfter(r)
     r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt).replaceAfter(r)
     else -> copy(lastAutoBackupError = r.error).replaceAfter(r)
 }
+
+/** [Settings.importCopies] in [folder]; none if the list is of another folder. */
+private fun Settings.importCopiesIn(folder: String): List<String> = if (importCopiesFolder == folder) importCopies else emptyList()
+
+/** The import copies [r] found still listed and in its folder (a replacement deleted the others, or they are gone). */
+private fun Settings.withImportCopiesLeft(r: AutoBackupResult): Settings =
+    if (r.importCopies != null && importCopiesFolder == r.folder) copy(importCopies = r.importCopies) else this
 
 /**
  * The pending request after [r]: done when [r] replaced the old copies (CR-1: AutoBackup says so only when every target

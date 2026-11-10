@@ -387,4 +387,14 @@ class LinkSignalsTest {
         assertEquals("bit.ly", l.host)
         assertEquals(listOf(Signal.SHORTENER), l.signals)
     }
+
+    /** Ruling R54: the browser's cleaning before the scheme, shared by parseLink and the merge (WHATWG URL Standard). */
+    @Test
+    fun theBrowsersCleaningComesFirst() {
+        assertEquals("http:@banco.es", asBrowserReadsIt("\u0001 ht\ttp:@ban\r\nco.es \u001F"))
+        assertEquals("a b", asBrowserReadsIt(" a b　"))
+        assertEquals("", asBrowserReadsIt("\t\n\r \u0000"))
+        assertEquals("http", parseLink("ht\ttp:@banco.es").scheme)
+        assertEquals("banco.es", parseLink("\u0001http:@banco.es").host)
+    }
 }

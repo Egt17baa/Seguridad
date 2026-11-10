@@ -68,7 +68,7 @@ class PlatformSourcesTest {
         val parts = listOf(
             src.substringAfter("private fun SecretInput(").substringBefore("private fun hasSecret("),
             src.substringAfter("fun TextCryptoScreen(").substringBefore("private fun AwayNote("),
-            src.substringAfter("fun BreachScreen(").substringBefore("class FileHashViewModel"),
+            src.substringAfter("fun BreachScreen("),
         )
         var fields = 0
         for (part in parts) {
@@ -95,7 +95,7 @@ class PlatformSourcesTest {
         assertTrue("No se ha guardado: vuelve a descifrar el archivo." in main("ui/screens/SecurityToolsScreen.kt"))
         assertTrue("onDiscard = { deleteLater(appContext, it) }" in src)
         assertFalse("displayName(" in screen)
-        assertTrue(Regex("""withContext\(Dispatchers\.IO\) \{ runCatching \{ displayName\(appContext, uri\) \}""").findAll(src).count() >= 2)
+        assertTrue(Regex("""withContext\(Dispatchers\.IO\) \{ runCatching \{ displayName\(appContext, uri\) \}""").findAll(src + code("ui/screens/HashLabScreen.kt")).count() >= 2)
     }
 
     @Test fun `F6 N5 to N7 the decrypted copy is deleted on IO, the name read is shown, a late success is not`() {
@@ -110,13 +110,190 @@ class PlatformSourcesTest {
         assertTrue("if (checking || (source != null && vm.sourceName == null))" in src)
     }
 
-    @Test fun `COV1-2 Huella SHA-256 cancels the run before, and its button is off while one runs`() {
-        val src = code("ui/screens/SecurityToolsScreen.kt").substringAfter("class FileHashViewModel")
+    @Test fun `COV1-2 Laboratorio de hashes cancels the run before, and its button is off while one runs`() {
+        val src = code("ui/screens/HashLabScreen.kt")
         assertTrue("job?.cancel()" in src)
-        assertTrue("session.finish(run, hash)" in src)
-        assertTrue("sha256Hex(input.buffered()) { ensureActive() }" in src)
-        assertTrue("enabled = !s.busy" in src)
-        assertTrue("if (s.failed) Text(\"No se pudo leer el archivo.\"" in main("ui/screens/SecurityToolsScreen.kt"))
+        assertTrue("file.finish(mine, hash)" in src)
+        assertTrue("digest(chosen, counting) {" in src && "ensureActive()" in src)
+        assertTrue("withContext(Dispatchers.IO)" in src)
+        assertTrue("enabled = !f.busy" in src)
+        assertTrue("TextButton(onClick = vm::cancel)" in src)
+        // The HMAC key, the message and the text never reach saved state.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        // Every copy goes through the clearing helper.
+        assertFalse("setPrimaryClip" in src || "LocalClipboard" in src)
+        assertTrue("copySensitive(context, value)" in src)
+        assertTrue("HASH_LAB_NO_MATCH" in src && "No se pudo leer" in main("tools/hashlab/HashLabTexts.kt"))
+        // The failure is shown by the screen, not only defined; so is «Lo que no protege».
+        assertTrue("if (f.failed) Text(HASH_LAB_FILE_FAILED" in src)
+        assertTrue("Text(HASH_LAB_NOT_PROTECTED," in src && "Text(HASH_LAB_NOT_PROTECTED_TITLE" in src)
+        // Important 1: the guard of «Cifrar texto» (vault lock, other app, time away) and its note.
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
+        assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(HASH_LAB_TITLE, onBack, s.guard)" in src)
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
+        // The over-limit note sits under each field, the algorithm change never re-reads a file, and progress is the last run's.
+        assertEquals(6, Regex("""TooLongNote\(""").findAll(src).count()) // the definition and one note per field
+        assertTrue("HashLabSession(ComposeCells, SystemClock.elapsedRealtime()) { job?.cancel(); job = null }" in src)
+        // Branch review C, M-1: only the run started last writes its progress and size; the session refuses an older one,
+        // also after a wipe (HashLabSessionTest).
+        assertTrue("session.progress(mine, n)" in src && "session.sized(mine, size)" in src && "val mine = session.startFile()" in src)
+    }
+
+    @Test fun `Laboratorio clasico has the guard of the other tools, bounded fields and the clearing copy`() {
+        val src = code("ui/screens/ClassicLabScreen.kt")
+        // Typed text never reaches saved state; the ViewModel wipes it on being cleared.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
+        assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(CLASSIC_TITLE, onBack, s.guard)" in src)
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
+        // Every field is bounded, and every copy goes through the clearing helper.
+        assertTrue("MAX_CLASSIC_CHARS" in src && "MAX_CLASSIC_KEY_CHARS" in src && "vm.limited(" in src)
+        // M-3: no field refuses a paste silently, and the rotors and reflector are in the wiped session (M-4).
+        assertFalse("vm.limited(null" in src)
+        // N-4: the over-limit note goes with a tab change and with leaving the screen.
+        assertTrue("fun chooseTab(i: Int) {\n        tab = i\n        refused = null" in src && "onDispose { vm.clearRefused() }" in src)
+        assertEquals(5, Regex("""KeyTooLong\(vm, ClassicLabViewModel\.Field""").findAll(src).count())
+        assertTrue("s.rotors" in src && "s.reflector" in src && "vm.rotors" !in src)
+        assertFalse("setPrimaryClip" in src || "LocalClipboard" in src)
+        assertTrue("copySensitive(context, value)" in src)
+        // The visible notice, word for word, and the entry in Herramientas.
+        assertTrue("Text(CLASSIC_NOTICE)" in src)
+        assertTrue("Son cifrados históricos, rotos desde hace décadas: no protegen nada. Sirven para aprender cómo funcionaban." in main("tools/classic/ClassicTexts.kt"))
+        assertTrue("Tool(\"tools/classic\"" in code("ui/screens/ToolsScreen.kt"))
+    }
+
+    @Test fun `Repartir un secreto has the guard of the other tools, runs off the main thread and copies with clearing`() {
+        val src = code("ui/screens/SecretShareScreen.kt")
+        // Nothing secret reaches saved state; the ViewModel wipes the session on being cleared, and a wipe stops the run.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        assertTrue("val session: SecretShareSession = SecretShareSession(ComposeCells, SystemClock.elapsedRealtime()) { runs.stop() }" in src)
+        assertTrue("private val runs: SecretShareRuns = SecretShareRuns(session, viewModelScope)" in src)
+        // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
+        assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(SHARE_TITLE, onBack, s.guard)" in src)
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
+        assertTrue("composable(\"tools/share-secret\")" in code("ui/AppNavHost.kt"))
+        assertTrue("Tool(\"tools/share-secret\", \"🧩\", SHARE_TITLE, SHARE_SUBTITLE)" in code("ui/screens/ToolsScreen.kt"))
+        // PBKDF2 off the main thread (SecretShareRuns, tested in SecretShareRunsTest), each run on a snapshot of the form.
+        assertTrue("val r = splitRequest(s.secretInput, isPhrase = !hexInput, s.passphrase, s.groupThreshold, s.groups, words)" in src)
+        assertTrue("val r = combineRequest(s.typedParts, s.passphrase)" in src)
+        assertTrue("runs.split({ check -> slip.splitSecret(master, pass, r.groupThreshold, r.groups, check = check) })" in src)
+        assertTrue("runs.combine({ check -> slip.combineShares(r.parts, pass, check) }) { pass.fill('\\u0000') }" in src)
+        assertTrue("master.fill(0)" in src)
+        assertFalse("Dispatchers.Default" in src)
+        assertTrue("work: CoroutineDispatcher = Dispatchers.Default" in main("tools/slip39/SecretShareRuns.kt"))
+        // The word lists are read on IO.
+        assertTrue("withContext(Dispatchers.IO)" in src && "\"slip39_english.txt\"" in src)
+        // Every field is bounded, and every copy goes through the clearing helper.
+        for (max in listOf("SHARE_MAX_SECRET_CHARS", "SHARE_MAX_PARTS_CHARS", "SLIP39_MAX_PASSPHRASE_CHARS", "SHARE_MAX_NUMBER_CHARS")) {
+            assertTrue(max, "vm.limited(SecretShareViewModel.Field." in src && max in src)
+        }
+        assertFalse("setPrimaryClip" in src || "LocalClipboard" in src)
+        assertEquals(2, Regex("""copySensitive\(context, value\)""").findAll(src).count())
+        // The warning in its own card before the parts, and what the tool does not protect.
+        assertTrue(src.indexOf("Text(SHARE_WARNING)") in 0 until src.indexOf("val parts = s.parts ?: return"))
+        assertTrue("Text(SHARE_NOT_PROTECTED)" in src && "Text(SHARE_RESULT_NOTE" in src)
+        // Review I-1: the phrase of the recovered bytes carries its note, between the phrase and «Copiar».
+        assertTrue("Output(context, phrase, note = SHARE_RESULT_PHRASE_NOTE)" in src)
+        val output = src.substringAfter("private fun Output(").substringBefore("\n}\n")
+        assertTrue(output, output.indexOf("note?.let { Text(it") in 0 until output.indexOf("copySensitive(context, value)"))
+        assertTrue(
+            ("\"Esta es la frase BIP-39 de estos bytes. Si las partes vienen de una cartera, el secreto es su semilla y esta frase \" +\n" +
+                "        \"daría otra cartera distinta: usa la frase solo si repartiste una frase BIP-39.\"") in main("tools/slip39/SecretShareTexts.kt"),
+        )
+        val texts = main("tools/slip39/SecretShareTexts.kt")
+        assertTrue(
+            ("\"Estas partes no son una copia SLIP-39 de cartera. Metidas en una cartera de hardware como recuperación SLIP-39 \" +\n" +
+                "        \"darían otra cartera distinta. Recomponlas en Clavero o con una herramienta SLIP-0039 que devuelva la entropía.\"") in texts,
+        )
+        // checkAssets fails the build if the list is not in the APK.
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/build.gradle.kts").isFile) dir = dir.parentFile
+        val gradle = File(dir, "app/build.gradle.kts").readText()
+        val anchor = "val checkAssets = tasks.register(\"checkAssets\")"
+        assertTrue("app/build.gradle.kts must declare $anchor", anchor in gradle)
+        val task = gradle.substringAfter(anchor).substringBefore("tasks.named(\"check\")")
+        assertTrue(task, "\"slip39_english.txt\"" in task.substringAfter("val wordLists = listOf(").substringBefore(")"))
+    }
+
+    @Test fun `Comprobar una copia has the guard of the other tools, stops its run and changes neither the vault nor a copy`() {
+        val src = code("ui/screens/BackupCheckScreen.kt")
+        // Nothing secret reaches saved state; the ViewModel wipes the session on being cleared, and a wipe stops the run.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        assertTrue("val session: BackupCheckSession = BackupCheckSession(ComposeCells, SystemClock.elapsedRealtime()) { stopAll() }" in src)
+        assertTrue("private val runs: BackupCheckRuns = BackupCheckRuns(session, viewModelScope) { store.lockEpoch }" in src)
+        // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
+        assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(BACKUP_CHECK_TITLE, onBack, s.guard)" in src)
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src && "Text(BACKUP_CHECK_STOPS_NOTE" in src)
+        // What the check does not prove, always on screen.
+        assertTrue("Text(BACKUP_CHECK_NOT_PROVEN," in src)
+        // The password leaves the field as a CharArray the run owns and zeroes (BackupCheckSessionTest).
+        assertTrue("val master = session.password.toCharArray()" in src && "session.password = \"\"" in src && "runs.start(master)" in src)
+        assertTrue("master?.fill('\\u0000')" in code("vault/BackupCheckSession.kt") && "password.fill('\\u0000')" in code("vault/BackupCheckSession.kt"))
+        // checkBackup on IO, in cacheDir/comprobar/ (one folder per run, BackupCheckTest).
+        assertTrue("withContext(Dispatchers.IO)" in src && "checkBackup(it.buffered(), pw, dir)" in src && "File(appContext.cacheDir, BACKUP_CHECK_DIR)" in src)
+        // A lock of the vault and leaving the app (not a rotation) stop the run going on.
+        assertTrue("if (wasOpen && !open) runs.stop()" in src)
+        assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }" in src)
+        // The screen reads the vault's state and its lock count and, for the picker, touches it (the idle count and the
+        // A11 clock mark, as «Importar copia»); none of its files changes the vault, a setting, the fingerprint or a copy.
+        assertEquals(setOf("state", "lockEpoch", "touch"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
+        // m3: the picker as «Importar copia»'s (VaultBackup.kt): the vault stays open while it is on top, the time away
+        // counts from the tap, and the flag goes back if the picker never opened (MainActivity.onStart takes it back).
+        // The four steps in this order, whatever the spacing and line breaks.
+        val flat = src.replace(Regex("""\s+"""), " ")
+        assertTrue(
+            flat,
+            ("VaultLock.keepOpenOnce = true store.touch() pickerError = pick.launchOrError(arrayOf(\"*/*\")) " +
+                "if (pickerError != null) VaultLock.keepOpenOnce = false") in flat,
+        )
+        val importer = code("ui/screens/VaultBackup.kt").substringAfter("import = {").substringBefore("changeMaster = ")
+        assertTrue(importer, "VaultLock.keepOpenOnce = true" in importer && "store.touch()" in importer && "importer.launchOrError(arrayOf(\"*/*\"))" in importer)
+        assertEquals(1, Regex("""store\.touch\(\)""").findAll(src).count())
+        assertEquals(1, Regex("""keepOpenOnce = true""").findAll(src).count())
+        assertTrue("VaultLock.keepOpenOnce = false" in code("MainActivity.kt").substringAfter("override fun onStart()").substringBefore("override fun "))
+        val files = listOf(src, code("vault/BackupCheck.kt"), code("vault/BackupCheckSession.kt"))
+        val writes = listOf(
+            "importReplace", "exportBackup", "upsert(", "addAll(", "addAttachment", "removeAttachment", "changeMaster", "destroy(",
+            "VaultStore(", "SettingsStore", "settings", ".update(", "openOutputStream", "writeBackup", "BiometricVault", "autoBackup",
+            "AutoBackup", "writeText", "writeBytes", "vault.bin",
+        )
+        for (file in files) for (w in writes) assertFalse(w, w in file)
+        for (w in listOf("keepOpenOnce", "touch()")) for (file in files.drop(1)) assertFalse(w, w in file)
+        assertFalse("VaultStore" in code("vault/BackupCheck.kt") || "VaultStore" in code("vault/BackupCheckSession.kt"))
+        // The row in Ajustes, the route, and the leftovers of a run cut short go at start.
+        assertTrue("onClick = onCheckBackup" in code("ui/screens/SettingsScreen.kt") && "Text(BACKUP_CHECK_TITLE)" in code("ui/screens/SettingsScreen.kt"))
+        assertTrue("composable(\"settings/check-backup\")" in code("ui/AppNavHost.kt"))
+        assertTrue("BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)" in code("ui/AppNavHost.kt"))
+        assertTrue("removeBackupCheckLeftovers(File(cacheDir, BACKUP_CHECK_DIR))" in code("SeguridadApp.kt"))
+        assertTrue("const val BACKUP_CHECK_TITLE = \"Comprobar una copia\"" in main("vault/BackupCheckTexts.kt"))
+        // The import uses the same checks (BackupCheck.kt), so they cannot drift apart.
+        val store = code("vault/VaultStore.kt")
+        assertTrue("checkCopyEntries(incomingEntries)" in store && "attachmentInCopy(it, backup.first)" in store)
+    }
+
+    /** Ruling R3: no other product's brand in a user-visible text; the licence's attribution lives on the Licencias screen. */
+    @Test fun `no wallet brand appears in the app's texts outside the licences`() {
+        var dir: File? = File(".").absoluteFile
+        var root: File? = null
+        while (dir != null && root == null) {
+            File(dir, "app/src/main/java").takeIf { it.isDirectory }?.let { root = it }
+            dir = dir.parentFile
+        }
+        val brands = Regex("(?i)trezor|keystone|satoshilabs")
+        val found = root!!.walkTopDown().filter { it.isFile && it.extension == "kt" && it.name != "LicensesScreen.kt" }
+            .filter { brands.containsMatchIn(it.readText()) }.map { it.name }.toList()
+        assertEquals(emptyList<String>(), found)
+        assertTrue("SatoshiLabs" in main("ui/screens/LicensesScreen.kt"))
     }
 
     @Test fun `HERR-1 Limpiar foto passes its cancellation to the readers`() {
@@ -302,5 +479,181 @@ class PlatformSourcesTest {
         assertTrue(Regex("""if \(host == null\) throw CertificateException\(""").containsMatchIn(src))
         // Review round 1, minor 1: a system trust manager it cannot take refuses every connection; the app does not close.
         assertTrue(Regex("""catch \(e: IllegalArgumentException\) \{\s*return \{ _, _, _ -> throw CertificateException\(""").containsMatchIn(src))
+    }
+
+    @Test fun `Importar de otra app holds what it read in a ViewModel, reads the file once and drops all on lock or back`() {
+        val src = code("ui/screens/ImportScreen.kt")
+        val flat = src.replace(Regex("""\s+"""), " ")
+        // Nothing read, typed or planned reaches saved state; leaving the screen wipes it; a wipe stops what runs.
+        assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
+        assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
+        assertTrue("val session: ImportSession = ImportSession(ComposeCells, SystemClock.elapsedRealtime()) { stopAll() }" in src)
+        // The guard of the other tools, plus any lock of the vault (not only the «PIN y códigos» rule).
+        assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src && "GuardEffects(s.guard, lockAfterMs)" in src)
+        assertTrue("store.state.collect { session.vaultStateIs(it is VaultState.Unlocked) }" in flat)
+        assertTrue("session.guard.typed()" in src && "Text(IMPORT_WIPE_NOTE" in src)
+        assertTrue("usedFor(s.guard)" in flat && "touchesVault(store)" in src && "VaultIdleLock(store)" in src)
+        // Owner's decision (a): at most one byte past the limit, on IO, cancellable; (b): the document is opened once.
+        assertTrue(".readAtMost(IMPORT_MAX_BYTES + 1)" in flat && "withContext(Dispatchers.IO)" in src)
+        assertEquals(1, Regex("""openInputStream\(""").findAll(src).count())
+        assertTrue("StopOnCancel(raw) { reading.ensureActive() }" in src && "check()" in src)
+        // R11b: the reader off the main thread, and OutOfMemoryError caught around that one call only.
+        assertEquals(1, Regex("""\breadImport\(""").findAll(src).count())
+        assertEquals(1, Regex("""OutOfMemoryError""").findAll(src).count())
+        assertTrue(flat, "val read = { try { readImport(bytes, pw) } catch (e: OutOfMemoryError) { null } }" in flat)
+        // R38: with a password the read may derive a key, one large derivation at a time in the app (KdfLock).
+        assertTrue(flat, "if (pw == null) withContext(Dispatchers.Default) { read() } else KdfLock.derive(Dispatchers.Default, read)" in flat)
+        // The password is a CharArray zeroed however the read ends; one KDF at a time (SingleRun), released when it ends.
+        assertTrue("pw?.fill('\\u0000')" in src && "IMPORT_KDF_RUN.start()" in src && "ticket?.release()" in src)
+        assertTrue("bytes?.fill(0)" in code("imports/ImportSession.kt") || "it.fill(0)" in code("imports/ImportSession.kt"))
+        // The plan only from one snapshot (entries and revision read together, as planImport does, kept for the
+        // estimate); the confirmation only through ImportFlow, which a back does not cut (a lock before the save
+        // cancels it, ruling R37: VaultStoreImportTest and AutoBackupImportCopyTest).
+        assertTrue("val snap = store.importSnapshot()" in src && "planMerge(read, it.entries, it.revision)" in src)
+        assertEquals(1, Regex("""planMerge\(""").findAll(src).count())
+        assertEquals("the revision only from the snapshot", 1, Regex("""\.revision\b""").findAll(src).count())
+        assertTrue("ImportFlow(" in src && "store.applyImport(plan, default, overrides, sinceLock = since)" in src && "withContext(NonCancellable)" in src)
+        // Ruling R66: both saves (confirm and copyTo) record the lock epoch when saving starts and pass it on.
+        assertEquals(2, Regex("""val since = store\.lockEpoch""").findAll(src).count())
+        assertEquals(2, Regex("""applyImport\(plan, default, overrides, sinceLock = since\)""").findAll(src).count())
+        assertTrue("copyBeforeImport()" in src)
+        // Both pickers as «Importar copia»: the vault stays open while one is on top; the flag goes back if none opened.
+        assertTrue(flat, ("VaultLock.keepOpenOnce = true store.touch() pickerError = pick.launchOrError(arrayOf(\"*/*\")) " +
+            "if (pickerError != null) VaultLock.keepOpenOnce = false") in flat)
+        assertTrue(flat, ("VaultLock.keepOpenOnce = true store.touch() pickerError = createCopy.launchOrError(importCopyFileName(LocalDateTime.now())) " +
+            "if (pickerError != null) VaultLock.keepOpenOnce = false") in flat)
+        // M-3: both pickers are registered before the locked return (a result after process death still arrives, and a
+        // created document is then deleted); a file picked while locked is not read.
+        val screen = src.substringAfter("fun ImportScreen(")
+        val lockedReturn = screen.indexOf("if (state !is VaultState.Unlocked) {")
+        assertTrue(lockedReturn > 0)
+        for (picker in listOf("val pick = rememberDocumentPicker(", "val createCopy = rememberDocumentPicker(")) {
+            assertTrue(picker, screen.indexOf(picker) in 0 until lockedReturn)
+        }
+        assertTrue("if (uri != null && store.state.value is VaultState.Unlocked) vm.pick(uri)" in src)
+        // Round 2, minor 1: the estimate's fallback claims nothing about the tags.
+        assertTrue("PreviewEstimate(0L, null, 0)" in src && "emptySet()" !in src)
+        // M-5: «Elegir otro archivo» on the password step opens the picker, as on the other steps.
+        assertTrue(flat, "OutlinedButton(onClick = { vm.cancel() launchPick() }" in flat)
+        // R18: the vault's tag chips are lazy.
+        assertTrue("LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(allTags, key = { it })" in code("ui/screens/VaultScreen.kt").replace(Regex("""\s+"""), " "))
+        // A document created for the copy and not used (refused, failed) is deleted, never left empty.
+        assertTrue("discardDocumentNow(appContext, uri)" in src)
+        // «Quitar el archivo exportado»: the document picked in this run, once, after an import; the provider asked first.
+        assertEquals(1, Regex("""DocumentsContract\.deleteDocument\(""").findAll(src).count())
+        assertTrue("FLAG_SUPPORTS_DELETE" in src && "DocumentsContract.isDocumentUri(" in src && "session.takeRemovable()" in src)
+        // Owner's decision (c): what comes from the file is plain text; never a link, an intent, HTML or an annotation.
+        for (file in listOf(src, code("imports/ImportSession.kt"))) {
+            for (w in listOf("openUri", "UriHandler", "Linkify", "LinkAnnotation", "ACTION_VIEW", "fromHtml", "AnnotatedString", "ClickableText", "startActivity", "Log.")) {
+                assertFalse(w, w in file)
+            }
+        }
+        assertTrue(Regex("""plainReportText\(""").findAll(src).count() >= 5)
+        // The entry in the vault's menu, next to «Importar copia», and its route.
+        val vault = code("ui/screens/VaultScreen.kt")
+        assertTrue(vault.indexOf("Text(IMPORT_TITLE)") > vault.indexOf("Text(\"Importar copia\")"))
+        assertTrue("composable(\"vault/import\")" in code("ui/AppNavHost.kt"))
+        assertTrue(
+            "ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)" in
+                code("ui/AppNavHost.kt"),
+        )
+    }
+
+    /**
+     * Ruling R9: a title, user, URL, service, account or tag is stored as it was read or typed, and SHOWN through
+     * plainReportText (controls become spaces, bidi and invisible characters go) wherever it appears: the lists, the
+     * entry's header and fields, the dialogs that name it, the 2FA QR, «Salud» and the contacts. Editing fields keep
+     * the stored text.
+     */
+    @Test fun `R9 every title, user, URL, service, account and tag shown goes through plainReportText`() {
+        val pins = mapOf(
+            "ui/screens/VaultScreen.kt" to listOf(
+                "Text(plainReportText(e.title), maxLines = 1",
+                "if (sub.isNotBlank()) Text(plainReportText(sub)",
+                "label = { Text(\"#\${plainReportText(t)}\") }",
+            ),
+            "ui/screens/VaultEntryScreen.kt" to listOf(
+                "BackScaffold(\"\${typeIcon(entry.type)} \${plainReportText(entry.title)}\", onBack)",
+                "Field(\"Usuario\", entry.username, plain = true)",
+                "Field(\"Web\", entry.url, plain = true)",
+                "if (plain) plainReportText(value, value.length) else value",
+                "entry.tags.map { \"#\${plainReportText(it)}\" }",
+                "Text(\"¿Borrar «\${plainReportText(entry.title)}»?\")",
+                "\${plainReportText(entries.single().title)}",
+                "entries.joinToString(\", \") { plainReportText(it.title) }",
+            ),
+            "ui/screens/OtpQrScreen.kt" to listOf("Text(plainReportText(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(\" · \"))"),
+            "ui/screens/HealthScreen.kt" to listOf("Text(plainReportText(title).ifEmpty { \"(sin título)\" }"),
+            "ui/screens/ContactsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(e.title)), maxLines = 1"),
+            "ui/screens/ContactDetailScreen.kt" to listOf("Text(plainReportText(shownContactTitle(entry.title)), style"),
+            "ui/screens/PkActionsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(c.title)), maxLines = 1"),
+            // M-6: the texts built in vault/ that name a stored contact.
+            "vault/ContactsView.kt" to listOf(
+                "Ya lo tienes: \${plainReportText(shownContactTitle(check.entry.title))}",
+                "misma clave de cifrado que \${plainReportText(shownContactTitle(check.entry.title))}",
+                "tu contacto «\${plainReportText(check.entry.title)}»",
+            ),
+            "vault/PkActions.kt" to listOf(
+                "senderContactText(sender.entry.verified, addressedToMe, plainReportText(sender.entry.title))",
+                "fileSignatureUnverifiedText(plainReportText(sender.entry.title))",
+            ),
+        )
+        for ((file, snippets) in pins) {
+            val src = code(file)
+            for (s in snippets) assertTrue("$file: $s", s in src)
+        }
+        // The TOTP header of the entry, twice (a code shown, a code this app does not calculate).
+        assertEquals(2, Regex(Regex.escape("Text(plainReportText(listOf(t.issuer, t.account).filter { it.isNotBlank() }.joinToString(\" · \"))")).findAll(code("ui/screens/VaultEntryScreen.kt")).count())
+        // Nowhere in the UI a stored title, user or URL, or a 2FA's names, straight into a Text or a title.
+        val raw = Regex("""(Text\(|BackScaffold\()[^\n]*?\b(e|entry|it|item|existing)\.(title|username|url)\b|Text\(listOf\(\w+\.issuer""")
+        val bad = mainDir().resolve("ui").walkTopDown().filter { it.isFile && it.extension == "kt" }.flatMap { f ->
+            code("ui/" + f.relativeTo(mainDir().resolve("ui")).invariantSeparatorsPath).lines().filter { raw.containsMatchIn(it) && "plainReportText(" !in it }.map { "${f.name}: ${it.trim()}" }
+        }.toList()
+        assertEquals(emptyList<String>(), bad)
+    }
+
+    /** The arguments of each call to [name] in [src], up to its closing parenthesis (strings without parentheses). */
+    private fun calls(src: String, name: String): List<String> {
+        val out = ArrayList<String>()
+        var i = src.indexOf("$name(")
+        while (i >= 0) {
+            var depth = 0
+            var j = i + name.length
+            while (j < src.length) {
+                when (src[j]) {
+                    '(' -> depth++
+                    ')' -> if (--depth == 0) break
+                }
+                j++
+            }
+            out += src.substring(i, j + 1)
+            i = src.indexOf("$name(", j)
+        }
+        return out
+    }
+
+    /**
+     * Branch review B, I-1 (MASVS-STORAGE-2): every field of the «Laboratorio de hashes» and the «Laboratorio clásico»
+     * can hold a secret (their sessions wipe them by the «PIN y códigos» rule, and their texts say nothing is kept on
+     * the phone), so each uses the keyboard that neither suggests nor learns, as «Cifrar texto» and «Repartir un
+     * secreto»; the HMAC key is a [app.seguridad.ui.theme.PasswordField], hidden too.
+     */
+    @Test fun `I-1 the labs and the other secret fields use the keyboard that does not learn`() {
+        assertTrue(
+            "val SECRET_TEXT_KEYBOARD = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password)" in
+                code("ui/theme/Components.kt"),
+        )
+        for ((file, fields) in listOf("ui/screens/HashLabScreen.kt" to 4, "ui/screens/ClassicLabScreen.kt" to 6)) {
+            val found = calls(code(file), "OutlinedTextField")
+            assertEquals(file, fields, found.size)
+            for (f in found) {
+                assertTrue("$file: $f", "keyboardOptions = SECRET_TEXT_KEYBOARD," in f)
+                // Shown as typed: the keyboard type alone masks nothing, and nothing else is changed.
+                assertFalse("$file: $f", "visualTransformation" in f)
+            }
+        }
+        assertEquals(1, Regex("""PasswordField\(\s*s\.hmacKey,""").findAll(code("ui/screens/HashLabScreen.kt")).count())
+        assertEquals(2, Regex("""keyboardOptions = SECRET_TEXT_KEYBOARD,""").findAll(code("ui/screens/SecretShareScreen.kt")).count())
+        assertTrue("keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password)," in code("ui/screens/SecurityToolsScreen.kt"))
     }
 }

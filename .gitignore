@@ -37,3 +37,7 @@ google-services.json
 
 # Public test key, committed on purpose
 !app/debug.keystore
+
+# Copias de un parche (revisión de la rama, N-1)
+*.orig
+*.rej

@@ -80,6 +80,7 @@ import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
+import app.seguridad.vault.BACKUP_CHECK_TITLE
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.ReplaceStatus
@@ -280,7 +281,8 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
         if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
         Hint(
             "Cada copia va cifrada con la contraseña maestra que tenía la bóveda al hacerla: si la cambias, las copias anteriores " +
-                "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…), nunca " +
+                "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…) y, si " +
+                "lo pides tras cambiar la contraseña maestra, las de antes de importar (seguridad-antes-de-importar-…); nunca " +
                 "otros archivos de la carpeta.",
         )
     }
@@ -399,7 +401,7 @@ private fun FingerprintKeySection(vaultState: VaultState) {
 /** The Ajustes tab: lock, clipboard, Argon2id cost and theme; the vault's copies and master password; Acerca de. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBackup, onAbout: () -> Unit) {
+fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBackup, onAbout: () -> Unit, onCheckBackup: () -> Unit) {
     VaultIdleLock(vault)
     val settings by store.settings.collectAsStateWithLifecycle()
     val vaultState by vault.state.collectAsStateWithLifecycle()
@@ -464,6 +466,8 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                 OutlinedButton(onClick = actions.export, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Exportar bóveda") }
                 OutlinedButton(onClick = actions.import, enabled = canImport, modifier = Modifier.fillMaxWidth()) { Text("Importar copia") }
                 OutlinedButton(onClick = actions.changeMaster, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Cambiar contraseña maestra") }
+                // Reads a copy and changes neither the vault nor a copy: open, locked or with no vault.
+                OutlinedButton(onClick = onCheckBackup, modifier = Modifier.fillMaxWidth()) { Text(BACKUP_CHECK_TITLE) }
                 Hint(
                     when (vaultState) {
                         VaultState.Locked -> "Desbloquea la bóveda (pestaña Bóveda) para exportarla, importar una copia o cambiar la contraseña maestra."

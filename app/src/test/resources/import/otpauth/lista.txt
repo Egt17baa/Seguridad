@@ -1,0 +1,8 @@
+otpauth://totp/Prueba%20SHA1:ana.prueba%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Prueba%20SHA1
+
+   
+otpauth://totp/Prueba%20SHA256:ana?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&algorithm=SHA256&digits=8&period=60
+otpauth://hotp/Prueba%20HOTP:ana?secret=JBSWY3DPEHPK3PXP&counter=1
+"otpauth://totp/Entre%20comillas?secret=JBSWY3DPEHPK3PXP"
+otpauth://totp/Diez?secret=JBSWY3DPEHPK3PXP&digits=10
+esto no es un enlace

@@ -1,0 +1,95 @@
+# BORRA TODOS LOS DATOS DE CLAVERO (clearState): solo en el emulador o en un móvil sin tu bóveda real.
+# Crea una bóveda de PRUEBA con una maestra de prueba escrita aquí (MAESTRA), nunca la tuya.
+#
+# La regla de una maestra nueva (CRY-A01 de la 1.3.1 y RT-3, decisión del dueño (h) de la 1.4.0), en
+# «Crea tu bóveda» de una instalación nueva: «corta» pide 10 caracteres; «P4ssw0rd2024!» (una palabra
+# conocida en leet) y «Password1!» dan el texto MASTER_TOO_WEAK y «Crear bóveda» sigue desactivado; una
+# frase de 5 palabras y un poco más no da ningún aviso. Después crea la bóveda, que es el primer paso de
+# P-19 («crear una bóveda nueva»).
+# Maestro solo escribe caracteres ASCII en Android, por eso no se prueba «contraseña1» (la «ñ»).
+appId: io.github.egt17baa.seguridad
+name: "P-19 Crear una bóveda: la regla de la maestra nueva"
+tags:
+  - clavero-1.4.0
+  - automatica
+  - borra-datos
+env:
+  MAESTRA: nube-ladera-pino-ancla-trigo-prueba
+---
+- runFlow: ../comun/inicio-desde-cero.yaml
+- assertVisible: 'Sirve una copia \.sgbak de esta app \(con los adjuntos\).*'
+- assertVisible: "Importar una copia exportada"
+- assertVisible:
+    text: "Crear bóveda"
+    enabled: false
+
+# Corta.
+- tapOn: 'Contraseña maestra \(mínimo 10 caracteres\)'
+- inputText: "corta"
+- extendedWaitUntil:
+    visible: "Mínimo 10 caracteres"
+    timeout: 10000
+- assertVisible:
+    text: "Crear bóveda"
+    enabled: false
+
+# Una palabra conocida en leet, con números y signos alrededor (RT-3).
+- eraseText: 20
+- inputText: "P4ssw0rd2024!"
+- extendedWaitUntil:
+    visible: 'Esta contraseña es fácil de adivinar\. Usa una frase de 5 o 6 palabras que solo tú conozcas.*'
+    timeout: 20000
+- assertNotVisible: "Mínimo 10 caracteres"
+- assertVisible:
+    text: "Crear bóveda"
+    enabled: false
+
+# Una sola palabra conocida con mayúscula, número y signo.
+- eraseText: 20
+- inputText: "Password1!"
+- extendedWaitUntil:
+    visible: 'Esta contraseña es fácil de adivinar\. Usa una frase de 5 o 6 palabras que solo tú conozcas.*'
+    timeout: 20000
+
+# La maestra de prueba: ningún aviso.
+- eraseText: 20
+- inputText: ${MAESTRA}
+- assertNotVisible: 'Esta contraseña es fácil de adivinar.*'
+- assertNotVisible: "Mínimo 10 caracteres"
+- assertVisible: 'Consejo: usa una frase de 5 o 6 palabras que solo tú conozcas.*'
+
+# Repetida mal y bien.
+- tapOn: "Repítela"
+- inputText: "otra-cosa-distinta"
+- extendedWaitUntil:
+    visible: "No coinciden"
+    timeout: 10000
+- eraseText: 30
+- inputText: ${MAESTRA}
+- assertNotVisible: "No coinciden"
+- hideKeyboard
+
+# Sin la casilla, «Crear bóveda» sigue desactivado.
+- scrollUntilVisible:
+    element:
+      text: "Crear bóveda"
+    direction: DOWN
+- assertVisible:
+    text: "Crear bóveda"
+    enabled: false
+- tapOn: 'Entiendo que si olvido la contraseña maestra.*'
+- assertVisible:
+    text: "Crear bóveda"
+    enabled: true
+- tapOn: "Crear bóveda"
+- extendedWaitUntil:
+    visible: "Bloquear"
+    timeout: 120000
+- assertVisible: "Más opciones"
+
+# Bloquear y desbloquear con la maestra de prueba.
+- tapOn: "Bloquear"
+- runFlow:
+    file: ../comun/desbloquear.yaml
+    env:
+      MAESTRA: ${MAESTRA}

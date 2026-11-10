@@ -51,6 +51,7 @@ import app.seguridad.crypto.isUsableTotpKey
 import app.seguridad.crypto.parseOtpMigration
 import app.seguridad.crypto.readOtpAuth
 import app.seguridad.crypto.totpCode
+import app.seguridad.imports.plainReportText
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
@@ -92,7 +93,7 @@ private fun LockedNotice(onBack: () -> Unit) {
 }
 
 @Composable
-private fun Field(label: String, value: String, secret: Boolean = false, mono: Boolean = false) {
+private fun Field(label: String, value: String, secret: Boolean = false, mono: Boolean = false, plain: Boolean = false) {
     if (value.isBlank()) return
     val context = LocalContext.current
     var shown by remember { mutableStateOf(!secret) }
@@ -100,7 +101,7 @@ private fun Field(label: String, value: String, secret: Boolean = false, mono: B
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // No text selection: the system "Copy" would skip the sensitive flag and the timed clearing.
-            Text(if (shown) value else "•".repeat(minOf(value.length, 16)), fontFamily = if (mono || secret) FontFamily.Monospace else FontFamily.Default)
+            Text(if (shown) (if (plain) plainReportText(value, value.length) else value) else "•".repeat(minOf(value.length, 16)), fontFamily = if (mono || secret) FontFamily.Monospace else FontFamily.Default)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = { copySensitive(context, value) }) { Text("Copiar") }
                 if (secret) OutlinedButton(onClick = { shown = !shown }) { Text(if (shown) "Ocultar" else "Mostrar") }
@@ -142,7 +143,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
             delay(1_000)
         }
     }
-    BackScaffold("${typeIcon(entry.type)} ${entry.title}", onBack) { padding ->
+    BackScaffold("${typeIcon(entry.type)} ${plainReportText(entry.title)}", onBack) { padding ->
         Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (failed) Text("No se pudo borrar (¿almacenamiento lleno?)", color = NegativeColor)
             entry.totp?.let { t ->
@@ -150,7 +151,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                     // A saved code with an algorithm, digits or period this app does not calculate: the reason, not a wrong code.
                     SectionCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(listOf(t.issuer, t.account).filter { it.isNotBlank() }.joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(plainReportText(listOf(t.issuer, t.account).filter { it.isNotBlank() }.joinToString(" · ")), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(TOTP_UNSUPPORTED_ENTRY, color = NegativeColor)
                         }
                     }
@@ -158,7 +159,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                     totpCode(t, now)?.let { (code, left) ->
                         SectionCard(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(listOf(t.issuer, t.account).filter { it.isNotBlank() }.joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(plainReportText(listOf(t.issuer, t.account).filter { it.isNotBlank() }.joinToString(" · ")), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(code.chunked(3).joinToString(" "), style = MaterialTheme.typography.displaySmall, fontFamily = FontFamily.Monospace)
                                 Text("Caduca en $left s", color = if (left <= 5) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -169,14 +170,14 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
             }
             if (entry.favorite || entry.tags.isNotEmpty()) {
                 Text(
-                    (listOf("★ Favorito").filter { entry.favorite } + entry.tags.map { "#$it" }).joinToString("  "),
+                    (listOf("★ Favorito").filter { entry.favorite } + entry.tags.map { "#${plainReportText(it)}" }).joinToString("  "),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Field("Usuario", entry.username)
+            Field("Usuario", entry.username, plain = true)
             Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true)
-            Field("Web", entry.url)
+            Field("Web", entry.url, plain = true)
             PasswordHistorySection(entry.passwordHistory)
             if (entry.seedWords.isNotBlank()) {
                 val (n, valid) = seedWordCount(entry.seedWords)
@@ -202,7 +203,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text("¿Borrar «${entry.title}»?") },
+            title = { Text("¿Borrar «${plainReportText(entry.title)}»?") },
             text = {
                 FilterObscuredTouches()
                 Text("Se borrará de la bóveda. No se puede deshacer.")
@@ -403,7 +404,7 @@ fun VaultEntryEditScreen(
                         VAULT_ENTRY_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${typeIcon(t)} ${t.label}") }) }
                     }
                 }
-                OutlinedTextField(title, { title = it }, label = { Text("Nombre (p. ej. «Binance» o «Ledger»)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(title, { title = it }, label = { Text("Nombre (p. ej. «Correo» o «Cartera»)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 when (type) {
                     EntryType.LOGIN -> {
                         OutlinedTextField(username, { username = it }, label = { Text("Usuario o correo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -540,8 +541,8 @@ fun VaultEntryEditScreen(
                     Text(
                         when (entries.size) {
                             0 -> "No hay códigos nuevos que importar."
-                            1 -> "Se añadirá 1 código nuevo a la bóveda: ${entries.single().title}."
-                            else -> "Se añadirán ${entries.size} códigos nuevos a la bóveda: ${entries.joinToString(", ") { it.title }}."
+                            1 -> "Se añadirá 1 código nuevo a la bóveda: ${plainReportText(entries.single().title)}."
+                            else -> "Se añadirán ${entries.size} códigos nuevos a la bóveda: ${entries.joinToString(", ") { plainReportText(it.title) }}."
                         },
                     )
                     if (pending.leftOut.isNotEmpty()) {

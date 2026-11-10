@@ -24,10 +24,12 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Adjuntos cifrados (hasta 5 MB cada uno).
 • Salud de la bóveda: contraseñas repetidas, débiles, antiguas o sin 2FA.
 • Copias cifradas que exportas tú, y copia automática opcional a una carpeta que elijas.
+• Comprueba una copia sin importarla: que tu contraseña la abre y que cada adjunto está y coincide con lo que guarda su entrada.
+• Importa los archivos CSV de los navegadores más usados y las exportaciones de algunos gestores de contraseñas y apps de 2FA (la lista está en la app y en el código fuente), también las protegidas con contraseña, y añade sus entradas a tu bóveda sin reemplazarla. Antes de guardar te enseña lo que entra, lo que ya tienes y lo que no entra, y hace una copia cifrada de tu bóveda. Al terminar te ofrece quitar el archivo exportado.
 
 **Códigos 2FA**
 • TOTP con escáner QR o con la clave a mano.
-• Importa las cuentas exportadas desde Google Authenticator.
+• Importa las cuentas que algunas apps de 2FA exportan como códigos QR.
 
 **Cifrado**
 • Cifra y descifra textos y archivos con AES-256-GCM o ChaCha20-Poly1305 (y otros algoritmos estándar), con contraseña o con una clave aleatoria.
@@ -43,16 +45,20 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Limpiar foto: quita la ubicación y otros datos ocultos del archivo antes de enviarla; la copia solo conserva la imagen, sus datos de color y, en las JPEG, la orientación. No cambia lo que se ve en ella. Las fotos HEIC y HEIF (desde Android 9) y AVIF (desde Android 12) se guardan como JPEG, reducidas si pasan de unos 24 megapíxeles.
 • Tachar en imagen: tapa con bloques negros lo que no quieras enseñar en una captura.
 • Inspector de QR: enseña qué hay en un QR, con avisos de señales típicas de engaño, sin abrir nada. No garantiza que un enlace sea seguro.
-• Huella SHA-256 de archivos y comprobación de contraseñas filtradas.
+• Laboratorio de hashes: SHA-2, SHA-3, BLAKE2b, BLAKE3 y HMAC de textos y archivos, para compararlos con la huella que publica su autor. Que coincida no dice que la huella venga de quien dice venir.
+• Laboratorio clásico: César, Vigenère y la máquina Enigma, con análisis de frecuencias. Son cifrados históricos, rotos desde hace décadas: no protegen nada y sirven para aprender.
+• Repartir un secreto: divide una frase o un secreto en partes (SLIP-0039) y lo recompone con las necesarias. Las partes no son una copia de recuperación para una cartera de hardware.
+• Comprobación de contraseñas filtradas.
 
 **Privacidad**
-La bóveda se queda cifrada en tu móvil. De la app sale lo que tú exportas, guardas, copias al portapapeles o compartes, y la copia automática, si la activas, a la carpeta que elijas. La única conexión a Internet es opcional: cuando pulsas «¿Filtrada?» o «Comprobar filtraciones», la app consulta el servicio Pwned Passwords de Have I Been Pwned enviando solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña, nunca la contraseña. Las fotos se procesan en el móvil y la app no las envía a ningún sitio: solo sale la copia que tú compartas.
+La bóveda se queda cifrada en tu móvil. De la app sale lo que tú exportas, guardas, copias al portapapeles o compartes, la copia automática, si la activas, a la carpeta que elijas, y la copia cifrada que hace antes de importar de otra app. La única conexión a Internet es opcional: cuando pulsas «¿Filtrada?» o «Comprobar filtraciones», la app consulta el servicio Pwned Passwords de Have I Been Pwned enviando solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña, nunca la contraseña. Las fotos se procesan en el móvil y la app no las envía a ningún sitio: solo sale la copia que tú compartas.
 
 **Antes de usarla, ten en cuenta**
 • Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
 • Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Clavero.
 • Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia.
 • Cambiar la contraseña maestra no cambia las copias que ya existen: se siguen abriendo con la contraseña anterior.
+• El archivo que exportas de otra app para importarlo suele estar sin cifrar, salvo si lo proteges con contraseña. Quitarlo con Clavero no borra sus copias en la nube, en la papelera ni en otras apps.
 • Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes, usa un dispositivo hardware dedicado.
 
 Gratuita, sin anuncios ni compras. Código fuente: https://github.com/Egt17baa/Seguridad

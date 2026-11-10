@@ -1,5 +1,11 @@
 package app.seguridad.crypto
 
+import app.seguridad.core.EMOJI_SELECTOR
+import app.seguridad.core.VISIBLE_PREPENDED_MARKS
+import app.seguridad.core.ZERO_WIDTH_JOINER
+import app.seguridad.core.canJoin
+import app.seguridad.core.drawsNothing
+import app.seguridad.core.emojiSelectorShows
 import app.seguridad.crypto.pk.isForbiddenNameCodePoint
 import java.io.EOFException
 import java.io.InputStream
@@ -18,6 +24,16 @@ internal const val MAX_FILE_NAME_BYTES = 1024
 /** STREAM nonce: prefix (7) ‖ counter (4, big-endian) ‖ last-record flag (1). */
 internal fun streamNonce(prefix: ByteArray, counter: Int, last: Boolean): ByteArray =
     ByteBuffer.allocate(NONCE_BYTES).put(prefix).putInt(counter).put(if (last) 1 else 0).array()
+
+/**
+ * The key of a file ([keyForHeader]). With a password it is an Argon2id, so it takes [KdfLock] (ruling R40): one large
+ * derivation at a time in the app, also against an unlock of the vault or a check of a copy. Only the derivation holds
+ * the lock, never the encryption of the stream, so an unlock never waits for a whole file. A raw key goes through HKDF
+ * (no memory) and does not wait. The caller is off the main thread ([encryptStream] and [decryptStream] read and write
+ * streams); it must not hold [KdfLock] already, which is not reentrant.
+ */
+private fun fileKey(secret: Secret, header: Header, use: PasswordUse): ByteArray =
+    if (secret is Secret.Password) KdfLock.deriveBlocking { keyForHeader(secret, header, use) } else keyForHeader(secret, header, use)
 
 /** Reads until [len] bytes are in [buf] (from [off]) or the stream ends; returns how many arrived. */
 internal fun InputStream.readFully(buf: ByteArray, len: Int = buf.size, off: Int = 0): Int {
@@ -56,7 +72,7 @@ fun encryptStream(
 ) {
     val header = newHeader(Header.KIND_FILE, alg, secret, kdf, random)
     val aad = header.bytes()
-    val key = keyForHeader(secret, header, PasswordUse.NEW)
+    val key = fileKey(secret, header, PasswordUse.NEW)
     try {
         output.write(aad)
         // safeFileName keeps it within MAX_SAVED_NAME_BYTES (255); a longer one would be a bug, never cut (it could split a
@@ -98,7 +114,7 @@ fun decryptStream(input: InputStream, output: OutputStream, secret: Secret): Str
     if (pin.readFully(fixed) != fixed.size) throw CryptoFailure("No es un archivo cifrado compatible")
     val header = Header.parse(ByteBuffer.wrap(fixed), Header.KIND_FILE)
     val aad = fixed
-    val key = keyForHeader(secret, header, PasswordUse.EXISTING)
+    val key = fileKey(secret, header, PasswordUse.EXISTING)
     try {
         val lenBytes = ByteArray(2)
         if (pin.readFully(lenBytes) != 2) throw CryptoFailure()
@@ -145,20 +161,25 @@ const val MAX_SAVED_NAME_BYTES = 255
 /**
  * CIFRADO-2 (audit 1.3.0): a code point no name that is shown or saved keeps, the one list of [safeFileName] and
  * `sanitizeReceivedName` (they used to differ). Taken out:
+ *  - everything that draws nothing ([drawsNothing], the list `plainReportText` and the QR Inspector also use, rulings
+ *    R43 and R49): Unicode's default ignorables (such as the bidi controls, U+200B, U+200C, U+2065, U+FFF0–FFF8, CGJ
+ *    U+034F, the Hangul fillers, the Khmer inherent vowels U+17B4/17B5, the Mongolian free variation selectors
+ *    U+180B–180F, the variation selectors U+FE00–FE0E and plane 14, the tags and the supplementary variation
+ *    selectors), the Braille blank U+2800, U+FFF9–FFFB and U+13430–1343F; except the zero-width joiner, which is left
+ *    to [withoutLooseJoiners], and U+FE0F, the emoji one, which is left to [withoutLooseSelectors];
+ *  - the prepended concatenation marks ([VISIBLE_PREPENDED_MARKS]: U+0600–0605, U+06DD, U+070F, U+0890–0891, U+08E2,
+ *    U+110BD, U+110CD), as CIFRADO-2 has always done (ruling R52): they are drawn, so the lists show them (RT-13), but
+ *    they span and reshape the digits after them, and a name drops more rather than less;
  *  - everything the fixed list of card names forbids (`isForbiddenNameCodePoint`, `crypto/pk/Card.kt`): C0, DEL, C1,
- *    U+2028/2029, the soft hyphen, CGJ U+034F, the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the Khmer inherent
- *    vowels U+17B4/17B5, U+180E, zero width, LRM/RLM and the bidi controls, U+2060–206F, U+FEFF, U+FFF0–FFFB, U+FFFE/FFFF,
- *    lone surrogates, private use, and U+E0000–E0FFF (the tags and the supplementary variation selectors);
- *  - every other format character (category Cf, such as U+200C or U+0600–0605), except the zero-width joiner, which is
- *    left to [withoutLooseJoiners];
- *  - the variation selectors U+FE00–FE0E (U+FE0F, the emoji one, is left to [withoutLooseSelectors]);
+ *    U+2028/2029, the soft hyphen, zero width, LRM/RLM and the bidi controls, U+2060–206F, U+FEFF, U+FFF0–FFFB,
+ *    U+FFFE/FFFF, lone surrogates, private use, and U+E0000–E0FFF;
  *  - the noncharacters U+FDD0–FDEF and the last two code points of every plane.
  * The card list is fixed (it is also the read rule of a card); here it is only shown or saved, so it may take more.
  */
-internal fun isHiddenInName(cp: Int): Boolean = cp != ZWJ && (
-    isForbiddenNameCodePoint(cp) ||
-        Character.getType(cp) == Character.FORMAT.toInt() ||
-        cp in 0xFE00..0xFE0E ||
+internal fun isHiddenInName(cp: Int): Boolean = cp != ZERO_WIDTH_JOINER && cp != EMOJI_SELECTOR && (
+    drawsNothing(cp) ||
+        cp in VISIBLE_PREPENDED_MARKS ||
+        isForbiddenNameCodePoint(cp) ||
         cp in 0xFDD0..0xFDEF || (cp and 0xFFFE) == 0xFFFE
     )
 
@@ -178,29 +199,11 @@ internal fun withoutHiddenNameCharacters(s: String, loneSurrogate: Char? = null)
     return out.toString()
 }
 
-private const val ZWJ = 0x200D
-private const val EMOJI_SELECTOR = 0xFE0F
-
 /** What [safeFileName] trims from both ends: dots and spaces (also the no-break ones), as `sanitizeReceivedName` does. */
 private fun isNameTrimmable(c: Char) = c == '.' || c.isWhitespace() || Character.isSpaceChar(c)
 
-/** A code point a kept zero-width joiner may touch: not ASCII, not a space, not another joiner (an emoji, in practice). */
-private fun canJoin(cp: Int) = cp >= 0x80 && cp != ZWJ && !Character.isWhitespace(cp) && !Character.isSpaceChar(cp)
-
-private const val KEYCAP = 0x20E3
-
 /**
- * Whether a U+FE0F after [previous] and before [next] (-1 at either end) can be seen: after a code point that [canJoin]
- * and is not another U+FE0F (an emoji or a symbol in practice, but also any other non-ASCII one, such as «é», the same
- * tolerance as the joiner's rule), or after 0–9, # or * when U+20E3 follows (a keycap emoji, «1️⃣»). A fixed rule, like
- * the joiner's: no Unicode tables that change with the JDK.
- */
-private fun canTakeEmojiSelector(previous: Int, next: Int) =
-    (previous >= 0 && canJoin(previous) && previous != EMOJI_SELECTOR) ||
-        ((previous in '0'.code..'9'.code || previous == '#'.code || previous == '*'.code) && next == KEYCAP)
-
-/**
- * [s] without the emoji presentation selectors (U+FE0F) that show nothing ([canTakeEmojiSelector]): one at the start,
+ * [s] without the emoji presentation selectors (U+FE0F) that show nothing ([emojiSelectorShows]): one at the start,
  * after ASCII (a digit, # or * only stays with U+20E3 after it), after a space, a joiner or another selector goes
  * («fac\uFE0Ftura» and «factura1\uFE0F.pdf» are «factura» and «factura1.pdf»). One after an emoji or a symbol («❤️»),
  * or in a keycap («1️⃣»), stays. [trimWithJoiners] repeats it until nothing changes, so a cut that drops the U+20E3 of a
@@ -213,7 +216,7 @@ internal fun withoutLooseSelectors(s: String): String {
     var previous = -1
     for (i in cps.indices) {
         val cp = cps[i]
-        if (cp == EMOJI_SELECTOR && !canTakeEmojiSelector(previous, cps.getOrElse(i + 1) { -1 })) continue
+        if (cp == EMOJI_SELECTOR && !emojiSelectorShows(previous, cps.getOrElse(i + 1) { -1 })) continue
         out.appendCodePoint(cp)
         previous = cp
     }
@@ -231,7 +234,7 @@ internal fun withoutLooseJoiners(s: String): String {
     val out = StringBuilder(s.length)
     for (i in cps.indices) {
         val cp = cps[i]
-        if (cp == ZWJ && !(i > 0 && i < cps.size - 1 && canJoin(cps[i - 1]) && canJoin(cps[i + 1]))) continue
+        if (cp == ZERO_WIDTH_JOINER && !(i > 0 && i < cps.size - 1 && canJoin(cps[i - 1]) && canJoin(cps[i + 1]))) continue
         out.appendCodePoint(cp)
     }
     return out.toString()
@@ -253,8 +256,9 @@ internal fun trimWithJoiners(s: String, trim: (String) -> String): String {
 /**
  * Name to save a decrypted file under, and the one written inside a new file: the stored one, never a path, nor turned
  * around («factura\u202Efdp.exe»). Taken out: every code point of [isHiddenInName] (CIFRADO-2: the controls, the format
- * characters, the bidi controls, the Hangul fillers and the other blanks and invisibles of the card list, U+FE00–FE0E,
- * private use and the noncharacters), the same list as `sanitizeReceivedName`; a lone surrogate becomes «?», the byte
+ * characters, the bidi controls, the Hangul fillers and the other blanks and invisibles of the card list, everything
+ * that draws nothing ([drawsNothing], R43: also U+2800, U+180B–180D, U+180F and U+FE00–FE0E), private use and the
+ * noncharacters), the same list as `sanitizeReceivedName`; a lone surrogate becomes «?», the byte
  * that is written for it anyway. That covers the invisible characters known to make one name look like another (Unicode
  * TR #36), not every look-alike: letters of other scripts that look the same stay. The zero-width joiner (U+200D) stays only between two non-ASCII code points that are not spaces (an
  * emoji sequence such as «👨‍👩‍👧»), and U+FE0F only after an emoji or a symbol, or in a keycap («❤️», «1️⃣»): elsewhere

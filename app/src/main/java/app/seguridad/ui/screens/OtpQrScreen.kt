@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.toOtpAuthUri
+import app.seguridad.imports.plainReportText
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.vault.VaultState
@@ -76,7 +77,7 @@ fun OtpQrScreen(store: VaultStore, id: String, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.titleMedium)
+            Text(plainReportText(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(" · ")), style = MaterialTheme.typography.titleMedium)
             Text("Este QR contiene el secreto: muéstralo solo para pasarlo a otra app", color = NegativeColor)
             if (shown) {
                 val bitmap = remember(totp) { otpQrBitmap(totp) }

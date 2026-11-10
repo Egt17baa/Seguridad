@@ -1,0 +1,104 @@
+{
+  "encrypted": false,
+  "folders": [
+    {
+      "id": "278407cb-93e8-4846-a634-c0c36d7083a1",
+      "name": "Trabajo"
+    },
+    {
+      "id": "b784c234-dae3-4527-9952-00878b6b33aa",
+      "name": "Casa ñandú"
+    }
+  ],
+  "items": [
+    {
+      "id": "7c76aac7-6398-4ea3-ae53-09e312cac13d",
+      "organizationId": null,
+      "folderId": "278407cb-93e8-4846-a634-c0c36d7083a1",
+      "type": 1,
+      "reprompt": 0,
+      "name": "Correo de prueba",
+      "notes": "Nota con acentos: áéíóú",
+      "favorite": true,
+      "fields": [
+        {
+          "name": "PIN",
+          "value": "4821",
+          "type": 1,
+          "linkedId": null
+        }
+      ],
+      "login": {
+        "uris": [
+          {
+            "match": null,
+            "uri": "https://correo.example.com/"
+          },
+          {
+            "match": null,
+            "uri": "https://otro.example.com/"
+          }
+        ],
+        "username": "ana.b171fa@example.com",
+        "password": "Pw-59ff667055f5f28275",
+        "totp": "otpauth://totp/Correo:ana?secret=FVOM76QXYGNBKJHKR2OCQQU6O2WAWI5Z&issuer=Correo&digits=6&period=30"
+      },
+      "collectionIds": null
+    },
+    {
+      "id": "69510d57-d403-40ed-8092-d54098a62360",
+      "organizationId": null,
+      "folderId": "b784c234-dae3-4527-9952-00878b6b33aa",
+      "type": 1,
+      "reprompt": 0,
+      "name": "Tienda 🛒",
+      "notes": null,
+      "favorite": false,
+      "login": {
+        "uris": [
+          {
+            "match": null,
+            "uri": "https://tienda.example.org/entrar"
+          }
+        ],
+        "username": "luis",
+        "password": "Clave-b969247e3e55",
+        "totp": "VLZJVIMHU3GKIWCQKRNWACL2DETPLEQW"
+      },
+      "collectionIds": null
+    },
+    {
+      "id": "237a6c84-edf7-45fa-81e2-96b65397bb0e",
+      "organizationId": null,
+      "folderId": null,
+      "type": 2,
+      "reprompt": 0,
+      "name": "Nota segura",
+      "notes": "Línea 1\nLínea 2",
+      "favorite": false,
+      "secureNote": {
+        "type": 0
+      },
+      "collectionIds": null
+    },
+    {
+      "id": "1a6da693-d1de-4241-884e-363849d6ca57",
+      "organizationId": null,
+      "folderId": null,
+      "type": 3,
+      "reprompt": 0,
+      "name": "Tarjeta inventada",
+      "notes": null,
+      "favorite": false,
+      "card": {
+        "cardholderName": "Ana Prueba",
+        "brand": "Visa",
+        "number": "4088892969190734",
+        "expMonth": "7",
+        "expYear": "2031",
+        "code": "123"
+      },
+      "collectionIds": null
+    }
+  ]
+}

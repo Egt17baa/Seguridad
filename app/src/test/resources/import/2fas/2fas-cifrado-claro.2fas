@@ -1,0 +1,92 @@
+{
+  "services": [
+    {
+      "name": "Nube inventada",
+      "secret": "GUOXW35IVS63DYHKQSJHQSJNPUF6LSGP",
+      "updatedAt": 1762300000000,
+      "otp": {
+        "label": "Nube inventada:ana@example.com",
+        "account": "ana@example.com",
+        "issuer": "Nube inventada",
+        "digits": 6,
+        "period": 30,
+        "algorithm": "SHA1",
+        "tokenType": "TOTP",
+        "source": "Manual"
+      },
+      "order": {
+        "position": 0
+      },
+      "icon": {
+        "selected": "Label",
+        "label": {
+          "text": "NU",
+          "backgroundColor": "Default"
+        }
+      },
+      "groupId": "g-c2ea38f8-cacd-416f-9e07-9445c418237c"
+    },
+    {
+      "name": "Código ñ",
+      "secret": "XVVUGV5TJFVDYPSUHSWVF5MIOPXWOYSL",
+      "updatedAt": 1762300000000,
+      "otp": {
+        "label": "Código ñ:luis",
+        "account": "luis",
+        "issuer": "Código ñ",
+        "digits": 8,
+        "period": 60,
+        "algorithm": "SHA256",
+        "tokenType": "TOTP",
+        "source": "Manual"
+      },
+      "order": {
+        "position": 0
+      },
+      "icon": {
+        "selected": "Label",
+        "label": {
+          "text": "CÓ",
+          "backgroundColor": "Default"
+        }
+      }
+    },
+    {
+      "name": "Juego",
+      "secret": "KE4LZHGURIGZFB2OATFRB35K7IHVNDKW",
+      "updatedAt": 1762300000000,
+      "otp": {
+        "label": "Juego:jugador",
+        "account": "jugador",
+        "issuer": "Juego",
+        "digits": 5,
+        "period": 30,
+        "algorithm": "SHA1",
+        "tokenType": "STEAM",
+        "source": "Manual"
+      },
+      "order": {
+        "position": 0
+      },
+      "icon": {
+        "selected": "Label",
+        "label": {
+          "text": "JU",
+          "backgroundColor": "Default"
+        }
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "g-c2ea38f8-cacd-416f-9e07-9445c418237c",
+      "name": "Trabajo",
+      "isExpanded": true
+    }
+  ],
+  "updatedAt": 1762300000000,
+  "schemaVersion": 4,
+  "appVersionCode": 5000000,
+  "appVersionName": "5.0.0",
+  "appOrigin": "android"
+}

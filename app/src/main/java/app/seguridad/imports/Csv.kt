@@ -1,0 +1,205 @@
+package app.seguridad.imports
+
+/**
+ * The rows of a CSV (RFC 4180), header first: fields between double quotes may hold the delimiter, line breaks and
+ * doubled quotes («""» is one «"»). The delimiter is «,» or «;», whichever the header line uses more ([csvDelimiter]).
+ *
+ * Defined answers for what RFC 4180 does not allow, never a crash or a hang:
+ * - a record ends at LF, CRLF or a CR alone (old Mac files); inside quotes they are text, kept as written;
+ * - a line with nothing on it and the final line break add no row; `""` is a real empty cell;
+ * - a quote inside an unquoted field, and text right after a closing quote, are kept as text (`ab"c`, `"abc"x` → `abcx`);
+ * - NUL and control characters are kept: the readers decide what a row with them is;
+ * - a quote that never closes throws [ImportFailure] ([IMPORT_CSV_UNCLOSED_QUOTE]).
+ *
+ * Limits, checked while reading, so a hostile file stops early with bounded memory: [CSV_MAX_COLUMNS] per row,
+ * [CSV_MAX_CELLS] in all and [IMPORT_MAX_ITEMS] rows after the header, each an [ImportFailure]; and a field keeps at
+ * most [CSV_MAX_FIELD_CHARS] characters (the rest is read and dropped), which is past every field limit, so that row
+ * goes to «no entran» instead of entering cut. One pass, character by character: no regular expression, and every
+ * field is built in one reused StringBuilder that never grows past the cap.
+ */
+fun parseCsv(text: String): List<List<String>> {
+    val reader = CsvReader(text, csvDelimiter(text))
+    try {
+        val rows = ArrayList<List<String>>()
+        while (true) rows += reader.next() ?: break
+        return rows
+    } finally {
+        reader.wipe()
+    }
+}
+
+/**
+ * One pass over [text] (ruling R68, code-review 8): the delimiter worked out once, the header read once and given to
+ * [kind]; null (nothing more read) if the header cannot be read or [kind] gives null; else what [kind] gave and every
+ * row, the header first, as [parseCsv] gives them. Throws [ImportFailure] past the header, as [parseCsv] does.
+ */
+internal fun <T : Any> parseCsvOf(text: String, kind: (List<String>) -> T?): Pair<T, List<List<String>>>? {
+    val reader = CsvReader(text, csvDelimiter(text))
+    try {
+        val header = try {
+            reader.next()
+        } catch (e: ImportFailure) {
+            null
+        } ?: return null
+        val known = kind(header) ?: return null
+        val rows = ArrayList<List<String>>()
+        rows += header
+        while (true) rows += reader.next() ?: break
+        return known to rows
+    } finally {
+        reader.wipe()
+    }
+}
+
+/** The header row only, or null if it cannot be read: enough to tell the format without reading the rest. */
+internal fun csvHeader(text: String): List<String>? {
+    val reader = CsvReader(text, csvDelimiter(text))
+    return try {
+        reader.next()
+    } catch (e: ImportFailure) {
+        null
+    } finally {
+        reader.wipe()
+    }
+}
+
+/**
+ * «;» when the header line has more cells read with «;» than with «,», as a spreadsheet in Spanish saves; «,» otherwise,
+ * also on a tie. Each count is the parser's own reading of the first record that is not blank ([csvFirstRecordCells]),
+ * with its rules for quotes (a quote opens only at the start of a field), so the delimiter chosen and the parse agree.
+ */
+internal fun csvDelimiter(text: String): Char =
+    if (csvFirstRecordCells(text, ';') > csvFirstRecordCells(text, ',')) ';' else ','
+
+/**
+ * How many cells the parser reads in the first record that is not blank with [delimiter]: nothing is stored and no
+ * limit applies (the count is at most the length of the text). A quote that never closes ends the count where the text
+ * ends, with the open cell counted as one, as if the quote closed there: `a;"b` is two cells with «;». Such a file never
+ * gives rows, whichever delimiter is chosen: if the chosen one meets the open quote, [parseCsv] throws
+ * [IMPORT_CSV_UNCLOSED_QUOTE]; if it does not (`a,b;"c` read with «,» is two cells, the quote in the middle of one), the
+ * file has no open quote for the parser.
+ */
+internal fun csvFirstRecordCells(text: String, delimiter: Char): Int = CsvReader(text, delimiter).countFirstRecord()
+
+private class CsvReader(private val text: String, private val delimiter: Char) {
+    private var pos = 0
+    private var cells = 0
+    private var rows = 0
+    private val field = StringBuilder()
+
+    /** The record being read; null until its first cell. */
+    private var row: ArrayList<String>? = null
+
+    /** [countFirstRecord] mode: fields are only counted, in [counted], never stored or limited. */
+    private var counting = false
+    private var counted = 0
+
+    /** The cells of the first record that is not blank, by the same reading as [next], without storing them. */
+    fun countFirstRecord(): Int {
+        counting = true
+        try {
+            while (pos < text.length) record() ?: continue
+        } catch (e: ImportFailure) {
+            // The only failure here is a quote that never closes, inside the first record that is not blank (a blank
+            // line holds no quote): the cell it opened was being read when the text ended, so it counts. Without it,
+            // `a;"b` would be one cell with «;» against one with «,», the tie would choose «,» and the file would be read
+            // as one column instead of failing with IMPORT_CSV_UNCLOSED_QUOTE.
+            counted++
+        }
+        return counted
+    }
+
+    /** The next row, or null at the end; blank lines are passed over. */
+    fun next(): List<String>? {
+        while (pos < text.length) {
+            val read = record() ?: continue
+            if (++rows > IMPORT_MAX_ITEMS + 1) throw ImportFailure(IMPORT_TOO_MANY_ITEMS)
+            return read
+        }
+        return null
+    }
+
+    /**
+     * One record from [pos]; null for a line with nothing on it. The row's list is made only at its first cell
+     * ([endField]), so a file of blank lines allocates nothing per line.
+     */
+    private fun record(): List<String>? {
+        row = null
+        var started = false // something of the current field was read (its opening quote included)
+        var quoted = false
+        var lineHasContent = false
+        while (true) {
+            if (pos >= text.length) {
+                if (quoted) throw ImportFailure(IMPORT_CSV_UNCLOSED_QUOTE)
+                break
+            }
+            val c = text[pos++]
+            if (quoted) {
+                if (c == '"') {
+                    if (pos < text.length && text[pos] == '"') {
+                        append('"')
+                        pos++
+                    } else {
+                        quoted = false
+                    }
+                } else {
+                    append(c)
+                }
+                continue
+            }
+            when (c) {
+                delimiter -> {
+                    endField()
+                    started = false
+                    lineHasContent = true
+                }
+                '\n' -> break
+                '\r' -> {
+                    if (pos < text.length && text[pos] == '\n') pos++
+                    break
+                }
+                '"' -> {
+                    if (!started) quoted = true else append('"')
+                    started = true
+                    lineHasContent = true
+                }
+                else -> {
+                    append(c)
+                    started = true
+                    lineHasContent = true
+                }
+            }
+        }
+        if (!lineHasContent) return null
+        endField()
+        if (counting) {
+            pos = text.length // the first record is all a count needs
+            return emptyList()
+        }
+        return row.also { row = null }
+    }
+
+    private fun append(c: Char) {
+        if (!counting && field.length < CSV_MAX_FIELD_CHARS) field.append(c)
+    }
+
+    private fun endField() {
+        if (counting) {
+            counted++
+            return
+        }
+        val current = row ?: ArrayList<String>().also { row = it }
+        if (current.size >= CSV_MAX_COLUMNS) throw ImportFailure(IMPORT_CSV_TOO_MANY_COLUMNS)
+        if (++cells > CSV_MAX_CELLS) throw ImportFailure(IMPORT_CSV_TOO_MANY_CELLS)
+        // Empty cells share the one empty string: a file of commas holds no string per cell.
+        current += if (field.isEmpty()) "" else field.toString()
+        field.setLength(0)
+    }
+
+    /** Overwrites the builder's array (it held the last fields read: they may be passwords). */
+    fun wipe() {
+        field.setLength(0)
+        field.setLength(field.capacity())
+        field.setLength(0)
+    }
+}

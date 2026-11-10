@@ -1,0 +1,5 @@
+name,url,username,password,note
+ejemplo.com,https://ejemplo.com/login,ana@ejemplo.com,"pa,ss""word",
+foro.example.org,https://foro.example.org/,luis,Clave-de-prueba-1,"Pregunta: color
+Respuesta: azul"
+,https://user:secreto@sin-nombre.example.net/,maria,otra-clave,

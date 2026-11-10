@@ -7,11 +7,14 @@ import app.seguridad.android.androidTrustedChain
 import app.seguridad.android.revokeSharedCopy
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.ui.screens.DECRYPT_TMP_PREFIX
+import app.seguridad.vault.BACKUP_CHECK_DIR
 import app.seguridad.vault.VaultState
+import app.seguridad.vault.removeBackupCheckLeftovers
 import app.seguridad.vault.wipePkTemp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.io.File
 
 class SeguridadApp : Application() {
     val container: AppContainer by lazy {
@@ -56,6 +59,8 @@ class SeguridadApp : Application() {
         // Off the main thread; it cannot race a prepare in practice (the user must reach a tool screen and pick a photo
         // first), and if it ever did, ShareTemp is synchronized: the wipe runs before or after, never in the middle.
         container.appScope.launch(Dispatchers.IO) { container.shareTemp.wipeAll() }
+        // What a «Comprobar una copia» cut short by the death of the process left in cacheDir/comprobar/ (never a run going on).
+        container.appScope.launch(Dispatchers.IO) { removeBackupCheckLeftovers(File(cacheDir, BACKUP_CHECK_DIR)) }
         // A few hundred bytes, read before the first frame: the theme, the start notice and the lock time must be the
         // saved ones from the start (a damaged file just gives the defaults). Then, once, whether this start comes after an
         // update from an earlier version (the notice of the new name).

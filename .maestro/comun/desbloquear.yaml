@@ -1,0 +1,14 @@
+# Subflujo: abre la bóveda de PRUEBA con la maestra que llega en MAESTRA, desde la pestaña «Bóveda».
+appId: io.github.egt17baa.seguridad
+---
+- tapOn: "Bóveda"
+- extendedWaitUntil:
+    visible: '.*Bóveda bloqueada'
+    timeout: 15000
+- tapOn: "Contraseña maestra"
+- inputText: ${MAESTRA}
+- hideKeyboard
+- tapOn: "Desbloquear"
+- extendedWaitUntil:
+    visible: "Bloquear"
+    timeout: 120000

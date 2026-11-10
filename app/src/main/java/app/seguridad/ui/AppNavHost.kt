@@ -41,6 +41,7 @@ import app.seguridad.tools.APP_RENAMED_TITLE
 import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
 import app.seguridad.ui.screens.AboutScreen
 import app.seguridad.ui.screens.BreachScreen
+import app.seguridad.ui.screens.ClassicLabScreen
 import app.seguridad.ui.screens.CodesScreen
 import app.seguridad.ui.screens.ContactAddScreen
 import app.seguridad.ui.screens.ContactDetailScreen
@@ -54,10 +55,13 @@ import app.seguridad.ui.screens.PhotoCleanScreen
 import app.seguridad.ui.screens.QrInspectScreen
 import app.seguridad.ui.screens.QrTotpImportScreen
 import app.seguridad.ui.screens.RedactScreen
-import app.seguridad.ui.screens.FileHashScreen
+import app.seguridad.ui.screens.HashLabScreen
+import app.seguridad.ui.screens.BackupCheckScreen
+import app.seguridad.ui.screens.SecretShareScreen
 import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
 import app.seguridad.ui.screens.IdentityScreen
+import app.seguridad.ui.screens.ImportScreen
 import app.seguridad.ui.screens.LicensesScreen
 import app.seguridad.ui.screens.LocalOnMasterChanged
 import app.seguridad.ui.screens.MasterChangedDialog
@@ -123,6 +127,7 @@ fun AppNavHost(container: AppContainer) {
     val onOpen: (String) -> Unit = { id -> nav.navigate("vault/entry/${Uri.encode(id)}") }
     val onHealth: () -> Unit = { nav.navigate("vault/health") }
     val onNew: (EntryType) -> Unit = { type -> nav.navigate("vault/edit?type=${type.name}") }
+    val onImportOther: () -> Unit = { nav.navigate("vault/import") }
 
     // After the master password changes (from any screen), the dialog about the old copies and the identity. It lives in
     // AppContainer, not here: a rotation while the new key is derived re-creates this composition, and the screen that
@@ -185,8 +190,8 @@ fun AppNavHost(container: AppContainer) {
             },
         ) { padding ->
             NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
-                composable("vault") { VaultScreen(vault, totpOnly = false, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
-                composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth) }
+                composable("vault") { VaultScreen(vault, totpOnly = false, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther) }
+                composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther) }
                 composable("vault/entry/{id}") { entry ->
                     val id = entry.arguments?.getString("id").orEmpty()
                     VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") }, onBack = back)
@@ -234,6 +239,10 @@ fun AppNavHost(container: AppContainer) {
                 composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
                 // COV1-1: what is typed there and the result go by the «PIN y códigos» rule (lock time, multi-window, locks).
                 val lockAfterMs = { settingsStore.settings.value.lockAfter.ms }
+                // «Importar de otra app»: what it reads is dropped on any lock, on back and by the «PIN y códigos» rule.
+                composable("vault/import") {
+                    ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                }
                 composable("tools/text") {
                     TextCryptoScreen(settings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
                 }
@@ -247,7 +256,9 @@ fun AppNavHost(container: AppContainer) {
                 composable("tools/breach") {
                     BreachScreen(container.pwned, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
                 }
-                composable("tools/hash") { FileHashScreen(onBack = back) }
+                composable("tools/hash") { HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
+                composable("tools/classic") { ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
+                composable("tools/share-secret") { SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
                 composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
                 composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
                 // The QR's text never goes in a route: it is handed over through QrHandoff.
@@ -264,7 +275,16 @@ fun AppNavHost(container: AppContainer) {
                 }
                 composable("tools/codes") { CodesScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
                 composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
-                composable("settings") { SettingsScreen(settingsStore, vault, container.autoBackup, onAbout = { nav.navigate("settings/about") }) }
+                composable("settings") {
+                    SettingsScreen(
+                        settingsStore, vault, container.autoBackup,
+                        onAbout = { nav.navigate("settings/about") },
+                        onCheckBackup = { nav.navigate("settings/check-backup") },
+                    )
+                }
+                composable("settings/check-backup") {
+                    BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                }
                 composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
                 composable("settings/licenses") { LicensesScreen(onBack = back) }
             }

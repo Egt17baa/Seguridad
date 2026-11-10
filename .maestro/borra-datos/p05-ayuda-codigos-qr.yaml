@@ -1,0 +1,58 @@
+# BORRA TODOS LOS DATOS DE CLAVERO (clearState): solo en el emulador o en un móvil sin tu bóveda real.
+# Crea una bóveda de PRUEBA con una maestra de prueba escrita aquí (MAESTRA), nunca la tuya.
+#
+# P-5 (en parte, tarea 10, R21): la primera pantalla de «Importar de otra app» dice cómo traer los códigos
+# que solo se exportan como QR, y los botones que nombra existen: «Añadir», el tipo «Código 2FA» y
+# «Escanear QR». Escanear los QR de otro móvil y comparar los códigos es manual.
+# Los textos que se comprueban son los literales de imports/ImportTexts.kt; donde nombran otra app, la
+# expresión regular la cambia por «.*».
+appId: io.github.egt17baa.seguridad
+name: "P-5 Importar de otra app: la ayuda de los códigos en QR"
+tags:
+  - clavero-1.4.0
+  - automatica
+  - borra-datos
+env:
+  MAESTRA: nube-ladera-pino-ancla-trigo-prueba
+---
+- runFlow: ../comun/inicio-desde-cero.yaml
+- runFlow:
+    file: ../comun/crear-boveda.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+- tapOn: "Más opciones"
+- tapOn: "Importar de otra app"
+- extendedWaitUntil:
+    visible: "Elegir archivo"
+    timeout: 15000
+- assertVisible: "Importar de otra app"
+- assertVisible: 'Lee un archivo que hayas exportado de otro gestor de contraseñas, de un navegador o de una app de 2FA.*'
+- assertVisible: '.* solo exporta sus códigos como uno o varios códigos QR.*pulsa «Añadir», elige «Código 2FA» y luego «Escanear QR».*'
+- scrollUntilVisible:
+    element:
+      text: 'Clavero no protege el archivo exportado\..*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Lo leído del archivo, la contraseña que escribas y la vista previa se borran si vuelves atrás.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Los nombres de otras apps son marcas de sus titulares. Clavero no tiene relación con ellos."
+    direction: DOWN
+- tapOn: "Atrás"
+
+# Los botones que nombra la ayuda.
+- extendedWaitUntil:
+    visible: "Añadir"
+    timeout: 10000
+- tapOn: "Añadir"
+- extendedWaitUntil:
+    visible: "Nueva entrada"
+    timeout: 10000
+- tapOn: '.*Código 2FA'
+- extendedWaitUntil:
+    visible: '.*Escanear QR'
+    timeout: 10000
+- assertVisible: "Pegar enlace"
+- tapOn: "Atrás"

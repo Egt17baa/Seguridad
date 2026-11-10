@@ -3,7 +3,7 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // No org.jetbrains.kotlin.android: AGP 9 compiles Kotlin itself (built-in Kotlin).
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.license.report)
@@ -32,7 +32,7 @@ android {
         targetSdk = 36
         // Every Play upload needs a higher versionCode: pass -PversionCode=N (CI uses the run number).
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "1.3.1"
+        versionName = "1.4.0"
         // SHA-256 of the certificate in debug.keystore (public test key), for verifying the installed debug build.
         buildConfigField("String", "DEBUG_CERT_SHA256", "\"C0014DF66F103A436485115FE0880512C9F05DB39E0E3A94D659997EE9411834\"")
     }
@@ -75,7 +75,8 @@ android {
         buildConfig = true
     }
     androidResources {
-        // AGP's default patterns (copied from AGP 8.13) stop applying once the list is not empty, so they are kept here.
+        // AGP's default patterns (copied from AGP 8.13, the same in AGP 9.5.0) stop applying once the list is not empty, so
+        // they are kept here.
         ignoreAssetsPatterns += "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~".split(':')
         // OkHttp 5 ships Mozilla's Public Suffix List (MPL-2.0) as an asset. It reads it only to parse cookies and in
         // HttpUrl.topPrivateDomain(): the app uses CookieJar.NO_COOKIES and never calls topPrivateDomain(). Without the
@@ -127,7 +128,7 @@ licenseReport {
 
 // A10e: packaging a release APK or AAB without the upload key fails at execution time, so configuring the release
 // variant (lintRelease, checkLicense, checkAssets) still works without it. Only the packaging tasks depend on it.
-val checkReleaseKey by tasks.registering {
+val checkReleaseKey = tasks.register("checkReleaseKey") {
     group = "verification"
     description = "Falla si se empaqueta una release sin clave de subida y sin -PfirmaDePrueba=true."
     val missingKey = releaseStoreFile == null && !firmaDePrueba
@@ -147,7 +148,7 @@ tasks.matching { it.name in releasePackagingTasks }.configureEach { dependsOn(ch
 // FragmentActivity.startActivityForResult rejects the request codes of ActivityResultRegistry (>= 0x10000) with
 // "Can only use lower 16 bits for requestCode". MainActivity is a FragmentActivity (BiometricPrompt needs one), so
 // every file picker and the QR scanner failed on the phone. From 1.3.0 FragmentActivity uses the registry itself.
-val checkFragmentVersion by tasks.registering {
+val checkFragmentVersion = tasks.register("checkFragmentVersion") {
     group = "verification"
     description = "Falla si el APK llevaría androidx.fragment:fragment anterior a 1.3.0."
     val root = configurations.named("releaseRuntimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent }
@@ -187,13 +188,14 @@ val releaseAssets = objects.listProperty<Directory>()
 androidComponents.onVariants(androidComponents.selector().withBuildType("release")) { variant ->
     releaseAssets.add(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.ASSETS))
 }
-val checkAssets by tasks.registering {
+val checkAssets = tasks.register("checkAssets") {
     group = "verification"
     description = "Falla si el APK llevaría un archivo en assets/ que no sea de app/src/main/assets, " +
-        "o si le faltaría una lista de palabras de la contraseña maestra."
+        "o si le faltaría una lista de palabras de la contraseña maestra o de «Repartir un secreto»."
     val merged = releaseAssets
-    // MASTER_WORD_LISTS in vault/MasterPolicy.kt (MasterPolicyTest checks that this list names them all).
-    val wordLists = listOf("eff_large_wordlist.txt", "bip39_english.txt", "bip39_spanish.txt")
+    // MASTER_WORD_LISTS in vault/MasterPolicy.kt (MasterPolicyTest checks that this list names them all), and the list of
+    // «Repartir un secreto» (1.4.0, task 4), without which that tool cannot work.
+    val wordLists = listOf("eff_large_wordlist.txt", "bip39_english.txt", "bip39_spanish.txt", "slip39_english.txt")
     val own = layout.projectDirectory.dir("src/main/assets").asFile
     val stamp = layout.buildDirectory.file("checkAssets/ok")
     // The merged assets already hold the app's own, so they are the only input.
@@ -205,9 +207,9 @@ val checkAssets by tasks.registering {
         val missing = wordLists - packed
         if (missing.isNotEmpty()) {
             throw GradleException(
-                "Al APK le faltarían listas de palabras de la contraseña maestra: ${missing.joinToString()}. " +
-                    "Sin ellas, la regla de una maestra nueva no reconoce una sola palabra: no las quites ni las " +
-                    "excluyas en androidResources.",
+                "Al APK le faltarían listas de palabras: ${missing.joinToString()}. Sin ellas, la regla de una " +
+                    "maestra nueva no reconoce una sola palabra, o «Repartir un secreto» no funciona: no las quites " +
+                    "ni las excluyas en androidResources.",
             )
         }
         val foreign = packed - relative(own)
@@ -218,7 +220,28 @@ val checkAssets by tasks.registering {
             )
         }
         stamp.get().asFile.writeText("ok\n")
-        logger.lifecycle("assets/: solo archivos de app/src/main/assets, con las tres listas de palabras")
+        logger.lifecycle("assets/: solo archivos de app/src/main/assets, con las cuatro listas de palabras")
     }
 }
 tasks.named("check") { dependsOn(checkAssets) }
+
+// The unit tests that read files outside the compiled sources declare them as inputs, so a change in only one of them
+// reruns the tests instead of leaving them UP-TO-DATE (branch review C of 1.4.0, M-6): the published texts
+// (PublishedTextsTest, FinalLegalReviewTest, AppNameTest, ImportTextsTest, with the Play «Novedades» drafts of the
+// handoffs), the build, the manifest, the strings and the workflow (AppNameTest, SourceTextsTest, PlatformSourcesTest),
+// the sources read without their comments, and the assets. The same list is in jvm-check/build.gradle.kts. Plain files,
+// resolved at configuration time: configuration-cache safe.
+tasks.withType<Test>().configureEach {
+    inputs.files(
+        "../README.md", "../NOTICE", "../SECURITY.md",
+        "../docs/privacidad.html", "../docs/ficha-google-play.md", "../docs/PUBLICAR.md",
+        "../docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md",
+        "../.github/workflows/build-apk.yml",
+        "build.gradle.kts", "src/main/AndroidManifest.xml",
+    ).withPropertyName("textsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md") })
+        .withPropertyName("handoffsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("src/main/res").withPropertyName("resReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("src/main/assets").withPropertyName("assetsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("src/main/java").withPropertyName("sourcesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+}

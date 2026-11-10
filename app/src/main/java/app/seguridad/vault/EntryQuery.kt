@@ -1,5 +1,6 @@
 package app.seguridad.vault
 
+import app.seguridad.crypto.takeCodePoints
 import java.text.Collator
 import java.text.Normalizer
 import java.util.Locale
@@ -35,7 +36,10 @@ fun List<VaultEntry>.query(f: EntryFilter): List<VaultEntry> {
     )
 }
 
-/** Comma-separated [raw] to labels: trimmed, lowercase, no empties or duplicates, 24 characters, at most 10. */
+/**
+ * Comma-separated [raw] to labels: trimmed, lowercase, no empties or duplicates, at most 24 code points (cut at the end of
+ * one, so an emoji is never split into a lone surrogate), at most 10.
+ */
 fun normalizeTags(raw: String): List<String> =
-    raw.split(',').map { it.trim().lowercase(Locale.ROOT).take(MAX_TAG_LENGTH).trim() }
+    raw.split(',').map { takeCodePoints(it.trim().lowercase(Locale.ROOT), MAX_TAG_LENGTH).trim() }
         .filter { it.isNotEmpty() }.distinct().take(MAX_TAGS)
