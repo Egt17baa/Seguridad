@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -45,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -52,6 +54,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -146,6 +151,7 @@ fun VaultScreen(
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     LaunchedEffect(store) { store.load() }
+    val list = viewModel { EntryListViewModel(store, totpOnly) }
     val snackbar = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -224,7 +230,7 @@ fun VaultScreen(
             }
         },
     ) { padding ->
-        VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) { entries -> EntryList(entries, totpOnly, onOpen) }
+        VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) { entries -> EntryList(entries, totpOnly, list, onOpen) }
     }
 }
 
@@ -404,12 +410,46 @@ private fun UnlockVault(store: VaultStore) {
     }
 }
 
+/**
+ * What the vault list shows while the vault stays open: the search, the type and tag filters and the scroll position
+ * (1.4.1, F-4). They live here, in the ViewModel of the tab's back-stack entry, so opening, editing or deleting an entry
+ * brings the list back as it was (deleting «Beta» from «Alfa, Beta, Gamma» leaves «Alfa, Gamma» on screen, not the top).
+ * Never in saved state: the search can name an entry. [reset] runs as soon as the vault is not open, from the vault's
+ * own state, so a lock while another tab is on screen drops them too.
+ */
+private class EntryListViewModel(store: VaultStore, private val totpOnly: Boolean) : ViewModel() {
+    var query by mutableStateOf("")
+    var type by mutableStateOf(initialType())
+    var tag by mutableStateOf<String?>(null)
+
+    /**
+     * Where the list was, as two numbers: never the LazyListState itself, which holds the last layout of its list (its
+     * rows' text and, after a rotation, the old Activity) while the tab is not shown (the 1.4.1 audit, finding 2).
+     */
+    var firstIndex = 0
+    var firstOffset = 0
+
+    private fun initialType(): EntryType? = if (totpOnly) EntryType.TOTP else null
+
+    init {
+        viewModelScope.launch { store.state.collect { if (it !is VaultState.Unlocked) reset() } }
+    }
+
+    fun reset() {
+        query = ""
+        type = initialType()
+        tag = null
+        firstIndex = 0
+        firstOffset = 0
+    }
+}
+
 @Composable
-private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (String) -> Unit) {
+private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, list: EntryListViewModel, onOpen: (String) -> Unit) {
     // Identity and contacts have their own tab (and no chip or row here): the list only shows what the vault tab always did.
     val entries = remember(allEntries) { allEntries.filterNot { it.type.isPersonal } }
-    var query by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf<EntryType?>(if (totpOnly) EntryType.TOTP else null) }
+    var query by list::query
+    var type by list::type
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -417,12 +457,22 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
             delay(1_000)
         }
     }
-    var tag by remember { mutableStateOf<String?>(null) }
+    var tag by list::tag
     val allTags = remember(entries) { entries.flatMap { it.tags }.distinct().sorted() }
+    // A tag filter whose tag is gone is dropped, not only hidden: it would come back with a new tag of that name.
+    LaunchedEffect(allTags) { if (tag != null && tag !in allTags) tag = null }
+    // The list's place comes from the ViewModel and goes back to it when the list leaves the screen.
+    val listState = remember { LazyListState(list.firstIndex, list.firstOffset) }
+    DisposableEffect(listState) {
+        onDispose {
+            list.firstIndex = listState.firstVisibleItemIndex
+            list.firstOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
     // A tag no entry has any more (deleted or renamed) must not keep filtering the list.
     val activeTag = tag?.takeIf { it in allTags }
     val shown = remember(entries, query, type, activeTag) { entries.query(EntryFilter(query, activeTag, type)) }
-    LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    LazyColumn(state = listState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         item {
             OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Buscar") }, singleLine = true,
                 // No corrections or suggestions. autoCorrectEnabled = false does not stop the keyboard from learning: that

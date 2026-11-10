@@ -193,7 +193,7 @@ class RedactionTest {
         assertFalse(declaredSizeAllowed(20_001, 13_000))
         assertFalse(declaredSizeAllowed(32_768, 7_935)) // 260 014 080
         assertFalse(declaredSizeAllowed(32_768, 32_768))
-        // The owner's phone shoots about 200 MP at full resolution: allowed, as are smaller sensors.
+        // Some phones shoot about 200 MP at full resolution: allowed, as are smaller sensors.
         assertTrue(declaredSizeAllowed(16_320, 12_240))
         assertTrue(declaredSizeAllowed(12_240, 16_320))
         assertTrue(declaredSizeAllowed(8_160, 6_120))

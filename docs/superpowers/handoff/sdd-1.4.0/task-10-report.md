@@ -97,6 +97,8 @@ The owner gives no real exports (owner decision (e)). These points come from doc
   - `groups` stays in clear;
   - the `reference` field is not used, because the tag over the services is the check.
 
+- **CSV with the browsers' columns plus `folder` and `totp` (1.4.1):** the folder is one name, as written (no path split), and `totp` is an `otpauth://` link or a bare Base32 key, read as Bitwarden's `login_totp`. Check with one real export that has them, in 1.4.2.
+
 ## For Task 12 (README, phone tests)
 
 - One real export per format: Bitwarden protected with PBKDF2 and with Argon2id, the Bitwarden CSV (with a login with two URIs, and one whose URL has a comma, such as `?q=1,2`), Aegis encrypted, and 2FAS encrypted. Each opens with its password and gives the same entries as the source app.

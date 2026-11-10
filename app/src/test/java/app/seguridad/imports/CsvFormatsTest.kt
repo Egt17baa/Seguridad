@@ -41,6 +41,49 @@ class CsvFormatsTest {
         assertEquals(0, read.becameNotes)
     }
 
+    /**
+     * 1.4.1: a CSV with the browsers' columns that also has `folder` and `totp` (other password apps write them) keeps
+     * the folder and the 2FA, through the same strict path as Bitwarden's `login_totp` ([addLoginTotp]). Synthetic.
+     */
+    @Test fun browserCsvWithFolderAndTotpColumns() {
+        val read = ok(
+            "name,url,username,password,note,folder,totp\n" +
+                "Correo,https://correo.example.org/,ana,clave-1,,Trabajo,JBSWY3DPEHPK3PXP\n" +
+                "Foro,https://foro.example.org/,luis,clave-2,nota,,otpauth://totp/Foro:luis?secret=JBSWY3DPEHPK3PXP&issuer=Foro\n" +
+                "Banco,https://banco.example.org/,maria,clave-3,,,\n",
+        )
+        // Not a browser's: its own origin tag, so its entries are not tagged as imported from a browser.
+        assertEquals(ImportFormat.PASSWORDS_CSV, read.format)
+        assertEquals("importado-csv", read.format.originTag)
+        val logins = read.items.filter { it.entry.type == EntryType.LOGIN }
+        assertEquals(listOf("Correo", "Foro", "Banco"), logins.map { it.entry.title })
+        assertEquals(listOf("Trabajo"), logins[0].folders)
+        assertEquals(emptyList<String>(), logins[1].folders)
+        assertEquals("nota", logins[1].entry.notes)
+        val codes = read.items.filter { it.entry.type == EntryType.TOTP }
+        assertEquals(2, codes.size)
+        assertEquals(listOf("Trabajo"), codes[0].folders)
+        assertTrue(read.skipped.isEmpty())
+    }
+
+    /** Only one of the two columns is enough; without both it stays the browsers' CSV. */
+    @Test fun passwordsCsvNeedsFolderOrTotp() {
+        assertEquals(ImportFormat.PASSWORDS_CSV, ok("name,url,username,password,note,folder\nA,https://a.example/,u,p,,F\n").format)
+        assertEquals(ImportFormat.PASSWORDS_CSV, ok("name,url,username,password,totp\nA,https://a.example/,u,p,\n").format)
+        assertEquals(ImportFormat.BROWSER_CSV, ok("name,url,username,password,note\nA,https://a.example/,u,p,\n").format)
+    }
+
+    /** A bad 2FA in the `totp` column skips only that 2FA; the login still enters. A NUL in the folder is a broken row. */
+    @Test fun browserCsvBadTotpOrBrokenFolder() {
+        val read = ok(
+            "name,url,username,password,note,folder,totp\n" +
+                "Correo,https://correo.example.org/,ana,clave-1,,,otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP&counter=1\n" +
+                "Foro,https://foro.example.org/,luis,clave-2,,Tra\u0000bajo,\n",
+        )
+        assertEquals(listOf("Correo"), read.items.map { it.entry.title })
+        assertEquals(listOf(SkipReason.NOT_TOTP, SkipReason.BROKEN), read.skipped.map { it.reason })
+    }
+
     @Test fun firefoxHeaderTitleIsTheHost() {
         val read = ok(fixture("firefox.csv"))
         assertEquals(ImportFormat.FIREFOX_CSV, read.format)

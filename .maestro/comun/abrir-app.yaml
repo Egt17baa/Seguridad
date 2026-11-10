@@ -1,6 +1,6 @@
 # Subflujo: abre Clavero SIN borrar sus datos.
-# Acepta el aviso «Antes de empezar» y el de «Nuevo nombre» si salen, cierra el diálogo de la huella si
-# se abre solo (con la bóveda bloqueada y la huella activada) y espera a la barra de pestañas.
+# Acepta el aviso «Antes de empezar» y el de «Nuevo nombre» si salen, cierra el diálogo de la huella o de
+# la cara si se abre solo (con la bóveda bloqueada y la huella activada) y espera a la barra de pestañas.
 # No crea, no abre y no cambia la bóveda.
 appId: io.github.egt17baa.seguridad
 ---
@@ -20,16 +20,30 @@ appId: io.github.egt17baa.seguridad
           direction: DOWN
           timeout: 15000
       - tapOn: "Entendido"
-- runFlow:
-    when:
-      visible: "Usar contraseña maestra"
+# La petición de la huella sale unos segundos después de abrir, y no siempre igual: el diálogo del
+# fabricante puede pedir la cara y no traer el botón «Usar contraseña maestra», sino un «Cancelar» (a veces
+# solo un icono con ese nombre). Se mira varias veces, porque cada comprobación espera unos segundos a que
+# salga. Nunca se pulsa «Atrás»: si el diálogo ya se está cerrando, cerraría Clavero.
+- repeat:
+    times: 3
     commands:
-      - tapOn: "Usar contraseña maestra"
-- runFlow:
-    when:
-      visible: "Nuevo nombre"
-    commands:
-      - tapOn: "Entendido"
+      - runFlow:
+          when:
+            visible: "Usar contraseña maestra"
+          commands:
+            - tapOn: "Usar contraseña maestra"
+      - runFlow:
+          when:
+            visible: "Desbloquear la bóveda"
+          commands:
+            - tapOn:
+                text: "Usar contraseña maestra|Cancelar"
+                optional: true
+      - runFlow:
+          when:
+            visible: "Nuevo nombre"
+          commands:
+            - tapOn: "Entendido"
 - extendedWaitUntil:
     visible: "Herramientas"
     timeout: 20000

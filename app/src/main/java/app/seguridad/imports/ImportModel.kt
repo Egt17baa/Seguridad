@@ -18,6 +18,9 @@ import java.text.Normalizer
 /** The family of a format read; [originTag] is the tag every entry imported from it gets (spec «Etiquetas»). */
 enum class ImportFormat(val originTag: String) {
     BROWSER_CSV(ORIGIN_TAG_BROWSER),
+
+    /** 1.4.1: the browsers' columns plus `folder` or `totp`, as other password apps write them; its own origin tag. */
+    PASSWORDS_CSV(ORIGIN_TAG_CSV),
     FIREFOX_CSV(ORIGIN_TAG_FIREFOX),
     APPLE_CSV(ORIGIN_TAG_APPLE),
     BITWARDEN(ORIGIN_TAG_BITWARDEN),

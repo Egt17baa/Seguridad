@@ -142,13 +142,13 @@ Ninguno.
 
 - **Dónde:** `android/BiometricVault.kt:375-377`, con `keyStore().load`, `getKey` y `Cipher.init(DECRYPT_MODE…)` en el hilo de la UI.
 - **Qué pasa:** con la clave en StrongBox, `init` hace un `begin` en el chip seguro aparte, que en algunos móviles tarda de decenas a cientos de ms. La revisión de T9 sacó la *generación* del hilo principal, pero el *uso* sigue en él. Es la misma pauta de la 1.2.2, solo que ahora con StrongBox.
-- **Corrección exacta:** hacer el `init` con `withContext(Dispatchers.Default)` en un `MainScope` local, como en `enable` (`BiometricVault.kt:242-252`), y llamar a `prompt` al volver, comprobando antes `canPrompt`. A comprobar en el móvil antes de cambiarlo: en la prueba en el móvil, medir con `adb shell dumpsys gfxinfo` o Perfetto si el desbloqueo con huella pierde frames.
+- **Corrección exacta:** hacer el `init` con `withContext(Dispatchers.Default)` en un `MainScope` local, como en `enable` (`BiometricVault.kt:242-252`), y llamar a `prompt` al volver, comprobando antes `canPrompt`. A comprobar en el móvil del dueño antes de cambiarlo: en la prueba en el móvil, medir con `adb shell dumpsys gfxinfo` o Perfetto si el desbloqueo con huella pierde frames.
 - **Referencia:** Android Developers, «Keep your app responsive» (ANR y StrictMode).
 
 #### M-6. La conversión de HEIC/AVIF reduce la resolución sin avisar (T3, T4)
 
 - **Dónde:** `android/HeifToJpeg.kt:69-72`, que aplica `setTargetSize` a `MAX_REDACT_PIXELS`, y `tools/ToolTexts.kt:101`: `PHOTO_HEIF_NOTICE` solo dice «puede perder algo de calidad».
-- **Qué pasa:** una foto HEIC de 50 MP o de 200 MP (el modo de 200 MP del móvil) sale a unos 24 MP. «Tachar» sí lo avisa (`redactDownscaledText`); «Limpiar foto» no.
+- **Qué pasa:** una foto HEIC de 50 MP o de 200 MP (el modo de 200 MP de algunos móviles) sale a unos 24 MP. «Tachar» sí lo avisa (`redactDownscaledText`); «Limpiar foto» no.
 - **Corrección exacta:**
   - `heifToJpeg` devuelve también `downscaled: Boolean` (o la clase `CleanCopy` lo lleva);
   - `CopyCard` (`PhotoCleanScreen.kt:279-292`) muestra `redactDownscaledText(redactMegapixels(w, h))` o un texto propio, que va a la lista del Abogado Digital.
@@ -254,7 +254,7 @@ En el móvil del dueño y, si se puede, en un Android 8 o 9 y en un Android 12 o
    - Abrir en «Tachar» un JPEG de 200 MP y un PNG de 16 bits de unos 24 MP. Mirar `adb shell dumpsys meminfo io.github.egt17baa.seguridad`, sección «Native Heap». La app no se cierra.
    - En un móvil de 3 o 4 GB, anotar si el sistema la mata.
 9. **M-9:** en «PIN y códigos», añadir 4 preguntas y tocar la última: el campo queda por encima del teclado.
-10. **HDR:** limpiar un HEIC HDR (10 bits) y una foto «Ultra HDR» JPEG del móvil:
+10. **HDR:** limpiar un HEIC HDR (10 bits) y una foto «Ultra HDR» JPEG del móvil del dueño:
     - sale una copia, y no «dañada»;
     - en «Tachar», la caja negra está en la copia compartida;
     - la copia no conserva el mapa de ganancia, porque se dibuja en un bitmap nuevo (`RedactRender.kt:155`).
@@ -262,7 +262,7 @@ En el móvil del dueño y, si se puede, en un Android 8 o 9 y en un Android 12 o
     - anotar si el informe muestra «Ubicación GPS» con coordenadas, sin ellas o nada (Android oculta la ubicación a las apps sin `ACCESS_MEDIA_LOCATION`);
     - el texto `PHOTO_NOTHING_FOUND` ya lo prevé (`tools/ToolTexts.kt:96-98`);
     - en las dos, la copia no lleva GPS.
-12. **Guardar en otros proveedores:** «Guardar copia» en una carpeta en la nube y en el gestor de archivos del fabricante. Si alguno no admite el modo `"wt"`, sale `PHOTO_SAVE_FAILED` y no queda un documento vacío.
+12. **Guardar en otros proveedores:** «Guardar copia» en Google Drive y en el gestor de archivos del fabricante. Si alguno no admite el modo `"wt"`, sale `PHOTO_SAVE_FAILED` y no queda un documento vacío.
 13. **Compartir:**
     - compartir a Gmail, volver antes de 10 minutos y enviar: el adjunto llega;
     - volver tras más de 10 minutos: `cacheDir/compartir` está vacío (en *debug*, `adb shell run-as … ls cache/compartir`).
@@ -359,10 +359,10 @@ En el móvil del dueño y, si se puede, en un Android 8 o 9 y en un Android 12 o
   - `EXTRA_IS_SENSITIVE` en API 33.
 
   `readAtMost` sustituye a `readNBytes` (API 33) (`core/Streams.kt:3`).
-- [ ] **Compatibilidad con Android 8 a 16 y con el móvil con Android 17:** el código no tiene ramas sin comprobar. Las diferencias reales quedan en las «Pruebas en el móvil»:
+- [ ] **Compatibilidad con Android 8 a 17:** el código no tiene ramas sin comprobar. Las diferencias reales quedan en las «Pruebas en el móvil»:
   - HDR y Ultra HDR;
   - memoria nativa con 200 MP;
-  - StrongBox del móvil;
+  - StrongBox del móvil del dueño;
   - selector y gestor de archivos del sistema;
   - modo `"wt"` de los proveedores.
 

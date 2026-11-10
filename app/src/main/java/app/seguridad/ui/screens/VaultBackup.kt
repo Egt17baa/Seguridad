@@ -202,7 +202,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                 VaultLock.keepOpenOnce = true
                 store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
                 // Every file: Drive and other cloud providers label a .sgbak as they like (an unknown extension), and
-                // a type list left the copies in la nube greyed out (owner's phone test, 1-11-2026). The head is checked
+                // a type list left the copies in a cloud folder greyed out (phone test, 1-11-2026). The head is checked
                 // right after picking (mayBeVaultImport) and the import checks everything.
                 importer.launchOrError(arrayOf("*/*"))?.let { failure ->
                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.

@@ -10,7 +10,7 @@
 # contraseña de prueba «prueba-clavero-1.4» (app/src/test/resources/import/README.txt).
 # Salir con Inicio y volver pasado el bloqueo, y bloquear a mitad de la copia, son manuales.
 appId: io.github.egt17baa.seguridad
-name: "P-8 Importar: volver atrás borra lo leído"
+name: "P-8 Importar - volver atrás borra lo leído"
 tags:
   - clavero-1.4.0
   - semiautomatica
@@ -54,7 +54,8 @@ env:
     visible: "Contraseña del archivo"
     timeout: 30000
 - assertVisible:
-    text: "Abrir"
+    containsDescendants:
+      - text: "Abrir"
     enabled: false
 - tapOn: "Contraseña del archivo"
 - inputText: "clave-equivocada"
@@ -66,7 +67,8 @@ env:
 # El campo se ha vaciado y sigue el paso de la contraseña: nada se reintenta solo.
 - assertVisible: "Contraseña del archivo"
 - assertVisible:
-    text: "Abrir"
+    containsDescendants:
+      - text: "Abrir"
     enabled: false
 - tapOn: "Contraseña del archivo"
 - inputText: "prueba-clavero-1.4"
