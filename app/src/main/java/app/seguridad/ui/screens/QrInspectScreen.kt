@@ -75,6 +75,7 @@ import app.seguridad.tools.QR_NO_CAMERA_PERMISSION
 import app.seguridad.tools.QR_OPEN_RECEIVED
 import app.seguridad.tools.QR_PICK_IMAGE
 import app.seguridad.tools.QR_READING_IMAGE
+import app.seguridad.tools.QR_SHORT
 import app.seguridad.tools.QR_SHOW
 import app.seguridad.tools.QR_TEXT_HIDDEN_OTP
 import app.seguridad.tools.QR_TEXT_HIDDEN_PASSWORD
@@ -241,7 +242,8 @@ fun QrInspectScreen(
                 Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(QR_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(QR_SHORT)
+                MoreInfo { Text(QR_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 FilledTonalButton(
                     enabled = !busy,
                     onClick = {

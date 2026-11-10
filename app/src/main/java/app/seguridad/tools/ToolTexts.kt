@@ -644,6 +644,33 @@ const val RECOVERY_CODES_SHORT = "Diez códigos al azar para guardar en la bóve
 const val ANSWERS_SHORT =
     "Palabras al azar para preguntas como «¿tu primera mascota?». Solo en las que eliges tú, nunca en tus datos de identidad."
 const val CODES_UNLOCK_TO_SAVE_SHORT = "Desbloquea la bóveda para guardarlo. Si vuelves atrás o la bloqueas, se pierde."
+const val ENIGMA_SHORT = "Enigma I y M3 con sus cableados históricos."
+const val BACKUP_CHECK_SHORT =
+    "Comprueba que una copia .sgbak se abre con su contraseña y que sus adjuntos coinciden, sin importarla."
+const val PHOTO_SHORT = "Quita de la foto la ubicación, el modelo del móvil y otros datos ocultos. No cambia lo que se ve."
+const val ENCRYPT_HELP_SHORT = "Solo podrá leerlo quien tenga la identidad del contacto."
+const val QR_SHORT = "Enseña lo que hay en un QR sin abrir nada."
+const val REDACT_SHORT = "Tapa con bloques negros lo que no quieras que se vea."
+const val REDACT_LIMITS_SHORT = "El original no cambia: no lo compartas. Tapa con margen."
+const val SHARE_SHORT = "Divide un secreto en partes (SLIP-0039): con las necesarias se recompone; con menos, no."
+const val SHARE_WARNING_SHORT = "No las uses como copia SLIP-39 de una cartera: darían otra cartera. Recomponlas en Clavero."
+const val GENERATOR_EFF_SHORT = "Palabras de la lista de la EFF (CC BY 3.0 US)."
+const val BREACH_SHORT = "Tu contraseña no sale del móvil: solo se envían 5 caracteres de su huella."
+const val IMPORT_SHORT =
+    "Añade a la bóveda lo que exportaste de otro gestor de contraseñas, un navegador o una app de 2FA. Antes te enseña lo que entra."
+
+/** N-1 and R33: on every step, and «suele», as the full text ([app.seguridad.imports.IMPORT_NOT_PROTECTED]). */
+const val IMPORT_NOT_PROTECTED_SHORT = "Un archivo exportado sin contraseña suele estar sin cifrar en tu móvil."
+const val IMPORT_WIPE_SHORT = "Lo leído se borra al volver atrás o al bloquear la bóveda."
+const val IMPORT_CONFIRM_SHORT = "Antes de guardar, Clavero hace una copia cifrada de la bóveda."
+const val IMPORT_REMOVE_SHORT = "El archivo importado sigue en tu móvil, sin cifrar si lo exportaste sin contraseña."
+const val VAULT_CREATE_SHORT =
+    "Guarda contraseñas, frases semilla, notas y códigos 2FA, cifrados en este móvil con tu contraseña maestra."
+const val IDENTITY_SHORT = "Para que tus contactos te cifren mensajes y para firmar."
+const val AUTO_BACKUP_SHORT = "Guarda una copia cifrada en la carpeta que elijas después de cada cambio."
+const val ABOUT_WARNINGS_SHORT = "Sin auditoría independiente, sin recuperación de contraseñas y sin conexión salvo para comprobar filtraciones."
+const val NOTICE_NO_RECOVERY_SHORT = "Si olvidas la contraseña maestra, nadie puede recuperar lo guardado."
+const val NOTICE_NO_AUDIT_SHORT = "La app no ha pasado una auditoría de seguridad independiente."
 
 const val TOOLS_AWAY_WIPE_NOTE =
     "Lo que escribes aquí y el resultado se borran si vuelves atrás, si se cierra la app, si bloqueas la bóveda o si " +
@@ -727,7 +754,10 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     TOOLS_AWAY_WIPE_NOTE,
     // 1.4.2, texto mínimo.
     MORE_INFO, MORE_INFO_LESS, MORE_INFO_OPEN, MORE_INFO_CLOSED, TOOLS_ABOUT_SHORT, TOOLS_AWAY_WIPE_SHORT,
-    RECOVERY_CODES_SHORT, ANSWERS_SHORT, CODES_UNLOCK_TO_SAVE_SHORT,
+    RECOVERY_CODES_SHORT, ANSWERS_SHORT, CODES_UNLOCK_TO_SAVE_SHORT, ENIGMA_SHORT, BACKUP_CHECK_SHORT, PHOTO_SHORT,
+    ENCRYPT_HELP_SHORT, QR_SHORT, REDACT_SHORT, REDACT_LIMITS_SHORT, SHARE_SHORT, SHARE_WARNING_SHORT, GENERATOR_EFF_SHORT,
+    BREACH_SHORT, IMPORT_SHORT, IMPORT_NOT_PROTECTED_SHORT, IMPORT_WIPE_SHORT, IMPORT_CONFIRM_SHORT, IMPORT_REMOVE_SHORT,
+    VAULT_CREATE_SHORT, IDENTITY_SHORT, AUTO_BACKUP_SHORT, ABOUT_WARNINGS_SHORT, NOTICE_NO_RECOVERY_SHORT, NOTICE_NO_AUDIT_SHORT,
     // Audit 1.3.0, F7 (LIBRE-2 + COV1-3).
     NOTICE_INTRO, ABOUT_SUMMARY, VAULT_CREATE_INTRO,
     // Owner's decision, 31-10-2026: the notice of the new name.

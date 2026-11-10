@@ -27,10 +27,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.copySensitive
+import app.seguridad.tools.ENIGMA_SHORT
 import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
+import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 import app.seguridad.tools.classic.ANALYSIS_FREQUENCIES
-import app.seguridad.tools.classic.ANALYSIS_IN_BETWEEN
 import app.seguridad.tools.classic.ANALYSIS_INTRO
+import app.seguridad.tools.classic.ANALYSIS_IN_BETWEEN
 import app.seguridad.tools.classic.ANALYSIS_LOOKS_NORMAL
 import app.seguridad.tools.classic.ANALYSIS_LOOKS_RANDOM
 import app.seguridad.tools.classic.ANALYSIS_REFERENCE
@@ -42,8 +44,8 @@ import app.seguridad.tools.classic.CLASSIC_COPY
 import app.seguridad.tools.classic.CLASSIC_DECRYPT
 import app.seguridad.tools.classic.CLASSIC_ENCRYPT
 import app.seguridad.tools.classic.CLASSIC_LETTERS_ONLY
-import app.seguridad.tools.classic.CLASSIC_NOT_SAVED
 import app.seguridad.tools.classic.CLASSIC_NOTICE
+import app.seguridad.tools.classic.CLASSIC_NOT_SAVED
 import app.seguridad.tools.classic.CLASSIC_RESULT
 import app.seguridad.tools.classic.CLASSIC_TAB_ANALYSIS
 import app.seguridad.tools.classic.CLASSIC_TAB_CAESAR
@@ -66,6 +68,8 @@ import app.seguridad.tools.classic.ENIGMA_ROTOR_MIDDLE
 import app.seguridad.tools.classic.ENIGMA_ROTOR_RIGHT
 import app.seguridad.tools.classic.ENIGMA_SAME_KEY
 import app.seguridad.tools.classic.Enigma
+import app.seguridad.tools.classic.IC_ENGLISH
+import app.seguridad.tools.classic.IC_UNIFORM
 import app.seguridad.tools.classic.MAX_CLASSIC_CHARS
 import app.seguridad.tools.classic.MAX_CLASSIC_KEY_CHARS
 import app.seguridad.tools.classic.Reflector
@@ -78,8 +82,6 @@ import app.seguridad.tools.classic.analysisLetters
 import app.seguridad.tools.classic.buildEnigma
 import app.seguridad.tools.classic.caesar
 import app.seguridad.tools.classic.enigmaFinalPositions
-import app.seguridad.tools.classic.IC_ENGLISH
-import app.seguridad.tools.classic.IC_UNIFORM
 import app.seguridad.tools.classic.indexOfCoincidence
 import app.seguridad.tools.classic.letterCounts
 import app.seguridad.tools.classic.vigenere
@@ -186,7 +188,6 @@ fun ClassicLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp:
                     val out = remember(s.caesarText, k, vm.caesarDecrypt) { caesar(s.caesarText, if (vm.caesarDecrypt) -k else k) }
                     Output(context, out)
                 }
-                Text(CLASSIC_LETTERS_ONLY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             ClassicTab.VIGENERE -> {
                 ModeChips(vm.vigenereDecrypt) { vm.vigenereDecrypt = it }
@@ -209,12 +210,18 @@ fun ClassicLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp:
                     Output(context, out)
                 }
                 Text(VIGENERE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(CLASSIC_LETTERS_ONLY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             ClassicTab.ENIGMA -> EnigmaTab(context, vm)
             ClassicTab.ANALYSIS -> AnalysisTab(vm)
         }
-        Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // 1.4.2 (texto mínimo): the explanations, folded.
+        MoreInfo {
+            Text(CLASSIC_LETTERS_ONLY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(ENIGMA_INTRO, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(ENIGMA_LETTERS_ONLY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -262,7 +269,7 @@ private fun Output(context: android.content.Context, value: String, extra: Strin
 @Composable
 private fun EnigmaTab(context: android.content.Context, vm: ClassicLabViewModel) {
     val s = vm.session
-    Text(ENIGMA_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(ENIGMA_SHORT, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Text(ENIGMA_ROTORS, style = MaterialTheme.typography.labelMedium)
     listOf(ENIGMA_ROTOR_LEFT, ENIGMA_ROTOR_MIDDLE, ENIGMA_ROTOR_RIGHT).forEachIndexed { slot, name ->
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -324,7 +331,6 @@ private fun EnigmaTab(context: android.content.Context, vm: ClassicLabViewModel)
         Output(context, result.first, enigmaFinalPositions(result.second))
     }
     Text(ENIGMA_SAME_KEY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Text(ENIGMA_LETTERS_ONLY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 private val ES = Locale.forLanguageTag("es-ES")

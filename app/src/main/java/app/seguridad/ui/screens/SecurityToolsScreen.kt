@@ -86,7 +86,10 @@ import app.seguridad.crypto.passwordEntropy
 import app.seguridad.crypto.safeFileName
 import app.seguridad.crypto.strength
 import app.seguridad.net.PwnedPasswords
+import app.seguridad.tools.BREACH_SHORT
+import app.seguridad.tools.GENERATOR_EFF_SHORT
 import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
+import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 import app.seguridad.tools.cipher.BreachSession
 import app.seguridad.tools.cipher.FileCryptoSession
 import app.seguridad.tools.cipher.PendingCopy
@@ -499,7 +502,9 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
 /** COV1-1: what this screen keeps, and for how long, said under it. */
 @Composable
 private fun AwayNote() {
-    Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // 1.4.2 (texto mínimo): every case, folded.
+    MoreInfo { Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
 /** Word count, BIP-39 checksum, misspelled words with a one-tap fix, and completions for the word being typed. */
@@ -906,12 +911,14 @@ fun FileCryptoScreen(
         ) { Text(if (encrypt) "Cifrar y guardar" else "Descifrar y guardar") }
         if (s.busy) Busy(if (encrypt) "Cifrando…" else "Descifrando y comprobando…")
         s.message?.let { (ok, text) -> Text(text, color = if (ok) PositiveColor else NegativeColor) }
-        Text(
-            "Se cifra por bloques de 64 KiB: sirve para archivos de cualquier tamaño. Al descifrar se comprueba todo el archivo " +
-                "antes de guardarlo; si alguien lo ha modificado o la contraseña no es la correcta, no se guarda nada.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        MoreInfo {
+            Text(
+                "Se cifra por bloques de 64 KiB: sirve para archivos de cualquier tamaño. Al descifrar se comprueba todo el archivo " +
+                    "antes de guardarlo; si alguien lo ha modificado o la contraseña no es la correcta, no se guarda nada.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         AwayNote()
     }
 }
@@ -986,11 +993,14 @@ fun GeneratorScreen(onBack: () -> Unit) {
             }
             Option("Primera letra en mayúscula", w.capitalize) { w = w.copy(capitalize = it) }
             Option("Añadir un número", w.addNumber) { w = w.copy(addNumber = it) }
-            Text(
-                "Palabras de la lista de la EFF (7.776 palabras en inglés, CC BY 3.0 US). Una frase de 6 palabras es fácil de recordar y muy difícil de adivinar.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(GENERATOR_EFF_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            MoreInfo {
+                Text(
+                    "Palabras de la lista de la EFF (7.776 palabras en inglés, CC BY 3.0 US). Una frase de 6 palabras es fácil de recordar y muy difícil de adivinar.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -1056,11 +1066,14 @@ fun BreachScreen(pwned: PwnedPasswords, store: VaultStore, lockAfterMs: () -> Lo
     val s = vm.session
     GuardEffects(s.guard, lockAfterMs)
     ToolColumn("¿Contraseña filtrada?", onBack, s.guard) {
-        Text(
-            "Comprobamos tu contraseña contra más de 900 millones de contraseñas filtradas (Have I Been Pwned). Tu contraseña nunca sale " +
-                "del móvil: calculamos su huella SHA-1 aquí y solo enviamos sus 5 primeros caracteres; la comparación final se hace en tu móvil.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(BREACH_SHORT)
+        MoreInfo {
+            Text(
+                "Comprobamos tu contraseña contra más de 900 millones de contraseñas filtradas (Have I Been Pwned). Tu contraseña nunca sale " +
+                    "del móvil: calculamos su huella SHA-1 aquí y solo enviamos sus 5 primeros caracteres; la comparación final se hace en tu móvil.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         PasswordField(s.password, { s.guard.typed(); s.password = it; s.result = null })
         Button(
             enabled = !s.busy && s.password.isNotEmpty(),

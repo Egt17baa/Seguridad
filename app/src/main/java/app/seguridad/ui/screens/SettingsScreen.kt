@@ -52,27 +52,29 @@ import app.seguridad.settings.LockAfter
 import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.ThemeMode
-import app.seguridad.settings.withFolderChosen
 import app.seguridad.settings.availableOn
 import app.seguridad.settings.settingsEditable
-import app.seguridad.tools.KEY_LOCATION_TITLE
-import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
+import app.seguridad.settings.withFolderChosen
+import app.seguridad.tools.ABOUT_SUMMARY
+import app.seguridad.tools.ABOUT_WARNINGS_SHORT
 import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
-import app.seguridad.tools.ABOUT_SUMMARY
+import app.seguridad.tools.AUTO_BACKUP_SHORT
 import app.seguridad.tools.CLIPBOARD_CLEAR_HINT
-import app.seguridad.tools.LOCK_ON_EXIT_HINT
-import app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT
+import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.KeyLevel
+import app.seguridad.tools.LOCK_ON_EXIT_HINT
+import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.tools.PASSWORD_CHANGED_TITLE
 import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
 import app.seguridad.tools.PASSWORD_CHANGE_COPIES
 import app.seguridad.tools.PASSWORD_CHANGE_OLD_BACKUPS
 import app.seguridad.tools.PASSWORD_CHANGE_RENEW_HINT
-import app.seguridad.tools.PASSWORD_CHANGE_SECRETS_HINT
 import app.seguridad.tools.PASSWORD_CHANGE_REPLACE_COPIES
+import app.seguridad.tools.PASSWORD_CHANGE_SECRETS_HINT
 import app.seguridad.tools.PASSWORD_CHANGE_WORKING
 import app.seguridad.tools.RENEW_IDENTITY
+import app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT
 import app.seguridad.tools.STRONGBOX_AVAILABLE_NOTICE
 import app.seguridad.tools.keyLevelLabel
 import app.seguridad.tools.shouldOfferStrongBoxHint
@@ -80,23 +82,23 @@ import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
-import app.seguridad.vault.BACKUP_CHECK_TITLE
 import app.seguridad.vault.AutoBackup
+import app.seguridad.vault.BACKUP_CHECK_TITLE
 import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.ReplaceStatus
-import app.seguridad.vault.replaceStatus
-import app.seguridad.vault.replacedText
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import app.seguridad.vault.replaceStatus
+import app.seguridad.vault.replacedText
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private fun ThemeMode.label() = when (this) {
     ThemeMode.DARK -> "Oscuro"
@@ -213,10 +215,13 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
 
     Section("Copia automática") {
         if (folder == null) {
-            Hint(
-                "Guarda una copia cifrada (.sgbak, con los adjuntos) en una carpeta que elijas, unos segundos después de cada " +
-                    "cambio en la bóveda. Elige una carpeta que se sincronice o que copies fuera del móvil.",
-            )
+            Hint(AUTO_BACKUP_SHORT)
+            MoreInfo {
+                Hint(
+                    "Guarda una copia cifrada (.sgbak, con los adjuntos) en una carpeta que elijas, unos segundos después de cada " +
+                        "cambio en la bóveda. Elige una carpeta que se sincronice o que copies fuera del móvil.",
+                )
+            }
             if (settings.autoBackupOffForNewVault) {
                 Text(AUTO_BACKUP_OFF_NEW_VAULT, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
             }
@@ -279,12 +284,14 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Desactivar") }
         if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
-        Hint(
-            "Cada copia va cifrada con la contraseña maestra que tenía la bóveda al hacerla: si la cambias, las copias anteriores " +
-                "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…) y, si " +
-                "lo pides tras cambiar la contraseña maestra, las de antes de importar (seguridad-antes-de-importar-…); nunca " +
-                "otros archivos de la carpeta.",
-        )
+        MoreInfo {
+            Hint(
+                "Cada copia va cifrada con la contraseña maestra que tenía la bóveda al hacerla: si la cambias, las copias anteriores " +
+                    "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…) y, si " +
+                    "lo pides tras cambiar la contraseña maestra, las de antes de importar (seguridad-antes-de-importar-…); nunca " +
+                    "otros archivos de la carpeta.",
+            )
+        }
     }
 }
 
@@ -436,26 +443,28 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                     if (settingsEditable(vault.state.value)) change { it.copy(lockAfter = v) }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
-                Hint(LOCK_ON_EXIT_HINT)
+                MoreInfo { Hint(LOCK_ON_EXIT_HINT) }
             }
             Section("Borrar del portapapeles lo copiado") {
                 Choices(ClipboardClear.entries, settings.clipboard, { "A los ${it.seconds} s" }, enabled = { editable }) { v ->
                     if (settingsEditable(vault.state.value)) change { it.copy(clipboard = v) }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
-                Hint(CLIPBOARD_CLEAR_HINT)
+                MoreInfo { Hint(CLIPBOARD_CLEAR_HINT) }
             }
             Section("Coste de Argon2id para lo nuevo") {
                 Choices(KdfProfile.entries, settings.kdf, { it.label }, enabled = { editable && (it != KdfProfile.HIGH || highAvailable) }) { v ->
                     if (settingsEditable(vault.state.value)) change { it.copy(kdf = v) }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
-                Hint(
-                    "Se usa al crear la bóveda, al cambiar la contraseña maestra y al cifrar textos y archivos. Lo ya cifrado guarda su coste. " +
-                        "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria: muchos móviles " +
-                        "económicos no llegan, así que úsalo solo si vas a abrir tus copias en móviles como este." +
-                        if (highAvailable) "" else " Este móvil no da a la app memoria suficiente para cifrar con el coste alto.",
-                )
+                MoreInfo {
+                        Hint(
+                            "Se usa al crear la bóveda, al cambiar la contraseña maestra y al cifrar textos y archivos. Lo ya cifrado guarda su coste. " +
+                                "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria: muchos móviles " +
+                                "económicos no llegan, así que úsalo solo si vas a abrir tus copias en móviles como este." +
+                                if (highAvailable) "" else " Este móvil no da a la app memoria suficiente para cifrar con el coste alto.",
+                        )
+                }
             }
             Section("Tema") {
                 Choices(ThemeMode.entries, settings.theme, { it.label() }) { v -> change { it.copy(theme = v) } }
@@ -476,7 +485,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                             "Al importar se reemplaza la bóveda de este móvil."
                     },
                 )
-                Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia y la exportación .json de la 1.0.")
+                MoreInfo { Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia y la exportación .json de la 1.0.") }
             }
             AutoBackupSection(store, vault, autoBackup, snackbar)
             FingerprintKeySection(vaultState)
@@ -514,9 +523,12 @@ fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
             Text("Clavero ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.headlineSmall)
             Hint(ABOUT_SUMMARY)
             Section("Avisos") {
-                Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una cartera física de criptomonedas y un gestor de contraseñas auditado.")
-                Hint("• Sin recuperación: si olvidas la contraseña maestra o la de algo cifrado, nadie puede recuperar lo guardado.")
-                Hint("• Red: solo se conectan «¿Filtrada?» y «Comprobar filtraciones» de la salud de la bóveda, cuando las pulsas, a api.pwnedpasswords.com, y solo envían los 5 primeros caracteres de la huella SHA-1 de cada contraseña.")
+                Hint(ABOUT_WARNINGS_SHORT)
+                MoreInfo {
+                    Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una cartera física de criptomonedas y un gestor de contraseñas auditado.")
+                    Hint("• Sin recuperación: si olvidas la contraseña maestra o la de algo cifrado, nadie puede recuperar lo guardado.")
+                    Hint("• Red: solo se conectan «¿Filtrada?» y «Comprobar filtraciones» de la salud de la bóveda, cuando las pulsas, a api.pwnedpasswords.com, y solo envían los 5 primeros caracteres de la huella SHA-1 de cada contraseña.")
+                }
             }
             Section("Privacidad") {
                 Hint("La app no recoge datos: no hay cuentas, analítica ni anuncios. La política completa está en la web.")

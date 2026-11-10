@@ -56,6 +56,7 @@ import app.seguridad.crypto.pk.cardText
 import app.seguridad.crypto.safeFileName
 import app.seguridad.imports.plainReportText
 import app.seguridad.tools.DONT_SEND_FILE_NAME
+import app.seguridad.tools.ENCRYPT_HELP_SHORT
 import app.seguridad.tools.fileNameInsideText
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.tools.qr.QrTarget
@@ -327,7 +328,8 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
 
     // M-9: imePadding, so the field stays above the keyboard with edge-to-edge.
     Column(Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(ENCRYPT_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(ENCRYPT_HELP_SHORT)
+        MoreInfo { Text(ENCRYPT_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         TextOrFile(isFile) { isFile = it; result = null; tagged = null }
         if (isFile) {
             SourceButton(source, sourceName) {

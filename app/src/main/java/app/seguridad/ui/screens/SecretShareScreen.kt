@@ -40,7 +40,10 @@ import app.seguridad.SeguridadApp
 import app.seguridad.android.copySensitive
 import app.seguridad.crypto.Bip39
 import app.seguridad.crypto.hexLower
+import app.seguridad.tools.SHARE_SHORT
+import app.seguridad.tools.SHARE_WARNING_SHORT
 import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
+import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 import app.seguridad.tools.slip39.GroupForm
 import app.seguridad.tools.slip39.SHARE_ADD_GROUP
 import app.seguridad.tools.slip39.SHARE_BUSY
@@ -81,19 +84,19 @@ import app.seguridad.tools.slip39.SHARE_WARNING_TITLE
 import app.seguridad.tools.slip39.SHARE_WORDS_MISSING
 import app.seguridad.tools.slip39.SLIP39_MAX_GROUPS
 import app.seguridad.tools.slip39.SLIP39_MAX_PASSPHRASE_CHARS
+import app.seguridad.tools.slip39.SecretShareRuns
 import app.seguridad.tools.slip39.SecretShareSession
 import app.seguridad.tools.slip39.Slip39
+import app.seguridad.tools.slip39.combineRequest
 import app.seguridad.tools.slip39.phraseOrNull
 import app.seguridad.tools.slip39.shareGroupHeader
 import app.seguridad.tools.slip39.shareGroupTitle
 import app.seguridad.tools.slip39.shareGroupsNeeded
 import app.seguridad.tools.slip39.sharePartLabel
 import app.seguridad.tools.slip39.splitRequest
-import app.seguridad.tools.slip39.combineRequest
-import app.seguridad.tools.slip39.SecretShareRuns
 import app.seguridad.ui.theme.NegativeColor
-import app.seguridad.ui.theme.SECRET_TEXT_KEYBOARD
 import app.seguridad.ui.theme.PasswordField
+import app.seguridad.ui.theme.SECRET_TEXT_KEYBOARD
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.WordLists
@@ -285,20 +288,21 @@ fun SecretShareScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
     GuardEffects(s.guard, lockAfterMs)
     DisposableEffect(vm) { onDispose { vm.clearRefused() } }
     ToolColumn(SHARE_TITLE, onBack, s.guard) {
-        Text(SHARE_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        SectionCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(SHARE_NOT_PROTECTED_TITLE, style = MaterialTheme.typography.titleSmall)
-                Text(SHARE_NOT_PROTECTED)
-            }
-        }
+        Text(SHARE_SHORT)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !vm.combineMode, onClick = { vm.chooseMode(false) }, label = { Text(SHARE_MODE_SPLIT) })
             FilterChip(selected = vm.combineMode, onClick = { vm.chooseMode(true) }, label = { Text(SHARE_MODE_COMBINE) })
         }
         if (vm.wordsFailed) Text(SHARE_WORDS_MISSING, color = NegativeColor)
         if (vm.combineMode) CombineForm(context, vm) else SplitForm(context, vm)
-        Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // 1.4.2 (texto mínimo): the explanations, folded.
+        MoreInfo {
+            Text(SHARE_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(SHARE_NOT_PROTECTED_TITLE, style = MaterialTheme.typography.titleSmall)
+            Text(SHARE_NOT_PROTECTED)
+            Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -342,7 +346,8 @@ private fun SplitForm(context: Context, vm: SecretShareViewModel) {
     SectionCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(SHARE_WARNING_TITLE, style = MaterialTheme.typography.titleSmall)
-            Text(SHARE_WARNING)
+            Text(SHARE_WARNING_SHORT)
+            MoreInfo { Text(SHARE_WARNING) }
         }
     }
     RunButton(vm, SHARE_SPLIT_BUTTON, enabled = vm.slip39 != null && vm.bip39 != null, onClick = vm::split)

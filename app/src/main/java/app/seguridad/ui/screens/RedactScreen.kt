@@ -80,12 +80,14 @@ import app.seguridad.tools.REDACT_COPY_FAILED
 import app.seguridad.tools.REDACT_DAMAGED
 import app.seguridad.tools.REDACT_EXPLANATION
 import app.seguridad.tools.REDACT_LIMITS
+import app.seguridad.tools.REDACT_LIMITS_SHORT
 import app.seguridad.tools.REDACT_LOST
 import app.seguridad.tools.REDACT_OPENING
 import app.seguridad.tools.REDACT_PICK
 import app.seguridad.tools.REDACT_PICK_OTHER
 import app.seguridad.tools.REDACT_REDO
 import app.seguridad.tools.REDACT_RENDERING
+import app.seguridad.tools.REDACT_SHORT
 import app.seguridad.tools.REDACT_TOOL_TITLE
 import app.seguridad.tools.REDACT_TOO_BIG
 import app.seguridad.tools.REDACT_TOO_LARGE
@@ -499,9 +501,11 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                 Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(REDACT_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SectionCard(Modifier.fillMaxWidth()) {
-                    Text(REDACT_LIMITS, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                Text(REDACT_SHORT)
+                Text(REDACT_LIMITS_SHORT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MoreInfo {
+                    Text(REDACT_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(REDACT_LIMITS, style = MaterialTheme.typography.bodyMedium)
                 }
                 OutlinedButton(
                     onClick = { pickerError = pick.launchOrError(arrayOf("image/*")) },

@@ -128,6 +128,11 @@ import app.seguridad.imports.planMerge
 import app.seguridad.imports.previewEntersText
 import app.seguridad.imports.previewEstimate
 import app.seguridad.imports.readImport
+import app.seguridad.tools.IMPORT_CONFIRM_SHORT
+import app.seguridad.tools.IMPORT_NOT_PROTECTED_SHORT
+import app.seguridad.tools.IMPORT_REMOVE_SHORT
+import app.seguridad.tools.IMPORT_SHORT
+import app.seguridad.tools.IMPORT_WIPE_SHORT
 import app.seguridad.tools.SingleRun
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
@@ -507,9 +512,12 @@ fun ImportScreen(
                 when (step) {
                     ImportStep.Pick -> item {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(IMPORT_INTRO)
-                            Text(IMPORT_FORMATS, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(IMPORT_GOOGLE_AUTHENTICATOR, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(IMPORT_SHORT)
+                            MoreInfo {
+                                Text(IMPORT_INTRO)
+                                Text(IMPORT_FORMATS, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(IMPORT_GOOGLE_AUTHENTICATOR, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             ErrorText(s.error)
                             Button(onClick = launchPick, modifier = Modifier.fillMaxWidth()) { Text(IMPORT_PICK) }
                         }
@@ -554,8 +562,13 @@ fun ImportScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         pickerError?.let { Text(it, color = NegativeColor) }
                         HorizontalDivider()
-                        Text(IMPORT_NOT_PROTECTED, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(IMPORT_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(IMPORT_NOT_PROTECTED_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(IMPORT_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // 1.4.2 (texto mínimo): the full notes, folded.
+                        MoreInfo {
+                            Text(IMPORT_NOT_PROTECTED, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(IMPORT_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Text(IMPORT_TRADEMARKS, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -595,7 +608,8 @@ private fun LazyListScope.preview(vm: ImportViewModel, launchPick: () -> Unit) {
                 counts.addedTotal == 0 && counts.replaced == 0 -> Text(IMPORT_NOTHING_TO_DO, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             ErrorText(s.error)
-            Text(IMPORT_CONFIRM_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(IMPORT_CONFIRM_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            MoreInfo { Text(IMPORT_CONFIRM_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Button(enabled = s.canConfirm, onClick = vm::confirm, modifier = Modifier.fillMaxWidth()) { Text(IMPORT_CONFIRM) }
             OutlinedButton(onClick = launchPick, modifier = Modifier.fillMaxWidth()) { Text(IMPORT_PICK_OTHER) }
         }
@@ -607,7 +621,7 @@ private fun LazyListScope.preview(vm: ImportViewModel, launchPick: () -> Unit) {
                 Heading(importDuplicatesText(plan.duplicates.size))
                 Text(IMPORT_DUPLICATES_ALL)
                 Choices(s.default, vm::chooseAll)
-                Text(IMPORT_REPLACE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MoreInfo { Text(IMPORT_REPLACE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
         items(plan.duplicates, key = { "d${it.item.index}" }) { d -> DuplicateRow(d, s.choiceOf(d.item.index)) { vm.choose(d.item.index, it) } }
@@ -630,7 +644,8 @@ private fun LazyListScope.done(vm: ImportViewModel, step: ImportStep.Done, launc
             Column(Modifier.padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when (s.removal) {
                     RemoveState.OFFERED -> {
-                        Text(IMPORT_REMOVE_EXPLAIN)
+                        Text(IMPORT_REMOVE_SHORT)
+                        MoreInfo { Text(IMPORT_REMOVE_EXPLAIN) }
                         Button(onClick = vm::removeExported, modifier = Modifier.fillMaxWidth()) { Text(IMPORT_REMOVE) }
                         TextButton(onClick = vm::declineRemoval) { Text(IMPORT_REMOVE_DECLINE) }
                     }

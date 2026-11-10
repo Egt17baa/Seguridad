@@ -54,9 +54,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -69,7 +66,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
@@ -81,6 +81,7 @@ import app.seguridad.imports.IMPORT_TITLE
 import app.seguridad.imports.plainReportText
 import app.seguridad.tools.RESET_WIPES_DAMAGED
 import app.seguridad.tools.VAULT_CREATE_INTRO
+import app.seguridad.tools.VAULT_CREATE_SHORT
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BiometricRefusal
@@ -270,10 +271,8 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Crea tu bóveda", style = MaterialTheme.typography.headlineSmall)
         failed?.let { Text(it, color = NegativeColor) }
-        Text(
-            VAULT_CREATE_INTRO,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(VAULT_CREATE_SHORT)
+        MoreInfo { Text(VAULT_CREATE_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         PasswordField(a, { a = it }, label = "Contraseña maestra (mínimo $MIN_MASTER caracteres)")
         // CRY-A01: as soon as there is text, what is missing (length first, then strength, then a single known word); the
         // button waits for null. A polite live region, so TalkBack announces it when it changes.

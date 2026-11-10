@@ -119,7 +119,7 @@ private fun ContactDetail(store: VaultStore, entry: VaultEntry, snackbar: Snackb
         }
         if (!entry.verified) {
             Text(UNVERIFIED_NOTICE, color = CautionColor)
-            Text(SIMILAR_NAME_WARNING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            MoreInfo { Text(SIMILAR_NAME_WARNING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (fingerprint is SavedFingerprint.Ready) {
                 Button(onClick = { dialog = VERIFY }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Marcar como verificado") }
             }

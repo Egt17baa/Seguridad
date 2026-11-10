@@ -50,6 +50,7 @@ import app.seguridad.tools.PHOTO_PICK_OTHER
 import app.seguridad.tools.PHOTO_SAVE_COPY
 import app.seguridad.tools.PHOTO_SAVE_FAILED
 import app.seguridad.tools.PHOTO_SHARE_FAILED
+import app.seguridad.tools.PHOTO_SHORT
 import app.seguridad.tools.PHOTO_TOOL_TITLE
 import app.seguridad.tools.PHOTO_TOO_BIG
 import app.seguridad.tools.PHOTO_TOO_LARGE
@@ -353,7 +354,8 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                 Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(PHOTO_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(PHOTO_SHORT)
+                MoreInfo { Text(PHOTO_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 OutlinedButton(
                     onClick = { pickerError = pick.launchOrError(arrayOf("image/*")) },
                     enabled = !busy,
@@ -369,7 +371,7 @@ fun PhotoCleanScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                 vm.error?.let { Text(it, color = NegativeColor) }
                 copy?.let { c -> CopyCard(c) }
                 copy?.let { c ->
-                    Text(PHOTO_FILE_NAME_NOTE, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    MoreInfo { Text(PHOTO_FILE_NAME_NOTE, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                     Button(
                         onClick = {
                             val launcher = when (c.ext) { "png" -> savePng; "webp" -> saveWebp; else -> saveJpg }
