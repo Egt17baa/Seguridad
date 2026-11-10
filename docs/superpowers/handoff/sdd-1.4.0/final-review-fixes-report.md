@@ -59,3 +59,41 @@ Con el *wrapper*, `ANDROID_HOME=/opt/android-sdk` y `--max-workers=1`:
   - un 2FA del archivo cuyo secreto ya está en un acceso de la bóveda sale como repetido de ese acceso, no como entrada nueva; «Reemplazar» no lo cambia;
   - una parte de «Repartir un secreto» o una frase BIP-39 pegada con un invisible que no es de formato (U+3164, U+2800…) se lee;
   - un bloqueo durante la copia de antes de importar cancela la importación también si la bóveda se abre otra vez antes de guardar: no se importa nada y la copia se queda, como dice el README («Importar de otra app» y P-8).
+
+## Auditoría (R71)
+
+**Decisión R71** (`progress.md:315`), por F-1 (Bajo) y F-2 (Info) de la auditoría completa (`final-audit.md`, `3267465`). Commit del código: `7b71d3c`, sobre `3267465`.
+
+**TDD.** Para que los tests compilaran, `Duplicate` recibió antes el campo `replaceable` con el valor `true` para todos. Sobre ese código fallaron los tres:
+- `imports/MergePlanTest.aDuplicateOfAnotherTypeIsNeverAReplacement` (`:483`): `expected:<[false]> but was:<[true]>`;
+- `imports/ImportStateTest.aDuplicateThatCannotBeReplacedIsNeverReplaced` (`:385`): `AssertionError` en `assertFalse(…replaceable)`;
+- `imports/ImportKdfTest.base64AndHexAreBoundedBeforeDecoding` (`:159`): `AssertionError: ＡＢ０１` (se leía).
+
+Con los arreglos pasan. Ningún test de antes cambió.
+
+**Cambios:**
+- **F-1:**
+  - `Duplicate.replaceable` (`imports/MergePlan.kt:31-36`): `planMerge` lo pone a verdad solo si la entrada de la bóveda es del mismo tipo que el elemento y no es personal (`:119`).
+  - `effectiveChoice` (`:38-40`): «Reemplazar» sobre uno que no se puede reemplazar es «Saltar». La usan `previewCounts` (`imports/ImportSession.kt:443-444`), `mergeImport` (`imports/MergePlan.kt:242`, así que `TagBudget.tagsFor` no recibe `onto` ni gasta cupo), `choiceOf` (`imports/ImportSession.kt:251-255`) y `choose` (`:268-272`, que no cambia nada si se pide «Reemplazar» para uno así).
+  - Con eso, «Reemplazar» para todos lo deja en «Saltar», la vista previa no dice «Se reemplaza 1 entrada», y con solo ese duplicado «Importar» sigue apagado (`canConfirm`).
+  - En la pantalla, su fila solo ofrece «Saltar» y «Conservar los dos» (`ui/screens/ImportScreen.kt:681` y `:692`). No hace falta ningún texto nuevo: la opción no aparece.
+- **F-2:** `importHex` (`imports/ImportKdf.kt:253-263`) lee con `asciiHexDigit` (`:284-289`): solo `0-9`, `a-f` y `A-F`. «ＡＢ０１», «0a٣1» y las cifras de ancho completo dan `IMPORT_BROKEN`. El `percentDecode` de `crypto/OtpMigration.kt` no se toca: es de la 1.1, queda fuera del diff y ya rechaza todo valor de 0x80 o más.
+
+**Puerta** (con el *wrapper*, `ANDROID_HOME=/opt/android-sdk` y `--max-workers=1`, sobre `7b71d3c`): la app, **BUILD SUCCESSFUL**, con **1 899 tests, 0 fallos y 0 omitidos**, y lint con 0 errores y 17 avisos (19 al repetirla después de los documentos: dos `NewerVersionAvailable` más, de la comprobación de versiones en línea); `jvm-check`, **BUILD SUCCESSFUL**, con **1 894 tests, 0 fallos y 0 omitidos**; 0 avisos `w:`; `scripts/check-manifest.sh`, OK. El APK de *release* construido desde cero (`./gradlew clean :app:assembleRelease -PfirmaDePrueba=true`, firmado con la clave de prueba) da 3 004 926 bytes, `versionName` 1.4.0, OK en `scripts/check-manifest.sh --release` y, con `aapt2 dump permissions`, los mismos permisos de siempre: INTERNET, CAMERA, USE_BIOMETRIC, USE_FINGERPRINT y el propio de AndroidX.
+
+### Revisión experto-seguridad-cripto (R71)
+
+- **F-1 (CWE-684):** el producto vuelve a hacer lo que dice. La regla de qué se puede reemplazar está en un solo sitio (`imports/MergePlan.kt:119`), y la decisión efectiva en una sola función (`:38-40`), que usan la vista previa, la mezcla y la sesión. Así no pueden volver a separarse. No toca la regla de duplicados (R67) ni lo que escribe «Reemplazar» en los casos que sí reemplaza.
+- **F-2:** la lectura de la sal, el nonce y la etiqueta de Aegis es estricta, como pide la decisión (c). No cambia nada de lo que se acepta en un archivo bueno: los hexadecimales reales siempre son ASCII.
+- Ninguna primitiva, formato, permiso ni host nuevo.
+
+### Revisión Ingeniero Móvil Senior (R71)
+
+- **Compose:** `Choices` recibe `replace` y quita el chip con `listOfNotNull` (`ui/screens/ImportScreen.kt:687-692`). No hay estado nuevo ni recomposición de más: `replaceable` es un campo inmutable del plan.
+- **Sesión:** `choiceOf` busca el duplicado en la lista del plan, una vez por fila que se pinta. Con 20 000 elementos como máximo es lineal por fila. Si hiciera falta, un mapa por índice lo dejaría en tiempo constante (la lista no cambia mientras se ve).
+- **Kotlin:** `effectiveChoice` es pública, porque la usan `imports/` y la sesión; `asciiHexDigit` es privada. Ningún aviso `w:`.
+
+### Textos para el Abogado Digital (R71)
+
+- **Ningún texto nuevo ni cambiado.** Lo que cambia es lo que se ve: en la vista previa, la fila de un 2FA del archivo cuyo secreto ya está en un acceso de la bóveda no ofrece «Reemplazar», solo «Saltar» y «Conservar los dos», y la vista previa ya no dice que lo reemplaza. Con eso, `IMPORT_REPLACE_NOTE` («Reemplazar» toma el 2FA del archivo) vuelve a ser verdad en todos los casos en que se ofrece.
+

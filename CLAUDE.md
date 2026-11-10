@@ -26,7 +26,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
    - la auditoría completa con `experto-seguridad-cripto`, `auditoria-seguridad-movil` y `auditoria-seguridad`;
    - la revisión final del Abogado Digital (punto 4), con sus cambios aplicados.
 
-## Estado actual: Clavero 1.4.0, en desarrollo (8-11-2026)
+## Estado actual: Clavero 1.4.0, en desarrollo (10-11-2026)
 
 **Nombre:** la app se llama **Clavero** desde la 1.3.0 (antes «Seguridad»). Cambian el nombre visible, los textos, la política, la ficha, el README y los nombres de los APK publicados (`Clavero-<etiqueta>.apk`). **No cambian**, y `AppNameTest` lo comprueba:
 - el `applicationId` `io.github.egt17baa.seguridad` y el paquete `app.seguridad`;
@@ -40,7 +40,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **La 1.4.0** añade «Importar de otra app» (fusiona en la bóveda, con vista previa y una copia antes), tres herramientas («Laboratorio de hashes», que sustituye a la huella SHA-256 de archivos, «Laboratorio clásico» y «Repartir un secreto», SLIP-0039) y «Comprobar una copia»; pone todas las operaciones de `BiometricVault` en una sola fila y pasa a AGP 9.5.0 (R8 9.5.28) y Gradle 9.6.0. No cambia ningún formato de Clavero ni añade permisos, componentes exportados, hosts ni dependencias del APK.
   - Diseño `docs/superpowers/specs/2026-11-03-clavero-1.4.0-design.md` (aprobado el 3-11-2026) y plan `docs/superpowers/plans/2026-11-03-clavero-1.4.0.md`.
   - Base: `main` en `7c8dea7` (PR #16). Las tareas 1 a 10 se hicieron en la rama `ccr-a1a6eabb-765f9g` (hasta `a1f7771`); el trabajo se reanudó el 8-11-2026 en la rama **`ccr-d1e75160-p5f4wc`**, desde `a1f7771`, con la revisión de la tarea 10, las tareas 11 y 12 y la revisión final.
-  - Registro `docs/superpowers/handoff/sdd-1.4.0/progress.md` (en la misma carpeta, los informes y las revisiones de cada tarea), auditoría `docs/auditorias/2026-11-08-auditoria-1.4.0.md` (sus secciones de la revisión final están por llenar), informe del ataque `docs/auditorias/2026-11-08-ataque-1.4.0.md` (R39) y traspaso `docs/superpowers/handoff/2026-11-08-clavero-1.4.0-traspaso.md`.
+  - Registro `docs/superpowers/handoff/sdd-1.4.0/progress.md` (en la misma carpeta, los informes y las revisiones de cada tarea), auditoría `docs/auditorias/2026-11-08-auditoria-1.4.0.md` (llena salvo la revisión del Abogado, §11.1), informe del ataque `docs/auditorias/2026-11-08-ataque-1.4.0.md` (R39) y traspaso `docs/superpowers/handoff/2026-11-08-clavero-1.4.0-traspaso.md`.
 - `main` está protegida desde el 1-11-2026: todo cambio entra por un PR, con **build** y **jvm-check** en verde.
 
 | Paso de la 1.4.0 | Estado |
@@ -57,8 +57,10 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | Revisión de la rama entera, en tres partes (A importar, B herramientas y bóveda, C compilación y documentos) | Hecha (`6e43a08`, `96c1d6e`, `e33a4d3`) |
 | Su ronda de arreglos | Hecha: el código (`2ddc305`, `45c2660`; R37 a R40, `branch-review-fixes-code-report.md`) y los documentos (`branch-review-fixes-docs-report.md`) |
 | Los repasos de esa ronda | Hechos: A (`55ddb62`, `2a5ae49`), B (`cf3e574`, `970359e`) y C (`41a585a`, con sus dos menores arreglados) |
-| Segundo ataque, sobre el código final, después de esa ronda (R32), con sus arreglos y su repaso | Ataque hecho (`59725c8`, unido en `865d353`): RT-4 a RT-7 (3 bajos y 1 informativo), decisiones R41 a R44; arreglados en `bf04f45`; falta su revisión y el repaso del equipo rojo. Por dónde seguir: `docs/superpowers/handoff/2026-11-09-clavero-1.4.0-continuar.md` |
-| `code-review`, `security-review` y la auditoría completa | Pendientes |
+| Segundo ataque, sobre el código final, después de esa ronda (R32), con sus arreglos y su repaso | Hecho: ataque en `59725c8` (unido en `865d353`), RT-4 a RT-7; cinco comprobaciones más del equipo rojo y sus repasos, RT-8 a RT-20 (8 bajos y 9 informativos en total), decisiones R41 a R65; arreglados en `bf04f45`, `db42d3e`, `ce6b0f9`, `f6148bb`, `fd9bd4b`, `2eaf393` y `f554d7f`, salvo RT-11 (R50, para el dueño) |
+| `code-review` (alto) | Hecho: 8 hallazgos (`b0816a3`), 6 arreglados en `e3aa329` (R66 a R68, R70) y 2 aceptados como coste (R69) |
+| `security-review` | Hecho (`030dfdb`): ninguna vulnerabilidad con una confianza de 0,7 o más |
+| Auditoría completa (`sdd-1.4.0/final-audit.md`) | Hecha (`3267465`): F-1 (Bajo) y F-2 (Info), arreglados en `7b71d3c` (R71), el cierre del código; auditoría llena salvo §11.1 |
 | Revisión final del Abogado Digital, con sus cambios | Pendiente |
 | PR a `main`, APK firmado, prueba del dueño en el móvil y etiqueta `v1.4.0` | Pendientes |
 
@@ -93,6 +95,10 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **Etiqueta del nombre (R35):** «Nombre (p. ej. «Correo» o «Cartera»)», sin nombres de productos.
 - **Un solo cerrojo de derivación (R38, R40):** `crypto/KdfLock` hace que nunca corran dos derivaciones a la vez en todo el proceso: las Argon2id de `VaultStore`, «Comprobar una copia», «Importar de otra app» con contraseña, «Cifrar texto» y la clave de «Cifrar archivo» (no el cifrado del flujo). Una derivación cancelada suelta el cerrojo cuando termina por dentro.
 - **Informe del ataque (R39):** `docs/auditorias/2026-11-08-ataque-1.4.0.md`, escrito desde `sdd-1.4.0/redteam-report.md` con el estado de cada hallazgo; el segundo ataque (R32) se añade ahí. Los `redteam-*.md` siguen como archivos de trabajo.
+- **«Reemplazar» (R58, R63):** conserva el título y el usuario de la bóveda cuando sus claves coinciden (son lo que la hizo duplicado); cambia el 2FA de la bóveda por el del archivo, secreto incluido, y el anterior solo queda en la copia de antes de importar (README P-9).
+- **Lo mismo en todo lo que se importa (R64):** las carpetas se leen con `compareKey`, el emisor y la cuenta de un 2FA se quedan los de la bóveda si su clave coincide, y una URL que no enseña nada es «sin URL».
+- **Bloqueo durante la copia (R66):** `confirm` y `copyTo` apuntan la época del bloqueo al empezar a guardar, y `applyImport` da `Stale` si cambió, aunque la bóveda se haya abierto otra vez; la copia se queda.
+- **2FA de un acceso (R67, R71):** un 2FA del archivo cuyo secreto ya está en cualquier entrada de la bóveda, también un acceso, es duplicado; si es de otro tipo no se puede reemplazar: su fila solo ofrece «Saltar» y «Conservar los dos», y no cuenta como reemplazo ni gasta etiquetas.
 - **«Sin cifrar» (R33):** la pantalla de importar y la oferta de quitar el archivo dicen que el archivo exportado está sin cifrar solo si se exportó sin contraseña (`IMPORT_NOT_PROTECTED`, `IMPORT_REMOVE_EXPLAIN`, fijados en `ImportTextsTest`); el README, la ficha y las notas dicen lo mismo.
 - **jvm-check (R29):** siempre con el wrapper, `./gradlew -p jvm-check test` (Gradle 9.6); un Gradle 8 instalado falla la verificación de dependencias, y las sumas `-gradle813` no se vuelven a añadir.
 - **`BiometricVault` (tarea 1):** todas sus operaciones van en `KeyOpsQueue`, sobre un dispatcher de un solo hilo, cada una entera (activar: de crear la clave a `doFinal` y las preferencias, con el diálogo dentro); `disable` es `suspend` y sus seis llamadas lo esperan; un `disable` cancela la activación en curso. La fila no es reentrante.
