@@ -247,8 +247,12 @@ class ImportSession(
         if (step == ImportStep.Reading || step is ImportStep.Password) dropAll()
     }
 
-    /** The choice that applies to the duplicate [index]. */
-    fun choiceOf(index: Int): DuplicateChoice = overrides[index] ?: default
+    /** The choice that applies to the duplicate [index] («Saltar» for «Reemplazar» on one that cannot be replaced, R71). */
+    fun choiceOf(index: Int): DuplicateChoice {
+        val chosen = overrides[index] ?: default
+        val d = plan?.duplicates?.firstOrNull { it.item.index == index } ?: return chosen
+        return effectiveChoice(d, chosen)
+    }
 
     /** The option for all: every duplicate follows it (the choices made one by one go). */
     fun chooseAll(choice: DuplicateChoice) {
@@ -263,7 +267,9 @@ class ImportSession(
     /** The choice for the duplicate [index] alone; an index that is not a duplicate's changes nothing. */
     fun choose(index: Int, choice: DuplicateChoice) {
         val p = plan ?: return
-        if (step != ImportStep.Preview || p.duplicates.none { it.item.index == index }) return
+        val d = p.duplicates.firstOrNull { it.item.index == index } ?: return
+        // Ruling R71: «Reemplazar» is not offered for a duplicate that cannot be replaced.
+        if (step != ImportStep.Preview || effectiveChoice(d, choice) != choice) return
         val next = if (choice == default) overrides - index else overrides + (index to choice)
         if (next == overrides) return // I-1, as in chooseAll.
         overrides = next
@@ -434,7 +440,8 @@ data class PreviewCounts(val added: Map<EntryType, Int>, val replaced: Int, val 
     val addedTotal: Int get() = added.values.sum()
 }
 
-private fun choice(d: Duplicate, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>) = overrides[d.item.index] ?: default
+private fun choice(d: Duplicate, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>) =
+    effectiveChoice(d, overrides[d.item.index] ?: default)
 
 fun previewCounts(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>): PreviewCounts {
     val added = HashMap<EntryType, Int>()

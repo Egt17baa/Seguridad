@@ -174,7 +174,8 @@ class ImportKdfTest {
             assertEquals(IMPORT_ENCRYPTED_TOO_BIG, e.message)
         }
         assertArrayEquals(byteArrayOf(0x0a, -1), importHex("0aFF", bytes = 2))
-        for (bad in listOf("0a", "0aF", "0aFG", "0aFF00")) {
+        // Ruling R71 (audit F-2): ASCII hex only, not full-width letters nor other digits.
+        for (bad in listOf("0a", "0aF", "0aFG", "0aFF00", "ＡＢ０１", "0a٣1", "\uFF10\uFF11ab")) {
             try {
                 importHex(bad, bytes = 2)
                 fail(bad)

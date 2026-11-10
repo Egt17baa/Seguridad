@@ -677,18 +677,19 @@ private fun DuplicateRow(d: Duplicate, choice: DuplicateChoice, onChoose: (Dupli
         Text("${typeIcon(e.type)} ${plainReportText(e.title).ifBlank { IMPORT_NO_TITLE }}")
         val sub = duplicateSubline(e)
         if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Choices(choice, onChoose)
+        // Ruling R71: a duplicate that «Reemplazar» cannot change is offered «Saltar» and «Conservar los dos» only.
+        Choices(choice, onChoose, replace = d.replaceable)
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Choices(selected: DuplicateChoice, onChoose: (DuplicateChoice) -> Unit) {
+private fun Choices(selected: DuplicateChoice, onChoose: (DuplicateChoice) -> Unit, replace: Boolean = true) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        for ((choice, label) in listOf(
+        for ((choice, label) in listOfNotNull(
             DuplicateChoice.SKIP to IMPORT_CHOICE_SKIP,
             DuplicateChoice.KEEP_BOTH to IMPORT_CHOICE_KEEP_BOTH,
-            DuplicateChoice.REPLACE to IMPORT_CHOICE_REPLACE,
+            (DuplicateChoice.REPLACE to IMPORT_CHOICE_REPLACE).takeIf { replace },
         )) {
             FilterChip(selected = selected == choice, onClick = { onChoose(choice) }, label = { Text(label) })
         }
