@@ -464,6 +464,34 @@ class MergePlanTest {
     }
 
     /**
+     * Ruling R67 (code-review 2): a 2FA item is a duplicate when its key is in any vault entry's 2FA, also a login's (as
+     * `totpImportEntries`); «Reemplazar» on that login changes nothing, since it is another type.
+     */
+    @Test fun aCodeInsideALoginIsADuplicate() {
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Banco", account = "ana"))
+        val p = plan(read(totp(0, "Banco", "jbsw y3dp ehpk 3pxp")), listOf(bank))
+        assertEquals(listOf("b"), p.duplicates.map { it.existingId })
+        assertTrue(p.newItems.isEmpty())
+        assertEquals("Banco", duplicateSubline(p.duplicates.single().item.entry))
+        assertSame(bank, mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId).single())
+    }
+
+    /**
+     * Ruling R68 (code-review 3): a «Reemplazar» whose entry already has [MAX_TAGS] tags adds none, so its folder does not
+     * spend the budget of new tags, and the folders of the new items after it all get their tag.
+     */
+    @Test fun aFullEntryReplacedSpendsNoTagBudget() {
+        val full = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", tags = (1..MAX_TAGS).map { "t$it" })
+        val items = listOf(login(0, "Banco", user = "ana", url = "https://banco.es/", password = "otra", folders = listOf("f0"))) +
+            (1..IMPORT_MAX_NEW_TAGS).map { login(it, "Sitio $it", user = "ana", url = "https://sitio$it.es/", folders = listOf("f$it")) }
+        val p = plan(read(*items.toTypedArray(), format = ImportFormat.BROWSER_CSV), listOf(full))
+        val r = mergeImport(p, DuplicateChoice.REPLACE, emptyMap(), listOf(full), now, newId)
+        assertEquals(0, r.foldersNotTags)
+        assertTrue(r.entries.first { it.title == "Sitio $IMPORT_MAX_NEW_TAGS" }.tags.contains("f$IMPORT_MAX_NEW_TAGS"))
+        assertEquals((1..MAX_TAGS).map { "t$it" }, r.entries.first { it.id == "b" }.tags)
+    }
+
+    /**
      * Rulings R53 and R54, as a property over 20 000 random links built from schemes, «:», «//», «@», digits, «.»,
      * tabs, line breaks, C0 controls and spaces: nothing throws; a link whose scheme, once cleaned as a browser cleans
      * it, is not https (and is not a host such as «banco.es» or `localhost`) never gets an https key; and a row never

@@ -1,5 +1,6 @@
 package app.seguridad.tools.slip39
 
+import app.seguridad.core.drawsNothing
 import app.seguridad.crypto.Bip39
 import app.seguridad.tools.hashlab.hexDecode
 import java.text.Normalizer
@@ -25,8 +26,8 @@ private val BIP39_WORD_COUNTS = setOf(12, 15, 18, 21, 24)
 class SplitInput(val secret: ByteArray?, val error: String?)
 
 /**
- * The secret to split from the form: the entropy of a BIP-39 phrase when [isPhrase] (any case, any spacing, invisible
- * format characters dropped), else the bytes of the hex (spaces and colons allowed), 16 to 32 in an even number.
+ * The secret to split from the form: the entropy of a BIP-39 phrase when [isPhrase] (any case, any spacing, what draws
+ * nothing dropped), else the bytes of the hex (spaces and colons allowed), 16 to 32 in an even number.
  */
 fun splitInput(text: String, isPhrase: Boolean, bip39: Bip39): SplitInput {
     if (text.length > SHARE_MAX_SECRET_CHARS) return SplitInput(null, SHARE_SECRET_TOO_LONG)
@@ -47,16 +48,22 @@ fun splitInput(text: String, isPhrase: Boolean, bip39: Bip39): SplitInput {
     return SplitInput(entropy, null)
 }
 
-/** [text] with every kind of spacing as a plain space, NFKC and without invisible format characters, as for a part. */
+/**
+ * [text] with every kind of spacing as a plain space, NFKC and without what draws nothing (the shared list,
+ * core/Invisible.kt, ruling R68), as for a part.
+ */
 private fun cleanPhrase(text: String): String {
     val sb = StringBuilder(text.length)
-    for (c in text) {
+    var i = 0
+    while (i < text.length) {
+        val cp = text.codePointAt(i)
+        i += Character.charCount(cp)
         when {
-            Character.isWhitespace(c) || Character.isSpaceChar(c) -> sb.append(' ')
-            Character.getType(c) == Character.FORMAT.toInt() -> Unit
+            Character.isWhitespace(cp) || Character.isSpaceChar(cp) -> sb.append(' ')
+            drawsNothing(cp) -> Unit
             // An unpaired surrogate stays a character that is no list word, never something the normaliser sees.
-            Character.isSurrogate(c) -> sb.append('?')
-            else -> sb.append(c)
+            cp in 0xD800..0xDFFF -> sb.append('?')
+            else -> sb.appendCodePoint(cp)
         }
     }
     return Normalizer.normalize(sb, Normalizer.Form.NFKC)

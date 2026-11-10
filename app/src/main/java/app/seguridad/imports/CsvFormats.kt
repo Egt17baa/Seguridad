@@ -79,8 +79,7 @@ private fun isBitwardenCsv(c: Columns) = BITWARDEN_CSV_NEEDS.all(c::has) && BITW
  * [ImportFailure] for a broken file or one over the limits ([parseCsv]).
  */
 internal fun readCsvImport(text: String): ImportRead? {
-    val format = csvHeader(text)?.let(::csvFormat) ?: return null
-    val rows = parseCsv(text)
+    val (format, rows) = parseCsvOf(text, ::csvFormat) ?: return null
     checkItemCount(rows.size - 1)
     val columns = Columns(rows[0])
     val out = ImportReadBuilder(format)

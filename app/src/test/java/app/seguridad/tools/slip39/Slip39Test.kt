@@ -289,6 +289,11 @@ class Slip39Test {
         // Invisible format characters (a zero-width space inside a word, from a paste) are dropped, as they cannot be seen.
         val zw = parts[1].split(" ").mapIndexed { i, w -> if (i == 4) w.take(2) + "\u200B" + w.drop(2) else w }
         assertArrayEquals(master, slip.combineShares(listOf(parts[0], zw.joinToString(" ")), none))
+        // Ruling R68: the shared list of what draws nothing (core/Invisible.kt), also what is not a format character.
+        for (hidden in listOf("\u3164", "\u2800", "\uFE00", "\u034F")) {
+            val w = parts[1].split(" ").mapIndexed { i, x -> if (i == 4) x.take(2) + hidden + x.drop(2) else x }
+            assertArrayEquals(hidden, master, slip.combineShares(listOf(parts[0], w.joinToString(" ")), none))
+        }
     }
 
     @Test fun duplicatePartsAreCountedOnce() {

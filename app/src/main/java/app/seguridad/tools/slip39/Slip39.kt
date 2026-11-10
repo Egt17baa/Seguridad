@@ -1,5 +1,6 @@
 package app.seguridad.tools.slip39
 
+import app.seguridad.core.drawsNothing
 import app.seguridad.crypto.secureRandom
 import org.bouncycastle.crypto.digests.SHA256Digest
 import org.bouncycastle.crypto.generators.PKCS5S2ParametersGenerator
@@ -202,7 +203,7 @@ class Slip39(words: List<String>) {
 
     /**
      * The fields of one part, [part] being its place for the messages; null if it has no word. Bounded first; the words
-     * are read case-insensitively (NFKC, invisible format characters dropped, any spacing between them), the checksum
+     * are read case-insensitively (NFKC, what draws nothing dropped, any spacing between them), the checksum
      * is checked before any field is trusted, and the padding must be at most 8 bits, all zero.
      */
     internal fun decode(mnemonic: String, part: Int): Share? {
@@ -304,8 +305,9 @@ private fun tokens(text: String): List<String> {
 }
 
 /**
- * [token] as a list word may be: NFKC (full-width letters and ligatures become plain ones), without the invisible format
- * characters a paste can bring (zero-width space, BOM), in lower case. Null when it holds an unpaired surrogate: no
+ * [token] as a list word may be: NFKC (full-width letters and ligatures become plain ones), without what draws nothing
+ * that a paste can bring (zero-width space, BOM, a Hangul filler…; the shared list `drawsNothing`, ruling R68), in
+ * lower case. Null when it holds an unpaired surrogate: no
  * word of the list has one, and the normaliser does not see it. A word with an accent or another script stays as it
  * is, and so is not in the list.
  */
@@ -317,7 +319,8 @@ private fun normalizedWord(token: String): String? {
     }
     val nfkc = Normalizer.normalize(token, Normalizer.Form.NFKC)
     val sb = StringBuilder(nfkc.length)
-    for (c in nfkc) if (Character.getType(c) != Character.FORMAT.toInt()) sb.append(c)
+    // What draws nothing goes: the shared list (core/Invisible.kt, ruling R68), not only the format characters.
+    nfkc.codePoints().forEach { if (!drawsNothing(it)) sb.appendCodePoint(it) }
     return sb.toString().lowercase(Locale.ROOT)
 }
 
