@@ -378,6 +378,30 @@ class ImportStateTest {
         assertEquals(0, s.foldersNotTags)
     }
 
+    /**
+     * Ruling R71 (audit F-1): a 2FA whose key is in a vault login (R67) cannot be replaced: «Reemplazar» for all leaves
+     * it at «Saltar», its own «Reemplazar» changes nothing, and with only that «Importar» stays off.
+     */
+    @Test fun aDuplicateThatCannotBeReplacedIsNeverReplaced() {
+        val login = VaultEntry("l", EntryType.LOGIN, "Banco", username = "ana", password = "p", createdAt = 1, updatedAt = 1,
+            totp = TotpSecret("JBSWY3DPEHPK3PXP"))
+        val only = ImportRead(ImportFormat.AEGIS, listOf(totp(0, "JBSWY3DPEHPK3PXP")), emptyList(), 0)
+        val s = ImportSession()
+        val run = s.begin(uri)
+        assertTrue(s.hold(run, byteArrayOf(1)))
+        assertSame(only, s.onRead(run, ReadResult.Ok(only)))
+        s.onPlan(run, planMerge(only, listOf(login), revision = 1), listOf(login))
+        assertFalse(s.plan!!.duplicates.single().replaceable)
+        s.chooseAll(DuplicateChoice.REPLACE)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
+        assertEquals(DuplicateChoice.SKIP, s.choiceOf(0))
+        assertEquals(PreviewCounts(emptyMap(), replaced = 0, skippedDuplicates = 1), s.counts)
+        assertFalse(s.canConfirm)
+        s.choose(0, DuplicateChoice.REPLACE)
+        assertEquals(DuplicateChoice.SKIP, s.choiceOf(0))
+        assertFalse(s.canConfirm)
+    }
+
     @Test fun anEstimateWithoutTagsNamesNone() {
         // Round 2, minor 1: after an unexpected error the tags are unknown, never «ninguna etiqueta nueva».
         val (s, _) = atPreview()

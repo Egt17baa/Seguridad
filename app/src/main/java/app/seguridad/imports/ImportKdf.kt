@@ -246,13 +246,16 @@ internal fun importBase64(text: String, maxChars: Int = IMPORT_MAX_ENCRYPTED_CHA
     }
 }
 
-/** The [bytes] bytes written in hexadecimal in [text] (either case), or [IMPORT_BROKEN]; the length is checked first. */
+/**
+ * The [bytes] bytes written in hexadecimal in [text] (ASCII only, either case; ruling R71, audit F-2: not full-width
+ * letters nor other digits, as `Character.digit` would take), or [IMPORT_BROKEN]; the length is checked first.
+ */
 internal fun importHex(text: String, bytes: Int): ByteArray {
     if (text.length != bytes * 2) throw ImportFailure(IMPORT_BROKEN)
     val out = ByteArray(bytes)
     for (i in 0 until bytes) {
-        val hi = Character.digit(text[2 * i], 16)
-        val lo = Character.digit(text[2 * i + 1], 16)
+        val hi = asciiHexDigit(text[2 * i])
+        val lo = asciiHexDigit(text[2 * i + 1])
         if (hi < 0 || lo < 0) throw ImportFailure(IMPORT_BROKEN)
         out[i] = ((hi shl 4) or lo).toByte()
     }
@@ -275,4 +278,12 @@ internal fun decryptedJson(plain: ByteArray, budget: Long): JsonElement {
     } catch (e: IllegalArgumentException) {
         throw ImportFailure(IMPORT_BROKEN)
     }
+}
+
+/** [c] as an ASCII hexadecimal digit, or -1 (ruling R71). */
+private fun asciiHexDigit(c: Char): Int = when (c) {
+    in '0'..'9' -> c - '0'
+    in 'a'..'f' -> c - 'a' + 10
+    in 'A'..'F' -> c - 'A' + 10
+    else -> -1
 }

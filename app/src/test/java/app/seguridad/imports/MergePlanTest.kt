@@ -477,6 +477,28 @@ class MergePlanTest {
     }
 
     /**
+     * Ruling R71 (audit F-1): that duplicate cannot be replaced; «Reemplazar» counts it as skipped, never as a
+     * replacement, and spends no tag budget, so the folders of the new items after it all get their tag.
+     */
+    @Test fun aDuplicateOfAnotherTypeIsNeverAReplacement() {
+        val bank = saved("b", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Banco"))
+        val code = item(0, importedEntry(EntryType.TOTP, "Banco", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Banco")), listOf("carpeta"))
+        val items = listOf(code) + (1..IMPORT_MAX_NEW_TAGS).map { login(it, "Sitio $it", user = "ana", url = "https://sitio$it.es/", folders = listOf("f$it")) }
+        val p = plan(read(*items.toTypedArray(), format = ImportFormat.BROWSER_CSV), listOf(bank))
+        assertEquals(listOf(false), p.duplicates.map { it.replaceable })
+        assertEquals(0, previewCounts(p, DuplicateChoice.REPLACE, emptyMap()).replaced)
+        assertEquals(1, previewCounts(p, DuplicateChoice.REPLACE, emptyMap()).skippedDuplicates)
+        val r = mergeImport(p, DuplicateChoice.REPLACE, emptyMap(), listOf(bank), now, newId)
+        assertSame(bank, r.entries.first { it.id == "b" })
+        assertEquals(0, r.foldersNotTags)
+        assertFalse("carpeta" in r.newTags)
+        assertTrue(r.entries.first { it.title == "Sitio $IMPORT_MAX_NEW_TAGS" }.tags.contains("f$IMPORT_MAX_NEW_TAGS"))
+        // A duplicate of the same type can be replaced.
+        val same = saved("t", EntryType.TOTP, "Banco", totp = TotpSecret("JBSWY3DPEHPK3PXP"))
+        assertEquals(listOf(true), plan(read(code), listOf(same)).duplicates.map { it.replaceable })
+    }
+
+    /**
      * Ruling R68 (code-review 3): a «Reemplazar» whose entry already has [MAX_TAGS] tags adds none, so its folder does not
      * spend the budget of new tags, and the folders of the new items after it all get their tag.
      */

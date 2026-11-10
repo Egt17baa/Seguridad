@@ -28,8 +28,16 @@ import java.util.Locale
 /** What to do with an item that is already in the vault. [SKIP] is the default (owner's decision 3). */
 enum class DuplicateChoice { SKIP, KEEP_BOTH, REPLACE }
 
-/** An [item] of the file that matches the vault's entry [existingId]. */
-data class Duplicate(val item: ImportedItem, val existingId: String)
+/**
+ * An [item] of the file that matches the vault's entry [existingId]. [replaceable] is whether «Reemplazar» can change
+ * that entry: same type, and not a personal one (ruling R71, audit F-1). One that cannot (a 2FA whose key is in a vault
+ * login, R67) is never offered «Reemplazar»: that choice counts as «Saltar» ([effectiveChoice]).
+ */
+data class Duplicate(val item: ImportedItem, val existingId: String, val replaceable: Boolean = true)
+
+/** [choice] as it applies to [d]: «Reemplazar» on a duplicate that cannot be replaced is «Saltar» (ruling R71). */
+fun effectiveChoice(d: Duplicate, choice: DuplicateChoice): DuplicateChoice =
+    if (choice == DuplicateChoice.REPLACE && !d.replaceable) DuplicateChoice.SKIP else choice
 
 /**
  * The preview of an import, built against the vault at [revision] ([app.seguridad.vault.VaultStore.revision]); saving it
@@ -89,7 +97,11 @@ sealed interface ApplyResult {
  */
 fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): MergePlan {
     val inVault = Matcher<String>(codesOfEveryType = true)
-    for (e in existing) inVault.add(e, e.id)
+    val byId = HashMap<String, VaultEntry>(existing.size * 2)
+    for (e in existing) {
+        inVault.add(e, e.id)
+        byId.putIfAbsent(e.id, e)
+    }
     val inFile = Matcher<Unit>()
     val newItems = ArrayList<ImportedItem>()
     val duplicates = ArrayList<Duplicate>()
@@ -101,7 +113,14 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
         }
         inFile.add(item.entry, Unit)
         val id = inVault.find(item.entry)
-        if (id != null) duplicates += Duplicate(item, id) else newItems += item
+        if (id != null) {
+            // Ruling R71: «Reemplazar» only changes an entry of the same type that is not a personal one.
+            val vaultEntry = byId[id]
+            val replaceable = vaultEntry != null && vaultEntry.type == item.entry.type && !vaultEntry.type.isPersonal
+            duplicates += Duplicate(item, id, replaceable)
+        } else {
+            newItems += item
+        }
     }
     val budget = TagBudget(existing.flatMapTo(HashSet()) { it.tags })
     for (item in newItems) budget.tagsFor(item.folders, read.format)
@@ -219,7 +238,8 @@ fun mergeImport(
     val added = ArrayList<VaultEntry>()
     for (item in (plan.newItems + plan.duplicates.map { it.item }).sortedBy { it.index }) {
         val duplicate = duplicateOf[item.index]
-        val choice = if (duplicate == null) DuplicateChoice.KEEP_BOTH else overrides[item.index] ?: default
+        // Ruling R71: «Reemplazar» on a duplicate that cannot be replaced is «Saltar», so it spends no tag budget.
+        val choice = if (duplicate == null) DuplicateChoice.KEEP_BOTH else effectiveChoice(duplicate, overrides[item.index] ?: default)
         if (choice == DuplicateChoice.SKIP) continue
         // Only what enters spends the budget of new tags, in the file's order; a REPLACE, only what it can add (R68).
         val onto = if (choice == DuplicateChoice.REPLACE) position[duplicate!!.existingId]?.let { out[it].tags } else null
