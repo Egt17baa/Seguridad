@@ -1,0 +1,5 @@
+name,url,username,password,note,folder,totp
+Correo de prueba,https://correo.example,ana.prueba@example.com,Prueba-Clavero-1!,Fila 1: carpeta y clave 2FA,Trabajo,JBSWY3DPEHPK3PXP
+Foro de prueba,https://foro.example,usuario_prueba,Prueba-Clavero-2!,Fila 2: sin carpeta ni 2FA,,
+Tienda de prueba,https://tienda.example,comprador.prueba,Prueba-Clavero-3!,Fila 3: 2FA como enlace otpauth,Casa,otpauth://totp/Tienda%20de%20prueba:comprador.prueba?secret=GEZDGNBVGY3TQOJQ&issuer=Tienda%20de%20prueba
+Banco de prueba,https://banco.example,cliente.prueba,Prueba-Clavero-4!,Fila 4: 2FA que no se lee,Trabajo,clave-mala-0189

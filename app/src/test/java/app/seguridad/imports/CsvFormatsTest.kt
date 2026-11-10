@@ -66,6 +66,23 @@ class CsvFormatsTest {
         assertTrue(read.skipped.isEmpty())
     }
 
+    /**
+     * The owner's phone test file (README, «CSV con carpeta y 2FA»), `.maestro/datos/csv-carpeta-2fa.csv`, invented data:
+     * four logins, two 2FA (a bare key and an otpauth link) with their folders, and one 2FA that is not read.
+     */
+    @Test fun ownerPhoneTestFile() {
+        var dir: java.io.File? = java.io.File(".").absoluteFile
+        while (dir != null && !java.io.File(dir, ".maestro/datos/csv-carpeta-2fa.csv").isFile) dir = dir.parentFile
+        val read = ok(java.io.File(dir, ".maestro/datos/csv-carpeta-2fa.csv").readBytes())
+        assertEquals(ImportFormat.PASSWORDS_CSV, read.format)
+        val logins = read.items.filter { it.entry.type == EntryType.LOGIN }
+        assertEquals(listOf("Correo de prueba", "Foro de prueba", "Tienda de prueba", "Banco de prueba"), logins.map { it.entry.title })
+        assertEquals(listOf(listOf("Trabajo"), emptyList(), listOf("Casa"), listOf("Trabajo")), logins.map { it.folders })
+        val codes = read.items.filter { it.entry.type == EntryType.TOTP }
+        assertEquals(listOf(listOf("Trabajo"), listOf("Casa")), codes.map { it.folders })
+        assertEquals(1, read.skipped.size)
+    }
+
     /** Only one of the two columns is enough; without both it stays the browsers' CSV. */
     @Test fun passwordsCsvNeedsFolderOrTotp() {
         assertEquals(ImportFormat.PASSWORDS_CSV, ok("name,url,username,password,note,folder\nA,https://a.example/,u,p,,F\n").format)
