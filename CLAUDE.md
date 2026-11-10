@@ -61,7 +61,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | `code-review` (alto) | Hecho: 8 hallazgos (`b0816a3`), 6 arreglados en `e3aa329` (R66 a R68, R70) y 2 aceptados como coste (R69) |
 | `security-review` | Hecho (`030dfdb`): ninguna vulnerabilidad con una confianza de 0,7 o más |
 | Auditoría completa (`sdd-1.4.0/final-audit.md`) | Hecha (`3267465`): F-1 (Bajo) y F-2 (Info), arreglados en `7b71d3c` (R71), el cierre del código; auditoría llena salvo §11.1 |
-| Revisión final del Abogado Digital, con sus cambios | Hecha: dictamen en `0899221` (`sdd-1.4.0/abogado-1.4.0.md`, «se puede publicar, con cambios»); O-1 a O-3 y R-1 a R-11 aplicados en el commit «1.4.0: cambios del Abogado Digital (O-1 a O-3, R-1 a R-11)» (R73); la fecha de la política (R-12), justo antes de fusionar |
+| Revisión final del Abogado Digital, con sus cambios | Hecha: dictamen en `0899221` (`sdd-1.4.0/abogado-1.4.0.md`, «se puede publicar, con cambios»); O-1 a O-3 y R-1 a R-11 aplicados en `91d7cc9` (R73); la fecha de la política (R-12), justo antes de fusionar |
 | PR a `main`, APK firmado, prueba del dueño en el móvil y etiqueta `v1.4.0` | Pendientes |
 
 **Decisiones de la 1.4.0** (el detalle, en `docs/superpowers/handoff/sdd-1.4.0/progress.md`, en las líneas «Owner decision» y «Ruling»):

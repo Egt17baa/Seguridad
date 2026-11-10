@@ -292,7 +292,8 @@ class ImportTextsTest {
         assertEquals(
             "«Reemplazar» toma del archivo el título, el usuario, la contraseña, la web y el 2FA que no estén vacíos, y suma sus " +
                 "notas y sus etiquetas (hasta 10 por entrada) a las de la bóveda. Si el título o el usuario son los mismos " +
-                "escritos de otra forma (otras mayúsculas en el título, otros espacios o algo que no se ve), se quedan los de la " +
+                "escritos de otra forma (por ejemplo, otras mayúsculas en el título, otros espacios o algo que no se ve), " +
+                "se quedan los de la " +
                 "bóveda. La contraseña anterior queda en el historial; el 2FA anterior, con su clave, solo queda en la copia de " +
                 "antes de importar. Los adjuntos y el favorito no cambian.",
             IMPORT_REPLACE_NOTE,
