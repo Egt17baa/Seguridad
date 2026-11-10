@@ -161,8 +161,9 @@ fun VaultScreen(
     val interrupted by BiometricVault.interrupted.collectAsStateWithLifecycle()
     interrupted?.let { message ->
         LaunchedEffect(message) {
-            BiometricVault.interruptionShown(message)
+            // Seen once shown (F-5): another re-creation while it is on screen cancels this, and the next one shows it.
             snackbar.showSnackbar(message)
+            BiometricVault.interruptionShown(message)
         }
     }
 

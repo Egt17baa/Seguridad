@@ -25,6 +25,32 @@ class PlatformSourcesTest {
     private fun code(path: String) = main(path).lines().filterNot { it.trimStart().let { l -> l.startsWith("//") || l.startsWith("*") || l.startsWith("/*") } }.joinToString("\n")
 
     /**
+     * 1.4.2, the owner's phone test (F-5): «Activar huella» with the phone turned did nothing. The phone's fingerprint
+     * dialog is portrait-only: it turned the screen upright and back, each turn re-created the activity, and a
+     * re-creation ends the enable (M-4). The main activity handles a turn or a resize itself (Compose redraws), so the
+     * prompt and the enable go on. Theme, language and the rest still re-create it.
+     */
+    @Test fun `turning the phone does not re-create the main activity`() {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/AndroidManifest.xml").isFile) dir = dir.parentFile
+        val manifest = File(dir, "app/src/main/AndroidManifest.xml").readText()
+        val main = Regex("""<activity\s+android:name="\.MainActivity"[^>]*>""").find(manifest)?.value ?: error("MainActivity")
+        val changes = Regex("""android:configChanges="([^"]*)"""").find(main)?.groupValues?.get(1)?.split('|')?.toSet() ?: emptySet()
+        assertEquals(setOf("orientation", "screenSize", "screenLayout", "smallestScreenSize"), changes)
+    }
+
+    /**
+     * 1.4.2 (F-5): the notice of an interrupted «Activar huella» is marked as seen only once it was shown. Marked first,
+     * a second re-creation while it was on screen lost it.
+     */
+    @Test fun `the interrupted-enable notice is marked seen after it is shown`() {
+        val src = code("ui/screens/VaultScreen.kt")
+        val show = src.indexOf("snackbar.showSnackbar(message)")
+        val seen = src.indexOf("BiometricVault.interruptionShown(message)")
+        assertTrue(show >= 0 && seen > show)
+    }
+
+    /**
      * 1.4.1, the owner's phone test: deleting an entry went back twice. Its detail screen
      * leaves when the entry is gone (LockedNotice, the same as a lock), and it also called onBack after the delete, so a
      * second popBackStack took the vault list too (a blank screen, or Herramientas). The entry going away is what leaves,
