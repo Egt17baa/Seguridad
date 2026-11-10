@@ -45,16 +45,18 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.SeguridadApp
 import app.seguridad.android.copySensitive
 import app.seguridad.android.readClipboardText
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
-import app.seguridad.crypto.pk.cardText
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
+import app.seguridad.crypto.pk.cardText
 import app.seguridad.crypto.safeFileName
 import app.seguridad.imports.plainReportText
 import app.seguridad.tools.DONT_SEND_FILE_NAME
+import app.seguridad.tools.ENCRYPT_HELP_SHORT
 import app.seguridad.tools.fileNameInsideText
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.tools.qr.QrTarget
@@ -80,14 +82,15 @@ import app.seguridad.vault.SIGN_HELP
 import app.seguridad.vault.SYMMETRIC_FILE_NOTICE
 import app.seguridad.vault.SenderLine
 import app.seguridad.vault.TrustLevel
-import app.seguridad.vault.VerifyVerdict
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.VerifyVerdict
 import app.seguridad.vault.actionErrorMessage
 import app.seguridad.vault.afterPicking
 import app.seguridad.vault.anonymousFileName
+import app.seguridad.vault.classifyPicked
 import app.seguridad.vault.clearTempDir
 import app.seguridad.vault.contactsList
 import app.seguridad.vault.decryptReceivedFileToTemp
@@ -95,32 +98,31 @@ import app.seguridad.vault.encryptFileForContact
 import app.seguridad.vault.encryptTextForContact
 import app.seguridad.vault.encryptWarning
 import app.seguridad.vault.encryptedFileName
+import app.seguridad.vault.fileVerifyVerdict
 import app.seguridad.vault.identity
+import app.seguridad.vault.messageFor
 import app.seguridad.vault.nextPickStep
 import app.seguridad.vault.openErrorMessage
 import app.seguridad.vault.openReceivedText
 import app.seguridad.vault.resultFor
-import app.seguridad.vault.messageFor
-import app.seguridad.vault.classifyPicked
 import app.seguridad.vault.sanitizeReceivedName
 import app.seguridad.vault.saveReceivedFile
 import app.seguridad.vault.senderLine
 import app.seguridad.vault.shownContactTitle
-import app.seguridad.vault.fileVerifyVerdict
 import app.seguridad.vault.signFileAs
 import app.seguridad.vault.signTextAs
 import app.seguridad.vault.signatureFileName
 import app.seguridad.vault.verificationMark
 import app.seguridad.vault.verifyFileAgainst
+import java.io.File
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /*
  * «Cifrar para…», «Firmar» y «Abrir lo recibido» (diseño: «Pantallas»). Aquí solo hay pantalla: toda la lógica con peso
@@ -263,9 +265,10 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
     var sign by rememberSaveable { mutableStateOf(true) }
     var source by rememberSaveable { mutableStateOf<Uri?>(null) }
     var sourceName by rememberSaveable { mutableStateOf("") }
-    // The plain text is a secret: never in saved state (it is lost when the phone rotates, which is acceptable).
+    // The plain text is a secret: never in saved state (it is lost if the activity is re-created, by a theme or language
+    // change; since 1.4.2 a rotation keeps it, configChanges), which is acceptable.
     var text by remember { mutableStateOf("") }
-    // A15a: with the inputs it came from; a rotation loses it, like the text.
+    // A15a: with the inputs it came from; a re-creation of the activity loses it, like the text.
     var result by remember { mutableStateOf<PkResult?>(null) }
     // A15a: a message also carries the inputs it is about, and shows only next to them.
     var tagged by remember { mutableStateOf<PkMessage?>(null) }
@@ -281,7 +284,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
     // The name that goes inside the file (encryptFileFor passes it through safeFileName too).
     val nameInside = if (hideName) anonymousFileName(sourceName) else safeFileName(sourceName)
 
-    val save = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val save = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.ENCRYPT_FOR_SAVE) { dest ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
         if (dest == null) return@rememberDocumentPicker
         val src = source
@@ -315,7 +318,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
             }
         }
     }
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.ENCRYPT_FOR_OPEN) { uri ->
         VaultLock.keepOpenOnce = false
         if (uri != null) {
             source = uri
@@ -326,7 +329,8 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
 
     // M-9: imePadding, so the field stays above the keyboard with edge-to-edge.
     Column(Modifier.imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(ENCRYPT_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(ENCRYPT_HELP_SHORT)
+        MoreInfo { Text(ENCRYPT_HELP, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         TextOrFile(isFile) { isFile = it; result = null; tagged = null }
         if (isFile) {
             SourceButton(source, sourceName) {
@@ -454,7 +458,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
     var source by rememberSaveable { mutableStateOf<Uri?>(null) }
     var sourceName by rememberSaveable { mutableStateOf("") }
     var text by remember { mutableStateOf("") }
-    // A15a: with the inputs it came from; a rotation loses it, like the text.
+    // A15a: with the inputs it came from; a re-creation of the activity loses it, like the text.
     var result by remember { mutableStateOf<PkResult?>(null) }
     // A15a: a message also carries the inputs it is about, and shows only next to them.
     var tagged by remember { mutableStateOf<PkMessage?>(null) }
@@ -463,7 +467,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
     val inputsNow = PkInputs(null, text.takeIf { !isFile }, source?.toString()?.takeIf { isFile })
     val output = resultFor(inputsNow, result)
 
-    val save = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val save = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.SIGN_SAVE) { dest ->
         VaultLock.keepOpenOnce = false
         if (dest == null) return@rememberDocumentPicker
         val src = source
@@ -491,7 +495,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
             }
         }
     }
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.SIGN_OPEN) { uri ->
         VaultLock.keepOpenOnce = false
         if (uri != null) {
             source = uri
@@ -648,7 +652,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
         symmetric = false
     }
 
-    val saveDecrypted = rememberDocumentPicker(CreateRestoredDocument()) { dest ->
+    val saveDecrypted = rememberDocumentPicker(CreateRestoredDocument(), place = PickerPlace.RECEIVED_SAVE) { dest ->
         VaultLock.keepOpenOnce = false
         val received = pending
         if (received == null || !received.file.exists()) {
@@ -687,7 +691,7 @@ private fun OpenReceivedContent(store: VaultStore, entries: List<VaultEntry>, sn
             }
         }
     }
-    val pickReceived = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pickReceived = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.RECEIVED_OPEN) { uri ->
         VaultLock.keepOpenOnce = false
         if (uri == null) return@rememberDocumentPicker
         message = null

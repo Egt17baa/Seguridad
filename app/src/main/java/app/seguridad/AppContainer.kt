@@ -1,5 +1,8 @@
 package app.seguridad
 
+import app.seguridad.core.MemoryPlaceStore
+import app.seguridad.core.PickerPlaces
+import app.seguridad.core.PlaceStore
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.net.TrustedChain
 import app.seguridad.net.secureClient
@@ -7,12 +10,12 @@ import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.settings.RenameNotice
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.clockMarkWorthWriting
-import app.seguridad.settings.resettingClock
-import app.seguridad.settings.seeingClock
 import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.currentImportCopies
-import app.seguridad.settings.withImportCopy
+import app.seguridad.settings.resettingClock
+import app.seguridad.settings.seeingClock
 import app.seguridad.settings.withAutoBackupResult
+import app.seguridad.settings.withImportCopy
 import app.seguridad.tools.ClipboardNoticeRequest
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
@@ -22,6 +25,10 @@ import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.WordLists
+import java.io.File
+import java.io.FileNotFoundException
+import java.io.InputStream
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -32,13 +39,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
-import java.io.File
-import java.io.FileNotFoundException
-import java.io.InputStream
-import javax.net.ssl.X509TrustManager
 
 /** The settings file, in the app's private files directory. */
 const val SETTINGS_FILE = "settings.json"
@@ -82,6 +86,10 @@ class AppContainer(
      * Context.revokeUriPermission through the FileProvider). May throw: the copy is deleted all the same.
      */
     revokeShare: (File) -> Unit = {},
+    /** 1.4.2: where the kept places of the file pickers are written ([PickerPlaces]); in memory on the JVM. */
+    placeStore: PlaceStore = MemoryPlaceStore(),
+    /** The app's package, for [PickerPlaces]' check that a place is another app's document. */
+    packageName: String = "io.github.egt17baa.seguridad",
     /**
      * CRY-B01: the chain the system validated, for the eMudhra check of [client]. SeguridadApp passes androidTrustedChain
      * (Android only); null on the JVM, which checks the chain the server presented (see secureClient).
@@ -117,6 +125,9 @@ class AppContainer(
      * the main thread, so no screen reads or normalizes them again when it opens or turns (F6). Not secret.
      */
     val wordLists = WordLists(openAsset)
+
+    /** 1.4.2: where each file picker opens ([PickerPlace]); forgotten with the vault. */
+    val pickerPlaces = PickerPlaces(placeStore, packageName, sessionOpen = { vault.state.value is VaultState.Unlocked })
 
     /** The only connection of the app (Have I Been Pwned), with the eMudhra keys distrusted; built on first use. */
     val client: OkHttpClient by lazy { secureClient(appVersion, trustedChainOf) }
@@ -306,6 +317,14 @@ class AppContainer(
     val clipboardNotice = ClipboardNoticeRequest(lockEpoch = { vault.lockEpoch }).also { notice ->
         appScope.launch {
             vault.state.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) notice.drop() }
+        }
+    }
+
+    init {
+        // 1.4.2: the picker places kept only in memory go at every lock and unlock (PickerPlace.kept). Here, after
+        // [vault] exists. Like [clipboardNotice], a lock and unlock quicker than this collector may be seen as none.
+        appScope.launch {
+            vault.state.map { it is VaultState.Unlocked }.distinctUntilChanged().drop(1).collect { pickerPlaces.forgetSession() }
         }
     }
 

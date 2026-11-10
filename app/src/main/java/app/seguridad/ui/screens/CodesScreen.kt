@@ -62,6 +62,7 @@ import app.seguridad.tools.ANSWERS_ADD_QUESTION
 import app.seguridad.tools.ANSWERS_BLANK_QUESTION
 import app.seguridad.tools.ANSWERS_EXPLANATION
 import app.seguridad.tools.ANSWERS_LIMIT
+import app.seguridad.tools.ANSWERS_SHORT
 import app.seguridad.tools.ANSWERS_NO_ACCENTS
 import app.seguridad.tools.ANSWERS_NO_ACCENTS_NOTE
 import app.seguridad.tools.ANSWERS_OTHER
@@ -86,6 +87,8 @@ import app.seguridad.tools.CODES_SITE_LABEL
 import app.seguridad.tools.CODES_SITE_NEEDED
 import app.seguridad.tools.CODES_TOOL_TITLE
 import app.seguridad.tools.CODES_UNLOCK_TO_SAVE
+import app.seguridad.tools.CODES_UNLOCK_TO_SAVE_SHORT
+import app.seguridad.tools.RECOVERY_CODES_SHORT
 import app.seguridad.tools.RECOVERY_CODES_TEXT
 import app.seguridad.tools.codes.CodesSession
 import app.seguridad.tools.codes.LockSeen
@@ -276,7 +279,8 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: Stat
         if (waiting != null) {
             Column(Modifier.padding(padding).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(CODES_UNLOCK_TO_SAVE, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(CODES_UNLOCK_TO_SAVE_SHORT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    MoreInfo { Text(CODES_UNLOCK_TO_SAVE, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     TextButton(enabled = !saving, onClick = session::cancelSave) { Text(CODES_CANCEL_SAVE) }
                 }
                 VaultGate(store, onImport = actions.import, modifier = Modifier.weight(1f)) {
@@ -326,7 +330,8 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: Stat
 
                     // ---- Códigos de recuperación ----
                     Text(CODES_RECOVERY_TITLE, style = MaterialTheme.typography.titleMedium)
-                    Text(RECOVERY_CODES_TEXT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(RECOVERY_CODES_SHORT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    MoreInfo { Text(RECOVERY_CODES_TEXT, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     SectionCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             session.codes.forEach { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium) }
@@ -350,8 +355,12 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: Stat
 
                     // ---- Respuestas inventadas ----
                     Text(ANSWERS_TITLE, style = MaterialTheme.typography.titleMedium)
-                    Text(ANSWERS_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(ANSWERS_LIMIT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(ANSWERS_SHORT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    MoreInfo {
+                        Text(ANSWERS_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(ANSWERS_LIMIT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    // A warning: on view (final audit of 1.4.2).
                     Text(ANSWERS_WARNINGS, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(ANSWERS_NO_ACCENTS, modifier = Modifier.weight(1f))

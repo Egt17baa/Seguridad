@@ -2,6 +2,7 @@ package app.seguridad.ui.screens
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,8 +50,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.SeguridadApp
 import app.seguridad.android.copySensitive
+import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.Aead
 import app.seguridad.crypto.Bip39
@@ -81,6 +86,13 @@ import app.seguridad.crypto.passwordEntropy
 import app.seguridad.crypto.safeFileName
 import app.seguridad.crypto.strength
 import app.seguridad.net.PwnedPasswords
+import app.seguridad.tools.BREACH_SHORT
+import app.seguridad.tools.GENERATOR_EFF_SHORT
+import app.seguridad.tools.cipher.BreachSession
+import app.seguridad.tools.cipher.FileCryptoSession
+import app.seguridad.tools.cipher.PendingCopy
+import app.seguridad.tools.cipher.TextCryptoSession
+import app.seguridad.tools.codes.ScreenGuard
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
@@ -89,32 +101,22 @@ import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.PositiveColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.PickedKind
+import app.seguridad.vault.VaultStore
 import app.seguridad.vault.encryptedFileName
 import app.seguridad.vault.pickedKind
 import app.seguridad.vault.sanitizeReceivedName
 import java.io.File
+import java.io.IOException
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import android.os.SystemClock
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
-import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
-import app.seguridad.tools.cipher.BreachSession
-import app.seguridad.tools.cipher.FileCryptoSession
-import app.seguridad.tools.cipher.PendingCopy
-import app.seguridad.tools.cipher.TextCryptoSession
-import app.seguridad.tools.codes.ScreenGuard
-import app.seguridad.vault.VaultStore
-import java.io.IOException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Every algorithm with what it is; AES-256 first as the sensible default. */
 @Composable
@@ -373,10 +375,10 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
     val s = vm.session
     GuardEffects(s.guard, lockAfterMs)
     val bip39 = vm.bip39
-    val saveTxt = rememberDocumentPicker(ActivityResultContracts.CreateDocument("text/plain")) { dest ->
+    val saveTxt = rememberDocumentPicker(ActivityResultContracts.CreateDocument("text/plain"), place = PickerPlace.TEXT_SAVE) { dest ->
         if (dest != null) vm.saveTo(dest)
     }
-    val openTxt = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val openTxt = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.TEXT_OPEN) { uri ->
         if (uri != null) vm.importFrom(uri)
     }
 
@@ -493,12 +495,6 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
         }
         AwayNote()
     }
-}
-
-/** COV1-1: what this screen keeps, and for how long, said under it. */
-@Composable
-private fun AwayNote() {
-    Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** Word count, BIP-39 checksum, misspelled words with a one-tap fix, and completions for the word being typed. */
@@ -791,14 +787,14 @@ fun FileCryptoScreen(
     var checkedFor by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
     val checking = !encrypt && source != null && checkedFor != (source to encrypt)
 
-    val saveEncrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { dest ->
+    val saveEncrypted = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.FILE_ENCRYPTED_SAVE) { dest ->
         if (dest != null) vm.encryptTo(dest, kdf)
     }
     // The decrypted copy waits in the app-private cache, as the session's pending copy (in the ViewModel, never in saved
     // state), until the user picks where to save it; deleted right after. M2 of the F6 review: the screen emptied while
     // the dialog was open (the time away, ON_START comes before the dialog's answer), or the app restarted meanwhile:
     // the copy was already given up, nothing is written and the document the dialog made goes.
-    val saveDecrypted = rememberDocumentPicker(CreateRestoredDocument()) { dest ->
+    val saveDecrypted = rememberDocumentPicker(CreateRestoredDocument(), place = PickerPlace.FILE_DECRYPTED_SAVE) { dest ->
         val copy = s.takePending()
         val tmp = copy?.let { File(it.path) }?.takeIf { it.exists() && s.isCurrent(copy.run) }
         if (tmp == null) {
@@ -822,7 +818,7 @@ fun FileCryptoScreen(
             s.message = false to failure
         }
     }
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.FILE_OPEN) { uri ->
         if (uri != null) {
             // Another file: «Descifrar» is off from this very frame until its check ends. The same file again keeps its
             // check (the effect below is keyed on it and does not run again).
@@ -905,12 +901,14 @@ fun FileCryptoScreen(
         ) { Text(if (encrypt) "Cifrar y guardar" else "Descifrar y guardar") }
         if (s.busy) Busy(if (encrypt) "Cifrando…" else "Descifrando y comprobando…")
         s.message?.let { (ok, text) -> Text(text, color = if (ok) PositiveColor else NegativeColor) }
-        Text(
-            "Se cifra por bloques de 64 KiB: sirve para archivos de cualquier tamaño. Al descifrar se comprueba todo el archivo " +
-                "antes de guardarlo; si alguien lo ha modificado o la contraseña no es la correcta, no se guarda nada.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        MoreInfo {
+            Text(
+                "Se cifra por bloques de 64 KiB: sirve para archivos de cualquier tamaño. Al descifrar se comprueba todo el archivo " +
+                    "antes de guardarlo; si alguien lo ha modificado o la contraseña no es la correcta, no se guarda nada.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         AwayNote()
     }
 }
@@ -985,11 +983,14 @@ fun GeneratorScreen(onBack: () -> Unit) {
             }
             Option("Primera letra en mayúscula", w.capitalize) { w = w.copy(capitalize = it) }
             Option("Añadir un número", w.addNumber) { w = w.copy(addNumber = it) }
-            Text(
-                "Palabras de la lista de la EFF (7.776 palabras en inglés, CC BY 3.0 US). Una frase de 6 palabras es fácil de recordar y muy difícil de adivinar.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(GENERATOR_EFF_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            MoreInfo {
+                Text(
+                    "Palabras de la lista de la EFF (7.776 palabras en inglés, CC BY 3.0 US). Una frase de 6 palabras es fácil de recordar y muy difícil de adivinar.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -1055,11 +1056,14 @@ fun BreachScreen(pwned: PwnedPasswords, store: VaultStore, lockAfterMs: () -> Lo
     val s = vm.session
     GuardEffects(s.guard, lockAfterMs)
     ToolColumn("¿Contraseña filtrada?", onBack, s.guard) {
-        Text(
-            "Comprobamos tu contraseña contra más de 900 millones de contraseñas filtradas (Have I Been Pwned). Tu contraseña nunca sale " +
-                "del móvil: calculamos su huella SHA-1 aquí y solo enviamos sus 5 primeros caracteres; la comparación final se hace en tu móvil.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(BREACH_SHORT)
+        MoreInfo {
+            Text(
+                "Comprobamos tu contraseña contra más de 900 millones de contraseñas filtradas (Have I Been Pwned). Tu contraseña nunca sale " +
+                    "del móvil: calculamos su huella SHA-1 aquí y solo enviamos sus 5 primeros caracteres; la comparación final se hace en tu móvil.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         PasswordField(s.password, { s.guard.typed(); s.password = it; s.result = null })
         Button(
             enabled = !s.busy && s.password.isNotEmpty(),

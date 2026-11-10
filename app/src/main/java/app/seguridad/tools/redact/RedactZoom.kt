@@ -7,7 +7,7 @@ const val MAX_REDACT_ZOOM = 5f
  * The zoom of «Tachar»'s preview (owner's request, 1-11-2026: enlarge and shrink it with two fingers). A point at
  * (x, y) of the unzoomed preview is shown at (x · [scale] + [offsetX], y · [scale] + [offsetY]). Only the view changes:
  * boxes are still stored in image pixels, from the same [boxFromDrag] once a touch is brought back to the unzoomed
- * preview ([toPreviewX], [toPreviewY]). Nothing secret: it is kept like any other view state and lost on rotation.
+ * preview ([toPreviewX], [toPreviewY]). Nothing secret: it is kept like any other view state, back to 1 when the view changes size.
  */
 data class RedactZoom(val scale: Float = 1f, val offsetX: Float = 0f, val offsetY: Float = 0f) {
     /**

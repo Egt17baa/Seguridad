@@ -229,7 +229,12 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
  * word check exists. Its limit: it is about the WHOLE core being one word. Two words together («abandon-ability») are not
  * «una sola palabra» and pass if the estimate reaches, and so does any word that is in none of the lists. The leet check
  * only knows the usual substitutions of [isKnownWordInLeet], with «1» read all as «i» or all as «l»; any other spelling
- * of a word passes if the estimate reaches. It is an estimate: the rule does not guarantee that a master is strong.
+ * of a word passes if the estimate reaches. For example (RT-11 of the 1.4.0 red team, kept as a documented limit in
+ * 1.4.2, option B): «(», «<», «©» or «¢» for c («Pr1n(3ss2024!»), «§» for s, «°» for o, «#» for h, «ı», «ł» and the
+ * small capitals («ᴘʀɪɴᴄᴇss2024!»), letters of other scripts («Pаssword2024!» with a Cyrillic «а», accepted by R9),
+ * enclosed letters such as «🅿🅰🆂🆂» (symbols, so the core has no letters) and «1» read as «i» and «l» in the same word
+ * («M1|l1on2024!»). «(», «<» and «#» are among the Generator's symbols, which is one reason not to read them as letters.
+ * It is an estimate: the rule does not guarantee that a master is strong.
  *
  * What the Generator proposes with its usual options passes in the tests: a phrase of 5 words (at least 15 letters, and no
  * known word has more than 10: «contrasena», from «Salud»; the lists have 9 at most; the leet reading can only add letters

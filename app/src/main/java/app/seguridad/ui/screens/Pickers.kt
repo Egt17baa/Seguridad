@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,7 +22,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import app.seguridad.SeguridadApp
 import app.seguridad.android.FilterObscuredTouches
+import app.seguridad.core.PickerPlace
+import app.seguridad.core.PickerPlaces
 import app.seguridad.core.documentAuthorityHost
 import app.seguridad.core.isAcceptableDocumentUri
 import app.seguridad.core.pickerLaunchError
@@ -43,17 +47,25 @@ internal fun <I> ActivityResultLauncher<I>.launchOrError(input: I): String? =
  * document (a `file://`, or one of Seguridad's own providers) reaches [onResult] as null, exactly as a cancel, so
  * nothing is read, written nor discarded, and [PICKER_REJECTED] is shown in a dialog. Each screen's own cancel path
  * (resetting VaultLock.keepOpenOnce among others) runs as usual.
+ *
+ * 1.4.2, the owner's request: [place] is this picker's own place ([PickerPlace]). It opens where it was used last
+ * (`EXTRA_INITIAL_URI`, which the provider may follow or not), and an accepted document becomes its place; null for a
+ * picker that says where it starts itself (the folder of the automatic copies, [folderStart]).
  */
 @Composable
 internal fun <I> rememberDocumentPicker(
     contract: ActivityResultContract<I, Uri?>,
+    place: PickerPlace?,
     onResult: (Uri?) -> Unit,
 ): ManagedActivityResultLauncher<I, Uri?> {
     val context = LocalContext.current
+    val places = pickerPlaces(context)
     var rejected by remember { mutableStateOf(false) }
-    val launcher = rememberLauncherForActivityResult(contract) { uri ->
+    val starting = if (place == null || places == null) contract else StartingAt(contract) { places.initial(place)?.let(Uri::parse) }
+    val launcher = rememberLauncherForActivityResult(starting) { uri ->
         val accepted = uri?.takeIf { isAcceptableDocument(context, it) }
         if (uri != null && accepted == null) rejected = true
+        if (accepted != null && place != null) places?.remember(place, accepted.toString())
         onResult(accepted)
     }
     if (rejected) {
@@ -67,6 +79,28 @@ internal fun <I> rememberDocumentPicker(
         )
     }
     return launcher
+}
+
+/** The app's [PickerPlaces], or null outside it (a preview). */
+internal fun pickerPlaces(context: Context): PickerPlaces? = (context.applicationContext as? SeguridadApp)?.container?.pickerPlaces
+
+/** [inner], starting where [start] says (`EXTRA_INITIAL_URI`), unless [inner] already says where. */
+private class StartingAt<I>(private val inner: ActivityResultContract<I, Uri?>, private val start: () -> Uri?) : ActivityResultContract<I, Uri?>() {
+    override fun createIntent(context: Context, input: I): Intent = inner.createIntent(context, input).also { intent ->
+        if (!intent.hasExtra(DocumentsContract.EXTRA_INITIAL_URI)) start()?.let { intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
+    }
+
+    override fun parseResult(resultCode: Int, intent: Intent?): Uri? = inner.parseResult(resultCode, intent)
+}
+
+/**
+ * Where the folder picker of the automatic copies starts: the folder chosen ([folder], a tree URI), as the document it
+ * points at (`EXTRA_INITIAL_URI` wants a document). Null without a folder or if it cannot be read. Never throws.
+ */
+internal fun folderStart(folder: String?): Uri? = try {
+    folder?.let(Uri::parse)?.takeIf { it.scheme == "content" }?.let { DocumentsContract.buildDocumentUriUsingTree(it, DocumentsContract.getTreeDocumentId(it)) }
+} catch (e: Exception) {
+    null
 }
 
 /**

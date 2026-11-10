@@ -621,6 +621,86 @@ const val DONT_SEND_FILE_NAME = "No enviar el nombre"
 /** A16a, when opening something signed with a key that [count] contacts (more than one) keep. The design's text, with a final period. */
 fun sameKeyContactsText(count: Int): String = "Esta clave está guardada en $count contactos."
 
+// ---- 1.4.2: texto mínimo (petición del dueño) ----
+// Each screen shows a line or two; the explanations it had before stay as they were, folded in «Más información».
+
+const val MORE_INFO = "Más información"
+const val MORE_INFO_LESS = "Menos información"
+const val MORE_INFO_OPEN = "Desplegado"
+const val MORE_INFO_CLOSED = "Plegado"
+
+/** Herramientas, «Cómo protegemos tus datos», the line on view; the bullets are in «Más información». */
+const val TOOLS_ABOUT_SHORT =
+    "Todo se hace en tu móvil salvo «¿Filtrada?» y «Comprobar filtraciones», que usan internet cuando las pulsas y envían " +
+        "5 caracteres de la huella de cada contraseña."
+
+/** The line on view next to [TOOLS_AWAY_WIPE_NOTE], which says every case. */
+const val TOOLS_AWAY_WIPE_SHORT =
+    "Lo escrito y el resultado se borran al volver atrás, al cerrar la app, al bloquear la bóveda o si estás fuera más tiempo que el bloqueo."
+
+const val RECOVERY_CODES_SHORT = "Diez códigos al azar, para los servicios que te dejan elegir los tuyos. Guárdalos en la bóveda o impresos."
+const val ANSWERS_SHORT =
+    "Palabras al azar para preguntas como «¿tu primera mascota?». Solo en las que eliges tú, nunca en tus datos de identidad."
+const val CODES_UNLOCK_TO_SAVE_SHORT =
+    "Desbloquea la bóveda para guardarlo. Se pierde al volver atrás, al cerrar la app, al bloquear la bóveda o si estás fuera más tiempo que el bloqueo."
+const val ENIGMA_SHORT = "Enigma I y M3 con sus cableados históricos."
+const val BACKUP_CHECK_SHORT =
+    "Comprueba que una copia .sgbak se abre con su contraseña y que sus adjuntos coinciden, sin importarla."
+const val PHOTO_SHORT =
+    "Quita los datos que la foto guarda dentro del archivo, como la ubicación o el modelo del móvil. No cambia lo que se ve: una cara o una matrícula pueden delatarte igual."
+const val ENCRYPT_HELP_SHORT = "Solo podrá leerlo quien tenga la identidad del contacto. Quien vea el mensaje sabe que existe y su tamaño."
+const val QR_SHORT = "Enseña lo que hay en un QR sin abrir nada."
+const val REDACT_SHORT = "Tapa con bloques negros lo que no quieras que se vea."
+const val REDACT_LIMITS_SHORT = "El original no cambia: no lo compartas. Tapa con margen."
+const val SHARE_SHORT = "Divide un secreto en partes (SLIP-0039): con las necesarias se recompone; con menos, no."
+const val SHARE_WARNING_SHORT = "No las uses como copia SLIP-39 de una cartera: darían otra cartera. Recomponlas en Clavero."
+const val GENERATOR_EFF_SHORT = "Palabras de la lista de la EFF (CC BY 3.0 US)."
+const val BREACH_SHORT = "Tu contraseña no sale del móvil: solo se envían a Have I Been Pwned 5 caracteres de su huella."
+const val IMPORT_SHORT =
+    "Añade a la bóveda lo que exportaste de otro gestor de contraseñas, un navegador o una app de 2FA. Antes te enseña lo que entra."
+
+/** N-1 and R33: on every step, and «suele», as the full text ([app.seguridad.imports.IMPORT_NOT_PROTECTED]). */
+const val IMPORT_NOT_PROTECTED_SHORT = "Un archivo exportado sin contraseña suele estar sin cifrar en tu móvil."
+const val IMPORT_WIPE_SHORT = "Lo leído se borra al volver atrás, al cerrar la app, al bloquear la bóveda o si estás fuera más que el bloqueo."
+const val IMPORT_CONFIRM_SHORT = "Antes de guardar, Clavero hace una copia cifrada de la bóveda: sin esa copia no se importa nada."
+const val IMPORT_REMOVE_SHORT =
+    "El archivo importado sigue en tu móvil, sin cifrar si lo exportaste sin contraseña. Clavero puede intentar borrarlo, pero no las copias de la nube, de la papelera ni de otras apps."
+const val VAULT_CREATE_SHORT =
+    "Guarda contraseñas, frases semilla, notas y códigos 2FA, cifrados en este móvil con tu contraseña maestra."
+const val IDENTITY_SHORT = "Para que tus contactos te cifren mensajes y para firmar."
+const val AUTO_BACKUP_SHORT = "Guarda una copia cifrada en la carpeta que elijas después de cada cambio."
+
+/** On view (R-9 of the Abogado, 1.4.2): what the rotation deletes, and what it never does. */
+const val AUTO_BACKUP_DELETES_SHORT = "Borra solo sus copias automáticas más antiguas, nunca otros archivos de la carpeta."
+const val ABOUT_WARNINGS_SHORT = "Sin auditoría independiente, sin recuperación de contraseñas y sin conexión salvo para comprobar filtraciones."
+const val NOTICE_NO_RECOVERY_SHORT = "Si olvidas la contraseña maestra, o la de algo que cifres, nadie puede recuperar lo guardado."
+const val NOTICE_NO_AUDIT_SHORT = "La app no ha pasado una auditoría de seguridad independiente. Para fondos importantes, usa una cartera física."
+
+/** On view (O-4 of the Abogado, 1.4.2): the gist of [app.seguridad.tools.hashlab.HASH_LAB_NOT_PROTECTED], which is folded. */
+const val HASH_LAB_NOT_PROTECTED_SHORT = "Si la huella viene de la misma web que el archivo, quien cambie uno puede cambiar la otra."
+/** On view (O-4 of the Abogado, 1.4.2): the gist of [app.seguridad.vault.BACKUP_CHECK_NOT_PROVEN], which is folded. */
+const val BACKUP_CHECK_NOT_PROVEN_SHORT = "No dice si es tu copia más reciente ni si tiene lo que cambiaste después."
+/** On view (O-4 of the Abogado, 1.4.2): the gist of [app.seguridad.tools.slip39.SHARE_NOT_PROTECTED], which is folded. */
+const val SHARE_NOT_PROTECTED_SHORT = "Quien reúna las partes necesarias obtiene el secreto: guarda cada una en un sitio distinto."
+
+/** Ajustes, on view (final audit of 1.4.2): the gist of [LOCK_ON_EXIT_HINT], which is folded. */
+const val LOCK_ON_EXIT_SHORT =
+    "Al salir de la app se bloquea, salvo mientras eliges un archivo o escaneas un QR para ella. Con otra app en pantalla dividida o en ventana flotante, cuenta el tiempo elegido."
+
+/** Ajustes, on view (final audit of 1.4.2): what [CLIPBOARD_CLEAR_HINT] warns, which is folded. */
+const val CLIPBOARD_CLEAR_SHORT =
+    "Desde Android 10, si no estás usando la app, vacía el portapapeles aunque hayas copiado otra cosa después. Solo lo vacía en este móvil, no en los dispositivos con los que lo compartas."
+
+/** Ajustes, «Coste de Argon2id»: on view, because it matters before choosing the high cost (code review of 1.4.2). */
+const val KDF_HIGH_SHORT = "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria."
+
+/** Ajustes, on view when this phone cannot use the high cost: why its chip is off. */
+const val KDF_HIGH_UNAVAILABLE = "Este móvil no da a la app memoria suficiente para cifrar con el coste alto."
+
+/** Importar, under the duplicates: on view, as it is what «Reemplazar» loses ([app.seguridad.imports.IMPORT_REPLACE_NOTE], R58). */
+const val IMPORT_REPLACE_SHORT =
+    "«Reemplazar» cambia también el 2FA de la bóveda por el del archivo, si este trae uno: el anterior solo queda en la copia de antes de importar."
+
 /**
  * COV1-1 (audit 1.3.0), under «Cifrar texto», «Cifrar archivos» and «¿Contraseña filtrada?»: what was typed there (the
  * text, the password or the key) and the result go by the «PIN y códigos» rule (tools/codes/ScreenGuard.kt).
@@ -705,6 +785,14 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     FILE_SIGNATURE_VALID, fileSignatureUnverifiedText("x"), FILE_SIGNATURE_UNKNOWN_KEY, PASSWORD_NOT_TEXT,
     // Audit 1.3.0, F6 (COV1-1).
     TOOLS_AWAY_WIPE_NOTE,
+    // 1.4.2, texto mínimo.
+    MORE_INFO, MORE_INFO_LESS, MORE_INFO_OPEN, MORE_INFO_CLOSED, TOOLS_ABOUT_SHORT, TOOLS_AWAY_WIPE_SHORT,
+    RECOVERY_CODES_SHORT, ANSWERS_SHORT, CODES_UNLOCK_TO_SAVE_SHORT, ENIGMA_SHORT, BACKUP_CHECK_SHORT, PHOTO_SHORT,
+    ENCRYPT_HELP_SHORT, QR_SHORT, REDACT_SHORT, REDACT_LIMITS_SHORT, SHARE_SHORT, SHARE_WARNING_SHORT, GENERATOR_EFF_SHORT,
+    BREACH_SHORT, IMPORT_SHORT, IMPORT_NOT_PROTECTED_SHORT, IMPORT_WIPE_SHORT, IMPORT_CONFIRM_SHORT, IMPORT_REMOVE_SHORT,
+    VAULT_CREATE_SHORT, IDENTITY_SHORT, AUTO_BACKUP_SHORT, ABOUT_WARNINGS_SHORT, NOTICE_NO_RECOVERY_SHORT, NOTICE_NO_AUDIT_SHORT,
+    KDF_HIGH_SHORT, KDF_HIGH_UNAVAILABLE, IMPORT_REPLACE_SHORT, AUTO_BACKUP_DELETES_SHORT, HASH_LAB_NOT_PROTECTED_SHORT,
+    BACKUP_CHECK_NOT_PROVEN_SHORT, SHARE_NOT_PROTECTED_SHORT, LOCK_ON_EXIT_SHORT, CLIPBOARD_CLEAR_SHORT,
     // Audit 1.3.0, F7 (LIBRE-2 + COV1-3).
     NOTICE_INTRO, ABOUT_SUMMARY, VAULT_CREATE_INTRO,
     // Owner's decision, 31-10-2026: the notice of the new name.

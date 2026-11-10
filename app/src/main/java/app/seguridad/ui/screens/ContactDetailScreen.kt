@@ -119,6 +119,7 @@ private fun ContactDetail(store: VaultStore, entry: VaultEntry, snackbar: Snackb
         }
         if (!entry.verified) {
             Text(UNVERIFIED_NOTICE, color = CautionColor)
+            // A warning: never folded (code review of 1.4.2).
             Text(SIMILAR_NAME_WARNING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (fingerprint is SavedFingerprint.Ready) {
                 Button(onClick = { dialog = VERIFY }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Marcar como verificado") }

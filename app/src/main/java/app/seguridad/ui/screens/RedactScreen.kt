@@ -69,6 +69,7 @@ import app.seguridad.android.RedactSource
 import app.seguridad.android.decodeForRedaction
 import app.seguridad.android.renderRedacted
 import app.seguridad.android.shareImage
+import app.seguridad.core.PickerPlace
 import app.seguridad.tools.ImageOutOfMemory
 import app.seguridad.tools.PHOTO_DONE_SHORT
 import app.seguridad.tools.PHOTO_SAVE_COPY
@@ -79,12 +80,14 @@ import app.seguridad.tools.REDACT_COPY_FAILED
 import app.seguridad.tools.REDACT_DAMAGED
 import app.seguridad.tools.REDACT_EXPLANATION
 import app.seguridad.tools.REDACT_LIMITS
+import app.seguridad.tools.REDACT_LIMITS_SHORT
 import app.seguridad.tools.REDACT_LOST
 import app.seguridad.tools.REDACT_OPENING
 import app.seguridad.tools.REDACT_PICK
 import app.seguridad.tools.REDACT_PICK_OTHER
 import app.seguridad.tools.REDACT_REDO
 import app.seguridad.tools.REDACT_RENDERING
+import app.seguridad.tools.REDACT_SHORT
 import app.seguridad.tools.REDACT_TOOL_TITLE
 import app.seguridad.tools.REDACT_TOO_BIG
 import app.seguridad.tools.REDACT_TOO_LARGE
@@ -97,6 +100,7 @@ import app.seguridad.tools.photo.PHOTO_UNSUPPORTED
 import app.seguridad.tools.photo.PhotoFailure
 import app.seguridad.tools.photo.PhotoFormat
 import app.seguridad.tools.photoUnsupportedText
+import app.seguridad.tools.redact.Box as RedactBox
 import app.seguridad.tools.redact.RedactHistory
 import app.seguridad.tools.redact.RedactZoom
 import app.seguridad.tools.redact.ViewRect
@@ -113,6 +117,8 @@ import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.SectionCard
+import java.io.File
+import kotlin.math.max
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -120,9 +126,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import kotlin.math.max
-import app.seguridad.tools.redact.Box as RedactBox
 
 /** Longest side of the bitmap the screen draws: a full 24 MP one may be too big for the GPU to show. */
 private const val PREVIEW_MAX_SIDE = 2048
@@ -485,10 +488,10 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
     }
 
     val onSaveTarget: (Uri?) -> Unit = { dest -> if (dest != null) vm.save(dest) }
-    val savePng = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/png"), onSaveTarget)
-    val saveJpg = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/jpeg"), onSaveTarget)
+    val savePng = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/png"), place = PickerPlace.REDACT_SAVE, onResult = onSaveTarget)
+    val saveJpg = rememberDocumentPicker(ActivityResultContracts.CreateDocument("image/jpeg"), place = PickerPlace.REDACT_SAVE, onResult = onSaveTarget)
 
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.REDACT_OPEN) { uri ->
         if (uri != null) vm.open(uri)
     }
 
@@ -498,9 +501,11 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
                 Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(REDACT_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SectionCard(Modifier.fillMaxWidth()) {
-                    Text(REDACT_LIMITS, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                Text(REDACT_SHORT)
+                Text(REDACT_LIMITS_SHORT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MoreInfo {
+                    Text(REDACT_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(REDACT_LIMITS, style = MaterialTheme.typography.bodyMedium)
                 }
                 OutlinedButton(
                     onClick = { pickerError = pick.launchOrError(arrayOf("image/*")) },
@@ -564,8 +569,8 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
  * While a copy is being made ([enabled] false) it takes no input and shows no box in progress: the copy is made from
  * the boxes at the moment the button was pressed, and the screen must not show one the copy lacks. The preview bitmap
  * is recycled once this preview leaves the composition because another image was picked ([isShown] false); a
- * rotation re-creates the composition with the same picture, which keeps its preview (the ViewModel recycles it when
- * the screen is gone for good).
+ * re-creation of the activity (since 1.4.2 not a rotation) re-creates the composition with the same picture, which
+ * keeps its preview (the ViewModel recycles it when the screen is gone for good).
  *
  * The image area keeps clear of the system's horizontal gesture insets and is also excluded from the back gesture (M-2:
  * a drag from the left edge to cover a name there must draw a box, not leave the screen; the exclusion is API 29+ and
@@ -588,10 +593,12 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
     DisposableEffect(p) { onDispose { if (!currentIsShown()) p.previewBitmap.recycle() } }
     var dragFrom by remember(p) { mutableStateOf<Offset?>(null) }
     var dragTo by remember(p) { mutableStateOf<Offset?>(null) }
-    // The view's zoom: not secret, lost on rotation (the composition is re-created) and with another image.
+    // The view's zoom: not secret, back to 1 with another image and when the view changes size (since 1.4.2 a rotation
+    // keeps the composition, and a zoom measured on the old size could leave the new view: final audit of 1.4.2).
     var zoom by remember(p) { mutableStateOf(RedactZoom()) }
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
+        LaunchedEffect(maxWidth, windowHeight) { zoom = RedactZoom() }
         val aspect = p.width.toFloat() / p.height
         val maxHeight = windowHeight * 0.6f
         val w = min(maxWidth, maxHeight * aspect).coerceAtLeast(1.dp)

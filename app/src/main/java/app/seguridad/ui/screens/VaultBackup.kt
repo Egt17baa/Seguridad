@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
+import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.newPasswordFailureMessage
@@ -42,11 +43,11 @@ import app.seguridad.vault.backupFileName
 import app.seguridad.vault.identity
 import app.seguridad.vault.mayBeVaultImport
 import app.seguridad.vault.newMasterProblem
+import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
 
 /**
  * What to do once the master password was changed (the vault is then locked), with whether the fingerprint could not be
@@ -73,7 +74,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
     val onMasterChanged by rememberUpdatedState(LocalOnMasterChanged.current)
 
     // A copy (.sgbak) is a ZIP, but saved as plain bytes so no app treats it as one to open or rename.
-    val exporter = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+    val exporter = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.EXPORT_COPY) { uri ->
         if (uri != null) scope.launch {
             // Written as a stream straight into the chosen document: never a copy in memory or in the cache.
             val result = runCatching {
@@ -91,7 +92,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
     }
     // Only the document's address is kept until the password is typed; the file is read as a stream then.
     var importUri by remember { mutableStateOf<Uri?>(null) }
-    val importer = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val importer = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.IMPORT_COPY) { uri ->
         if (uri != null) scope.launch {
             // Its first bytes, to say now (not after the password) if it cannot be read or cannot be a copy: the
             // picker offers every file (owner's phone test, 1-11-2026), so a photo or a note is turned down here.

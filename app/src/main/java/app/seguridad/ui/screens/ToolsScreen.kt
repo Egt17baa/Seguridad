@@ -38,6 +38,7 @@ import app.seguridad.tools.QR_TOOL_SUBTITLE
 import app.seguridad.tools.QR_TOOL_TITLE
 import app.seguridad.tools.REDACT_TOOL_SUBTITLE
 import app.seguridad.tools.REDACT_TOOL_TITLE
+import app.seguridad.tools.TOOLS_ABOUT_SHORT
 import app.seguridad.ui.theme.SectionCard
 
 data class Tool(val route: String, val icon: String, val title: String, val subtitle: String)
@@ -85,6 +86,8 @@ fun ToolsScreen(settings: Settings, onTool: (String) -> Unit) {
                 SectionCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Cómo protegemos tus datos", style = MaterialTheme.typography.titleSmall)
+                        Text(TOOLS_ABOUT_SHORT, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        MoreInfo {
                         listOf(
                             "El cifrado y el análisis de las imágenes se hacen en tu móvil. Solo «¿Filtrada?» y «Comprobar filtraciones» usan internet, cuando las pulsas, y solo envían 5 caracteres de la huella de cada contraseña.",
                             "Cifrado autenticado (AES-256-GCM, ChaCha20-Poly1305 y otros): si lo cifrado se cambia, se detecta al descifrarlo.",
@@ -94,6 +97,7 @@ fun ToolsScreen(settings: Settings, onTool: (String) -> Unit) {
                             "Si olvidas la contraseña de algo cifrado, no hay forma de recuperarlo.",
                             "Estas herramientas no han pasado una auditoría independiente. Para fondos importantes usa una cartera física de criptomonedas.",
                         ).forEach { Text("• $it", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                        }
                     }
                 }
             }

@@ -66,6 +66,25 @@ class CsvFormatsTest {
         assertTrue(read.skipped.isEmpty())
     }
 
+    /**
+     * The owner's phone test file (README, «CSV con carpeta y 2FA»), `.maestro/datos/csv-carpeta-2fa.csv`, invented data:
+     * four logins, two 2FA (a bare key and an otpauth link) with their folders, and one 2FA that is not read.
+     */
+    @Test fun ownerPhoneTestFile() {
+        var dir: java.io.File? = java.io.File(".").absoluteFile
+        while (dir != null && !java.io.File(dir, ".maestro/datos/csv-carpeta-2fa.csv").isFile) dir = dir.parentFile
+        val read = ok(java.io.File(dir, ".maestro/datos/csv-carpeta-2fa.csv").readBytes())
+        assertEquals(ImportFormat.PASSWORDS_CSV, read.format)
+        val logins = read.items.filter { it.entry.type == EntryType.LOGIN }
+        assertEquals(listOf("Correo de prueba", "Foro de prueba", "Tienda de prueba", "Banco de prueba"), logins.map { it.entry.title })
+        assertEquals(listOf(listOf("Trabajo"), emptyList(), listOf("Casa"), listOf("Trabajo")), logins.map { it.folders })
+        val codes = read.items.filter { it.entry.type == EntryType.TOTP }
+        assertEquals(listOf(listOf("Trabajo"), listOf("Casa")), codes.map { it.folders })
+        // Only Banco's 2FA stays out, and its reason says the login entered (1.4.2: it read «Fila o elemento dañado»).
+        assertEquals(listOf("Banco de prueba" to SkipReason.LOGIN_TOTP_BROKEN), read.skipped.map { it.title to it.reason })
+        assertEquals("2FA dañado o no válido (el acceso se lee sin él)", SkipReason.LOGIN_TOTP_BROKEN.text)
+    }
+
     /** Only one of the two columns is enough; without both it stays the browsers' CSV. */
     @Test fun passwordsCsvNeedsFolderOrTotp() {
         assertEquals(ImportFormat.PASSWORDS_CSV, ok("name,url,username,password,note,folder\nA,https://a.example/,u,p,,F\n").format)
@@ -143,7 +162,10 @@ class CsvFormatsTest {
         assertEquals(links.size, logins(read).size)
         assertTrue(read.items.none { it.entry.type == EntryType.TOTP })
         assertEquals(
-            listOf(SkipReason.BROKEN, SkipReason.BROKEN, SkipReason.BROKEN, SkipReason.TOTP_UNSUPPORTED, SkipReason.TOTP_UNSUPPORTED, SkipReason.FIELD_TOO_LONG, SkipReason.BROKEN),
+            listOf(
+                SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.TOTP_UNSUPPORTED,
+                SkipReason.TOTP_UNSUPPORTED, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN,
+            ),
             read.skipped.map { it.reason },
         )
     }

@@ -33,8 +33,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
-import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
+import app.seguridad.tools.BACKUP_CHECK_NOT_PROVEN_SHORT
+import app.seguridad.tools.BACKUP_CHECK_SHORT
+import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.PositiveColor
@@ -74,14 +77,14 @@ import app.seguridad.vault.checkBackup
 import app.seguridad.vault.isBackup
 import app.seguridad.vault.passwordFieldTakes
 import app.seguridad.vault.sanitizeReceivedName
+import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
 
 /**
  * «Comprobar una copia» (Ajustes) for its navigation entry: the password typed, the copy chosen and the report are in
@@ -208,11 +211,11 @@ fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
     GuardEffects(s.guard, lockAfterMs)
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }
     var pickerError by remember { mutableStateOf<String?>(null) }
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
+    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.BACKUP_CHECK) { uri ->
         if (uri != null) vm.pick(uri)
     }
     ToolColumn(BACKUP_CHECK_TITLE, onBack, s.guard) {
-        Text(BACKUP_CHECK_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(BACKUP_CHECK_SHORT)
         // Every file: cloud providers label a .sgbak as they like; the first bytes are checked right after picking.
         OutlinedButton(
             enabled = !s.busy,
@@ -239,14 +242,15 @@ fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
         }
         s.error?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         s.report?.let { Report(it) }
-        SectionCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(BACKUP_CHECK_NOT_PROVEN_TITLE, style = MaterialTheme.typography.labelMedium)
-                Text(BACKUP_CHECK_NOT_PROVEN, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        // What it does not protect stays on view (O-4 of the Abogado, 1.4.2).
+        Text(BACKUP_CHECK_NOT_PROVEN_SHORT, color = CautionColor)
+        // 1.4.2 (texto mínimo): the short line, and the explanations and every case of the note folded.
+        AwayNote {
+            Text(BACKUP_CHECK_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(BACKUP_CHECK_NOT_PROVEN_TITLE, style = MaterialTheme.typography.labelMedium)
+            Text(BACKUP_CHECK_NOT_PROVEN, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(BACKUP_CHECK_STOPS_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(BACKUP_CHECK_STOPS_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -16,8 +16,11 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Seguridad">
+        <!-- configChanges (1.4.2, F-5): a turn or a resize is redrawn by Compose, not a re-created activity. Some phones'
+             fingerprint dialog is portrait-only and turned the screen upright and back, which ended «Activar huella». -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>

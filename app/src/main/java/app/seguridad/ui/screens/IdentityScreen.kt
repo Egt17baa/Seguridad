@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.FilterObscuredTouches
+import app.seguridad.tools.IDENTITY_SHORT
 import app.seguridad.tools.RENEW_IDENTITY
 import app.seguridad.tools.RENEW_IDENTITY_DONE
 import app.seguridad.tools.RENEW_IDENTITY_WARNING
@@ -116,7 +117,8 @@ private fun IdentityBody(store: VaultStore, identity: VaultEntry?, snackbar: Sna
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(IDENTITY_EXPLANATION, modifier = Modifier.fillMaxWidth())
+        Text(IDENTITY_SHORT, modifier = Modifier.fillMaxWidth())
+        MoreInfo { Text(IDENTITY_EXPLANATION, modifier = Modifier.fillMaxWidth()) }
         if (identity == null) {
             NameField(name, { name = it }, nameCheck)
             Text(IDENTITY_RISK, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())

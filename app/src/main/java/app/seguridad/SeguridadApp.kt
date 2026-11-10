@@ -2,6 +2,7 @@ package app.seguridad
 
 import android.app.Application
 import android.os.SystemClock
+import app.seguridad.android.PrefsPlaceStore
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.android.androidTrustedChain
 import app.seguridad.android.revokeSharedCopy
@@ -11,10 +12,10 @@ import app.seguridad.vault.BACKUP_CHECK_DIR
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.removeBackupCheckLeftovers
 import app.seguridad.vault.wipePkTemp
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.io.File
 
 class SeguridadApp : Application() {
     val container: AppContainer by lazy {
@@ -29,6 +30,8 @@ class SeguridadApp : Application() {
             elapsedRealtime = SystemClock::elapsedRealtime,
             // ANDROID-1: no app keeps reading a shared copy's URI once the copy is gone.
             revokeShare = { file -> revokeSharedCopy(this, file) },
+            placeStore = PrefsPlaceStore(this),
+            packageName = packageName,
             // CRY-B01: the eMudhra check also looks at the chain Android validated, with its cached intermediates.
             trustedChainOf = { androidTrustedChain(it) },
             // F6: the word lists of the master rule and of the Generator, read once per process.
