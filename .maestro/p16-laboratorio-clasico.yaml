@@ -12,7 +12,7 @@
 #   AV BS CG DL FU HZ IN KM OW RX (historicalMessage de ClassicTest.kt).
 #   Análisis de «ATTACKATDAWN»: 12 letras, índice 18/132 = 0,1364.
 appId: io.github.egt17baa.seguridad
-name: "P-16 Laboratorio clásico: César, Vigenère, Enigma y Análisis"
+name: "P-16 Laboratorio clásico - César, Vigenère, Enigma y Análisis"
 tags:
   - clavero-1.4.0
   - automatica
@@ -31,6 +31,10 @@ tags:
 - assertVisible: "Análisis"
 
 # César, desplazamiento 3 (el de entrada).
+- scrollUntilVisible:
+    element:
+      text: "Texto"
+    direction: DOWN
 - tapOn: "Texto"
 - inputText: "Hola Mundo"
 - hideKeyboard
@@ -65,6 +69,10 @@ tags:
     element:
       text: 'El desplazamiento tiene que ser un número entero de 0 a 25\.'
     direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "30"
+    direction: UP
 - tapOn: "30"
 - eraseText: 6
 - inputText: "13"
@@ -88,9 +96,17 @@ tags:
     element:
       text: "La clave necesita al menos una letra de la A a la Z."
     direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Texto"
+    direction: UP
 - tapOn: "Texto"
 - inputText: "ATTACKATDAWN"
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'Clave \(letras A-Z\)'
+    direction: DOWN
 - tapOn: 'Clave \(letras A-Z\)'
 - inputText: "LEMON"
 - hideKeyboard
@@ -108,6 +124,10 @@ tags:
       text: "PPHMPZWHPNLJ"
     direction: DOWN
 # Una clave de más de 200 caracteres no se pega: sale la nota y la clave no cambia de golpe.
+- scrollUntilVisible:
+    element:
+      text: "LEMON"
+    direction: UP
 - tapOn: "LEMON"
 - eraseText: 10
 - inputText: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -137,6 +157,10 @@ tags:
       text: "BDZGO"
     direction: DOWN
 - assertVisible: "Posición de los rotores al terminar: AAF"
+- scrollUntilVisible:
+    element:
+      text: "AAAAA"
+    direction: UP
 - tapOn: "AAAAA"
 - eraseText: 10
 - hideKeyboard
@@ -170,6 +194,10 @@ tags:
 - eraseText: 10
 - inputText: "2 21 12"
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "AAA"
+    direction: DOWN
 - tapOn: "AAA"
 - eraseText: 10
 - inputText: "BLA"
@@ -204,6 +232,10 @@ tags:
     direction: UP
 - tapOn: "Análisis"
 - assertVisible: "Hacen falta al menos dos letras A-Z para medir el índice de coincidencia."
+- scrollUntilVisible:
+    element:
+      text: "Texto a analizar"
+    direction: DOWN
 - tapOn: "Texto a analizar"
 - inputText: "ATTACKATDAWN"
 - hideKeyboard
@@ -211,9 +243,19 @@ tags:
     element:
       text: "Letras A-Z: 12"
     direction: DOWN
-- assertVisible: "Índice de coincidencia: 0,1364"
-- assertVisible: 'Se parece al de un texto normal: es lo que da un texto sin cifrar.*'
-- assertVisible: "Letras, de la más a la menos frecuente"
+# Lo que sigue queda debajo, a menudo fuera de la pantalla.
+- scrollUntilVisible:
+    element:
+      text: "Índice de coincidencia: 0,1364"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Se parece al de un texto normal: es lo que da un texto sin cifrar.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Letras, de la más a la menos frecuente"
+    direction: DOWN
 
 # Volver atrás lo borra todo: al entrar otra vez, César está vacío y con el desplazamiento de entrada.
 - tapOn: "Atrás"

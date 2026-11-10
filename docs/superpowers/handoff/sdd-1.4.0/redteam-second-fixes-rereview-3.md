@@ -85,6 +85,6 @@ Ninguno.
 
 ### Textos para el Abogado Digital (revisión final)
 
-- **README P-27** (`README.md:366`) y su fila de `.maestro/README.md:88` cambian: tres CSV de una fila y la prueba de pegar con NBSP, U+3000, U+200B, un control o «：». Nombran Chrome y el navegador de Honor, debajo de la línea de marcas que ya había.
+- **README P-27** (`README.md:366`) y su fila de `.maestro/README.md:88` cambian: tres CSV de una fila y la prueba de pegar con NBSP, U+3000, U+200B, un control o «：». Nombran Chrome y el navegador del fabricante, debajo de la línea de marcas que ya había.
 - **`docs/auditorias/2026-11-08-ataque-1.4.0.md:10` y `:311-326`** (publicado): la sección «Cuarta comprobación y segundo repaso», con la línea de marcas en `:326`.
 - No cambia ningún texto de la interfaz. Con N-6 arreglado, tampoco.

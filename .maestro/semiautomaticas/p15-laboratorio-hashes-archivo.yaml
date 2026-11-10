@@ -4,7 +4,7 @@
 # No borra datos: se puede usar en tu móvil.
 # Antes: python3 .maestro/datos/preparar_archivos.py (copia clavero-abc.txt a Descargas).
 appId: io.github.egt17baa.seguridad
-name: "P-15 Laboratorio de hashes: un archivo"
+name: "P-15 Laboratorio de hashes - un archivo"
 tags:
   - clavero-1.4.0
   - semiautomatica
@@ -14,24 +14,51 @@ tags:
     file: ../comun/abrir-herramienta.yaml
     env:
       HERRAMIENTA: 'Laboratorio de hashes.*'
+- scrollUntilVisible:
+    element:
+      text: "Archivo"
+    direction: DOWN
 - tapOn: "Archivo"
+- scrollUntilVisible:
+    element:
+      text: "Elegir archivo"
+    direction: DOWN
 - tapOn: "Elegir archivo"
 - runFlow:
     file: ../comun/elegir-en-descargas.yaml
     env:
       ARCHIVO: "clavero-abc.txt"
-- extendedWaitUntil:
-    visible: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+# El resultado sale debajo del botón, a menudo fuera de la pantalla.
+- scrollUntilVisible:
+    element:
+      text: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    direction: DOWN
     timeout: 30000
-- assertVisible: "clavero-abc.txt"
+- scrollUntilVisible:
+    element:
+      text: "clavero-abc.txt"
+    direction: UP
 
 # Otro algoritmo: el resultado de antes no se enseña con el nombre nuevo, y se pide calcular otra vez.
+- scrollUntilVisible:
+    element:
+      text: "SHA-512"
+    direction: UP
 - tapOn: "SHA-512"
-- assertVisible: "Elegiste otro algoritmo: el resultado de antes ya no vale."
+- scrollUntilVisible:
+    element:
+      text: "Elegiste otro algoritmo: el resultado de antes ya no vale."
+    direction: DOWN
 - assertNotVisible: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+- scrollUntilVisible:
+    element:
+      text: "Calcular otra vez con SHA-512"
+    direction: DOWN
 - tapOn: "Calcular otra vez con SHA-512"
-- extendedWaitUntil:
-    visible: 'ddaf35a193617aba.*'
+- scrollUntilVisible:
+    element:
+      text: 'ddaf35a193617aba.*'
+    direction: DOWN
     timeout: 30000
 
 # Comparar con la huella esperada.

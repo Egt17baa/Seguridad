@@ -26,6 +26,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavHostController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -121,7 +125,6 @@ fun AppNavHost(container: AppContainer) {
     var lastTab by rememberSaveable { mutableStateOf(tabs.first().route) }
     LaunchedEffect(onTab) { if (onTab != null) lastTab = onTab }
     val currentTab = onTab ?: lastTab
-    val back: () -> Unit = { nav.popBackStack() }
     // Ids are encoded into the routes: an imported copy (or a vault that imported one with 1.0 to 1.2.x) may hold any id,
     // and encoded it can neither match another route nor break this one (LIBRE-1).
     val onOpen: (String) -> Unit = { id -> nav.navigate("vault/entry/${Uri.encode(id)}") }
@@ -194,10 +197,10 @@ fun AppNavHost(container: AppContainer) {
                 composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther) }
                 composable("vault/entry/{id}") { entry ->
                     val id = entry.arguments?.getString("id").orEmpty()
-                    VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") }, onBack = back)
+                    VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") }, onBack = backOnce(nav))
                 }
                 composable("vault/entry/{id}/qr") { entry ->
-                    OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
+                    OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
                 }
                 composable(
                     "vault/edit?id={id}&type={type}",
@@ -210,11 +213,11 @@ fun AppNavHost(container: AppContainer) {
                         vault,
                         id = entry.arguments?.getString("id"),
                         initialType = VAULT_ENTRY_TYPES.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
-                        onDone = back,
+                        onDone = backOnce(nav),
                     )
                 }
                 composable("vault/health") {
-                    HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = back)
+                    HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = backOnce(nav))
                 }
                 // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
                 // A contact's own screen is under contacts/c/, so no id (an imported copy brings any) can ever be taken for one
@@ -228,39 +231,39 @@ fun AppNavHost(container: AppContainer) {
                         onAction = { route -> nav.navigate(route) },
                     )
                 }
-                composable("contacts/me") { IdentityScreen(vault, onBack = back) }
-                composable("contacts/add") { ContactAddScreen(vault, onBack = back) }
-                composable("contacts/encrypt") { EncryptForScreen(vault, onBack = back) }
-                composable("contacts/sign") { SignScreen(vault, onBack = back) }
-                composable("contacts/open") { OpenReceivedScreen(vault, onBack = back, onOpenSymmetric = { nav.navigate("tools/file") }) }
+                composable("contacts/me") { IdentityScreen(vault, onBack = backOnce(nav)) }
+                composable("contacts/add") { ContactAddScreen(vault, onBack = backOnce(nav)) }
+                composable("contacts/encrypt") { EncryptForScreen(vault, onBack = backOnce(nav)) }
+                composable("contacts/sign") { SignScreen(vault, onBack = backOnce(nav)) }
+                composable("contacts/open") { OpenReceivedScreen(vault, onBack = backOnce(nav), onOpenSymmetric = { nav.navigate("tools/file") }) }
                 composable("contacts/c/{id}") { entry ->
-                    ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = back)
+                    ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
                 }
                 composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
                 // COV1-1: what is typed there and the result go by the «PIN y códigos» rule (lock time, multi-window, locks).
                 val lockAfterMs = { settingsStore.settings.value.lockAfter.ms }
                 // «Importar de otra app»: what it reads is dropped on any lock, on back and by the «PIN y códigos» rule.
                 composable("vault/import") {
-                    ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                    ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
                 }
                 composable("tools/text") {
-                    TextCryptoScreen(settings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                    TextCryptoScreen(settings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
                 }
                 composable("tools/file") {
                     FileCryptoScreen(
                         settings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp,
-                        onBack = back, onOpenReceived = { nav.navigate("contacts/open") },
+                        onBack = backOnce(nav), onOpenReceived = { nav.navigate("contacts/open") },
                     )
                 }
-                composable("tools/generator") { GeneratorScreen(onBack = back) }
+                composable("tools/generator") { GeneratorScreen(onBack = backOnce(nav)) }
                 composable("tools/breach") {
-                    BreachScreen(container.pwned, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                    BreachScreen(container.pwned, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
                 }
-                composable("tools/hash") { HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
-                composable("tools/classic") { ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
-                composable("tools/share-secret") { SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
-                composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = back) }
-                composable("tools/redact") { RedactScreen(container.shareTemp, onBack = back) }
+                composable("tools/hash") { HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
+                composable("tools/classic") { ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
+                composable("tools/share-secret") { SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
+                composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = backOnce(nav)) }
+                composable("tools/redact") { RedactScreen(container.shareTemp, onBack = backOnce(nav)) }
                 // The QR's text never goes in a route: it is handed over through QrHandoff.
                 composable("tools/qr") {
                     QrInspectScreen(
@@ -270,11 +273,11 @@ fun AppNavHost(container: AppContainer) {
                         onAddContact = { nav.navigate("contacts/add") },
                         onOpenReceived = { nav.navigate("contacts/open") },
                         onAddTotp = { nav.navigate("tools/qr/totp") },
-                        onBack = back,
+                        onBack = backOnce(nav),
                     )
                 }
-                composable("tools/codes") { CodesScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back) }
-                composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = back) }
+                composable("tools/codes") { CodesScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
+                composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = backOnce(nav)) }
                 composable("settings") {
                     SettingsScreen(
                         settingsStore, vault, container.autoBackup,
@@ -283,10 +286,10 @@ fun AppNavHost(container: AppContainer) {
                     )
                 }
                 composable("settings/check-backup") {
-                    BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)
+                    BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
                 }
-                composable("settings/about") { AboutScreen(onBack = back, onLicenses = { nav.navigate("settings/licenses") }) }
-                composable("settings/licenses") { LicensesScreen(onBack = back) }
+                composable("settings/about") { AboutScreen(onBack = backOnce(nav), onLicenses = { nav.navigate("settings/licenses") }) }
+                composable("settings/licenses") { LicensesScreen(onBack = backOnce(nav)) }
             }
         }
     }
@@ -304,4 +307,39 @@ private fun RenameNoticeDialog(onClose: () -> Unit) {
         },
         confirmButton = { TextButton(onClick = onClose) { Text(PASSWORD_CHANGE_CLOSE) } },
     )
+}
+
+/**
+ * «Back» for the screen that composes it: pops that screen, and only while it is the one on top. A screen that leaves by
+ * itself (LockedNotice, when its entry is gone or the vault locks) and also goes back from a button can never pop the
+ * screen under it, the vault list or the start destination: a second call does nothing (F-1 of 1.4.1, where deleting an
+ * entry left a blank screen or another tab).
+ * - A call while another screen is on top (a lock during the transition to the editor or the QR) waits: the screen is
+ *   popped as soon as it is on top again, so it never stays blank (the 1.4.1 audit, finding 1). A call while the
+ *   screen is on its way out (already popped) is dropped with it: the wait lives as long as its composition.
+ * - Inside a destination, LocalLifecycleOwner is its NavBackStackEntry. Anywhere else (a wrapper with its own owner),
+ *   it pops as before, never silently doing nothing.
+ */
+@Composable
+private fun backOnce(nav: NavHostController): () -> Unit {
+    val entry = LocalLifecycleOwner.current as? NavBackStackEntry ?: return remember(nav) { { nav.popBackStack(); Unit } }
+    var pending by remember(entry) { mutableStateOf(false) }
+    LaunchedEffect(nav, entry) {
+        nav.currentBackStackEntryFlow.collect { top ->
+            if (pending && top === entry) {
+                pending = false
+                nav.popBackStack()
+            }
+        }
+    }
+    return remember(nav, entry) {
+        {
+            if (nav.currentBackStackEntry === entry) {
+                pending = false
+                nav.popBackStack()
+            } else {
+                pending = true
+            }
+        }
+    }
 }

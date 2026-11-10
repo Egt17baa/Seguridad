@@ -167,7 +167,7 @@ Si alguno de estos hechos cambia (donaciones, anuncios, una versión de pago, da
 ### R-11. Dominios reales en las pruebas del navegador (recomendado)
 
 - **Dónde:** P-27 (`README.md:366`) y su fila de `.maestro/README.md`.
-- **Motivo:** P-27 pide pegar en la barra de Chrome y del navegador de Honor URL como `ht<TAB>tp:@banco.es` y «apuntar qué abre cada uno». `banco.es` es un dominio real de un tercero: la prueba haría peticiones a su servidor. Con un dominio reservado (`banco.example`, RFC 2606 y RFC 6761) la barra enseña igual lo que ha leído, sin conectar con nadie. P-21 ya usa `evil.example` y el navegador va a ese host, que no existe.
+- **Motivo:** P-27 pide pegar en la barra de Chrome y del navegador del fabricante URL como `ht<TAB>tp:@banco.es` y «apuntar qué abre cada uno». `banco.es` es un dominio real de un tercero: la prueba haría peticiones a su servidor. Con un dominio reservado (`banco.example`, RFC 2606 y RFC 6761) la barra enseña igual lo que ha leído, sin conectar con nadie. P-21 ya usa `evil.example` y el navegador va a ese host, que no existe.
 - **Propuesto:** cambiar `banco.es` por `banco.example` en P-27 y en su fila de `.maestro/README.md`, también en «Clavero compara esas URL como `http://banco.example`» y «su fila de repetido dice «http://banco.example»». Si los tests del equipo rojo usan `banco.es` para lo mismo, pueden seguir: no conectan con nada.
 
 ### R-12. La fecha de la política (recomendado)

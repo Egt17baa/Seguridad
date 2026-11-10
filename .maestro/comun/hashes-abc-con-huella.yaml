@@ -1,0 +1,25 @@
+# Subflujo de P-15: vuelve a entrar en el Laboratorio de hashes (al volver atrás se borra todo), escribe
+# «abc» en la pestaña Texto y HUELLA en «Huella esperada».
+# Se entra de nuevo en lugar de borrar el campo porque eraseText de Maestro solo borra lo que está a la
+# izquierda del cursor, y al pulsar un campo con texto el cursor queda en medio.
+appId: io.github.egt17baa.seguridad
+---
+- tapOn: "Atrás"
+- runFlow:
+    file: abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio de hashes.*'
+- scrollUntilVisible:
+    element:
+      text: 'Texto \(se calcula en UTF-8\)'
+    direction: DOWN
+- tapOn: 'Texto \(se calcula en UTF-8\)'
+- inputText: "abc"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'Huella esperada \(hex o Base64\)'
+    direction: DOWN
+- tapOn: 'Huella esperada \(hex o Base64\)'
+- inputText: ${HUELLA}
+- hideKeyboard

@@ -273,7 +273,7 @@ All three are in `ALL_TOOL_TEXTS`, and `everyTextConstantIsChecked` and `noForbi
 
 ## Concerns
 
-- The 100 MP cap refuses full-resolution 200 MP photos, in Tachar and in the HEIC conversion of Limpiar foto. Some phones have such sensors, and the owner's Honor may be one. This is the controller's ruling: I implemented it as stated and am flagging it.
+- The 100 MP cap refuses full-resolution 200 MP photos, in Tachar and in the HEIC conversion of Limpiar foto. Some phones have such sensors, and the owner's phone may be one. This is the controller's ruling: I implemented it as stated and am flagging it.
 
 ## Revisión experto-seguridad-cripto (round 1)
 
@@ -328,7 +328,7 @@ All three are in `ALL_TOOL_TEXTS`, and `everyTextConstantIsChecked` and `noForbi
   - **JPEG:** libjpeg can scale by ½ while decoding, so the peak is about 50 MP (~200 MB) before the final scaling to 24 MP. That is native memory.
   - **HEIC:** depending on the platform decoder, it may decode at full resolution before scaling. That would be about 800 MB of native memory. If it fails, it fails closed with «dañado» and does not crash, because OOM and decode errors are caught. Even so, the result is worse for the user.
 
-  Add to the phone checklist: a full-resolution 200 MP JPEG and HEIC from the Honor, in Tachar and in Limpiar foto (HEIC).
+  Add to the phone checklist: a full-resolution 200 MP JPEG and HEIC, if a phone at hand takes them, in Tachar and in Limpiar foto (HEIC).
 - **CPU bound.** A hostile PNG can still declare up to 260 MP, about 1 GB of inflated data, which takes seconds and not minutes. This is the trade-off of the ruling.
 
 ## Revisión experto-seguridad-cripto (round 2)

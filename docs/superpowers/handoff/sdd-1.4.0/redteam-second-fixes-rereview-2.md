@@ -105,6 +105,6 @@ Ninguno.
 
 ### Textos para el Abogado Digital (revisión final)
 
-- **README P-27** (`README.md:366`) y su fila de `.maestro/README.md:88` son nuevas. Nombran Chrome y el navegador de Honor, debajo de la línea de marcas que ya había (`README.md:367`, y la de la tabla de `.maestro`). Tienen que decir lo que de verdad sale con los tres títulos (N-4).
-- **`docs/auditorias/2026-11-08-ataque-1.4.0.md:288-308`** (publicado): la sección «Tercera comprobación», con RT-14, R53 y R54. Nombra Chrome y Honor, con la línea de marcas en `:308`.
+- **README P-27** (`README.md:366`) y su fila de `.maestro/README.md:88` son nuevas. Nombran Chrome y el navegador del fabricante, debajo de la línea de marcas que ya había (`README.md:367`, y la de la tabla de `.maestro`). Tienen que decir lo que de verdad sale con los tres títulos (N-4).
+- **`docs/auditorias/2026-11-08-ataque-1.4.0.md:288-308`** (publicado): la sección «Tercera comprobación», con RT-14, R53 y R54. Nombra Chrome y el navegador del fabricante, con la línea de marcas en `:308`.
 - **La fila del duplicado** cambia sin literal nuevo («ana · javascript:1/alert(1)», «ana · http://banco.es» para `ht<TAB>tp:@banco.es`). Está apuntado en `task-12-report.md`, punto 17. Con I-2 arreglado no cambia ningún texto.

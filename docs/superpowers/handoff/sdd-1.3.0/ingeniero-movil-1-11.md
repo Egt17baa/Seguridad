@@ -23,7 +23,7 @@ Revisión de puesta al día desde el punto de vista de un ingeniero Android seni
 | Severidad | Hallazgo | archivo:línea | Tarea |
 |---|---|---|---|
 | Important | Lo generado en «PIN y códigos» (PIN, códigos, respuestas) sigue en pantalla al volver a la app, sin límite de tiempo. El inspector de QR sí lo borra. | `ui/screens/CodesScreen.kt:148-159` (no hay `ON_STOP`); comparar con `ui/screens/QrInspectScreen.kt:128-131` | T8 |
-| Minor | Un cambio de configuración (girar, modo oscuro del sistema, ventana flotante o pantalla dividida de MagicOS) borra la imagen y las cajas de «Tachar» y la copia de «Limpiar foto». | `ui/screens/RedactScreen.kt:200-207`, `ui/screens/PhotoCleanScreen.kt:134-138`, `AndroidManifest.xml:19-22` | T4, T5 |
+| Minor | Un cambio de configuración (girar, modo oscuro del sistema, ventana flotante o pantalla dividida del sistema) borra la imagen y las cajas de «Tachar» y la copia de «Limpiar foto». | `ui/screens/RedactScreen.kt:200-207`, `ui/screens/PhotoCleanScreen.kt:134-138`, `AndroidManifest.xml:19-22` | T4, T5 |
 | Minor | El gesto «atrás» del sistema compite con el arrastre de «Tachar» en el borde izquierdo: se sale de la pantalla y se pierden las cajas. | `ui/screens/RedactScreen.kt:441-468` | T5 |
 | Minor | Si se gira el móvil mientras se cambia la maestra (Argon2id tarda segundos), se pierde el diálogo de A6. | `ui/screens/VaultBackup.kt:62,106-117`, `ui/AppNavHost.kt:118,141` | T11 |
 | Minor | Si se gira con el diálogo de la huella abierto en «Activar huella», el alta se cancela sin decir nada. | `android/BiometricVault.kt:226-228,332-341` | T9 |
@@ -94,7 +94,7 @@ Ninguno.
   - `ui/screens/RedactScreen.kt:218-225`: el `onDispose` recicla;
   - `ui/screens/PhotoCleanScreen.kt:134-138`;
   - `AndroidManifest.xml:19-22`: `MainActivity` sin `configChanges`.
-- **Qué pasa:** al girar, cambiar el modo oscuro del sistema (`uiMode`), el idioma o el tamaño de letra, o al pasar a ventana flotante o pantalla dividida (MagicOS), la actividad se recrea. Se pierden la imagen abierta, todas las cajas dibujadas y la copia limpia. Es intencionado («never in saved state») y falla cerrado (`REDACT_LOST` y `PHOTO_LOST`), pero el usuario pierde todo su trabajo.
+- **Qué pasa:** al girar, cambiar el modo oscuro del sistema (`uiMode`), el idioma o el tamaño de letra, o al pasar a ventana flotante o pantalla dividida, la actividad se recrea. Se pierden la imagen abierta, todas las cajas dibujadas y la copia limpia. Es intencionado («never in saved state») y falla cerrado (`REDACT_LOST` y `PHOTO_LOST`), pero el usuario pierde todo su trabajo.
 - **Impacto:** de uso, no de seguridad. Tras rehacer 20 cajas a mano es fácil olvidarse una.
 - **Corrección exacta:** pasar `Picture` y `CleanCopy` a un `ViewModel` de la entrada de navegación (`viewModel()` en el `composable(...)`). Sobrevive a la recreación pero **no** a la muerte del proceso, así que sigue sin ir nunca al `Bundle` ni al disco. En `onCleared()`, `holder.close()` y `previewBitmap.recycle()`. Las corrutinas de renderizado y guardado pasan a `viewModelScope`, que tampoco se cancela al girar. El `DisposableEffect` de la pantalla deja de reciclar.
 - **Referencia:** Android Developers, «Save UI states» y «ViewModel overview»: el ViewModel sobrevive a los cambios de configuración y no a la muerte del proceso.
@@ -142,13 +142,13 @@ Ninguno.
 
 - **Dónde:** `android/BiometricVault.kt:375-377`, con `keyStore().load`, `getKey` y `Cipher.init(DECRYPT_MODE…)` en el hilo de la UI.
 - **Qué pasa:** con la clave en StrongBox, `init` hace un `begin` en el chip seguro aparte, que en algunos móviles tarda de decenas a cientos de ms. La revisión de T9 sacó la *generación* del hilo principal, pero el *uso* sigue en él. Es la misma pauta de la 1.2.2, solo que ahora con StrongBox.
-- **Corrección exacta:** hacer el `init` con `withContext(Dispatchers.Default)` en un `MainScope` local, como en `enable` (`BiometricVault.kt:242-252`), y llamar a `prompt` al volver, comprobando antes `canPrompt`. A comprobar en el Honor antes de cambiarlo: en la prueba en el móvil, medir con `adb shell dumpsys gfxinfo` o Perfetto si el desbloqueo con huella pierde frames.
+- **Corrección exacta:** hacer el `init` con `withContext(Dispatchers.Default)` en un `MainScope` local, como en `enable` (`BiometricVault.kt:242-252`), y llamar a `prompt` al volver, comprobando antes `canPrompt`. A comprobar en el móvil del dueño antes de cambiarlo: en la prueba en el móvil, medir con `adb shell dumpsys gfxinfo` o Perfetto si el desbloqueo con huella pierde frames.
 - **Referencia:** Android Developers, «Keep your app responsive» (ANR y StrictMode).
 
 #### M-6. La conversión de HEIC/AVIF reduce la resolución sin avisar (T3, T4)
 
 - **Dónde:** `android/HeifToJpeg.kt:69-72`, que aplica `setTargetSize` a `MAX_REDACT_PIXELS`, y `tools/ToolTexts.kt:101`: `PHOTO_HEIF_NOTICE` solo dice «puede perder algo de calidad».
-- **Qué pasa:** una foto HEIC de 50 MP o de 200 MP (el modo de 200 MP del Honor) sale a unos 24 MP. «Tachar» sí lo avisa (`redactDownscaledText`); «Limpiar foto» no.
+- **Qué pasa:** una foto HEIC de 50 MP o de 200 MP (el modo de 200 MP de algunos móviles) sale a unos 24 MP. «Tachar» sí lo avisa (`redactDownscaledText`); «Limpiar foto» no.
 - **Corrección exacta:**
   - `heifToJpeg` devuelve también `downscaled: Boolean` (o la clase `CleanCopy` lo lleva);
   - `CopyCard` (`PhotoCleanScreen.kt:279-292`) muestra `redactDownscaledText(redactMegapixels(w, h))` o un texto propio, que va a la lista del Abogado Digital.
@@ -181,7 +181,7 @@ Ninguno.
   - en el listener, cuando `info.isWideGamut` o el formato es de 16 bits, `decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM)` (API 28, evita F16);
   - o elegir el objetivo con `setTargetSampleSize(n)` cuando con eso queda dentro del límite.
 
-  En el Honor (16 GB) no debería fallar; el riesgo es para móviles de 3 o 4 GB.
+  En un móvil con mucha memoria no debería fallar; el riesgo es para móviles de 3 o 4 GB.
 - **Referencia:** documentación de `ImageDecoder.setTargetSize`, `setMemorySizePolicy` y `MEMORY_POLICY_LOW_RAM`.
 
 #### M-9. Sin `imePadding()`: el teclado puede tapar los campos del final (T8, a comprobar)
@@ -239,13 +239,13 @@ Ninguno.
 
 ## Pruebas en el móvil a añadir
 
-En el Honor Magic 8 Pro (Android 17) y, si se puede, en un Android 8 o 9 y en un Android 12 o 13. Las pruebas que ya están en la lista de la tarea 16 no se repiten. Cada una dice qué tiene que pasar.
+En el móvil del dueño y, si se puede, en un Android 8 o 9 y en un Android 12 o 13. Las pruebas que ya están en la lista de la tarea 16 no se repiten. Cada una dice qué tiene que pasar.
 
 1. **I-1:** en «PIN y códigos», generar una respuesta, pulsar Inicio y volver a los 10 s: sigue la misma, para poder copiarla. Salir más tiempo que el bloqueo de la bóveda (o 60 s con «Al salir») y volver: el PIN, los códigos y las respuestas son nuevos, y la web y las preguntas siguen ahí.
 2. **M-1 y M-2:**
    - En «Tachar», dibujar 3 cajas y girar el móvil: o se conservan (si se aplica M-1), o sale `REDACT_LOST` sin cierre de la app.
    - Con la navegación por gestos, empezar a arrastrar en el borde izquierdo de la imagen: se dibuja una caja y no se sale de la pantalla.
-3. **M-1, con el sistema:** en «Limpiar foto», con la copia lista, cambiar el modo oscuro del sistema desde Ajustes rápidos y volver. Lo mismo con la ventana flotante o la pantalla dividida de MagicOS.
+3. **M-1, con el sistema:** en «Limpiar foto», con la copia lista, cambiar el modo oscuro del sistema desde Ajustes rápidos y volver. Lo mismo con la ventana flotante o la pantalla dividida del sistema.
 4. **M-3:** cambiar la maestra con Argon2id en «Alto» y girar el móvil mientras deriva: al terminar sale el diálogo «Contraseña cambiada» (tras la corrección), o se anota que no.
 5. **M-4:** «Activar huella», girar con el diálogo abierto y poner el dedo: no se activa, la app no se cierra y al reintentar se activa. Anotar si hay algún mensaje.
 6. **M-5:** desbloquear con huella con la clave en StrongBox: anotar si se nota un tirón. Si hay `adb`, usar `adb shell dumpsys gfxinfo io.github.egt17baa.seguridad`.
@@ -254,7 +254,7 @@ En el Honor Magic 8 Pro (Android 17) y, si se puede, en un Android 8 o 9 y en un
    - Abrir en «Tachar» un JPEG de 200 MP y un PNG de 16 bits de unos 24 MP. Mirar `adb shell dumpsys meminfo io.github.egt17baa.seguridad`, sección «Native Heap». La app no se cierra.
    - En un móvil de 3 o 4 GB, anotar si el sistema la mata.
 9. **M-9:** en «PIN y códigos», añadir 4 preguntas y tocar la última: el campo queda por encima del teclado.
-10. **HDR:** limpiar un HEIC HDR (10 bits) y una foto «Ultra HDR» JPEG del Honor:
+10. **HDR:** limpiar un HEIC HDR (10 bits) y una foto «Ultra HDR» JPEG del móvil del dueño:
     - sale una copia, y no «dañada»;
     - en «Tachar», la caja negra está en la copia compartida;
     - la copia no conserva el mapa de ganancia, porque se dibuja en un bitmap nuevo (`RedactRender.kt:155`).
@@ -262,7 +262,7 @@ En el Honor Magic 8 Pro (Android 17) y, si se puede, en un Android 8 o 9 y en un
     - anotar si el informe muestra «Ubicación GPS» con coordenadas, sin ellas o nada (Android oculta la ubicación a las apps sin `ACCESS_MEDIA_LOCATION`);
     - el texto `PHOTO_NOTHING_FOUND` ya lo prevé (`tools/ToolTexts.kt:96-98`);
     - en las dos, la copia no lleva GPS.
-12. **Guardar en otros proveedores:** «Guardar copia» en Google Drive y en el gestor de archivos de Honor. Si alguno no admite el modo `"wt"`, sale `PHOTO_SAVE_FAILED` y no queda un documento vacío.
+12. **Guardar en otros proveedores:** «Guardar copia» en Google Drive y en el gestor de archivos del fabricante. Si alguno no admite el modo `"wt"`, sale `PHOTO_SAVE_FAILED` y no queda un documento vacío.
 13. **Compartir:**
     - compartir a Gmail, volver antes de 10 minutos y enviar: el adjunto llega;
     - volver tras más de 10 minutos: `cacheDir/compartir` está vacío (en *debug*, `adb shell run-as … ls cache/compartir`).
@@ -359,11 +359,11 @@ En el Honor Magic 8 Pro (Android 17) y, si se puede, en un Android 8 o 9 y en un
   - `EXTRA_IS_SENSITIVE` en API 33.
 
   `readAtMost` sustituye a `readNBytes` (API 33) (`core/Streams.kt:3`).
-- [ ] **Compatibilidad con Android 8 a 16 y con el Honor con Android 17:** el código no tiene ramas sin comprobar. Las diferencias reales quedan en las «Pruebas en el móvil»:
+- [ ] **Compatibilidad con Android 8 a 17:** el código no tiene ramas sin comprobar. Las diferencias reales quedan en las «Pruebas en el móvil»:
   - HDR y Ultra HDR;
   - memoria nativa con 200 MP;
-  - StrongBox del Honor;
-  - selector y gestor de archivos de MagicOS;
+  - StrongBox del móvil del dueño;
+  - selector y gestor de archivos del sistema;
   - modo `"wt"` de los proveedores.
 
   Los cambios de comportamiento propios de Android 17 (API 37) que afecten a apps con `targetSdk 36` no se han podido verificar aquí: están a comprobar en el móvil.

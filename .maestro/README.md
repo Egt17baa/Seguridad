@@ -28,6 +28,8 @@ Clavero pone `FLAG_SECURE` en toda la app, así que las capturas de pantalla sal
 
 ## Cómo ejecutarlos
 
+> **En Windows** (PowerShell): los mismos comandos, desde la carpeta del repositorio, con `python` en lugar de `python3` y `\` o `/` en las rutas (`maestro test .maestro\`). Maestro crea una carpeta con el nombre de cada flujo, así que los `name:` de los flujos no llevan ninguno de los caracteres que Windows no deja en un nombre de carpeta (`\ / : * ? " < > |`): con un `:` falla al empezar con `InvalidPathException: Illegal char <:>` (fallo F-2 de la 1.4.1).
+
 Desde la raíz del repositorio, con un solo dispositivo conectado:
 
 ```bash
@@ -85,7 +87,7 @@ Con el plugin: la skill `android-tests` (`/android-qa-libre:android-tests`) comp
 | P-24, el portapapeles en Android 13 o posterior | Manual | Es lo que enseña el teclado, fuera de Clavero. |
 | P-25, la muerte del proceso a mitad | Manual | `adb shell am force-stop` en el momento justo y `adb shell run-as … ls`. |
 | P-26, las copias del sistema | Manual | `adb backup` y la transferencia a otro móvil. |
-| P-27, lo que no se ve y los enlaces raros | Manual | Tres CSV de prueba de una fila (U+2800, U+2065 y U+FFF0 en el título) y uno con «۝», un QR de Wi-Fi con «Casa» + U+2800, y pegar `ht<TAB>tp:@banco.example` y las variantes con NBSP, U+3000, U+200B, un control o «：» en la barra de Chrome y del navegador de Honor (si alguna abre `http://banco.example`, es RT-15 para la 1.4.1); tras «Reemplazar», el usuario copiado no lleva U+200B y una carpeta «Banco» + U+200B queda en «#banco». |
+| P-27, lo que no se ve y los enlaces raros | Manual | Tres CSV de prueba de una fila (U+2800, U+2065 y U+FFF0 en el título) y uno con «۝», un QR de Wi-Fi con «Casa» + U+2800, y pegar `ht<TAB>tp:@banco.example` y las variantes con NBSP, U+3000, U+200B, un control o «：» en la barra de Chrome y del navegador del fabricante (si alguna abre `http://banco.example`, es RT-15 para la 1.4.2); tras «Reemplazar», el usuario copiado no lleva U+200B y una carpeta «Banco» + U+200B queda en «#banco». |
 
 Los nombres de otras apps de esta tabla son marcas de sus titulares. Clavero no tiene relación con ellos.
 
@@ -101,3 +103,13 @@ Los flujos no se han podido ejecutar en el contenedor. Lo más probable que haya
 - **El error de «Comprobar una copia» con la contraseña equivocada** (`semiautomaticas/p14`): el flujo espera un texto que empiece por «Contraseña incorrecta», que es el del error de cifrado por defecto (`CryptoFailure`); si la app da otro, cámbialo.
 - **El campo de contraseña ya escrito** (`semiautomaticas/p17-recomponer-vector-oficial.yaml`): para borrarlo, el flujo lo busca por su etiqueta o por los puntos `•`.
 - **`pressKey: Enter`** en el campo de las partes (`p17`): tiene que hacer un salto de línea. Si tu teclado lo trata como «Hecho», escribe las partes a mano o usa un grupo de 1 parte.
+
+### Lo que enseñó la primera ejecución en un móvil (1.4.1, fallo F-3)
+
+- **Maestro solo ve lo que está en la pantalla.** Compose no expone lo que queda fuera de la vista, así que `assertVisible`, `tapOn` y `copyTextFrom` no encuentran un texto que está más arriba o más abajo, aunque exista. Antes de cada uno va un `scrollUntilVisible` hacia donde está ese texto: hacia abajo si viene después de lo último que se ha visto y hacia arriba si viene antes. Un `scrollUntilVisible` que ya ve el texto no mueve nada. Los resultados (las partes, el secreto recompuesto, el análisis) salen debajo del botón, fuera de la pantalla: se espera por ellos con un `scrollUntilVisible` hacia abajo y un `timeout` largo, no con `extendedWaitUntil`.
+- **Después de girar**, la pantalla puede quedar por encima o por debajo de lo que se busca: se sube primero hasta el texto de entrada y después se baja.
+- **`eraseText` solo borra lo que queda a la izquierda del cursor**, y `tapOn` en un campo con texto deja el cursor en medio. Solo se usa en campos con un texto corto (el cursor queda al final) o justo después de `inputText`. Para cambiar un texto largo, el flujo sale de la herramienta y vuelve a entrar, porque volver atrás lo borra todo (`comun/hashes-abc-con-huella.yaml`).
+- **`enabled:` no sirve con el texto de un botón.** En el móvil, el botón y su texto son dos nodos: el botón lleva `enabled` pero no el texto, y el texto siempre está activo. Un botón desactivado se busca con `enabled: false` y `containsDescendants: [{text: …}]`. Para esperar a que se active, se espera a que deje de verse desactivado (`extendedWaitUntil` con `notVisible`), porque `enabled: true` con `containsDescendants` no encuentra nada: Maestro se queda primero con el nodo activo más profundo, que es el texto.
+- **El diálogo de la huella** lo pinta el sistema, y el del fabricante puede pedir la cara sin el botón «Usar contraseña maestra», unos segundos después de abrir. `comun/abrir-app.yaml` lo busca varias veces y, si ve su título («Desbloquear la bóveda»), pulsa «Usar contraseña maestra» o «Cancelar». Nunca «Atrás», que cerraría Clavero si el diálogo ya se está cerrando.
+- **Si un flujo falla**, Maestro guarda en `~/.maestro/tests/<fecha>/<flujo>/screen-hierarchy/` la estructura de la pantalla del paso que falla, y `logs/maestro.log` dice qué encontró en cada intento.
+

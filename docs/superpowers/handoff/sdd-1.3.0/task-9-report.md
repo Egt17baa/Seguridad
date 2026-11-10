@@ -106,7 +106,7 @@
 4. **The design only names the Keystore failure at the start of unlock.** A StrongBox key that fails later, at `doFinal` after the fingerprint, still says «No se pudo desbloquear con la huella» and is neither disabled nor marked. This keeps to the brief; if the phone shows it, it is a candidate follow-up.
 5. **None of the Keystore or prompt code can be unit-tested here.** Only the decisions in `KeyPlacement` are covered. The device list below is the real test.
 
-## On-device test list (owner: Honor Magic 8 Pro, Android 17, StrongBox)
+## On-device test list (owner's phone, with StrongBox)
 
 Install the debug or release build of this branch. Unlock the vault with the master password before each «enable».
 
@@ -121,7 +121,7 @@ Install the debug or release build of this branch. Unlock the vault with the mas
 **Seeing «Zona segura del procesador»:**
 - On any phone without StrongBox (most mid-range Android 9+ phones; check with `adb shell pm list features | grep strongbox`, where no output means none), or on an Android Studio emulator with a fingerprint enrolled (Settings → Security → Fingerprint, then `adb -e emu finger touch 1` at the prompt): enable the fingerprint, and Ajustes must say «Zona segura del procesador». There is only one prompt and no R2 hint, because there is no StrongBox.
 - Note: emulators normally report no StrongBox; some emulator images expose a software-backed Keystore, in which case the label is «Software: el móvil no protege esta clave con hardware». That is expected on an emulator, not on a real phone.
-- On the Honor itself, the TEE path can only be seen after a StrongBox failure (`strongbox_failed`); clearing the app's data resets it.
+- On the owner's phone itself, the TEE path can only be seen after a StrongBox failure (`strongbox_failed`); clearing the app's data resets it.
 
 ## Revisión experto-seguridad-cripto
 
@@ -216,7 +216,7 @@ The relevant checklist items are key management (where the key lives, what inval
 2. On unlock, a StrongBox key whose blob fails the GCM tag at `doFinal` (a corrupted pref) is also treated as «no responde». This is the safe direction: the user re-enables on the TEE.
 3. A StrongBox key generation still in progress on `Dispatchers.Default` when the activity is destroyed can leave an unused Keystore entry. It is harmless, and the next enable deletes it first (`disable()`).
 
-## Phone tests added (Honor Magic 8 Pro)
+## Phone tests added
 
 8. **Home during the first prompt:** start «Activar huella» and press Home while the prompt is up, then come back.
    - The fingerprint stays off, and a message («No se pudo activar la huella» or the system's) may appear.

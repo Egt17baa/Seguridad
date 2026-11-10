@@ -2,7 +2,7 @@
 # Comprobar una copia con un archivo está en semiautomaticas/p14-comprobar-una-copia-archivo.yaml.
 # No borra datos y no toca la bóveda: se puede usar en tu móvil.
 appId: io.github.egt17baa.seguridad
-name: "P-14 Comprobar una copia: la pantalla"
+name: "P-14 Comprobar una copia - la pantalla"
 tags:
   - clavero-1.4.0
   - automatica
@@ -19,17 +19,30 @@ tags:
     visible: "Atrás"
     timeout: 15000
 - assertVisible: 'Comprueba una copia \.sgbak sin importarla.*'
-- assertVisible: "Elegir copia"
-- assertVisible: "Contraseña maestra de la copia"
+# Debajo del texto de entrada: en un móvil con letra grande quedan fuera de la pantalla.
+- scrollUntilVisible:
+    element:
+      text: "Elegir copia"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Contraseña maestra de la copia"
+    direction: DOWN
 # Sin archivo ni contraseña, «Comprobar» está desactivado.
-- assertVisible:
-    text: "Comprobar"
-    enabled: false
+- scrollUntilVisible:
+    element:
+      containsDescendants:
+        - text: "Comprobar"
+      enabled: false
+    direction: DOWN
 - scrollUntilVisible:
     element:
       text: "Lo que no comprueba"
     direction: DOWN
-- assertVisible: 'No dice si es tu copia más reciente ni si tiene lo que cambiaste después de hacerla\..*'
+- scrollUntilVisible:
+    element:
+      text: 'No dice si es tu copia más reciente ni si tiene lo que cambiaste después de hacerla\..*'
+    direction: DOWN
 - scrollUntilVisible:
     element:
       text: 'La contraseña se borra del campo al pulsar «Comprobar»\..*'
@@ -39,4 +52,7 @@ tags:
       text: 'Lo que escribes aquí y el resultado se borran si vuelves atrás.*'
     direction: DOWN
 - tapOn: "Atrás"
-- assertVisible: "Comprobar una copia"
+- scrollUntilVisible:
+    element:
+      text: "Comprobar una copia"
+    direction: DOWN

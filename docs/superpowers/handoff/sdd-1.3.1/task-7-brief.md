@@ -45,4 +45,4 @@ Esta parte la hace el controlador y no tiene una tarea por subagente:
 3. **PR a `main`** desde `ccr-a1a6eabb-765f9g`, con la plantilla `.github/pull_request_template.md`, y **build** y **jvm-check** en verde.
 4. **Después del PR, el dueño:**
    - lanza el APK firmado (Actions → Build APK → Run workflow desde `main`) y lo prueba en el móvil;
-   - pone la etiqueta `v1.3.1` desde Termux cuando la prueba está bien.
+   - pone la etiqueta `v1.3.1` desde su terminal cuando la prueba está bien.

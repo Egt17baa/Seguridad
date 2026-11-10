@@ -169,7 +169,7 @@ class ImportModelTest {
 
     @Test fun originTagsAndTexts() {
         assertEquals(
-            listOf("importado-navegador", "importado-firefox", "importado-apple", "importado-bitwarden", "importado-aegis", "importado-2fas", "importado-otpauth"),
+            listOf("importado-navegador", "importado-csv", "importado-firefox", "importado-apple", "importado-bitwarden", "importado-aegis", "importado-2fas", "importado-otpauth"),
             ImportFormat.entries.map { it.originTag },
         )
         assertEquals("Código que no es TOTP (HOTP, Steam…)", SkipReason.NOT_TOTP.text)

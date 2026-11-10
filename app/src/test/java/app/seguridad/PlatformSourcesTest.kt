@@ -24,6 +24,58 @@ class PlatformSourcesTest {
     /** Code only: comments say what it does, but they must not make the check pass. */
     private fun code(path: String) = main(path).lines().filterNot { it.trimStart().let { l -> l.startsWith("//") || l.startsWith("*") || l.startsWith("/*") } }.joinToString("\n")
 
+    /**
+     * 1.4.1, the owner's phone test: deleting an entry went back twice. Its detail screen
+     * leaves when the entry is gone (LockedNotice, the same as a lock), and it also called onBack after the delete, so a
+     * second popBackStack took the vault list too (a blank screen, or Herramientas). The entry going away is what leaves,
+     * once, as the contact screen does.
+     */
+    @Test fun `deleting an entry goes back once, when the entry is gone`() {
+        val src = code("ui/screens/VaultEntryScreen.kt")
+        assertTrue("if (entry == null) return LockedNotice(onBack)" in src)
+        assertTrue("store.delete(entry.id)" in src)
+        assertFalse("a second onBack after the delete", Regex("""store\.delete\(entry\.id\)\)\s*onBack\(\)""").containsMatchIn(src))
+    }
+
+    /**
+     * 1.4.1, F-1 hardened: a «back» pops only the screen that asks for it, and only while that screen is on top. A screen
+     * that leaves by itself (LockedNotice) and also has a button that goes back can never pop the screen under it, the
+     * vault list or the start destination (the blank screen, or another tab, of F-1).
+     */
+    @Test fun `back pops only the screen that asks, while it is on top`() {
+        val src = code("ui/AppNavHost.kt")
+        assertTrue("backOnce reads the entry that composes it", "LocalLifecycleOwner.current as? NavBackStackEntry" in src)
+        assertTrue("and pops only while it is the current one", "if (nav.currentBackStackEntry === entry) {" in src)
+        // A call while another screen is on top waits until this one is on top again (the 1.4.1 audit, finding 1).
+        assertTrue("a waiting back", "if (pending && top === entry) {" in src && "nav.currentBackStackEntryFlow.collect" in src)
+        val guard = src.indexOf("private fun backOnce(")
+        assertTrue("every popBackStack is in backOnce", guard > 0 && Regex("""popBackStack\(""").findAll(src).all { it.range.first > guard })
+        assertFalse("no shared, unguarded back", Regex("""\bval back\b""").containsMatchIn(src))
+        assertFalse("every screen gets backOnce(nav)", Regex("""(onBack|onDone) = back\b""").containsMatchIn(src))
+    }
+
+    /**
+     * 1.4.1, F-4 (the owner): after deleting «Beta» from «Alfa, Beta, Gamma», the vault list is back where it was, at
+     * «Alfa, Gamma», not at the top. The search, the type and tag filters and the scroll position live in the list's
+     * ViewModel (never in saved state: the search can name an entry), so opening, editing or deleting an entry keeps
+     * them, and a lock of the vault drops them.
+     */
+    @Test fun `the vault list keeps its search, filters and place after an entry, and drops them on lock`() {
+        val src = code("ui/screens/VaultScreen.kt")
+        assertTrue("the list's own ViewModel", "private class EntryListViewModel(" in src)
+        // The place as two numbers, never the LazyListState (it holds the list's last layout; the 1.4.1 audit, finding 2).
+        assertTrue("the scroll position is the ViewModel's", "LazyListState(list.firstIndex, list.firstOffset)" in src)
+        assertTrue("and goes back to it", "list.firstIndex = listState.firstVisibleItemIndex" in src)
+        assertFalse("no LazyListState kept in the ViewModel", Regex("""var listState by""").containsMatchIn(src))
+        assertTrue("a gone tag filter is dropped", "if (tag != null && tag !in allTags) tag = null" in src)
+        for (v in listOf("query", "type", "tag")) assertTrue(v, "var $v by list::$v" in src)
+        assertFalse("no search in local state", Regex("""var query by remember""").containsMatchIn(src))
+        assertFalse("nothing of the list in saved state", Regex("""rememberSaveable""").containsMatchIn(src))
+        // From the vault's own state, in the ViewModel: a lock while another tab is shown drops them too.
+        assertTrue("a lock drops them", "store.state.collect { if (it !is VaultState.Unlocked) reset() }" in src)
+        assertFalse("not only while the list is on screen", "list.reset()" in src)
+    }
+
     @Test fun `COV2-4 the window and every dialog are marked accessibility data sensitive on Android 14+`() {
         val src = code("android/SecureWindow.kt")
         val marks = Regex("""setAccessibilityDataSensitive\(View\.ACCESSIBILITY_DATA_SENSITIVE_YES\)""").findAll(src).count()
@@ -273,7 +325,7 @@ class PlatformSourcesTest {
         // The row in Ajustes, the route, and the leftovers of a run cut short go at start.
         assertTrue("onClick = onCheckBackup" in code("ui/screens/SettingsScreen.kt") && "Text(BACKUP_CHECK_TITLE)" in code("ui/screens/SettingsScreen.kt"))
         assertTrue("composable(\"settings/check-backup\")" in code("ui/AppNavHost.kt"))
-        assertTrue("BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)" in code("ui/AppNavHost.kt"))
+        assertTrue("BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))" in code("ui/AppNavHost.kt"))
         assertTrue("removeBackupCheckLeftovers(File(cacheDir, BACKUP_CHECK_DIR))" in code("SeguridadApp.kt"))
         assertTrue("const val BACKUP_CHECK_TITLE = \"Comprobar una copia\"" in main("vault/BackupCheckTexts.kt"))
         // The import uses the same checks (BackupCheck.kt), so they cannot drift apart.
@@ -554,7 +606,7 @@ class PlatformSourcesTest {
         assertTrue(vault.indexOf("Text(IMPORT_TITLE)") > vault.indexOf("Text(\"Importar copia\")"))
         assertTrue("composable(\"vault/import\")" in code("ui/AppNavHost.kt"))
         assertTrue(
-            "ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = back)" in
+            "ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))" in
                 code("ui/AppNavHost.kt"),
         )
     }

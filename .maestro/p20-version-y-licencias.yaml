@@ -1,4 +1,4 @@
-# P-20, versión y licencias: Ajustes → Acerca de dice «Clavero 1.4.0», y en «Ver licencias» se abren las
+# P-20, versión y licencias: Ajustes → Acerca de dice «Clavero 1.4.1», y en «Ver licencias» se abren las
 # de la lista de SLIP-0039 y de Bouncy Castle, con scrypt, SHA-3, BLAKE2b y BLAKE3 en su nota.
 # No borra datos: se puede usar en tu móvil.
 appId: io.github.egt17baa.seguridad
@@ -9,14 +9,16 @@ tags:
 ---
 - runFlow: comun/abrir-app.yaml
 - tapOn: "Ajustes"
+# Es lo último de Ajustes, y con la bóveda abierta Ajustes es largo: más tiempo, y basta con verlo a medias.
 - scrollUntilVisible:
     element:
-      text: "Acerca de, licencias y avisos"
+      text: 'Acerca de, licencias y avisos'
     direction: DOWN
-    timeout: 20000
-- tapOn: "Acerca de, licencias y avisos"
+    timeout: 60000
+    visibilityPercentage: 50
+- tapOn: 'Acerca de, licencias y avisos'
 - extendedWaitUntil:
-    visible: "Clavero 1.4.0"
+    visible: "Clavero 1.4.1"
     timeout: 15000
 - assertVisible: "Acerca de"
 - scrollUntilVisible:
@@ -35,7 +37,10 @@ tags:
       text: "Bouncy Castle"
     direction: DOWN
     centerElement: true
-- assertVisible: '.*scrypt.*SHA-3, BLAKE2b, BLAKE3.*'
+- scrollUntilVisible:
+    element:
+      text: '.*scrypt.*SHA-3, BLAKE2b, BLAKE3.*'
+    direction: DOWN
 - tapOn:
     text: "Ver el texto de la licencia"
     below:
@@ -51,11 +56,26 @@ tags:
       text: "Lista de palabras SLIP-0039"
     direction: DOWN
     centerElement: true
-- assertVisible: 'Las 1\.024 palabras en inglés de SLIP-0039, sin cambios.*'
+- scrollUntilVisible:
+    element:
+      text: 'Las 1\.024 palabras en inglés de SLIP-0039, sin cambios.*'
+    direction: DOWN
+# Su botón va debajo de la nota y del enlace: con letra grande queda fuera de la pantalla. Se busca debajo
+# del enlace, que solo tiene esta tarjeta.
+- scrollUntilVisible:
+    element:
+      text: "https://github.com/trezor/python-shamir-mnemonic"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Ver el texto de la licencia"
+      below:
+        text: "https://github.com/trezor/python-shamir-mnemonic"
+    direction: DOWN
 - tapOn:
     text: "Ver el texto de la licencia"
     below:
-      text: "Lista de palabras SLIP-0039"
+      text: "https://github.com/trezor/python-shamir-mnemonic"
 - scrollUntilVisible:
     element:
       text: '.*SLIP-0039 English wordlist \(slip39_english\.txt\).*'

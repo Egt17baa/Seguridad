@@ -352,7 +352,7 @@ Todos en `RedTeamRecheckTest`:
 
 ### Necesita prueba en el móvil (tercera comprobación)
 
-1. **RT-14:** copiar de Clavero una URL `ht<TAB>tp:@banco.es` y otra `<U+0001>http:@banco.es`, pegarlas en Chrome y en el navegador de Honor, y apuntar qué abren: `http://banco.es/`, una búsqueda o nada. Eso decide si el impacto es real o solo de presentación.
+1. **RT-14:** copiar de Clavero una URL `ht<TAB>tp:@banco.es` y otra `<U+0001>http:@banco.es`, pegarlas en Chrome y en el navegador del fabricante, y apuntar qué abren: `http://banco.es/`, una búsqueda o nada. Eso decide si el impacto es real o solo de presentación.
 2. Siguen las de los arreglos anteriores (P-9 y las de RT-9, RT-10 y RT-13, en el informe del ataque y en el README).
 
 ### Revisión experto-seguridad-cripto (tercera comprobación)
@@ -432,7 +432,7 @@ Lo ejecuté con `./gradlew -p jvm-check test --tests 'app.seguridad.redteam.*' -
 
 ### Necesita prueba en el móvil (cuarta comprobación)
 
-1. **Pegar en la barra.** Pegar en Chrome y en el navegador de Honor, copiadas de Clavero, `ht<NBSP>tp:@banco.es`, `ht<U+0001>tp:@banco.es`, `http：@banco.es` (los dos puntos de ancho completo) y `ht<U+200B>tp:@banco.es`. El analizador del navegador no ve esquema en ellas y la fusión las trata como https en banco.es. Si alguna barra las «arregla» al pegar y abre `http://banco.es`, se abre un hallazgo nuevo, informativo o bajo: la fusión tendría que comparar entero un texto con esos caracteres antes de los dos puntos.
+1. **Pegar en la barra.** Pegar en Chrome y en el navegador del fabricante, copiadas de Clavero, `ht<NBSP>tp:@banco.es`, `ht<U+0001>tp:@banco.es`, `http：@banco.es` (los dos puntos de ancho completo) y `ht<U+200B>tp:@banco.es`. El analizador del navegador no ve esquema en ellas y la fusión las trata como https en banco.es. Si alguna barra las «arregla» al pegar y abre `http://banco.es`, se abre un hallazgo nuevo, informativo o bajo: la fusión tendría que comparar entero un texto con esos caracteres antes de los dos puntos.
 2. Siguen las de las rondas anteriores (RT-14 con tabulador y control, P-9 y P-27 del README).
 
 ### Revisión experto-seguridad-cripto (cuarta comprobación)

@@ -7,7 +7,7 @@
 # Los textos que se comprueban son los literales de imports/ImportTexts.kt; donde nombran otra app, la
 # expresión regular la cambia por «.*».
 appId: io.github.egt17baa.seguridad
-name: "P-5 Importar de otra app: la ayuda de los códigos en QR"
+name: "P-5 Importar de otra app - la ayuda de los códigos en QR"
 tags:
   - clavero-1.4.0
   - automatica

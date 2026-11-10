@@ -53,7 +53,7 @@ Con la estructura de la auditoría de la 1.3.0, adaptada:
 - `:55-78`: decisiones de la 1.3.0, sin cambios salvo `:76`: «La etiqueta de la versión (`v1.3.0`, `v1.3.1`)…».
 - `:84`: los avisos de R8 pasan de «la próxima versión» a la 1.4.0, con la decisión del dueño (`94ddb7f`).
 - `:86-98`: «Decisiones de la 1.3.1»: CriptoPanel, maestra nueva (10 caracteres de las dos maneras, ≥ 50 bits con la menor, no una sola palabra de «Salud», EFF, BIP-39 EN/ES; solo crear y cambiar), huella (solo `StaleBiometricKey`; con versión declarada, 7 días y reloj primero), archivo que no se abre (`UNSUPPORTED`, «No es una bóveda compatible»), TOTP (rechazar, no cambiar), `BiometricVault.disable` → 1.4.0, `targetSdk` → «¿Filtrada?» y «Comprobar filtraciones» con red.
-- `:100-108`: «Pendientes, del dueño»: arriba, los tres de la 1.3.1 (Build APK desde `main` y pruebas del README; etiqueta `v1.3.1` desde Termux; retirar CriptoPanel es decisión suya), y después los cinco que ya había (renumerados 4-8).
+- `:100-108`: «Pendientes, del dueño»: arriba, los tres de la 1.3.1 (Build APK desde `main` y pruebas del README; etiqueta `v1.3.1` desde su terminal; retirar CriptoPanel es decisión suya), y después los cinco que ya había (renumerados 4-8).
 - `:112`: la regla de los formatos sin CriptoPanel, con la decisión y la fecha.
 - «Skills: siempre juntas» y «Compilar y probar»: sin tocar (`git diff` no tiene ningún trozo antes de `:29` ni después de `:112`).
 

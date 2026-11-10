@@ -10,7 +10,7 @@
 #   se ve «Bancogpj.exe» en la vista previa, en la lista de la bóveda y en el detalle;
 # - la URL importada no se abre al tocarla: Clavero sigue en primer plano.
 appId: io.github.egt17baa.seguridad
-name: "P-12 Importar: archivos hechos a mala fe"
+name: "P-12 Importar - archivos hechos a mala fe"
 tags:
   - clavero-1.4.0
   - semiautomatica
@@ -55,8 +55,14 @@ env:
 - scrollUntilVisible:
     element:
       text: "Importar"
-      enabled: true
     direction: UP
+    timeout: 30000
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Importar"
     timeout: 30000
 - tapOn: "Importar"
 - extendedWaitUntil:
