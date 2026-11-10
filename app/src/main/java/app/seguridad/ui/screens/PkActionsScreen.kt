@@ -265,9 +265,10 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
     var sign by rememberSaveable { mutableStateOf(true) }
     var source by rememberSaveable { mutableStateOf<Uri?>(null) }
     var sourceName by rememberSaveable { mutableStateOf("") }
-    // The plain text is a secret: never in saved state (it is lost when the phone rotates, which is acceptable).
+    // The plain text is a secret: never in saved state (it is lost if the activity is re-created, by a theme or language
+    // change; since 1.4.2 a rotation keeps it, configChanges), which is acceptable.
     var text by remember { mutableStateOf("") }
-    // A15a: with the inputs it came from; a rotation loses it, like the text.
+    // A15a: with the inputs it came from; a re-creation of the activity loses it, like the text.
     var result by remember { mutableStateOf<PkResult?>(null) }
     // A15a: a message also carries the inputs it is about, and shows only next to them.
     var tagged by remember { mutableStateOf<PkMessage?>(null) }
@@ -457,7 +458,7 @@ private fun SignContent(store: VaultStore, entries: List<VaultEntry>) {
     var source by rememberSaveable { mutableStateOf<Uri?>(null) }
     var sourceName by rememberSaveable { mutableStateOf("") }
     var text by remember { mutableStateOf("") }
-    // A15a: with the inputs it came from; a rotation loses it, like the text.
+    // A15a: with the inputs it came from; a re-creation of the activity loses it, like the text.
     var result by remember { mutableStateOf<PkResult?>(null) }
     // A15a: a message also carries the inputs it is about, and shows only next to them.
     var tagged by remember { mutableStateOf<PkMessage?>(null) }

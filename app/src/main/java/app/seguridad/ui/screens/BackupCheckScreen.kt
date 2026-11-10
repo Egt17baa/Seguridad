@@ -35,7 +35,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
+import app.seguridad.tools.BACKUP_CHECK_NOT_PROVEN_SHORT
 import app.seguridad.tools.BACKUP_CHECK_SHORT
+import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.PositiveColor
@@ -240,6 +242,8 @@ fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
         }
         s.error?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         s.report?.let { Report(it) }
+        // What it does not protect stays on view (O-4 of the Abogado, 1.4.2).
+        Text(BACKUP_CHECK_NOT_PROVEN_SHORT, color = CautionColor)
         // 1.4.2 (texto mínimo): the short line, and the explanations and every case of the note folded.
         AwayNote {
             Text(BACKUP_CHECK_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)

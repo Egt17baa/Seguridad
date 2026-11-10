@@ -4,14 +4,15 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 1.4.2, the owner's request: each file picker of the app, the system's, opens where that picker was used last, not
- * where any picker left it. [kept] says whether the place stays after the app closes. A place is kept only when its
- * document is a Clavero copy, an encrypted file or a cleaned output, whose name says nothing that is not already on
- * disk. The others are kept only in memory, and forgotten at every lock and unlock of the vault
- * ([PickerPlaces.forgetSession]): what a tool reads that may be plaintext (a file to encrypt, sign, hash or encrypt for a
- * contact, a text file to open, a photo to clean or redact, a QR image, an unencrypted export) and what Clavero writes out of the vault or of a decryption (an
- * attachment, a decrypted file). Their document URI holds the file name, and names that were only inside the vault
- * must not stay outside it in plain text (code review of 1.4.2). The folder of the automatic copies has no place here:
- * its picker opens on the folder chosen (Settings).
+ * where any picker left it. [kept] says whether the place is written down and stays after the app closes. Only the
+ * vault's copies (export, import, the one before importing, «Comprobar una copia»), the outputs of Limpiar foto and
+ * Tachar (fixed names) and a saved encrypted text are kept. Every other place names a file that may be plaintext or
+ * says what it held (a file to encrypt, sign or hash, an encrypted or signed output named after its original, what is
+ * opened in «Abrir lo recibido», a decrypted file, a text file, a photo, a QR image, an unencrypted export, an
+ * attachment): it lives only in memory, only while the vault is open, and goes at every lock and unlock
+ * ([PickerPlaces.forgetSession]). A document URI holds the file name, and none of those names stays outside the vault
+ * in plain text, nor for whoever takes the phone after a lock (code review and final audit of 1.4.2). The folder of the
+ * automatic copies has no place here: its picker opens on the folder chosen (Settings).
  */
 enum class PickerPlace(val kept: Boolean = true) {
     EXPORT_COPY,
@@ -28,13 +29,13 @@ enum class PickerPlace(val kept: Boolean = true) {
     TEXT_OPEN(kept = false),
     TEXT_SAVE,
     FILE_OPEN(kept = false),
-    FILE_ENCRYPTED_SAVE,
+    FILE_ENCRYPTED_SAVE(kept = false),
     FILE_DECRYPTED_SAVE(kept = false),
     ENCRYPT_FOR_OPEN(kept = false),
-    ENCRYPT_FOR_SAVE,
+    ENCRYPT_FOR_SAVE(kept = false),
     SIGN_OPEN(kept = false),
-    SIGN_SAVE,
-    RECEIVED_OPEN,
+    SIGN_SAVE(kept = false),
+    RECEIVED_OPEN(kept = false),
     RECEIVED_SAVE(kept = false),
     ATTACHMENT_ADD(kept = false),
     ATTACHMENT_SAVE(kept = false),
@@ -65,18 +66,26 @@ const val PLACE_MAX_CHARS = 2048
  * provider decides whether it follows it). Only another app's `content://` document is kept ([isAcceptableDocumentUri]),
  * checked again when read; a failing [kept] store is no place. Never throws.
  */
-class PickerPlaces(private val kept: PlaceStore, private val packageName: String = "io.github.egt17baa.seguridad") {
+class PickerPlaces(
+    private val kept: PlaceStore,
+    private val packageName: String = "io.github.egt17baa.seguridad",
+    /** Whether the vault is open: the places not [PickerPlace.kept] are neither remembered nor offered otherwise. */
+    private val sessionOpen: () -> Boolean = { true },
+) {
     private val session = ConcurrentHashMap<PickerPlace, String>()
 
     fun initial(place: PickerPlace): String? {
-        val value = if (place.kept) runCatching { kept.get(place.name) }.getOrNull() else session[place]
+        val value = if (place.kept) runCatching { kept.get(place.name) }.getOrNull() else session[place]?.takeIf { isOpen() }
         return value?.takeIf(::acceptable)
     }
 
+    /** A result that comes back after a lock (the picker took the app away) is not remembered by a private place. */
     fun remember(place: PickerPlace, uri: String) {
         if (!acceptable(uri)) return
-        if (place.kept) runCatching { kept.put(place.name, uri) } else session[place] = uri
+        if (place.kept) runCatching { kept.put(place.name, uri) } else if (isOpen()) session[place] = uri
     }
+
+    private fun isOpen() = runCatching(sessionOpen).getOrDefault(false)
 
     /**
      * At every lock and unlock of the vault (AppContainer): the places kept only in memory. A document picked while the

@@ -40,6 +40,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.copySensitive
 import app.seguridad.core.PickerPlace
 import app.seguridad.crypto.hexLower
+import app.seguridad.tools.HASH_LAB_NOT_PROTECTED_SHORT
 import app.seguridad.tools.cipher.FileHashSession
 import app.seguridad.tools.hashlab.HASH_LAB_ALGO_CHANGED
 import app.seguridad.tools.hashlab.HASH_LAB_CANCEL
@@ -91,6 +92,7 @@ import app.seguridad.tools.hashlab.parseExpected
 import app.seguridad.tools.hashlab.sameDigest
 import app.seguridad.tools.hashlab.textBytes
 import app.seguridad.tools.hashlab.utf8OrNull
+import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.PositiveColor
@@ -388,6 +390,8 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
                 }
             }
         }
+        // What it does not protect stays on view (O-4 of the Abogado, 1.4.2).
+        Text(HASH_LAB_NOT_PROTECTED_SHORT, color = CautionColor)
         // 1.4.2 (texto mínimo): the short line, and the explanations and every case of the note folded.
         AwayNote {
             Text(HASH_LAB_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)

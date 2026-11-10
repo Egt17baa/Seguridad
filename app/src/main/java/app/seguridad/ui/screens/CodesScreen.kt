@@ -359,8 +359,9 @@ fun CodesScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: Stat
                     MoreInfo {
                         Text(ANSWERS_EXPLANATION, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(ANSWERS_LIMIT, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(ANSWERS_WARNINGS, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    // A warning: on view (final audit of 1.4.2).
+                    Text(ANSWERS_WARNINGS, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(ANSWERS_NO_ACCENTS, modifier = Modifier.weight(1f))
                         Switch(

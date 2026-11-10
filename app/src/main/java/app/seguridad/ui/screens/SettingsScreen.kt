@@ -57,15 +57,18 @@ import app.seguridad.settings.settingsEditable
 import app.seguridad.settings.withFolderChosen
 import app.seguridad.tools.ABOUT_SUMMARY
 import app.seguridad.tools.ABOUT_WARNINGS_SHORT
+import app.seguridad.tools.AUTO_BACKUP_DELETES_SHORT
 import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
 import app.seguridad.tools.AUTO_BACKUP_SHORT
 import app.seguridad.tools.CLIPBOARD_CLEAR_HINT
+import app.seguridad.tools.CLIPBOARD_CLEAR_SHORT
 import app.seguridad.tools.KDF_HIGH_SHORT
 import app.seguridad.tools.KDF_HIGH_UNAVAILABLE
 import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.KeyLevel
 import app.seguridad.tools.LOCK_ON_EXIT_HINT
+import app.seguridad.tools.LOCK_ON_EXIT_SHORT
 import app.seguridad.tools.PASSWORD_CHANGED_FINGERPRINT_FAILED
 import app.seguridad.tools.PASSWORD_CHANGED_TITLE
 import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
@@ -218,6 +221,7 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
     Section("Copia automática") {
         if (folder == null) {
             Hint(AUTO_BACKUP_SHORT)
+            Hint(AUTO_BACKUP_DELETES_SHORT)
             MoreInfo {
                 Hint(
                     "Guarda una copia cifrada (.sgbak, con los adjuntos) en una carpeta que elijas, unos segundos después de cada " +
@@ -445,6 +449,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                     if (settingsEditable(vault.state.value)) change { it.copy(lockAfter = v) }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+                Hint(LOCK_ON_EXIT_SHORT)
                 MoreInfo { Hint(LOCK_ON_EXIT_HINT) }
             }
             Section("Borrar del portapapeles lo copiado") {
@@ -452,6 +457,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                     if (settingsEditable(vault.state.value)) change { it.copy(clipboard = v) }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+                Hint(CLIPBOARD_CLEAR_SHORT)
                 MoreInfo { Hint(CLIPBOARD_CLEAR_HINT) }
             }
             Section("Coste de Argon2id para lo nuevo") {

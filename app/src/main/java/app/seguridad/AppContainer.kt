@@ -127,7 +127,7 @@ class AppContainer(
     val wordLists = WordLists(openAsset)
 
     /** 1.4.2: where each file picker opens ([PickerPlace]); forgotten with the vault. */
-    val pickerPlaces = PickerPlaces(placeStore, packageName)
+    val pickerPlaces = PickerPlaces(placeStore, packageName, sessionOpen = { vault.state.value is VaultState.Unlocked })
 
     /** The only connection of the app (Have I Been Pwned), with the eMudhra keys distrusted; built on first use. */
     val client: OkHttpClient by lazy { secureClient(appVersion, trustedChainOf) }

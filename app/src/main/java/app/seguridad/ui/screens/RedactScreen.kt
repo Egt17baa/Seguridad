@@ -569,8 +569,8 @@ fun RedactScreen(shareTemp: ShareTemp, onBack: () -> Unit) {
  * While a copy is being made ([enabled] false) it takes no input and shows no box in progress: the copy is made from
  * the boxes at the moment the button was pressed, and the screen must not show one the copy lacks. The preview bitmap
  * is recycled once this preview leaves the composition because another image was picked ([isShown] false); a
- * rotation re-creates the composition with the same picture, which keeps its preview (the ViewModel recycles it when
- * the screen is gone for good).
+ * re-creation of the activity (since 1.4.2 not a rotation) re-creates the composition with the same picture, which
+ * keeps its preview (the ViewModel recycles it when the screen is gone for good).
  *
  * The image area keeps clear of the system's horizontal gesture insets and is also excluded from the back gesture (M-2:
  * a drag from the left edge to cover a name there must draw a box, not leave the screen; the exclusion is API 29+ and
@@ -593,10 +593,12 @@ private fun RedactCanvas(p: Picture, boxes: List<RedactBox>, enabled: Boolean, i
     DisposableEffect(p) { onDispose { if (!currentIsShown()) p.previewBitmap.recycle() } }
     var dragFrom by remember(p) { mutableStateOf<Offset?>(null) }
     var dragTo by remember(p) { mutableStateOf<Offset?>(null) }
-    // The view's zoom: not secret, lost on rotation (the composition is re-created) and with another image.
+    // The view's zoom: not secret, back to 1 with another image and when the view changes size (since 1.4.2 a rotation
+    // keeps the composition, and a zoom measured on the old size could leave the new view: final audit of 1.4.2).
     var zoom by remember(p) { mutableStateOf(RedactZoom()) }
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
+        LaunchedEffect(maxWidth, windowHeight) { zoom = RedactZoom() }
         val aspect = p.width.toFloat() / p.height
         val maxHeight = windowHeight * 0.6f
         val w = min(maxWidth, maxHeight * aspect).coerceAtLeast(1.dp)

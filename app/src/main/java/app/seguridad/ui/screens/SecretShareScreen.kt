@@ -40,6 +40,7 @@ import app.seguridad.SeguridadApp
 import app.seguridad.android.copySensitive
 import app.seguridad.crypto.Bip39
 import app.seguridad.crypto.hexLower
+import app.seguridad.tools.SHARE_NOT_PROTECTED_SHORT
 import app.seguridad.tools.SHARE_SHORT
 import app.seguridad.tools.SHARE_WARNING_SHORT
 import app.seguridad.tools.slip39.GroupForm
@@ -92,6 +93,7 @@ import app.seguridad.tools.slip39.shareGroupTitle
 import app.seguridad.tools.slip39.shareGroupsNeeded
 import app.seguridad.tools.slip39.sharePartLabel
 import app.seguridad.tools.slip39.splitRequest
+import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SECRET_TEXT_KEYBOARD
@@ -293,6 +295,8 @@ fun SecretShareScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
         }
         if (vm.wordsFailed) Text(SHARE_WORDS_MISSING, color = NegativeColor)
         if (vm.combineMode) CombineForm(context, vm) else SplitForm(context, vm)
+        // What it does not protect stays on view (O-4 of the Abogado, 1.4.2).
+        Text(SHARE_NOT_PROTECTED_SHORT, color = CautionColor)
         // 1.4.2 (texto mínimo): the short line, and the explanations and every case of the note folded.
         AwayNote {
             Text(SHARE_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)

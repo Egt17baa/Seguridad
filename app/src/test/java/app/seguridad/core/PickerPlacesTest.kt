@@ -54,6 +54,8 @@ class PickerPlacesTest {
             PickerPlace.IMPORT_OTHER, PickerPlace.HASH_FILE, PickerPlace.TEXT_OPEN, PickerPlace.QR_IMAGE, PickerPlace.PHOTO_OPEN, PickerPlace.REDACT_OPEN,
             PickerPlace.FILE_OPEN, PickerPlace.FILE_DECRYPTED_SAVE, PickerPlace.ENCRYPT_FOR_OPEN, PickerPlace.SIGN_OPEN,
             PickerPlace.RECEIVED_SAVE, PickerPlace.ATTACHMENT_ADD, PickerPlace.ATTACHMENT_SAVE,
+            // Final audit of 1.4.2: outputs named after their original, and what «Abrir lo recibido» opens.
+            PickerPlace.FILE_ENCRYPTED_SAVE, PickerPlace.ENCRYPT_FOR_SAVE, PickerPlace.SIGN_SAVE, PickerPlace.RECEIVED_OPEN,
         )
         assertEquals(inMemory, PickerPlace.entries.filterNot { it.kept }.toSet())
         val kept = Memory()
@@ -62,6 +64,24 @@ class PickerPlacesTest {
         assertEquals(PickerPlace.entries.filter { it.kept }.map { it.name }.toSet(), kept.map.keys)
         p.forgetSession()
         PickerPlace.entries.forEach { assertEquals(it.name, if (it.kept) doc else null, p.initial(it)) }
+    }
+
+    /** Final audit of 1.4.2: with the vault locked, a private place is neither remembered nor offered. */
+    @Test fun privatePlacesNeedTheVaultOpen() {
+        var open = false
+        val kept = Memory()
+        val p = PickerPlaces(kept, sessionOpen = { open })
+        p.remember(PickerPlace.HASH_FILE, doc) // a result after the picker locked the vault
+        p.remember(PickerPlace.EXPORT_COPY, doc)
+        open = true
+        assertNull(p.initial(PickerPlace.HASH_FILE))
+        assertEquals(doc, p.initial(PickerPlace.EXPORT_COPY))
+        p.remember(PickerPlace.HASH_FILE, doc)
+        assertEquals(doc, p.initial(PickerPlace.HASH_FILE))
+        open = false
+        assertNull(p.initial(PickerPlace.HASH_FILE))
+        // A failing check counts as locked.
+        assertNull(PickerPlaces(kept, sessionOpen = { error("x") }).apply { remember(PickerPlace.HASH_FILE, doc) }.initial(PickerPlace.HASH_FILE))
     }
 
     @Test fun forgetAllDropsEveryPlace() {

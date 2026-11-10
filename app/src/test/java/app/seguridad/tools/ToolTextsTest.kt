@@ -85,7 +85,7 @@ class ToolTextsTest {
         val expected = linkedMapOf(
             "Limpiar foto" to 17, "Tachar en imagen" to 3, "Inspector de QR" to 19, "PIN y códigos" to 2,
             "Respuestas inventadas" to 6, "StrongBox y pendientes" to 7, "Textos añadidos después del dictamen" to 66,
-            "Textos de la app que no estaban en el dictamen" to 168, // 1.4.2: +38, «Texto mínimo» (4 after the code review)
+            "Textos de la app que no estaban en el dictamen" to 175, // 1.4.2: +45, «Texto mínimo» (with the code review, the audit and the Abogado)
         )
         val sections = annexSections()
         assertEquals(expected.keys.toList(), sections.keys.toList())

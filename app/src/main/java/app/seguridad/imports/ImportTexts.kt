@@ -22,7 +22,7 @@ const val ORIGIN_TAG_OTPAUTH = "importado-otpauth"
 const val SKIP_NOT_TOTP = "Código que no es TOTP (HOTP, Steam…)"
 
 /** The 2FA of a login that is not read (1.4.2): the login itself enters, and the list must not say otherwise. */
-const val SKIP_LOGIN_TOTP_BROKEN = "2FA dañado o no válido (el acceso sí entra)"
+const val SKIP_LOGIN_TOTP_BROKEN = "2FA dañado o no válido (el acceso se lee sin él)"
 
 /** The file passes [IMPORT_MAX_BYTES]: refused before anything in it is decoded. */
 const val IMPORT_FILE_TOO_BIG = "El archivo pasa de 16 MB. Clavero no lo lee."
