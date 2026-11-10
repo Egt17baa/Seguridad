@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -19,6 +20,8 @@ import app.seguridad.tools.MORE_INFO
 import app.seguridad.tools.MORE_INFO_CLOSED
 import app.seguridad.tools.MORE_INFO_LESS
 import app.seguridad.tools.MORE_INFO_OPEN
+import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
+import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 
 /**
  * 1.4.2, the owner's request: a screen shows what it is and what it does in a line or two, and the rest of its
@@ -36,5 +39,18 @@ internal fun MoreInfo(content: @Composable ColumnScope.() -> Unit) {
         AnimatedVisibility(open) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
         }
+    }
+}
+
+/**
+ * COV1-1: what a tool screen keeps, and for how long, said under it: the short line on view and every case folded, after
+ * the screen's own folded explanations ([more]). One place for the tools that wipe what was typed (1.4.2).
+ */
+@Composable
+internal fun AwayNote(more: @Composable ColumnScope.() -> Unit = {}) {
+    Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    MoreInfo {
+        more()
+        Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -42,8 +42,6 @@ import app.seguridad.crypto.Bip39
 import app.seguridad.crypto.hexLower
 import app.seguridad.tools.SHARE_SHORT
 import app.seguridad.tools.SHARE_WARNING_SHORT
-import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
-import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 import app.seguridad.tools.slip39.GroupForm
 import app.seguridad.tools.slip39.SHARE_ADD_GROUP
 import app.seguridad.tools.slip39.SHARE_BUSY
@@ -295,13 +293,11 @@ fun SecretShareScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
         }
         if (vm.wordsFailed) Text(SHARE_WORDS_MISSING, color = NegativeColor)
         if (vm.combineMode) CombineForm(context, vm) else SplitForm(context, vm)
-        Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        // 1.4.2 (texto mínimo): the explanations, folded.
-        MoreInfo {
+        // 1.4.2 (texto mínimo): the short line, and the explanations and every case of the note folded.
+        AwayNote {
             Text(SHARE_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(SHARE_NOT_PROTECTED_TITLE, style = MaterialTheme.typography.titleSmall)
             Text(SHARE_NOT_PROTECTED)
-            Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

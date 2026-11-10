@@ -192,7 +192,7 @@ internal fun addLoginTotp(totp: String, title: String, folders: List<String>, ou
     when {
         t.startsWith("otpauth://", ignoreCase = true) -> out.addOtpAuth(t, title, folders, ofLogin = true)
         t.startsWith(BITWARDEN_STEAM_PREFIX, ignoreCase = true) -> out.skip(title, SkipReason.NOT_TOTP)
-        t.length > OTPAUTH_MAX_CHARS -> out.skip(title, SkipReason.FIELD_TOO_LONG)
+        t.length > OTPAUTH_MAX_CHARS -> out.skip(title, SkipReason.LOGIN_TOTP_BROKEN) // F-6: the login enters.
         else -> out.addTotp(t, issuer = "", account = "", algorithm = null, digits = null, period = null, title = title, folders = folders, ofLogin = true)
     }
 }

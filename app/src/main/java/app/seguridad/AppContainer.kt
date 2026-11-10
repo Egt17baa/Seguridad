@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -316,6 +317,14 @@ class AppContainer(
     val clipboardNotice = ClipboardNoticeRequest(lockEpoch = { vault.lockEpoch }).also { notice ->
         appScope.launch {
             vault.state.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) notice.drop() }
+        }
+    }
+
+    init {
+        // 1.4.2: the picker places kept only in memory go at every lock and unlock (PickerPlace.kept). Here, after
+        // [vault] exists. Like [clipboardNotice], a lock and unlock quicker than this collector may be seen as none.
+        appScope.launch {
+            vault.state.map { it is VaultState.Unlocked }.distinctUntilChanged().drop(1).collect { pickerPlaces.forgetSession() }
         }
     }
 

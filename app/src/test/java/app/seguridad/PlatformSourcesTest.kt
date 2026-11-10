@@ -57,6 +57,8 @@ class PlatformSourcesTest {
         assertTrue("OpenDocumentTree(), place = null" in settings && "picker.launchOrError(folderStart(folder))" in settings)
         val vault = code("ui/screens/VaultScreen.kt")
         assertTrue(vault.indexOf("pickerPlaces(context)?.forgetAll()") in 0 until vault.indexOf("store.destroy()"))
+        // The places kept only in memory go at every lock and unlock (code review of 1.4.2).
+        assertTrue(".drop(1).collect { pickerPlaces.forgetSession() }" in code("AppContainer.kt"))
     }
 
     /**
@@ -68,6 +70,10 @@ class PlatformSourcesTest {
         val show = src.indexOf("snackbar.showSnackbar(message)")
         val seen = src.indexOf("BiometricVault.interruptionShown(message)")
         assertTrue(show >= 0 && seen > show)
+        // Code review of 1.4.2: cancelled by leaving the list it still counts as seen, but not by a re-creation.
+        val fin = src.indexOf("} finally {", show)
+        assertTrue(fin in show until seen)
+        assertTrue("if (activity?.isChangingConfigurations != true) BiometricVault.interruptionShown(message)" in src)
     }
 
     /**
@@ -161,11 +167,19 @@ class PlatformSourcesTest {
         assertTrue(Regex("""QrInspectScreen\([^)]*awayInOtherApp""").containsMatchIn(code("ui/AppNavHost.kt")))
     }
 
+    /** COV1-1, one place (code review of 1.4.2): the tools that wipe what was typed say it with [AwayNote], every case folded. */
+    @Test fun `the away note says the short line and folds every case`() {
+        val src = code("ui/screens/MoreInfo.kt").substringAfter("internal fun AwayNote(")
+        assertTrue("Text(TOOLS_AWAY_WIPE_SHORT" in src.substringBefore("MoreInfo {"))
+        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src.substringAfter("MoreInfo {"))
+        assertEquals(3, Regex("""AwayNote\(\)""").findAll(code("ui/screens/SecurityToolsScreen.kt")).count())
+    }
+
     @Test fun `F6 M1 every text field of the three tools counts as use of the screen`() {
         val src = code("ui/screens/SecurityToolsScreen.kt")
         val parts = listOf(
             src.substringAfter("private fun SecretInput(").substringBefore("private fun hasSecret("),
-            src.substringAfter("fun TextCryptoScreen(").substringBefore("private fun AwayNote("),
+            src.substringAfter("fun TextCryptoScreen(").substringBefore("private fun SeedHelper("),
             src.substringAfter("fun BreachScreen("),
         )
         var fields = 0
@@ -229,7 +243,7 @@ class PlatformSourcesTest {
         // Important 1: the guard of «Cifrar texto» (vault lock, other app, time away) and its note.
         assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
         assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(HASH_LAB_TITLE, onBack, s.guard)" in src)
-        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("AwayNote {" in src && "session.guard.typed()" in src)
         assertTrue("HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
         // The over-limit note sits under each field, the algorithm change never re-reads a file, and progress is the last run's.
         assertEquals(6, Regex("""TooLongNote\(""").findAll(src).count()) // the definition and one note per field
@@ -247,7 +261,7 @@ class PlatformSourcesTest {
         // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
         assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
         assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(CLASSIC_TITLE, onBack, s.guard)" in src)
-        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("AwayNote {" in src && "session.guard.typed()" in src)
         assertTrue("ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
         // Every field is bounded, and every copy goes through the clearing helper.
         assertTrue("MAX_CLASSIC_CHARS" in src && "MAX_CLASSIC_KEY_CHARS" in src && "vm.limited(" in src)
@@ -275,7 +289,7 @@ class PlatformSourcesTest {
         // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
         assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
         assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(SHARE_TITLE, onBack, s.guard)" in src)
-        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src)
+        assertTrue("AwayNote {" in src && "session.guard.typed()" in src)
         assertTrue("SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
         assertTrue("composable(\"tools/share-secret\")" in code("ui/AppNavHost.kt"))
         assertTrue("Tool(\"tools/share-secret\", \"🧩\", SHARE_TITLE, SHARE_SUBTITLE)" in code("ui/screens/ToolsScreen.kt"))
@@ -331,7 +345,7 @@ class PlatformSourcesTest {
         // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
         assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
         assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(BACKUP_CHECK_TITLE, onBack, s.guard)" in src)
-        assertTrue("Text(TOOLS_AWAY_WIPE_NOTE" in src && "session.guard.typed()" in src && "Text(BACKUP_CHECK_STOPS_NOTE" in src)
+        assertTrue("AwayNote {" in src && "session.guard.typed()" in src && "Text(BACKUP_CHECK_STOPS_NOTE" in src)
         // What the check does not prove, always on screen.
         assertTrue("Text(BACKUP_CHECK_NOT_PROVEN," in src)
         // The password leaves the field as a CharArray the run owns and zeroes (BackupCheckSessionTest).

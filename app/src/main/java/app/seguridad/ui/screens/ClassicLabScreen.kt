@@ -28,8 +28,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.copySensitive
 import app.seguridad.tools.ENIGMA_SHORT
-import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
-import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 import app.seguridad.tools.classic.ANALYSIS_FREQUENCIES
 import app.seguridad.tools.classic.ANALYSIS_INTRO
 import app.seguridad.tools.classic.ANALYSIS_IN_BETWEEN
@@ -214,13 +212,11 @@ fun ClassicLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp:
             ClassicTab.ENIGMA -> EnigmaTab(context, vm)
             ClassicTab.ANALYSIS -> AnalysisTab(vm)
         }
-        Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        // 1.4.2 (texto mínimo): the explanations, folded.
-        MoreInfo {
+        // 1.4.2 (texto mínimo): the short line, and the explanations and every case of the note folded.
+        AwayNote {
             Text(CLASSIC_LETTERS_ONLY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(ENIGMA_INTRO, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(ENIGMA_LETTERS_ONLY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

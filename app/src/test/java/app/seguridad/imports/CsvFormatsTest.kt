@@ -164,7 +164,7 @@ class CsvFormatsTest {
         assertEquals(
             listOf(
                 SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.TOTP_UNSUPPORTED,
-                SkipReason.TOTP_UNSUPPORTED, SkipReason.FIELD_TOO_LONG, SkipReason.LOGIN_TOTP_BROKEN,
+                SkipReason.TOTP_UNSUPPORTED, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN,
             ),
             read.skipped.map { it.reason },
         )

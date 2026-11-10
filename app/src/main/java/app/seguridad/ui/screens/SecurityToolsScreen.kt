@@ -88,8 +88,6 @@ import app.seguridad.crypto.strength
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.tools.BREACH_SHORT
 import app.seguridad.tools.GENERATOR_EFF_SHORT
-import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
-import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 import app.seguridad.tools.cipher.BreachSession
 import app.seguridad.tools.cipher.FileCryptoSession
 import app.seguridad.tools.cipher.PendingCopy
@@ -497,14 +495,6 @@ fun TextCryptoScreen(kdf: KdfParams, store: VaultStore, lockAfterMs: () -> Long,
         }
         AwayNote()
     }
-}
-
-/** COV1-1: what this screen keeps, and for how long, said under it. */
-@Composable
-private fun AwayNote() {
-    Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    // 1.4.2 (texto mínimo): every case, folded.
-    MoreInfo { Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
 /** Word count, BIP-39 checksum, misspelled words with a one-tap fix, and completions for the word being typed. */

@@ -247,8 +247,9 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
      * of CRY-B02), so a setting Clavero does not calculate is refused, never changed. Otherwise a [Skipped]:
      * [SkipReason.TOTP_UNSUPPORTED] for such settings, [SkipReason.NOT_TOTP] for another otpauth kind (HOTP),
      * [SkipReason.FIELD_TOO_LONG] past [OTPAUTH_MAX_CHARS] or when the link's issuer or account would be cut
-     * ([OtpAuthRead.Usable.namesCut]: a field is never imported cut), and [SkipReason.BROKEN] for anything else, or
-     * [SkipReason.LOGIN_TOTP_BROKEN] when [ofLogin] (the 2FA of a login, which enters without it).
+     * ([OtpAuthRead.Usable.namesCut]: a field is never imported cut), and [SkipReason.BROKEN] for anything else. When
+     * [ofLogin] (the 2FA of a login, which enters without it), the too long and the broken are both
+     * [SkipReason.LOGIN_TOTP_BROKEN], so the row never reads as if the whole login stayed out (F-6).
      * [notes] and [favorite] are those of the element the code comes from (an Aegis entry), as read.
      */
     fun addOtpAuth(
@@ -259,11 +260,12 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
         favorite: Boolean = false,
         ofLogin: Boolean = false,
     ) {
-        if (link.length > OTPAUTH_MAX_CHARS) return skip(title, SkipReason.FIELD_TOO_LONG)
+        val tooLong = if (ofLogin) SkipReason.LOGIN_TOTP_BROKEN else SkipReason.FIELD_TOO_LONG
+        if (link.length > OTPAUTH_MAX_CHARS) return skip(title, tooLong)
         when (val r = readOtpAuth(link)) {
             is OtpAuthRead.Usable ->
                 if (r.namesCut) {
-                    skip(title, SkipReason.FIELD_TOO_LONG)
+                    skip(title, tooLong)
                 } else if (r.secret.isSupported()) {
                     add(importedEntry(EntryType.TOTP, title, notes = notes, totp = r.secret, favorite = favorite), folders)
                 } else {
@@ -288,7 +290,8 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
      * an issuer of it. A null setting is missing and takes the default; a present one is written as given (an empty
      * [algorithm] or a [NOT_A_WHOLE_NUMBER] setting is refused by [readOtpAuth], never changed). Parts too long for a
      * link go to [SkipReason.FIELD_TOO_LONG] before the link is built, and so do an issuer or an account that the code
-     * would keep cut ([otpNameFits]). The encoding is the one [readOtpAuth] reads ([otpEncode]).
+     * would keep cut ([otpNameFits]), or to [SkipReason.LOGIN_TOTP_BROKEN] when [ofLogin], as in [addOtpAuth]. The
+     * encoding is the one [readOtpAuth] reads ([otpEncode]).
      */
     fun addTotp(
         secret: String,
@@ -306,7 +309,7 @@ internal class ImportReadBuilder(private val format: ImportFormat) {
         if (secret.length.toLong() + issuer.length + account.length + (algorithm?.length ?: 0) > OTPAUTH_MAX_CHARS ||
             !otpNameFits(issuer) || !otpNameFits(account)
         ) {
-            return skip(title, SkipReason.FIELD_TOO_LONG)
+            return skip(title, if (ofLogin) SkipReason.LOGIN_TOTP_BROKEN else SkipReason.FIELD_TOO_LONG)
         }
         val link = buildString {
             append("otpauth://totp/:").append(otpEncode(account)).append("?secret=").append(otpEncode(secret))

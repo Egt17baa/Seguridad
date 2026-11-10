@@ -4,9 +4,14 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 1.4.2, the owner's request: each file picker of the app, the system's, opens where that picker was used last, not
- * where any picker left it. [kept] says whether the place stays after the app closes: «Importar de otra app» is kept
- * only while the app runs, because the file there is usually an unencrypted export and where it was is not written
- * down. The folder of the automatic copies has no place here: its picker opens on the folder chosen (Settings).
+ * where any picker left it. [kept] says whether the place stays after the app closes. A place is kept only when its
+ * document is a Clavero copy, an encrypted file or a cleaned output, whose name says nothing that is not already on
+ * disk. The others are kept only in memory, and forgotten at every lock and unlock of the vault
+ * ([PickerPlaces.forgetSession]): the plaintext a tool reads (a file to encrypt, sign or hash for a contact, a photo to
+ * clean or redact, a QR image, an unencrypted export) and what Clavero writes out of the vault or of a decryption (an
+ * attachment, a decrypted file). Their document URI holds the file name, and names that were only inside the vault
+ * must not stay outside it in plain text (code review of 1.4.2). The folder of the automatic copies has no place here:
+ * its picker opens on the folder chosen (Settings).
  */
 enum class PickerPlace(val kept: Boolean = true) {
     EXPORT_COPY,
@@ -15,24 +20,24 @@ enum class PickerPlace(val kept: Boolean = true) {
     IMPORT_COPY_BEFORE,
     BACKUP_CHECK,
     HASH_FILE,
-    QR_IMAGE,
-    PHOTO_OPEN,
+    QR_IMAGE(kept = false),
+    PHOTO_OPEN(kept = false),
     PHOTO_SAVE,
-    REDACT_OPEN,
+    REDACT_OPEN(kept = false),
     REDACT_SAVE,
     TEXT_OPEN,
     TEXT_SAVE,
-    FILE_OPEN,
+    FILE_OPEN(kept = false),
     FILE_ENCRYPTED_SAVE,
-    FILE_DECRYPTED_SAVE,
-    ENCRYPT_FOR_OPEN,
+    FILE_DECRYPTED_SAVE(kept = false),
+    ENCRYPT_FOR_OPEN(kept = false),
     ENCRYPT_FOR_SAVE,
-    SIGN_OPEN,
+    SIGN_OPEN(kept = false),
     SIGN_SAVE,
     RECEIVED_OPEN,
-    RECEIVED_SAVE,
-    ATTACHMENT_ADD,
-    ATTACHMENT_SAVE,
+    RECEIVED_SAVE(kept = false),
+    ATTACHMENT_ADD(kept = false),
+    ATTACHMENT_SAVE(kept = false),
 }
 
 /** Where the kept places are written (the app's private preferences, never in a backup: backup_rules.xml). */
@@ -72,6 +77,12 @@ class PickerPlaces(private val kept: PlaceStore, private val packageName: String
         if (!acceptable(uri)) return
         if (place.kept) runCatching { kept.put(place.name, uri) } else session[place] = uri
     }
+
+    /**
+     * At every lock and unlock of the vault (AppContainer): the places kept only in memory. A document picked while the
+     * vault was locked, which the screen ignores, is forgotten when it opens.
+     */
+    fun forgetSession() = session.clear()
 
     /** With the vault: every place, kept or not. */
     fun forgetAll() {

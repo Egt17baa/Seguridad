@@ -1,5 +1,6 @@
 package app.seguridad.imports
 
+import app.seguridad.crypto.OTPAUTH_MAX_CHARS
 import app.seguridad.vault.EntryType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -96,10 +97,15 @@ class BitwardenJsonTest {
             """{"type":1,"name":"Juego","login":{"username":"a","password":"p","totp":"steam://JBSWY3DPEHPK3PXP"}}""",
             """{"type":1,"name":"Viejo","login":{"username":"a","password":"p","totp":"otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP&counter=1"}}""",
             """{"type":1,"name":"Roto","login":{"username":"a","password":"p","totp":"no es base32 !"}}""",
+            """{"type":1,"name":"Largo","login":{"username":"a","password":"p","totp":"${"A".repeat(OTPAUTH_MAX_CHARS + 1)}"}}""",
+            """{"type":1,"name":"Enlace largo","login":{"username":"a","password":"p","totp":"otpauth://totp/${"x".repeat(OTPAUTH_MAX_CHARS)}?secret=JBSWY3DPEHPK3PXP"}}""",
         ))
-        assertEquals(listOf("Juego", "Viejo", "Roto"), entries(read2).map { it.title })
-        // A 2FA that is not read says the login entered (1.4.2, the owner's phone test).
-        assertEquals(listOf(SkipReason.NOT_TOTP, SkipReason.NOT_TOTP, SkipReason.LOGIN_TOTP_BROKEN), read2.skipped.map { it.reason })
+        assertEquals(listOf("Juego", "Viejo", "Roto", "Largo", "Enlace largo"), entries(read2).map { it.title })
+        // A 2FA that is not read, or is too long, says the login entered (1.4.2, F-6, and the code review).
+        assertEquals(
+            listOf(SkipReason.NOT_TOTP, SkipReason.NOT_TOTP, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN, SkipReason.LOGIN_TOTP_BROKEN),
+            read2.skipped.map { it.reason },
+        )
     }
 
     @Test fun secureNoteIsANote() {

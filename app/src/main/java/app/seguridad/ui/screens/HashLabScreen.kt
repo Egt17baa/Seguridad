@@ -40,8 +40,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.copySensitive
 import app.seguridad.core.PickerPlace
 import app.seguridad.crypto.hexLower
-import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
-import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 import app.seguridad.tools.cipher.FileHashSession
 import app.seguridad.tools.hashlab.HASH_LAB_ALGO_CHANGED
 import app.seguridad.tools.hashlab.HASH_LAB_CANCEL
@@ -390,14 +388,12 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
                 }
             }
         }
-        Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        // 1.4.2 (texto mínimo): what the screen said before, folded.
-        MoreInfo {
+        // 1.4.2 (texto mínimo): the short line, and the explanations and every case of the note folded.
+        AwayNote {
             Text(HASH_LAB_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(HASH_LAB_HMAC_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(HASH_LAB_NOT_PROTECTED_TITLE, style = MaterialTheme.typography.labelMedium)
             Text(HASH_LAB_NOT_PROTECTED, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

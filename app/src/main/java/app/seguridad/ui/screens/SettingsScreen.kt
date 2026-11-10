@@ -61,6 +61,8 @@ import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
 import app.seguridad.tools.AUTO_BACKUP_SHORT
 import app.seguridad.tools.CLIPBOARD_CLEAR_HINT
+import app.seguridad.tools.KDF_HIGH_SHORT
+import app.seguridad.tools.KDF_HIGH_UNAVAILABLE
 import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.KeyLevel
 import app.seguridad.tools.LOCK_ON_EXIT_HINT
@@ -457,12 +459,14 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                     if (settingsEditable(vault.state.value)) change { it.copy(kdf = v) }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+                // On view: what the high cost means, and why its chip is off (code review of 1.4.2).
+                Hint(KDF_HIGH_SHORT)
+                if (!highAvailable) Hint(KDF_HIGH_UNAVAILABLE)
                 MoreInfo {
                         Hint(
                             "Se usa al crear la bóveda, al cambiar la contraseña maestra y al cifrar textos y archivos. Lo ya cifrado guarda su coste. " +
                                 "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria: muchos móviles " +
-                                "económicos no llegan, así que úsalo solo si vas a abrir tus copias en móviles como este." +
-                                if (highAvailable) "" else " Este móvil no da a la app memoria suficiente para cifrar con el coste alto.",
+                                "económicos no llegan, así que úsalo solo si vas a abrir tus copias en móviles como este.",
                         )
                 }
             }

@@ -8,8 +8,8 @@ import org.junit.Test
 
 /**
  * 1.4.2, the owner's request: each file picker of the app opens where it was used last, not where any other picker of
- * the app (or another app) left the system's. Kept on the phone only; «Importar de otra app» only while the app runs
- * (an exported file is usually unencrypted, so where it was is not written down); all forgotten with the vault.
+ * the app (or another app) left the system's. Kept on the phone only; the private places (PickerPlace.kept) only in
+ * memory until the next lock or unlock; all forgotten with the vault.
  */
 class PickerPlacesTest {
     private class Memory : PlaceStore {
@@ -43,6 +43,25 @@ class PickerPlacesTest {
         assertEquals(doc, p.initial(PickerPlace.IMPORT_OTHER))
         assertTrue(kept.map.isEmpty())
         assertNull(PickerPlaces(kept).initial(PickerPlace.IMPORT_OTHER))
+    }
+
+    /**
+     * Code review of 1.4.2: a place whose document is plaintext a tool reads, or what Clavero writes out of the vault or
+     * of a decryption, is never written down (its URI holds the file name), and goes at every lock and unlock.
+     */
+    @Test fun privatePlacesAreOnlyInMemoryAndGoWithEveryLock() {
+        val inMemory = setOf(
+            PickerPlace.IMPORT_OTHER, PickerPlace.QR_IMAGE, PickerPlace.PHOTO_OPEN, PickerPlace.REDACT_OPEN,
+            PickerPlace.FILE_OPEN, PickerPlace.FILE_DECRYPTED_SAVE, PickerPlace.ENCRYPT_FOR_OPEN, PickerPlace.SIGN_OPEN,
+            PickerPlace.RECEIVED_SAVE, PickerPlace.ATTACHMENT_ADD, PickerPlace.ATTACHMENT_SAVE,
+        )
+        assertEquals(inMemory, PickerPlace.entries.filterNot { it.kept }.toSet())
+        val kept = Memory()
+        val p = PickerPlaces(kept)
+        PickerPlace.entries.forEach { p.remember(it, doc) }
+        assertEquals(PickerPlace.entries.filter { it.kept }.map { it.name }.toSet(), kept.map.keys)
+        p.forgetSession()
+        PickerPlace.entries.forEach { assertEquals(it.name, if (it.kept) doc else null, p.initial(it)) }
     }
 
     @Test fun forgetAllDropsEveryPlace() {

@@ -621,10 +621,6 @@ const val DONT_SEND_FILE_NAME = "No enviar el nombre"
 /** A16a, when opening something signed with a key that [count] contacts (more than one) keep. The design's text, with a final period. */
 fun sameKeyContactsText(count: Int): String = "Esta clave está guardada en $count contactos."
 
-/**
- * COV1-1 (audit 1.3.0), under «Cifrar texto», «Cifrar archivos» and «¿Contraseña filtrada?»: what was typed there (the
- * text, the password or the key) and the result go by the «PIN y códigos» rule (tools/codes/ScreenGuard.kt).
- */
 // ---- 1.4.2: texto mínimo (petición del dueño) ----
 // Each screen shows a line or two; the explanations it had before stay as they were, folded in «Más información».
 
@@ -638,7 +634,7 @@ const val TOOLS_ABOUT_SHORT =
     "Todo se hace en tu móvil. Solo «¿Filtrada?» y «Comprobar filtraciones» usan internet, y envían 5 caracteres de la huella."
 
 /** The line on view next to [TOOLS_AWAY_WIPE_NOTE], which says every case. */
-const val TOOLS_AWAY_WIPE_SHORT = "Se borra al volver atrás o al bloquear la bóveda."
+const val TOOLS_AWAY_WIPE_SHORT = "Se borra al volver atrás, al cerrar la app, al bloquear la bóveda o si estás fuera más que el bloqueo."
 
 const val RECOVERY_CODES_SHORT = "Diez códigos al azar para guardar en la bóveda o impresos."
 const val ANSWERS_SHORT =
@@ -647,7 +643,8 @@ const val CODES_UNLOCK_TO_SAVE_SHORT = "Desbloquea la bóveda para guardarlo. Si
 const val ENIGMA_SHORT = "Enigma I y M3 con sus cableados históricos."
 const val BACKUP_CHECK_SHORT =
     "Comprueba que una copia .sgbak se abre con su contraseña y que sus adjuntos coinciden, sin importarla."
-const val PHOTO_SHORT = "Quita de la foto la ubicación, el modelo del móvil y otros datos ocultos. No cambia lo que se ve."
+const val PHOTO_SHORT =
+    "Quita de la foto la ubicación, el modelo del móvil y otros datos ocultos. No cambia lo que se ve: una cara o una matrícula pueden delatarte igual."
 const val ENCRYPT_HELP_SHORT = "Solo podrá leerlo quien tenga la identidad del contacto."
 const val QR_SHORT = "Enseña lo que hay en un QR sin abrir nada."
 const val REDACT_SHORT = "Tapa con bloques negros lo que no quieras que se vea."
@@ -661,7 +658,7 @@ const val IMPORT_SHORT =
 
 /** N-1 and R33: on every step, and «suele», as the full text ([app.seguridad.imports.IMPORT_NOT_PROTECTED]). */
 const val IMPORT_NOT_PROTECTED_SHORT = "Un archivo exportado sin contraseña suele estar sin cifrar en tu móvil."
-const val IMPORT_WIPE_SHORT = "Lo leído se borra al volver atrás o al bloquear la bóveda."
+const val IMPORT_WIPE_SHORT = "Lo leído se borra al volver atrás, al cerrar la app, al bloquear la bóveda o si estás fuera más que el bloqueo."
 const val IMPORT_CONFIRM_SHORT = "Antes de guardar, Clavero hace una copia cifrada de la bóveda."
 const val IMPORT_REMOVE_SHORT = "El archivo importado sigue en tu móvil, sin cifrar si lo exportaste sin contraseña."
 const val VAULT_CREATE_SHORT =
@@ -672,6 +669,20 @@ const val ABOUT_WARNINGS_SHORT = "Sin auditoría independiente, sin recuperació
 const val NOTICE_NO_RECOVERY_SHORT = "Si olvidas la contraseña maestra, nadie puede recuperar lo guardado."
 const val NOTICE_NO_AUDIT_SHORT = "La app no ha pasado una auditoría de seguridad independiente."
 
+/** Ajustes, «Coste de Argon2id»: on view, because it matters before choosing the high cost (code review of 1.4.2). */
+const val KDF_HIGH_SHORT = "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria."
+
+/** Ajustes, on view when this phone cannot use the high cost: why its chip is off. */
+const val KDF_HIGH_UNAVAILABLE = "Este móvil no da a la app memoria suficiente para cifrar con el coste alto."
+
+/** Importar, under the duplicates: on view, as it is what «Reemplazar» loses ([app.seguridad.imports.IMPORT_REPLACE_NOTE], R58). */
+const val IMPORT_REPLACE_SHORT =
+    "«Reemplazar» cambia también el 2FA de la bóveda por el del archivo: el anterior solo queda en la copia de antes de importar."
+
+/**
+ * COV1-1 (audit 1.3.0), under «Cifrar texto», «Cifrar archivos» and «¿Contraseña filtrada?»: what was typed there (the
+ * text, the password or the key) and the result go by the «PIN y códigos» rule (tools/codes/ScreenGuard.kt).
+ */
 const val TOOLS_AWAY_WIPE_NOTE =
     "Lo que escribes aquí y el resultado se borran si vuelves atrás, si se cierra la app, si bloqueas la bóveda o si " +
         "estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo)."
@@ -758,6 +769,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     ENCRYPT_HELP_SHORT, QR_SHORT, REDACT_SHORT, REDACT_LIMITS_SHORT, SHARE_SHORT, SHARE_WARNING_SHORT, GENERATOR_EFF_SHORT,
     BREACH_SHORT, IMPORT_SHORT, IMPORT_NOT_PROTECTED_SHORT, IMPORT_WIPE_SHORT, IMPORT_CONFIRM_SHORT, IMPORT_REMOVE_SHORT,
     VAULT_CREATE_SHORT, IDENTITY_SHORT, AUTO_BACKUP_SHORT, ABOUT_WARNINGS_SHORT, NOTICE_NO_RECOVERY_SHORT, NOTICE_NO_AUDIT_SHORT,
+    KDF_HIGH_SHORT, KDF_HIGH_UNAVAILABLE, IMPORT_REPLACE_SHORT,
     // Audit 1.3.0, F7 (LIBRE-2 + COV1-3).
     NOTICE_INTRO, ABOUT_SUMMARY, VAULT_CREATE_INTRO,
     // Owner's decision, 31-10-2026: the notice of the new name.

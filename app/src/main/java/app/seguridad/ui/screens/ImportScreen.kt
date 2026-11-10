@@ -131,10 +131,12 @@ import app.seguridad.imports.readImport
 import app.seguridad.tools.IMPORT_CONFIRM_SHORT
 import app.seguridad.tools.IMPORT_NOT_PROTECTED_SHORT
 import app.seguridad.tools.IMPORT_REMOVE_SHORT
+import app.seguridad.tools.IMPORT_REPLACE_SHORT
 import app.seguridad.tools.IMPORT_SHORT
 import app.seguridad.tools.IMPORT_WIPE_SHORT
 import app.seguridad.tools.SingleRun
 import app.seguridad.ui.theme.BackScaffold
+import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
@@ -621,6 +623,8 @@ private fun LazyListScope.preview(vm: ImportViewModel, launchPick: () -> Unit) {
                 Heading(importDuplicatesText(plan.duplicates.size))
                 Text(IMPORT_DUPLICATES_ALL)
                 Choices(s.default, vm::chooseAll)
+                // What «Reemplazar» loses stays on view; the full rule is folded (code review of 1.4.2).
+                Text(IMPORT_REPLACE_SHORT, style = MaterialTheme.typography.bodySmall, color = CautionColor)
                 MoreInfo { Text(IMPORT_REPLACE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }

@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.clickable
@@ -163,8 +164,13 @@ fun VaultScreen(
     interrupted?.let { message ->
         LaunchedEffect(message) {
             // Seen once shown (F-5): another re-creation while it is on screen cancels this, and the next one shows it.
-            snackbar.showSnackbar(message)
-            BiometricVault.interruptionShown(message)
+            // Leaving the list or locking while it is on screen also cancels it: that counts as seen (code review of 1.4.2).
+            try {
+                snackbar.showSnackbar(message)
+            } finally {
+                val activity = generateSequence(context) { (it as? ContextWrapper)?.baseContext }.filterIsInstance<Activity>().firstOrNull()
+                if (activity?.isChangingConfigurations != true) BiometricVault.interruptionShown(message)
+            }
         }
     }
 
