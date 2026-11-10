@@ -27,9 +27,9 @@ class PickerPlacesTest {
         val kept = Memory()
         val p = PickerPlaces(kept)
         p.remember(PickerPlace.EXPORT_COPY, doc)
-        p.remember(PickerPlace.HASH_FILE, "content://otra.app/document/1")
+        p.remember(PickerPlace.BACKUP_CHECK, "content://otra.app/document/1")
         assertEquals(doc, p.initial(PickerPlace.EXPORT_COPY))
-        assertEquals("content://otra.app/document/1", p.initial(PickerPlace.HASH_FILE))
+        assertEquals("content://otra.app/document/1", p.initial(PickerPlace.BACKUP_CHECK))
         assertNull(p.initial(PickerPlace.IMPORT_COPY))
         // Kept across a restart of the app: a new PickerPlaces over the same store.
         assertEquals(doc, PickerPlaces(kept).initial(PickerPlace.EXPORT_COPY))
@@ -51,7 +51,7 @@ class PickerPlacesTest {
      */
     @Test fun privatePlacesAreOnlyInMemoryAndGoWithEveryLock() {
         val inMemory = setOf(
-            PickerPlace.IMPORT_OTHER, PickerPlace.QR_IMAGE, PickerPlace.PHOTO_OPEN, PickerPlace.REDACT_OPEN,
+            PickerPlace.IMPORT_OTHER, PickerPlace.HASH_FILE, PickerPlace.TEXT_OPEN, PickerPlace.QR_IMAGE, PickerPlace.PHOTO_OPEN, PickerPlace.REDACT_OPEN,
             PickerPlace.FILE_OPEN, PickerPlace.FILE_DECRYPTED_SAVE, PickerPlace.ENCRYPT_FOR_OPEN, PickerPlace.SIGN_OPEN,
             PickerPlace.RECEIVED_SAVE, PickerPlace.ATTACHMENT_ADD, PickerPlace.ATTACHMENT_SAVE,
         )

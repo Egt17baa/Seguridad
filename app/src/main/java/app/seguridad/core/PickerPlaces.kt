@@ -7,8 +7,8 @@ import java.util.concurrent.ConcurrentHashMap
  * where any picker left it. [kept] says whether the place stays after the app closes. A place is kept only when its
  * document is a Clavero copy, an encrypted file or a cleaned output, whose name says nothing that is not already on
  * disk. The others are kept only in memory, and forgotten at every lock and unlock of the vault
- * ([PickerPlaces.forgetSession]): the plaintext a tool reads (a file to encrypt, sign or hash for a contact, a photo to
- * clean or redact, a QR image, an unencrypted export) and what Clavero writes out of the vault or of a decryption (an
+ * ([PickerPlaces.forgetSession]): what a tool reads that may be plaintext (a file to encrypt, sign, hash or encrypt for a
+ * contact, a text file to open, a photo to clean or redact, a QR image, an unencrypted export) and what Clavero writes out of the vault or of a decryption (an
  * attachment, a decrypted file). Their document URI holds the file name, and names that were only inside the vault
  * must not stay outside it in plain text (code review of 1.4.2). The folder of the automatic copies has no place here:
  * its picker opens on the folder chosen (Settings).
@@ -19,13 +19,13 @@ enum class PickerPlace(val kept: Boolean = true) {
     IMPORT_OTHER(kept = false),
     IMPORT_COPY_BEFORE,
     BACKUP_CHECK,
-    HASH_FILE,
+    HASH_FILE(kept = false),
     QR_IMAGE(kept = false),
     PHOTO_OPEN(kept = false),
     PHOTO_SAVE,
     REDACT_OPEN(kept = false),
     REDACT_SAVE,
-    TEXT_OPEN,
+    TEXT_OPEN(kept = false),
     TEXT_SAVE,
     FILE_OPEN(kept = false),
     FILE_ENCRYPTED_SAVE,
