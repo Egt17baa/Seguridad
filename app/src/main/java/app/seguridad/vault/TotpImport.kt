@@ -2,12 +2,13 @@ package app.seguridad.vault
 
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.base32Decode
+import app.seguridad.crypto.hexLower
 
 /**
  * The key a code is compared by: its decoded bytes as hex, so spacing, dashes and case do not matter. Null when it does
  * not decode. The one rule for duplicates of a code, here and in «Importar de otra app» (`imports/MergePlan.kt`).
  */
-internal fun totpKeyOf(secret: String): String? = base32Decode(secret)?.let { b -> b.joinToString("") { "%02x".format(it) }.also { b.fill(0) } }
+internal fun totpKeyOf(secret: String): String? = base32Decode(secret)?.let { b -> hexLower(b).also { b.fill(0) } }
 
 /**
  * New TOTP entries for imported codes (Google Authenticator), leaving out any whose key is already in the vault or

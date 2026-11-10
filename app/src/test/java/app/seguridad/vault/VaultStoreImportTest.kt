@@ -114,6 +114,25 @@ class VaultStoreImportTest {
         assertTrue(s.applyImport(p, DuplicateChoice.SKIP, emptyMap()) is ApplyResult.Done)
     }
 
+    /**
+     * Ruling R66 (code-review 1, R37): the screen records [VaultStore.lockEpoch] when saving starts; a lock after that
+     * (during the copy before importing) cancels the import, even if the vault is opened again before the save.
+     */
+    @Test fun aLockSinceSavingStartedMakesTheImportStale() = runTest {
+        val s = opened()
+        val p = plan(s)
+        val since = s.lockEpoch
+        s.lock()
+        s.unlock("maestra".toCharArray())
+        val bytes = vaultFile.readBytes()
+        val revision = s.revision.value
+        assertEquals(ApplyResult.Stale, s.applyImport(p, DuplicateChoice.KEEP_BOTH, emptyMap(), sinceLock = since))
+        assertArrayEquals(bytes, vaultFile.readBytes())
+        assertEquals(revision, s.revision.value)
+        // With no lock since, it saves.
+        assertTrue(s.applyImport(plan(s), DuplicateChoice.KEEP_BOTH, emptyMap(), sinceLock = s.lockEpoch) is ApplyResult.Done)
+    }
+
     @Test fun applyIsAllOrNothing() = runTest {
         val s = opened()
         val p = plan(s)

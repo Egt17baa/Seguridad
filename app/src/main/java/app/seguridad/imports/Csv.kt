@@ -28,6 +28,29 @@ fun parseCsv(text: String): List<List<String>> {
     }
 }
 
+/**
+ * One pass over [text] (ruling R68, code-review 8): the delimiter worked out once, the header read once and given to
+ * [kind]; null (nothing more read) if the header cannot be read or [kind] gives null; else what [kind] gave and every
+ * row, the header first, as [parseCsv] gives them. Throws [ImportFailure] past the header, as [parseCsv] does.
+ */
+internal fun <T : Any> parseCsvOf(text: String, kind: (List<String>) -> T?): Pair<T, List<List<String>>>? {
+    val reader = CsvReader(text, csvDelimiter(text))
+    try {
+        val header = try {
+            reader.next()
+        } catch (e: ImportFailure) {
+            null
+        } ?: return null
+        val known = kind(header) ?: return null
+        val rows = ArrayList<List<String>>()
+        rows += header
+        while (true) rows += reader.next() ?: break
+        return known to rows
+    } finally {
+        reader.wipe()
+    }
+}
+
 /** The header row only, or null if it cannot be read: enough to tell the format without reading the rest. */
 internal fun csvHeader(text: String): List<String>? {
     val reader = CsvReader(text, csvDelimiter(text))

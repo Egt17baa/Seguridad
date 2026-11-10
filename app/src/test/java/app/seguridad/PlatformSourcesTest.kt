@@ -512,7 +512,10 @@ class PlatformSourcesTest {
         assertTrue("val snap = store.importSnapshot()" in src && "planMerge(read, it.entries, it.revision)" in src)
         assertEquals(1, Regex("""planMerge\(""").findAll(src).count())
         assertEquals("the revision only from the snapshot", 1, Regex("""\.revision\b""").findAll(src).count())
-        assertTrue("ImportFlow(" in src && "store.applyImport(plan, default, overrides)" in src && "withContext(NonCancellable)" in src)
+        assertTrue("ImportFlow(" in src && "store.applyImport(plan, default, overrides, sinceLock = since)" in src && "withContext(NonCancellable)" in src)
+        // Ruling R66: both saves (confirm and copyTo) record the lock epoch when saving starts and pass it on.
+        assertEquals(2, Regex("""val since = store\.lockEpoch""").findAll(src).count())
+        assertEquals(2, Regex("""applyImport\(plan, default, overrides, sinceLock = since\)""").findAll(src).count())
         assertTrue("copyBeforeImport()" in src)
         // Both pickers as «Importar copia»: the vault stays open while one is on top; the flag goes back if none opened.
         assertTrue(flat, ("VaultLock.keepOpenOnce = true store.touch() pickerError = pick.launchOrError(arrayOf(\"*/*\")) " +

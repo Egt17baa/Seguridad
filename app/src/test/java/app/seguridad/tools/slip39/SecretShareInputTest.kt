@@ -21,6 +21,15 @@ class SecretShareInputTest {
         assertArrayEquals(ByteArray(16), input.secret)
     }
 
+    /** Ruling R68: a phrase drops what draws nothing (the shared list), not only the format characters. */
+    @Test fun aPhraseDropsWhatDrawsNothing() {
+        for (hidden in listOf("\u200B", "\u3164", "\u2800", "\uFE00", "\u034F")) {
+            val input = splitInput((listOf("aban${hidden}don") + zeros12.drop(1)).joinToString(" "), isPhrase = true, bip39)
+            assertNull(hidden, input.error)
+            assertArrayEquals(ByteArray(16), input.secret)
+        }
+    }
+
     @Test fun aWrongPhraseSaysWhy() {
         assertEquals(SHARE_PHRASE_COUNT, splitInput(zeros12.drop(1).joinToString(" "), true, bip39).error)
         assertEquals(sharePhraseUnknown(3), splitInput((zeros12.take(2) + "abandom" + zeros12.drop(3)).joinToString(" "), true, bip39).error)

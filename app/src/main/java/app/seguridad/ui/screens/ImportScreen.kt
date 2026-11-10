@@ -288,7 +288,8 @@ private class ImportViewModel(
      * for it here before it frees the next one. With [pw] the read may derive a key (Argon2id, scrypt or PBKDF2), so it
      * runs under [KdfLock] (ruling R38), one large derivation at a time in the app; without it nothing is derived and it
      * does not wait for an unlock. A result that comes after a cancel, a wipe or another file has an old [run] and is
-     * dropped by [ImportSession.onRead].
+     * dropped by [ImportSession.onRead]. Accepted cost (ruling R69, code-review 4): the whole read, not only the
+     * derivation, holds [KdfLock]; it is bounded (16 MB, a 48 MiB tree), so an unlock that overlaps waits for one parse.
      */
     private suspend fun decode(run: Long, pw: CharArray?, ticket: SingleRun.Ticket?) {
         val result = try {
@@ -326,6 +327,8 @@ private class ImportViewModel(
         val default = session.default
         val overrides = session.overrides
         val run = session.startSaving() ?: return
+        // Ruling R66 (R37): a lock from here on cancels the import, even if the vault is opened again before the save.
+        val since = store.lockEpoch
         viewModelScope.launch {
             val outcome = withContext(NonCancellable) {
                 val auto = try {
@@ -333,7 +336,7 @@ private class ImportViewModel(
                 } catch (e: Exception) {
                     CopyResult.Failed(IMPORT_COPY_FAILED)
                 }
-                auto?.let { copied -> ImportFlow(copy = { copied }, apply = { store.applyImport(plan, default, overrides) }).confirm() }
+                auto?.let { copied -> ImportFlow(copy = { copied }, apply = { store.applyImport(plan, default, overrides, sinceLock = since) }).confirm() }
             }
             if (outcome == null) session.needsCopyPlace(run) else session.onOutcome(run, outcome, inAutoFolder = true)
         }
@@ -349,9 +352,11 @@ private class ImportViewModel(
             viewModelScope.launch { discardDocumentNow(appContext, uri) }
             return
         }
+        // Ruling R66: as in confirm, a lock from here on cancels the import.
+        val since = store.lockEpoch
         viewModelScope.launch {
             val outcome = withContext(NonCancellable) {
-                ImportFlow(copy = { copyToDocument(uri) }, apply = { store.applyImport(plan, default, overrides) }).confirm()
+                ImportFlow(copy = { copyToDocument(uri) }, apply = { store.applyImport(plan, default, overrides, sinceLock = since) }).confirm()
             }
             session.onOutcome(run, outcome, inAutoFolder = false)
         }

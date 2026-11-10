@@ -674,7 +674,9 @@ class VaultStore(
      * in a single write through [modify], all or nothing (the atomic rename of [save]; once the write starts, neither a
      * lock nor leaving the screen cuts it, see [commit]). Inside the mutex, in the same critical section as the write:
      * - [ApplyResult.Stale] when [revision] is no longer the plan's (another change was saved since the preview; owner's
-     *   decision (b)), or the vault is locked;
+     *   decision (b)), or the vault is locked, or [sinceLock] is given and [lockEpoch] is no longer it (ruling R66, R37:
+     *   the screen gives the epoch of when saving started, so a lock during the copy before importing cancels the
+     *   import even if the vault is opened again before this runs; the copy, if made, stays);
      * - [ApplyResult.TooBig] when the vault would no longer fit in a `.sgbak` ([writeBackup]'s limits, owner's decision
      *   (a)): the attachments plus two over [BACKUP_MAX_ENTRIES] (counted first, an import adds none), the JSON bytes of
      *   the entries' texts alone ([escapedTextBytes], counted without building anything) over [BACKUP_MAX_ENTRY_BYTES]
@@ -683,13 +685,17 @@ class VaultStore(
      * Nothing is written in either case. The data key does not change, so the fingerprint stays on (A11 and CRY-A02:
      * no clock reset, as the mark only rises, as with any save; no biometric call). A failed write throws, as [modify] does, with nothing saved. A plan
      * that changes nothing (every item skipped) is [ApplyResult.Done] with zeros and writes nothing.
+     * Accepted cost (ruling R69, code-review 5): the vault is encoded twice under the mutex ([accept]'s exact size check
+     * and the write), bounded by [BACKUP_MAX_ENTRY_BYTES] and only on «Importar».
      */
-    suspend fun applyImport(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>): ApplyResult {
+    suspend fun applyImport(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, sinceLock: Int? = null): ApplyResult {
         var result: ApplyResult = ApplyResult.Stale
         var attachmentRefs: List<AttachmentRef> = emptyList()
         modify(
             change = change@{ list ->
                 if (_revision.value != plan.revision) return@change null
+                // Ruling R66 (R37): a lock since saving started cancels the import, even if the vault was opened again.
+                if (sinceLock != null && epoch != sinceLock) return@change null
                 attachmentRefs = list.flatMap { it.attachments }
                 val overFiles = attachmentRefs.size + 2 - BACKUP_MAX_ENTRIES
                 if (overFiles > 0) {

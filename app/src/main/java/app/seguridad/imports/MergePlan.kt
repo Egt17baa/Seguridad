@@ -79,14 +79,16 @@ sealed interface ApplyResult {
  *   `http://banco.es/` or `javascript://banco.es/` is not a duplicate of `https://banco.es/`. When the file's item has
  *   no URL, title and user are enough; when only the vault's entry has none, they are enough for an item with an https
  *   URL (or one without a scheme, read as https), and an item of any other scheme is a new entry (ruling R48, RT-8);
- * - a `TOTP` matches by its key, the rule of `totpImportEntries` ([totpKeyOf]);
+ * - a `TOTP` matches by its key, the rule of `totpImportEntries` ([totpKeyOf]): the key of any vault entry that carries
+ *   a 2FA, a login's too (ruling R67); «Reemplazar» on such a login changes nothing ([replaceWith] keeps an entry of
+ *   another type);
  * - a `NOTE` matches by its title's key (as a login's) and its text trimmed.
  * Only entries of the same type are compared, so `IDENTITY`, `CONTACT` and `SEED` entries never match. The file is
  * checked against itself first: an item equal to an earlier one is only counted ([MergePlan.repeatedInFile]). Linear
  * in the size of both lists (hash maps, no pairwise comparison).
  */
 fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): MergePlan {
-    val inVault = Matcher<String>()
+    val inVault = Matcher<String>(codesOfEveryType = true)
     for (e in existing) inVault.add(e, e.id)
     val inFile = Matcher<Unit>()
     val newItems = ArrayList<ImportedItem>()
@@ -127,14 +129,19 @@ const val IMPORT_MAX_NEW_TAGS = 100
 /**
  * The tags given to imported items, in the file's order, with at most [max] folder tags created that are not in [had]
  * (the vault's). An item whose new folder tags would pass it keeps its origin tag ([ImportFormat.originTag]) and only
- * the folder tags that are in [had] or already [created]. [created] are the new tags given.
+ * the folder tags that are in [had] or already [created]. [created] are the new tags given. An item for «Reemplazar»
+ * passes the tags of the vault's entry as `onto`: only the ones [replaceWith] can still add (those it lacks, up to
+ * [MAX_TAGS]) are given and counted (ruling R68).
  */
 internal class TagBudget(private val had: Set<String>, private val max: Int = IMPORT_MAX_NEW_TAGS) {
     val created = LinkedHashSet<String>()
     private var createdFolders = 0
 
-    fun tagsFor(folders: List<String>, format: ImportFormat): List<String> {
-        val full = importTags(folders, format)
+    fun tagsFor(folders: List<String>, format: ImportFormat, onto: List<String>? = null): List<String> {
+        // Ruling R68: for «Reemplazar» onto an entry with tags [onto], only those [replaceWith] can still add count.
+        val full = importTags(folders, format).let { all ->
+            if (onto == null) all else all.filter { it !in onto }.take(maxOf(0, MAX_TAGS - onto.size))
+        }
         val origin = format.originTag
         val freshFolders = full.count { it != origin && it !in had && it !in created }
         val tags = if (createdFolders + freshFolders <= max) full else full.filter { it == origin || it in had || it in created }
@@ -214,8 +221,9 @@ fun mergeImport(
         val duplicate = duplicateOf[item.index]
         val choice = if (duplicate == null) DuplicateChoice.KEEP_BOTH else overrides[item.index] ?: default
         if (choice == DuplicateChoice.SKIP) continue
-        // Only what enters spends the budget of new tags, in the file's order.
-        val tags = budget.tagsFor(item.folders, plan.format)
+        // Only what enters spends the budget of new tags, in the file's order; a REPLACE, only what it can add (R68).
+        val onto = if (choice == DuplicateChoice.REPLACE) position[duplicate!!.existingId]?.let { out[it].tags } else null
+        val tags = budget.tagsFor(item.folders, plan.format, onto)
         val tagged = item.entry.copy(tags = tags, passwordHistory = emptyList(), attachments = emptyList())
         when (choice) {
             DuplicateChoice.SKIP -> Unit
@@ -537,9 +545,10 @@ fun duplicateSubline(entry: VaultEntry): String = plainReportText(
 /**
  * The duplicate rules over a set of entries, with constant-time lookups. For logins, each title and user keeps the first
  * entry, the first without a URL and the first of each host, so «either side has no URL» needs no scan. The first
- * without a URL is taken only by an item without a URL or with an https one ([HTTPS_KEY], ruling R48).
+ * without a URL is taken only by an item without a URL or with an https one ([HTTPS_KEY], ruling R48). A code's key
+ * comes from a 2FA entry and, with [codesOfEveryType] (the vault's matcher), from any entry that carries a 2FA (R67).
  */
-private class Matcher<T : Any> {
+private class Matcher<T : Any>(private val codesOfEveryType: Boolean = false) {
     private class Logins<T>(val any: T) {
         var hostless: T? = null
         val byHost = HashMap<String, T>()
@@ -560,10 +569,12 @@ private class Matcher<T : Any> {
                     group.byHost.putIfAbsent(host, value)
                 }
             }
-            EntryType.TOTP -> e.totp?.let { totpKeyOf(it.secret) }?.let { codes.putIfAbsent(it, value) }
+            EntryType.TOTP -> Unit
             EntryType.NOTE -> notes.putIfAbsent(titleKey(e.title) to e.notes.trim(), value)
             else -> Unit // Seeds, identities and contacts are never imported, so never compared.
         }
+        // A code: from a 2FA entry, and in the vault from any entry that carries one (a login's too; ruling R67).
+        if (e.type == EntryType.TOTP || codesOfEveryType) e.totp?.let { totpKeyOf(it.secret) }?.let { codes.putIfAbsent(it, value) }
     }
 
     fun find(e: VaultEntry): T? = when (e.type) {
