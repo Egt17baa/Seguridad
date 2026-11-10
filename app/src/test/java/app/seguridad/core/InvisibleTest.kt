@@ -18,6 +18,25 @@ class InvisibleTest {
     /** Prepended_Concatenation_Mark of Unicode 15.0 (PropList.txt): Cf, and drawn (the one list, ruling R52). */
     private val prependedMarks = VISIBLE_PREPENDED_MARKS.sorted()
 
+    /**
+     * The format characters (Cf) that Unicode 14.0 and 15.0 added: U+0890 and U+0891 (14.0) and U+13439 to U+1343F
+     * (15.0). core/Invisible.kt is written from Unicode 15.0, but the JDK that runs these tests may be older: the CI's
+     * JDK 17 has Unicode 13.0, where they are unassigned. Without them, a test that compares with the JDK's own Cf would
+     * pass on JDK 21 and fail on JDK 17.
+     */
+    private val formatAddedAfterUnicode13 = listOf(0x0890, 0x0891) + (0x13439..0x1343F)
+
+    /** Cf in Unicode 15.0, whatever the JDK's Unicode: the JDK's Cf plus [formatAddedAfterUnicode13]. */
+    private fun isFormatInUnicode15(cp: Int) = Character.getType(cp) == Character.FORMAT.toInt() || cp in formatAddedAfterUnicode13
+
+    @Test fun theFormatCharactersAddedAfterUnicode13AreFormatOrNotYetAssigned() {
+        val other = formatAddedAfterUnicode13.filter {
+            val type = Character.getType(it)
+            type != Character.FORMAT.toInt() && type != Character.UNASSIGNED.toInt()
+        }
+        assertTrue(other.joinToString { cpName(it) }, other.isEmpty())
+    }
+
     @Test fun theListOfPrependedMarksIsUnicodes() {
         assertEquals(((0x0600..0x0605) + listOf(0x06DD, 0x070F, 0x0890, 0x0891, 0x08E2, 0x110BD, 0x110CD)).map(::cpName), prependedMarks.map(::cpName))
     }
@@ -73,7 +92,7 @@ class InvisibleTest {
      */
     @Test fun theListIsTheDefaultIgnorablesWithTheDecidedInvisibles() {
         val before = { cp: Int ->
-            Character.getType(cp) == Character.FORMAT.toInt() || cp in 0xE0000..0xE0FFF ||
+            isFormatInUnicode15(cp) || cp in 0xE0000..0xE0FFF ||
                 cp == 0x034F || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 ||
                 cp == 0x17B4 || cp == 0x17B5 || cp in 0x180B..0x180F || cp == 0x2800 || cp in 0xFE00..0xFE0F || cp in 0xFFF9..0xFFFB
         }
@@ -83,7 +102,7 @@ class InvisibleTest {
         for (cp in 0..0x10FFFF) {
             if (drawsNothing(cp) && !before(cp)) gained += cp
             if (!drawsNothing(cp) && before(cp)) lost += cp
-            if (Character.getType(cp) == Character.FORMAT.toInt() && !drawsNothing(cp) && cp !in prependedMarks) formatOutside += cp
+            if (isFormatInUnicode15(cp) && !drawsNothing(cp) && cp !in prependedMarks) formatOutside += cp
         }
         assertEquals((listOf(0x2065) + (0xFFF0..0xFFF8)).map(::cpName), gained.map(::cpName))
         assertEquals(prependedMarks.sorted().map(::cpName), lost.map(::cpName))
@@ -98,7 +117,7 @@ class InvisibleTest {
     @Test fun theNamesDropWhatTheyDroppedBefore() {
         val before = { cp: Int ->
             cp != ZERO_WIDTH_JOINER && cp != EMOJI_SELECTOR && (
-                Character.getType(cp) == Character.FORMAT.toInt() || cp in 0xE0000..0xE0FFF ||
+                isFormatInUnicode15(cp) || cp in 0xE0000..0xE0FFF ||
                     cp == 0x034F || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 ||
                     cp == 0x17B4 || cp == 0x17B5 || cp in 0x180B..0x180F || cp == 0x2800 || cp in 0xFE00..0xFE0F ||
                     cp in 0xFFF9..0xFFFB ||
