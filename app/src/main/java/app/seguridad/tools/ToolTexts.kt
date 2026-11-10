@@ -504,7 +504,7 @@ const val PASSWORD_CHANGE_COPIES = "Cambiar la contraseña no cambia las copias 
 /** A6, the dialog after the master password changed: title, the two sentences (the first is above), and the buttons. */
 const val PASSWORD_CHANGED_TITLE = "Contraseña maestra cambiada"
 const val PASSWORD_CHANGE_OLD_BACKUPS = "Las copias .sgbak de antes, también las automáticas, se siguen abriendo con la contraseña anterior."
-const val PASSWORD_CHANGE_REPLACE_COPIES = "Hacer una copia nueva y borrar las automáticas anteriores"
+const val PASSWORD_CHANGE_REPLACE_COPIES = "Hacer una copia nueva y borrar las anteriores (automáticas y de antes de importar)"
 const val PASSWORD_CHANGE_RENEW_HINT =
     "Si temes que alguien tenga la contraseña anterior y una copia, con las dos puede ver todo lo que guardabas al " +
         "hacerla: cambia las contraseñas y los códigos 2FA que más te importen, y renueva tu identidad."
@@ -516,7 +516,7 @@ const val PASSWORD_CHANGE_SECRETS_HINT =
 const val PASSWORD_CHANGE_WORKING = "Haciendo la copia nueva…"
 const val PASSWORD_CHANGE_CLOSE = "Entendido"
 const val AUTO_BACKUP_OUTCOME_TITLE = "Copias automáticas"
-const val AUTO_BACKUP_REPLACE_DROPPED = "Las copias automáticas anteriores que ibas a borrar no se borraron: siguen en su carpeta."
+const val AUTO_BACKUP_REPLACE_DROPPED = "Las copias anteriores que ibas a borrar no se borraron: siguen en su carpeta."
 
 /**
  * COV2-1 (audit 1.3.0): under the folder of the copies, «Conservar», the lock, the clipboard and the Argon2id cost while

@@ -1,0 +1,136 @@
+# BORRA TODOS LOS DATOS DE CLAVERO (clearState): solo en el emulador o en un móvil sin tu bóveda real.
+# Crea una bóveda de PRUEBA con una maestra de prueba escrita aquí (MAESTRA), nunca la tuya.
+#
+# P-15, P-16 y P-17 (en parte): bloquear la bóveda con la app en primer plano borra lo escrito y el
+# resultado de Laboratorio de hashes, Laboratorio clásico y Repartir un secreto.
+# Cada herramienta: se escribe algo, se pasa a la pestaña «Bóveda» (la herramienta sigue abierta en la
+# pestaña «Herramientas»), se pulsa «Bloquear», se vuelve a «Herramientas» y ya no está. Si al volver la
+# pestaña enseña la lista de herramientas y no la herramienta, el flujo la abre otra vez: lo escrito
+# tampoco puede estar.
+# «Salir más tiempo que el bloqueo» (1 minuto como mínimo) es manual: pide esperar.
+appId: io.github.egt17baa.seguridad
+name: "P-15 a P-17 Bloquear la bóveda borra las herramientas"
+tags:
+  - clavero-1.4.0
+  - automatica
+  - borra-datos
+env:
+  MAESTRA: nube-ladera-pino-ancla-trigo-prueba
+---
+- runFlow: ../comun/inicio-desde-cero.yaml
+- runFlow:
+    file: ../comun/crear-boveda.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+
+# Laboratorio de hashes.
+- runFlow:
+    file: ../comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio de hashes.*'
+- tapOn: 'Texto \(se calcula en UTF-8\)'
+- inputText: "abc"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    direction: DOWN
+- tapOn: "Bóveda"
+- tapOn: "Bloquear"
+- extendedWaitUntil:
+    visible: '.*Bóveda bloqueada'
+    timeout: 15000
+- tapOn: "Herramientas"
+- runFlow:
+    when:
+      notVisible: "Atrás"
+    file: ../comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio de hashes.*'
+- extendedWaitUntil:
+    visible: "Laboratorio de hashes"
+    timeout: 10000
+- assertNotVisible: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+- assertNotVisible: "abc"
+- tapOn: "Atrás"
+- runFlow:
+    file: ../comun/desbloquear.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+
+# Laboratorio clásico.
+- runFlow:
+    file: ../comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio clásico.*'
+- tapOn: "Texto"
+- inputText: "Hola Mundo"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Krod Pxqgr"
+    direction: DOWN
+- tapOn: "Bóveda"
+- tapOn: "Bloquear"
+- extendedWaitUntil:
+    visible: '.*Bóveda bloqueada'
+    timeout: 15000
+- tapOn: "Herramientas"
+- runFlow:
+    when:
+      notVisible: "Atrás"
+    file: ../comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Laboratorio clásico.*'
+- extendedWaitUntil:
+    visible: "Laboratorio clásico"
+    timeout: 10000
+- assertNotVisible: "Hola Mundo"
+- assertNotVisible: "Krod Pxqgr"
+- tapOn: "Atrás"
+- runFlow:
+    file: ../comun/desbloquear.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+
+# Repartir un secreto.
+- runFlow:
+    file: ../comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Repartir un secreto.*'
+- tapOn: 'Frase BIP-39 \(12, 15, 18, 21 o 24 palabras en inglés\)'
+- inputText: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Repartir"
+      below:
+        text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
+      enabled: true
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    text: "Repartir"
+    below:
+      text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
+- extendedWaitUntil:
+    visible: "Parte 1"
+    timeout: 60000
+- tapOn: "Bóveda"
+- tapOn: "Bloquear"
+- extendedWaitUntil:
+    visible: '.*Bóveda bloqueada'
+    timeout: 15000
+- tapOn: "Herramientas"
+- runFlow:
+    when:
+      notVisible: "Atrás"
+    file: ../comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Repartir un secreto.*'
+- extendedWaitUntil:
+    visible: "Repartir un secreto"
+    timeout: 10000
+- assertNotVisible: "Parte 1"
+- assertNotVisible: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+- tapOn: "Atrás"

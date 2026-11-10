@@ -56,6 +56,7 @@ import app.seguridad.crypto.Aead
 import app.seguridad.crypto.Bip39
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.ENCRYPTED_EXTENSION
+import app.seguridad.crypto.KdfLock
 import app.seguridad.crypto.KdfParams
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.PassphraseOptions
@@ -78,8 +79,6 @@ import app.seguridad.crypto.parseRawKey
 import app.seguridad.crypto.passphraseEntropy
 import app.seguridad.crypto.passwordEntropy
 import app.seguridad.crypto.safeFileName
-import app.seguridad.crypto.sameHash
-import app.seguridad.crypto.sha256Hex
 import app.seguridad.crypto.strength
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.ui.theme.BackScaffold
@@ -108,7 +107,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
 import app.seguridad.tools.cipher.BreachSession
 import app.seguridad.tools.cipher.FileCryptoSession
-import app.seguridad.tools.cipher.FileHashSession
 import app.seguridad.tools.cipher.PendingCopy
 import app.seguridad.tools.cipher.TextCryptoSession
 import app.seguridad.tools.codes.ScreenGuard
@@ -217,7 +215,7 @@ private fun Busy(text: String) {
 
 /** A tool's scrolling column; with a [guard] (COV1-1), any tap or key on it is use of the screen, for the idle lock. */
 @Composable
-private fun ToolColumn(title: String, onBack: () -> Unit, guard: ScreenGuard? = null, content: @Composable () -> Unit) {
+internal fun ToolColumn(title: String, onBack: () -> Unit, guard: ScreenGuard? = null, content: @Composable () -> Unit) {
     BackScaffold(title, onBack) { padding ->
         NoCopy {
             Column(
@@ -279,7 +277,8 @@ private class TextCryptoViewModel(
         reset()
         viewModelScope.launch {
             try {
-                val result = withContext(Dispatchers.Default) {
+                // Argon2id with a password: one large derivation at a time in the app (KdfLock, ruling R38).
+                val result = KdfLock.derive(Dispatchers.Default) {
                     if (encryptNow) encryptText(plainNow, secret, algNow, kdf) else decryptText(inputNow, secret)
                 }
                 // The form stays editable while busy: a result for a mode or text the user has since changed is dropped,
@@ -1070,86 +1069,5 @@ fun BreachScreen(pwned: PwnedPasswords, store: VaultStore, lockAfterMs: () -> Lo
         if (s.busy) Busy("Comprobando…")
         s.result?.let { (ok, text) -> Text(text, color = if (ok) PositiveColor else NegativeColor) }
         AwayNote()
-    }
-}
-
-/**
- * «Huella SHA-256» for its navigation entry. COV1-2 (audit 1.3.0): a new pick cancels the hash going on (the reading
- * stops at its next 64 KiB), the result is shown only for the file picked last ([FileHashSession]) and the button is off
- * while it runs. The provider's name is read off the main thread and shown sanitised, as in «Cifrar archivos». Not a
- * secret: no away rule.
- */
-private class FileHashViewModel(private val appContext: Context) : ViewModel() {
-    val session = FileHashSession(ComposeCells)
-    var expected by mutableStateOf("")
-    private var job: Job? = null
-
-    fun pick(uri: Uri) {
-        job?.cancel()
-        val run = session.start()
-        job = viewModelScope.launch {
-            val name = withContext(Dispatchers.IO) { runCatching { displayName(appContext, uri) }.getOrDefault("archivo") }
-            session.named(run, sanitizeReceivedName(name))
-            val hash = try {
-                withContext(Dispatchers.IO) {
-                    appContext.contentResolver.openInputStream(uri)!!.use { input -> sha256Hex(input.buffered()) { ensureActive() } }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                null
-            }
-            session.finish(run, hash)
-        }
-    }
-}
-
-@Composable
-fun FileHashScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val appContext = context.applicationContext
-    val vm = viewModel { FileHashViewModel(appContext) }
-    val s = vm.session
-    var pickerError by remember { mutableStateOf<String?>(null) }
-    val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.pick(uri)
-    }
-    ToolColumn("Huella SHA-256", onBack) {
-        Text(
-            "Calcula la huella SHA-256 de un archivo y compárala con la que publica la web oficial (por ejemplo, de una app o del firmware " +
-                "de tu cartera física). Si no coinciden, el archivo se ha alterado o está dañado.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedButton(
-            enabled = !s.busy,
-            onClick = { pickerError = pick.launchOrError(arrayOf("*/*")) },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(s.name ?: "Elegir archivo") }
-        pickerError?.let { Text(it, color = NegativeColor) }
-        if (s.busy) Busy("Calculando…")
-        // M8 of the F6 review: an unreadable file is said, not left as a silent nothing.
-        if (s.failed) Text("No se pudo leer el archivo.", color = NegativeColor)
-        s.hash?.let { h ->
-            SectionCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("SHA-256", style = MaterialTheme.typography.labelMedium)
-                    SelectionContainer { Text(h, fontFamily = FontFamily.Monospace) }
-                    FilledTonalButton(onClick = { copySensitive(context, h) }) { Text("Copiar") }
-                }
-            }
-            OutlinedTextField(
-                value = vm.expected,
-                onValueChange = { vm.expected = it },
-                label = { Text("Pega la huella publicada") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (vm.expected.isNotBlank()) {
-                if (sameHash(h, vm.expected)) {
-                    Text("✓ Coincide: el archivo es el original.", color = PositiveColor)
-                } else {
-                    Text("✗ No coincide: no uses este archivo.", color = NegativeColor)
-                }
-            }
-        }
     }
 }

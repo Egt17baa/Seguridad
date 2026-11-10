@@ -25,6 +25,9 @@ class Bip39(val words: List<String>) {
 
     fun normalize(phrase: String): List<String> = phrase.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
 
+    /** Whether [word] (already normalized) is a word of the list. */
+    fun isWord(word: String): Boolean = word in index
+
     /** Up to [max] list words starting with [prefix]. */
     fun complete(prefix: String, max: Int = 6): List<String> {
         val p = prefix.trim().lowercase()
@@ -41,23 +44,72 @@ class Bip39(val words: List<String>) {
     fun check(phrase: String): Bip39Check {
         val list = normalize(phrase)
         val unknown = list.withIndex().filter { it.value !in index }.map { UnknownWord(it.index + 1, it.value, suggest(it.value)) }
-        val validCount = list.size in setOf(12, 15, 18, 21, 24)
+        val validCount = list.size in VALID_COUNTS
         val checksum = if (unknown.isEmpty() && validCount) checksumOk(list) else null
         return Bip39Check(list.size, unknown, validCount, checksum)
     }
 
-    private fun checksumOk(list: List<String>): Boolean {
-        val bits = StringBuilder()
-        list.forEach { bits.append(Integer.toBinaryString(index.getValue(it)).padStart(11, '0')) }
-        val csLen = list.size * 11 / 33
-        val entLen = bits.length - csLen
-        val entropy = ByteArray(entLen / 8) { bits.substring(it * 8, it * 8 + 8).toInt(2).toByte() }
+    private fun checksumOk(list: List<String>): Boolean = entropyOf(list)?.also { it.fill(0) } != null
+
+    /**
+     * The entropy of [phrase] (normalized words: see [normalize]): 16 to 32 bytes for 12 to 24 words. Null if a word is
+     * not in the list, the count is not 12, 15, 18, 21 or 24, or the built-in checksum fails. The caller wipes the result.
+     */
+    fun entropyOf(phrase: List<String>): ByteArray? {
+        val n = phrase.size
+        if (n !in VALID_COUNTS) return null
+        val idx = IntArray(n)
+        try {
+            for (i in 0 until n) idx[i] = index[phrase[i]] ?: return null
+            val totalBits = n * 11
+            val checksumBits = n / 3
+            val entropyBits = totalBits - checksumBits
+            val entropy = ByteArray(entropyBits / 8)
+            var checksum = 0
+            for (k in 0 until totalBits) {
+                val bit = (idx[k / 11] shr (10 - k % 11)) and 1
+                if (k < entropyBits) {
+                    entropy[k / 8] = (entropy[k / 8].toInt() or (bit shl (7 - k % 8))).toByte()
+                } else {
+                    checksum = (checksum shl 1) or bit
+                }
+            }
+            val hash = MessageDigest.getInstance("SHA-256").digest(entropy)
+            val expected = (hash[0].toInt() and 0xFF) shr (8 - checksumBits)
+            hash.fill(0)
+            if (checksum != expected) {
+                entropy.fill(0)
+                return null
+            }
+            return entropy
+        } finally {
+            idx.fill(0)
+        }
+    }
+
+    /** The phrase of [entropy] (16, 20, 24, 28 or 32 bytes), with its checksum: the inverse of [entropyOf]. */
+    fun phraseOf(entropy: ByteArray): List<String> {
+        require(entropy.size in setOf(16, 20, 24, 28, 32)) { "BIP-39 entropy is 16 to 32 bytes, in steps of 4" }
+        val entropyBits = entropy.size * 8
+        val checksumBits = entropyBits / 32
         val hash = MessageDigest.getInstance("SHA-256").digest(entropy)
-        val expected = (0 until csLen).joinToString("") { i -> ((hash[i / 8].toInt() shr (7 - i % 8)) and 1).toString() }
-        entropy.fill(0)
-        return bits.substring(entLen) == expected
+        val first = hash[0].toInt() and 0xFF
+        hash.fill(0)
+        val count = (entropyBits + checksumBits) / 11
+        val idx = IntArray(count)
+        try {
+            for (k in 0 until entropyBits + checksumBits) {
+                val bit = if (k < entropyBits) (entropy[k / 8].toInt() shr (7 - k % 8)) and 1 else (first shr (7 - (k - entropyBits))) and 1
+                idx[k / 11] = idx[k / 11] or (bit shl (10 - k % 11))
+            }
+            return idx.map { words[it] }
+        } finally {
+            idx.fill(0)
+        }
     }
 }
+
+private val VALID_COUNTS = setOf(12, 15, 18, 21, 24)
 
 private fun editDistanceAtMostOne(a: String, b: String): Boolean {
     if (kotlin.math.abs(a.length - b.length) > 1) return false

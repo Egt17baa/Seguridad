@@ -20,6 +20,8 @@ import app.seguridad.core.Notice
 import app.seguridad.tools.FINGERPRINT_ENABLE_INTERRUPTED
 import app.seguridad.tools.FINGERPRINT_NOT_RESPONDING
 import app.seguridad.tools.KeyLevel
+import app.seguridad.tools.KeyOp
+import app.seguridad.tools.KeyOpsQueue
 import app.seguridad.tools.PromptErrorKind
 import app.seguridad.tools.RetryOutcome
 import app.seguridad.tools.SingleRun
@@ -31,24 +33,32 @@ import app.seguridad.tools.legacyKeyLevel
 import app.seguridad.tools.nextAfterFailure
 import app.seguridad.tools.promptErrorKind
 import app.seguridad.tools.shouldMarkStrongBoxFailed
+import app.seguridad.tools.shouldSayEnableInterrupted
 import app.seguridad.tools.unlockBlamesStrongBox
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.security.KeyStore
 import java.util.Base64
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
+import kotlin.coroutines.resume
 
 private const val ALIAS = "seguridad_vault_biometric"
 private const val PREFS = "vault_biometric"
@@ -147,8 +157,19 @@ object BiometricVault {
         KeyLevel.UNKNOWN
     }
 
-    /** Drops the wrapped key and the Keystore key. What is known about StrongBox on this phone stays. */
-    fun disable(context: Context) {
+    /**
+     * Drops the wrapped key and the Keystore key. What is known about StrongBox on this phone stays. It runs in the queue
+     * ([KeyOpsQueue]): after the operation running now, if any, and cancelling an enable in flight (which ends as a
+     * failure, its keys wiped). It runs to the end even if the caller is cancelled, so it is never skipped: once it
+     * returns, [enabled] is false (CRY-A02 turns the fingerprint off before creating or deleting the vault).
+     */
+    suspend fun disable(context: Context) {
+        val app = context.applicationContext
+        withContext(NonCancellable) { queue.run(KeyOp.DISABLE) { clear(app) } }
+    }
+
+    /** [disable] itself, from an operation that already holds the queue (on its thread). */
+    private fun clear(context: Context) {
         prefs(context).edit {
             remove(KEY_IV)
             remove(KEY_BLOB)
@@ -156,6 +177,13 @@ object BiometricVault {
         }
         deleteKey()
     }
+
+    // Every operation on ALIAS, one at a time from its first step to its last (1.4.0); the Keystore calls run on its
+    // single thread, the prompts on the main one. Never closed: it lives as long as the process, like this object.
+    private val queue = KeyOpsQueue(Executors.newSingleThreadExecutor().asCoroutineDispatcher())
+
+    // Where enable and unlock run: the main thread, going to the queue's for the Keystore. Never cancelled as a whole.
+    private val scope = MainScope()
 
     /**
      * Shows the prompt for [cipher]. [onOk] gets the authorised cipher, or null if the CryptoObject came back without it.
@@ -193,6 +221,47 @@ object BiometricVault {
         ).also { it.authenticate(info, BiometricPrompt.CryptoObject(cipher)) }
     }
 
+    /** How a prompt ended. */
+    private sealed interface PromptAnswer {
+        /** The fingerprint was accepted; [cipher] is null if the CryptoObject came back without it. */
+        class Ok(val cipher: Cipher?) : PromptAnswer
+
+        /** An error that is not a user cancel. */
+        class Error(val message: String) : PromptAnswer
+
+        /** The user said no. */
+        data object Cancel : PromptAnswer
+    }
+
+    /**
+     * Shows the prompt for [cipher] and waits for its answer, on the main thread; [onShown] gets the prompt. Cancelled
+     * (a disable during an enable, the activity going away), a late answer is ignored and the prompt, if its activity is
+     * still there, is closed: a fingerprint there would do nothing.
+     */
+    private suspend fun askFingerprint(
+        activity: FragmentActivity,
+        title: String,
+        cipher: Cipher,
+        onShown: (BiometricPrompt) -> Unit,
+    ): PromptAnswer = suspendCancellableCoroutine { answer ->
+        val reply: (PromptAnswer) -> Unit = { if (answer.isActive) answer.resume(it) }
+        val shown = prompt(activity, title, cipher, onOk = { reply(PromptAnswer.Ok(it)) }, onError = { _, message ->
+            reply(PromptAnswer.Error(message))
+        }, onCancel = { reply(PromptAnswer.Cancel) })
+        onShown(shown)
+        answer.invokeOnCancellation {
+            ContextCompat.getMainExecutor(activity).execute {
+                if (!activity.isDestroyed) {
+                    try {
+                        shown.cancelAuthentication()
+                    } catch (e: Exception) {
+                        // Nothing to do: the operation already ended, and nothing is stored from this prompt.
+                    }
+                }
+            }
+        }
+    }
+
     /** A prompt asked for now would never show nor call back. */
     private fun canPrompt(activity: FragmentActivity): Boolean =
         !activity.isFinishing && !activity.isDestroyed && !activity.supportFragmentManager.isStateSaved
@@ -202,29 +271,55 @@ object BiometricVault {
     /**
      * M-4: an enable cut short because the activity was re-created (a turn of the phone, a theme change) while it ran. The
      * screen that asked is gone with that activity, so the message waits here for the new one ([VaultScreen] shows it,
-     * then [interruptionShown]). Nothing was stored: the switch stays off and «Activar huella» can be tapped again.
+     * then [interruptionShown]). Posted only once that enable's operation has ended with nothing stored
+     * ([shouldSayEnableInterrupted]): a key whose doFinal and prefs write still finished after the re-creation is on, and
+     * then nothing is said. So when it is said, the switch is off and «Activar huella» can be tapped again.
      */
     val interrupted: StateFlow<String?> = interruption.value
 
     fun interruptionShown(message: String) = interruption.shown(message)
 
-    // One enable at a time: a second «Activar huella» while one is running is ignored. Freed by [release], from [end] on
-    // every exit, or once a key generation still running at [end] has returned.
+    // One enable at a time: a second «Activar huella» while one is running is ignored. Freed by [ended], once the
+    // enable's operation has left the queue (its key generation, if one was running, has returned and its key is gone).
     private val enabling = AtomicBoolean(false)
 
-    /** One run of [enable]: both copies of the data key, and what is known about the StrongBox attempt. Main thread. */
+    /**
+     * One run of [enable]: both copies of the data key, and what is known about it. [job], [observer], [prompt] and [gone]
+     * belong to the main thread; the rest is written by the operation, one step after another, and read once it ended.
+     */
     private class EnableFlow(val activity: FragmentActivity, val keys: List<ByteArray>, val onDone: (String?) -> Unit) {
-        val scope: CoroutineScope = MainScope()
-        var done = false
-        var strongBoxFailure: StrongBoxFailure? = null
-        var marked = false
+        var job: Job? = null
         var observer: LifecycleEventObserver? = null
 
         /** The prompt on screen, to close it when the activity is re-created (it would stay, tied to the old one). */
         var prompt: BiometricPrompt? = null
 
-        // A key is being generated off the main thread: freeing the next enable and deleting the key wait for it.
-        var keygenRunning = false
+        /** The activity went away: nothing is said to it. */
+        var gone = false
+
+        /** It was re-created before the outcome was known (M-4): [ended] may tell the new one ([shouldSayEnableInterrupted]). */
+        var recreated = false
+
+        var strongBoxFailure: StrongBoxFailure? = null
+        var marked = false
+
+        // How it ended, set once by [decide] as soon as it is known. [done] is read by the observer (main thread): a
+        // re-creation after it is not an interruption.
+        @Volatile var done = false
+
+        @Volatile var stored = false
+
+        @Volatile var message: String? = null
+
+        @Volatile var notify = false
+
+        fun decide(stored: Boolean, message: String?, notify: Boolean = true) {
+            if (done) return
+            this.stored = stored
+            this.message = message
+            this.notify = notify
+            done = true
+        }
     }
 
     /**
@@ -234,7 +329,8 @@ object BiometricVault {
      * ([shouldMarkStrongBoxFailed]). A user cancel stops, with no retry and no message. [onDone] gets null when enabled,
      * a message when not; it is not called on cancel, nor when the activity goes away. When the activity is re-created
      * meanwhile (M-4), the flow ends as well (its prompt belongs to the old activity), and [interrupted] says so instead,
-     * for the new activity. Call it on the main thread.
+     * for the new activity, if nothing was stored. The whole of it, both cycles included, is one [KeyOp.ENABLE] in the queue: a [disable]
+     * meanwhile cancels it, and it ends as a failure that marks nothing new and says nothing. Call it on the main thread.
      */
     fun enable(activity: FragmentActivity, dataKey: ByteArray, onDone: (String?) -> Unit) {
         if (!enabling.compareAndSet(false, true)) {
@@ -242,22 +338,27 @@ object BiometricVault {
             return
         }
         val first = firstAttempt(hasStrongBox(activity), Build.VERSION.SDK_INT, strongBoxFailed(activity))
-        // The fallback's own copy, taken before the first attempt can wipe [dataKey]; [end] wipes both.
+        // The fallback's own copy, taken before the first attempt can wipe [dataKey]; the operation wipes both.
         val spare = if (nextAfterFailure(first, cancelled = false) != null) dataKey.copyOf() else null
         val flow = EnableFlow(activity, listOfNotNull(dataKey, spare), onDone)
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_DESTROY) {
-                // Never a silent cancel on a re-creation: the new activity tells the user to tap again.
+                // Never a silent cancel on a re-creation: the new activity tells the user to tap again. Only recorded here:
+                // doFinal and the prefs write, on the queue's thread, may still finish, so [ended] decides once the
+                // operation is over whether the notice is true (review I1).
                 val interrupted = !flow.done && activity.isChangingConfigurations
-                if (interrupted) interruption.post(FINGERPRINT_ENABLE_INTERRUPTED)
-                end(flow, null, stored = false, notify = false)
-                // The old prompt is of no use now (the flow is done, a fingerprint there does nothing): closed. Its
-                // callbacks see flow.done. Any failure leaves it as it was, which is still closed for the vault.
+                flow.recreated = interrupted
+                // Ends the operation, which wipes both keys and drops an unused key once its current Keystore step has
+                // returned, then frees the next enable ([ended]). Nothing is said to this activity.
+                flow.gone = true
+                flow.job?.cancel()
+                // The old prompt is of no use now (the flow is done, a fingerprint there does nothing): closed. Any
+                // failure leaves it as it was, which is still closed for the vault.
                 if (interrupted) {
                     try {
                         flow.prompt?.cancelAuthentication()
                     } catch (e: Exception) {
-                        // Nothing to do: the flow already ended and stored nothing.
+                        // Nothing to do: the flow ends, and [ended] decides what the new activity is told.
                     }
                 }
                 flow.prompt = null
@@ -265,45 +366,96 @@ object BiometricVault {
         }
         flow.observer = observer
         activity.lifecycle.addObserver(observer)
-        // A wrapped key left behind would point at the Keystore key replaced below.
-        disable(activity)
-        attempt(flow, first, dataKey, spare)
+        // Undispatched: the operation is in the queue before this returns, so a disable asked right after cancels it.
+        flow.job = scope.launch(start = CoroutineStart.UNDISPATCHED) { runEnable(flow, first, dataKey, spare) }
     }
 
-    /** One cycle: key and init (off the main thread), prompt, doFinal. [spare] is the fallback's copy, if any. */
-    private fun attempt(flow: EnableFlow, level: KeyLevel, key: ByteArray, spare: ByteArray?) {
+    /** The coroutine of [enable]: its operation in the queue, then [ended] on the main thread, whatever happened. */
+    private suspend fun runEnable(flow: EnableFlow, first: KeyLevel, dataKey: ByteArray, spare: ByteArray?) {
+        try {
+            queue.run(KeyOp.ENABLE) {
+                try {
+                    // A wrapped key left behind would point at the Keystore key replaced below.
+                    clear(flow.activity)
+                    enableSteps(flow, first, dataKey, spare)
+                } finally {
+                    // Still in the queue, also when cancelled: no other operation runs before the key made here is gone.
+                    flow.keys.forEach { it.fill(0) }
+                    if (!flow.stored) deleteKey()
+                }
+            }
+        } catch (e: CancellationException) {
+            // A disable, or the activity going away: a failure that says nothing ([decide] was not called).
+        } catch (e: Exception) {
+            flow.decide(stored = false, "No se pudo activar la huella")
+        } finally {
+            ended(flow)
+        }
+    }
+
+    /** Both cycles of [enable], in its operation; every way out goes through [EnableFlow.decide] or a cancel. */
+    private suspend fun enableSteps(flow: EnableFlow, first: KeyLevel, dataKey: ByteArray, spare: ByteArray?) {
+        var level = first
+        var key = dataKey
+        var fallback = spare // The fallback's copy, used once.
+        while (true) {
+            val failed = attempt(flow, level, key) ?: return
+            // This attempt did not store the key ([Failed.failure] null: the user cancelled). Falls back once, or ends.
+            key.fill(0)
+            deleteKey()
+            val next = nextAfterFailure(level, cancelled = failed.failure == null)
+            val retry = fallback
+            if (next == null || retry == null || failed.failure == null) {
+                return flow.decide(stored = false, failed.message, notify = failed.failure != null) // Cancelled: nothing to say, as before.
+            }
+            flow.strongBoxFailure = failed.failure
+            note(flow, RetryOutcome.PENDING) // A Keystore refusal is recorded now.
+            // After a prompt (not a KEY_SETUP: no prompt was shown), wait until its fragment is gone.
+            if (failed.failure != StrongBoxFailure.KEY_SETUP && !promptGone(flow.activity)) {
+                return flow.decide(stored = false, "No se pudo activar la huella")
+            }
+            level = next
+            key = retry
+            fallback = null
+        }
+    }
+
+    /** Why an attempt did not store the key: [failure] null when the user cancelled. */
+    private class Failed(val failure: StrongBoxFailure?, val message: String)
+
+    /**
+     * One cycle, in the enable's operation: key and init (on the queue's thread), prompt (main thread), doFinal and the
+     * prefs (queue's thread). Null once [flow] is decided (stored, or stopped with a message); else why it failed.
+     */
+    private suspend fun attempt(flow: EnableFlow, level: KeyLevel, key: ByteArray): Failed? {
         val activity = flow.activity
-        if (flow.done) return
-        if (!canPrompt(activity)) return end(flow, "No se pudo activar la huella", stored = false)
+        if (!withContext(Dispatchers.Main) { canPrompt(activity) }) {
+            flow.decide(stored = false, "No se pudo activar la huella")
+            return null
+        }
         val inStrongBox = level == KeyLevel.STRONGBOX
-        flow.scope.launch {
-            // StrongBox key generation can take hundreds of ms: not on the main thread.
-            flow.keygenRunning = true
-            val cipher = try {
-                withContext(Dispatchers.Default) {
-                    try {
-                        Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, createKey(inStrongBox)) }
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
-            } finally {
-                // Back on the main thread, also when cancelled (withContext waits for the block). If the flow ended
-                // meanwhile (activity gone), the key just made is this flow's: no newer enable could start, the guard held.
-                flow.keygenRunning = false
-                if (flow.done) release(stored = false)
-            }
-            if (flow.done) return@launch
-            if (cipher == null) {
-                return@launch failed(flow, level, key, spare, StrongBoxFailure.KEY_SETUP, "Este móvil no permite guardar la clave con huella")
-            }
+        // StrongBox key generation can take hundreds of ms: here, on the queue's thread, never on the main one.
+        val cipher = try {
+            Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, createKey(inStrongBox)) }
+        } catch (e: Exception) {
+            return Failed(StrongBoxFailure.KEY_SETUP, "Este móvil no permite guardar la clave con huella")
+        }
+        val answer = withContext(Dispatchers.Main) {
             // Back on the main thread: the app may have gone to the background meanwhile.
-            if (!canPrompt(activity)) return@launch end(flow, "No se pudo activar la huella", stored = false)
-            flow.prompt = prompt(activity, "Activar desbloqueo con huella", cipher, onOk = { c ->
-                if (flow.done) return@prompt // Ended meanwhile (activity gone): its keys are wiped, nothing is stored.
-                if (c == null) {
-                    return@prompt failed(flow, level, key, spare, StrongBoxFailure.AUTH_OR_FINAL, "No se pudo usar la huella")
-                }
+            if (canPrompt(activity)) askFingerprint(activity, "Activar desbloqueo con huella", cipher) { flow.prompt = it } else null
+        }
+        if (answer == null) {
+            flow.decide(stored = false, "No se pudo activar la huella")
+            return null
+        }
+        return when (answer) {
+            // Every error that is not a cancel gets the one retry; whether StrongBox is blamed is decided later.
+            is PromptAnswer.Error -> Failed(StrongBoxFailure.AUTH_OR_FINAL, answer.message)
+            PromptAnswer.Cancel -> Failed(null, "")
+            is PromptAnswer.Ok -> {
+                val c = answer.cipher ?: return Failed(StrongBoxFailure.AUTH_OR_FINAL, "No se pudo usar la huella")
+                // A cancel that has already arrived (a disable, the activity going) stores nothing.
+                currentCoroutineContext().ensureActive()
                 val stored = try {
                     val wrapped = c.doFinal(key)
                     prefs(activity).edit {
@@ -316,41 +468,26 @@ object BiometricVault {
                     false
                 }
                 if (stored) {
-                    end(flow, null, stored = true)
+                    flow.decide(stored = true, null)
+                    null
                 } else {
-                    failed(flow, level, key, spare, StrongBoxFailure.AUTH_OR_FINAL, "No se pudo activar la huella")
+                    Failed(StrongBoxFailure.AUTH_OR_FINAL, "No se pudo activar la huella")
                 }
-            }, onError = { _, message ->
-                // Every error that is not a cancel gets the one retry; whether StrongBox is blamed is decided later.
-                if (!flow.done) failed(flow, level, key, spare, StrongBoxFailure.AUTH_OR_FINAL, message)
-            }, onCancel = {
-                if (!flow.done) failed(flow, level, key, spare, null, "")
-            })
+            }
         }
     }
 
-    /** This attempt did not store the key ([failure] null: the user cancelled). Falls back once, or ends. */
-    private fun failed(flow: EnableFlow, level: KeyLevel, key: ByteArray, spare: ByteArray?, failure: StrongBoxFailure?, message: String) {
-        key.fill(0)
-        deleteKey()
-        val next = nextAfterFailure(level, cancelled = failure == null)
-        if (next == null || spare == null || failure == null) {
-            return end(flow, message, stored = false, notify = failure != null) // Cancelled: nothing to say, as before.
+    /**
+     * Waits, on the main thread, until the prompt's own fragment is gone (see [BIOMETRIC_FRAGMENT_TAG]); false after
+     * [PROMPT_GONE_WAIT_MS]. Dispatched: the prompt's own removal, already queued, runs first.
+     */
+    private suspend fun promptGone(activity: FragmentActivity): Boolean = withContext(Dispatchers.Main) {
+        val start = SystemClock.uptimeMillis()
+        while (activity.supportFragmentManager.findFragmentByTag(BIOMETRIC_FRAGMENT_TAG) != null) {
+            if (SystemClock.uptimeMillis() - start >= PROMPT_GONE_WAIT_MS) return@withContext false
+            delay(PROMPT_GONE_POLL_MS)
         }
-        flow.strongBoxFailure = failure
-        note(flow, RetryOutcome.PENDING) // A Keystore refusal is recorded now.
-        if (failure == StrongBoxFailure.KEY_SETUP) return attempt(flow, next, spare, null) // No prompt was shown.
-        flow.scope.launch {
-            // Posted (Dispatchers.Main): the prompt's own removal, already queued, runs first. Then wait until it is gone.
-            val start = SystemClock.uptimeMillis()
-            while (flow.activity.supportFragmentManager.findFragmentByTag(BIOMETRIC_FRAGMENT_TAG) != null) {
-                if (SystemClock.uptimeMillis() - start >= PROMPT_GONE_WAIT_MS) {
-                    return@launch end(flow, "No se pudo activar la huella", stored = false)
-                }
-                delay(PROMPT_GONE_POLL_MS)
-            }
-            attempt(flow, next, spare, null)
-        }
+        true
     }
 
     /** Records «StrongBox falló» if [shouldMarkStrongBoxFailed] says so for what is known now. */
@@ -363,81 +500,84 @@ object BiometricVault {
     }
 
     /**
-     * Every exit of [enable], once: wipes both copies at once, then drops an unused key and frees the next enable
-     * ([release]), then reports. With a key being generated, [release] waits for it ([attempt]).
+     * Every exit of [enable], once, on the main thread, after its operation left the queue (or was cancelled before its
+     * turn): posts the M-4 notice if it is true, wipes both copies (again), lets the next enable start, then reports.
      */
-    private fun end(flow: EnableFlow, message: String?, stored: Boolean, notify: Boolean = true) {
-        if (flow.done) return
-        flow.done = true
-        note(flow, if (stored) RetryOutcome.STORED else RetryOutcome.FAILED)
+    private fun ended(flow: EnableFlow) {
+        flow.done = true // Cancelled before it was decided: a failure, nothing to say.
+        // M-4: [EnableFlow.stored] is final now; the notice says nothing was stored, so never after a stored key.
+        if (shouldSayEnableInterrupted(flow.recreated, flow.stored)) interruption.post(FINGERPRINT_ENABLE_INTERRUPTED)
+        note(flow, if (flow.stored) RetryOutcome.STORED else RetryOutcome.FAILED)
         flow.keys.forEach { it.fill(0) }
-        if (!flow.keygenRunning) release(stored)
-        flow.scope.cancel()
-        flow.observer?.let { flow.activity.lifecycle.removeObserver(it) }
-        if (notify) flow.onDone(message)
-    }
-
-    /** Drops the Keystore key unless it holds the stored wrap, then lets the next enable start. */
-    private fun release(stored: Boolean) {
-        if (!stored) deleteKey()
         enabling.set(false)
+        flow.observer?.let { flow.activity.lifecycle.removeObserver(it) }
+        flow.observer = null
+        flow.prompt = null
+        if (flow.notify && !flow.gone) flow.onDone(flow.message)
     }
 
-    // One unlock at a time (CU-B revisión 1): the automatic start and a tap on «Usar huella» must not run two
-    // Cipher.init on StrongBox at once, whose failure would then be blamed on StrongBox ([UnlockFailure.INIT]).
+    // One unlock at a time (CU-B revisión 1): the automatic start and a tap on «Usar huella» must not both run. The
+    // queue would put the second one after the first; the guard ignores it, as before, so it never asks twice.
     private val unlocking = SingleRun()
 
     /**
      * Asks for the fingerprint and hands back the data key; [onError] with a message otherwise. Ignored while another
-     * unlock runs. The guard is freed on every end: [onKey], [onError], a cancel, a prompt that cannot be shown, any
-     * exception, and the activity going away once the prompt was shown (a prompt that never calls back). Before that,
-     * a re-creation (a rotation during Cipher.init) does not free it: the init still running ends through onEnd
-     * (canPrompt is false on a destroyed activity), so the new activity's automatic start can never run a second
-     * Cipher.init on StrongBox alongside it.
+     * unlock runs. [onKey] and [onError] are called on the main thread, once the operation has left the queue (so they
+     * may call [disable]). The guard is freed on every end: [onKey], [onError], a cancel, a prompt that cannot be shown,
+     * any exception, and, at once, the activity going away (a prompt that never calls back, a rotation during
+     * Cipher.init). That also cancels the operation, which ends once its current Keystore step has returned; the new
+     * activity's automatic start is not refused, and waits in the queue behind it, so a second Cipher.init on StrongBox
+     * never runs alongside the first. A [disable] waits for an unlock; it cancels nothing.
      */
     fun unlock(activity: FragmentActivity, onKey: (ByteArray) -> Unit, onError: (String) -> Unit) {
         val ticket = unlocking.start() ?: return
         var observer: LifecycleEventObserver? = null
-        var promptShown = false
-        val finish: () -> Unit = {
-            ticket.release()
-            observer?.let { activity.lifecycle.removeObserver(it) }
-            observer = null
+        // Undispatched: it runs until its operation waits in the queue, so the observer is added before it can end.
+        val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            var key: ByteArray? = null // Released by the fingerprint: always handed over or wiped, never dropped.
+            var message: String? = null
+            try {
+                queue.run(KeyOp.UNLOCK) { unlockSteps(activity, onKey = { key = it }, onError = { message = it }) }
+            } catch (e: CancellationException) {
+                // The activity went away: nothing to say (a key already released is still handed over, below).
+            } catch (e: Exception) {
+                if (key == null && message == null) message = "No se pudo usar la huella"
+            } catch (e: Throwable) {
+                // An Error (OutOfMemoryError in the Keystore, say): the guard is released (finally), so a later «Usar
+                // huella» is not refused for good, and the Error goes on as before.
+                key?.fill(0)
+                throw e
+            } finally {
+                ticket.release()
+                observer?.let { activity.lifecycle.removeObserver(it) }
+                observer = null
+            }
+            val released = key
+            if (released != null) {
+                // onKey owns the key once it returns; if it throws (an Error too), the key is zeroed first.
+                handOverKey(released, onKey) { onError("No se pudo desbloquear con la huella") }
+            } else {
+                message?.let(onError)
+            }
         }
-        observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_DESTROY && promptShown) finish() }.also {
-            activity.lifecycle.addObserver(it)
-        }
-        try {
-            unlockOnce(
-                activity,
-                onKey = { key ->
-                    finish()
-                    onKey(key)
-                },
-                onError = { message ->
-                    finish()
-                    onError(message)
-                },
-                onEnd = finish,
-                onShown = { promptShown = true },
-            )
-        } catch (e: Exception) {
-            finish()
-            onError("No se pudo usar la huella")
-        } catch (e: Throwable) {
-            finish() // As in the coroutine of unlockOnce: released, then the Error goes on.
-            throw e
+        if (job.isActive) {
+            observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_DESTROY) {
+                    // Freed at once (review M1): the new activity's automatic start is not refused while this one
+                    // unwinds. It waits in the queue behind it, so two Cipher.init on StrongBox never run together.
+                    ticket.release()
+                    job.cancel()
+                }
+            }.also { activity.lifecycle.addObserver(it) }
         }
     }
 
-    /** [unlock] itself; [onEnd] when it ends without calling [onKey] or [onError] (a cancel, no prompt possible). */
-    private fun unlockOnce(
-        activity: FragmentActivity,
-        onKey: (ByteArray) -> Unit,
-        onError: (String) -> Unit,
-        onEnd: () -> Unit,
-        onShown: () -> Unit,
-    ) {
+    /**
+     * [unlock] itself, in its operation (queue's thread, the prompt on the main one). Calls [onKey] or [onError] at most
+     * once, as its last step; neither when it ends with nothing to say (a cancel, no prompt possible).
+     */
+    private suspend fun unlockSteps(activity: FragmentActivity, onKey: (ByteArray) -> Unit, onError: (String) -> Unit) {
+        // Read in the operation: the state the last one left.
         val p = prefs(activity)
         val iv = p.getString(KEY_IV, null)
         val blob = p.getString(KEY_BLOB, null)
@@ -455,7 +595,7 @@ object BiometricVault {
         fun failedAt(failure: UnlockFailure, message: String) {
             if (unlockBlamesStrongBox(failure) && strongBoxKey()) {
                 markStrongBoxFailed(activity)
-                disable(activity)
+                clear(activity)
                 onError(FINGERPRINT_NOT_RESPONDING)
             } else {
                 onError(message)
@@ -463,91 +603,36 @@ object BiometricVault {
         }
 
         // M-5: loading the Keystore and Cipher.init (a begin on the StrongBox chip, tens to hundreds of ms on some phones)
-        // run off the main thread. The CryptoObject contract is unchanged: the cipher is initialised before authenticate,
-        // which is called back on the main thread.
-        val scope = MainScope()
-        scope.launch {
-            try {
-                unlockStarted(activity, scope, ivBytes, wrapped, onKey, onError, onEnd, onShown, { key = it }, ::failedAt)
-            } catch (e: CancellationException) {
-                onEnd()
-                throw e
-            } catch (e: Exception) {
-                onError("No se pudo usar la huella")
-            } catch (e: Throwable) {
-                // An Error (OutOfMemoryError in the Keystore, say): the guard is released first, so a later «Usar huella»
-                // is not refused for good, and the Error goes on as before.
-                onEnd()
-                throw e
-            }
+        // run off the main thread. The CryptoObject contract is unchanged: the cipher is initialised before authenticate.
+        val cipher = try {
+            val k = keyStore().getKey(ALIAS, null) as? SecretKey ?: throw KeyPermanentlyInvalidatedException()
+            key = k
+            Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, k, GCMParameterSpec(128, ivBytes)) }
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            clear(activity)
+            return onError("Has cambiado las huellas del móvil: entra con la contraseña maestra y vuelve a activarla")
+        } catch (e: Exception) {
+            // Broad on purpose: any failure to start a StrongBox key leads to the TEE on re-enable, the safe direction.
+            return failedAt(UnlockFailure.INIT, "No se pudo usar la huella")
         }
-    }
-
-    /** The coroutine of [unlockOnce]: Cipher.init off the main thread, then the prompt on it. */
-    private suspend fun unlockStarted(
-        activity: FragmentActivity,
-        scope: CoroutineScope,
-        ivBytes: ByteArray,
-        wrapped: ByteArray,
-        onKey: (ByteArray) -> Unit,
-        onError: (String) -> Unit,
-        onEnd: () -> Unit,
-        onShown: () -> Unit,
-        keptKey: (SecretKey) -> Unit,
-        failedAt: (UnlockFailure, String) -> Unit,
-    ) {
-        run {
-            val started: Result<Cipher> = try {
-                withContext(Dispatchers.Default) {
-                    try {
-                        val k = keyStore().getKey(ALIAS, null) as? SecretKey ?: throw KeyPermanentlyInvalidatedException()
-                        keptKey(k)
-                        Result.success(Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, k, GCMParameterSpec(128, ivBytes)) })
-                    } catch (e: Exception) {
-                        Result.failure(e)
-                    }
-                }
-            } finally {
-                scope.cancel() // One step; what follows does not suspend.
-            }
-            val cipher = started.getOrElse { e ->
-                if (e is KeyPermanentlyInvalidatedException) {
-                    disable(activity)
-                    return onError("Has cambiado las huellas del móvil: entra con la contraseña maestra y vuelve a activarla")
-                }
-                // Broad on purpose: any failure to start a StrongBox key leads to the TEE on re-enable, the safe direction.
-                return failedAt(UnlockFailure.INIT, "No se pudo usar la huella")
-            }
+        val answer = withContext(Dispatchers.Main) {
             // Back on the main thread: the activity may have gone meanwhile; a prompt asked for now would never show.
-            if (!canPrompt(activity)) return onEnd()
-            onShown()
-            showUnlockPrompt(activity, cipher, wrapped, onKey, onError, onEnd, failedAt)
-        }
-    }
-
-    /** The unlock prompt for an initialised [cipher]; [failedAt] decides what a failure means (see [unlock]). */
-    private fun showUnlockPrompt(
-        activity: FragmentActivity,
-        cipher: Cipher,
-        wrapped: ByteArray,
-        onKey: (ByteArray) -> Unit,
-        onError: (String) -> Unit,
-        onEnd: () -> Unit,
-        failedAt: (UnlockFailure, String) -> Unit,
-    ) {
-        prompt(activity, "Desbloquear la bóveda", cipher, onCancel = onEnd, onOk = { c ->
-            if (c == null) return@prompt failedAt(UnlockFailure.NO_CRYPTO_OBJECT, "No se pudo usar la huella")
-            // A StrongBox that rejects the fingerprint's auth token fails here, not at init.
-            val dataKey = try {
-                c.doFinal(wrapped)
-            } catch (e: Exception) {
-                return@prompt failedAt(UnlockFailure.DO_FINAL, "No se pudo desbloquear con la huella")
-            }
-            // onKey owns the key once it returns; if it throws (an Error too), the key is zeroed first.
-            handOverKey(dataKey, onKey) { onError("No se pudo desbloquear con la huella") }
-        }, onError = { _, message ->
+            if (canPrompt(activity)) askFingerprint(activity, "Desbloquear la bóveda", cipher) {} else null
+        } ?: return
+        when (answer) {
+            PromptAnswer.Cancel -> return
             // The prompt never uses the key: sensor faults, timeouts and lockouts are not StrongBox's (1.2.2 behaviour).
-            failedAt(UnlockFailure.PROMPT_ERROR, message)
-        })
+            is PromptAnswer.Error -> failedAt(UnlockFailure.PROMPT_ERROR, answer.message)
+            is PromptAnswer.Ok -> {
+                val c = answer.cipher ?: return failedAt(UnlockFailure.NO_CRYPTO_OBJECT, "No se pudo usar la huella")
+                // A StrongBox that rejects the fingerprint's auth token fails here, not at init.
+                val dataKey = try {
+                    c.doFinal(wrapped)
+                } catch (e: Exception) {
+                    return failedAt(UnlockFailure.DO_FINAL, "No se pudo desbloquear con la huella")
+                }
+                onKey(dataKey)
+            }
+        }
     }
 }

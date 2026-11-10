@@ -1,0 +1,87 @@
+# BORRA TODOS LOS DATOS DE CLAVERO (clearState): solo en el emulador o en un móvil sin tu bóveda real.
+# Crea una bóveda de PRUEBA con una maestra de prueba escrita aquí (MAESTRA), nunca la tuya.
+# Antes: python3 .maestro/datos/preparar_archivos.py (copia los archivos de prueba a Descargas).
+#
+# P-8 (en parte, tareas 8 y 9): en «Importar de otra app», volver atrás con la contraseña escrita y con la
+# vista previa lo borra todo y hay que volver a empezar. Y P-2 con el archivo sintético (las exportaciones
+# reales son manuales): una contraseña equivocada dice «La contraseña no es correcta o el archivo está
+# dañado.», se puede volver a escribir y nada se reintenta solo.
+# El archivo es una exportación de 2FA cifrada hecha con el generador independiente de la tarea 10, con la
+# contraseña de prueba «prueba-clavero-1.4» (app/src/test/resources/import/README.txt).
+# Salir con Inicio y volver pasado el bloqueo, y bloquear a mitad de la copia, son manuales.
+appId: io.github.egt17baa.seguridad
+name: "P-8 Importar: volver atrás borra lo leído"
+tags:
+  - clavero-1.4.0
+  - semiautomatica
+  - borra-datos
+env:
+  MAESTRA: nube-ladera-pino-ancla-trigo-prueba
+---
+- runFlow: ../comun/inicio-desde-cero.yaml
+- runFlow:
+    file: ../comun/crear-boveda.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+- runFlow: ../comun/abrir-importar.yaml
+
+# Con la contraseña escrita (sin pulsar «Abrir»), atrás.
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-2fa-cifrado.json"
+- extendedWaitUntil:
+    visible: 'Esta exportación de .* está cifrada\. Escribe la contraseña.*'
+    timeout: 30000
+- assertVisible: "Archivo: clavero-2fa-cifrado.json"
+- tapOn: "Contraseña del archivo"
+- inputText: "algo-escrito"
+- hideKeyboard
+- tapOn: "Atrás"
+- runFlow: ../comun/abrir-importar.yaml
+- assertNotVisible: "Contraseña del archivo"
+- assertNotVisible: 'Archivo: .*'
+- assertVisible: 'Lee un archivo que hayas exportado de otro gestor.*'
+
+# Una contraseña equivocada: el texto fijo, y se puede volver a escribir.
+- tapOn: "Elegir archivo"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-2fa-cifrado.json"
+- extendedWaitUntil:
+    visible: "Contraseña del archivo"
+    timeout: 30000
+- assertVisible:
+    text: "Abrir"
+    enabled: false
+- tapOn: "Contraseña del archivo"
+- inputText: "clave-equivocada"
+- hideKeyboard
+- tapOn: "Abrir"
+- extendedWaitUntil:
+    visible: "La contraseña no es correcta o el archivo está dañado."
+    timeout: 120000
+# El campo se ha vaciado y sigue el paso de la contraseña: nada se reintenta solo.
+- assertVisible: "Contraseña del archivo"
+- assertVisible:
+    text: "Abrir"
+    enabled: false
+- tapOn: "Contraseña del archivo"
+- inputText: "prueba-clavero-1.4"
+- hideKeyboard
+- tapOn: "Abrir"
+- extendedWaitUntil:
+    visible: "Vista previa"
+    timeout: 120000
+- assertVisible: 'Entran? \d+ .*'
+
+# Con la vista previa, atrás: al volver no queda nada.
+- tapOn: "Atrás"
+- runFlow: ../comun/abrir-importar.yaml
+- assertNotVisible: "Vista previa"
+- assertNotVisible: "Contraseña del archivo"
+- assertNotVisible: 'Archivo: .*'
+- assertNotVisible: "Elegir otro archivo"
+- tapOn: "Atrás"

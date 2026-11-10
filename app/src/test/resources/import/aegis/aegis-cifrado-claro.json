@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "header": {
+    "slots": null,
+    "params": null
+  },
+  "db": {
+    "version": 3,
+    "entries": [
+      {
+        "type": "totp",
+        "uuid": "e762e120-30e3-4436-8bc4-4e8ff54e05fa",
+        "name": "ana@example.com",
+        "issuer": "Banco inventado",
+        "note": "Nota de Aegis",
+        "favorite": true,
+        "icon": null,
+        "icon_mime": null,
+        "icon_hash": null,
+        "info": {
+          "secret": "GFZBBGBQO73WSQSLPMW2QUSU22S2SGYK",
+          "algo": "SHA1",
+          "digits": 6,
+          "period": 30
+        },
+        "groups": [
+          "f5eb0196-cff7-421c-94a2-abb2679e15a8"
+        ]
+      },
+      {
+        "type": "totp",
+        "uuid": "6b588a0e-d944-4a48-bfc8-b01d7792387b",
+        "name": "luis",
+        "issuer": "Foro ñ",
+        "note": "",
+        "favorite": false,
+        "icon": null,
+        "icon_mime": null,
+        "icon_hash": null,
+        "info": {
+          "secret": "IXOO2KOVP725KW4FRDIRXCODCI47PSHE7XRVHBIIK27R7CAPVEAA",
+          "algo": "SHA256",
+          "digits": 8,
+          "period": 60
+        },
+        "groups": [
+          "f5eb0196-cff7-421c-94a2-abb2679e15a8",
+          "4068b171-e918-4b62-bca4-e603ebed3324"
+        ]
+      },
+      {
+        "type": "totp",
+        "uuid": "8cdb2da9-14bf-4606-a7fd-1457b9a6b48b",
+        "name": "",
+        "issuer": "Sin cuenta",
+        "note": "",
+        "favorite": false,
+        "icon": null,
+        "icon_mime": null,
+        "icon_hash": null,
+        "info": {
+          "secret": "AQOS4B3SD3RHX4WXIO7I3HHZXONPNOIV",
+          "algo": "SHA512",
+          "digits": 6,
+          "period": 30
+        },
+        "groups": []
+      },
+      {
+        "type": "hotp",
+        "uuid": "b472b330-0782-43c1-a4f6-8085bd06095e",
+        "name": "contador",
+        "issuer": "HOTP de prueba",
+        "note": "",
+        "favorite": false,
+        "icon": null,
+        "icon_mime": null,
+        "icon_hash": null,
+        "info": {
+          "secret": "ARSBBGSMAUWXU7QVV4U2LS73IDYBKQ3Z",
+          "algo": "SHA1",
+          "digits": 6,
+          "counter": 3
+        },
+        "groups": []
+      },
+      {
+        "type": "steam",
+        "uuid": "b3211302-e832-4ed5-a663-0dcf616ba4b7",
+        "name": "jugador",
+        "issuer": "Juego",
+        "note": "",
+        "favorite": false,
+        "icon": null,
+        "icon_mime": null,
+        "icon_hash": null,
+        "info": {
+          "secret": "4GIAEWU2IISD2RAOZKI2UX6GNLDM5IIR",
+          "algo": "SHA1",
+          "digits": 5,
+          "period": 30
+        },
+        "groups": []
+      }
+    ],
+    "groups": [
+      {
+        "uuid": "f5eb0196-cff7-421c-94a2-abb2679e15a8",
+        "name": "Personal"
+      },
+      {
+        "uuid": "4068b171-e918-4b62-bca4-e603ebed3324",
+        "name": "Viajes ✈"
+      }
+    ]
+  }
+}

@@ -1,5 +1,6 @@
 package app.seguridad.tools.qr
 
+import app.seguridad.core.drawsNothing
 import app.seguridad.crypto.withoutBidiControls
 
 /**
@@ -7,15 +8,17 @@ import app.seguridad.crypto.withoutBidiControls
  * «⟨U+XXXX⟩» (at least four upper-case hex digits). The inspector never removes them: it points them out, because a QR
  * that carries them is trying to look like something else.
  *
- * Marked: the bidi controls ([withoutBidiControls]'s own set), U+200B to U+200D, U+2060 to U+2064, U+FEFF, the soft
- * hyphen U+00AD, the Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), U+180E, the line and paragraph separators
- * U+2028 and U+2029, the variation selectors (U+FE00 to U+FE0F, U+E0100 to U+E01EF), the tag characters U+E0000 to
- * U+E007F (invisible, used to smuggle text) and the ISO control characters except `'\n'`. Works on code points, so a
- * supplementary character is one mark, with five or six digits.
+ * Marked (rulings R46 and R49): everything the shared list says draws nothing (`drawsNothing`, `core/Invisible.kt`, the
+ * one the vault's lists, the import and the names of files use: the default ignorables of Unicode, such as U+00AD,
+ * U+034F, the Hangul fillers, U+17B4/U+17B5, U+180B–U+180F, U+200B–U+200F, the bidi controls, U+2060–U+206F, the
+ * variation selectors, U+FEFF, U+FFF0–U+FFF8 and plane 14; and U+2800, U+FFF9–U+FFFB and U+13430–U+1343F), plus what
+ * only the inspector marks: the bidi controls of [withoutBidiControls]'s own set, the line and paragraph separators
+ * U+2028 and U+2029 and the ISO control characters except `'\n'`. Works on code points, so a supplementary character is
+ * one mark, with five or six digits. A prepended concatenation mark (U+0600–U+0605, U+06DD…) is drawn, so it is not.
  *
- * Exception: U+FE0E and U+FE0F right after an emoji or symbol are its normal presentation (a «❤️» in a network name),
- * not marked; so is U+FE0F inside a keycap, between 0–9, # or * and U+20E3 («1️⃣», MN, T6 of §2.5), the rule
- * `safeFileName` keeps it by (CIFRADO-2). After anything else they are.
+ * Exception, checked first: U+FE0E and U+FE0F right after an emoji or symbol are its normal presentation (a «❤️» in a
+ * network name), not marked; so is U+FE0F inside a keycap, between 0–9, # or * and U+20E3 («1️⃣», MN, T6 of §2.5), the
+ * rule `safeFileName` keeps it by (CIFRADO-2). After anything else they are.
  */
 fun visibleText(text: String): String {
     val sb = StringBuilder(text.length + 16)
@@ -86,11 +89,9 @@ private fun isHiddenCodePoint(cp: Int, previous: Int, next: Int, allowEmojiVaria
     cp == '\n'.code -> false
     (cp == 0xFE0E || cp == 0xFE0F) && allowEmojiVariation && previous >= 0 && isEmojiOrSymbol(previous) -> false
     allowEmojiVariation && isKeycapSelector(cp, previous, next) -> false
-    cp in 0x200B..0x200D || cp in 0x2060..0x2064 || cp == 0xFEFF -> true
-    cp == 0x00AD || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 || cp == 0x180E -> true
+    // The one list of what draws nothing (R46): what the lists drop, the inspector marks.
+    drawsNothing(cp) -> true
     cp == 0x2028 || cp == 0x2029 -> true
-    cp in 0xFE00..0xFE0F || cp in 0xE0100..0xE01EF -> true
-    cp in 0xE0000..0xE007F -> true
     Character.isISOControl(cp) -> true
     // The bidi set lives in one place; asking it keeps this list from drifting from it.
     cp <= 0xFFFF -> withoutBidiControls(cp.toChar().toString()).isEmpty()

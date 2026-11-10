@@ -362,7 +362,7 @@ private class RedactViewModel(private val appContext: Context, private val share
                 prepared = withContext(Dispatchers.IO) { shareTemp.prepare(redactFileName(p.output), bytes) }
                 // The screen was left meanwhile: never a share sheet out of the blue when it comes back (finally drops it).
                 if (!leftWhileBusy) {
-                    shareReady = PreparedShare(prepared!!, redactMime(p.output))
+                    shareReady = PreparedShare(prepared, redactMime(p.output))
                     handedOver = true
                 }
             } catch (e: CancellationException) {

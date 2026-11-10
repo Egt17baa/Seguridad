@@ -235,7 +235,7 @@ private class PhotoCleanViewModel(private val appContext: Context, private val s
                 prepared = withContext(Dispatchers.IO) { shareTemp.prepare("$PHOTO_FILE_BASE.${c.ext}", c.bytes) }
                 // The screen was left meanwhile: never a share sheet out of the blue when it comes back (finally drops it).
                 if (!leftWhileBusy) {
-                    shareReady = PreparedShare(prepared!!, c.mime)
+                    shareReady = PreparedShare(prepared, c.mime)
                     handedOver = true
                 }
             } catch (e: CancellationException) {

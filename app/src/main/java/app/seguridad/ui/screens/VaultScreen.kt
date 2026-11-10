@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -71,6 +72,8 @@ import app.seguridad.crypto.TOTP_UNSUPPORTED_ROW
 import app.seguridad.crypto.isSupported
 import app.seguridad.crypto.newPasswordFailureMessage
 import app.seguridad.crypto.totpCode
+import app.seguridad.imports.IMPORT_TITLE
+import app.seguridad.imports.plainReportText
 import app.seguridad.tools.RESET_WIPES_DAMAGED
 import app.seguridad.tools.VAULT_CREATE_INTRO
 import app.seguridad.ui.theme.NegativeColor
@@ -132,7 +135,14 @@ fun VaultIdleTicker(store: VaultStore) {
 /** The vault (or only its 2FA codes when [totpOnly]): the Bóveda and Códigos tabs. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, onNew: (EntryType) -> Unit, onHealth: () -> Unit) {
+fun VaultScreen(
+    store: VaultStore,
+    totpOnly: Boolean,
+    onOpen: (String) -> Unit,
+    onNew: (EntryType) -> Unit,
+    onHealth: () -> Unit,
+    onImportOther: () -> Unit,
+) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     LaunchedEffect(store) { store.load() }
@@ -167,8 +177,10 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
                                 DropdownMenuItem(text = { Text(if (bio) "Desactivar huella" else "Activar huella") }, onClick = {
                                     menu = false
                                     if (bio) {
-                                        BiometricVault.disable(context)
-                                        scope.launch { snackbar.showSnackbar("Huella desactivada") }
+                                        scope.launch {
+                                            BiometricVault.disable(context)
+                                            snackbar.showSnackbar("Huella desactivada")
+                                        }
                                     } else {
                                         val activity = context.fragmentActivity() ?: return@DropdownMenuItem
                                         val key = store.dataKeyCopy() ?: return@DropdownMenuItem
@@ -187,6 +199,11 @@ fun VaultScreen(store: VaultStore, totpOnly: Boolean, onOpen: (String) -> Unit, 
                             DropdownMenuItem(text = { Text("Importar copia") }, onClick = {
                                 menu = false
                                 actions.import()
+                            })
+                            // 1.4.0: entries from another app's export, added to this vault (it does not replace it).
+                            DropdownMenuItem(text = { Text(IMPORT_TITLE) }, onClick = {
+                                menu = false
+                                onImportOther()
                             })
                             DropdownMenuItem(text = { Text("Cambiar contraseña maestra") }, onClick = {
                                 menu = false
@@ -375,8 +392,11 @@ private fun UnlockVault(store: VaultStore) {
             confirmButton = {
                 TextButton(onClick = {
                     confirmDestroy = false
-                    BiometricVault.disable(context)
-                    scope.launch { store.destroy() }
+                    scope.launch {
+                        // CRY-A02: the fingerprint is off before the vault is deleted.
+                        BiometricVault.disable(context)
+                        store.destroy()
+                    }
                 }) { Text("Borrar bóveda", color = NegativeColor) }
             },
             dismissButton = { TextButton(onClick = { confirmDestroy = false }) { Text("Cancelar") } },
@@ -422,9 +442,10 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
         }
         if (allTags.isNotEmpty()) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    allTags.forEach { t ->
-                        FilterChip(selected = activeTag == t, onClick = { tag = if (activeTag == t) null else t }, label = { Text("#$t") })
+                // R18: lazy, so a vault with many tags composes only the chips on screen.
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(allTags, key = { it }) { t ->
+                        FilterChip(selected = activeTag == t, onClick = { tag = if (activeTag == t) null else t }, label = { Text("#${plainReportText(t)}") })
                     }
                 }
             }
@@ -446,7 +467,7 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
             ) {
                 Text(typeIcon(e.type), style = MaterialTheme.typography.titleLarge)
                 Column(Modifier.weight(1f)) {
-                    Text(e.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(plainReportText(e.title), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val sub = when (e.type) {
                         EntryType.LOGIN -> e.username.ifBlank { e.url }
                         EntryType.SEED -> "${seedWordCount(e.seedWords).first} palabras"
@@ -454,7 +475,7 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, onOpen: (
                         EntryType.TOTP -> listOf(e.totp?.issuer, e.totp?.account).filter { !it.isNullOrBlank() }.joinToString(" · ")
                         EntryType.IDENTITY, EntryType.CONTACT -> "" // Never listed here.
                     }
-                    if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    if (sub.isNotBlank()) Text(plainReportText(sub), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
                 if (e.favorite) Text("★", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 e.totp?.let { t ->

@@ -18,8 +18,11 @@ private val DANGEROUS_SCHEMES = setOf("javascript", "data", "file", "intent")
 /** Schemes whose «scheme:» alone, with no «//», is already a link (a browser or the system opens them). */
 internal val LINK_SCHEMES = setOf("http", "https", "ftp", "ftps", "ws", "wss") + DANGEROUS_SCHEMES
 
-/** Schemes a browser reads with the host after any number of «/» or «\», so «http:evil.com» goes to evil.com. */
-private val SPECIAL_SCHEMES = setOf("http", "https", "ftp", "ws", "wss")
+/**
+ * Schemes a browser reads with the host after any number of «/» or «\», so «http:evil.com» goes to evil.com. Also the
+ * merge of «Importar de otra app» (`urlHost`) uses it, so both read a link the same way.
+ */
+internal val SPECIAL_SCHEMES = setOf("http", "https", "ftp", "ws", "wss")
 
 private val DEFAULT_PORTS = mapOf("http" to 80, "https" to 443, "ftp" to 21, "ftps" to 990, "ws" to 80, "wss" to 443)
 
@@ -49,6 +52,17 @@ internal class ParsedLink(
 private val NOT_A_LINK = ParsedLink("", false, null, null, null, false, false)
 
 /**
+ * [text] as a browser has it before it looks for the scheme (ruling R54, RT-14), following the basic URL parser of the
+ * WHATWG URL Standard (https://url.spec.whatwg.org/): the C0 controls and spaces at both ends are trimmed, and every
+ * ASCII tab, line feed and carriage return is removed, wherever it is. It also trims the other Unicode spaces at the
+ * ends (as [parseLink] always did, and as an address bar does). [parseLink] and the duplicate rule of «Importar de otra
+ * app» (`urlHost`, `urlKey`, the duplicate's row) all read a link through it, so `ht\ttp:@banco.es` and
+ * `\u0001http:@banco.es` are `http:@banco.es` for both, as for the browser. Plain string work; it never throws.
+ */
+internal fun asBrowserReadsIt(text: String): String =
+    text.filterNot { it == '\t' || it == '\n' || it == '\r' }.trim { it <= ' ' || it.isWhitespace() }
+
+/**
  * Reads [uri] without throwing, whatever it holds. It does not use `java.net.URI`: that rejects spaces, backslashes,
  * underscores and non-ASCII names, and where it does parse it can disagree with the browser that will really open the
  * link. This follows the browser (WHATWG URL) on what matters for the signals: tabs and line breaks inside are
@@ -57,7 +71,7 @@ private val NOT_A_LINK = ParsedLink("", false, null, null, null, false, false)
  * letters become ASCII, invisible characters vanish, non-ASCII labels become `xn--`).
  */
 internal fun parseLink(uri: String): ParsedLink {
-    val u = uri.filterNot { it == '\t' || it == '\n' || it == '\r' }.trim { it <= ' ' || it.isWhitespace() }
+    val u = asBrowserReadsIt(uri)
     val scheme = schemeOf(u) ?: return NOT_A_LINK
     val rest = u.substring(scheme.length + 1)
     val hierarchical = rest.startsWith("//")
@@ -112,7 +126,12 @@ internal fun parseLink(uri: String): ParsedLink {
     return ParsedLink(scheme, hierarchical, host, unicodeHost, port, oddPort, at >= 0, isIp, hostHidden)
 }
 
-/** The scheme of [text], lower-case, if it starts with a valid «scheme:»; null otherwise (a drive letter included). */
+/**
+ * The scheme of [text], lower-case, if it starts with a valid «scheme:»; null otherwise. It reads the way the scheme
+ * state of the WHATWG URL Standard does: an ASCII letter, then ASCII letters, digits, «+», «-» or «.», then «:». One
+ * difference, on purpose: a single letter before «:» is not a scheme here (it is a drive letter, «C:\…»). Give it the
+ * text through [asBrowserReadsIt] first, as a browser would.
+ */
 internal fun schemeOf(text: String): String? {
     val colon = text.indexOf(':')
     if (colon < 2) return null

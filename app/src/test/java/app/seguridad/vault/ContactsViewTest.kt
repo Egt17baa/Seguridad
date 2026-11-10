@@ -435,7 +435,7 @@ class ContactsViewTest {
         assertNull(sameNotice.saveLabel)
         // Mi propia tarjeta.
         val (ownCheck, ownNotice) = noticeFor(cardOf(me, "Bea"), entries)
-        assertTrue(ownCheck is CardCheck.Same && (ownCheck as CardCheck.Same).entry.type == EntryType.IDENTITY)
+        assertTrue(ownCheck is CardCheck.Same && ownCheck.entry.type == EntryType.IDENTITY)
         assertEquals("Es tu propia tarjeta", ownNotice.title)
         assertNull(ownNotice.saveLabel)
     }

@@ -141,4 +141,14 @@ class KeyPlacementTest {
         // Every label is checked by ToolTextsTest (annex wording, forbidden words).
         for (level in KeyLevel.entries) assertTrue("$level", keyLevelLabel(level) in ALL_TOOL_TEXTS)
     }
+
+    @Test
+    fun theInterruptedNoticeOnlyWhenARecreationLeftNothingStored() {
+        // M-4 (1.4.0, review I1): doFinal and the prefs write run on the queue's thread and may still finish after the
+        // activity was re-created. The notice says «nothing was stored», so it is decided once the operation ended.
+        assertTrue("re-created, nothing stored: tap again", shouldSayEnableInterrupted(recreated = true, stored = false))
+        assertFalse("re-created after the key was stored: the fingerprint is on", shouldSayEnableInterrupted(recreated = true, stored = true))
+        assertFalse("not re-created (activity closed, or ended normally)", shouldSayEnableInterrupted(recreated = false, stored = false))
+        assertFalse(shouldSayEnableInterrupted(recreated = false, stored = true))
+    }
 }

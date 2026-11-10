@@ -19,7 +19,7 @@
 <body>
 <main>
 <h1>Política de privacidad de Clavero</h1>
-<p class="meta">App Android «Clavero», antes «Seguridad» (<code>io.github.egt17baa.seguridad</code>). Última actualización: 2 de noviembre de 2026.</p>
+<p class="meta">App Android «Clavero», antes «Seguridad» (<code>io.github.egt17baa.seguridad</code>). Última actualización: 10 de noviembre de 2026.</p>
 
 <h2>Quién la desarrolla</h2>
 <p>Egt17baa (seudónimo), desarrollador particular residente en España. No hay empresa detrás ni ánimo de lucro: la app es gratuita, sin anuncios, sin compras y sin donaciones, y su código es abierto (Apache-2.0): <a href="https://github.com/Egt17baa/Seguridad">github.com/Egt17baa/Seguridad</a>.</p>
@@ -32,8 +32,10 @@
 <p>La bóveda (contraseñas, códigos 2FA, frases semilla, notas, adjuntos, tu identidad y tus contactos) se guarda cifrada en tu móvil. Las copias de seguridad automáticas de Android están desactivadas para esta app. Fuera de la bóveda solo quedan las copias y los archivos que guardas o compartes tú, la copia automática si la activas (en la carpeta que elijas) y las copias temporales que se explican aquí. Lo que copias va al portapapeles del sistema, donde otras apps lo pueden pegar: la app lo borra pasados los segundos que elijas en Ajustes (o al volver a abrirla, si Android la cerró antes), y solo en este móvil: no del historial del teclado ni de otros dispositivos con los que compartas el portapapeles.</p>
 <p>Cuando descifras un archivo (en Cifrar archivos o al abrir lo que te envía un contacto), la app escribe antes una copia temporal sin cifrar en su almacenamiento privado, al que no pueden entrar otras apps. La borra en cuanto la guardas donde elijas o cancelas y, si la app se cierra antes, la próxima vez que la abras.</p>
 <p>Tu identidad (las claves con las que cifras y firmas) y tus contactos (su nombre y sus claves públicas) se guardan únicamente dentro de la bóveda cifrada de tu móvil y en las copias de seguridad que hagas tú. No se envían a ningún sitio, y esta versión no envía nada nuevo: no hay servidor que reciba tarjetas, mensajes ni firmas. Los textos y archivos que cifras para un contacto, o las firmas, los compartes tú por el canal que elijas (por ejemplo, una aplicación de mensajería), que los trata según su propia política.</p>
-<p>Si exportas una copia, o activas la copia automática eligiendo una carpeta, el archivo (con tu identidad y tus contactos, si los tienes) se guarda cifrado con tu contraseña maestra donde tú elijas. Si esa carpeta está sincronizada con un servicio en la nube (por ejemplo, Google Drive), ese servicio recibe el archivo cifrado según su propia política; no puede leer su contenido sin tu contraseña.</p>
-<p>Al cambiar la contraseña maestra, las copias que ya existen se siguen abriendo con la contraseña anterior. Puedes pedir que se haga una copia nueva y se borren las copias automáticas de antes del cambio que la app tiene apuntadas en esa carpeta. No se borran las que no tenga apuntadas (por ejemplo, las de antes de la versión 1.2.1 o las de otra bóveda) ni las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera).</p>
+<p>Si exportas una copia, o activas la copia automática eligiendo una carpeta, el archivo (con tu identidad y tus contactos, si los tienes) se guarda cifrado con tu contraseña maestra donde tú elijas. Si esa carpeta está sincronizada con un servicio en la nube, ese servicio recibe el archivo cifrado según su propia política; no puede leer su contenido sin tu contraseña.</p>
+<p>Al cambiar la contraseña maestra, las copias que ya existen se siguen abriendo con la contraseña anterior. Puedes pedir que se haga una copia nueva y se borren las copias automáticas y las de antes de importar hechas antes del cambio: las que la app tiene apuntadas en esa carpeta. No se borran las que no tenga apuntadas (por ejemplo, las de antes de la versión 1.2.1, las de otra bóveda o las de antes de importar que guardaste en otro sitio) ni las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera).</p>
+<p>Si usas «Importar de otra app», la app lee en el móvil el archivo que eliges con el selector de Android y no lo envía a ningún sitio. Antes de guardar hace una copia cifrada de la bóveda con tu contraseña maestra (un archivo <code>seguridad-antes-de-importar-….sgbak</code>) en la carpeta de la copia automática o, si no la tienes, donde elijas; la rotación de las copias automáticas no la borra. El archivo que exportaste de la otra app no lo crea esta app: sigue donde lo guardaste hasta que lo borres, y al terminar la app te ofrece intentarlo.</p>
+<p>«Comprobar una copia» guarda, mientras trabaja, lo que lee de la copia (sus adjuntos, cifrados como están en ella) en una carpeta temporal de su almacenamiento privado, y la borra al terminar o, si la app se cierra antes, la próxima vez que la abras.</p>
 <p>Los PIN, los códigos de recuperación y las respuestas inventadas se generan en el móvil; si los guardas, van a la bóveda cifrada.</p>
 <p>Si olvidas la contraseña maestra, nadie puede recuperar los datos.</p>
 
@@ -48,7 +50,7 @@
 <h2>Permisos</h2>
 <ul>
 <li>Internet: solo para la comprobación de contraseñas filtradas descrita arriba.</li>
-<li>Cámara: solo mientras escaneas un código QR (de 2FA, de exportación de Google Authenticator, de la tarjeta de un contacto, o cualquier QR en el Inspector de QR). Las imágenes no se guardan ni se envían.</li>
+<li>Cámara: solo mientras escaneas un código QR (de 2FA, de exportación de otra app de 2FA, de la tarjeta de un contacto, o cualquier QR en el Inspector de QR). Las imágenes no se guardan ni se envían.</li>
 <li>Biometría: la huella la gestiona Android; la app nunca accede a ella.</li>
 <li>No pide permiso de fotos ni de ubicación.</li>
 </ul>
@@ -60,7 +62,7 @@
 <p>La app no está dirigida a menores de 13 años.</p>
 
 <h2>Tus derechos</h2>
-<p>Como no tratamos datos personales, no podemos atender solicitudes de acceso o supresión sobre datos que no tenemos. Para borrar todo lo que guarda la app, desinstálala o borra sus datos desde los Ajustes de Android. Eso no borra los archivos que hayas guardado fuera de la app (las copias <code>.sgbak</code>, también las automáticas, las copias de fotos y las imágenes tachadas, y los archivos cifrados): están donde los guardaste, y los borras tú. Puedes escribirnos por el contacto de arriba con cualquier duda y, si lo consideras necesario, reclamar ante la Agencia Española de Protección de Datos (<a href="https://www.aepd.es">www.aepd.es</a>).</p>
+<p>Como no tratamos datos personales, no podemos atender solicitudes de acceso o supresión sobre datos que no tenemos. Para borrar todo lo que guarda la app, desinstálala o borra sus datos desde los Ajustes de Android. Eso no borra los archivos que hayas guardado fuera de la app (las copias <code>.sgbak</code>, también las automáticas y las de antes de importar, las copias de fotos y las imágenes tachadas, y los archivos cifrados): están donde los guardaste, y los borras tú. Tampoco borra los archivos que hayas exportado de otras apps para importarlos. Puedes escribirnos por el contacto de arriba con cualquier duda y, si lo consideras necesario, reclamar ante la Agencia Española de Protección de Datos (<a href="https://www.aepd.es">www.aepd.es</a>).</p>
 
 <h2>Cambios</h2>
 <p>Si esta política cambia, se publicará aquí con su nueva fecha. El historial de cambios está en el repositorio.</p>

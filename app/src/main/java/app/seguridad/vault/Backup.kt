@@ -5,6 +5,7 @@ import java.io.EOFException
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
+import java.io.FilterInputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
@@ -22,7 +23,7 @@ import java.util.zip.ZipOutputStream
  *  - `vault.json`: the vault file exactly as on disk (`VaultFile`, still encrypted);
  *  - `att/<id>.bin`: each attachment file exactly as stored (still encrypted), ids in ascending order.
  * Reading ignores any other name; the valid ones are checked with exact patterns (no zip-slip). Limits on the bytes
- * really read: 100 MB in all, 6 MB per entry and 2 000 entries.
+ * really read: 100 MB in all, 6 MB per entry and 2 000 entries, and [BACKUP_MAX_READ_BYTES] of the file itself.
  */
 
 internal const val BACKUP_MARKER = "seguridad-backup"
@@ -38,6 +39,15 @@ private const val BACKUP_NEWEST = 2
 const val BACKUP_MAX_TOTAL_BYTES = 100L * 1024 * 1024
 const val BACKUP_MAX_ENTRY_BYTES = 6L * 1024 * 1024
 const val BACKUP_MAX_ENTRIES = 2_000
+
+/**
+ * The most of the file [BackupReader] reads, whatever its entries give out (1.4.0, owner's decision for «Comprobar una
+ * copia»): a deflated entry made of empty blocks gives no bytes out, so the limits above would never stop it. A copy
+ * the app writes is at most [BACKUP_MAX_TOTAL_BYTES] of content plus its headers, its data descriptors and the deflate
+ * framing of its stored blocks (about 0.2 MB at 2 000 entries, BackupCheckTest.aCopyAtTheLimitsIsStillRead): 10 MB
+ * more leaves every real copy room.
+ */
+const val BACKUP_MAX_READ_BYTES = BACKUP_MAX_TOTAL_BYTES + 10L * 1024 * 1024
 
 /** How many bytes [isBackup] needs from the start of a file. */
 const val BACKUP_HEAD_BYTES = 64
@@ -163,8 +173,43 @@ internal fun fileMatchesSha256(file: File, hex: String, maxBytes: Long): Boolean
     }
 }
 
-/** What a copy holds: the vault file as text and each attachment id with its file in the temporary folder. */
-class BackupContents(val vaultJson: String, val attachments: Map<String, File>)
+/**
+ * What a copy holds: the vault file as text, each attachment id with its file in the temporary folder, and the copy's
+ * [version] (1 or 2, from its marker).
+ */
+class BackupContents(val vaultJson: String, val attachments: Map<String, File>, val version: Int = BACKUP_NEWEST)
+
+/**
+ * [input] read at most [max] bytes in all (more throws [CryptoFailure] with [BACKUP_TOO_BIG]), with [check] called before
+ * each read: a cancellation it throws stops the reading at once, also inside one read of the ZIP that would go on
+ * through many empty blocks.
+ */
+private class BoundedInput(input: InputStream, private val max: Long, private val check: () -> Unit) : FilterInputStream(input) {
+    private var count = 0L
+
+    private fun counted(n: Long) {
+        if (n > 0) count += n
+        if (count > max) throw CryptoFailure(BACKUP_TOO_BIG)
+    }
+
+    override fun read(): Int {
+        check()
+        return super.read().also { if (it >= 0) counted(1) }
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        check()
+        return super.read(b, off, len).also { counted(it.toLong()) }
+    }
+
+    override fun skip(n: Long): Long {
+        check()
+        return super.skip(n).also { counted(it) }
+    }
+
+    // No mark and reset: what was counted stays counted.
+    override fun markSupported(): Boolean = false
+}
 
 /** Reads a `seguridad-backup` copy, version 1 or 2. */
 class BackupReader {
@@ -172,12 +217,14 @@ class BackupReader {
      * Reads the copy from [input] (left open), writing each attachment to `<id>.bin` in [tempDir] as it comes, never
      * the whole copy in memory. Any problem throws [CryptoFailure] (a read error of [input] stays an IOException)
      * and deletes what was written. Names are only ever taken from the exact patterns, so nothing is written
-     * outside [tempDir]; other names are skipped, but their bytes count against the limits too.
+     * outside [tempDir]; other names are skipped, but their bytes count against the limits too. At most
+     * [BACKUP_MAX_READ_BYTES] of [input] are read. [check] runs before each read of [input]: whatever it throws (a
+     * coroutine's cancellation) goes through as it is, with what was written deleted.
      */
-    fun read(input: InputStream, tempDir: File): BackupContents {
+    fun read(input: InputStream, tempDir: File, check: () -> Unit = {}): BackupContents {
         val written = ArrayList<File>()
         try {
-            return readInto(ZipInputStream(input), tempDir, written)
+            return readInto(ZipInputStream(BoundedInput(input, BACKUP_MAX_READ_BYTES, check)), tempDir, written)
         } catch (e: Exception) {
             written.forEach { it.delete() }
             throw when (e) {
@@ -194,6 +241,7 @@ class BackupReader {
         var entries = 0
         var total = 0L
         var vaultJson: String? = null
+        var copyVersion = BACKUP_NEWEST
         val attachments = LinkedHashMap<String, File>()
 
         /** Copies the current entry to [sink] (or nowhere), counting the bytes really read against every limit. */
@@ -224,6 +272,7 @@ class BackupReader {
                     val number = version.decodeToString().trim().toIntOrNull()
                     throw CryptoFailure(if (number != null && number > BACKUP_NEWEST) BACKUP_NEWER else BACKUP_DAMAGED)
                 }
+                copyVersion = if (version.contentEquals(BACKUP_VERSION_1)) 1 else BACKUP_NEWEST
                 continue
             }
             val att = ATTACHMENT_ENTRY.matchEntire(name)
@@ -251,6 +300,6 @@ class BackupReader {
             }
         }
         if (entries == 0 || vaultJson == null) throw CryptoFailure(BACKUP_DAMAGED)
-        return BackupContents(vaultJson, attachments)
+        return BackupContents(vaultJson, attachments, copyVersion)
     }
 }

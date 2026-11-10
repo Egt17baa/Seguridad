@@ -235,6 +235,16 @@ class PkActionsTest {
 
     // ---- Nombre de un archivo recibido ----
 
+    @Test fun unNombreRecibidoPierdeLoQueNoSeDibujaComoLoQueSeEnsena() {
+        // RT-6 (R43): la misma lista que plainReportText; el emoji conserva su selector.
+        for (c in listOf("\u2800", "\u180B", "\u180C", "\u180D", "\u180F", "\u17B4", "\uFE00", "\uDB40\uDD00")) {
+            assertEquals("factura.pdf", sanitizeReceivedName("fac${c}tura$c.pdf"))
+        }
+        assertEquals("\u2764\uFE0F foto.jpg", sanitizeReceivedName("\u2764\uFE0F foto.jpg"))
+        assertEquals("1\uFE0F\u20E3.txt", sanitizeReceivedName("1\uFE0F\u20E3.txt"))
+        assertEquals("factura.pdf", sanitizeReceivedName("fac\uFE0Ftura.pdf"))
+    }
+
     @Test fun unNombreNormalNoCambia() {
         assertEquals("informe final.pdf", sanitizeReceivedName("informe final.pdf"))
         assertEquals("Ñandú ✓.txt", sanitizeReceivedName("Ñandú ✓.txt"))

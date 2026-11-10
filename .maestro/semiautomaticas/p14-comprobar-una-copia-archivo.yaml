@@ -1,0 +1,81 @@
+# P-14 (en parte, tarea 5): «Comprobar una copia» con una copia .sgbak real de la 1.1.1 (versión 1 de
+# seguridad-backup, maestra de prueba «maestra-de-prueba», entradas «Banco» con el adjunto hola.txt y
+# «Correo»; ver app/src/test/resources/seguridad/README.txt): con la contraseña equivocada sale el error
+# de «Importar copia»; con la buena, la versión, las entradas por tipo y que el adjunto coincide. Un archivo
+# que no es una copia lo dice antes de pedir la contraseña.
+# No borra datos y no toca la bóveda: se puede usar en tu móvil.
+# Antes: python3 .maestro/datos/preparar_archivos.py (copia clavero-copia-1.1.sgbak y clavero-frase.txt a
+# Descargas).
+# «Cancelar» mientras deriva, salir a mitad y mirar cache/comprobar con adb son manuales.
+appId: io.github.egt17baa.seguridad
+name: "P-14 Comprobar una copia con un archivo"
+tags:
+  - clavero-1.4.0
+  - semiautomatica
+---
+- runFlow: ../comun/abrir-app.yaml
+- tapOn: "Ajustes"
+- scrollUntilVisible:
+    element:
+      text: "Comprobar una copia"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Comprobar una copia"
+- extendedWaitUntil:
+    visible: "Elegir copia"
+    timeout: 15000
+
+# Un archivo que no es una copia.
+- tapOn: "Elegir copia"
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-frase.txt"
+- extendedWaitUntil:
+    visible: "Este archivo no es una copia .sgbak de Clavero. Esta pantalla solo comprueba esas copias."
+    timeout: 30000
+
+# La copia, con la contraseña equivocada.
+- tapOn: 'Elegir copia|clavero-frase\.txt'
+- runFlow:
+    file: ../comun/elegir-en-descargas.yaml
+    env:
+      ARCHIVO: "clavero-copia-1.1.sgbak"
+- extendedWaitUntil:
+    visible: "clavero-copia-1.1.sgbak"
+    timeout: 30000
+- tapOn: "Contraseña maestra de la copia"
+- inputText: "equivocada-de-prueba"
+- hideKeyboard
+- tapOn: "Comprobar"
+- extendedWaitUntil:
+    visible: 'Contraseña incorrecta.*'
+    timeout: 120000
+- assertNotVisible: "Resultado"
+
+# Con la buena: sin problemas, versión, entradas y adjunto.
+- tapOn: "Contraseña maestra de la copia"
+- inputText: "maestra-de-prueba"
+- hideKeyboard
+- tapOn: "Comprobar"
+- extendedWaitUntil:
+    visible: 'No se ha encontrado ningún problema: la contraseña abre la copia, sus entradas se leen y todos sus adjuntos coinciden\.'
+    timeout: 120000
+- assertVisible: "Resultado"
+- assertVisible: 'Formato de la copia: versión \d+'
+- assertVisible: "2 entradas"
+- assertVisible: "Acceso: 1"
+- assertVisible: "Código 2FA: 1"
+- assertVisible: "1 adjunto; coincide: 1"
+# La contraseña se ha borrado del campo al pulsar «Comprobar».
+- assertVisible: "Contraseña maestra de la copia"
+
+# Volver atrás borra el resultado.
+- tapOn: "Atrás"
+- tapOn: "Comprobar una copia"
+- extendedWaitUntil:
+    visible: "Elegir copia"
+    timeout: 15000
+- assertNotVisible: "Resultado"
+- assertNotVisible: "clavero-copia-1.1.sgbak"
+- tapOn: "Atrás"

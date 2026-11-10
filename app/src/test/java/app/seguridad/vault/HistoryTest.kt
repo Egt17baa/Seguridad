@@ -11,6 +11,9 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 class HistoryTest {
+    /** As an older reader would decode it: names it does not know are passed over. */
+    private val lenientJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
     @get:Rule val tmp = TemporaryFolder()
 
     private fun login(pw: String, history: List<PasswordChange> = emptyList()) =
@@ -69,7 +72,7 @@ class HistoryTest {
 
     @Test fun oldJsonWithoutHistoryDecodes() {
         val json = """{"id":"a","type":"LOGIN","title":"t","createdAt":0,"updatedAt":0}"""
-        val e = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString(VaultEntry.serializer(), json)
+        val e = lenientJson.decodeFromString(VaultEntry.serializer(), json)
         assertTrue(e.passwordHistory.isEmpty())
     }
 }

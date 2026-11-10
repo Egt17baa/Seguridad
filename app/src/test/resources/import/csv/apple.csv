@@ -1,0 +1,5 @@
+Title,URL,Username,Password,Notes,OTPAuth
+ejemplo.com (ana@ejemplo.com),https://ejemplo.com/,ana@ejemplo.com,clave-apple-1,Nota de prueba,otpauth://totp/Ejemplo:ana%40ejemplo.com?secret=JBSWY3DPEHPK3PXP&issuer=Ejemplo
+foro.example.org,https://foro.example.org/,luis,clave-apple-2,,
+banco.example.net,https://banco.example.net/,maria,clave-apple-3,,otpauth://totp/Banco:maria?secret=JBSWY3DPEHPK3PXP&digits=10
+viejo.example.com,https://viejo.example.com/,pepe,clave-apple-4,,otpauth://hotp/Viejo:pepe?secret=JBSWY3DPEHPK3PXP&counter=1

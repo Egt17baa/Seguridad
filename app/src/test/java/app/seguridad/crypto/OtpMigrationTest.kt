@@ -1,5 +1,6 @@
 package app.seguridad.crypto
 
+import app.seguridad.imports.wellFormed
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -146,6 +147,70 @@ class OtpMigrationTest {
         val inner = otp(KEY, "A:a", "A").int(15, 99).bytes(16, ByteArray(20)).tag(17, 5).raw(1, 2, 3, 4).tag(18, 1).raw(1, 2, 3, 4, 5, 6, 7, 8)
         val payload = Pb().int(9, 5).msg(1, inner).str(10, "x")
         assertEquals(1, parseOtpMigration(uri(payload.toByteArray()))!!.imported.size)
+    }
+
+    @Test fun otpNameCutsByCodePoints() {
+        val emoji = "x".repeat(OTPAUTH_MAX_NAME_CHARS - 1) + "🛒"
+        assertEquals(emoji, otpName(emoji + "yz"))
+        assertEquals(emoji, otpName(emoji))
+        assertTrue(otpNameFits(emoji))
+        assertTrue(!otpNameFits(emoji + "y"))
+        // What otpName removes does not count: 300 control characters around a short name fit.
+        assertTrue(otpNameFits("\u0007".repeat(300) + "Banco"))
+    }
+
+    @Test fun readOtpAuthSaysWhenItCutAName() {
+        val long = "x".repeat(OTPAUTH_MAX_NAME_CHARS + 1)
+        val cut = readOtpAuth("otpauth://totp/a:$long?secret=JBSWY3DPEHPK3PXP") as OtpAuthRead.Usable
+        assertTrue(cut.namesCut)
+        assertEquals(OTPAUTH_MAX_NAME_CHARS, cut.secret.account.length)
+        assertTrue(!(readOtpAuth("otpauth://totp/a:b?secret=JBSWY3DPEHPK3PXP&issuer=${"i".repeat(OTPAUTH_MAX_NAME_CHARS)}") as OtpAuthRead.Usable).namesCut)
+        assertTrue((readOtpAuth("otpauth://totp/a:b?secret=JBSWY3DPEHPK3PXP&issuer=$long") as OtpAuthRead.Usable).namesCut)
+    }
+
+    @Test fun migrationSaysWhichCodesHaveANameCut() {
+        val long = "x".repeat(OTPAUTH_MAX_NAME_CHARS + 1)
+        val payload = Pb().msg(1, otp(KEY, "A:a", "A")).msg(1, otp(KEY, "B:$long", "B")).msg(1, otp(KEY, "$long:c", "")).msg(1, otp(KEY, "D:d", long))
+        val r = parseOtpMigration(uri(payload.toByteArray()))!!
+        assertEquals(listOf(false, true, true, true), r.importedNamesCut)
+        assertEquals(4, r.imported.size)
+    }
+
+    @Test fun theNameInALeftOutTextIsCutWithoutSplittingAPair() {
+        // 79 letters, an emoji (two UTF-16 units) and one more letter: cut at 80 code points, the emoji stays whole.
+        val issuer = "x".repeat(79) + "🛒" + "y"
+        val r = parseOtpMigration(uri(Pb().msg(1, otp(KEY, "", issuer, type = 1)).toByteArray()))!!
+        val text = r.skipped.single()
+        assertTrue(text, text.startsWith("«" + "x".repeat(79) + "🛒»: "))
+        assertTrue(wellFormed(text))
+    }
+
+    @Test fun leftOutAccountsSayWhyWithoutTheText() {
+        // The same accounts as skipsHotpAndMd5WithReason, plus an unknown type and an unknown number of digits: the
+        // importer needs the kind, so it never reads the Spanish text back.
+        val payload = Pb()
+            .msg(1, otp(KEY, "Hotp:a", "Hotp", type = 1, counter = 7))
+            .msg(1, otp(KEY, "Viejo:b", "Viejo", alg = 4))
+            .msg(1, otp(ByteArray(9) { 1 }, "Corta:c", "Corta"))
+            .msg(1, otp(KEY, "Rara:d", "Rara", alg = 9))
+            .msg(1, otp(KEY, "Bien:e", "Bien"))
+            .msg(1, otp(KEY, "Tipo:f", "Tipo", type = 7))
+            .msg(1, otp(KEY, "Cifras:g", "Cifras", digits = 5))
+        val r = parseOtpMigration(uri(payload.toByteArray()))!!
+        assertEquals(
+            listOf(
+                MigrationLeftOut("Hotp", "a", MigrationLeftOutKind.NOT_TOTP),
+                MigrationLeftOut("Viejo", "b", MigrationLeftOutKind.UNSUPPORTED_SETTINGS),
+                MigrationLeftOut("Corta", "c", MigrationLeftOutKind.SHORT_KEY),
+                MigrationLeftOut("Rara", "d", MigrationLeftOutKind.UNSUPPORTED_SETTINGS),
+                MigrationLeftOut("Tipo", "f", MigrationLeftOutKind.NOT_TOTP),
+                MigrationLeftOut("Cifras", "g", MigrationLeftOutKind.UNSUPPORTED_SETTINGS),
+            ),
+            r.leftOut,
+        )
+        // One text per account left out, in the same order, as before.
+        assertEquals(r.leftOut.size, r.skipped.size)
+        assertTrue(r.skipped.zip(r.leftOut).all { (text, left) -> text.startsWith("«${left.issuer} · ${left.account}»") })
     }
 
     @Test fun rejectsOversizedAndMalformed() {

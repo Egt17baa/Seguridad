@@ -53,6 +53,7 @@ import app.seguridad.core.readAtMost
 import app.seguridad.crypto.pk.cardText
 import app.seguridad.crypto.MAX_TEXT_FILE_BYTES
 import app.seguridad.crypto.safeFileName
+import app.seguridad.imports.plainReportText
 import app.seguridad.tools.DONT_SEND_FILE_NAME
 import app.seguridad.tools.fileNameInsideText
 import app.seguridad.tools.qr.QrHandoff
@@ -368,7 +369,7 @@ private fun EncryptForContent(store: VaultStore, entries: List<VaultEntry>) {
             ) {
                 RadioButton(selected = c.id == contactId, onClick = { contactId = c.id; result = null })
                 Column {
-                    Text(shownContactTitle(c.title), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(plainReportText(shownContactTitle(c.title)), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         verificationMark(c),
                         style = MaterialTheme.typography.bodySmall,

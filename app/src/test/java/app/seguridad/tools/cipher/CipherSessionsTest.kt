@@ -222,4 +222,18 @@ class CipherSessionsTest {
         h.start()
         assertFalse(h.failed)
     }
+
+    @Test fun `a cancelled hash ends Calculando without a result or a failure, and only for its own run`() {
+        val h = FileHashSession()
+        val a = h.start()
+        h.named(a, "grande.iso")
+        val b = h.start()
+        assertFalse("an earlier run cannot cancel the current one", h.cancelled(a))
+        assertTrue(h.busy)
+        assertTrue(h.cancelled(b))
+        assertFalse(h.busy)
+        assertNull(h.name)
+        assertNull(h.hash)
+        assertFalse(h.failed)
+    }
 }

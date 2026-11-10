@@ -1,0 +1,12 @@
+# Subflujo: con la bóveda abierta, abre «Importar de otra app» desde el menú de la bóveda.
+appId: io.github.egt17baa.seguridad
+---
+- tapOn: "Bóveda"
+- extendedWaitUntil:
+    visible: "Más opciones"
+    timeout: 15000
+- tapOn: "Más opciones"
+- tapOn: "Importar de otra app"
+- extendedWaitUntil:
+    visible: "Elegir archivo"
+    timeout: 15000

@@ -1,0 +1,42 @@
+# P-14, Comprobar una copia (tarea 5): la pantalla, desde Ajustes, sin elegir ningún archivo.
+# Comprobar una copia con un archivo está en semiautomaticas/p14-comprobar-una-copia-archivo.yaml.
+# No borra datos y no toca la bóveda: se puede usar en tu móvil.
+appId: io.github.egt17baa.seguridad
+name: "P-14 Comprobar una copia: la pantalla"
+tags:
+  - clavero-1.4.0
+  - automatica
+---
+- runFlow: comun/abrir-app.yaml
+- tapOn: "Ajustes"
+- scrollUntilVisible:
+    element:
+      text: "Comprobar una copia"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Comprobar una copia"
+- extendedWaitUntil:
+    visible: "Atrás"
+    timeout: 15000
+- assertVisible: 'Comprueba una copia \.sgbak sin importarla.*'
+- assertVisible: "Elegir copia"
+- assertVisible: "Contraseña maestra de la copia"
+# Sin archivo ni contraseña, «Comprobar» está desactivado.
+- assertVisible:
+    text: "Comprobar"
+    enabled: false
+- scrollUntilVisible:
+    element:
+      text: "Lo que no comprueba"
+    direction: DOWN
+- assertVisible: 'No dice si es tu copia más reciente ni si tiene lo que cambiaste después de hacerla\..*'
+- scrollUntilVisible:
+    element:
+      text: 'La contraseña se borra del campo al pulsar «Comprobar»\..*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Lo que escribes aquí y el resultado se borran si vuelves atrás.*'
+    direction: DOWN
+- tapOn: "Atrás"
+- assertVisible: "Comprobar una copia"
