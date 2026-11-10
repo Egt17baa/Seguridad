@@ -30,7 +30,7 @@ const val IMPORT_NOT_TEXT = "El archivo está dañado o no es texto."
 const val IMPORT_UNKNOWN = "Clavero no reconoce este archivo."
 
 /** More than [IMPORT_MAX_ITEMS] rows or elements. */
-const val IMPORT_TOO_MANY_ITEMS = "El archivo tiene más de 20 000 elementos: la bóveda resultante no cabría en una copia."
+const val IMPORT_TOO_MANY_ITEMS = "El archivo tiene más de 20\u00A0000 elementos, el máximo que Clavero lee de una vez."
 
 /** A quoted CSV field that never closes: everything after it would be one field. */
 const val IMPORT_CSV_UNCLOSED_QUOTE = "El archivo está dañado: unas comillas no se cierran."
@@ -209,8 +209,8 @@ const val IMPORT_INTRO =
     "Lee un archivo que hayas exportado de otro gestor de contraseñas, de un navegador o de una app de 2FA, y añade sus " +
         "entradas a la bóveda. Antes de cambiar nada te enseña lo que entra y te pide que lo confirmes."
 const val IMPORT_FORMATS =
-    "Lee las exportaciones en CSV de Chrome, Edge, Brave, Google Contraseñas, Firefox, Apple y Bitwarden; el JSON de " +
-        "Bitwarden, sin cifrar o «Protegida con contraseña»; el JSON de Aegis y la copia de 2FAS, cifrados o sin cifrar, " +
+    "Lee las exportaciones en CSV de Chrome, Edge, Brave, el Gestor de contraseñas de Google, Firefox, Apple y Bitwarden; " +
+        "el JSON de Bitwarden, sin cifrar o «Protegida con contraseña»; el JSON de Aegis y la copia de 2FAS, cifrados o sin cifrar, " +
         "y las listas de enlaces otpauth:// (como el TXT de Aegis, y también los enlaces de exportación de Google " +
         "Authenticator). No lee el .zip con adjuntos de Bitwarden ni el HTML de Aegis."
 const val IMPORT_TRADEMARKS = "Los nombres de otras apps son marcas de sus titulares. Clavero no tiene relación con ellos."
@@ -279,8 +279,10 @@ const val IMPORT_CHOICE_KEEP_BOTH = "Conservar los dos"
 const val IMPORT_CHOICE_REPLACE = "Reemplazar"
 const val IMPORT_REPLACE_NOTE =
     "«Reemplazar» toma del archivo el título, el usuario, la contraseña, la web y el 2FA que no estén vacíos, y suma sus " +
-        "notas y sus etiquetas (hasta 10 por entrada) a las de la bóveda. La contraseña anterior queda en el historial; " +
-        "los adjuntos y el favorito no cambian."
+        "notas y sus etiquetas (hasta 10 por entrada) a las de la bóveda. Si el título o el usuario son los mismos " +
+        "escritos de otra forma (otras mayúsculas en el título, otros espacios o algo que no se ve), se quedan los de la " +
+        "bóveda. La contraseña anterior queda en el historial; el 2FA anterior, con su clave, solo queda en la copia de " +
+        "antes de importar. Los adjuntos y el favorito no cambian."
 
 fun importRepeatedText(n: Int): String =
     if (n == 1) "1 elemento está repetido dentro del archivo: entra solo una vez." else "$n elementos están repetidos dentro del archivo: entra solo uno de cada."

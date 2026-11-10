@@ -29,7 +29,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 
 **Códigos 2FA**
 • TOTP con escáner QR o con la clave a mano.
-• Importa las cuentas exportadas desde Google Authenticator.
+• Importa las cuentas que algunas apps de 2FA exportan como códigos QR.
 
 **Cifrado**
 • Cifra y descifra textos y archivos con AES-256-GCM o ChaCha20-Poly1305 (y otros algoritmos estándar), con contraseña o con una clave aleatoria.
@@ -51,7 +51,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Comprobación de contraseñas filtradas.
 
 **Privacidad**
-La bóveda se queda cifrada en tu móvil. De la app sale lo que tú exportas, guardas, copias al portapapeles o compartes, y la copia automática, si la activas, a la carpeta que elijas. La única conexión a Internet es opcional: cuando pulsas «¿Filtrada?» o «Comprobar filtraciones», la app consulta el servicio Pwned Passwords de Have I Been Pwned enviando solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña, nunca la contraseña. Las fotos se procesan en el móvil y la app no las envía a ningún sitio: solo sale la copia que tú compartas.
+La bóveda se queda cifrada en tu móvil. De la app sale lo que tú exportas, guardas, copias al portapapeles o compartes, la copia automática, si la activas, a la carpeta que elijas, y la copia cifrada que hace antes de importar de otra app. La única conexión a Internet es opcional: cuando pulsas «¿Filtrada?» o «Comprobar filtraciones», la app consulta el servicio Pwned Passwords de Have I Been Pwned enviando solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña, nunca la contraseña. Las fotos se procesan en el móvil y la app no las envía a ningún sitio: solo sale la copia que tú compartas.
 
 **Antes de usarla, ten en cuenta**
 • Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
