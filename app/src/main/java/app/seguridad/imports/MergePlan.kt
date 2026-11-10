@@ -145,9 +145,11 @@ internal class TagBudget(private val had: Set<String>, private val max: Int = IM
 
 /**
  * The tags of an entry imported from [format] with [folders] (spec «Etiquetas»): the origin tag first, then each folder
- * read as it shows ([plainReportText]: what draws nothing goes, a control is a space; ruling R60, RT-17), then through
- * [normalizeTags] (its commas become spaces and a run of spaces one, so a folder stays one tag, «Trabajo, Casa» is
- * «trabajo casa», and `a/b` stays `a/b`); a folder that shows nothing gives no tag. Cut to
+ * read as the duplicate rule compares it ([compareKey]: what draws nothing goes, a control is a space, NFKC, so a
+ * decomposed accent, a no-break space or full-width letters are the plain ones, and every run of spaces is one; rulings
+ * R60, R61 and R64, RT-17 and RT-18), then through [normalizeTags] (its commas become spaces and a run of spaces one, so
+ * a folder stays one tag, «Trabajo, Casa» is «trabajo casa», and `a/b` stays `a/b`); a folder that shows nothing gives
+ * no tag. Cut to
  * [app.seguridad.vault.MAX_TAG_LENGTH] code points. At most [MAX_TAGS]: over it, the last folders go, never the origin tag.
  */
 fun importTags(folders: List<String>, format: ImportFormat): List<String> {
@@ -155,9 +157,9 @@ fun importTags(folders: List<String>, format: ImportFormat): List<String> {
     tags += format.originTag
     for (folder in folders) {
         if (tags.size >= MAX_TAGS) break
-        // Ruling R60: the folder as it shows (what draws nothing goes, a control is a space), so it is never an empty
-        // chip nor a second «#banco» that only differs by an invisible character.
-        val shown = plainReportText(folder, Int.MAX_VALUE)
+        // Rulings R60 and R64: the folder as the duplicate rule compares it (compareKey: what draws nothing goes, NFKC,
+        // every run of spaces one), so it is never an empty chip nor a second «#banco» that only looks the same.
+        val shown = compareKey(folder)
         normalizeTags(SPACES.replace(shown.replace(',', ' '), " ")).firstOrNull()?.let { tags += it }
     }
     return tags.toList()
@@ -238,20 +240,28 @@ fun mergeImport(
 }
 
 /**
- * [existing] after «Reemplazar» with [incoming] (spec «Las opciones», so that replacing never loses anything):
+ * [existing] after «Reemplazar» with [incoming] (spec «Las opciones»). Nothing is lost but the vault's 2FA (below), and
+ * the copy made before importing keeps that too:
  * - it keeps its id, type, `createdAt`, favourite and attachments;
  * - it keeps its title and user when their keys ([compareKey]; the title without case) are the vault's, since they
  *   are what made it a duplicate (ruling R58, RT-15): a title that differs only in case or by what draws nothing keeps
  *   the vault's spelling. Otherwise (a 2FA, which matches by its key) it takes [incoming]'s, unless it shows nothing;
- * - it takes the URL and 2FA of [incoming] only where they are not empty, with the duplicate rule's own notion of empty
- *   (rulings R55, R57, R59): a URL a browser reads as nothing ([isNoUrl]: only controls, spaces, tabs and line breaks),
- *   and, within the 2FA, an issuer or account that shows nothing keeps the vault's;
- * - notes: nothing if [incoming]'s show nothing (R59: no «Importado el …» line for them); [incoming]'s if [existing] has none; if both have and they differ, [existing]'s, then a line
- *   [importedOnHeading] with the day of [now] in [zone], then [incoming]'s trimmed; not again if [existing]'s already
- *   end with them (the same file replaced twice). Notes are compared trimmed, as the duplicate rule compares them, so
- *   notes that differ only by the spaces or line breaks around them are the same (branch review A, M-2);
+ * - it takes the URL of [incoming] only where it is not empty, with the duplicate rule's own notion of empty ([isNoUrl]:
+ *   nothing left once read as a browser reads it, or nothing that shows; rulings R55 and R64);
+ * - 2FA: [incoming]'s, its secret and settings included, whenever it has one (ruling R63, as the spec says: «el 2FA solo
+ *   si en el archivo no está vacío»). The vault's secret is then replaced, also in a login that carries a 2FA, where the
+ *   secret is not compared; the old one is only in the copy made before importing. Within it, the vault's issuer and
+ *   account stay when [incoming]'s show nothing (R57, R59) or compare the same (R64, RT-19: the issuer without case, as
+ *   a title; the account with it, as a user);
+ * - notes: nothing if [incoming]'s show nothing (R59: no «Importado el …» line for them); [incoming]'s if [existing] has
+ *   none; if both have and they differ, [existing]'s, then a line [importedOnHeading] with the day of [now] in [zone],
+ *   then [incoming]'s trimmed; not again if [existing]'s already end with them (the same file replaced twice). Notes are
+ *   compared trimmed, as the duplicate rule compares them, so notes that differ only by the spaces or line breaks around
+ *   them are the same (branch review A, M-2);
  * - tags: its own, then [incoming]'s it lacks, up to [MAX_TAGS] (its own are never dropped);
- * - a new non-empty password goes through [withNewPassword], so the old one goes to the history.
+ * - password: the one exception to R59 (ruling R62): any non-empty one ([String.isEmpty], not «shows nothing») goes
+ *   through [withNewPassword], since a password is an opaque secret the file could set to anything visible anyway, and
+ *   the old one goes to the history.
  * An `IDENTITY` or `CONTACT` [existing], an [incoming] of another type, or a replacement that would only change
  * `updatedAt`, gives [existing] itself.
  */
@@ -278,7 +288,12 @@ fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: Zon
         // The code's settings from the file; its issuer and account only where the file's show something (R57, R59).
         totp = incoming.totp?.let { t ->
             existing.totp?.let { e ->
-                t.copy(issuer = if (showsNothing(t.issuer)) e.issuer else t.issuer, account = if (showsNothing(t.account)) e.account else t.account)
+                t.copy(
+                    // Ruling R64 (RT-19), as R58: the vault's issuer and account stay when the file's show nothing or
+                    // compare the same (the issuer without case, as a title; the account with it, as a user).
+                    issuer = if (showsNothing(t.issuer) || titleKey(t.issuer) == titleKey(e.issuer)) e.issuer else t.issuer,
+                    account = if (showsNothing(t.account) || userKey(t.account) == userKey(e.account)) e.account else t.account,
+                )
             } ?: t
         } ?: existing.totp,
         notes = notes,
@@ -431,11 +446,12 @@ internal fun urlKey(url: String): String? {
 
 /**
  * Whether [url] is no URL (ruling R55, re-review I-2): nothing is left once it is read as a browser reads it
- * ([asBrowserReadsIt]: only C0 controls, spaces, tabs and line breaks). The one notion of «no URL» of the merge: [urlKey]
+ * ([asBrowserReadsIt]: only C0 controls, spaces, tabs and line breaks), or it shows nothing (ruling R64, RT-20: only
+ * what draws nothing, such as U+2800 or U+3164, which IDN would turn into a host the row shows as «xn--…»). The one notion of «no URL» of the merge: [urlKey]
  * gives null for it, so it is a duplicate by title and user, and [replaceWith] keeps the vault's URL for it, so
  * «Reemplazar» never empties a web the row did not mention.
  */
-internal fun isNoUrl(url: String): Boolean = asBrowserReadsIt(url).isEmpty()
+internal fun isNoUrl(url: String): Boolean = asBrowserReadsIt(url).isEmpty() || showsNothing(url)
 
 /**
  * Whether [text] (a title or a user) shows nothing (ruling R55): its [compareKey], which the duplicate rule compares,
