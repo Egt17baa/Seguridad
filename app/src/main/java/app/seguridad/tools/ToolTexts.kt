@@ -684,10 +684,12 @@ const val BACKUP_CHECK_NOT_PROVEN_SHORT = "No dice si es tu copia más reciente 
 const val SHARE_NOT_PROTECTED_SHORT = "Quien reúna las partes necesarias obtiene el secreto: guarda cada una en un sitio distinto."
 
 /** Ajustes, on view (final audit of 1.4.2): the gist of [LOCK_ON_EXIT_HINT], which is folded. */
-const val LOCK_ON_EXIT_SHORT = "Al salir de la app se bloquea, salvo mientras eliges un archivo o escaneas un QR para ella."
+const val LOCK_ON_EXIT_SHORT =
+    "Al salir de la app se bloquea, salvo mientras eliges un archivo o escaneas un QR para ella. Con otra app en pantalla dividida o en ventana flotante, cuenta el tiempo elegido."
 
 /** Ajustes, on view (final audit of 1.4.2): what [CLIPBOARD_CLEAR_HINT] warns, which is folded. */
-const val CLIPBOARD_CLEAR_SHORT = "Desde Android 10, si no estás usando la app, vacía el portapapeles aunque hayas copiado otra cosa después."
+const val CLIPBOARD_CLEAR_SHORT =
+    "Desde Android 10, si no estás usando la app, vacía el portapapeles aunque hayas copiado otra cosa después. Solo lo vacía en este móvil, no en los dispositivos con los que lo compartas."
 
 /** Ajustes, «Coste de Argon2id»: on view, because it matters before choosing the high cost (code review of 1.4.2). */
 const val KDF_HIGH_SHORT = "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria."

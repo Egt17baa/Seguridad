@@ -195,3 +195,49 @@ Según `CLAUDE.md`, punto 4, `experto-seguridad-cripto` y el Ingeniero Móvil Se
 - La nota técnica de O-1 (`RECEIVED_OPEN`) la deciden ellos.
 
 *Borrador profesional para la revisión del responsable. No sustituye el asesoramiento de un abogado colegiado en una jurisdicción concreta.*
+
+## 7. Repaso tras la auditoría (`git diff 3323315..83057e1`, 10-11-2026)
+
+### 7.1. Lo comprobado
+
+**Política de privacidad, el párrafo de los selectores (`docs/privacidad.html:38`): dice la verdad.**
+- En disco solo se apuntan siete lugares. Son los que tienen `kept` en `core/PickerPlaces.kt:17-41`: `EXPORT_COPY`, `IMPORT_COPY`, `IMPORT_COPY_BEFORE`, `BACKUP_CHECK`, `PHOTO_SAVE`, `REDACT_SAVE` y `TEXT_SAVE`. El párrafo los nombra todos y ninguno más.
+- Los demás solo se recuerdan con la bóveda abierta:
+  - `initial` y `remember` miran `sessionOpen` (`PickerPlaces.kt:77-86`);
+  - `AppContainer.kt:130` lo une a `VaultState.Unlocked`.
+- Se olvidan en cada bloqueo y en cada desbloqueo (`AppContainer.kt:327`), y con el proceso.
+- «Borrar bóveda» los olvida todos (`forgetAll`).
+- Mi O-1 queda resuelto. El detalle que queda es R-12.
+
+**`IMPORT_CONFIRM_SHORT`: correcto.** Repite las dos ideas del texto completo (`IMPORT_CONFIRM_NOTE`): la copia cifrada antes de guardar y que sin ella no se importa nada. Lo demás del texto completo (dónde se guarda la copia) lo dice `importCopyWhereText` al terminar.
+
+**`ANSWERS_WARNINGS`, ahora siempre a la vista: correcto.** Es un aviso («si pierdes la bóveda y sus copias, pierdes estas respuestas») y no lleva palabras prohibidas.
+
+**README (`:375`): correcto, salvo «las fotos» (R-12).** Coincide con el código, incluido «también después de cerrar la app» para los lugares que se apuntan.
+
+**Notas de Google Play: correctas.** R-1 está aplicado.
+
+### 7.2. Cambios obligatorios
+
+**O-8. Traspaso §5, notas de GitHub: la condición está dentro del bloque que se pega.**
+- **Dónde:** `docs/superpowers/handoff/2026-11-10-clavero-1.4.2-traspaso.md`, la última línea antes del cierre del bloque de GitHub.
+- **Texto actual:** «La línea de la huella en horizontal solo se publica si la prueba F-5 en el móvil sale bien (condición del Abogado).»
+- **Cambio:** la misma frase, fuera del bloque, después del cierre.
+- **Por qué:** es una instrucción interna y se publicaría tal cual en la *Release*. La regla de veracidad pide que lo publicado no diga nada que no sea para el lector.
+
+**O-9. Traspaso §5, notas de GitHub, la línea «Menos texto»: promete más de lo que hay.**
+- **Texto actual:** «Los avisos, los errores y las confirmaciones se ven siempre, y cada herramienta dice a la vista lo que no protege.»
+- **Texto propuesto:** «Los avisos, los errores y las confirmaciones se ven siempre, y las herramientas que explican lo que no protegen lo resumen a la vista.»
+- **Por qué:** no todas las herramientas tienen esa explicación. El Generador, el Inspector de QR, «Cifrar texto» y «Cifrar archivos» no la tienen.
+  - Las que la tienen la enseñan a la vista: Laboratorio de hashes, Repartir un secreto, Comprobar una copia, Tachar, Limpiar foto, Laboratorio clásico e Identidad.
+  - «Cada herramienta dice lo que no protege» afirma algo que el código no hace (regla de veracidad).
+
+### 7.3. Cambios recomendados
+
+| N.º | Dónde | Texto actual | Texto propuesto | Motivo |
+|---|---|---|---|---|
+| R-12 | `docs/privacidad.html:38` y `README.md:375`, la lista entre paréntesis | Política: «(importar de otra app, cifrar, firmar, descifrar o abrir lo recibido, calcular un hash, las fotos, la imagen de un QR, los adjuntos)». README: lo mismo, terminado en «y los adjuntos» | Política: «(importar de otra app, cifrar, firmar, descifrar o abrir lo recibido, calcular un hash, el texto que abres en «Cifrar texto», las fotos que abres para limpiarlas o tacharlas, la imagen de un QR, los adjuntos)». README: lo mismo, terminado en «y los adjuntos» | «Las fotos» se puede confundir con las copias de Limpiar foto y Tachar, que sí se apuntan (`PHOTO_SAVE` y `REDACT_SAVE`). El texto que se abre en «Cifrar texto» (`TEXT_OPEN`) solo cabe en «cifrar», mientras que el texto cifrado que se guarda sí se apunta |
+| R-13 | `tools/ToolTexts.kt`, `LOCK_ON_EXIT_SHORT` | «Al salir de la app se bloquea, salvo mientras eliges un archivo o escaneas un QR para ella.» | «Al salir de la app se bloquea, salvo mientras eliges un archivo o escaneas un QR para ella. Con otra app en pantalla dividida o en ventana flotante, cuenta el tiempo elegido.» | El texto completo, plegado (`LOCK_ON_EXIT_HINT`), tiene una segunda excepción que importa: con otra app en pantalla dividida o flotante, la bóveda sigue abierta hasta el tiempo elegido. Sin ella, la línea corta promete un bloqueo que en ese caso no llega |
+| R-14 | `tools/ToolTexts.kt`, `CLIPBOARD_CLEAR_SHORT` | «Desde Android 10, si no estás usando la app, vacía el portapapeles aunque hayas copiado otra cosa después.» | «Desde Android 10, si no estás usando la app, vacía el portapapeles aunque hayas copiado otra cosa después. Solo lo vacía en este móvil, no en los dispositivos con los que lo compartas.» | El límite de protección («allí puede quedarse») solo está plegado (`CLIPBOARD_CLEAR_HINT`). Es el mismo criterio que O-4. Es recomendado y no obligatorio porque el momento de actuar es copiar, no esta pantalla de Ajustes |
+
+Ninguno de los textos propuestos lleva palabras prohibidas (`ForbiddenWords.kt`) ni nombres de otras apps. Si se aplican, el anexo «Texto mínimo (1.4.2)» recoge R-13 y R-14.
