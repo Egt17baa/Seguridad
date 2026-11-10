@@ -38,6 +38,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 import java.util.SplittableRandom
@@ -55,7 +56,8 @@ private fun str(cp: Int) = String(Character.toChars(cp))
  * the SAFE behaviour and failed while RT-N was open (@Ignore'd only for the gate then); resists… passes. RT-8, RT-9,
  * RT-10, RT-12 and RT-13 are fixed (rulings R45 to R49 and R51), and RT-14 of the third check (rulings R53 and R54). RT-11's PoC left this class (ruling R50: the owner
  * decides for 1.4.1; its passwords stay in the report). The third check (db42d3e, ce6b0f9) adds the tests from
- * «Third check» down, the fourth (f6148bb) from «Fourth check» down, the fifth (fd9bd4b) from «Fifth check» down. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
+ * «Third check» down, the fourth (f6148bb) from «Fourth check» down, the fifth (fd9bd4b) from «Fifth check» down,
+ * the sixth (2eaf393) from «Sixth check» down. Report: docs/superpowers/handoff/sdd-1.4.0/redteam-second-recheck.md.
  */
 class RedTeamRecheckTest {
     private val known by lazy { masterWords(MASTER_WORD_LISTS.map(::recheckAssetLines)) }
@@ -750,5 +752,163 @@ class RedTeamRecheckTest {
             val row = duplicateSubline(fileLogin(url).entry)
             assertTrue(esc(url) + " → «$row»", row.removePrefix("ana · ").isNotEmpty())
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Sixth check (2eaf393): «Reemplazar» field by field (R57 to R60).
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /** R58: every title and user the matcher calls the same keeps the vault's spelling, whatever differs. */
+    @Test fun resistsTheR58TitleAndUserVariants() {
+        val vault = listOf(vaultLogin("https://banco.es/").copy(title = "Café Banco"))
+        for ((title, user) in listOf(
+            "CAFÉ BANCO" to "ana", "Ｃａｆé Ｂａｎｃｏ" to "ａｎａ", "\u0001Café\u0002Banco\u0003" to "\u0001ana", "Café\u2028Banco" to "ana\u2029",
+            "Cafe\u0301 Banco" to "a\u200Dna", "Café Banco\uFE0F" to "ana\u2065", "Café Ban\uDB40\uDC20co" to "an\uFFF0a",
+        )) {
+            val item = fileItem(title, user, "https://banco.es/")
+            assertTrue(esc(title), plan(item, vault).duplicates.isNotEmpty())
+            val after = replaced(item, vault).single()
+            assertEquals(esc(title), listOf("Café Banco", "ana"), listOf(after.title, after.username))
+        }
+        // What differs visibly still comes in only as a new entry, never over the vault's.
+        assertTrue(plan(fileItem("Café Banco", "Ana", "https://banco.es/"), vault).duplicates.isEmpty())
+        assertTrue(plan(fileItem("Cafe Banco", "ana", "https://banco.es/"), vault).duplicates.isEmpty())
+    }
+
+    /**
+     * RT-19 (Info). R58 keeps the vault's title and user when the keys match, but a 2FA's issuer and account are not
+     * compared: `replaceWith` (imports/MergePlan.kt:281) takes the file's whenever it shows something (R57, R59), also when
+     * it only differs from the vault's by what draws nothing or by spaces: «Ban» + U+200B + «co», «ana» + U+3000,
+     * «Ｂａｎｃｏ». The 2FA list shows the same, but the search (`query`, vault/EntryQuery.kt:25-34, which looks at the
+     * issuer) no longer finds «banco». It needs a file with the code's secret (a 2FA is a duplicate by its key). Safe
+     * behaviour: an issuer or account whose `compareKey` is the vault's keeps the vault's.
+     */
+    @Ignore("RT-19: open (Info), «Reemplazar» writes a 2FA issuer or account that only differs invisibly from the vault's")
+    @Test fun rt19_replaceKeepsA2faIssuerAndAccountThatAreTheSame() {
+        val code = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Banco", account = "ana")
+        val vault = listOf(VaultEntry("t1", EntryType.TOTP, "Banco", totp = code, createdAt = 1, updatedAt = 1))
+        val wrong = mutableListOf<String>()
+        for ((issuer, account) in listOf("Ban\u200Bco" to "ana\u3000", "Banco\u2800" to "\u3164ana", "Ｂａｎｃｏ" to "an\u00ADa")) {
+            val item = ImportedItem(0, importedEntry(EntryType.TOTP, "Banco", totp = code.copy(issuer = issuer, account = account)), emptyList())
+            assertTrue(esc(issuer), plan(item, vault).duplicates.isNotEmpty())
+            val after = mergedEntries(plan(item, vault), DuplicateChoice.REPLACE, emptyMap(), vault, 2, { "n" }).single()
+            val t = after.totp!!
+            if (t.issuer != "Banco" || t.account != "ana") wrong += "«${esc(t.issuer)}» / «${esc(t.account)}»"
+        }
+        val one = ImportedItem(0, importedEntry(EntryType.TOTP, "Banco", totp = code.copy(issuer = "Ban\u200Bco")), emptyList())
+        val after = mergedEntries(plan(one, vault), DuplicateChoice.REPLACE, emptyMap(), vault, 2, { "n" })
+        if (after.query(EntryFilter(text = "banco", type = EntryType.TOTP)).isEmpty()) wrong += "search «banco» misses the 2FA"
+        assertTrue(wrong.joinToString("; "), wrong.isEmpty())
+    }
+
+    /** R57 and R59: what shows nothing in a 2FA issuer, account or a login's notes never replaces nor adds anything; the row has no dangling separator. */
+    @Test fun resistsTheR57AndR59EmptyFields() {
+        val code = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Banco", account = "ana")
+        val vaultTotp = VaultEntry("t1", EntryType.TOTP, "Banco", totp = code, createdAt = 1, updatedAt = 1)
+        val login = vaultLogin("https://banco.es/").copy(notes = "mis notas")
+        for (blank in listOf("", " ", "\u00A0\u3000", "\u0001\t\n", "\u200B\u2800\u3164", "\uDB40\uDC20", "\u034F\u115F\uFFA0", "\uFFF0\u2065")) {
+            val t = replaceWith(vaultTotp, importedEntry(EntryType.TOTP, "Banco", totp = code.copy(issuer = blank, account = blank)), 2).totp!!
+            assertEquals(esc(blank), listOf("Banco", "ana"), listOf(t.issuer, t.account))
+            assertEquals(esc(blank), "mis notas", replaceWith(login, fileItem("Banco", "ana", "https://banco.es/", notes = blank).entry, 2).notes)
+            val row = duplicateSubline(fileItem("Banco", blank, "https://banco.es/").entry)
+            assertEquals(esc(blank), "banco.es", row)
+            val totpRow = duplicateSubline(importedEntry(EntryType.TOTP, "Banco", totp = code.copy(issuer = blank)))
+            assertEquals(esc(blank), "ana", totpRow)
+            assertEquals(esc(blank), "", duplicateSubline(fileItem("Banco", blank, "").entry))
+        }
+        // Notes that differ from the vault's only around them are not appended; different ones are, once.
+        for (same in listOf("  mis notas  ", "\nmis notas\n", "\tmis notas")) {
+            assertEquals(esc(same), "mis notas", replaceWith(login, fileItem("Banco", "ana", "https://banco.es/", notes = same).entry, 2).notes)
+        }
+        val once = replaceWith(login, fileItem("Banco", "ana", "https://banco.es/", notes = "otra").entry, 2)
+        assertEquals(once.notes, replaceWith(once, fileItem("Banco", "ana", "https://banco.es/", notes = "otra").entry, 3).notes)
+    }
+
+    /**
+     * RT-20 (Info). `isNoUrl` (imports/MergePlan.kt:438) is «nothing left after the browser's pre-pass», which only
+     * drops controls, spaces, tabs and line breaks. A URL of only what draws nothing (U+200B, U+2800, U+3164, U+034F…)
+     * is not «no URL»: without a scheme it is read as `https://` + those characters, the IDN step turns what is left
+     * into an `xn--` host («xn--psd796i»), and that https key is one a URL-less vault entry takes (R48). «Reemplazar»
+     * then writes the invisible text into the vault's URL, whose field (VaultEntryScreen.kt:104, `plainReportText`)
+     * shows nothing; «Copiar» copies the invisible characters. The row does say «ana · xn--psd796i». Safe behaviour: a URL
+     * that shows nothing is no URL (`showsNothing`), as R55 and R59 decided for the other fields.
+     */
+    @Ignore("RT-20: open (Info), a URL of only invisible characters is not «no URL»: a URL-less entry takes it")
+    @Test fun rt20_aUrlThatShowsNothingIsNoUrl() {
+        val bare = listOf(vaultLogin(""))
+        val taken = listOf("\u200B\u2800\u3164", "\u2800", "\u3164", "\u2800\u2800", "\u3164\u034F", "\uFFA0", "\u115F", "\u200B\u2800").filter { url ->
+            replaced(fileItem("Banco", "ana", url), bare).any { it.id == "v1" && it.url != "" }
+        }
+        assertTrue("taken into the URL-less entry: " + taken.joinToString { "${esc(it)} (row «${duplicateSubline(fileItem("Banco", "ana", it).entry)}»)" }, taken.isEmpty())
+    }
+
+    /**
+     * RT-18 (Info). R60 reads a folder through `plainReportText` before `normalizeTags` (imports/MergePlan.kt:160-161), so
+     * what draws nothing goes and a control is a space. But a no-break space (U+00A0, U+2007, U+202F) inside is kept (the
+     * `\s` of `SPACES` and `normalizeTags` only fold ASCII spaces inside), and nothing is in NFC: «Banco» + NBSP + «Casa»
+     * and «Banco Casa», or «Banco» + U+0301 and «Bancó», give two tags whose chips look the same, «#banco casa» and «#bancó»
+     * (VaultScreen.kt:448), next to the vault's own, and «Reemplazar» adds the second to the vault's entry. It is the
+     * second «#banco» R60 meant to close, with a character that is not invisible but looks like another. Safe behaviour:
+     * a folder that looks like an existing tag is that tag.
+     */
+    @Ignore("RT-18: open (Info), a folder with a no-break space or a decomposed accent gives a second tag that looks like another")
+    @Test fun rt18_aFolderThatLooksLikeATagIsThatTag() {
+        val wrong = mutableListOf<String>()
+        for ((folder, same) in listOf(
+            "Banco\u00A0Casa" to "Banco Casa", "Banco\u2007Casa" to "Banco Casa", "Banco\u202FCasa" to "Banco Casa",
+            "Banco\u0301" to "Bancó", "Cafe\u0301" to "Café",
+        )) {
+            val a = importTags(listOf(folder), ImportFormat.BROWSER_CSV)
+            val b = importTags(listOf(same), ImportFormat.BROWSER_CSV)
+            if (a != b) wrong += "${esc(folder)} → ${a.map(::esc)} vs ${b.map(::esc)}"
+        }
+        // And «Reemplazar» adds it next to the vault's own.
+        val vault = listOf(vaultLogin("https://banco.es/").copy(tags = listOf("café")))
+        val item = ImportedItem(0, importedEntry(EntryType.LOGIN, "Banco", username = "ana", password = "x", url = "https://banco.es/"), listOf("Cafe\u0301"))
+        val tags = mergedEntries(plan(item, vault), DuplicateChoice.REPLACE, emptyMap(), vault, 2, { "n" }).single().tags
+        if (tags.map { plainReportText(it) }.count { it == "café" } > 1) wrong += "two «#café»: ${tags.map(::esc)}"
+        assertTrue(wrong.joinToString("; "), wrong.isEmpty())
+    }
+
+    /** R60: folders that show nothing give no tag, controls are spaces, case and spaces fold; MAX_TAGS and the 100-tag budget hold. */
+    @Test fun resistsTheR60FolderTags() {
+        val fmt = ImportFormat.BROWSER_CSV
+        for (f in listOf("\u200B", "\u2800", "\u3164", "\u0001", "\u00A0", "\u3000", "\uFEFF\u034F", "\uDB40\uDC20", ",,,", " , ")) {
+            assertEquals(esc(f), listOf(fmt.originTag), importTags(listOf(f), fmt))
+        }
+        for ((a, b) in listOf("Banco\u200B" to "banco", "BAN\u00ADCO" to "banco", "Banco\u0001Casa" to "banco casa", "Banco\tCasa" to "banco casa",
+            "\u2066Banco\u2069" to "banco", "Ban\u2800co" to "banco", "  Banco  " to "banco")) {
+            assertEquals(esc(a), importTags(listOf(b), fmt), importTags(listOf(a), fmt))
+        }
+        // Folders that show nothing never take a place of MAX_TAGS: nine invisible ones and twelve real ones give ten tags.
+        val folders = List(9) { "\u200B".repeat(it + 1) } + List(12) { "f$it" }
+        val tags = importTags(folders, fmt)
+        assertEquals(10, tags.size)
+        assertEquals(listOf(fmt.originTag) + List(9) { "f$it" }, tags)
+        // The budget of new tags counts what shows: 150 folders and 150 invisible copies of them create at most 100 tags.
+        val items = (0 until 300).map { i ->
+            val folder = if (i < 150) "carpeta$i" else "carpeta${i - 150}\u200B"
+            ImportedItem(i, importedEntry(EntryType.NOTE, "n$i", notes = "t$i"), listOf(folder))
+        }
+        val p = planMerge(ImportRead(fmt, items, emptyList(), 0), emptyList(), 1)
+        val merged = mergedEntries(p, DuplicateChoice.SKIP, emptyMap(), emptyList(), 2, { "id" })
+        val created = merged.flatMap { it.tags }.toSet() - fmt.originTag
+        assertTrue("${created.size}", created.size <= 100)
+        assertTrue(created.none { t -> t.any { drawsNothing(it.code) } })
+    }
+
+    /**
+     * Fields R57 to R60 leave as they were, on purpose (the per-field table of the fix report): the password is the secret
+     * and is taken as it comes, also one of spaces or of an invisible character (the old one goes to the history); a URL
+     * with the same scheme and host is the file's, path included (the row shows the host). Recorded so a change is seen.
+     */
+    @Test fun resistsAndRecordsWhatReplaceTakesAsItComes() {
+        val vault = listOf(vaultLogin("https://banco.es/"))
+        val item = ImportedItem(0, importedEntry(EntryType.LOGIN, "Banco", username = "ana", password = "\u200B", url = "https://banco.es/otra"), emptyList())
+        val after = mergedEntries(plan(item, vault), DuplicateChoice.REPLACE, emptyMap(), vault, 2, { "n" }).single()
+        assertEquals("\u200B", after.password)
+        assertEquals(listOf("la-buena"), after.passwordHistory.map { it.password })
+        assertEquals("https://banco.es/otra", after.url)
+        assertEquals("ana · banco.es", duplicateSubline(item.entry))
     }
 }
