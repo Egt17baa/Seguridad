@@ -74,4 +74,4 @@ const val BACKUP_CHECK_NOT_PROVEN =
 /** Next to [app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE]: what stops a check going on. */
 const val BACKUP_CHECK_STOPS_NOTE =
     "La contraseña se borra del campo al pulsar «Comprobar». Si sales de la app, vuelves atrás o se bloquea la bóveda " +
-        "mientras se comprueba, la comprobación se para y no se muestra su resultado."
+        "mientras se comprueba, la comprobación se detiene en cuanto puede y no se muestra su resultado."

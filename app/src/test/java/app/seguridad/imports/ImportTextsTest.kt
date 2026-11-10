@@ -133,7 +133,8 @@ class ImportTextsTest {
      * The one line of the Play listing that may name another product: the 1.1 sentence on Google Authenticator, which
      * passed the 1.3.x reviews and which the Abogado Digital decides (ruling R30). Exact, so nothing else rides on it.
      */
-    private val LISTING_ALLOWED = setOf("• Importa las cuentas exportadas desde Google Authenticator.")
+    // R-1 of the Abogado (R73, it settles R30): the listing names no other app, with no exception left.
+    private val LISTING_ALLOWED = emptySet<String>()
 
     /**
      * Branch review C, M-5 (rulings R2, R7, R8, R31): the store texts of the Play listing (from «## Nombre de la app»
@@ -280,6 +281,24 @@ class ImportTextsTest {
                 "con el formato «.json», o con «.json (Encrypted)» y el tipo «Protegida con contraseña» (no «Cuenta restringida»).",
             IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED,
         )
+    }
+
+    /**
+     * The Abogado's O-1 and O-2 (R73), fixed word for word: «Reemplazar» keeps the vault's title and user written another
+     * way (R58) and the old 2FA is only in the copy before importing (R63); the 20 000 cap is the most read at once
+     * (decision (a), R12), not a size of the copy.
+     */
+    @Test fun theReplaceNoteAndTheItemCapSayWhatTheCodeDoes() {
+        assertEquals(
+            "«Reemplazar» toma del archivo el título, el usuario, la contraseña, la web y el 2FA que no estén vacíos, y suma sus " +
+                "notas y sus etiquetas (hasta 10 por entrada) a las de la bóveda. Si el título o el usuario son los mismos " +
+                "escritos de otra forma (otras mayúsculas en el título, otros espacios o algo que no se ve), se quedan los de la " +
+                "bóveda. La contraseña anterior queda en el historial; el 2FA anterior, con su clave, solo queda en la copia de " +
+                "antes de importar. Los adjuntos y el favorito no cambian.",
+            IMPORT_REPLACE_NOTE,
+        )
+        assertEquals("El archivo tiene más de 20\u00A0000 elementos, el máximo que Clavero lee de una vez.", IMPORT_TOO_MANY_ITEMS)
+        assertEquals(20_000, IMPORT_MAX_ITEMS)
     }
 
     @Test fun theFormatsTextSaysWhatIsReadAndWhatIsNot() {

@@ -8,7 +8,7 @@ package app.seguridad.imports
 /** Largest file read. The caller reads at most one byte more (`readAtMost(IMPORT_MAX_BYTES + 1)`), and more is refused. */
 const val IMPORT_MAX_BYTES = 16 * 1024 * 1024
 
-/** Most rows (after a CSV header) or elements in a file: above it the file is refused, since the vault would not fit in a copy. */
+/** Most rows (after a CSV header) or elements in a file: above it the file is refused (decision (a), R12: the most read at once). */
 const val IMPORT_MAX_ITEMS = 20_000
 
 /** Longest field kept in an entry, in UTF-16 units (`String.length`, never fewer than the characters shown). */

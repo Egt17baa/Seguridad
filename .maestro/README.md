@@ -85,7 +85,7 @@ Con el plugin: la skill `android-tests` (`/android-qa-libre:android-tests`) comp
 | P-24, el portapapeles en Android 13 o posterior | Manual | Es lo que enseña el teclado, fuera de Clavero. |
 | P-25, la muerte del proceso a mitad | Manual | `adb shell am force-stop` en el momento justo y `adb shell run-as … ls`. |
 | P-26, las copias del sistema | Manual | `adb backup` y la transferencia a otro móvil. |
-| P-27, lo que no se ve y los enlaces raros | Manual | Tres CSV de prueba de una fila (U+2800, U+2065 y U+FFF0 en el título) y uno con «۝», un QR de Wi-Fi con «Casa» + U+2800, y pegar `ht<TAB>tp:@banco.es` y las variantes con NBSP, U+3000, U+200B, un control o «：» en la barra de Chrome y del navegador del fabricante (si alguna abre `http://banco.es`, es RT-15 para la 1.4.1); tras «Reemplazar», el usuario copiado no lleva U+200B y una carpeta «Banco» + U+200B queda en «#banco». |
+| P-27, lo que no se ve y los enlaces raros | Manual | Tres CSV de prueba de una fila (U+2800, U+2065 y U+FFF0 en el título) y uno con «۝», un QR de Wi-Fi con «Casa» + U+2800, y pegar `ht<TAB>tp:@banco.example` y las variantes con NBSP, U+3000, U+200B, un control o «：» en la barra de Chrome y del navegador del fabricante (si alguna abre `http://banco.example`, es RT-15 para la 1.4.1); tras «Reemplazar», el usuario copiado no lleva U+200B y una carpeta «Banco» + U+200B queda en «#banco». |
 
 Los nombres de otras apps de esta tabla son marcas de sus titulares. Clavero no tiene relación con ellos.
 
