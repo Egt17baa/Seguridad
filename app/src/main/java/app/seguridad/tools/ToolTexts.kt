@@ -625,6 +625,26 @@ fun sameKeyContactsText(count: Int): String = "Esta clave está guardada en $cou
  * COV1-1 (audit 1.3.0), under «Cifrar texto», «Cifrar archivos» and «¿Contraseña filtrada?»: what was typed there (the
  * text, the password or the key) and the result go by the «PIN y códigos» rule (tools/codes/ScreenGuard.kt).
  */
+// ---- 1.4.2: texto mínimo (petición del dueño) ----
+// Each screen shows a line or two; the explanations it had before stay as they were, folded in «Más información».
+
+const val MORE_INFO = "Más información"
+const val MORE_INFO_LESS = "Menos información"
+const val MORE_INFO_OPEN = "Desplegado"
+const val MORE_INFO_CLOSED = "Plegado"
+
+/** Herramientas, «Cómo protegemos tus datos», the line on view; the bullets are in «Más información». */
+const val TOOLS_ABOUT_SHORT =
+    "Todo se hace en tu móvil. Solo «¿Filtrada?» y «Comprobar filtraciones» usan internet, y envían 5 caracteres de la huella."
+
+/** The line on view next to [TOOLS_AWAY_WIPE_NOTE], which says every case. */
+const val TOOLS_AWAY_WIPE_SHORT = "Se borra al volver atrás o al bloquear la bóveda."
+
+const val RECOVERY_CODES_SHORT = "Diez códigos al azar para guardar en la bóveda o impresos."
+const val ANSWERS_SHORT =
+    "Palabras al azar para preguntas como «¿tu primera mascota?». Solo en las que eliges tú, nunca en tus datos de identidad."
+const val CODES_UNLOCK_TO_SAVE_SHORT = "Desbloquea la bóveda para guardarlo. Si vuelves atrás o la bloqueas, se pierde."
+
 const val TOOLS_AWAY_WIPE_NOTE =
     "Lo que escribes aquí y el resultado se borran si vuelves atrás, si se cierra la app, si bloqueas la bóveda o si " +
         "estás fuera de esta pantalla más tiempo que el bloqueo de la bóveda (1 minuto como mínimo)."
@@ -705,6 +725,9 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     FILE_SIGNATURE_VALID, fileSignatureUnverifiedText("x"), FILE_SIGNATURE_UNKNOWN_KEY, PASSWORD_NOT_TEXT,
     // Audit 1.3.0, F6 (COV1-1).
     TOOLS_AWAY_WIPE_NOTE,
+    // 1.4.2, texto mínimo.
+    MORE_INFO, MORE_INFO_LESS, MORE_INFO_OPEN, MORE_INFO_CLOSED, TOOLS_ABOUT_SHORT, TOOLS_AWAY_WIPE_SHORT,
+    RECOVERY_CODES_SHORT, ANSWERS_SHORT, CODES_UNLOCK_TO_SAVE_SHORT,
     // Audit 1.3.0, F7 (LIBRE-2 + COV1-3).
     NOTICE_INTRO, ABOUT_SUMMARY, VAULT_CREATE_INTRO,
     // Owner's decision, 31-10-2026: the notice of the new name.

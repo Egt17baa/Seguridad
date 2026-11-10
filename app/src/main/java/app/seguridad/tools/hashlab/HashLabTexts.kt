@@ -8,6 +8,10 @@ const val HASH_LAB_INTRO =
     "Calcula la huella de un texto o de un archivo y compárala con la que publica su autor, por ejemplo la de una descarga " +
         "o la del firmware de una cartera física. Todo se calcula en tu móvil."
 
+/** 1.4.2: the line on view; [HASH_LAB_INTRO] is in «Más información». */
+const val HASH_LAB_SHORT = "Calcula la huella de un texto o un archivo y compárala con la publicada."
+const val HASH_LAB_HMAC_SHORT = "HMAC-SHA256 con tu clave. No se guarda."
+
 /** «Lo que no protege»: what a matching hash does not say. */
 const val HASH_LAB_NOT_PROTECTED_TITLE = "Lo que no protege"
 const val HASH_LAB_NOT_PROTECTED =

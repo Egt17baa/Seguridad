@@ -41,6 +41,7 @@ import app.seguridad.android.copySensitive
 import app.seguridad.core.PickerPlace
 import app.seguridad.crypto.hexLower
 import app.seguridad.tools.TOOLS_AWAY_WIPE_NOTE
+import app.seguridad.tools.TOOLS_AWAY_WIPE_SHORT
 import app.seguridad.tools.cipher.FileHashSession
 import app.seguridad.tools.hashlab.HASH_LAB_ALGO_CHANGED
 import app.seguridad.tools.hashlab.HASH_LAB_CANCEL
@@ -63,6 +64,8 @@ import app.seguridad.tools.hashlab.HASH_LAB_MATCH
 import app.seguridad.tools.hashlab.HASH_LAB_MESSAGE_LABEL
 import app.seguridad.tools.hashlab.HASH_LAB_NOT_PROTECTED
 import app.seguridad.tools.hashlab.HASH_LAB_NOT_PROTECTED_TITLE
+import app.seguridad.tools.hashlab.HASH_LAB_HMAC_SHORT
+import app.seguridad.tools.hashlab.HASH_LAB_SHORT
 import app.seguridad.tools.hashlab.HASH_LAB_NOT_TEXT
 import app.seguridad.tools.hashlab.HASH_LAB_NO_MATCH
 import app.seguridad.tools.hashlab.HASH_LAB_PICK_FILE
@@ -270,7 +273,7 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
         if (uri != null) vm.pick(uri)
     }
     ToolColumn(HASH_LAB_TITLE, onBack, s.guard) {
-        Text(HASH_LAB_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(HASH_LAB_SHORT)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             LabTab.entries.forEachIndexed { i, t ->
                 FilterChip(selected = vm.tab == i, onClick = { vm.chooseTab(i) }, label = { Text(t.label) })
@@ -328,7 +331,7 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
                 }
             }
             LabTab.HMAC -> {
-                Text(HASH_LAB_HMAC_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(HASH_LAB_HMAC_SHORT, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !vm.hmacKeyIsHex, onClick = { vm.hmacKeyIsHex = false }, label = { Text(HASH_LAB_KEY_AS_TEXT) })
                     FilterChip(selected = vm.hmacKeyIsHex, onClick = { vm.hmacKeyIsHex = true }, label = { Text(HASH_LAB_KEY_AS_HEX) })
@@ -387,13 +390,15 @@ fun HashLabScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp: St
                 }
             }
         }
-        SectionCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(HASH_LAB_NOT_PROTECTED_TITLE, style = MaterialTheme.typography.labelMedium)
-                Text(HASH_LAB_NOT_PROTECTED, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        Text(TOOLS_AWAY_WIPE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // 1.4.2 (texto mínimo): what the screen said before, folded.
+        MoreInfo {
+            Text(HASH_LAB_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(HASH_LAB_HMAC_INTRO, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(HASH_LAB_NOT_PROTECTED_TITLE, style = MaterialTheme.typography.labelMedium)
+            Text(HASH_LAB_NOT_PROTECTED, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(TOOLS_AWAY_WIPE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
