@@ -575,3 +575,146 @@ Habrá que mirar los tests de `MergePlanTest` que esperan que «Reemplazar» tra
 ### Textos para el Abogado Digital (quinta comprobación)
 
 Ninguno. Los arreglos propuestos para RT-15, RT-16 y RT-17 no cambian ningún texto. El README (`README.md:35` y P-9, `:348`) no dice que «Reemplazar» traiga el título o el usuario del archivo, así que tampoco cambia.
+
+## Sexta comprobación (2eaf393)
+
+**Qué es.** La decisión (f) otra vez, sobre `2eaf393`: los arreglos de RT-15, RT-16 y RT-17 y del N-6 del repaso, con las decisiones R57 a R60:
+- «Reemplazar» conserva el título y el usuario de la bóveda cuando su clave es la misma;
+- `showsNothing` decide qué está vacío en el servicio y la cuenta de un 2FA y en las notas de un acceso;
+- la fila ya no deja un « · » colgando;
+- `importTags` lee la carpeta con `plainReportText` antes de `normalizeTags`.
+
+He vuelto a recorrer el camino de la fusión de punta a punta, campo por campo, con la tabla de «Ronda 5» del informe de arreglos. Es la última ronda de arreglos permitida, así que he graduado las severidades con cuidado. Sigo sin cambiar código de producción y sin hacer commits.
+
+Los tests nuevos están en `RedTeamRecheckTest.kt`, a partir de «Sixth check» (`:758`), con los invisibles escritos como `\uXXXX`.
+
+### Veredictos
+
+| Arreglo | Veredicto |
+|---|---|
+| **R58 (RT-15): título y usuario** | **Se sostiene.** Ningún título ni usuario que el que busca duplicados da por igual llega a sustituir al de la bóveda. Lo probé con mayúsculas, ancho completo, controles, U+2028/U+2029, un acento descompuesto, ZWJ, U+FE0F, U+2065, una etiqueta del plano 14 y U+FFF0. Lo que se ve distinto («Ana», «Cafe» sin tilde) entra como entrada nueva. |
+| **R57 y R59 (RT-16 y N-6): servicio, cuenta y notas vacíos** | **Se sostienen.** Un servicio, una cuenta o unas notas de solo espacios, NBSP, U+3000, controles, U+200B, U+2800, U+3164, el plano 14, U+034F, los rellenos o U+FFF0/U+2065 no sustituyen nada ni añaden la línea «Importado el …». Las notas que solo cambian en los espacios de los extremos no se añaden, y las mismas notas no se añaden dos veces. La fila no deja « · » ni delante ni detrás. |
+| **R59, «lo mismo» en el 2FA** | **No se sostiene del todo: RT-19** (Informativa). El servicio y la cuenta no se comparan, así que uno que solo cambia en lo invisible sustituye al de la bóveda. |
+| **R60 (RT-17): etiquetas** | **Se sostiene para lo que no se dibuja:** U+200B, U+2800, U+3164, U+00AD, los controles, los bidi y el plano 14 se quitan; una carpeta que no enseña nada no da etiqueta ni ocupa sitio de `MAX_TAGS`; y 150 carpetas más sus 150 copias con un invisible crean como mucho 100 etiquetas nuevas, ninguna con invisibles. **No se sostiene para lo que se ve igual: RT-18** (Informativa): NBSP dentro y acentos descompuestos. |
+| **R55: URL vacía** | **No se sostiene del todo: RT-20** (Informativa). Una URL de solo invisibles no cuenta como «sin URL». |
+| **RT-8, RT-14, R45, R53, R55 y R56** | **Se sostienen.** Los 32 tests anteriores de la clase siguen en verde, incluida la propiedad sobre 300 000 URL. |
+
+**Hallazgos nuevos: RT-18, RT-19 y RT-20, los tres informativos.** No hay ninguno crítico, alto, medio ni bajo.
+
+`RedTeamRecheckTest` tiene ahora 39 tests: 36 pasan y 3 llevan `@Ignore` (`rt18_`, `rt19_` y `rt20_`). Comprobé que los tres fallan sin el `@Ignore` y después lo volví a poner.
+
+Lo ejecuté con `./gradlew -p jvm-check test --tests 'app.seguridad.redteam.*' --no-daemon --max-workers=1`: **BUILD SUCCESSFUL**, 0 fallos y ningún aviso `w:`. Las otras clases del equipo rojo siguen igual: `RedTeamImportTest` 12, `RedTeamCryptoTest` 8 y `RedTeamSecondAttackTest` 13.
+
+### RT-18 [Informativa] Una carpeta con NBSP dentro o un acento descompuesto da una segunda etiqueta que se ve igual
+
+**Cómo lo he atacado.** Carpetas «Banco» + U+00A0 + «Casa», con U+2007 o con U+202F en lugar del NBSP, «Banco» + U+0301 y «Cafe» + U+0301. En la bóveda hay una entrada con la etiqueta «café».
+
+**Lo que pasa:**
+- `importTags` (`imports/MergePlan.kt:160-161`) quita lo que no se dibuja, pero no pasa a NFC ni junta los espacios de Unicode que no son ASCII: el `\s` de `SPACES` solo coge los ASCII, y `normalizeTags` solo recorta los extremos;
+- «banco» + NBSP + «casa» y «banco casa» son dos etiquetas, y lo mismo «banco» + U+0301 y «bancó». Sus chips (`VaultScreen.kt:448`) se ven iguales;
+- «Reemplazar» añade «cafe» + U+0301 a la entrada que ya tenía «café»: dos «#café» en la misma entrada.
+
+**Evidencia:** sin el `@Ignore`, `rt18_aFolderThatLooksLikeATagIsThatTag` (`RedTeamRecheckTest.kt:855`) falla con `Banco Casa → [importado-navegador, banco casa] vs [importado-navegador, banco casa]; … ; Bancó → [… bancó] vs [… bancó]; Café → [… café] vs [… café]`.
+
+**Impacto para un usuario real.** Pequeño. Aparecen dos filtros que se ven iguales y que cada uno coge unas entradas. Si toca uno, ve menos entradas de las que espera, y puede borrar la etiqueta de más. No esconde, cambia ni expone ningún dato. Además, un acento descompuesto lo da cualquier exportación de macOS (los nombres en NFD), así que no hace falta un archivo hostil para encontrárselo.
+
+**Arreglo** (una línea, en `importTags`): normalizar el texto que se ve con NFC y pasar los espacios de Unicode a uno solo antes de `normalizeTags`. Por ejemplo:
+```kotlin
+val shown = Normalizer.normalize(plainReportText(folder, Int.MAX_VALUE), Normalizer.Form.NFC).replace(Regex("\\p{Zs}+"), " ")
+```
+O usar `compareKey` sin NFKC, para que una carpeta «Ｂａｎｃｏ» siga siendo una etiqueta distinta.
+
+### RT-19 [Informativa] «Reemplazar» escribe un servicio o una cuenta de 2FA que solo cambia en lo invisible
+
+**Cómo lo he atacado.** En la bóveda hay un 2FA «Banco» / «ana». En el archivo, el mismo secreto con:
+- «Ban» + U+200B + «co» / «ana» + U+3000;
+- «Banco» + U+2800 / U+3164 + «ana»;
+- «Ｂａｎｃｏ» / «an» + U+00AD + «a».
+
+**Lo que pasa:**
+- un 2FA es duplicado por la clave de su secreto. El servicio y la cuenta no se comparan;
+- `replaceWith` (`imports/MergePlan.kt:281`) se queda con los del archivo si enseñan algo (R57 y R59);
+- la lista de 2FA enseña lo mismo, pero la búsqueda (`vault/EntryQuery.kt:25-34`, que mira el servicio) ya no encuentra «banco».
+
+**Evidencia:** sin el `@Ignore`, `rt19_replaceKeepsA2faIssuerAndAccountThatAreTheSame` (`:787`) falla con `«Ban​co» / «ana　»; «Banco⠀» / «ㅤana»; «Ｂａｎｃｏ» / «an­a»`. Para el primero, también falla la búsqueda.
+
+**Impacto para un usuario real.** Muy pequeño. El archivo tiene que traer el **secreto** del código, y con él ya se pueden generar los códigos. El daño añadido es que un 2FA no salga en una búsqueda. Lo de la tabla de la ronda 5 («se trae el del archivo si enseña algo») es una decisión; aquí solo la mido contra la regla de R58.
+
+**Arreglo** (si se quiere la misma regla que R58): en `replaceWith`, conservar el servicio y la cuenta de la bóveda cuando su `compareKey` (el servicio, sin distinguir mayúsculas) es el del archivo:
+```kotlin
+issuer = if (showsNothing(t.issuer) || titleKey(t.issuer) == titleKey(e.issuer)) e.issuer else t.issuer,
+account = if (showsNothing(t.account) || userKey(t.account) == userKey(e.account)) e.account else t.account,
+```
+O aceptarlo y apuntarlo en la tabla.
+
+### RT-20 [Informativa] Una URL de solo invisibles no cuenta como «sin URL»
+
+**Cómo lo he atacado.** En la bóveda hay «Banco» / «ana» sin web. En el archivo, la misma fila con una URL de solo U+200B + U+2800 + U+3164, solo U+2800, solo U+3164, U+3164 + U+034F, U+FFA0 o U+115F.
+
+**Lo que pasa:**
+- `isNoUrl` (`imports/MergePlan.kt:438`) es «no queda nada tras el paso previo del navegador», que solo quita los controles, los espacios, los tabuladores y los saltos de línea;
+- una URL de solo invisibles no tiene esquema, así que se lee como `https://` más esos caracteres;
+- el paso de IDN convierte lo que queda en un host `xn--`: «xn--psd796i», «xn--6ii», «xn--psd», «xn--osd». La clave es `https`, que es la única que toma una entrada sin URL (R48);
+- «Reemplazar» escribe el texto invisible en la URL de la bóveda. Su campo (`VaultEntryScreen.kt:104`, `plainReportText`) no enseña nada, y «Copiar» copia los invisibles;
+- la fila sí avisa: dice «ana · xn--psd796i».
+
+Es la misma familia que R56: allí era un host de solo espacios; aquí, uno de rellenos y de Braille en blanco que IDN convierte en `xn--`.
+
+**Evidencia:** sin el `@Ignore`, `rt20_aUrlThatShowsNothingIsNoUrl` (`:837`) falla con `taken into the URL-less entry: ​⠀ㅤ (row «ana · xn--psd796i»), ⠀ (row «ana · xn--6ii»), ㅤ (row «ana · xn--psd»), ⠀⠀ (…), ㅤ͏ (…), ﾠ (…), ᅟ (row «ana · xn--osd»), ​⠀ (…)`.
+
+**Impacto para un usuario real.** Muy pequeño:
+- solo afecta a una entrada que **no tenía** web;
+- la fila enseña un host `xn--` raro antes de elegir «Reemplazar»;
+- lo guardado no abre nada útil: un navegador no lo lee como enlace, o rechaza ese host;
+- el daño es un campo de web que parece vacío y no lo está.
+
+**Arreglo** (una línea): que una URL que no enseña nada sea «sin URL», igual que el título y el usuario (R55):
+```kotlin
+internal fun isNoUrl(url: String): Boolean = asBrowserReadsIt(url).isEmpty() || showsNothing(url)
+```
+Con eso, `urlKey` da null para ellas, «Reemplazar» conserva la URL de la bóveda y la fila no las enseña.
+
+### Ataques intentados y resistidos (sexta comprobación)
+
+1. **R58** (`resistsTheR58TitleAndUserVariants`, `:762`): siete pares de título y usuario que el que busca duplicados da por iguales. Siempre se quedan «Café Banco» / «ana». «Ana» y «Cafe» (lo que se ve distinto) no son duplicado.
+2. **R57 y R59** (`resistsTheR57AndR59EmptyFields`, `:805`): ocho formas de «nada» en el servicio, la cuenta y las notas, la fila de un acceso y de un 2FA sin « · » colgando, las notas iguales salvo los espacios de los extremos, y la misma nota no se añade dos veces.
+3. **R60** (`resistsTheR60FolderTags`, `:874`):
+   - diez carpetas que no enseñan nada (invisibles, controles, NBSP, U+3000, el plano 14, comas) no dan etiqueta;
+   - siete que se ven como «banco» o «banco casa» (U+200B, U+00AD, un control, un tabulador, bidi, U+2800 y espacios) dan la misma etiqueta;
+   - nueve carpetas invisibles y doce reales dan exactamente diez etiquetas (`MAX_TAGS`), las de las reales;
+   - 300 carpetas, la mitad copias de la otra mitad con un invisible, crean como mucho 100 etiquetas nuevas (`IMPORT_MAX_NEW_TAGS`), ninguna con invisibles.
+4. **Lo que «Reemplazar» trae tal cual, a propósito** (`resistsAndRecordsWhatReplaceTakesAsItComes`, `:905`):
+   - la contraseña del archivo, también una de un solo U+200B, con la de antes en el historial: es el secreto y se guarda como llega;
+   - la URL del mismo esquema y host con otra ruta, con la fila «ana · banco.es».
+
+   Queda escrito en un test para que se vea si cambia.
+5. **Los anteriores:** los 32 tests de las rondas de antes siguen en verde.
+
+### Necesita prueba en el móvil (sexta comprobación)
+
+1. **RT-18:** importar un CSV de Bitwarden con una carpeta «Café» escrita en NFD (exportada desde un Mac) junto a una entrada que ya tenga la etiqueta «café», y ver si salen dos chips «#café».
+2. **RT-20:** importar una fila con la URL U+2800, contra una entrada sin web, y mirar la fila («ana · xn--6ii») y el campo de la web después de «Reemplazar».
+3. Siguen las de las rondas anteriores (P-9 y P-27 del README).
+
+### Revisión experto-seguridad-cripto (sexta comprobación)
+
+- **R57 a R60** cumplen lo que dicen para «vacío» (`showsNothing`, `imports/MergePlan.kt:444`) y para el título y el usuario (`titleKey` y `userKey`, `:275-276`).
+- **Lo que queda** son tres sitios donde «vacío» o «lo mismo» todavía no es la misma idea para todos los campos:
+  - **RT-20:** `isNoUrl` no usa `showsNothing`;
+  - **RT-19:** el servicio y la cuenta no se comparan por clave;
+  - **RT-18:** las etiquetas no pasan por NFC ni juntan los espacios de Unicode.
+
+  Ninguno toca un secreto ni la clave de comparación de una URL web, ni da acceso a nada. Por eso los tres son informativos (CWE-180 en RT-18 y RT-20; en RT-19, una decisión de diseño).
+- **Recomendación para cerrar la ronda:** RT-18 y RT-20 se arreglan con una línea cada uno y sin texto nuevo. RT-19 puede quedar como decisión, porque exige el secreto. Si no se arreglan, que queden apuntados en la tabla por campos y en el informe del ataque.
+- **Sin primitivas, formatos ni secretos nuevos.** Lo guardado de una entrada nueva sigue tal cual (R9 y R10).
+
+### Revisión Ingeniero Móvil Senior (sexta comprobación)
+
+- **MASVS:** MASVS-CODE-4 (lo importado) y MASVS-PLATFORM-3 (los chips, el campo de la web y la búsqueda frente a lo guardado).
+- **Los arreglos propuestos** son Kotlin puro en `imports/`, probados en `jvm-check`, sin cambios en Compose, el estado ni la concurrencia. `Normalizer` ya se usa en el mismo paquete.
+- **RT-18 también le pasa a un usuario sin atacante:** los nombres en NFD llegan de exportaciones hechas en macOS e iOS. Ese es el único motivo para preferir arreglarlo antes de publicar.
+- **El archivo de test:** ningún aviso `w:`, sin invisibles escritos tal cual, y `internal` solo dentro del módulo.
+
+### Textos para el Abogado Digital (sexta comprobación)
+
+Ninguno. Los tres arreglos propuestos no cambian ningún texto de la interfaz, del README ni de la política.
