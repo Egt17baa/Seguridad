@@ -13,7 +13,7 @@
 # Los textos que se comprueban son los literales de imports/ImportTexts.kt; donde nombran otra app, la
 # expresión regular la cambia por «.*».
 appId: io.github.egt17baa.seguridad
-name: "P-4 Importar: lo que no se lee y las URI del CSV"
+name: "P-4 Importar - lo que no se lee y las URI del CSV"
 tags:
   - clavero-1.4.0
   - semiautomatica
@@ -94,8 +94,14 @@ env:
 - scrollUntilVisible:
     element:
       text: "Importar"
-      enabled: true
     direction: DOWN
+    timeout: 30000
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Importar"
     timeout: 30000
 - tapOn: "Importar"
 # Sin copia automática, la copia de antes de importar va donde diga el diálogo del sistema (P-7).

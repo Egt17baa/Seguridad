@@ -213,7 +213,9 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                     confirm = false
                     scope.launch {
                         try {
-                            if (store.delete(entry.id)) onBack()
+                            // No onBack here: once the entry is gone this screen leaves by itself (LockedNotice, as
+                            // after a lock), and a second popBackStack would take the vault list too (1.4.1).
+                            store.delete(entry.id)
                         } catch (e: Exception) {
                             failed = true
                         }

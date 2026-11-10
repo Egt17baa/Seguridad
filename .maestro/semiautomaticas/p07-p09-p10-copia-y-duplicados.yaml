@@ -35,8 +35,14 @@ env:
 - scrollUntilVisible:
     element:
       text: "Importar"
-      enabled: true
     direction: DOWN
+    timeout: 30000
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Importar"
     timeout: 30000
 
 # P-7: cancelar el diálogo de la copia: no se importa nada.
@@ -54,8 +60,14 @@ env:
 - scrollUntilVisible:
     element:
       text: "Importar"
-      enabled: true
     direction: DOWN
+    timeout: 30000
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Importar"
     timeout: 30000
 - tapOn: "Importar"
 - extendedWaitUntil:
@@ -98,7 +110,8 @@ env:
     visible: "Con estas opciones no entra ni cambia nada."
     timeout: 30000
 - assertVisible:
-    text: "Importar"
+    containsDescendants:
+      - text: "Importar"
     enabled: false
 - scrollUntilVisible:
     element:
@@ -117,7 +130,13 @@ env:
 - extendedWaitUntil:
     visible:
       text: "Importar"
-      enabled: true
+    timeout: 30000
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Importar"
     timeout: 30000
 # Volver a tocar la opción ya elegida: «Importar» sigue activo.
 - scrollUntilVisible:
@@ -135,7 +154,13 @@ env:
 - extendedWaitUntil:
     visible:
       text: "Importar"
-      enabled: true
+    timeout: 30000
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Importar"
     timeout: 30000
 # «Reemplazar» para todos: no entra ninguna nueva y se reemplazan las que ya estaban.
 - scrollUntilVisible:

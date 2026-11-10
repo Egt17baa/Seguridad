@@ -121,7 +121,7 @@ Install the debug or release build of this branch. Unlock the vault with the mas
 **Seeing «Zona segura del procesador»:**
 - On any phone without StrongBox (most mid-range Android 9+ phones; check with `adb shell pm list features | grep strongbox`, where no output means none), or on an Android Studio emulator with a fingerprint enrolled (Settings → Security → Fingerprint, then `adb -e emu finger touch 1` at the prompt): enable the fingerprint, and Ajustes must say «Zona segura del procesador». There is only one prompt and no R2 hint, because there is no StrongBox.
 - Note: emulators normally report no StrongBox; some emulator images expose a software-backed Keystore, in which case the label is «Software: el móvil no protege esta clave con hardware». That is expected on an emulator, not on a real phone.
-- On the fabricante itself, the TEE path can only be seen after a StrongBox failure (`strongbox_failed`); clearing the app's data resets it.
+- On the owner's phone itself, the TEE path can only be seen after a StrongBox failure (`strongbox_failed`); clearing the app's data resets it.
 
 ## Revisión experto-seguridad-cripto
 

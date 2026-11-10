@@ -26,7 +26,7 @@
 
   Nothing was copied from any importer.
 
-**Step 3 (the owner's files) is still pending.** When `bitwarden.json`, `aegis-claro.json` and `2fas-claro.2fas` arrive, apply Task 6 Step 5: add each file with its own test, which counts the entries by type and checks two titles.
+**Step 3 (real exports) is still pending.** When real exports of these formats arrive, apply Task 6 Step 5: add each file with its own test, which counts the entries by type and checks two titles.
 
 ## TDD evidence
 

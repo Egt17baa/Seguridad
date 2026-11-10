@@ -6,7 +6,9 @@ import java.util.Locale
 
 /*
  * The CSV exports of browsers and password apps (spec «CSV de navegadores»), written from their public documentation:
- * - Chromium browsers and their password manager: name,url,username,password,note;
+ * - Chromium browsers and their password manager: name,url,username,password,note; other password apps write the same
+ *   columns and add `folder` or `totp` (1.4.1, [ImportFormat.PASSWORDS_CSV], with its own origin tag): with those
+ *   names, they are the item's folder and its 2FA;
  * - Firefox: url,username,password,httpRealm,formActionOrigin,guid,timeCreated,timeLastUsed,timePasswordChanged;
  * - Apple: Title,URL,Username,Password,Notes,OTPAuth;
  * - Bitwarden (ruling R19; https://bitwarden.com/help/condition-bitwarden-import/): the personal vault's
@@ -28,6 +30,8 @@ private const val COL_PASSWORD = "password"
 private const val COL_NOTE = "note"
 private const val COL_NOTES = "notes"
 private const val COL_OTPAUTH = "otpauth"
+private const val COL_FOLDER = "folder"
+private const val COL_TOTP = "totp"
 
 /** The columns every Bitwarden CSV has (ruling R19), and one of [BITWARDEN_CSV_PLACE] (personal or organisation). */
 private val BITWARDEN_CSV_NEEDS = listOf("type", "name", "login_uri", "login_username", "login_password")
@@ -61,6 +65,7 @@ internal fun csvFormat(header: List<String>): ImportFormat? {
     if (isBitwardenCsv(c)) return ImportFormat.BITWARDEN
     if (!(c.has(COL_URL) && c.has(COL_USERNAME) && c.has(COL_PASSWORD))) return null
     return when {
+        c.has(COL_NAME) && (c.has(COL_FOLDER) || c.has(COL_TOTP)) -> ImportFormat.PASSWORDS_CSV
         c.has(COL_NAME) -> ImportFormat.BROWSER_CSV
         c.has(COL_TITLE) -> ImportFormat.APPLE_CSV
         FIREFOX_ONLY.any(c::has) -> ImportFormat.FIREFOX_CSV
@@ -105,7 +110,8 @@ internal fun hostOf(url: String): String {
  * - a NUL in a known column → [SkipReason.BROKEN];
  * - a field over its limit → [SkipReason.FIELD_TOO_LONG]: the whole row, never cut;
  * - otherwise the LOGIN; with an Apple `OTPAuth` link, a TOTP item right after it with the same title, or a
- *   [Skipped] for that 2FA alone ([ImportReadBuilder.addOtpAuth]).
+ *   [Skipped] for that 2FA alone ([ImportReadBuilder.addOtpAuth]); with a `totp` cell (1.4.1), the same through
+ *   [addLoginTotp], the strict path of Bitwarden's `login_totp`, and a `folder` cell is the folder of both.
  * The title is `name` or `Title` (the URL's host in Firefox, which has no title); if it is blank, the URL's host, the
  * user, or «Acceso».
  */
@@ -115,20 +121,23 @@ private fun readRow(format: ImportFormat, c: Columns, row: List<String>, out: Im
     val username = c.cell(row, COL_USERNAME)
     val password = c.cell(row, COL_PASSWORD)
     val notes = when (format) {
-        ImportFormat.BROWSER_CSV -> c.cell(row, COL_NOTE)
+        ImportFormat.BROWSER_CSV, ImportFormat.PASSWORDS_CSV -> c.cell(row, COL_NOTE)
         ImportFormat.APPLE_CSV -> c.cell(row, COL_NOTES)
         else -> ""
     }
     val otpauth = if (format == ImportFormat.APPLE_CSV) c.cell(row, COL_OTPAUTH) else ""
+    // 1.4.1: the optional folder and 2FA of a CSV with the browsers' columns (other password apps add them).
+    val folder = if (format == ImportFormat.PASSWORDS_CSV) c.cell(row, COL_FOLDER) else ""
+    val totp = if (format == ImportFormat.PASSWORDS_CSV) c.cell(row, COL_TOTP) else ""
     val written = when (format) {
-        ImportFormat.BROWSER_CSV -> c.cell(row, COL_NAME)
+        ImportFormat.BROWSER_CSV, ImportFormat.PASSWORDS_CSV -> c.cell(row, COL_NAME)
         ImportFormat.APPLE_CSV -> c.cell(row, COL_TITLE)
         else -> hostOf(url)
     }
-    if (url.isBlank() && username.isBlank() && password.isEmpty() && notes.isBlank() && otpauth.isBlank()) {
+    if (url.isBlank() && username.isBlank() && password.isEmpty() && notes.isBlank() && otpauth.isBlank() && totp.isBlank()) {
         return out.skip(written, SkipReason.EMPTY)
     }
-    if (listOf(written, url, username, password, notes, otpauth).any { '\u0000' in it }) {
+    if (listOf(written, url, username, password, notes, otpauth, folder, totp).any { '\u0000' in it }) {
         return out.skip(written, SkipReason.BROKEN)
     }
     val title = written.ifBlank { hostOf(url) }.ifBlank { username }.ifBlank { EntryType.LOGIN.label }
@@ -137,8 +146,10 @@ private fun readRow(format: ImportFormat, c: Columns, row: List<String>, out: Im
     ) {
         return out.skip(title, SkipReason.FIELD_TOO_LONG)
     }
-    out.add(importedEntry(EntryType.LOGIN, title, username = username, password = password, url = url, notes = notes))
+    val folders = listOfNotNull(folder.takeIf { it.isNotBlank() })
+    out.add(importedEntry(EntryType.LOGIN, title, username = username, password = password, url = url, notes = notes), folders)
     if (otpauth.isNotBlank()) out.addOtpAuth(otpauth, title)
+    if (totp.isNotBlank()) addLoginTotp(totp, title, folders, out)
 }
 
 /**

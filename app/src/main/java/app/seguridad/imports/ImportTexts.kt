@@ -10,6 +10,7 @@ import app.seguridad.vault.EntryType
 
 /** The tags that say where an imported entry came from (spec «Etiquetas»): they become visible vault tags. */
 const val ORIGIN_TAG_BROWSER = "importado-navegador"
+const val ORIGIN_TAG_CSV = "importado-csv"
 const val ORIGIN_TAG_FIREFOX = "importado-firefox"
 const val ORIGIN_TAG_APPLE = "importado-apple"
 const val ORIGIN_TAG_BITWARDEN = "importado-bitwarden"
@@ -209,7 +210,8 @@ const val IMPORT_INTRO =
     "Lee un archivo que hayas exportado de otro gestor de contraseñas, de un navegador o de una app de 2FA, y añade sus " +
         "entradas a la bóveda. Antes de cambiar nada te enseña lo que entra y te pide que lo confirmes."
 const val IMPORT_FORMATS =
-    "Lee las exportaciones en CSV de Chrome, Edge, Brave, el Gestor de contraseñas de Google, Firefox, Apple y Bitwarden; " +
+    "Lee las exportaciones en CSV de Chrome, Edge, Brave, el Gestor de contraseñas de Google, Firefox, Apple y Bitwarden, y otros " +
+        "CSV con las columnas de Chrome, también con su carpeta y su 2FA; " +
         "el JSON de Bitwarden, sin cifrar o «Protegida con contraseña»; el JSON de Aegis y la copia de 2FAS, cifrados o sin cifrar, " +
         "y las listas de enlaces otpauth:// (como el TXT de Aegis, y también los enlaces de exportación de Google " +
         "Authenticator). No lee el .zip con adjuntos de Bitwarden ni el HTML de Aegis."

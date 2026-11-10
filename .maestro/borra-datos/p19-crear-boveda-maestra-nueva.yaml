@@ -8,7 +8,7 @@
 # P-19 («crear una bóveda nueva»).
 # Maestro solo escribe caracteres ASCII en Android, por eso no se prueba «contraseña1» (la «ñ»).
 appId: io.github.egt17baa.seguridad
-name: "P-19 Crear una bóveda: la regla de la maestra nueva"
+name: "P-19 Crear una bóveda - la regla de la maestra nueva"
 tags:
   - clavero-1.4.0
   - automatica
@@ -20,7 +20,8 @@ env:
 - assertVisible: 'Sirve una copia \.sgbak de esta app \(con los adjuntos\).*'
 - assertVisible: "Importar una copia exportada"
 - assertVisible:
-    text: "Crear bóveda"
+    containsDescendants:
+      - text: "Crear bóveda"
     enabled: false
 
 # Corta.
@@ -30,7 +31,8 @@ env:
     visible: "Mínimo 10 caracteres"
     timeout: 10000
 - assertVisible:
-    text: "Crear bóveda"
+    containsDescendants:
+      - text: "Crear bóveda"
     enabled: false
 
 # Una palabra conocida en leet, con números y signos alrededor (RT-3).
@@ -41,7 +43,8 @@ env:
     timeout: 20000
 - assertNotVisible: "Mínimo 10 caracteres"
 - assertVisible:
-    text: "Crear bóveda"
+    containsDescendants:
+      - text: "Crear bóveda"
     enabled: false
 
 # Una sola palabra conocida con mayúscula, número y signo.
@@ -75,12 +78,19 @@ env:
       text: "Crear bóveda"
     direction: DOWN
 - assertVisible:
-    text: "Crear bóveda"
+    containsDescendants:
+      - text: "Crear bóveda"
     enabled: false
 - tapOn: 'Entiendo que si olvido la contraseña maestra.*'
 - assertVisible:
     text: "Crear bóveda"
-    enabled: true
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Crear bóveda"
+    timeout: 30000
 - tapOn: "Crear bóveda"
 - extendedWaitUntil:
     visible: "Bloquear"

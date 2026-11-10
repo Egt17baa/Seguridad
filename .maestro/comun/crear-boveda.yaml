@@ -17,9 +17,15 @@ appId: io.github.egt17baa.seguridad
 - scrollUntilVisible:
     element:
       text: "Crear bóveda"
-      enabled: true
     direction: DOWN
     timeout: 20000
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Crear bóveda"
+    timeout: 30000
 - tapOn: "Crear bóveda"
 # Argon2id con el coste del perfil: unos segundos en un móvil, algo más en el emulador.
 - extendedWaitUntil:

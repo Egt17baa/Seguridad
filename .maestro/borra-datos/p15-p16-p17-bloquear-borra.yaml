@@ -106,9 +106,15 @@ env:
       text: "Repartir"
       below:
         text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
-      enabled: true
     direction: DOWN
     timeout: 20000
+# Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
+- extendedWaitUntil:
+    notVisible:
+      enabled: false
+      containsDescendants:
+        - text: "Repartir"
+    timeout: 30000
 - tapOn:
     text: "Repartir"
     below:

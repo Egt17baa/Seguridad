@@ -6,7 +6,7 @@
 # app/src/test/java/app/seguridad/tools/slip39/Slip39Test.kt. No se escribe aquí: pásala al ejecutar,
 #   maestro test -e CONTRASENA_VECTOR=<esa contraseña> .maestro/semiautomaticas/p17-recomponer-vector-oficial.yaml
 appId: io.github.egt17baa.seguridad
-name: "P-17 Repartir un secreto: un vector oficial de SLIP-0039"
+name: "P-17 Repartir un secreto - un vector oficial de SLIP-0039"
 tags:
   - clavero-1.4.0
   - semiautomatica
@@ -18,12 +18,24 @@ tags:
     file: ../comun/abrir-herramienta.yaml
     env:
       HERRAMIENTA: 'Repartir un secreto.*'
+- scrollUntilVisible:
+    element:
+      text: "Recomponer"
+    direction: DOWN
 - tapOn: "Recomponer"
+- scrollUntilVisible:
+    element:
+      text: "Partes, una por línea"
+    direction: DOWN
 - tapOn: "Partes, una por línea"
 - inputText: "shadow pistol academic always adequate wildlife fancy gross oasis cylinder mustang wrist rescue view short owner flip making coding armed"
 - pressKey: Enter
 - inputText: "shadow pistol academic acid actress prayer class unknown daughter sweater depict flip twice unkind craft early superior advocate guest smoking"
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'Contraseña \(opcional\)'
+    direction: DOWN
 - tapOn: 'Contraseña \(opcional\)'
 - inputText: ${CONTRASENA_VECTOR}
 - hideKeyboard
@@ -37,17 +49,34 @@ tags:
     text: "Recomponer"
     below:
       text: 'Solo caracteres ASCII imprimibles, como pide SLIP-0039.*'
-- extendedWaitUntil:
-    visible: "b43ceb7e57a0ea8766221624d01b0864"
-    timeout: 60000
-
-# Sin la contraseña sale otro secreto, sin ningún error (SLIP-0039 no avisa).
+# El secreto sale debajo del botón, fuera de la pantalla.
 - scrollUntilVisible:
     element:
-      text: 'Contraseña \(opcional\)|•+'
-    direction: UP
-- tapOn: 'Contraseña \(opcional\)|•+'
-- eraseText: 40
+      text: "b43ceb7e57a0ea8766221624d01b0864"
+    direction: DOWN
+    timeout: 60000
+
+# Sin la contraseña sale otro secreto, sin ningún error (SLIP-0039 no avisa). Se vuelve a entrar en la
+# herramienta (volver atrás lo borra todo) en lugar de borrar el campo: eraseText solo borra a la izquierda
+# del cursor (README, F-3).
+- tapOn: "Atrás"
+- runFlow:
+    file: ../comun/abrir-herramienta.yaml
+    env:
+      HERRAMIENTA: 'Repartir un secreto.*'
+- scrollUntilVisible:
+    element:
+      text: "Recomponer"
+    direction: DOWN
+- tapOn: "Recomponer"
+- scrollUntilVisible:
+    element:
+      text: "Partes, una por línea"
+    direction: DOWN
+- tapOn: "Partes, una por línea"
+- inputText: "shadow pistol academic always adequate wildlife fancy gross oasis cylinder mustang wrist rescue view short owner flip making coding armed"
+- pressKey: Enter
+- inputText: "shadow pistol academic acid actress prayer class unknown daughter sweater depict flip twice unkind craft early superior advocate guest smoking"
 - hideKeyboard
 - scrollUntilVisible:
     element:
@@ -59,8 +88,10 @@ tags:
     text: "Recomponer"
     below:
       text: 'Solo caracteres ASCII imprimibles, como pide SLIP-0039.*'
-- extendedWaitUntil:
-    visible: 'Si la contraseña no es la que se usó al repartir, este es otro secreto distinto: SLIP-0039 no avisa\.'
+- scrollUntilVisible:
+    element:
+      text: 'Si la contraseña no es la que se usó al repartir, este es otro secreto distinto: SLIP-0039 no avisa\.'
+    direction: DOWN
     timeout: 60000
 - assertNotVisible: "b43ceb7e57a0ea8766221624d01b0864"
 - tapOn: "Atrás"

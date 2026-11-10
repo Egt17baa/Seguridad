@@ -22,8 +22,13 @@ tags:
     timeout: 20000
 - tapOn: "Comprobar una copia"
 - extendedWaitUntil:
-    visible: "Elegir copia"
+    visible: "Atrás"
     timeout: 15000
+# Lo que se busca puede quedar fuera de la pantalla: cada paso sube o baja hasta verlo (README, F-3).
+- scrollUntilVisible:
+    element:
+      text: "Elegir copia"
+    direction: DOWN
 
 # Un archivo que no es una copia.
 - tapOn: "Elegir copia"
@@ -31,50 +36,104 @@ tags:
     file: ../comun/elegir-en-descargas.yaml
     env:
       ARCHIVO: "clavero-frase.txt"
-- extendedWaitUntil:
-    visible: "Este archivo no es una copia .sgbak de Clavero. Esta pantalla solo comprueba esas copias."
+- scrollUntilVisible:
+    element:
+      text: "Este archivo no es una copia .sgbak de Clavero. Esta pantalla solo comprueba esas copias."
+    direction: DOWN
     timeout: 30000
 
 # La copia, con la contraseña equivocada.
+- scrollUntilVisible:
+    element:
+      text: 'Elegir copia|clavero-frase\.txt'
+    direction: UP
 - tapOn: 'Elegir copia|clavero-frase\.txt'
 - runFlow:
     file: ../comun/elegir-en-descargas.yaml
     env:
       ARCHIVO: "clavero-copia-1.1.sgbak"
-- extendedWaitUntil:
-    visible: "clavero-copia-1.1.sgbak"
+- scrollUntilVisible:
+    element:
+      text: "clavero-copia-1.1.sgbak"
+    direction: UP
     timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Contraseña maestra de la copia"
+    direction: DOWN
 - tapOn: "Contraseña maestra de la copia"
 - inputText: "equivocada-de-prueba"
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Comprobar"
+    direction: DOWN
 - tapOn: "Comprobar"
-- extendedWaitUntil:
-    visible: 'Contraseña incorrecta.*'
+- scrollUntilVisible:
+    element:
+      text: 'Contraseña incorrecta.*'
+    direction: DOWN
     timeout: 120000
 - assertNotVisible: "Resultado"
 
-# Con la buena: sin problemas, versión, entradas y adjunto.
+# Con la buena: sin problemas, versión, entradas y adjunto. Al pulsar «Comprobar» el campo se vacía, así
+# que se escribe en un campo vacío (eraseText no hace falta).
+- scrollUntilVisible:
+    element:
+      text: "Contraseña maestra de la copia"
+    direction: UP
 - tapOn: "Contraseña maestra de la copia"
 - inputText: "maestra-de-prueba"
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Comprobar"
+    direction: DOWN
 - tapOn: "Comprobar"
-- extendedWaitUntil:
-    visible: 'No se ha encontrado ningún problema: la contraseña abre la copia, sus entradas se leen y todos sus adjuntos coinciden\.'
+- scrollUntilVisible:
+    element:
+      text: 'No se ha encontrado ningún problema: la contraseña abre la copia, sus entradas se leen y todos sus adjuntos coinciden\.'
+    direction: DOWN
     timeout: 120000
-- assertVisible: "Resultado"
-- assertVisible: 'Formato de la copia: versión \d+'
-- assertVisible: "2 entradas"
-- assertVisible: "Acceso: 1"
-- assertVisible: "Código 2FA: 1"
-- assertVisible: "1 adjunto; coincide: 1"
-# La contraseña se ha borrado del campo al pulsar «Comprobar».
-- assertVisible: "Contraseña maestra de la copia"
+- scrollUntilVisible:
+    element:
+      text: "Resultado"
+    direction: UP
+- scrollUntilVisible:
+    element:
+      text: 'Formato de la copia: versión \d+'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "2 entradas"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Acceso: 1"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Código 2FA: 1"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "1 adjunto; coincide: 1"
+    direction: DOWN
+# La contraseña se ha borrado del campo al pulsar «Comprobar»: se ve su etiqueta, no los puntos.
+- scrollUntilVisible:
+    element:
+      text: "Contraseña maestra de la copia"
+    direction: UP
 
 # Volver atrás borra el resultado.
 - tapOn: "Atrás"
+- scrollUntilVisible:
+    element:
+      text: "Comprobar una copia"
+    direction: DOWN
 - tapOn: "Comprobar una copia"
 - extendedWaitUntil:
-    visible: "Elegir copia"
+    visible: "Atrás"
     timeout: 15000
 - assertNotVisible: "Resultado"
 - assertNotVisible: "clavero-copia-1.1.sgbak"

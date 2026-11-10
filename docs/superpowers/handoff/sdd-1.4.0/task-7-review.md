@@ -48,7 +48,7 @@ None.
 - **Impact:** that is ~100 MB for the tree alone, on top of the caller's `ByteArray`, the decoded `String`, the vault and Compose. ART object sizes are close to the JVM's with compressed oops. `OutOfMemoryError` is deliberately not caught (`Detect.kt` KDoc: «the limits are what prevent them»). On a phone with a 192–256 MB heap limit, a crafted 3 MB file, or a real export near the bound, can crash the app. Owner decision (a) forbids this.
 - **Fix (controller to re-rule with these numbers):**
   1. Weight the scan by cost: count an object or array `{`/`[` as 3, a key–value pair as 2, and a scalar as 1. Then set the bound from a measured budget, for example ~30 MB, which is ≈300 000 weighted units.
-  2. Or keep 1 M and get the owner's explicit agreement to a ~110 MB transient peak, after a phone heap test (`Runtime.maxMemory()` on the owner's fabricante).
+  2. Or keep 1 M and get the owner's explicit agreement to a ~110 MB transient peak, after a phone heap test (`Runtime.maxMemory()` on the owner's phone).
 
   Either way:
   - correct the KDoc to the measured numbers;

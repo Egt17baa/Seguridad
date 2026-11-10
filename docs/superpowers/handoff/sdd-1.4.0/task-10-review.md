@@ -278,7 +278,7 @@ New or changed visible texts, verbatim:
 
     Consequence: the advice «Si exportas sin cifrar, borra ese archivo…» is now only in `IMPORT_NOT_PROTECTED`. That text is unchanged and still on the screen.
 
-All third-party names are inside `ImportTexts.kt`, next to `IMPORT_TRADEMARKS` on the same screen. «Cuenta restringida», «Protegida con contraseña», «.json (Encrypted)» and «.zip (with attachments)» quote Bitwarden's UI labels, from the owner's screenshot of 4-11-2026.
+All third-party names are inside `ImportTexts.kt`, next to `IMPORT_TRADEMARKS` on the same screen. «Cuenta restringida», «Protegida con contraseña», «.json (Encrypted)» and «.zip (with attachments)» quote Bitwarden's UI labels, from a screenshot of 4-11-2026.
 
 ### Assessment
 
