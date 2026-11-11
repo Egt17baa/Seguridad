@@ -36,8 +36,8 @@ env:
       text: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     direction: DOWN
 - tapOn: "Bóveda"
-# En un dispositivo lento, el bloqueo por inactividad puede llegar antes. Ese bloqueo no borra una
-# herramienta que se está usando (la regla de «PIN y códigos»), así que se desbloquea y se bloquea a mano.
+# Se prueba el botón «Bloquear». En un dispositivo lento la bóveda puede haberse bloqueado sola antes:
+# entonces se desbloquea y se bloquea con el botón.
 - runFlow:
     when:
       visible: '.*Bóveda bloqueada'
@@ -79,8 +79,8 @@ env:
       text: "Krod Pxqgr"
     direction: DOWN
 - tapOn: "Bóveda"
-# En un dispositivo lento, el bloqueo por inactividad puede llegar antes. Ese bloqueo no borra una
-# herramienta que se está usando (la regla de «PIN y códigos»), así que se desbloquea y se bloquea a mano.
+# Se prueba el botón «Bloquear». En un dispositivo lento la bóveda puede haberse bloqueado sola antes:
+# entonces se desbloquea y se bloquea con el botón.
 - runFlow:
     when:
       visible: '.*Bóveda bloqueada'
@@ -146,8 +146,8 @@ env:
     direction: DOWN
     timeout: 60000
 - tapOn: "Bóveda"
-# En un dispositivo lento, el bloqueo por inactividad puede llegar antes. Ese bloqueo no borra una
-# herramienta que se está usando (la regla de «PIN y códigos»), así que se desbloquea y se bloquea a mano.
+# Se prueba el botón «Bloquear». En un dispositivo lento la bóveda puede haberse bloqueado sola antes:
+# entonces se desbloquea y se bloquea con el botón.
 - runFlow:
     when:
       visible: '.*Bóveda bloqueada'

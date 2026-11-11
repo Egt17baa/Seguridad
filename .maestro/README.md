@@ -122,4 +122,4 @@ Los flujos no se han podido ejecutar en el contenedor. Lo más probable que haya
 - **El botón «Añadir» de la bóveda no da su texto** a las herramientas de accesibilidad: P-5 lo pulsa por su sitio, debajo de «Tu bóveda está vacía. Pulsa «Añadir».».
 - **Los tipos de entrada van en una fila que se desliza:** con la letra grande, «Código 2FA» queda fuera, a la derecha, y P-5 desliza la fila antes de pulsarlo.
 - **El selector de archivos** baja hasta el archivo y lo lleva al centro antes de tocarlo: con muchos archivos en Descargas, el de prueba puede estar más abajo o pegado a la barra del sistema.
-- **«Bloquear borra»** bloquea siempre con el botón. Si el bloqueo por inactividad llega antes (un dispositivo lento), desbloquea y vuelve a bloquear, porque ese bloqueo no borra una herramienta que se está usando (la regla de «PIN y códigos»).
+- **«Bloquear borra»** prueba el botón «Bloquear». Si al llegar a la pestaña la bóveda ya está bloqueada (en un dispositivo lento puede bloquearse sola antes), el flujo la desbloquea y la bloquea con el botón.
