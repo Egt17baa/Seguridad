@@ -13,7 +13,10 @@ appId: io.github.egt17baa.seguridad
     commands:
       - tapOn: 'Mostrar raíces|Show roots'
       - tapOn: 'Descargas|Downloads'
-- extendedWaitUntil:
-    visible: ${ARCHIVO}
-    timeout: 15000
+# Descargas puede tener muchos archivos: se baja hasta encontrarlo.
+- scrollUntilVisible:
+    element:
+      text: ${ARCHIVO}
+    direction: DOWN
+    timeout: 30000
 - tapOn: ${ARCHIVO}

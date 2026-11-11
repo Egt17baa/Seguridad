@@ -120,7 +120,8 @@ env:
     element:
       text: "Quitar el archivo exportado"
     direction: DOWN
-- assertVisible: 'El archivo que has importado sigue en tu móvil, sin cifrar si lo exportaste sin contraseña\..*'
+# 1.4.2 (texto mínimo): la línea corta a la vista; la explicación completa, bajo «Más información».
+- assertVisible: 'El archivo importado sigue en tu móvil, sin cifrar si lo exportaste sin contraseña\..*'
 - tapOn: "Quitar el archivo exportado"
 - extendedWaitUntil:
     visible: 'Archivo borrado\. Mira si queda alguna copia en la nube, en la papelera o en otras apps\.|La app donde está el archivo no deja que Clavero lo borre\..*'
