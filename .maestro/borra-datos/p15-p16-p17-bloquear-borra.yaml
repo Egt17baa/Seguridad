@@ -36,10 +36,15 @@ env:
       text: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     direction: DOWN
 - tapOn: "Bóveda"
-# Si el bloqueo por inactividad se ha adelantado (un dispositivo lento), ya no hay botón: vale igual.
-- tapOn:
-    text: "Bloquear"
-    optional: true
+# En un dispositivo lento, el bloqueo por inactividad puede llegar antes. Ese bloqueo no borra una
+# herramienta que se está usando (la regla de «PIN y códigos»), así que se desbloquea y se bloquea a mano.
+- runFlow:
+    when:
+      visible: '.*Bóveda bloqueada'
+    file: ../comun/desbloquear.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+- tapOn: "Bloquear"
 - extendedWaitUntil:
     visible: '.*Bóveda bloqueada'
     timeout: 15000
@@ -74,10 +79,15 @@ env:
       text: "Krod Pxqgr"
     direction: DOWN
 - tapOn: "Bóveda"
-# Si el bloqueo por inactividad se ha adelantado (un dispositivo lento), ya no hay botón: vale igual.
-- tapOn:
-    text: "Bloquear"
-    optional: true
+# En un dispositivo lento, el bloqueo por inactividad puede llegar antes. Ese bloqueo no borra una
+# herramienta que se está usando (la regla de «PIN y códigos»), así que se desbloquea y se bloquea a mano.
+- runFlow:
+    when:
+      visible: '.*Bóveda bloqueada'
+    file: ../comun/desbloquear.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+- tapOn: "Bloquear"
 - extendedWaitUntil:
     visible: '.*Bóveda bloqueada'
     timeout: 15000
@@ -136,10 +146,15 @@ env:
     direction: DOWN
     timeout: 60000
 - tapOn: "Bóveda"
-# Si el bloqueo por inactividad se ha adelantado (un dispositivo lento), ya no hay botón: vale igual.
-- tapOn:
-    text: "Bloquear"
-    optional: true
+# En un dispositivo lento, el bloqueo por inactividad puede llegar antes. Ese bloqueo no borra una
+# herramienta que se está usando (la regla de «PIN y códigos»), así que se desbloquea y se bloquea a mano.
+- runFlow:
+    when:
+      visible: '.*Bóveda bloqueada'
+    file: ../comun/desbloquear.yaml
+    env:
+      MAESTRA: ${MAESTRA}
+- tapOn: "Bloquear"
 - extendedWaitUntil:
     visible: '.*Bóveda bloqueada'
     timeout: 15000
