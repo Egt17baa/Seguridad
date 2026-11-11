@@ -22,7 +22,7 @@ tags:
     env:
       HERRAMIENTA: 'Laboratorio de hashes.*'
 - assertVisible: "Laboratorio de hashes"
-- assertVisible: 'Calcula la huella de un texto o de un archivo y compárala con la que publica su autor.*'
+- assertVisible: 'Calcula la huella de un texto o un archivo y compárala con la publicada\.'
 - assertVisible: "Texto"
 - assertVisible: "Archivo"
 - assertVisible: "HMAC"
@@ -123,7 +123,7 @@ tags:
 - tapOn: "HMAC"
 - scrollUntilVisible:
     element:
-      text: 'HMAC-SHA256 con una clave que escribes\..*'
+      text: 'HMAC-SHA256 con tu clave\. No se guarda\.'
     direction: DOWN
 - scrollUntilVisible:
     element:
@@ -210,7 +210,29 @@ tags:
       text: "Hola"
     direction: DOWN
 
-# Lo que no protege y el aviso de borrado.
+# Lo que no protege y el aviso de borrado. 1.4.2 (texto mínimo): una línea de cada uno a la vista; las
+# explicaciones completas, plegadas bajo «Más información», al final de la pantalla.
+- scrollUntilVisible:
+    element:
+      text: 'Si la huella viene de la misma web que el archivo, quien cambie uno puede cambiar la otra\.'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Lo escrito y el resultado se borran al volver atrás.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Más información"
+    direction: DOWN
+- tapOn: "Más información"
+- scrollUntilVisible:
+    element:
+      text: 'Calcula la huella de un texto o de un archivo y compárala con la que publica su autor.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'HMAC-SHA256 con una clave que escribes\..*'
+    direction: DOWN
 - scrollUntilVisible:
     element:
       text: "Lo que no protege"

@@ -26,8 +26,35 @@ env:
     visible: "Elegir archivo"
     timeout: 15000
 - assertVisible: "Importar de otra app"
-- assertVisible: 'Lee un archivo que hayas exportado de otro gestor de contraseñas, de un navegador o de una app de 2FA.*'
-- assertVisible: '.* solo exporta sus códigos como uno o varios códigos QR.*pulsa «Añadir», elige «Código 2FA» y luego «Escanear QR».*'
+# 1.4.2 (texto mínimo): una línea a la vista; la explicación y la ayuda de los QR, plegadas bajo el primer
+# «Más información» (al abrirlo pasa a «Menos información»).
+- assertVisible: 'Añade a la bóveda lo que exportaste de otro gestor de contraseñas, un navegador o una app de 2FA\. Antes te enseña lo que entra\.'
+- tapOn:
+    text: "Más información"
+    index: 0
+- scrollUntilVisible:
+    element:
+      text: 'Lee un archivo que hayas exportado de otro gestor de contraseñas, de un navegador o de una app de 2FA.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: '.* solo exporta sus códigos como uno o varios códigos QR.*pulsa «Añadir», elige «Código 2FA» y luego «Escanear QR».*'
+    direction: DOWN
+# Los avisos del final: una línea de cada uno a la vista, y completos bajo el otro «Más información», que
+# ahora es el único que lo dice.
+- scrollUntilVisible:
+    element:
+      text: 'Un archivo exportado sin contraseña suele estar sin cifrar en tu móvil\.'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Lo leído se borra al volver atrás.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Más información"
+    direction: DOWN
+- tapOn: "Más información"
 - scrollUntilVisible:
     element:
       text: 'Clavero no protege el archivo exportado\..*'

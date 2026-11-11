@@ -7,6 +7,10 @@
 # frase de 5 palabras y un poco más no da ningún aviso. Después crea la bóveda, que es el primer paso de
 # P-19 («crear una bóveda nueva»).
 # Maestro solo escribe caracteres ASCII en Android, por eso no se prueba «contraseña1» (la «ñ»).
+# Cada caso empieza otra vez desde cero (clearState) en lugar de borrar el campo: eraseText de Maestro solo
+# borra a la izquierda del cursor, y un campo de contraseña ya escrito no se encuentra por su etiqueta.
+# Después de escribir se cierra el teclado y se baja hasta lo que se comprueba: Maestro solo ve lo que
+# está en la pantalla, y el teclado tapa media pantalla.
 appId: io.github.egt17baa.seguridad
 name: "P-19 Crear una bóveda - la regla de la maestra nueva"
 tags:
@@ -17,73 +21,129 @@ env:
   MAESTRA: nube-ladera-pino-ancla-trigo-prueba
 ---
 - runFlow: ../comun/inicio-desde-cero.yaml
-- assertVisible: 'Sirve una copia \.sgbak de esta app \(con los adjuntos\).*'
-- assertVisible: "Importar una copia exportada"
-- assertVisible:
-    containsDescendants:
-      - text: "Crear bóveda"
-    enabled: false
+# La pantalla de crear, sin escribir nada: lo de abajo queda fuera de la pantalla con letra grande.
+- assertVisible: 'Guarda contraseñas, frases semilla, notas y códigos 2FA, cifrados en este móvil con tu contraseña maestra\.'
+- scrollUntilVisible:
+    element:
+      containsDescendants:
+        - text: "Crear bóveda"
+      enabled: false
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Importar una copia exportada"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Sirve una copia \.sgbak de esta app \(con los adjuntos\).*'
+    direction: DOWN
 
 # Corta.
+- runFlow: ../comun/inicio-desde-cero.yaml
 - tapOn: 'Contraseña maestra \(mínimo 10 caracteres\)'
 - inputText: "corta"
-- extendedWaitUntil:
-    visible: "Mínimo 10 caracteres"
-    timeout: 10000
-- assertVisible:
-    containsDescendants:
-      - text: "Crear bóveda"
-    enabled: false
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Mínimo 10 caracteres"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      containsDescendants:
+        - text: "Crear bóveda"
+      enabled: false
+    direction: DOWN
 
 # Una palabra conocida en leet, con números y signos alrededor (RT-3).
-- eraseText: 20
+- runFlow: ../comun/inicio-desde-cero.yaml
+- tapOn: 'Contraseña maestra \(mínimo 10 caracteres\)'
 - inputText: "P4ssw0rd2024!"
-- extendedWaitUntil:
-    visible: 'Esta contraseña es fácil de adivinar\. Usa una frase de 5 o 6 palabras que solo tú conozcas.*'
-    timeout: 20000
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'Esta contraseña es fácil de adivinar\. Usa una frase de 5 o 6 palabras que solo tú conozcas.*'
+    direction: DOWN
 - assertNotVisible: "Mínimo 10 caracteres"
-- assertVisible:
-    containsDescendants:
-      - text: "Crear bóveda"
-    enabled: false
+- scrollUntilVisible:
+    element:
+      containsDescendants:
+        - text: "Crear bóveda"
+      enabled: false
+    direction: DOWN
 
 # Una sola palabra conocida con mayúscula, número y signo.
-- eraseText: 20
+- runFlow: ../comun/inicio-desde-cero.yaml
+- tapOn: 'Contraseña maestra \(mínimo 10 caracteres\)'
 - inputText: "Password1!"
-- extendedWaitUntil:
-    visible: 'Esta contraseña es fácil de adivinar\. Usa una frase de 5 o 6 palabras que solo tú conozcas.*'
-    timeout: 20000
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: 'Esta contraseña es fácil de adivinar\. Usa una frase de 5 o 6 palabras que solo tú conozcas.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      containsDescendants:
+        - text: "Crear bóveda"
+      enabled: false
+    direction: DOWN
 
-# La maestra de prueba: ningún aviso.
-- eraseText: 20
+# La maestra de prueba: ningún aviso. Repetida mal: «No coinciden».
+- runFlow: ../comun/inicio-desde-cero.yaml
+- tapOn: 'Contraseña maestra \(mínimo 10 caracteres\)'
 - inputText: ${MAESTRA}
+- hideKeyboard
 - assertNotVisible: 'Esta contraseña es fácil de adivinar.*'
 - assertNotVisible: "Mínimo 10 caracteres"
-- assertVisible: 'Consejo: usa una frase de 5 o 6 palabras que solo tú conozcas.*'
-
-# Repetida mal y bien.
+- scrollUntilVisible:
+    element:
+      text: 'Consejo: usa una frase de 5 o 6 palabras que solo tú conozcas.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Repítela"
+    direction: UP
 - tapOn: "Repítela"
 - inputText: "otra-cosa-distinta"
-- extendedWaitUntil:
-    visible: "No coinciden"
-    timeout: 10000
-- eraseText: 30
-- inputText: ${MAESTRA}
-- assertNotVisible: "No coinciden"
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "No coinciden"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      containsDescendants:
+        - text: "Crear bóveda"
+      enabled: false
+    direction: DOWN
 
-# Sin la casilla, «Crear bóveda» sigue desactivado.
+# Bien escrita las dos veces: sin la casilla, «Crear bóveda» sigue desactivado; con ella, crea la bóveda.
+- runFlow: ../comun/inicio-desde-cero.yaml
+- tapOn: 'Contraseña maestra \(mínimo 10 caracteres\)'
+- inputText: ${MAESTRA}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Repítela"
+    direction: DOWN
+- tapOn: "Repítela"
+- inputText: ${MAESTRA}
+- hideKeyboard
+- assertNotVisible: "No coinciden"
+- scrollUntilVisible:
+    element:
+      containsDescendants:
+        - text: "Crear bóveda"
+      enabled: false
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Entiendo que si olvido la contraseña maestra.*'
+    direction: UP
+- tapOn: 'Entiendo que si olvido la contraseña maestra.*'
 - scrollUntilVisible:
     element:
       text: "Crear bóveda"
     direction: DOWN
-- assertVisible:
-    containsDescendants:
-      - text: "Crear bóveda"
-    enabled: false
-- tapOn: 'Entiendo que si olvido la contraseña maestra.*'
-- assertVisible:
-    text: "Crear bóveda"
 # Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
 - extendedWaitUntil:
     notVisible:
@@ -92,6 +152,7 @@ env:
         - text: "Crear bóveda"
     timeout: 30000
 - tapOn: "Crear bóveda"
+# Argon2id con el coste del perfil: unos segundos en un móvil, algo más en el emulador.
 - extendedWaitUntil:
     visible: "Bloquear"
     timeout: 120000

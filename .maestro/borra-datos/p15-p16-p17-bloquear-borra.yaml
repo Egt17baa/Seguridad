@@ -98,6 +98,10 @@ env:
     file: ../comun/abrir-herramienta.yaml
     env:
       HERRAMIENTA: 'Repartir un secreto.*'
+- scrollUntilVisible:
+    element:
+      text: 'Frase BIP-39 \(12, 15, 18, 21 o 24 palabras en inglés\)'
+    direction: DOWN
 - tapOn: 'Frase BIP-39 \(12, 15, 18, 21 o 24 palabras en inglés\)'
 - inputText: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 - hideKeyboard
@@ -105,7 +109,7 @@ env:
     element:
       text: "Repartir"
       below:
-        text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
+        text: 'No las uses como copia SLIP-39 de una cartera: darían otra cartera\. Recomponlas en Clavero\.'
     direction: DOWN
     timeout: 20000
 # Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
@@ -118,9 +122,12 @@ env:
 - tapOn:
     text: "Repartir"
     below:
-      text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
-- extendedWaitUntil:
-    visible: "Parte 1"
+      text: 'No las uses como copia SLIP-39 de una cartera: darían otra cartera\. Recomponlas en Clavero\.'
+# Las partes salen debajo del botón, fuera de la pantalla: se baja hasta ellas mientras se calculan.
+- scrollUntilVisible:
+    element:
+      text: "Parte 1"
+    direction: DOWN
     timeout: 60000
 - tapOn: "Bóveda"
 - tapOn: "Bloquear"

@@ -66,7 +66,7 @@ tags:
     file: comun/abrir-herramienta.yaml
     env:
       HERRAMIENTA: 'Repartir un secreto.*'
-# El campo queda debajo del texto de entrada y de «Lo que no protege».
+# El campo queda debajo del texto de entrada.
 - scrollUntilVisible:
     element:
       text: 'Frase BIP-39 \(12, 15, 18, 21 o 24 palabras en inglés\)'
@@ -78,7 +78,7 @@ tags:
     element:
       text: "Repartir"
       below:
-        text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
+        text: 'No las uses como copia SLIP-39 de una cartera: darían otra cartera\. Recomponlas en Clavero\.'
     direction: DOWN
     timeout: 20000
 # Maestro no ve si un botón está activo por su texto: se espera a que deje de verse desactivado.
@@ -91,7 +91,7 @@ tags:
 - tapOn:
     text: "Repartir"
     below:
-      text: 'Estas partes no son una copia SLIP-39 de cartera\. Metidas en una cartera de hardware.*'
+      text: 'No las uses como copia SLIP-39 de una cartera: darían otra cartera\. Recomponlas en Clavero\.'
 # Las partes salen debajo del botón, fuera de la pantalla.
 - scrollUntilVisible:
     element:
@@ -111,7 +111,7 @@ tags:
 # Al girar, la pantalla puede quedar más arriba o más abajo de la parte: se sube al principio y se baja.
 - scrollUntilVisible:
     element:
-      text: 'Divide una frase BIP-39 o un secreto en hex en varias partes, con el reparto de secretos de Shamir de SLIP-0039\..*'
+      text: 'Divide un secreto en partes \(SLIP-0039\): con las necesarias se recompone; con menos, no\.'
     direction: UP
     visibilityPercentage: 10
 - scrollUntilVisible:
