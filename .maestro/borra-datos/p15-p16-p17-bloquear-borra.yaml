@@ -36,7 +36,10 @@ env:
       text: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     direction: DOWN
 - tapOn: "Bóveda"
-- tapOn: "Bloquear"
+# Si el bloqueo por inactividad se ha adelantado (un dispositivo lento), ya no hay botón: vale igual.
+- tapOn:
+    text: "Bloquear"
+    optional: true
 - extendedWaitUntil:
     visible: '.*Bóveda bloqueada'
     timeout: 15000
@@ -71,7 +74,10 @@ env:
       text: "Krod Pxqgr"
     direction: DOWN
 - tapOn: "Bóveda"
-- tapOn: "Bloquear"
+# Si el bloqueo por inactividad se ha adelantado (un dispositivo lento), ya no hay botón: vale igual.
+- tapOn:
+    text: "Bloquear"
+    optional: true
 - extendedWaitUntil:
     visible: '.*Bóveda bloqueada'
     timeout: 15000
@@ -130,7 +136,10 @@ env:
     direction: DOWN
     timeout: 60000
 - tapOn: "Bóveda"
-- tapOn: "Bloquear"
+# Si el bloqueo por inactividad se ha adelantado (un dispositivo lento), ya no hay botón: vale igual.
+- tapOn:
+    text: "Bloquear"
+    optional: true
 - extendedWaitUntil:
     visible: '.*Bóveda bloqueada'
     timeout: 15000
