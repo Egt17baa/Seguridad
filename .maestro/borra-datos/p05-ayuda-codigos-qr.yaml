@@ -70,10 +70,14 @@ env:
 - tapOn: "Atrás"
 
 # Los botones que nombra la ayuda.
+# El botón «Añadir» no da su texto a las herramientas de accesibilidad (por eso Maestro no lo encuentra
+# por su nombre): se pulsa lo primero que hay debajo del aviso de la bóveda vacía, que es ese botón.
 - extendedWaitUntil:
-    visible: "Añadir"
+    visible: 'Tu bóveda está vacía\. Pulsa «Añadir»\.'
     timeout: 10000
-- tapOn: "Añadir"
+- tapOn:
+    below:
+      text: 'Tu bóveda está vacía\. Pulsa «Añadir»\.'
 - extendedWaitUntil:
     visible: "Nueva entrada"
     timeout: 10000
