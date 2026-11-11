@@ -114,6 +114,19 @@ Los flujos no se han podido ejecutar en el contenedor. Lo más probable que haya
 - **Si un flujo falla**, Maestro guarda en `~/.maestro/tests/<fecha>/<flujo>/screen-hierarchy/` la estructura de la pantalla del paso que falla, y `logs/maestro.log` dice qué encontró en cada intento.
 
 
+### Ensayo con la 1.4.2
+
+Sin Maestro en la nube, los flujos se ensayaron con un intérprete propio de estos comandos (uiautomator y `adb`), en un emulador sin aceleración (Android 11, letra al 130 %) con `Clavero-v1.4.2.apk`. No es Maestro: lo que dice este ensayo es que los textos y los pasos cuadran con la 1.4.2, no que Maestro los ejecute igual.
+
+| Flujo | Ensayo |
+|---|---|
+| `p14-comprobar-una-copia-pantalla`, `p15-laboratorio-hashes`, `p20-version-y-licencias` | Completos, sin fallos. |
+| `borra-datos/p05-ayuda-codigos-qr`, `borra-datos/p19-crear-boveda-maestra-nueva` | Completos, sin fallos. |
+| `p16-laboratorio-clasico`, `p17-repartir-un-secreto` | Fallaron por cómo escribía el intérprete (a trozos, y perdía espacios), no por la app; sin repetir. Pasaron en un móvil con la 1.4.1 y solo cambian los textos plegados. |
+| `giro-conserva-estado`, `p19-recorrer-herramientas` | Sin ensayar. Pasaron en un móvil con la 1.4.1. |
+| `borra-datos/p15-p16-p17-bloquear-borra` | Llegó a la tercera herramienta; el cambio del bloqueo, sin ensayar. |
+| Las siete `semiautomaticas/` | Sin ensayar más allá del selector de archivos: el del emulador no abre el archivo al tocarlo y a veces se cierra solo. Sus textos de Clavero se comprobaron contra el código. |
+
 ### Lo que cambió con la 1.4.2 (texto mínimo, M-3)
 
 - **Cada pantalla enseña una o dos líneas y pliega el resto bajo «Más información»** (al abrirlo pasa a «Menos información»). Los flujos comprueban la línea corta a la vista y, para un texto plegado, bajan hasta su «Más información», lo pulsan y después lo buscan. Lo que no protege cada herramienta y la nota de lo que se borra tienen su línea corta a la vista y el texto completo en el pliegue del final.
