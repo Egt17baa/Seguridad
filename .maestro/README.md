@@ -125,7 +125,17 @@ Sin Maestro en la nube, los flujos se ensayaron con un intérprete propio de est
 | `p16-laboratorio-clasico`, `p17-repartir-un-secreto` | Fallaron por cómo escribía el intérprete (a trozos, y perdía espacios), no por la app; sin repetir. Pasaron en un móvil con la 1.4.1 y solo cambian los textos plegados. |
 | `giro-conserva-estado`, `p19-recorrer-herramientas` | Sin ensayar. Pasaron en un móvil con la 1.4.1. |
 | `borra-datos/p15-p16-p17-bloquear-borra` | Llegó a la tercera herramienta; el cambio del bloqueo, sin ensayar. |
-| Las siete `semiautomaticas/` | Sin ensayar más allá del selector de archivos: el del emulador no abre el archivo al tocarlo y a veces se cierra solo. Sus textos de Clavero se comprobaron contra el código. |
+| `semiautomaticas/p08-volver-atras-borra`, `semiautomaticas/p17-recomponer-vector-oficial` | Completos, sin fallos. El archivo se eligió con el teclado: el selector del emulador no abre un archivo al tocarlo (solo del ensayo). |
+| `semiautomaticas/p07-p09-p10-copia-y-duplicados`, `semiautomaticas/p14-comprobar-una-copia-archivo` | La primera parte, bien (la copia, «No, déjalo» y «no es una copia»); se cortaron en el segundo archivo, en el selector del emulador. |
+| `semiautomaticas/p12-archivos-hostiles`, `semiautomaticas/p15-laboratorio-hashes-archivo`, `semiautomaticas/p04-lo-que-no-se-lee` | Sin terminar: el selector del emulador se cerraba solo al abrir su menú. Sus textos de Clavero se comprobaron contra el código. |
+
+**Comprobaciones que faltan, con Maestro en tu ordenador y el móvil por USB:**
+
+1. Las semiautomáticas de la fila de arriba enteras, y las dos que se cortaron.
+2. `p16`, `p17`, `giro-conserva-estado`, `p19-recorrer-herramientas` y `borra-datos/p15-p16-p17-bloquear-borra` (el cambio de «Bloquear»).
+3. `borra-datos/p05-ayuda-codigos-qr` toca «Añadir» por debajo del texto «Tu bóveda está vacía…»: si Maestro toca otra cosa, apúntalo.
+4. Con TalkBack, que el botón «Añadir» de la bóveda se lea como «Añadir».
+5. Si la bóveda se bloquea sola antes de tiempo con una herramienta abierta, y si «Repartir un secreto» conserva entonces sus partes (en el emulador pasó una vez; puede ser por su lentitud).
 
 ### Lo que cambió con la 1.4.2 (texto mínimo, M-3)
 
