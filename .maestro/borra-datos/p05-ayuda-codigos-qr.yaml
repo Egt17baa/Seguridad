@@ -87,9 +87,10 @@ env:
     when:
       notVisible: '.*Código 2FA'
     commands:
+      # Desde el segundo tipo, para que el dedo tenga recorrido hasta el borde izquierdo.
       - swipe:
           from:
-            text: '.*Acceso'
+            text: '.*Frase semilla'
           direction: LEFT
 - tapOn: '.*Código 2FA'
 - scrollUntilVisible:
