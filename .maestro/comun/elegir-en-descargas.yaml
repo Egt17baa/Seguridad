@@ -19,4 +19,6 @@ appId: io.github.egt17baa.seguridad
       text: ${ARCHIVO}
     direction: DOWN
     timeout: 30000
+    # Hacia el centro: en el borde de abajo, el toque puede caer en la barra del sistema.
+    centerElement: true
 - tapOn: ${ARCHIVO}
