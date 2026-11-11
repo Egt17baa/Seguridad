@@ -77,9 +77,23 @@ env:
 - extendedWaitUntil:
     visible: "Nueva entrada"
     timeout: 10000
+# Los tipos van en una fila que se desliza: en una pantalla estrecha o con la letra grande, «Código 2FA»
+# puede quedar fuera, a la derecha.
+- runFlow:
+    when:
+      notVisible: '.*Código 2FA'
+    commands:
+      - swipe:
+          from:
+            text: '.*Acceso'
+          direction: LEFT
 - tapOn: '.*Código 2FA'
-- extendedWaitUntil:
-    visible: '.*Escanear QR'
-    timeout: 10000
-- assertVisible: "Pegar enlace"
+- scrollUntilVisible:
+    element:
+      text: '.*Escanear QR'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Pegar enlace"
+    direction: DOWN
 - tapOn: "Atrás"
