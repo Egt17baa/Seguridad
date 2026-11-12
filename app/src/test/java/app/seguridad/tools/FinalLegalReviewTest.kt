@@ -173,8 +173,10 @@ class FinalLegalReviewTest {
         )
         val readme = flat(read("README.md"))
         assertTrue(
-            ("**Nombre.** La licencia Apache-2.0 no da permiso para usar el nombre «Clavero» ni el icono (§6). Si publicas " +
-                "una versión modificada, usa otro nombre y otro icono, para que nadie la confunda con esta.") in readme,
+            // 2.0, O-C7 and R-C4 of the Abogado (abogado-2.0-cristal.md): the current icon and the earlier ones.
+            ("**Nombre.** La licencia Apache-2.0 no da permiso para usar el nombre «Clavero» ni sus iconos, el actual y los " +
+                "anteriores (§6). Los archivos del icono se publican con la Apache-2.0, pero su dibujo identifica a Clavero. " +
+                "Si publicas una versión modificada, usa otro nombre y otro icono, para que nadie la confunda con esta.") in readme,
         )
         assertFalse("®" in readme)
     }
