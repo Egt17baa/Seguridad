@@ -153,7 +153,8 @@ internal fun attachmentNotInCopy(name: String) = "La copia está incompleta o da
 /**
  * What [VaultStore.upsert] and [VaultStore.addAttachment] keep for entries added here holds for a copy too, or it is
  * refused (by the import, before anything changes; by [checkBackup], with the same message): only one identity, no two
- * entries with the same id, no attachments or password history in an identity or a contact, and the attachments within
+ * entries with the same id, no attachments or password history in an identity or a contact, the fields within their
+ * limits and without an id twice (2.0, [fieldsDamaged]), and the attachments within
  * [MAX_ATTACHMENT_BYTES] each and [MAX_ATTACHMENTS_TOTAL_BYTES] in all. A copy this app made always passes; one written
  * by hand (with its master password) may not. Bounds the work that follows: the attachments hashed are at most
  * [MAX_ATTACHMENTS_TOTAL_BYTES] in all.
@@ -165,6 +166,8 @@ internal fun checkCopyEntries(entries: List<VaultEntry>) {
     if (entries.any { !isEntryId(it.id) }) throw CryptoFailure(COPY_DAMAGED)
     if (entries.map { it.id }.distinct().size != entries.size) throw CryptoFailure(COPY_DAMAGED)
     if (entries.any { it.type.isPersonal && (it.attachments.isNotEmpty() || it.passwordHistory.isNotEmpty()) }) throw CryptoFailure(COPY_DAMAGED)
+    // 2.0, task 5 (review I-1 and I-2): the fields as the app writes them, in the entry and in every version of its history.
+    if (entries.any { e -> e.fieldsDamaged() || e.history.any { it.entry.fieldsDamaged() } }) throw CryptoFailure(COPY_DAMAGED)
     val refs = entries.flatMap { it.attachments }
     if (refs.any { it.size !in 0..MAX_ATTACHMENT_BYTES.toLong() } || refs.sumOf { it.size } > MAX_ATTACHMENTS_TOTAL_BYTES) {
         throw CryptoFailure(ATTACHMENTS_TOTAL_TOO_BIG)

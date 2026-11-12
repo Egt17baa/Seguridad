@@ -20,17 +20,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.FilterObscuredTouches
@@ -39,6 +43,7 @@ import app.seguridad.crypto.PasswordOptions
 import app.seguridad.crypto.generatePassword
 import app.seguridad.imports.plainReportText
 import app.seguridad.ui.theme.NegativeColor
+import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.tools.codes.getValue
@@ -59,6 +64,8 @@ import app.seguridad.vault.WIFI_PASSWORD_KEY
 import app.seguridad.vault.WIFI_SECURITY_KEY
 import app.seguridad.vault.WIFI_SECURITY_VALUES
 import app.seguridad.vault.displayDate
+import app.seguridad.vault.displayMonthYear
+import app.seguridad.vault.hasOwnExpiry
 import app.seguridad.vault.expiryLine
 import app.seguridad.vault.isSecretField
 import app.seguridad.vault.rotates
@@ -105,10 +112,14 @@ private fun kindLabel(kind: FieldKind) = when (kind) {
 
 // The card.
 
-/** How the card shows the stored [field] of an entry of [type]: a date as DD/MM/AAAA, the wifi's choices in words. */
+/**
+ * How the card shows the stored [field] of an entry of [type]: a date as DD/MM/AAAA (the card's expiry as MM/AA, as it is
+ * asked, review M-3), the wifi's choices in words.
+ */
 private fun shownValue(type: EntryType, field: CustomField): String = when {
     type == EntryType.WIFI && field.id == WIFI_SECURITY_KEY -> wifiSecurityLabel(field.value)
     type == EntryType.WIFI && field.id == WIFI_HIDDEN_KEY -> wifiHiddenLabel(field.value)
+    field.kind == FieldKind.DATE && Templates.templateField(type, field.id)?.monthYear == true -> displayMonthYear(field.value)
     field.kind == FieldKind.DATE -> displayDate(field.value)
     else -> field.value
 }
@@ -128,11 +139,16 @@ internal fun EntryFieldsCard(entry: VaultEntry, onCopied: () -> Unit) {
         val f = entry.fields[i]
         // The wifi's «Red oculta» only when it is.
         if (entry.type == EntryType.WIFI && t.key == WIFI_HIDDEN_KEY && f.value != "true") continue
-        Field(t.label, shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = t.secret, plain = true, onCopied = onCopied)
+        // Review I-3: each row under its own key, so a «Mostrar» stays with its field when the entry changes.
+        key("t", t.key) {
+            Field(t.label, shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = t.secret, plain = true, onCopied = onCopied)
+        }
     }
     entry.fields.forEachIndexed { i, f ->
         if (i in used) return@forEachIndexed
-        Field(plainReportText(f.name, 100), shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = f.kind == FieldKind.NUMBER, plain = true, onCopied = onCopied)
+        key("c", i, f.id) {
+            Field(plainReportText(f.name, 100), shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = f.kind == FieldKind.NUMBER, plain = true, onCopied = onCopied)
+        }
     }
 }
 
@@ -166,11 +182,45 @@ internal fun ExpiryCardLine(entry: VaultEntry, now: Long) {
     val item = Expiry.next(entry) ?: return
     val today = Expiry.today(now)
     val due = Expiry.isDue(entry, now)
-    Text(
-        "⏰ " + expiryLine(item.copy(what = plainReportText(item.what, 100)), today),
-        style = MaterialTheme.typography.bodyMedium,
-        color = if (due) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        // Review M-8 (R-1): the clock is decoration; TalkBack reads the line only.
+        Text("⏰ ", Modifier.clearAndSetSemantics { }, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            expiryLine(item.copy(what = plainReportText(item.what, 100)), today),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (due) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** A label with an emoji in front that TalkBack does not read (review M-8, as `ScanQrLabel`). */
+@Composable
+internal fun DecoratedLabel(emoji: String, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("$emoji ", Modifier.clearAndSetSemantics { })
+        Text(text)
+    }
+}
+
+/**
+ * A secret of a template that is a number (the card's CVV and PIN, review M-9): as [PasswordField], masked until «Ver»,
+ * with no copying, but with the keyboard of digits.
+ */
+@Composable
+private fun SecretNumberField(value: String, onChange: (String) -> Unit, label: String) {
+    var visible by remember { mutableStateOf(false) }
+    NoCopy(Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onChange,
+            label = { Text(label) },
+            singleLine = true,
+            visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, autoCorrectEnabled = false),
+            trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) "Ocultar" else "Ver", style = MaterialTheme.typography.labelMedium) } },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 // The editor.
@@ -188,7 +238,7 @@ private fun DateField(value: String, onChange: (String) -> Unit, label: String) 
 /** The fixed fields of [type]'s template, from [form]'s values for that type. */
 @Composable
 internal fun TemplateFieldsEditor(form: EntryEditSession, type: EntryType) {
-    for (t in Templates.fieldsFor(type)) {
+    for (t in Templates.fieldsFor(type)) key(type, t.key) {
         val value = form.templateValue(type, t.key)
         val set: (String) -> Unit = { form.setTemplateValue(type, t.key, it) }
         when {
@@ -202,13 +252,14 @@ internal fun TemplateFieldsEditor(form: EntryEditSession, type: EntryType) {
                 Switch(checked = value == "true", onCheckedChange = { set(if (it) "true" else "false") })
                 Text(t.label)
             }
+            t.secret && t.kind == FieldKind.NUMBER -> SecretNumberField(value, set, label = t.label)
             t.secret -> {
                 PasswordField(value, set, label = t.label)
                 if (type == EntryType.WIFI && t.key == WIFI_PASSWORD_KEY) {
-                    TextButton(onClick = { set(generatePassword(PasswordOptions(length = 20)) ?: value) }) { Text("🎲 Generar una al azar") }
+                    TextButton(onClick = { set(generatePassword(PasswordOptions(length = 20)) ?: value) }) { DecoratedLabel("🎲", "Generar una al azar") }
                 }
             }
-            t.kind == FieldKind.DATE -> DateField(value, set, "${t.label} (${if (type == EntryType.CARD) CARD_DATE_HINT else DATE_HINT})")
+            t.kind == FieldKind.DATE -> DateField(value, set, "${t.label} (${if (t.monthYear) CARD_DATE_HINT else DATE_HINT})")
             else -> OutlinedTextField(
                 value, set, label = { Text(t.label) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = if (t.key == "email") KeyboardType.Email else KeyboardType.Text, autoCorrectEnabled = false),
@@ -225,37 +276,38 @@ internal fun CustomFieldsEditor(form: EntryEditSession) {
     var adding by remember { mutableStateOf(false) }
     if (fields.isNotEmpty()) Text(FIELDS_TITLE, style = MaterialTheme.typography.labelLarge)
     fields.forEachIndexed { i, f ->
-        val name = plainReportText(f.name, 100)
-        val set: (String) -> Unit = { form.setFieldValue(i, it) }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            when (f.kind) {
-                FieldKind.HIDDEN -> PasswordField(f.value, set, label = name)
-                FieldKind.DATE -> DateField(f.value, set, "$name ($DATE_HINT)")
-                FieldKind.NUMBER -> OutlinedTextField(
-                    f.value, set, label = { Text(name) }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, autoCorrectEnabled = false),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                FieldKind.TEXT -> OutlinedTextField(
-                    f.value, set, label = { Text(name) },
-                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                if (f.kind == FieldKind.DATE) {
-                    Checkbox(checked = f.expires, onCheckedChange = { on ->
-                        form.customFields.value = form.customFields.value.toMutableList().also { if (i in it.indices) it[i] = it[i].copy(expires = on) }
-                    })
-                    Text(FIELD_EXPIRES, style = MaterialTheme.typography.bodySmall)
+        // Review I-3: the row's own key (never the field's id alone): a «Ver» goes with its field, or with nothing.
+        key(form.rowKey(i)) {
+            val name = plainReportText(f.name, 100)
+            val set: (String) -> Unit = { form.setFieldValue(i, it) }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                when (f.kind) {
+                    FieldKind.HIDDEN -> PasswordField(f.value, set, label = name)
+                    FieldKind.DATE -> DateField(f.value, set, "$name ($DATE_HINT)")
+                    FieldKind.NUMBER -> OutlinedTextField(
+                        f.value, set, label = { Text(name) }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, autoCorrectEnabled = false),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FieldKind.TEXT -> OutlinedTextField(
+                        f.value, set, label = { Text(name) },
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
-                TextButton(enabled = i > 0, onClick = { form.moveField(i, -1) }, modifier = Modifier.semantics { contentDescription = "$FIELD_UP «$name»" }) { Text(FIELD_UP) }
-                TextButton(enabled = i < fields.size - 1, onClick = { form.moveField(i, 1) }, modifier = Modifier.semantics { contentDescription = "$FIELD_DOWN «$name»" }) { Text(FIELD_DOWN) }
-                TextButton(onClick = { form.removeField(i) }, modifier = Modifier.semantics { contentDescription = "$FIELD_REMOVE «$name»" }) { Text(FIELD_REMOVE, color = NegativeColor) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    if (f.kind == FieldKind.DATE) {
+                        Checkbox(checked = f.expires, onCheckedChange = { on -> form.setFieldExpires(i, on) })
+                        Text(FIELD_EXPIRES, style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(enabled = i > 0, onClick = { form.moveField(i, -1) }, modifier = Modifier.semantics { contentDescription = "$FIELD_UP «$name»" }) { Text(FIELD_UP) }
+                    TextButton(enabled = i < fields.size - 1, onClick = { form.moveField(i, 1) }, modifier = Modifier.semantics { contentDescription = "$FIELD_DOWN «$name»" }) { Text(FIELD_DOWN) }
+                    TextButton(onClick = { form.removeField(i) }, modifier = Modifier.semantics { contentDescription = "$FIELD_REMOVE «$name»" }) { Text(FIELD_REMOVE, color = NegativeColor) }
+                }
             }
         }
     }
-    OutlinedButton(onClick = { adding = true }) { Text("➕ $FIELD_ADD") }
+    OutlinedButton(onClick = { adding = true }) { DecoratedLabel("➕", FIELD_ADD) }
     if (adding) AddFieldDialog(onDismiss = { adding = false }) { name, kind, expires -> form.addField(name, kind, expires).also { if (it == null) adding = false } }
 }
 
@@ -340,7 +392,8 @@ internal fun NotesEditor(form: EntryEditSession, type: EntryType) {
 internal fun ExpiryEditor(form: EntryEditSession, type: EntryType) {
     var expires by form.expiresText
     var months by form.rotateMonths
-    DateField(expires, { expires = it }, ENTRY_EXPIRES)
+    // Review M-4: one expiry per entry; a card, a licence and a passport have their template's.
+    if (hasOwnExpiry(type)) DateField(expires, { expires = it }, ENTRY_EXPIRES)
     if (rotates(type)) {
         Text(ROTATE_TITLE, style = MaterialTheme.typography.labelLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {

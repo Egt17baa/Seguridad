@@ -66,4 +66,50 @@ class DuplicateEntryTest {
         s.lock()
         assertNull(s.duplicate(copy.id))
     }
+
+    /**
+     * Review M-1: the date the password was last changed is the store's own mark ([VaultEntry.passwordChangedAt]): set
+     * when the password (a login's, a wifi's) changes, kept by every other edit, by «Borrar historial» and by
+     * «Duplicar»; «Salud» and the reminder read the same one ([lastPasswordChange]).
+     */
+    @Test fun passwordAgeIsKept() = runTest {
+        val s = store()
+        s.load()
+        s.create(master.toCharArray())
+        val created = clock
+        val login = VaultEntry("l", EntryType.LOGIN, "Banco", password = "primera-clave", createdAt = created, updatedAt = created, rotateMonths = 6)
+        assertTrue(s.upsert(login))
+        fun saved() = s.open().entries.first { it.id == "l" }
+        assertEquals(created, saved().passwordChangedAt)
+        clock += 10_000
+        assertTrue(s.upsert(saved().copy(notes = "otra nota", passwordChangedAt = null))) // The editor never sends it.
+        assertEquals(created, saved().passwordChangedAt)
+        clock += 10_000
+        val changedAt = clock
+        assertTrue(s.upsert(saved().copy(password = "segunda-clave", passwordChangedAt = 5)))
+        assertEquals(changedAt, saved().passwordChangedAt)
+        clock += 10_000
+        assertTrue(s.clearHistory("l"))
+        assertEquals(changedAt, saved().passwordChangedAt)
+        assertEquals(changedAt, lastPasswordChange(saved()))
+        assertEquals(changedAt, s.duplicate("l")!!.passwordChangedAt)
+        // A version restored with the old password: changed again, now.
+        clock += 10_000
+        assertTrue(s.upsert(saved().copy(notes = "tercera")))
+        assertTrue(s.restoreVersion("l", saved().history.first().savedAt, 0))
+        assertEquals(changedAt, saved().passwordChangedAt) // That version had the same password.
+        // A wifi's password too.
+        val wifi = VaultEntry("w", EntryType.WIFI, "Casa", createdAt = clock, updatedAt = clock, fields = listOf(CustomField("password", "Contraseña", FieldKind.HIDDEN, "clave-wifi-1")))
+        assertTrue(s.upsert(wifi))
+        clock += 10_000
+        assertTrue(s.upsert(wifi.copy(fields = listOf(CustomField("password", "Contraseña", FieldKind.HIDDEN, "clave-wifi-2")))))
+        assertEquals(clock, s.open().entries.first { it.id == "w" }.passwordChangedAt)
+        // Without the mark (an entry of before): the newest change the history or the list of 1.4.3 knows, or its last edit.
+        val old = VaultEntry("v", EntryType.LOGIN, "V", password = "p", createdAt = 1, updatedAt = 50, passwordHistory = listOf(PasswordChange("o", 20)))
+        assertEquals(20L, lastPasswordChange(old))
+        assertEquals(50L, lastPasswordChange(old.copy(passwordHistory = emptyList())))
+        // A note has no password: no mark.
+        assertTrue(s.upsert(VaultEntry("n", EntryType.NOTE, "N", notes = "x", createdAt = 1, updatedAt = 1)))
+        assertEquals(null, s.open().entries.first { it.id == "n" }.passwordChangedAt)
+    }
 }

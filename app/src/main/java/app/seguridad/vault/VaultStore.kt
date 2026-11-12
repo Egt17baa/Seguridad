@@ -813,7 +813,11 @@ class VaultStore(
         } else if (saved == null) {
             // 2.0, task 4: a new entry may start in a folder of the vault; any other folder id is dropped.
             val folder = entry.folderId?.takeIf { id -> data.folders.any { it.id == id } }
-            entry.copy(passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null, folderId = folder)
+            // 2.0, task 5 (review M-1): a new password is set now.
+            entry.copy(
+                passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null, folderId = folder,
+                passwordChangedAt = if (entry.passwordForHealth().isEmpty()) null else now(),
+            )
         } else {
             // The attachments too: only [addAttachment] and [removeAttachment] change them, so an editor that does
             // not send them never drops one (and the collection after the save never deletes its file).
@@ -848,6 +852,8 @@ class VaultStore(
             val copy = source.copy(
                 id = UUID.randomUUID().toString(), title = duplicateTitle(source.title), createdAt = at, updatedAt = at,
                 history = emptyList(), passwordHistory = emptyList(), attachments = emptyList(), lastUsedAt = null, deletedAt = null,
+                // Review M-1: the same password as old as it was, not new.
+                passwordChangedAt = if (source.passwordForHealth().isEmpty()) null else lastPasswordChange(source),
             )
             made = copy
             data.copy(entries = data.live + copy + data.trash)

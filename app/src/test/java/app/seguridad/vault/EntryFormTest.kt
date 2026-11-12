@@ -93,7 +93,8 @@ class EntryFormTest {
         val s = session(id = "c1", type = EntryType.CARD)
         s.load(listOf(card))
         assertEquals("4000 0000 0000 0002", s.templateValue(EntryType.CARD, "number"))
-        assertEquals("31/05/2029", s.templateValue(EntryType.CARD, "expiry"))
+        // Review M-3: the card's expiry as it is asked, MM/AA.
+        assertEquals("05/29", s.templateValue(EntryType.CARD, "expiry"))
         assertEquals(listOf("buzon-secreto"), s.customFields.value.map { it.value })
         s.setTemplateValue(EntryType.CARD, "pin", "9876")
         s.vaultStateIs(unlocked = false, emptyList())
@@ -153,14 +154,17 @@ class EntryFormTest {
         assertEquals(2, o.customFields.value.map { it.id }.toSet().size)
     }
 
-    /** A copy made elsewhere may repeat an id, or use a template's on a field of the user's: each row is still one field. */
+    /**
+     * A vault saved before the copies were checked may still repeat an id (review I-1 of task 5): each row is one field,
+     * and a field that carries the id of a template's secret never becomes a visible one: it stays hidden.
+     */
     @Test fun fieldsFromACopyLoadOneRowEach() {
         val e = VaultEntry(
             id = "w", type = EntryType.WIFI, title = "Casa", createdAt = 1, updatedAt = 1, rotateMonths = 9_999,
             notesFormat = NotesFormat.LIMITED, expiresAt = expiresAtOf(java.time.LocalDate.parse("2027-01-31")),
             fields = listOf(
                 CustomField("password", "Contraseña", FieldKind.TEXT, "primera"),
-                CustomField("password", "Contraseña", FieldKind.HIDDEN, "segunda"),
+                CustomField("password", "Contraseña", FieldKind.TEXT, "segunda"),
                 CustomField("x", "Uno", FieldKind.TEXT, "1"),
                 CustomField("x", "Dos", FieldKind.TEXT, "2"),
             ),
@@ -170,13 +174,15 @@ class EntryFormTest {
         s.load(listOf(e))
         assertEquals("primera", s.templateValue(EntryType.WIFI, "password"))
         assertEquals(listOf("id-0", "x", "id-1"), s.customFields.value.map { it.id })
+        assertEquals(FieldKind.HIDDEN, s.customFields.value[0].kind) // It carried the id of the wifi's password.
+        assertEquals(listOf(FieldKind.TEXT, FieldKind.TEXT), s.customFields.value.drop(1).map { it.kind })
         assertEquals(NotesFormat.LIMITED, s.notesFormat.value)
         assertEquals("31/01/2027", s.expiresText.value)
         assertNull(s.rotateMonths.value) // Out of 1 to 120: no reminder.
-        // Saved: the template's password is hidden whatever the copy said; the second becomes one of the user's.
+        // Saved: the template's password is hidden whatever the copy said, and so is the second one, now one of the user's.
         val saved = (fieldsToSave(EntryType.WIFI, s.templateValues.value, s.customFields.value) as FormFields.Ok).fields
-        assertEquals(FieldKind.HIDDEN, saved.first { it.id == "password" }.kind)
         assertEquals(listOf("password", "id-0", "x", "id-1"), saved.map { it.id })
+        assertEquals(listOf(FieldKind.HIDDEN, FieldKind.HIDDEN, FieldKind.TEXT, FieldKind.TEXT), saved.map { it.kind })
         assertEquals(Result.success(e.expiresAt), expiresAtToSave(s.expiresText.value))
         assertTrue(expiresAtToSave("mañana").isFailure)
         assertEquals(Result.success(null), expiresAtToSave(""))
@@ -184,5 +190,41 @@ class EntryFormTest {
         val w = session(type = EntryType.WIFI).apply { load(emptyList()) }
         assertEquals("WPA", w.templateValue(EntryType.WIFI, "security"))
         assertEquals("false", w.templateValue(EntryType.WIFI, "hidden"))
+    }
+
+    /**
+     * Review I-3 of task 5: each row of the editor has its own key, which follows its field when one is removed or moved
+     * and is never the field's id alone nor used twice in a session, so a «Ver» never passes from one secret to another.
+     */
+    @Test fun rowKeysFollowTheirFields() {
+        val s = session()
+        s.load(emptyList())
+        for (n in listOf("A", "B", "C")) assertNull(s.addField(n, FieldKind.HIDDEN, expires = false))
+        val k = (0..2).map { s.rowKey(it) }
+        assertEquals(3, k.toSet().size)
+        assertTrue(k.none { key -> s.customFields.value.any { it.id == key } })
+        s.removeField(0)
+        assertEquals(k.drop(1), (0..1).map { s.rowKey(it) })
+        s.moveField(1, -1)
+        assertEquals(listOf(k[2], k[1]), (0..1).map { s.rowKey(it) })
+        s.setFieldValue(0, "x")
+        s.setFieldExpires(0, true) // Not a date: nothing.
+        assertEquals(listOf(k[2], k[1]), (0..1).map { s.rowKey(it) })
+        assertNull(s.addField("D", FieldKind.DATE, expires = false))
+        assertTrue(s.rowKey(2) !in k)
+        s.setFieldExpires(2, true)
+        assertTrue(s.customFields.value[2].expires)
+        val before = (0..2).map { s.rowKey(it) }
+        // A lock and a new load: new keys, never one of before (nothing composed keeps a «Ver» of another field).
+        s.vaultStateIs(unlocked = false, emptyList())
+        s.vaultStateIs(unlocked = true, listOf(VaultEntry("e", EntryType.LOGIN, "t", createdAt = 1, updatedAt = 1, fields = listOf(CustomField("f", "F", FieldKind.HIDDEN, "1")))))
+        assertTrue(s.rowKey(0) !in before + k)
+        // The editor composes each row under its key: the template's by type and key, the user's by this one.
+        val ui = source("ui/screens/EntryFields.kt")
+        assertTrue("key(type, t.key) {" in ui)
+        assertTrue("key(form.rowKey(i)) {" in ui)
+        // And the card under the field's place and id, never the id alone.
+        assertTrue("key(\"c\", i, f.id) {" in ui && "key(\"t\", t.key) {" in ui)
+        assertFalse(Regex("""key\(f\.id\)""").containsMatchIn(ui))
     }
 }

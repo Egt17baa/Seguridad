@@ -90,6 +90,28 @@ class LimitedMarkupTest {
             assertTrue(hostile.length - restText.length <= LimitedMarkup.MAX_CHARS)
             assertTrue(blocks.size - 1 <= LimitedMarkup.MAX_LINES)
         }
+        // Review M-10: what the reader does read, at its worst: one line just under the limit full of marks, and 10 000
+        // short lines with format; all of it read as format, in the same time.
+        val max = LimitedMarkup.MAX_CHARS
+        for (line in listOf("*a".repeat(max / 2).take(max - 1), "**a*".repeat(max / 4).take(max - 1), "***".repeat(max / 3).take(max - 1), "* ".repeat(max / 2).take(max - 1))) {
+            val start = System.nanoTime()
+            val blocks = LimitedMarkup.parse(line)
+            val ms = (System.nanoTime() - start) / 1_000_000
+            assertTrue("$ms ms", ms < 200)
+            assertEquals(1, blocks.size) // Read whole, as format: nothing left over.
+        }
+        val lines = List(LimitedMarkup.MAX_LINES) { if (it % 2 == 0) "**a**" else "*b*" }.joinToString("\n")
+        val start = System.nanoTime()
+        val many = LimitedMarkup.parse(lines)
+        assertTrue(System.nanoTime() - start < 200_000_000)
+        assertEquals(LimitedMarkup.MAX_LINES, many.size)
+        assertTrue(lines.length <= LimitedMarkup.MAX_CHARS)
+        assertTrue(many.withIndex().all { (i, b) -> b.spans.single().let { s -> if (i % 2 == 0) s.bold && !s.italic else s.italic && !s.bold } })
+        // Exactly the limit: all of it; one line break more leaves an empty last paragraph, nothing lost.
+        assertEquals(1, LimitedMarkup.parse("x".repeat(max)).size)
+        val over = LimitedMarkup.parse("x".repeat(max) + "\n")
+        assertEquals(2, over.size)
+        assertTrue(over.last().spans.isEmpty())
         assertEquals(64 * 1024, LimitedMarkup.MAX_CHARS)
         assertEquals(10_000, LimitedMarkup.MAX_LINES)
     }

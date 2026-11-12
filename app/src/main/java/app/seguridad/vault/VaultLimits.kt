@@ -193,6 +193,22 @@ internal fun VaultEntry.entryLimitProblem(): String? = when {
 }
 
 /**
+ * 2.0, task 5 (review I-1 and I-2): whether the fields of this entry pass what the app ever writes: at most
+ * [VaultLimits.FIELDS_MAX], each name within [VaultLimits.FIELD_NAME_MAX] and each value within
+ * [VaultLimits.FIELD_VALUE_MAX] code points, and no id twice. Only a copy made elsewhere fails it (fields are new in v4: a
+ * copy of 1.4.3 or before has none), and [checkCopyEntries] refuses it as damaged, for the entry and each version of its
+ * history.
+ */
+internal fun VaultEntry.fieldsDamaged(): Boolean {
+    if (fields.isEmpty()) return false
+    if (fields.size > VaultLimits.FIELDS_MAX) return true
+    val ids = HashSet<String>()
+    return fields.any { f ->
+        !ids.add(f.id) || f.name.codePointLength() > VaultLimits.FIELD_NAME_MAX || f.value.codePointLength() > VaultLimits.FIELD_VALUE_MAX
+    }
+}
+
+/**
  * The limits on what organises the vault: folders (count, depth, no folder inside itself and no id twice), views (count
  * and no id twice) and tag colours.
  * A folder whose parent is not in the vault counts as a top folder. Also checked on a copy before it is imported.

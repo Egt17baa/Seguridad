@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -183,7 +184,8 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
     private val _result = MutableStateFlow(ListResult.EMPTY)
     val result: StateFlow<ListResult> = _result.asStateFlow()
 
-    private class Cache(val data: VaultData, val index: SearchIndex, val weak: Set<String>, val no2fa: Set<String>, val dueSoon: Int)
+    /** [dueSoon] counted on [day]: review M-7, the next day counts again (as «Caducan pronto», with its own `now`). */
+    private class Cache(val data: VaultData, val index: SearchIndex, val weak: Set<String>, val no2fa: Set<String>, val day: java.time.LocalDate, val dueSoon: Int)
 
     /** Only read and written by the one run of [collectLatest] at a time (each waits for the one before to end). */
     @Volatile private var cache: Cache? = null
@@ -229,10 +231,11 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
     private fun compute(data: VaultData, text: String, f: EntryFilter): ListResult {
         val now = System.currentTimeMillis()
         val listable = data.live.filterNot { it.type.isPersonal }
-        val c = cache?.takeIf { it.data === data } ?: run {
+        val today = Expiry.today(now)
+        val c = cache?.takeIf { it.data === data && it.day == today } ?: run {
             val health = vaultHealth(data.entries, now)
             val weak = health.filter { Issue.WEAK in it.issues }.mapTo(HashSet()) { it.entryId }
-            Cache(data, SearchIndex.build(listable, data.folders, previous = cache?.index), weak, loginsWithout2fa(data.entries), Expiry.dueSoon(listable, now).size)
+            Cache(data, SearchIndex.build(listable, data.folders, previous = cache?.index), weak, loginsWithout2fa(data.entries), today, Expiry.dueSoon(listable, now).size)
         }.also { cache = it }
         val filter = f.copy(text = text)
         val shown = listable.query(filter, data, now, weak = { it.id in c.weak }, no2fa = { it.id in c.no2fa }, index = c.index)
@@ -366,7 +369,9 @@ internal fun EntryList(
             if (!totpOnly && result.dueSoon > 0 && !f.expiringSoon) {
                 item(key = "expiry") {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text("⏰ " + expiryNotice(result.dueSoon), color = NegativeColor, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        // Review M-8 (R-1): the clock is decoration; TalkBack reads the notice only.
+                        Text("⏰ ", Modifier.clearAndSetSemantics { }, style = MaterialTheme.typography.bodyMedium)
+                        Text(expiryNotice(result.dueSoon), color = NegativeColor, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                         TextButton(onClick = { list.filter = f.copy(expiringSoon = true) }) { Text(EXPIRY_NOTICE_OPEN) }
                     }
                 }

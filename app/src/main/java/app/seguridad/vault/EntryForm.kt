@@ -71,7 +71,7 @@ fun fieldsToSave(type: EntryType, templateValues: Map<String, String>, custom: L
         val typed = if (t.secret) raw else raw.trim()
         if (typed.isEmpty()) continue
         val value = when (t.kind) {
-            FieldKind.DATE -> normalizeDateInput(typed) ?: return FormFields.Problem(fieldBadDate(t.label))
+            FieldKind.DATE -> normalizeDateInput(typed, t.monthYear) ?: return FormFields.Problem(fieldBadDate(t.label))
             FieldKind.NUMBER -> typed.takeIf { NUMBER.matches(it) } ?: return FormFields.Problem(fieldBadNumber(t.label))
             else -> typed
         }
@@ -152,6 +152,19 @@ class EntryEditSession(
     /** The user's own fields, in their order (dates as the user writes them). */
     val customFields = cells.cell<List<CustomField>>(emptyList())
 
+    /**
+     * Review I-3: one key per row of [customFields], in the same order, that follows its field when one is removed or
+     * moved and is never used twice in this session (so a «Ver» of one secret never shows another). Not the field's id.
+     */
+    private val customRows = cells.cell<List<Long>>(emptyList())
+
+    @Volatile private var rowCounter = 0L
+
+    private fun nextRow(): Long = ++rowCounter
+
+    /** The key the editor composes the field at [index] under ([customRows]); "" when there is none. */
+    fun rowKey(index: Int): String = customRows.value.getOrNull(index)?.let { "fila-$it" }.orEmpty()
+
     /** The entry's own date of expiry, as the user writes it. */
     val expiresText = cells.cell("")
     val rotateMonths = cells.cell<Int?>(null)
@@ -199,16 +212,24 @@ class EntryEditSession(
     private fun loadFields(e: VaultEntry?) {
         val values = HashMap<String, String>()
         val custom = ArrayList<CustomField>()
+        val rows = ArrayList<Long>()
         val ids = HashSet<String>()
         val type = e?.type ?: initialType
         for (f in e?.fields.orEmpty()) {
             val t = Templates.templateField(type, f.id)
             val k = templateValueKey(type, f.id)
             if (t != null && k !in values) {
-                values[k] = if (t.kind == FieldKind.DATE) displayDate(f.value) else f.value
+                values[k] = when {
+                    t.monthYear -> displayMonthYear(f.value)
+                    t.kind == FieldKind.DATE -> displayDate(f.value)
+                    else -> f.value
+                }
             } else {
                 val id = f.id.takeIf { t == null && ids.add(it) } ?: newFieldId().also { ids.add(it) }
-                custom += f.copy(id = id, value = if (f.kind == FieldKind.DATE) displayDate(f.value) else f.value)
+                // Review I-1: a field with the id of a template's secret (a repeated one) stays hidden as one of the user's.
+                val kind = if (t?.secret == true) FieldKind.HIDDEN else f.kind
+                custom += f.copy(id = id, kind = kind, value = if (f.kind == FieldKind.DATE) displayDate(f.value) else f.value)
+                rows += nextRow()
             }
         }
         // A new wifi starts as the most common network: WPA, not hidden.
@@ -218,6 +239,7 @@ class EntryEditSession(
         }
         templateValues.value = values
         customFields.value = custom
+        customRows.value = rows
     }
 
     /** What was typed in the template field [key] of [type]. */
@@ -237,6 +259,7 @@ class EntryEditSession(
         if (n.codePointCount(0, n.length) > VaultLimits.FIELD_NAME_MAX) return FIELD_NAME_TOO_LONG
         if (customFields.value.size >= Templates.customFieldsRoom(type.value)) return TOO_MANY_FIELDS
         customFields.value = customFields.value + CustomField(newFieldId(), n, kind, "", expires = kind == FieldKind.DATE && expires)
+        customRows.value = customRows.value + nextRow()
         return null
     }
 
@@ -246,17 +269,29 @@ class EntryEditSession(
         if (index in list.indices) customFields.value = list.toMutableList().also { it[index] = it[index].copy(value = value) }
     }
 
+    /** Whether the date field at [index] is one the notices look at; nothing for a field that is not a date. */
+    fun setFieldExpires(index: Int, expires: Boolean) {
+        val list = customFields.value
+        if (index in list.indices && list[index].kind == FieldKind.DATE) {
+            customFields.value = list.toMutableList().also { it[index] = it[index].copy(expires = expires) }
+        }
+    }
+
     /** Moves the field at [index] one place up ([delta] -1) or down (+1); nothing past either end. */
     fun moveField(index: Int, delta: Int) {
         val list = customFields.value
         val to = index + delta
         if (index !in list.indices || to !in list.indices) return
         customFields.value = list.toMutableList().also { val f = it.removeAt(index); it.add(to, f) }
+        customRows.value = customRows.value.toMutableList().also { if (index in it.indices && to in it.indices) it.add(to, it.removeAt(index)) }
     }
 
     fun removeField(index: Int) {
         val list = customFields.value
-        if (index in list.indices) customFields.value = list.toMutableList().also { it.removeAt(index) }
+        if (index in list.indices) {
+            customFields.value = list.toMutableList().also { it.removeAt(index) }
+            customRows.value = customRows.value.toMutableList().also { if (index in it.indices) it.removeAt(index) }
+        }
     }
 
     /** The vault's state: open loads the form (if it was cleared), any other state after it was loaded clears it. */
@@ -288,6 +323,7 @@ class EntryEditSession(
         notesFormat.value = NotesFormat.PLAIN
         templateValues.value = emptyMap()
         customFields.value = emptyList()
+        customRows.value = emptyList()
         expiresText.value = ""
         rotateMonths.value = null
         error.value = null

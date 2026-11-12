@@ -803,6 +803,27 @@ class PlatformSourcesTest {
         assertEquals(emptyList<String>(), bad)
     }
 
+    /**
+     * 2.0, review of task 5: «Duplicar» once per tap (M-5); the list's notice counted again each day (M-7); the clocks
+     * and the «➕» are decoration TalkBack does not read (M-8, R-1, as `ScanQrLabel`); the CVV and the PIN with the
+     * keyboard of digits, still masked (M-9); one expiry per entry in the editor and when saving (M-4).
+     */
+    @Test fun `task 5 review, the minor ones of the screens`() {
+        val card = code("ui/screens/VaultEntryScreen.kt")
+        assertTrue("OutlinedButton(enabled = !duplicating, onClick = {" in card && "if (duplicating) return@OutlinedButton" in card)
+        assertTrue(Regex("""finally \{\s*duplicating = false""").containsMatchIn(card))
+        assertTrue("expiresAt = if (hasOwnExpiry(type)) expiresAt else null," in card)
+        val list = code("ui/screens/VaultList.kt")
+        assertTrue("cache?.takeIf { it.data === data && it.day == today }" in list)
+        assertTrue("Text(\"⏰ \", Modifier.clearAndSetSemantics { }" in list)
+        val fields = code("ui/screens/EntryFields.kt")
+        assertTrue("Text(\"⏰ \", Modifier.clearAndSetSemantics { }" in fields)
+        assertTrue("DecoratedLabel(\"➕\", FIELD_ADD)" in fields && "Text(\"\$emoji \", Modifier.clearAndSetSemantics { })" in fields)
+        assertTrue("t.secret && t.kind == FieldKind.NUMBER -> SecretNumberField(value, set, label = t.label)" in fields)
+        assertTrue("keyboardType = KeyboardType.NumberPassword" in fields && "PasswordVisualTransformation()" in fields && "NoCopy(Modifier.fillMaxWidth())" in fields)
+        assertTrue("if (hasOwnExpiry(type)) DateField(expires, { expires = it }, ENTRY_EXPIRES)" in fields)
+    }
+
     /** The arguments of each call to [name] in [src], up to its closing parenthesis (strings without parentheses). */
     private fun calls(src: String, name: String): List<String> {
         val out = ArrayList<String>()

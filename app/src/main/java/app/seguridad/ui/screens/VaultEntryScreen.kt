@@ -95,6 +95,7 @@ import app.seguridad.vault.entryLimitProblem
 import app.seguridad.vault.expiresAtToSave
 import app.seguridad.vault.fieldsToSave
 import app.seguridad.vault.rotates
+import app.seguridad.vault.hasOwnExpiry
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import com.journeyapps.barcodescanner.ScanContract
@@ -176,6 +177,8 @@ fun VaultEntryDetailScreen(
     var moveError by remember { mutableStateOf<String?>(null) }
     // 2.0, task 5: «Duplicar» says what it made and offers to open it (the id and the title shown, no secret).
     var duplicated by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Review M-5: one copy per tap, however fast the second comes.
+    var duplicating by remember { mutableStateOf(false) }
     val used: () -> Unit = { scope.launch { runCatching { store.markUsed(entry.id) } } }
     val folders = (state as? VaultState.Unlocked)?.data?.folders.orEmpty()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -255,7 +258,9 @@ fun VaultEntryDetailScreen(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onEdit) { Text("Editar") }
                 if (!entry.type.isPersonal) {
-                    OutlinedButton(onClick = {
+                    OutlinedButton(enabled = !duplicating, onClick = {
+                        if (duplicating) return@OutlinedButton
+                        duplicating = true
                         scope.launch {
                             try {
                                 duplicated = store.duplicate(entry.id)?.let { it.id to plainReportText(it.title) }
@@ -264,6 +269,8 @@ fun VaultEntryDetailScreen(
                                 throw e
                             } catch (e: Exception) {
                                 moveError = storeSaveErrorText(e)
+                            } finally {
+                                duplicating = false
                             }
                         }
                     }) { Text(DUPLICATE) }
@@ -614,7 +621,8 @@ fun VaultEntryEditScreen(
                             tags = normalizeTags(tagsText),
                             fields = fields,
                             notesFormat = form.notesFormat.value,
-                            expiresAt = expiresAt,
+                            // Review M-4: a template with its own date of expiry has that one only.
+                            expiresAt = if (hasOwnExpiry(type)) expiresAt else null,
                             rotateMonths = if (rotates(type)) form.rotateMonths.value else null,
                         )
                         // The limits of one entry, with their own text, before the store refuses it (an old entry that

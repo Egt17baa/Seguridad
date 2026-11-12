@@ -2,7 +2,7 @@ package app.seguridad.health
 
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
-import app.seguridad.vault.oldPasswords
+import app.seguridad.vault.lastPasswordChange
 import app.seguridad.vault.passwordForHealth
 import java.net.URI
 import java.text.Normalizer
@@ -59,8 +59,9 @@ fun vaultHealth(entries: List<VaultEntry>, now: Long, breached: Map<String, Int>
         val issues = buildSet {
             if ((counts[e.password] ?: 0) >= 2) add(Issue.REUSED)
             if (estimateBits(e.password) < WEAK_BITS) add(Issue.WEAK)
-            // The last change of the password: from the history and the list of 1.4.3 (task 3, M-4).
-            val changed = e.oldPasswords().firstOrNull()?.changedAt ?: e.updatedAt
+            // The last change of the password: the store's mark, or the history and the list of 1.4.3 (task 3, M-4), as the
+            // reminder to change it reads it (task 5, review M-1).
+            val changed = lastPasswordChange(e)
             if (now - changed > OLD_DAYS * DAY_MS) add(Issue.OLD)
             if (!has2fa(e, totpNames)) add(Issue.NO_2FA)
             if ((breached[e.id] ?: 0) > 0) add(Issue.BREACHED)

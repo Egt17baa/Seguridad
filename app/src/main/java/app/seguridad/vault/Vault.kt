@@ -108,6 +108,13 @@ data class VaultEntry(
     /** Change the password every this many months; null for no reminder. */
     val rotateMonths: Int? = null,
     val lastUsedAt: Long? = null,
+    /**
+     * 2.0, task 5 (review M-1): when the password ([passwordForHealth]: a login's, a wifi's) was last set, the store's
+     * own mark: [withVersion] sets it when the password changes and keeps it otherwise, a new entry with a password
+     * gets its creation, «Borrar historial» does not touch it and «Duplicar» copies it. Null for an entry of before;
+     * [lastPasswordChange] then reads its history. What «Salud» («Antigua») and «cambiar cada N meses» count from.
+     */
+    val passwordChangedAt: Long? = null,
 )
 
 /**

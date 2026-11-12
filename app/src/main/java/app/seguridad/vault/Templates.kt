@@ -9,9 +9,17 @@ package app.seguridad.vault
 
 /**
  * One fixed field of a template. [secret]: kept as [FieldKind.HIDDEN] whatever [kind] says; [expires]: a date the
- * notices of expiry look at ([Expiry]).
+ * notices of expiry look at ([Expiry]); [monthYear]: a date written as on a card, `MM/AA` (review M-2 and M-3 of task 5:
+ * only the card's expiry), kept as the last day of that month.
  */
-data class TemplateField(val key: String, val label: String, val kind: FieldKind, val secret: Boolean, val expires: Boolean = false)
+data class TemplateField(
+    val key: String,
+    val label: String,
+    val kind: FieldKind,
+    val secret: Boolean,
+    val expires: Boolean = false,
+    val monthYear: Boolean = false,
+)
 
 /** The values the wifi's «Tipo de seguridad» may hold, as the wifi QR writes them (task 9). */
 val WIFI_SECURITY_VALUES = listOf("WPA", "WEP", "nopass")
@@ -35,7 +43,7 @@ object Templates {
     private val card = listOf(
         TemplateField("holder", "Titular", FieldKind.TEXT, secret = false),
         TemplateField("number", "Número", FieldKind.TEXT, secret = true),
-        TemplateField("expiry", "Caducidad", FieldKind.DATE, secret = false, expires = true),
+        TemplateField("expiry", "Caducidad", FieldKind.DATE, secret = false, expires = true, monthYear = true),
         // R-3: optional and empty unless the user fills them; nothing suggests it.
         TemplateField("cvv", "CVV (opcional)", FieldKind.NUMBER, secret = true),
         TemplateField("pin", "PIN (opcional)", FieldKind.NUMBER, secret = true),
@@ -75,6 +83,12 @@ object Templates {
 
     /** How many fields of their own the user may add to an entry of [type]: the template's count against the 30. */
     fun customFieldsRoom(type: EntryType): Int = VaultLimits.FIELDS_MAX - fieldsFor(type).size
+
+    /**
+     * Review M-4 of task 5: whether [type]'s template has its own date that expires (card, licence, passport): then that
+     * one is the entry's only expiry, and the entry's own date is neither offered nor counted ([hasOwnExpiry]).
+     */
+    fun expiresByTemplate(type: EntryType): Boolean = fieldsFor(type).any { it.expires }
 
     /** The template field of [type] that a stored field with [id] fills, or null when it is one of the user's. */
     fun templateField(type: EntryType, id: String): TemplateField? = fieldsFor(type).firstOrNull { it.key == id }

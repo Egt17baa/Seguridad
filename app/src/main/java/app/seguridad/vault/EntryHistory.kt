@@ -32,8 +32,24 @@ fun VaultEntry.changedFrom(other: VaultEntry): Boolean = comparable() != other.c
  * object when nothing changed.
  */
 fun VaultEntry.withVersion(previous: VaultEntry, now: Long): VaultEntry {
-    if (!changedFrom(previous)) return this
-    return copy(history = listOf(EntryVersion(now, previous.asVersion())) + history).fittedHistory()
+    // 2.0, task 5 (review M-1): the store's mark of the last change of the password, whatever the caller sent.
+    val marked = copy(passwordChangedAt = if (passwordForHealth() != previous.passwordForHealth()) now else previous.passwordChangedAt)
+    if (!marked.changedFrom(previous)) return marked
+    return marked.copy(history = listOf(EntryVersion(now, previous.asVersion())) + history).fittedHistory()
+}
+
+/**
+ * When the password of this entry ([passwordForHealth]) was last set (2.0, task 5, review M-1): the store's mark
+ * ([VaultEntry.passwordChangedAt]) or, for an entry of before, the newest change its history knows (the version that
+ * had another password, replaced at its [EntryVersion.savedAt]) or the list of 1.4.3, and else its last edit. «Salud»
+ * («Antigua») and the reminder to change it ([Expiry]) read only this.
+ */
+fun lastPasswordChange(e: VaultEntry): Long {
+    e.passwordChangedAt?.let { return it }
+    val current = e.passwordForHealth()
+    val fromHistory = e.history.firstOrNull { it.entry.passwordForHealth() != current }?.savedAt
+    val fromList = if (e.type == EntryType.LOGIN) e.passwordHistory.maxOfOrNull { it.changedAt } else null
+    return listOfNotNull(fromHistory, fromList).maxOrNull() ?: e.updatedAt
 }
 
 /**

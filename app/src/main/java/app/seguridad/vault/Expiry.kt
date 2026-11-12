@@ -55,9 +55,10 @@ fun parseFieldDate(value: String): LocalDate? {
 
 /**
  * What the editor keeps of a date typed by the user: `AAAA-MM-DD` for `AAAA-MM-DD`, `D/M/AAAA` (also with `-` or `.`)
- * and, as on a card, `MM/AA` or `MM/AAAA` (its last day); "" for nothing typed; null for anything else.
+ * and, only with [monthYear] (the card's expiry, review M-2), `MM/AA` or `MM/AAAA` (its last day); "" for nothing typed;
+ * null for anything else (so «12/11» in a passport is no date, never 31/12/2011).
  */
-fun normalizeDateInput(text: String): String? {
+fun normalizeDateInput(text: String, monthYear: Boolean = false): String? {
     val t = text.trim()
     if (t.isEmpty()) return ""
     if (t.length > DATE_TEXT_MAX) return null
@@ -65,6 +66,7 @@ fun normalizeDateInput(text: String): String? {
     DAY_MONTH_YEAR.matchEntire(t)?.let { m ->
         return date(m.groupValues[3].toInt(), m.groupValues[2].toInt(), m.groupValues[1].toInt())?.toString()
     }
+    if (!monthYear) return null
     MONTH_YEAR.matchEntire(t)?.let { m ->
         val month = m.groupValues[1].toInt()
         val y = m.groupValues[2]
@@ -79,6 +81,19 @@ fun normalizeDateInput(text: String): String? {
 fun displayDate(value: String): String =
     parseFieldDate(value)?.let { "%02d/%02d/%04d".format(Locale.ROOT, it.dayOfMonth, it.monthValue, it.year) } ?: value
 
+/**
+ * A kept date as a card shows its expiry (review M-3): `MM/AA` for the last day of a month, as it was asked;
+ * [displayDate] for any other.
+ */
+fun displayMonthYear(value: String): String {
+    val d = parseFieldDate(value) ?: return value
+    if (d != YearMonth.from(d).atEndOfMonth()) return displayDate(value)
+    return "%02d/%02d".format(Locale.ROOT, d.monthValue, d.year % 100)
+}
+
+/** Review M-4: whether an entry of [type] has an expiry of its own ([VaultEntry.expiresAt]): not when its template has one. */
+fun hasOwnExpiry(type: EntryType): Boolean = !Templates.expiresByTemplate(type)
+
 /** The entry's own date of expiry as a day ([VaultEntry.expiresAt] is that day's start in UTC); null when out of range. */
 fun expiryDay(expiresAt: Long): LocalDate? = try {
     Instant.ofEpochMilli(expiresAt).atZone(ZoneOffset.UTC).toLocalDate().takeIf { it.year in 1900..2199 }
@@ -90,30 +105,21 @@ fun expiryDay(expiresAt: Long): LocalDate? = try {
 fun expiresAtOf(day: LocalDate): Long = day.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
 object Expiry {
-    /**
-     * When the password of [e] ([passwordForHealth]) was set: the date of the newest version of its history whose
-     * password was another one (the time it was replaced), or of the list of 1.4.3, whichever is later; the entry's
-     * creation if neither has one.
-     */
-    internal fun passwordSetAt(e: VaultEntry): Long {
-        val current = e.passwordForHealth()
-        val fromHistory = e.history.firstOrNull { it.entry.passwordForHealth() != current }?.savedAt
-        val fromList = if (e.type == EntryType.LOGIN) e.passwordHistory.maxOfOrNull { it.changedAt } else null
-        return listOfNotNull(fromHistory, fromList).maxOrNull() ?: e.createdAt
-    }
-
     /** Every date of [e] the notices look at, earliest first; empty for the identity and the contacts. */
     fun items(e: VaultEntry, zone: ZoneId = ZoneId.systemDefault()): List<ExpiryItem> {
         if (e.type.isPersonal) return emptyList()
         val out = ArrayList<ExpiryItem>(2)
-        e.expiresAt?.let(::expiryDay)?.let { out += ExpiryItem(EXPIRY_ENTRY, it, ExpiryKind.ENTRY) }
+        // Review M-4: one expiry per entry; a template's own date wins where it has one.
+        if (hasOwnExpiry(e.type)) e.expiresAt?.let(::expiryDay)?.let { out += ExpiryItem(EXPIRY_ENTRY, it, ExpiryKind.ENTRY) }
         for (f in e.fields) {
-            if (f.kind == FieldKind.DATE && f.expires) parseFieldDate(f.value)?.let { out += ExpiryItem(f.name, it) }
+            // Review M-6: a template's field says its label, not the name a copy gave it.
+            val name = Templates.templateField(e.type, f.id)?.label ?: f.name
+            if (f.kind == FieldKind.DATE && f.expires) parseFieldDate(f.value)?.let { out += ExpiryItem(name, it) }
         }
         val months = e.rotateMonths
         if (months != null && months in 1..ROTATE_MONTHS_MAX && e.passwordForHealth().isNotEmpty()) {
             try {
-                out += ExpiryItem(EXPIRY_ROTATE, Instant.ofEpochMilli(passwordSetAt(e)).atZone(zone).toLocalDate().plusMonths(months.toLong()), ExpiryKind.ROTATE)
+                out += ExpiryItem(EXPIRY_ROTATE, Instant.ofEpochMilli(lastPasswordChange(e)).atZone(zone).toLocalDate().plusMonths(months.toLong()), ExpiryKind.ROTATE)
             } catch (x: DateTimeException) {
                 // A date out of range (a copy made elsewhere): no reminder.
             }

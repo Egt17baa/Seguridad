@@ -112,12 +112,41 @@ class ExpiryTest {
         assertEquals("2026-11-12", normalizeDateInput("2026-11-12"))
         assertEquals("2026-11-02", normalizeDateInput("2/11/2026"))
         assertEquals("2026-11-02", normalizeDateInput(" 02-11-2026 "))
-        assertEquals("2029-05-31", normalizeDateInput("05/29"))
-        assertEquals("2028-02-29", normalizeDateInput("2/2028"))
+        // Review M-2: a month and a year only where a card asks for them; elsewhere «12/11» is no date (not 31/12/2011).
+        assertEquals("2029-05-31", normalizeDateInput("05/29", monthYear = true))
+        assertEquals("2028-02-29", normalizeDateInput("2/2028", monthYear = true))
+        assertEquals("2026-11-02", normalizeDateInput("2/11/2026", monthYear = true))
+        for (v in listOf("05/29", "2/2028", "12/11")) assertNull(v, normalizeDateInput(v))
+        assertEquals(
+            FormFields.Problem(fieldBadDate("Fecha de expedición")),
+            fieldsToSave(EntryType.PASSPORT, mapOf(templateValueKey(EntryType.PASSPORT, "issued") to "12/11"), emptyList()),
+        )
+        // Review M-3: the card's expiry shown as it is asked; any other day of a month as a full date.
+        assertEquals("05/29", displayMonthYear("2029-05-31"))
+        assertEquals("15/05/2029", displayMonthYear("2029-05-15"))
+        assertEquals("raro", displayMonthYear("raro"))
         assertEquals("", normalizeDateInput("  "))
-        for (v in bad.filter { it.isNotBlank() } + listOf("31/02/2026", "13/29", "00/30")) assertNull(v.take(20), normalizeDateInput(v))
+        for (v in bad.filter { it.isNotBlank() } + listOf("31/02/2026", "13/29", "00/30")) assertNull(v.take(20), normalizeDateInput(v, monthYear = true))
         assertEquals("12/11/2026", displayDate("2026-11-12"))
         assertEquals("mañana", displayDate("mañana"))
         assertTrue(Expiry.items(entry("nada"), utc).isEmpty())
+    }
+
+    /**
+     * Review M-4: one expiry per entry: a template with a date that expires (card, licence, passport) has that one only,
+     * and the entry's own date (a copy made elsewhere may bring it) does not count. Review M-6: its line says the
+     * template's label, not the name a copy gave the field.
+     */
+    @Test fun aTemplateHasOneExpiry() {
+        val card = entry(
+            "tarjeta", type = EntryType.CARD, expiresAt = day("2026-11-01"),
+            fields = listOf(CustomField("expiry", "Otro nombre", FieldKind.DATE, "2027-05-31", expires = true)),
+        )
+        assertEquals(listOf(ExpiryItem("Caducidad", LocalDate.parse("2027-05-31"))), Expiry.items(card, utc))
+        assertEquals(emptyList<String>(), due(card))
+        for (t in listOf(EntryType.CARD, EntryType.LICENSE, EntryType.PASSPORT)) assertTrue(t.name, !hasOwnExpiry(t))
+        for (t in listOf(EntryType.LOGIN, EntryType.NOTE, EntryType.SEED, EntryType.TOTP, EntryType.WIFI)) assertTrue(t.name, hasOwnExpiry(t))
+        // A wifi has no date of its template: its own counts.
+        assertEquals(listOf("wifi"), due(entry("wifi", type = EntryType.WIFI, expiresAt = day("2026-11-01"))))
     }
 }
