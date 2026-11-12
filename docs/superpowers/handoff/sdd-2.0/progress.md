@@ -109,3 +109,9 @@ Task 5: deferred: la contraseña del wifi en «Comprobar filtraciones» — a la
 Task 5 bis: dispatched (base 6b15fe2, model opus).
 Sesión nueva (12-11-2026): la tarea 5 bis no tenía commit; se empieza de nuevo desde 2ab573c. SDK otra vez en `/home/user/android-sdk`.
 Task 5 bis: dispatched (base 2ab573c, model opus).
+Owner decision (12-11-2026): `auditoria-seguridad` sí está en esta sesión y el dueño la pide; sustituye a la línea 12 de la revisión previa — la auditoría de la tarea 12 usa `experto-seguridad-cripto`, `auditoria-seguridad-movil` y `auditoria-seguridad`.
+Owner decision (12-11-2026): la v1.4.3 está publicada (etiqueta `v1.4.3` en `a3ac942`, hecha en otra sesión); `CLAUDE.md` y el traspaso pasan a «1.4.3 publicada».
+Ruling: los temas salen de la tarea 5 bis; la tarea 10 no los toca aunque su título los nombre — su cuerpo ya lo dice — ninguno.
+Task 5 bis: implementer DONE_WITH_CONCERNS (411eab2, e53c4a5; app 2113, jvm-check 2087). Dudas: el dibujo del cristal solo compilado (al móvil); `fixContrast` normaliza tonos y la luminosidad la corrige `colorsFor`; R-C8 dice «volver a uno sin transparencias» porque «Sólido» conserva la paleta; la 1.4.x no tenía acentos que convertir.
+Deferred (al dueño en el móvil, con un flujo en la tarea 11): difuminado real desde Android 12, aspecto en Android 8 a 11, desplazamiento de la lista, el foco nunca bajo una barra, menús y «Colores del fondo de pantalla».
+Task 5 bis review: dispatched (rango 51ac870..e53c4a5, model opus).
