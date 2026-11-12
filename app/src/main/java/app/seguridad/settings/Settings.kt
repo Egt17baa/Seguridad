@@ -25,13 +25,46 @@ enum class KdfProfile(val params: KdfParams, val label: String) {
 @Serializable
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
 
+/**
+ * The settings of the whole app (2.0: the theme, the lock, the clipboard, the A11 clock mark, the notices accepted) and
+ * those of each vault ([perVault], by its local id, [app.seguridad.vault.VaultInfo]). Never a secret, nor a vault's name.
+ */
 @Serializable
 data class Settings(
     val lockAfter: LockAfter = LockAfter.MIN_5,
     val clipboard: ClipboardClear = ClipboardClear.S45,
-    val kdf: KdfProfile = KdfProfile.STANDARD,
     val theme: ThemeMode = ThemeMode.DARK,
     val noticeAccepted: Boolean = false,
+    /** The highest time of day the app ever saw (epoch ms), a mark that only rises: a clock set back behind it ends the fingerprint. */
+    val clockHighWaterMs: Long = 0,
+    /**
+     * A14: the notice about the keyboard's clipboard history (Android 8 to 12, with no EXTRA_IS_SENSITIVE) was accepted;
+     * copying a secret no longer asks. With a default, so a settings.json from 1.2.2 or before still reads.
+     */
+    val clipboardHistoryNoticeAccepted: Boolean = false,
+    /**
+     * The notice that the app used to be called «Seguridad» ([RenameNotice]): null until the first start of 1.3.0 decides
+     * it (the default, so a settings.json from 1.2.x still reads); then true only if data from an earlier version was
+     * there (this file, or the vault), and false from the moment it is shown, or for a new install.
+     */
+    val renameNoticePending: Boolean? = null,
+    /**
+     * 2.0, task 2: the settings of each vault, by its local id. A settings.json of 1.4.3 or before had them at the top:
+     * [SettingsStore.load] reads them as those of [app.seguridad.vault.PRIMARY_VAULT_ID]. A vault with none has the
+     * defaults ([vault]): no automatic copies.
+     */
+    val perVault: Map<String, VaultSettings> = emptyMap(),
+)
+
+/**
+ * 2.0, task 2: what each vault has of its own (design «Varias bóvedas»): its automatic copies, A6, its copies of before
+ * importing and its Argon2id cost; the fields of 1.4.3's [Settings], as they were (ruling 2 ↔ 8 of the plan; task 8 turns
+ * the copies into a list of targets). Their names are the ones 1.4.3 wrote, so the fields of an older file read as they
+ * are.
+ */
+@Serializable
+data class VaultSettings(
+    val kdf: KdfProfile = KdfProfile.STANDARD,
     /** The folder (a SAF tree URI, with a persistable permission) for the automatic copies; null when off. */
     val autoBackupUri: String? = null,
     /** How many automatic copies to keep: one of [AUTO_BACKUP_KEEP_CHOICES]. */
@@ -69,19 +102,6 @@ data class Settings(
      * once per request, also after a restart. Cleared with the request, and when it is asked again.
      */
     val autoBackupReplaceTold: List<String> = emptyList(),
-    /** The highest time of day the app ever saw (epoch ms), a mark that only rises: a clock set back behind it ends the fingerprint. */
-    val clockHighWaterMs: Long = 0,
-    /**
-     * A14: the notice about the keyboard's clipboard history (Android 8 to 12, with no EXTRA_IS_SENSITIVE) was accepted;
-     * copying a secret no longer asks. With a default, so a settings.json from 1.2.2 or before still reads.
-     */
-    val clipboardHistoryNoticeAccepted: Boolean = false,
-    /**
-     * The notice that the app used to be called «Seguridad» ([RenameNotice]): null until the first start of 1.3.0 decides
-     * it (the default, so a settings.json from 1.2.x still reads); then true only if data from an earlier version was
-     * there (this file, or the vault), and false from the moment it is shown, or for a new install.
-     */
-    val renameNoticePending: Boolean? = null,
     /**
      * 1.4.0: the document ids of the copies made just before «Importar de otra app» in [importCopiesFolder], oldest
      * first ([app.seguridad.vault.AutoBackup.copyBeforeImport]). Never rotated and not in [autoBackupCopies]; they are
@@ -93,39 +113,52 @@ data class Settings(
     val importCopiesFolder: String? = null,
 )
 
-/** [Settings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */
-val Settings.currentAutoBackupCopies: List<String>
+/** The settings of the vault [id]; the defaults (no copies, the standard cost) for a vault that has none yet. */
+fun Settings.vault(id: String): VaultSettings = perVault[id] ?: VaultSettings()
+
+/** These settings with those of the vault [id] changed by [change]. */
+fun Settings.withVault(id: String, change: (VaultSettings) -> VaultSettings): Settings {
+    val before = vault(id)
+    val after = change(before)
+    return if (after == before && id in perVault) this else copy(perVault = perVault + (id to after))
+}
+
+/** These settings without those of the vault [id] (a vault deleted: its copies stay where they are, unlisted). */
+fun Settings.withoutVault(id: String): Settings = if (id in perVault) copy(perVault = perVault - id) else this
+
+/** [VaultSettings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */
+val VaultSettings.currentAutoBackupCopies: List<String>
     get() = if (autoBackupUri != null && autoBackupCopiesFolder == autoBackupUri) autoBackupCopies else emptyList()
 
-/** [Settings.importCopies] if they are in the folder chosen now; none otherwise. */
-val Settings.currentImportCopies: List<String>
+/** [VaultSettings.importCopies] if they are in the folder chosen now; none otherwise. */
+val VaultSettings.currentImportCopies: List<String>
     get() = if (autoBackupUri != null && importCopiesFolder == autoBackupUri) importCopies else emptyList()
 
-/** Settings with no automatic copy, nor import copy, listed as this app's (see [Settings.autoBackupCopies]). */
-fun Settings.forgettingAutoBackupCopies(): Settings =
+/** Settings with no automatic copy, nor import copy, listed as this app's (see [VaultSettings.autoBackupCopies]). */
+fun VaultSettings.forgettingAutoBackupCopies(): VaultSettings =
     copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null, importCopies = emptyList(), importCopiesFolder = null)
         .withoutReplaceRequest()
 
 /**
- * These settings with the import copy [id] just written to [folder] added to [Settings.importCopies]: only if [folder] is
+ * These settings with the import copy [id] just written to [folder] added to [VaultSettings.importCopies]: only if [folder] is
  * still the chosen one, and (as [withAutoBackupResult]) only if the copy's vault, [generation], is still [current]. A list
  * of another folder is replaced.
  */
-fun Settings.withImportCopy(folder: String, id: String, generation: Long? = null, current: Long? = null): Settings {
+fun VaultSettings.withImportCopy(folder: String, id: String, generation: Long? = null, current: Long? = null): VaultSettings {
     if (autoBackupUri != folder || (generation != null && current != null && generation != current)) return this
     val kept = if (importCopiesFolder == folder) importCopies else emptyList()
     return copy(importCopies = (kept + id).distinct(), importCopiesFolder = folder)
 }
 
 /** These settings with no request to replace the old copies: its targets and what it told go with it. */
-fun Settings.withoutReplaceRequest(): Settings =
+fun VaultSettings.withoutReplaceRequest(): VaultSettings =
     copy(autoBackupReplacePending = false, autoBackupReplaceTargets = null, autoBackupReplaceTold = emptyList())
 
 /**
- * These settings with [chosen] as the folder for the copies. The request to replace the old copies ([Settings.autoBackupReplacePending])
+ * These settings with [chosen] as the folder for the copies. The request to replace the old copies ([VaultSettings.autoBackupReplacePending])
  * goes only if the folder is another one: the same folder chosen again still has the copies it was asked about.
  */
-fun Settings.withFolderChosen(chosen: String): Settings = copy(
+fun VaultSettings.withFolderChosen(chosen: String): VaultSettings = copy(
     autoBackupUri = chosen,
     lastAutoBackupError = null,
     lastAutoBackupAt = null,
@@ -133,10 +166,10 @@ fun Settings.withFolderChosen(chosen: String): Settings = copy(
 ).let { if (chosen == autoBackupUri) it else it.withoutReplaceRequest() }
 
 /** These settings with the automatic copies turned off by the user: a request to replace the old ones goes with them. */
-fun Settings.withAutoBackupTurnedOff(): Settings =
+fun VaultSettings.withAutoBackupTurnedOff(): VaultSettings =
     copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null).withoutReplaceRequest()
 
-/** Shown in Ajustes while [Settings.autoBackupOffForNewVault]. */
+/** Shown in Ajustes while [VaultSettings.autoBackupOffForNewVault]. */
 const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
     "Elige la carpeta otra vez para activarla."
 
@@ -147,12 +180,12 @@ const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al
  * is recorded: a result of a vault that was replaced since ([AutoBackupResult.generation] differs) keeps neither its
  * list nor its «replaced», so the forgotten list of the replaced vault is never written back (CADENAS-3).
  */
-fun Settings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null): Settings {
+fun VaultSettings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null): VaultSettings {
     val stale = r.generation != null && generation != null && r.generation != generation
     return recording(if (stale) r.copy(copies = null, replaced = false, replaceTargets = null, importCopies = null) else r)
 }
 
-private fun Settings.recording(r: AutoBackupResult): Settings = when {
+private fun VaultSettings.recording(r: AutoBackupResult): VaultSettings = when {
     autoBackupUri != r.folder -> this
     // Asked while the vault was locked: the request, its targets (M4) and nothing told yet; what Ajustes shows about the
     // last copy does not change.
@@ -174,18 +207,18 @@ private fun Settings.recording(r: AutoBackupResult): Settings = when {
     else -> copy(lastAutoBackupError = r.error).replaceAfter(r)
 }
 
-/** [Settings.importCopies] in [folder]; none if the list is of another folder. */
-private fun Settings.importCopiesIn(folder: String): List<String> = if (importCopiesFolder == folder) importCopies else emptyList()
+/** [VaultSettings.importCopies] in [folder]; none if the list is of another folder. */
+private fun VaultSettings.importCopiesIn(folder: String): List<String> = if (importCopiesFolder == folder) importCopies else emptyList()
 
 /** The import copies [r] found still listed and in its folder (a replacement deleted the others, or they are gone). */
-private fun Settings.withImportCopiesLeft(r: AutoBackupResult): Settings =
+private fun VaultSettings.withImportCopiesLeft(r: AutoBackupResult): VaultSettings =
     if (r.importCopies != null && importCopiesFolder == r.folder) copy(importCopies = r.importCopies) else this
 
 /**
  * The pending request after [r]: done when [r] replaced the old copies (CR-1: AutoBackup says so only when every target
  * and leftover temporary copy went); otherwise kept, with the targets left (M4) and the failure it told added (M2).
  */
-private fun Settings.replaceAfter(r: AutoBackupResult): Settings {
+private fun VaultSettings.replaceAfter(r: AutoBackupResult): VaultSettings {
     if (!autoBackupReplacePending) return this
     if (r.replaced) return withoutReplaceRequest()
     val told = if (r.newRequest) emptyList() else autoBackupReplaceTold

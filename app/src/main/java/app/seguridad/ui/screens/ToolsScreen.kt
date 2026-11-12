@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import app.seguridad.settings.KdfProfile
 import app.seguridad.settings.Settings
 import app.seguridad.tools.CODES_TOOL_SUBTITLE
 import app.seguridad.tools.CODES_TOOL_TITLE
@@ -60,7 +61,7 @@ val TOOLS = listOf(
 /** The Herramientas tab: every tool that is not the vault, two per row. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ToolsScreen(settings: Settings, onTool: (String) -> Unit) {
+fun ToolsScreen(settings: Settings, kdf: KdfProfile, onTool: (String) -> Unit) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { TopAppBar(title = { Text("Herramientas") }) },
@@ -91,7 +92,7 @@ fun ToolsScreen(settings: Settings, onTool: (String) -> Unit) {
                         listOf(
                             "El cifrado y el análisis de las imágenes se hacen en tu móvil. Solo «¿Filtrada?» y «Comprobar filtraciones» usan internet, cuando las pulsas, y solo envían 5 caracteres de la huella de cada contraseña.",
                             "Cifrado autenticado (AES-256-GCM, ChaCha20-Poly1305 y otros): si lo cifrado se cambia, se detecta al descifrarlo.",
-                            "Tu contraseña se convierte en clave con Argon2id (${settings.kdf.label}), que hace muy lento cada intento de adivinarla por fuerza bruta. Una contraseña corta sigue siendo débil.",
+                            "Tu contraseña se convierte en clave con Argon2id (${kdf.label}), que hace muy lento cada intento de adivinarla por fuerza bruta. Una contraseña corta sigue siendo débil.",
                             IMAGE_TOOLS_LIMIT,
                             clipboardAboutText(settings.clipboard.seconds),
                             "Si olvidas la contraseña de algo cifrado, no hay forma de recuperarlo.",

@@ -147,7 +147,7 @@ class FinalLegalReviewTest {
         val src = flat(read("app/src/main/java/app/seguridad/ui/screens/ToolsScreen.kt"))
         assertTrue(
             src,
-            "\"Tu contraseña se convierte en clave con Argon2id (\${settings.kdf.label}), que hace muy lento cada intento de " +
+            "\"Tu contraseña se convierte en clave con Argon2id (\${kdf.label}), que hace muy lento cada intento de " +
                 "adivinarla por fuerza bruta. Una contraseña corta sigue siendo débil.\"" in src,
         )
         assertFalse(texts.any { it.startsWith("Todo se hace en tu móvil") })

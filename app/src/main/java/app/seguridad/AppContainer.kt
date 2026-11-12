@@ -14,17 +14,28 @@ import app.seguridad.settings.currentAutoBackupCopies
 import app.seguridad.settings.currentImportCopies
 import app.seguridad.settings.resettingClock
 import app.seguridad.settings.seeingClock
+import app.seguridad.settings.vault
 import app.seguridad.settings.withAutoBackupResult
 import app.seguridad.settings.withImportCopy
+import app.seguridad.settings.withVault
+import app.seguridad.settings.withoutVault
+import app.seguridad.imports.compareKey
 import app.seguridad.tools.ClipboardNoticeRequest
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupTarget
+import app.seguridad.vault.LockReason
 import app.seguridad.vault.MasterChanged
+import app.seguridad.vault.PRIMARY_VAULT_ID
+import app.seguridad.vault.TagColor
+import app.seguridad.vault.VaultData
+import app.seguridad.vault.VaultRegistry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.WordLists
+import app.seguridad.vault.checkStructure
+import app.seguridad.vault.displayName
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.InputStream
@@ -34,14 +45,23 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
 /** The settings file, in the app's private files directory. */
@@ -61,14 +81,15 @@ private val backgroundFailure = CoroutineExceptionHandler { _, e ->
  * [backupFolder] opens the folder saved for the automatic copies (Android passes the SAF one), and [releaseFolder]
  * gives its access back when creating a new vault turns them off.
  */
+@OptIn(ExperimentalCoroutinesApi::class) // flatMapLatest: the state of whichever vault is active.
 class AppContainer(
     filesDir: File,
     /** The app's private cache; holds the copy handed to another app by «Compartir» (see [shareTemp]). */
     cacheDir: File,
     /** The installed version (BuildConfig.VERSION_NAME), for the User-Agent of the HIBP queries. */
     appVersion: String,
-    backupFolder: (String) -> BackupTarget? = { null },
-    releaseFolder: (String) -> Unit = {},
+    private val backupFolder: (String) -> BackupTarget? = { null },
+    private val releaseFolder: (String) -> Unit = {},
     /**
      * Lives as long as the process: the automatic copies, the record of how they went, and the clean-ups that must finish
      * even if the screen that started them goes away (the temporary files of «Abrir lo recibido»).
@@ -100,6 +121,14 @@ class AppContainer(
      * none, so the lists cannot be read and the rule of a new master stays at the length and the estimate.
      */
     openAsset: (String) -> InputStream = { name -> throw FileNotFoundException(name) },
+    /**
+     * 2.0, task 2: forgets the fingerprint key and its preferences of a vault that is deleted ([deleteVault]); Android
+     * passes BiometricVault.disable for that vault's id. A failure leaves a key that wraps the data key of a vault that is
+     * gone, which opens nothing.
+     */
+    private val forgetBiometric: suspend (String) -> Unit = {},
+    /** Where the vaults derive and encrypt ([VaultStore]'s compute); the tests hold it to stop a save half way. */
+    private val vaultCompute: CoroutineDispatcher = Dispatchers.Default,
 ) {
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE), settingsIo)
 
@@ -126,6 +155,12 @@ class AppContainer(
      */
     val wordLists = WordLists(openAsset)
 
+    /**
+     * 2.0, task 2: the vaults of the phone (ids, colours, order and the last one opened; never names) in
+     * `files/vaults.json`. Read once, here: a few hundred bytes, before the first frame as the settings.
+     */
+    val registry = VaultRegistry(filesDir)
+
     /** 1.4.2: where each file picker opens ([PickerPlace]); forgotten with the vault. */
     val pickerPlaces = PickerPlaces(placeStore, packageName, sessionOpen = { vault.state.value is VaultState.Unlocked })
 
@@ -148,29 +183,6 @@ class AppContainer(
     suspend fun decideRenameNotice() {
         settings.decideRenameNotice(vaultExists = vaultDir.listFiles()?.isNotEmpty() == true)
     }
-
-    /** Password vault (files/vault/vault.bin); never in backups (allowBackup is off). Lock time and Argon2id cost come from the settings. */
-    val vault: VaultStore = VaultStore(
-        File(vaultDir, "vault.bin"),
-        kdf = { settings.settings.value.kdf.params },
-        idleLockMs = { settings.settings.value.lockAfter.ms },
-        inForeground = { foreground },
-        // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
-        // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
-        beforeCreate = { settings.turnOffAutoBackupForNewVault()?.let(releaseFolder) },
-        // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted. Written
-        // before the vault is saved, and put back if that fails (COPIAS-3); a copy still being written of the replaced
-        // vault is told apart by the vault's generation (CADENAS-3, see [recordAutoBackup]).
-        beforeReplace = { settings.forgetAutoBackupCopiesForImport() },
-        clockHighWater = { clockMark },
-        onClockSeen = ::rememberClock,
-        onClockReset = ::resetClock,
-        elapsed = elapsedRealtime,
-        awayInMultiWindow = { _awayInOtherApp.value },
-        // 2.0: the copy before the vault passes to v4, in the automatic copies' folder; none (no folder, or it failed)
-        // leaves the choice to the user (the upgrade dialog, Abogado Digital O-3). [autoBackup] exists by the first unlock.
-        beforeUpgrade = { autoBackup.copyBeforeUpgrade() },
-    )
 
     /**
      * Another app took the focus in multi-window. With «Al salir» the vault's backstop counts from now
@@ -281,35 +293,287 @@ class AppContainer(
 
     val pwned: PwnedPasswords by lazy { PwnedPasswords(client) }
 
-    /** Encrypted copies to the folder chosen in Ajustes, a few seconds after each change to the vault. */
-    val autoBackup: AutoBackup = AutoBackup(
-        vault,
-        folder = { settings.settings.value.autoBackupUri },
-        open = backupFolder,
-        appScope,
-        now = System::currentTimeMillis,
-        keep = { settings.settings.value.autoBackupKeep },
-        lastCopyAt = { settings.settings.value.lastAutoBackupAt },
-        copies = { settings.settings.value.currentAutoBackupCopies },
-        replacePending = { settings.settings.value.autoBackupReplacePending },
-        replaceTargets = { settings.settings.value.autoBackupReplaceTargets },
-        replaceTold = { settings.settings.value.autoBackupReplaceTold },
-        onResult = ::recordAutoBackup,
-        importCopies = { settings.settings.value.currentImportCopies },
-        onImportCopy = ::recordImportCopy,
-    )
+    /**
+     * 2.0, task 2: one vault of the phone, built the first time it is needed and kept while it is on the list: its store
+     * (its own file, folder, data key and settings) and its automatic copies, in a scope of its own that a deletion
+     * cancels. Every vault is always locked but the active one ([activeVault]): the store's gate refuses to open any other.
+     */
+    private inner class Slot(val id: String) {
+        val scope = CoroutineScope(appScope.coroutineContext + SupervisorJob(appScope.coroutineContext[Job]))
+
+        /** files/vault/vault.bin for the first vault, files/vaults/<id>/vault.bin for the others; never in backups (allowBackup is off). */
+        val store: VaultStore = VaultStore(
+            File(registry.dirOf(id), "vault.bin"),
+            compute = vaultCompute,
+            kdf = { settings.settings.value.vault(id).kdf.params },
+            idleLockMs = { settings.settings.value.lockAfter.ms },
+            inForeground = { foreground },
+            // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
+            // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
+            beforeCreate = { settings.turnOffAutoBackupForNewVault(id)?.let { releaseIfUnused(it) } },
+            // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted. Written
+            // before the vault is saved, and put back if that fails (COPIAS-3); a copy still being written of the replaced
+            // vault is told apart by the vault's generation (CADENAS-3, see [recordAutoBackup]).
+            beforeReplace = { settings.forgetAutoBackupCopiesForImport(id) },
+            clockHighWater = { clockMark },
+            onClockSeen = ::rememberClock,
+            onClockReset = ::resetClock,
+            elapsed = elapsedRealtime,
+            awayInMultiWindow = { _awayInOtherApp.value },
+            // 2.0: the copy before the vault passes to v4, in this vault's automatic copies' folder; none (no folder, or it
+            // failed) leaves the choice to the user (the upgrade dialog, Abogado Digital O-3).
+            beforeUpgrade = { autoBackup.copyBeforeUpgrade() },
+            id = id,
+            active = { activeId == id },
+        )
+
+        /** Encrypted copies of this vault to the folder chosen for it in Ajustes, a few seconds after each change. */
+        val autoBackup: AutoBackup = AutoBackup(
+            store,
+            folder = { settings.settings.value.vault(id).autoBackupUri },
+            open = backupFolder,
+            scope,
+            now = System::currentTimeMillis,
+            keep = { settings.settings.value.vault(id).autoBackupKeep },
+            lastCopyAt = { settings.settings.value.vault(id).lastAutoBackupAt },
+            copies = { settings.settings.value.vault(id).currentAutoBackupCopies },
+            replacePending = { settings.settings.value.vault(id).autoBackupReplacePending },
+            replaceTargets = { settings.settings.value.vault(id).autoBackupReplaceTargets },
+            replaceTold = { settings.settings.value.vault(id).autoBackupReplaceTold },
+            onResult = { recordAutoBackup(id, store, it) },
+            importCopies = { settings.settings.value.vault(id).currentImportCopies },
+            onImportCopy = { folder, copy, generation -> recordImportCopy(id, store, folder, copy, generation) },
+        )
+    }
+
+    private val slots = HashMap<String, Slot>()
+
+    /** The vault [id] of the list ([IllegalArgumentException] for any other), built once. */
+    private fun slot(id: String): Slot = synchronized(slots) {
+        slots[id] ?: run {
+            require(registry.vaults.value.any { it.id == id }) { "Unknown vault" }
+            Slot(id).also { slots[id] = it }
+        }
+    }
+
+    /** The active vault's id. Written by [switchTo] before the one it leaves is locked, so that one's gate is shut first. */
+    @Volatile private var activeId: String = registry.lastOpened
+
+    private val _activeVault = MutableStateFlow(slot(activeId).store)
+
+    /**
+     * 2.0, task 2: the vault the app shows, the only one that can be open. A screen, a ViewModel or anything else that
+     * keeps a store follows this and is built again for the new one ([switchTo]): a store kept from before only ever reads
+     * or writes its own vault, which is locked by then, so nothing ends up in the other one.
+     */
+    val activeVault: StateFlow<VaultStore> = _activeVault.asStateFlow()
+
+    /** [activeVault] now. Read it again after a [switchTo]. */
+    val vault: VaultStore get() = activeVault.value
+
+    /** The id of [vault]. */
+    val activeVaultId: String get() = activeId
+
+    /** The automatic copies of [vault]. */
+    val autoBackup: AutoBackup get() = slot(activeId).autoBackup
+
+    /** The state of whichever vault is active: what app-wide clean-ups follow (a lock, a switch). */
+    val vaultState: Flow<VaultState> = activeVault.flatMapLatest { it.state }
+
+    // [lockEpoch] for the whole app: it goes up with every lock of the active vault and with every switch, and never comes
+    // back to a value it had, so something kept for one vault (the A14 copy waiting) is never accepted in another.
+    private val epochLock = Any()
+    private var epochBase = 0
+    private var epochFrom = 0
+
+    /** Goes up with every lock of the active vault and every switch ([VaultStore.lockEpoch] for the whole app). */
+    val lockEpoch: Int get() = synchronized(epochLock) { epochBase + (vault.lockEpoch - epochFrom) }
+
+    private val switching = Mutex()
+
+    /** One create, import as a new vault or delete at a time (each may switch twice). */
+    private val changingVaults = Mutex()
+
+    /**
+     * 2.0, task 2: makes [id] the active vault. The one open is locked first ([LockReason.MANUAL], with everything a lock
+     * does: «PIN y códigos», the copy waiting for the A14 notice, the screens with secrets), whatever it was doing ends
+     * (its mutex: a save already started lands in it, never in the other), and then [id] is shown, locked. The dialog
+     * after a change of master password goes too (it is of the vault left). [IllegalArgumentException] for an id not in
+     * the list. The same vault again does nothing.
+     */
+    suspend fun switchTo(id: String) = switching.withLock {
+        require(registry.vaults.value.any { it.id == id }) { "Unknown vault" }
+        if (id == activeId) return@withLock
+        val old = slot(activeId)
+        val next = slot(id)
+        withContext(NonCancellable) {
+            activeId = id // Shuts the old one's gate before it is locked: an unlock finishing now stays locked.
+            old.store.lock(LockReason.MANUAL)
+            clipboardNotice.drop()
+            masterChanged.close()
+            old.store.awaitIdle()
+            next.store.load()
+            synchronized(epochLock) {
+                epochBase += old.store.lockEpoch - epochFrom + 1
+                epochFrom = next.store.lockEpoch
+                _activeVault.value = next.store
+            }
+            try {
+                registry.setLastOpened(id)
+            } catch (e: Exception) {
+                // A full disk: the app starts on another vault next time; never blocks the switch.
+            }
+        }
+    }
+
+    /** The colour for a new vault: the first no vault has, or one by turns. */
+    private fun nextColor(): TagColor {
+        val used = registry.vaults.value.map { it.color }.toSet()
+        return TagColor.entries.firstOrNull { it !in used } ?: TagColor.entries[registry.vaults.value.size % TagColor.entries.size]
+    }
+
+    /**
+     * 2.0, task 2: a new vault with [master] (the caller checks the rule of a new master, MasterPolicy) and [name] (saved
+     * inside it, encrypted), born in format v4; it becomes the active one, open. Returns its id. The one open before is
+     * locked. [app.seguridad.vault.VaultLimitExceeded] when there are already 10, or the name is too long;
+     * [IllegalStateException] unless [canAddVault]. If creating it
+     * fails, nothing is left of it and the vault of before is active again, locked.
+     */
+    suspend fun createVault(name: String, master: CharArray): String = newVault(name) { it.create(master, name.trim()) }
+
+    /**
+     * 2.0, task 2: «Importar como bóveda nueva»: a new vault from a copy ([VaultStore.importReplace], with its master
+     * password), with a new id, also when the same copy was imported before; it becomes the active one, open. [name] is
+     * its name if not blank, else it keeps the copy's. Returns its id. The vault open before is locked, and not touched.
+     * If the import fails (a wrong password, a damaged copy), nothing is left of the new vault and the vault of before
+     * is active again, locked; the exception says why.
+     */
+    suspend fun importAsNewVault(input: InputStream, master: CharArray, name: String): String = newVault(name) { store ->
+        store.importReplace(input, master)
+        if (name.isNotBlank()) store.rename(name)
+    }
+
+    /**
+     * Whether another vault can be made now: only from an open one, or when no vault of the phone has a file yet
+     * (COV2-1 with several vaults: someone holding the phone for a moment, every vault locked, cannot make one of their own,
+     * open, and with it change the settings of the whole app). An empty slot left by «He olvidado la contraseña» can
+     * still be made into a vault on its own screen, as before.
+     */
+    fun canAddVault(): Boolean =
+        vault.state.value is VaultState.Unlocked || registry.vaults.value.none { File(registry.dirOf(it.id), "vault.bin").exists() }
+
+    private suspend fun newVault(name: String, make: suspend (VaultStore) -> Unit): String = changingVaults.withLock {
+        check(canAddVault()) { "Open a vault first" }
+        VaultData(name = name.trim()).checkStructure() // A name too long: nothing is made.
+        val previous = activeId
+        val info = registry.create(nextColor())
+        try {
+            switchTo(info.id)
+            make(vault)
+        } catch (e: Throwable) {
+            withContext(NonCancellable) { dropVault(info.id, previous) }
+            throw e
+        }
+        info.id
+    }
+
+    /** Undoes a new vault that could not be made: [previous] active again, and nothing of [id] left. Best effort. */
+    private suspend fun dropVault(id: String, previous: String) {
+        try {
+            switchTo(previous)
+        } catch (e: Exception) {
+            // Already gone from the list: the first vault is shown instead (below).
+        }
+        synchronized(slots) { slots.remove(id) }?.let { it.store.lock(); it.scope.cancel() }
+        try {
+            registry.remove(id)
+        } catch (e: Exception) {
+            // A folder no vault points at: nothing reads it again until the registry is rebuilt.
+        }
+        try {
+            settings.update { it.withoutVault(id) }
+        } catch (e: Exception) {
+            // Settings of a vault that is gone: never read.
+        }
+    }
+
+    /**
+     * 2.0, task 2 (ruling 3): deletes the vault [id] from this phone. It is opened with [master] (a wrong one throws
+     * [app.seguridad.crypto.CryptoFailure], nothing deleted) and so shows its name; [typedName] must be that name as it is
+     * shown ([displayName]), compared as the import compares titles ([compareKey]): an invisible character, or spaces at
+     * the ends, do not count, the case does. A vault with no file (nothing to protect) needs neither. False, with nothing
+     * deleted, when the name is not its own, or it is the only vault (the existing «He olvidado la contraseña» is for that).
+     * It switches to [id] first if it was not the active one (locking the one open). Deletes its folder (its file and
+     * attachments), its fingerprint key and its settings, and gives back its copies' folder if no other vault uses it; it
+     * never touches the copies already made (R-9, O-2: the confirmation says so). Then the first vault left is active,
+     * locked.
+     */
+    suspend fun deleteVault(id: String, master: CharArray, typedName: String): Boolean = changingVaults.withLock {
+        require(registry.vaults.value.any { it.id == id }) { "Unknown vault" }
+        if (registry.vaults.value.size <= 1) return@withLock false
+        switchTo(id)
+        val store = vault
+        store.load()
+        if (store.state.value !is VaultState.NoVault) {
+            if (store.state.value is VaultState.Unlocked) {
+                if (!store.confirmMaster(master)) return@withLock false
+            } else {
+                store.unlock(master)
+            }
+            val data = (store.state.value as? VaultState.Unlocked)?.data ?: return@withLock false
+            val order = registry.vaults.value.indexOfFirst { it.id == id }
+            if (compareKey(typedName) != compareKey(displayName(data, order))) return@withLock false
+        }
+        withContext(NonCancellable) {
+            switchTo(registry.vaults.value.first { it.id != id }.id)
+            val gone = synchronized(slots) { slots.remove(id) }
+            gone?.scope?.cancel()
+            registry.remove(id)
+            try {
+                forgetBiometric(id)
+            } catch (e: Exception) {
+                // A key left in the Keystore wraps the data key of a vault that is gone: it opens nothing.
+            }
+            val folder = settings.settings.value.vault(id).autoBackupUri
+            try {
+                settings.update { it.withoutVault(id) }
+            } catch (e: Exception) {
+                // Settings of a vault that is gone: never read again (a new vault never gets the same id).
+            }
+            folder?.let { releaseIfUnused(it) }
+        }
+        true
+    }
+
+    /**
+     * Gives back the permission of the copies' folder [uri] (it was turned off for a vault, or the vault was deleted),
+     * unless another vault still has its copies there.
+     */
+    fun releaseIfUnused(uri: String) {
+        if (settings.settings.value.perVault.values.none { it.autoBackupUri == uri }) releaseFolder(uri)
+    }
+
+    /** The vault whose master password changed last ([onMasterChanged]): its dialog replaces its copies, never another's. */
+    @Volatile private var masterChangedSlot: Slot? = null
 
     /**
      * The dialog after a change of master password (A6) and what its replacement of the old copies answered: here, not in
-     * a screen, so a rotation during the key derivation or the replacement does not lose it (M-3).
+     * a screen, so a rotation during the key derivation or the replacement does not lose it (M-3). 2.0: of the vault whose
+     * password changed; a switch closes it.
      */
     val masterChanged = MasterChanged(
         appScope,
-        replace = autoBackup::replaceOldCopies,
+        replace = { targets -> (masterChangedSlot ?: slot(activeId)).autoBackup.replaceOldCopies(targets) },
         now = System::currentTimeMillis,
         // 1.4.0: the import copies too, as they are under the password of before (AutoBackup.copyBeforeImport).
-        oldCopies = { settings.settings.value.let { it.currentAutoBackupCopies + it.currentImportCopies } },
+        oldCopies = { settings.settings.value.vault((masterChangedSlot ?: slot(activeId)).id).let { it.currentAutoBackupCopies + it.currentImportCopies } },
     )
+
+    /** The screen that changed the master password of the active vault says so ([MasterChanged.changed]). */
+    fun onMasterChanged(fingerprintFailed: Boolean, hasIdentity: Boolean) {
+        masterChangedSlot = slot(activeId)
+        masterChanged.changed(fingerprintFailed, hasIdentity)
+    }
 
     /**
      * A copy waiting for the A14 notice (Android 8 to 12), shown by the dialog at the root of the app. Here for the same
@@ -317,9 +581,9 @@ class AppContainer(
      * The drop here comes a moment later and may miss a quick lock and unlock: the lock counter makes accept() refuse
      * either way.
      */
-    val clipboardNotice = ClipboardNoticeRequest(lockEpoch = { vault.lockEpoch }).also { notice ->
+    val clipboardNotice = ClipboardNoticeRequest(lockEpoch = { lockEpoch }).also { notice ->
         appScope.launch {
-            vault.state.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) notice.drop() }
+            vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) notice.drop() }
         }
     }
 
@@ -327,19 +591,20 @@ class AppContainer(
         // 1.4.2: the picker places kept only in memory go at every lock and unlock (PickerPlace.kept). Here, after
         // [vault] exists. Like [clipboardNotice], a lock and unlock quicker than this collector may be seen as none.
         appScope.launch {
-            vault.state.map { it is VaultState.Unlocked }.distinctUntilChanged().drop(1).collect { pickerPlaces.forgetSession() }
+            vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().drop(1).collect { pickerPlaces.forgetSession() }
         }
     }
 
     /**
-     * Keeps how the last automatic copy went, for Ajustes, and the copies it made (for the next rotation), if it went
-     * to the folder still chosen. Waited for by [AutoBackup] before its next copy, so that one sees this list. The vault's
-     * generation is read inside the settings' lock: an import bumps it before it forgets the list (a write that takes that
-     * same lock), so a copy of the replaced vault can never put its list back, whichever of the two writes first (CADENAS-3).
+     * Keeps how the last automatic copy of the vault [id] went, for Ajustes, and the copies it made (for the next
+     * rotation), if it went to the folder still chosen. Waited for by [AutoBackup] before its next copy, so that one sees
+     * this list. The vault's generation is read inside the settings' lock: an import bumps it before it forgets the list
+     * (a write that takes that same lock), so a copy of the replaced vault can never put its list back, whichever of the
+     * two writes first (CADENAS-3). Only the settings of [id] change.
      */
-    private suspend fun recordAutoBackup(result: AutoBackupResult) {
+    private suspend fun recordAutoBackup(id: String, store: VaultStore, result: AutoBackupResult) {
         try {
-            settings.update { it.withAutoBackupResult(result, vault.generation) }
+            settings.update { it.withVault(id) { v -> v.withAutoBackupResult(result, store.generation) } }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -348,12 +613,13 @@ class AppContainer(
     }
 
     /**
-     * Lists the import copy [id] just written to [folder] (Settings.importCopies), for A6. As [recordAutoBackup], the vault's
-     * generation is read inside the settings' lock, so a copy of a vault replaced meanwhile is never listed.
+     * Lists the import copy [copy] just written to [folder] (VaultSettings.importCopies of [id]), for A6. As
+     * [recordAutoBackup], the vault's generation is read inside the settings' lock, so a copy of a vault replaced
+     * meanwhile is never listed.
      */
-    private suspend fun recordImportCopy(folder: String, id: String, generation: Long) {
+    private suspend fun recordImportCopy(id: String, store: VaultStore, folder: String, copy: String, generation: Long) {
         try {
-            settings.update { it.withImportCopy(folder, id, generation, vault.generation) }
+            settings.update { it.withVault(id) { v -> v.withImportCopy(folder, copy, generation, store.generation) } }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

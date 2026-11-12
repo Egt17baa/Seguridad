@@ -287,10 +287,18 @@ private fun newVaultTag(random: SecureRandom): String = hex(randomBytes(16, rand
 
 object VaultCrypto {
     /** A new vault: fresh DEK wrapped with [master]. Returns the file and the open DEK (caller keeps it while unlocked). */
-    fun create(master: CharArray, now: Long, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): Pair<VaultFile, ByteArray> {
+    fun create(
+        master: CharArray,
+        now: Long,
+        kdf: KdfParams = KdfParams(),
+        random: SecureRandom = secureRandom,
+        name: String = "",
+    ): Pair<VaultFile, ByteArray> {
+        // 2.0, task 2: the name goes inside the encrypted blob, with the rest of the vault's data.
+        VaultData(name = name).checkStructure()
         val dek = randomBytes(KEY_BYTES, random)
         try {
-            return wrap(dek, VaultData(vaultTag = newVaultTag(random)), master, PasswordUse.NEW, now, kdf, random) to dek
+            return wrap(dek, VaultData(vaultTag = newVaultTag(random), name = name), master, PasswordUse.NEW, now, kdf, random) to dek
         } catch (e: Exception) {
             dek.fill(0)
             throw e

@@ -180,26 +180,27 @@ fun VaultScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(if (totpOnly) "Códigos 2FA" else "Bóveda") },
+                // 2.0, task 2: with the vault open, its name (and the way to another vault) is the title of the tab.
+                title = { if (!totpOnly && state is VaultState.Unlocked) LocalVaultSwitcher.current() else Text(if (totpOnly) "Códigos 2FA" else "Bóveda") },
                 actions = {
                     if (state is VaultState.Unlocked) {
                         TextButton(onClick = { store.lock() }) { Text("Bloquear") }
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Más opciones") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             FilterObscuredTouches() // The menu is its own window: no taps through an overlay on top of it.
-                            val bio = BiometricVault.enabled(context)
+                            val bio = BiometricVault.enabled(context, store.id)
                             if (BiometricVault.available(context)) {
                                 DropdownMenuItem(text = { Text(if (bio) "Desactivar huella" else "Activar huella") }, onClick = {
                                     menu = false
                                     if (bio) {
                                         scope.launch {
-                                            BiometricVault.disable(context)
+                                            BiometricVault.disable(context, store.id)
                                             snackbar.showSnackbar("Huella desactivada")
                                         }
                                     } else {
                                         val activity = context.fragmentActivity() ?: return@DropdownMenuItem
                                         val key = store.dataKeyCopy() ?: return@DropdownMenuItem
-                                        BiometricVault.enable(activity, key) { err -> scope.launch { snackbar.showSnackbar(err ?: "Huella activada") } }
+                                        BiometricVault.enable(activity, store.id, key) { err -> scope.launch { snackbar.showSnackbar(err ?: "Huella activada") } }
                                     }
                                 })
                             }
@@ -288,6 +289,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     // screen, and the button of creating waits for them.
     val words = rememberMasterWords()
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LocalVaultSwitcher.current()
         Text("Crea tu bóveda", style = MaterialTheme.typography.headlineSmall)
         failed?.let { Text(it, color = NegativeColor) }
         Text(VAULT_CREATE_SHORT)
@@ -320,7 +322,7 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
                 scope.launch {
                     try {
                         // A fingerprint left from a previous (deleted or damaged) vault wraps the wrong key.
-                        BiometricVault.disable(context)
+                        BiometricVault.disable(context, store.id)
                         store.create(pw)
                     } catch (e: Exception) {
                         failed = newPasswordFailureMessage(e, "No se pudo crear la bóveda. Inténtalo de nuevo.")
@@ -352,22 +354,24 @@ private fun UnlockVault(store: VaultStore) {
     var confirmDestroy by remember { mutableStateOf(false) }
     // A key that opened nothing (CRY-A02): the button is gone for this screen even if turning it off ever threw.
     var fingerprintStale by remember { mutableStateOf(false) }
-    val bio = !fingerprintStale && BiometricVault.enabled(context) && store.biometricAllowed
+    val bio = !fingerprintStale && BiometricVault.enabled(context, store.id) && store.biometricAllowed
     fun withFingerprint() {
         val activity = context.fragmentActivity() ?: return
         // The key is handed over even if this screen's scope is gone (a rotation): opened or wiped, never dropped (BOV-3);
         // only the store's own texts are shown, never a raw exception (LIBRE-4). A key of another vault (a fingerprint
         // that outlived a change of master password or an import) turns the fingerprint off and says so (CRY-A02);
         // launchUnlockWithKey shows the text even if turning it off throws, as VaultBackup does after a new master.
-        BiometricVault.unlock(activity, onKey = { key ->
+        BiometricVault.unlock(activity, store.id, onKey = { key ->
             scope.launchUnlockWithKey(store, key, onWrongKey = {
                 fingerprintStale = true
-                BiometricVault.disable(context)
+                BiometricVault.disable(context, store.id)
             }) { error = it }
         }, onError = { error = it })
     }
     LaunchedEffect(Unit) { if (bio) withFingerprint() }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 2.0, task 2: which vault this is («Bóveda N» and its colour, before unlocking) and the way to another.
+        LocalVaultSwitcher.current()
         Text("🔒 Bóveda bloqueada", style = MaterialTheme.typography.headlineSmall)
         PasswordField(pw, { pw = it; error = null }, label = "Contraseña maestra")
         Button(
@@ -394,7 +398,7 @@ private fun UnlockVault(store: VaultStore) {
         ) { Text("Desbloquear") }
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
         if (bio) OutlinedButton(onClick = ::withFingerprint, modifier = Modifier.fillMaxWidth()) { Text("Usar huella") }
-        if (BiometricVault.enabled(context)) {
+        if (BiometricVault.enabled(context, store.id)) {
             when (store.biometricRefusal) {
                 BiometricRefusal.CLOCK -> Text(CLOCK_CHANGED_TEXT, style = MaterialTheme.typography.bodySmall)
                 BiometricRefusal.MASTER_DUE ->
@@ -421,7 +425,7 @@ private fun UnlockVault(store: VaultStore) {
                     confirmDestroy = false
                     scope.launch {
                         // CRY-A02: the fingerprint is off before the vault is deleted.
-                        BiometricVault.disable(context)
+                        BiometricVault.disable(context, store.id)
                         // 1.4.2: where the file pickers opened goes with the vault.
                         pickerPlaces(context)?.forgetAll()
                         store.destroy()

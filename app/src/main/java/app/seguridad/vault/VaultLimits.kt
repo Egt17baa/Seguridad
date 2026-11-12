@@ -32,6 +32,9 @@ object VaultLimits {
     const val VIEWS_MAX = 50
     const val TAG_COLORS_MAX = 200
     const val VAULTS_MAX = 10
+
+    /** The name of a vault ([VaultData.name]), in code points. */
+    const val VAULT_NAME_MAX = 100
     const val BACKUP_TARGETS_MAX = 3
     const val TRASH_DAYS = 30
 
@@ -57,6 +60,7 @@ const val FOLDERS_TOO_DEEP = "Las carpetas pueden anidarse como mucho 5 niveles.
 const val FOLDER_CYCLE = "Una carpeta no puede estar dentro de sí misma. Muévela a otro sitio."
 const val TOO_MANY_VIEWS = "Puede haber como mucho 50 vistas guardadas. Borra alguna."
 const val TOO_MANY_TAG_COLORS = "Puede haber como mucho 200 etiquetas con color. Quita el color de alguna."
+const val VAULT_NAME_TOO_LONG = "El nombre de la bóveda puede tener como mucho 100 caracteres. Acórtalo."
 
 /** Counts what is written to it, and keeps nothing. */
 private class CountingStream : OutputStream() {
@@ -187,6 +191,7 @@ internal fun VaultData.checkStructure() {
     if (folders.size > VaultLimits.FOLDERS_MAX) throw VaultLimitExceeded(TOO_MANY_FOLDERS)
     if (views.size > VaultLimits.VIEWS_MAX) throw VaultLimitExceeded(TOO_MANY_VIEWS)
     if (tagColors.size > VaultLimits.TAG_COLORS_MAX) throw VaultLimitExceeded(TOO_MANY_TAG_COLORS)
+    if (name.codePointLength() > VaultLimits.VAULT_NAME_MAX) throw VaultLimitExceeded(VAULT_NAME_TOO_LONG)
     val parent = HashMap<String, String?>()
     folders.forEach { parent.putIfAbsent(it.id, it.parentId) }
     var deepest = 0

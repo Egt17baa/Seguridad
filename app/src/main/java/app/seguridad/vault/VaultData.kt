@@ -25,6 +25,12 @@ data class VaultData(
      */
     val vaultTag: String = "",
     val templatesVersion: Int = 1,
+    /**
+     * 2.0, task 2 (owner's decision, 12-11-2026, option A): the vault's name, inside the encrypted blob, so the registry
+     * of the vaults never holds it ([VaultInfo]); shown only once the vault is open ([displayName]). Empty in a vault
+     * from before 2.0 until one is given. At most [VaultLimits.VAULT_NAME_MAX] code points.
+     */
+    val name: String = "",
 ) {
     /** The entries not in the trash, in the order stored. */
     val live: List<VaultEntry> get() = entries.filter { it.deletedAt == null }

@@ -77,6 +77,17 @@ import app.seguridad.ui.screens.ToolsScreen
 import app.seguridad.ui.screens.VaultEntryDetailScreen
 import app.seguridad.ui.screens.VaultEntryEditScreen
 import app.seguridad.ui.screens.VaultIdleTicker
+import app.seguridad.ui.screens.LocalVaultSwitcher
+import app.seguridad.ui.screens.VaultPickerScreen
+import app.seguridad.ui.screens.VaultSwitcher
+import app.seguridad.settings.vault
+import app.seguridad.vault.VaultStore
+import androidx.compose.runtime.key
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.ui.screens.VaultScreen
 import app.seguridad.vault.replacedText
 import app.seguridad.vault.EntryType
@@ -94,11 +105,48 @@ private val tabs = listOf(
     Tab("settings", "Ajustes", Icons.Default.Settings),
 )
 
+/**
+ * 2.0, task 2: the ViewModels of the active vault's screens, kept across a re-creation of the activity (as the
+ * navigation's own were) and cleared as soon as another vault is active: a ViewModel built for one vault never outlives
+ * the switch, so it can never write to it again (nor to the other: it only knows its own store).
+ */
+internal class VaultScopes : ViewModel() {
+    private var vaultId: String? = null
+    private var store = ViewModelStore()
+
+    fun storeFor(id: String): ViewModelStore {
+        if (vaultId != id) {
+            store.clear()
+            store = ViewModelStore()
+            vaultId = id
+        }
+        return store
+    }
+
+    override fun onCleared() {
+        store.clear()
+    }
+}
+
+@Composable
+private fun VaultScoped(vault: VaultStore, content: @Composable () -> Unit) {
+    val scopes = viewModel<VaultScopes>()
+    val owner = remember(vault) {
+        val store = scopes.storeFor(vault.id)
+        object : ViewModelStoreOwner {
+            override val viewModelStore: ViewModelStore = store
+        }
+    }
+    CompositionLocalProvider(LocalViewModelStoreOwner provides owner) { content() }
+}
+
 @Composable
 fun AppNavHost(container: AppContainer) {
     val settingsStore = container.settings
     val settings by settingsStore.settings.collectAsStateWithLifecycle()
-    val vault = container.vault
+    // 2.0, task 2: the vault the app shows. Everything below is built again for another one (a switch): its screens,
+    // their ViewModels and the navigation, so no screen keeps the store of a vault that is no longer active.
+    val vault by container.activeVault.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     // The vault locks after the chosen time unused, on any screen (and before the notice is accepted too).
     VaultIdleTicker(vault)
@@ -118,6 +166,16 @@ fun AppNavHost(container: AppContainer) {
         return
     }
 
+    key(vault) {
+        VaultScoped(vault) { VaultNav(container, vault) }
+    }
+}
+
+@Composable
+private fun VaultNav(container: AppContainer, vault: VaultStore) {
+    val settingsStore = container.settings
+    val settings by settingsStore.settings.collectAsStateWithLifecycle()
+    val vaultSettings = settings.vault(vault.id)
     val nav = rememberNavController()
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
     val onTab = tabs.firstOrNull { it.route == route }?.route
@@ -157,12 +215,12 @@ fun AppNavHost(container: AppContainer) {
     if (masterState.open) {
         MasterChangedDialog(
             state = masterState,
-            autoBackupOn = settings.autoBackupUri != null,
+            autoBackupOn = vaultSettings.autoBackupUri != null,
             replacing = replacing,
-            pending = settings.autoBackupReplacePending,
-            lastError = settings.lastAutoBackupError,
-            lastBackupAt = settings.lastAutoBackupAt,
-            toldSinceRequest = settings.autoBackupReplaceTold.isNotEmpty(),
+            pending = vaultSettings.autoBackupReplacePending,
+            lastError = vaultSettings.lastAutoBackupError,
+            lastBackupAt = vaultSettings.lastAutoBackupAt,
+            toldSinceRequest = vaultSettings.autoBackupReplaceTold.isNotEmpty(),
             onReplace = { masterChanged.replace() },
             onRenew = {
                 masterChanged.close()
@@ -171,7 +229,8 @@ fun AppNavHost(container: AppContainer) {
             onClose = masterChanged::close,
         )
     }
-    CompositionLocalProvider(LocalOnMasterChanged provides masterChanged::changed) {
+    val switcher: @Composable () -> Unit = { VaultSwitcher(container, onOpen = { nav.navigate("vaults") }) }
+    CompositionLocalProvider(LocalOnMasterChanged provides container::onMasterChanged, LocalVaultSwitcher provides switcher) {
         Scaffold(
             bottomBar = {
                 NavigationBar {
@@ -239,7 +298,7 @@ fun AppNavHost(container: AppContainer) {
                 composable("contacts/c/{id}") { entry ->
                     ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
                 }
-                composable("tools") { ToolsScreen(settings, onTool = { route -> nav.navigate(route) }) }
+                composable("tools") { ToolsScreen(settings, vaultSettings.kdf, onTool = { route -> nav.navigate(route) }) }
                 // COV1-1: what is typed there and the result go by the «PIN y códigos» rule (lock time, multi-window, locks).
                 val lockAfterMs = { settingsStore.settings.value.lockAfter.ms }
                 // «Importar de otra app»: what it reads is dropped on any lock, on back and by the «PIN y códigos» rule.
@@ -247,11 +306,11 @@ fun AppNavHost(container: AppContainer) {
                     ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
                 }
                 composable("tools/text") {
-                    TextCryptoScreen(settings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
+                    TextCryptoScreen(vaultSettings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
                 }
                 composable("tools/file") {
                     FileCryptoScreen(
-                        settings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp,
+                        vaultSettings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp,
                         onBack = backOnce(nav), onOpenReceived = { nav.navigate("contacts/open") },
                     )
                 }
@@ -280,7 +339,7 @@ fun AppNavHost(container: AppContainer) {
                 composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = backOnce(nav)) }
                 composable("settings") {
                     SettingsScreen(
-                        settingsStore, vault, container.autoBackup,
+                        settingsStore, vault, container.autoBackup, container::releaseIfUnused,
                         onAbout = { nav.navigate("settings/about") },
                         onCheckBackup = { nav.navigate("settings/check-backup") },
                     )
@@ -288,6 +347,8 @@ fun AppNavHost(container: AppContainer) {
                 composable("settings/check-backup") {
                     BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
                 }
+                // 2.0, task 2: the vaults of the phone (choose, create, rename, order, delete, import as a new one).
+                composable("vaults") { VaultPickerScreen(container, onBack = backOnce(nav)) }
                 composable("settings/about") { AboutScreen(onBack = backOnce(nav), onLicenses = { nav.navigate("settings/licenses") }) }
                 composable("settings/licenses") { LicensesScreen(onBack = backOnce(nav)) }
             }

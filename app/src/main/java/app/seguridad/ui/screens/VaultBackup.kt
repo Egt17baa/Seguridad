@@ -129,7 +129,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                         if (store.changeMaster(pw)) {
                             // From here the password did change: nothing below may say it did not.
                             val fingerprintOff = try {
-                                BiometricVault.disable(context) // It wrapped the old data key.
+                                BiometricVault.disable(context, store.id) // It wrapped the old data key.
                                 true
                             } catch (e: Exception) {
                                 false
@@ -173,7 +173,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                         // A .sgbak copy or a JSON export: the store tells them apart by their first bytes.
                         // True when the import dropped a pending request to replace the old automatic copies (COPIAS-3).
                         val dropped = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { store.importReplace(it, pw) } }
-                        BiometricVault.disable(context)
+                        BiometricVault.disable(context, store.id)
                         if (dropped) "Copia importada. $AUTO_BACKUP_REPLACE_DROPPED" else "Copia importada"
                     } catch (e: CryptoFailure) {
                         e.message ?: "Contraseña incorrecta"

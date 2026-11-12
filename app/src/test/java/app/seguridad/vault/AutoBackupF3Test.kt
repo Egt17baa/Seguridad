@@ -1,5 +1,8 @@
 package app.seguridad.vault
 
+import app.seguridad.settings.VaultSettings
+import app.seguridad.settings.principal
+import app.seguridad.settings.updatePrincipal
 import app.seguridad.crypto.KdfParams
 import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
@@ -96,24 +99,24 @@ class AutoBackupF3Test {
     private var newVaultWired = false
 
     private suspend fun newSettings() = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined).apply {
-        load(); update { it.copy(autoBackupUri = folderUri) }
+        load(); updatePrincipal { it.copy(autoBackupUri = folderUri) }
     }
 
     private fun vaultStore(dir: File) = VaultStore(
         File(dir, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
         // As AppContainer (which also gives the folder back), from the moment a test makes a new vault (I1).
-        beforeCreate = { if (newVaultWired) settings.turnOffAutoBackupForNewVault() },
-        beforeReplace = { settings.forgetAutoBackupCopiesForImport() }, // as AppContainer
+        beforeCreate = { if (newVaultWired) settings.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID) },
+        beforeReplace = { settings.forgetAutoBackupCopiesForImport(PRIMARY_VAULT_ID) }, // as AppContainer
     )
 
     private fun TestScope.auto(s: VaultStore, target: BackupTarget) = AutoBackup(
-        s, folder = { settings.settings.value.autoBackupUri }, open = { target }, backgroundScope, now = { clock },
-        keep = { 5 }, lastCopyAt = { Long.MAX_VALUE }, copies = { settings.settings.value.currentAutoBackupCopies },
-        replacePending = { settings.settings.value.autoBackupReplacePending },
-        replaceTargets = { settings.settings.value.autoBackupReplaceTargets },
-        replaceTold = { settings.settings.value.autoBackupReplaceTold },
+        s, folder = { settings.settings.value.principal.autoBackupUri }, open = { target }, backgroundScope, now = { clock },
+        keep = { 5 }, lastCopyAt = { Long.MAX_VALUE }, copies = { settings.settings.value.principal.currentAutoBackupCopies },
+        replacePending = { settings.settings.value.principal.autoBackupReplacePending },
+        replaceTargets = { settings.settings.value.principal.autoBackupReplaceTargets },
+        replaceTold = { settings.settings.value.principal.autoBackupReplaceTold },
         // As AppContainer.recordAutoBackup: the vault's generation is read under the settings lock.
-        onResult = { r -> settings.update { it.withAutoBackupResult(r, s.generation) } }, zone = ZoneOffset.UTC,
+        onResult = { r -> settings.updatePrincipal { it.withAutoBackupResult(r, s.generation) } }, zone = ZoneOffset.UTC,
     ).also { runCurrent() }
 
     private fun note(id: String) = VaultEntry(id, EntryType.NOTE, "Nota $id", notes = "s $id", createdAt = 0, updatedAt = 0)
@@ -131,7 +134,7 @@ class AutoBackupF3Test {
 
     private suspend fun TestScope.threeCopies(s: VaultStore, t: GatedTarget): Set<String> {
         repeat(3) { i -> clock += 60_000; s.upsert(note("old$i")); settle() }
-        assertEquals(3, settings.settings.value.currentAutoBackupCopies.size)
+        assertEquals(3, settings.settings.value.principal.currentAutoBackupCopies.size)
         return t.idOfName.values.toSet()
     }
 
@@ -143,17 +146,17 @@ class AutoBackupF3Test {
         val (s, t, _) = setup()
         val a = auto(s, t)
         val old = threeCopies(s, t)
-        settings.turnOffAutoBackup()
+        settings.turnOffAutoBackup(PRIMARY_VAULT_ID)
         newVaultWired = true
         s.destroy()
         s.create("maestra-nueva".toCharArray())
-        settings.update { it.withFolderChosen(folderUri) }
+        settings.updatePrincipal { it.withFolderChosen(folderUri) }
         a.request()
         settle()
         repeat(6) { i -> clock += 60_000; s.upsert(note("nueva$i")); settle() } // More than «Copias que guardar» (5).
         assertTrue("No copy of the old vault deleted: ${t.deleted}", t.deleted.none { it in old })
         assertTrue(t.idOfName.values.containsAll(old))
-        assertEquals(5, settings.settings.value.currentAutoBackupCopies.size) // The new vault's own rotation still works.
+        assertEquals(5, settings.settings.value.principal.currentAutoBackupCopies.size) // The new vault's own rotation still works.
     }
 
     // m1 (CR re-review): the success text says which copies went: those from before the change of password. O-2 (final
@@ -174,16 +177,16 @@ class AutoBackupF3Test {
         val (s, t, _) = setup()
         auto(s, t)
         val old = threeCopies(s, t).toList()
-        settings.update { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
         t.failDelete = setOf(old.first())
         clock += 60_000; s.upsert(note("x")); settle()
-        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, settings.settings.value.lastAutoBackupError)
-        assertTrue("the request stays", settings.settings.value.autoBackupReplacePending)
-        assertEquals(listOf(old.first()), settings.settings.value.autoBackupReplaceTargets)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, settings.settings.value.principal.lastAutoBackupError)
+        assertTrue("the request stays", settings.settings.value.principal.autoBackupReplacePending)
+        assertEquals(listOf(old.first()), settings.settings.value.principal.autoBackupReplaceTargets)
         t.failDelete = emptySet()
         clock += 60_000; s.upsert(note("y")); settle()
-        assertNull(settings.settings.value.lastAutoBackupError)
-        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertNull(settings.settings.value.principal.lastAutoBackupError)
+        assertFalse(settings.settings.value.principal.autoBackupReplacePending)
         assertTrue("tried again and deleted", old.first() in t.deleted && old.first() !in t.idOfName.values)
     }
 
@@ -191,7 +194,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         val a = auto(s, t)
         val old = threeCopies(s, t).toList()
-        settings.update { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
         val gate = CompletableDeferred<Unit>()
         t.gate = gate
         clock += 60_000
@@ -200,9 +203,9 @@ class AutoBackupF3Test {
         assertFalse(gate.isCompleted)
         assertTrue("the import dropped the request", s.importReplace(text, "maestra-b".toCharArray()))
         gate.complete(Unit); runCurrent()
-        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, settings.settings.value.lastAutoBackupError)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, settings.settings.value.principal.lastAutoBackupError)
         assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, a.replaceOutcome.value?.error)
-        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertFalse(settings.settings.value.principal.autoBackupReplacePending)
         assertTrue("nothing of the old vault deleted", t.deleted.none { it in old })
     }
 
@@ -211,7 +214,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         val a = auto(s, t)
         val old = threeCopies(s, t).toList()
-        settings.update { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
         val gate = CompletableDeferred<Unit>()
         t.gate = gate
         clock += 60_000
@@ -224,17 +227,17 @@ class AutoBackupF3Test {
         val failed = try { s.importReplace(text, "maestra-b".toCharArray()); false } catch (e: Exception) { true }
         assertTrue(failed)
         assertTrue("the import got as far as replacing", s.generation > generation)
-        assertTrue("the request is back", settings.settings.value.autoBackupReplacePending)
+        assertTrue("the request is back", settings.settings.value.principal.autoBackupReplacePending)
         gate.complete(Unit); runCurrent()
-        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, settings.settings.value.lastAutoBackupError)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, settings.settings.value.principal.lastAutoBackupError)
         assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, a.replaceOutcome.value?.error)
-        assertTrue(settings.settings.value.autoBackupReplacePending)
+        assertTrue(settings.settings.value.principal.autoBackupReplacePending)
         assertTrue("nothing deleted by the stale copy", t.deleted.none { it in old })
         // The promise holds: the next copy deletes them.
         blocker.deleteRecursively()
         clock += 60_000; s.upsert(note("y")); settle()
-        assertFalse(settings.settings.value.autoBackupReplacePending)
-        assertNull(settings.settings.value.lastAutoBackupError)
+        assertFalse(settings.settings.value.principal.autoBackupReplacePending)
+        assertNull(settings.settings.value.principal.lastAutoBackupError)
         assertTrue("the targets went: ${t.deleted}", old.all { it in t.deleted && it !in t.idOfName.values })
     }
 
@@ -246,8 +249,8 @@ class AutoBackupF3Test {
         clock += 60_000
         val r = a.replaceOldCopies(old)
         assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, r.error)
-        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, settings.settings.value.lastAutoBackupError)
-        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertEquals(AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, settings.settings.value.principal.lastAutoBackupError)
+        assertFalse(settings.settings.value.principal.autoBackupReplacePending)
     }
 
     @Test fun `generation goes up with create, import and destroy, not with a failed import`() = runTest {
@@ -282,10 +285,10 @@ class AutoBackupF3Test {
         settle() // the copy starts: snapshot of the OLD vault, upload held
         assertFalse(gate.isCompleted)
         s.importReplace(text, "maestra-b".toCharArray())
-        assertTrue(settings.settings.value.currentAutoBackupCopies.isEmpty())
+        assertTrue(settings.settings.value.principal.currentAutoBackupCopies.isEmpty())
         gate.complete(Unit); runCurrent()
         val raceCopy = t.idOfName.getValue("seguridad-auto-20261026-100400.sgbak")
-        assertTrue("the old vault's copy is not listed", settings.settings.value.currentAutoBackupCopies.isEmpty())
+        assertTrue("the old vault's copy is not listed", settings.settings.value.principal.currentAutoBackupCopies.isEmpty())
         clock += 60_000
         val r = a.replaceOldCopies() // A6 with the imported vault open
         assertNull(r.error)
@@ -311,7 +314,7 @@ class AutoBackupF3Test {
         settle()
         assertTrue(imported)
         assertTrue("import done", s.state.value.let { it is VaultState.Unlocked && it.entries.any { e -> e.id == "B" } })
-        assertTrue("nothing of the old vault listed", settings.settings.value.currentAutoBackupCopies.isEmpty())
+        assertTrue("nothing of the old vault listed", settings.settings.value.principal.currentAutoBackupCopies.isEmpty())
         clock += 60_000
         val r = a.replaceOldCopies()
         assertNull(r.error)
@@ -320,7 +323,7 @@ class AutoBackupF3Test {
     }
 
     @Test fun `CADENAS-3 a stale result recorded after the import keeps neither its list nor clears a request`() {
-        val listed = Settings(autoBackupUri = folderUri, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folderUri, autoBackupReplacePending = true)
+        val listed = VaultSettings(autoBackupUri = folderUri, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folderUri, autoBackupReplacePending = true)
         val stale = AutoBackupResult(folderUri, 9L, null, listOf("a", "b"), replaced = true, generation = 1)
         val after = listed.withAutoBackupResult(stale, 2)
         assertEquals(listOf("a"), after.currentAutoBackupCopies)
@@ -367,22 +370,22 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         auto(s, t)
         threeCopies(s, t)
-        settings.update { it.copy(autoBackupReplacePending = true) }
-        val listBefore = settings.settings.value.currentAutoBackupCopies
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        val listBefore = settings.settings.value.principal.currentAutoBackupCopies
         // Make the save fail: vault.bin.tmp is a non-empty directory (works as root too).
         File(tmp.root, "a/vault.bin.tmp").apply { mkdirs(); File(this, "x").writeText("x") }
         val failed = try { s.importReplace(text, "maestra-b".toCharArray()); false } catch (e: Exception) { true }
         assertTrue(failed)
         assertTrue((s.state.value as VaultState.Unlocked).entries.none { it.id == "B" })
-        assertTrue("request kept", settings.settings.value.autoBackupReplacePending)
-        assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
+        assertTrue("request kept", settings.settings.value.principal.autoBackupReplacePending)
+        assertEquals(listBefore, settings.settings.value.principal.currentAutoBackupCopies)
     }
 
     @Test fun `COPIAS-3 a successful import says when it dropped a pending A6 request`() = runTest {
         val (s, _, text) = setup()
-        settings.update { it.copy(autoBackupReplacePending = true) }
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
         assertTrue(s.importReplace(text, "maestra-b".toCharArray()))
-        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertFalse(settings.settings.value.principal.autoBackupReplacePending)
         assertFalse("nothing pending: nothing dropped", s.importReplace(text, "maestra-b".toCharArray()))
     }
 
@@ -395,11 +398,11 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         auto(s, t)
         threeCopies(s, t)
-        settings.update { it.copy(autoBackupReplacePending = true) }
-        val listBefore = settings.settings.value.currentAutoBackupCopies
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        val listBefore = settings.settings.value.principal.currentAutoBackupCopies
         File(tmp.root, "a/vault.bin.tmp").apply { mkdirs(); File(this, "x").writeText("x") }
         assertTrue(runCatching { s.importReplace(text, "maestra-b".toCharArray()) }.isFailure)
-        val disk = reloaded().apply { load() }.settings.value
+        val disk = reloaded().apply { load() }.settings.value.principal
         assertTrue(disk.autoBackupReplacePending)
         assertEquals(listBefore, disk.currentAutoBackupCopies)
     }
@@ -408,19 +411,19 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         auto(s, t)
         threeCopies(s, t)
-        settings.update { it.copy(autoBackupReplacePending = true) }
-        val listBefore = settings.settings.value.currentAutoBackupCopies
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        val listBefore = settings.settings.value.principal.currentAutoBackupCopies
         fillSettingsDisk()
         val e = runCatching { s.importReplace(text, "maestra-b".toCharArray()) }.exceptionOrNull()
         assertTrue("$e", e is app.seguridad.crypto.CryptoFailure && e.message == IMPORT_SETTINGS_FAILED)
         assertTrue("still the old vault", (s.state.value as VaultState.Unlocked).entries.none { it.id == "B" })
-        assertTrue(settings.settings.value.autoBackupReplacePending)
-        assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
+        assertTrue(settings.settings.value.principal.autoBackupReplacePending)
+        assertEquals(listBefore, settings.settings.value.principal.currentAutoBackupCopies)
         // The JSON path and the .sgbak path abort alike.
         val copy = ByteArrayOutputStream().also { s.exportBackup(it) }.toByteArray()
         val e2 = runCatching { s.importReplace(copy.inputStream(), "maestra-a".toCharArray()) }.exceptionOrNull()
         assertTrue("$e2", e2 is app.seguridad.crypto.CryptoFailure && e2.message == IMPORT_SETTINGS_FAILED)
-        assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
+        assertEquals(listBefore, settings.settings.value.principal.currentAutoBackupCopies)
     }
 
     /** The process dies once the forget is on disk and before the vault is saved: the old vault is still the one. */
@@ -430,7 +433,7 @@ class AutoBackupF3Test {
         val s = VaultStore(
             File(tmp.root, "a/vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
             beforeReplace = {
-                val prepared = settings.forgetAutoBackupCopiesForImport()
+                val prepared = settings.forgetAutoBackupCopiesForImport(PRIMARY_VAULT_ID)
                 if (dying) throw IllegalStateException("process killed") // nothing after this runs
                 prepared
             },
@@ -465,7 +468,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         auto(s, t)
         val old = threeCopies(s, t)
-        settings.update { it.copy(autoBackupReplacePending = true) }
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
         var sawOldVaultOnDisk = false
         val importing = VaultStore(
             File(tmp.root, "a/vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
@@ -474,14 +477,14 @@ class AutoBackupF3Test {
                 val onDisk = VaultStore(File(tmp.root, "a/vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, kdf = { KdfParams(1024, 1, 1) })
                 onDisk.load(); onDisk.unlock("maestra-a".toCharArray())
                 sawOldVaultOnDisk = (onDisk.state.value as VaultState.Unlocked).entries.none { it.id == "B" }
-                settings.forgetAutoBackupCopiesForImport()
+                settings.forgetAutoBackupCopiesForImport(PRIMARY_VAULT_ID)
             },
         ).apply { load(); unlock("maestra-a".toCharArray()) }
         importing.importReplace(text, "maestra-b".toCharArray())
         assertTrue(sawOldVaultOnDisk)
         // The process dies here: nothing else runs. Restart from disk, open the imported vault and run A6.
         settings = reloaded().apply { load() }
-        assertTrue("the forget was on disk", settings.settings.value.currentAutoBackupCopies.isEmpty())
+        assertTrue("the forget was on disk", settings.settings.value.principal.currentAutoBackupCopies.isEmpty())
         val s2 = vaultStore(File(tmp.root, "a")).apply { load() }
         val a2 = auto(s2, t)
         s2.unlock("maestra-b".toCharArray())
@@ -497,8 +500,8 @@ class AutoBackupF3Test {
         val (s, t, _) = setup()
         auto(s, t)
         threeCopies(s, t)
-        settings.update { it.copy(autoBackupReplacePending = true) }
-        val listBefore = settings.settings.value.currentAutoBackupCopies
+        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        val listBefore = settings.settings.value.principal.currentAutoBackupCopies
         // A copy of another vault with an attachment, so moveIn has something to move and putBack something to undo.
         val other = VaultStore(File(tmp.newFolder("c"), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, kdf = { KdfParams(1024, 1, 1) })
             .apply { load(); create("maestra-c".toCharArray()); upsert(note("C")); assertTrue(addAttachment("C", java.io.ByteArrayInputStream(ByteArray(500) { it.toByte() }), "a.bin")) }
@@ -509,10 +512,10 @@ class AutoBackupF3Test {
         assertTrue(runCatching { s.importReplace(copy.inputStream(), "maestra-c".toCharArray()) }.isFailure)
         assertEquals("the attachments are as they were", attBefore, att.list()?.sorted() ?: emptyList<String>())
         assertTrue("still the old vault", (s.state.value as VaultState.Unlocked).entries.none { it.id == "C" })
-        val disk = reloaded().apply { load() }.settings.value
+        val disk = reloaded().apply { load() }.settings.value.principal
         assertTrue(disk.autoBackupReplacePending)
         assertEquals(listBefore, disk.currentAutoBackupCopies)
-        assertEquals(listBefore, settings.settings.value.currentAutoBackupCopies)
+        assertEquals(listBefore, settings.settings.value.principal.currentAutoBackupCopies)
     }
 
     @Test fun `M3 the unlisted text does not claim the old password opens them`() {

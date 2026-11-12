@@ -214,6 +214,17 @@ class VaultStore(
     private val beforeUpgrade: suspend () -> CopyResult? = { null },
     /** Writes the vault file; only the tests change it (a write that dies half way, [upgradeInterruptedKeepsV3]). */
     private val writeFile: (File, String) -> Unit = { f, text -> f.writeTextAtomically(text) },
+    /**
+     * 2.0, task 2: this vault's local id ([VaultRegistry]): names its fingerprint key and its settings. Never in the file.
+     */
+    val id: String = PRIMARY_VAULT_ID,
+    /**
+     * 2.0, task 2: whether this is the vault the app has active ([app.seguridad.AppContainer.activeVault]). Only the
+     * active one is ever opened: an unlock, an import or a new vault of another one (a screen that kept its store after a
+     * switch) leaves it locked and wipes the key, so two vaults are never open at the same time. Read at the moment the
+     * vault would open, under the same lock as [lock].
+     */
+    private val active: () -> Boolean = { true },
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -258,8 +269,6 @@ class VaultStore(
      */
     val needsMasterForContacts: StateFlow<Boolean> = _needsMaster.asStateFlow()
 
-    private val _pendingUpgrade = MutableStateFlow(false)
-
     /**
      * 2.0: true while the open vault is still of version 2 or 3 on disk, its version-4 file ready in memory, and the
      * user has to choose: export a copy first, or go on without one ([completeUpgrade] in both cases; Abogado Digital,
@@ -269,34 +278,23 @@ class VaultStore(
      * [exportBackup] exports the file on disk, which earlier versions open. A [lock] drops the version 4 (false again):
      * the file stays as it was, and the next unlock with the master password asks again.
      */
-    val pendingUpgrade: StateFlow<Boolean> = _pendingUpgrade.asStateFlow()
+    val pendingUpgrade: StateFlow<Boolean> get() = upgrades.asking
 
     /**
      * 2.0 (review M-5): whether, before [pendingUpgrade] asked, there was an automatic copies' folder and its copy before
      * the upgrade was not made; the dialog says so. Read when [pendingUpgrade] turns true.
      */
-    @Volatile var upgradeAutoCopyFailed: Boolean = false
-        private set
-
-    private val _upgradeDone = MutableStateFlow<String?>(null)
+    val upgradeAutoCopyFailed: Boolean get() = upgrades.autoCopyFailed
 
     /**
      * 2.0 (O-3 with a folder): the name of the copy made before the upgrade (a file name, never a path), after the
      * upgrade was saved with no question asked, until [upgradeDoneShown]: the vault screen tells it once that earlier
      * versions no longer open the vault nor its new copies. In memory only: a process death before it is shown loses it.
      */
-    val upgradeDone: StateFlow<String?> = _upgradeDone.asStateFlow()
+    val upgradeDone: StateFlow<String?> get() = upgrades.done
 
     /** The notice of [upgradeDone] was shown. */
-    fun upgradeDoneShown() {
-        _upgradeDone.value = null
-    }
-
-    /**
-     * The version-4 file [pendingUpgrade] waits to save, under the open data key; only set with the vault open. Written
-     * with [opening] held (and dropped by [lock], on the main thread); read under the mutex.
-     */
-    @Volatile private var upgrade: VaultFile? = null
+    fun upgradeDoneShown() = upgrades.doneShown()
 
     private var vault: VaultFile? = null
         set(value) {
@@ -323,6 +321,15 @@ class VaultStore(
      * may run on another thread (an import runs on Dispatchers.IO): a lock can never land between the two.
      */
     private val opening = Any()
+
+    /**
+     * 2.0: the upgrade to version 4 waiting in memory ([PendingUpgrade], review M-8): its file ([PendingUpgrade.file],
+     * what [pendingUpgrade] waits to save) is set and dropped with [opening] held, and read under the mutex.
+     */
+    private val upgrades = PendingUpgrade(opening)
+
+    /** The version-4 file waiting to be saved ([upgrades]); null when none waits. */
+    private val upgrade: VaultFile? get() = upgrades.file
 
     suspend fun load() = mutex.withLock {
         if (_state.value != VaultState.Loading) return@withLock
@@ -442,10 +449,8 @@ class VaultStore(
             throw e
         }
         synchronized(opening) {
-            if (data == null || epoch != since) {
-                upgrade = null
-                _pendingUpgrade.value = false
-                upgradeAutoCopyFailed = false
+            if (data == null || epoch != since || !active()) {
+                upgrades.drop()
                 key.fill(0)
                 // [v] is the vault in memory, and on disk: even an import from «Crea tu bóveda» cut by leaving the app
                 // shows it locked, never «Crea tu bóveda» again (which would refuse a new import and set it aside, BOV-2).
@@ -456,10 +461,8 @@ class VaultStore(
             dek = key
             lastUse = elapsed()
             onClockSeen(now())
-            upgrade = upgraded
             // Shown only once there is a choice to make ([unlock], review I-1); an import that replaced the vault ends it.
-            _pendingUpgrade.value = false
-            upgradeAutoCopyFailed = false
+            upgrades.openedWith(upgraded)
             _state.value = VaultState.Unlocked(data)
         }
     }
@@ -468,19 +471,19 @@ class VaultStore(
      * Creates a new vault; only with none readable (the «Crea tu bóveda» screen), else [IllegalStateException] and
      * nothing changes. Once Argon2id has run, a cancelled caller does not stop it: the vault is created (BOV-3).
      */
-    suspend fun create(master: CharArray) {
+    suspend fun create(master: CharArray, name: String = "") {
         val since = epoch
-        mutex.withLock { withContext(NonCancellable) { createLocked(master, since) } }
+        mutex.withLock { withContext(NonCancellable) { createLocked(master, since, name) } }
     }
 
-    private suspend fun createLocked(master: CharArray, since: Int) {
+    private suspend fun createLocked(master: CharArray, since: Int, name: String) {
         // Never over a readable vault (an import that finished while the screen still offered to create one): it would
         // be set aside as if damaged (BOV-2).
         if (vault != null) {
             if (_state.value is VaultState.NoVault) _state.value = VaultState.Locked
             throw IllegalStateException("A vault already exists")
         }
-        val (v, key) = derive { VaultCrypto.create(master, now(), kdf()) }
+        val (v, key) = derive { VaultCrypto.create(master, now(), kdf(), name = name) }
         nextGeneration() // Before anything is turned off or written: a copy still being written is not this vault's.
         try {
             beforeCreate()
@@ -511,26 +514,9 @@ class VaultStore(
         // key is wrapped again already): wiped now, not after the copy (review M-1). The caller wipes it too.
         master.fill('\u0000')
         // With the mutex free, so the copy can export the file still on disk; not cut by the caller leaving (the copy
-        // runs in AutoBackup's scope anyway).
-        withContext(NonCancellable) {
-            val copy = try {
-                beforeUpgrade()
-            } catch (e: Exception) {
-                CopyResult.Failed(AUTO_BACKUP_FAILED) // No copy: the user chooses.
-            }
-            if (copy is CopyResult.Saved && completeUpgradeLocked(since)) {
-                _upgradeDone.value = copy.where // O-3 with a folder: told once.
-                return@withContext
-            }
-            // Now there is a choice to make (review I-1): unless the vault locked meanwhile, which dropped the upgrade.
-            synchronized(opening) {
-                if (upgrade != null && epoch == since) {
-                    // A folder whose copy was not made (M-5); a copy made whose save then failed is not that.
-                    upgradeAutoCopyFailed = copy != null && copy !is CopyResult.Saved
-                    _pendingUpgrade.value = true
-                }
-            }
-        }
+        // runs in AutoBackup's scope anyway). Then there is a choice to make (review I-1), unless the vault locked
+        // meanwhile, which dropped the upgrade.
+        upgrades.afterUnlock(copyBefore = beforeUpgrade, save = { completeUpgradeLocked(since) }, stillOpen = { epoch == since })
     }
 
     /** True when it opened a vault of version 2 or 3 whose version 4 waits in memory (not saved yet). */
@@ -578,8 +564,7 @@ class VaultStore(
             synchronized(opening) {
                 // Saved: from here the file is the 4, also if a lock came after the save.
                 vault = next
-                upgrade = null
-                _pendingUpgrade.value = false
+                upgrades.saved()
             }
             true
         }
@@ -672,15 +657,19 @@ class VaultStore(
         dek?.fill(0)
         dek = null
         // 2.0: an upgrade not saved yet is dropped; the file stays the 2 or 3 it is.
-        upgrade = null
-        _pendingUpgrade.value = false
-        upgradeAutoCopyFailed = false
+        upgrades.drop()
         if (vault != null && _state.value is VaultState.Unlocked) {
             lastLockReason = reason
             lastLockInForeground = inForeground()
             _state.value = VaultState.Locked
         }
     }
+
+    /**
+     * 2.0, task 2: returns once whatever holds the mutex now (an unlock, a save, an import) has ended; a switch to another
+     * vault calls it after [lock], so nothing of this vault is still being written when the other one is shown.
+     */
+    suspend fun awaitIdle() = mutex.withLock { }
 
     fun touch() {
         lastUse = elapsed()
@@ -896,6 +885,16 @@ class VaultStore(
      */
     private fun needsMaster(file: VaultFile?): Boolean =
         file != null && (file.format != VaultFile.FORMAT || (file.version != VaultFile.VERSION && file.version != VaultFile.VERSION_3))
+
+    /**
+     * 2.0, task 2: gives the open vault the name [name] (trimmed), saved inside it, encrypted ([VaultData.name]); the
+     * registry never holds it. False if the vault is locked or already has that name, so nothing was saved; over
+     * [VaultLimits.VAULT_NAME_MAX] code points, [VaultLimitExceeded] and nothing saved.
+     */
+    suspend fun rename(name: String): Boolean {
+        val next = name.trim()
+        return modifyData { data -> if (data.name == next) null else data.copy(name = next) }
+    }
 
     /** Deletes the entry; its attachment files go with the collection after the save. */
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }
@@ -1220,7 +1219,7 @@ class VaultStore(
     suspend fun destroy() = mutex.withLock {
         nextGeneration()
         lock()
-        _upgradeDone.value = null // Nothing to tell of a vault that is gone.
+        upgrades.doneShown() // Nothing to tell of a vault that is gone.
         withContext(io) {
             file.delete()
             // What keepAside() left (vault.bin.bad-<time>, att.bad-<time>) goes too: «He olvidado la contraseña» says so.

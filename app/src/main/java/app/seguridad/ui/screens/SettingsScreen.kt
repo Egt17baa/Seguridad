@@ -54,6 +54,8 @@ import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.ThemeMode
 import app.seguridad.settings.availableOn
 import app.seguridad.settings.settingsEditable
+import app.seguridad.settings.vault
+import app.seguridad.settings.withVault
 import app.seguridad.settings.withFolderChosen
 import app.seguridad.tools.ABOUT_SUMMARY
 import app.seguridad.tools.ABOUT_WARNINGS_SHORT
@@ -156,10 +158,19 @@ private val backupDate: DateTimeFormatter = DateTimeFormatter.ofLocalizedDateTim
  * given back when turned off or replaced), how many copies to keep, and how the last one went.
  */
 @Composable
-private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBackup: AutoBackup, snackbar: SnackbarHostState) {
+private fun AutoBackupSection(
+    store: SettingsStore,
+    vault: VaultStore,
+    autoBackup: AutoBackup,
+    releaseIfUnused: (String) -> Unit,
+    snackbar: SnackbarHostState,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val settings by store.settings.collectAsStateWithLifecycle()
+    val all by store.settings.collectAsStateWithLifecycle()
+    // 2.0, task 2: the copies of the vault shown, by its local id.
+    val id = vault.id
+    val settings = all.vault(id)
     val vaultState by vault.state.collectAsStateWithLifecycle()
     val folder = settings.autoBackupUri
     // Copies are only made from the open vault (each attachment is checked): while locked, one waits for it.
@@ -182,21 +193,22 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
                 return@launch
             }
             val chosen = uri.toString()
-            val previous = store.settings.value.autoBackupUri
-            val hadRequest = store.settings.value.autoBackupReplacePending
+            val previous = store.settings.value.vault(id).autoBackupUri
+            val hadRequest = store.settings.value.vault(id).autoBackupReplacePending
             try {
-                // The copies listed stay with the folder they are in ([Settings.currentAutoBackupCopies]): the same one
-                // chosen again goes on rotating them (and keeps a request to replace them), another one starts with none.
-                store.update { it.withFolderChosen(chosen) }
+                // The copies listed stay with the folder they are in ([VaultSettings.currentAutoBackupCopies]): the same
+                // one chosen again goes on rotating them (and keeps a request to replace them), another one starts with none.
+                store.updateVault(id) { it.withFolderChosen(chosen) }
             } catch (e: Exception) {
-                if (chosen != previous) SafBackupTarget.releaseFolder(resolver, chosen)
+                // Given back unless another vault has its copies there (2.0).
+                if (chosen != previous) releaseIfUnused(chosen)
                 snackbar.showSnackbar("No se pudo guardar el ajuste")
                 return@launch
             }
-            if (previous != null && previous != chosen) SafBackupTarget.releaseFolder(resolver, previous)
+            if (previous != null && previous != chosen) releaseIfUnused(previous)
             autoBackup.request()
             // A request to replace the old copies that the new folder dropped is said, not lost in silence.
-            val dropped = if (hadRequest && !store.settings.value.autoBackupReplacePending) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
+            val dropped = if (hadRequest && !store.settings.value.vault(id).autoBackupReplacePending) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
             snackbar.showSnackbar(
                 when (vault.state.value) {
                     // Locked only if it locked in the instant since the check above: the copy still waits for it.
@@ -239,7 +251,7 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
         Choices(AUTO_BACKUP_KEEP_CHOICES, settings.autoBackupKeep, { "Conservar las $it últimas" }, enabled = { editable }) { k ->
             if (settingsEditable(vault.state.value)) scope.launch {
                 try {
-                    store.update { it.copy(autoBackupKeep = k) }
+                    store.updateVault(id) { it.copy(autoBackupKeep = k) }
                 } catch (e: Exception) {
                     snackbar.showSnackbar("No se pudo guardar el ajuste")
                 }
@@ -276,8 +288,8 @@ private fun AutoBackupSection(store: SettingsStore, vault: VaultStore, autoBacku
                 if (settingsEditable(vault.state.value)) scope.launch {
                     try {
                         // From the write itself (T11-c): a replacement that finished just before is not «dropped».
-                        val hadRequest = store.turnOffAutoBackup()
-                        SafBackupTarget.releaseFolder(context.contentResolver, folder)
+                        val hadRequest = store.turnOffAutoBackup(id)
+                        releaseIfUnused(folder)
                         snackbar.showSnackbar(
                             "Copia automática desactivada. Las copias ya hechas siguen en la carpeta." +
                                 if (hadRequest) " $AUTO_BACKUP_REPLACE_DROPPED" else "",
@@ -384,17 +396,17 @@ fun ReplaceOutcomeDialog(text: String, failed: Boolean, onClose: () -> Unit) {
  * each visit and whenever the vault changes state (a new master password or an import turns the fingerprint off).
  */
 @Composable
-private fun FingerprintKeySection(vaultState: VaultState) {
+private fun FingerprintKeySection(vaultId: String, vaultState: VaultState) {
     val context = LocalContext.current
-    val level by produceState<KeyLevel?>(null, vaultState) {
-        value = withContext(Dispatchers.IO) { if (BiometricVault.enabled(context)) BiometricVault.keyLevel(context) else null }
+    val level by produceState<KeyLevel?>(null, vaultId, vaultState) {
+        value = withContext(Dispatchers.IO) { if (BiometricVault.enabled(context, vaultId)) BiometricVault.keyLevel(context, vaultId) else null }
     }
     // R2: decided once per visit to Ajustes (a lock or unlock does not take it away), from the key as it was then.
-    val offerHint by produceState(false) {
+    val offerHint by produceState(false, vaultId) {
         value = withContext(Dispatchers.IO) {
-            BiometricVault.enabled(context) && shouldOfferStrongBoxHint(
+            BiometricVault.enabled(context, vaultId) && shouldOfferStrongBoxHint(
                 hasStrongBox = BiometricVault.hasStrongBox(context),
-                current = BiometricVault.keyLevel(context),
+                current = BiometricVault.keyLevel(context, vaultId),
                 strongBoxFailedBefore = BiometricVault.strongBoxFailed(context),
                 hintShown = BiometricVault.strongBoxHintShown(context),
             )
@@ -414,7 +426,14 @@ private fun FingerprintKeySection(vaultState: VaultState) {
 /** The Ajustes tab: lock, clipboard, Argon2id cost and theme; the vault's copies and master password; Acerca de. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBackup, onAbout: () -> Unit, onCheckBackup: () -> Unit) {
+fun SettingsScreen(
+    store: SettingsStore,
+    vault: VaultStore,
+    autoBackup: AutoBackup,
+    releaseIfUnused: (String) -> Unit,
+    onAbout: () -> Unit,
+    onCheckBackup: () -> Unit,
+) {
     VaultIdleLock(vault)
     val settings by store.settings.collectAsStateWithLifecycle()
     val vaultState by vault.state.collectAsStateWithLifecycle()
@@ -461,8 +480,9 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                 MoreInfo { Hint(CLIPBOARD_CLEAR_HINT) }
             }
             Section("Coste de Argon2id para lo nuevo") {
-                Choices(KdfProfile.entries, settings.kdf, { it.label }, enabled = { editable && (it != KdfProfile.HIGH || highAvailable) }) { v ->
-                    if (settingsEditable(vault.state.value)) change { it.copy(kdf = v) }
+                // 2.0, task 2: the cost is each vault's (the one shown).
+                Choices(KdfProfile.entries, settings.vault(vault.id).kdf, { it.label }, enabled = { editable && (it != KdfProfile.HIGH || highAvailable) }) { v ->
+                    if (settingsEditable(vault.state.value)) change { s -> s.withVault(vault.id) { it.copy(kdf = v) } }
                 }
                 if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
                 // On view: what the high cost means, and why its chip is off (code review of 1.4.2).
@@ -470,7 +490,7 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                 if (!highAvailable) Hint(KDF_HIGH_UNAVAILABLE)
                 MoreInfo {
                         Hint(
-                            "Se usa al crear la bóveda, al cambiar la contraseña maestra y al cifrar textos y archivos. Lo ya cifrado guarda su coste. " +
+                            "Es de cada bóveda. Se usa al crear esta bóveda, al cambiar su contraseña maestra y, con ella elegida, al cifrar textos y archivos. Lo ya cifrado guarda su coste. " +
                                 "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria: muchos móviles " +
                                 "económicos no llegan, así que úsalo solo si vas a abrir tus copias en móviles como este.",
                         )
@@ -497,8 +517,8 @@ fun SettingsScreen(store: SettingsStore, vault: VaultStore, autoBackup: AutoBack
                 )
                 MoreInfo { Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia y la exportación .json de la 1.0.") }
             }
-            AutoBackupSection(store, vault, autoBackup, snackbar)
-            FingerprintKeySection(vaultState)
+            AutoBackupSection(store, vault, autoBackup, releaseIfUnused, snackbar)
+            FingerprintKeySection(vault.id, vaultState)
             Section("Información") {
                 TextButton(onClick = onAbout) { Text("Acerca de, licencias y avisos") }
             }

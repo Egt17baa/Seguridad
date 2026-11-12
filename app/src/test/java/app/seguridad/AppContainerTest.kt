@@ -1,5 +1,7 @@
 package app.seguridad
 
+import app.seguridad.settings.principal
+import app.seguridad.settings.updatePrincipal
 import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.VaultState
@@ -37,14 +39,14 @@ class AppContainerTest {
         val released = mutableListOf<String>()
         val c = AppContainer(tmp.root, cache, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)
         c.settings.load()
-        c.settings.update { it.copy(autoBackupUri = folder, lastAutoBackupAt = 5L) }
+        c.settings.updatePrincipal { it.copy(autoBackupUri = folder, lastAutoBackupAt = 5L) }
         c.vault.load()
         assertEquals(VaultState.NoVault, c.vault.state.value)
         c.vault.create("maestra-larga".toCharArray())
         assertTrue(c.vault.state.value is VaultState.Unlocked)
-        assertNull(c.settings.settings.value.autoBackupUri)
-        assertNull(c.settings.settings.value.lastAutoBackupAt)
-        assertTrue(c.settings.settings.value.autoBackupOffForNewVault)
+        assertNull(c.settings.settings.value.principal.autoBackupUri)
+        assertNull(c.settings.settings.value.principal.lastAutoBackupAt)
+        assertTrue(c.settings.settings.value.principal.autoBackupOffForNewVault)
         assertEquals(listOf(folder), released)
     }
 
@@ -100,7 +102,7 @@ class AppContainerTest {
         c.settings.load()
         c.vault.load()
         c.vault.create("maestra-larga".toCharArray())
-        assertFalse(c.settings.settings.value.autoBackupOffForNewVault)
+        assertFalse(c.settings.settings.value.principal.autoBackupOffForNewVault)
         assertTrue(released.isEmpty())
     }
 
@@ -109,23 +111,23 @@ class AppContainerTest {
         c.settings.load()
         c.vault.load()
         c.vault.create("maestra-larga".toCharArray())
-        c.settings.update { it.copy(autoBackupUri = folder, autoBackupCopies = listOf("doc-1"), autoBackupCopiesFolder = folder) }
+        c.settings.updatePrincipal { it.copy(autoBackupUri = folder, autoBackupCopies = listOf("doc-1"), autoBackupCopiesFolder = folder) }
         val other = AppContainer(File(tmp.root, "otro").apply { mkdirs() }, cache, appVersion = "test", appScope = backgroundScope)
         other.settings.load()
         other.vault.load()
         other.vault.create("otra-maestra-larga".toCharArray())
         c.vault.importReplace(other.vault.exportText()!!, "otra-maestra-larga".toCharArray())
         // Copies stay on, to the same folder, but the old vault's are never rotated away.
-        assertEquals(folder, c.settings.settings.value.autoBackupUri)
-        assertTrue(c.settings.settings.value.autoBackupCopies.isEmpty())
+        assertEquals(folder, c.settings.settings.value.principal.autoBackupUri)
+        assertTrue(c.settings.settings.value.principal.autoBackupCopies.isEmpty())
         // A wrong password changes nothing, the list included.
-        c.settings.update { it.copy(autoBackupCopies = listOf("doc-2"), autoBackupCopiesFolder = folder) }
+        c.settings.updatePrincipal { it.copy(autoBackupCopies = listOf("doc-2"), autoBackupCopiesFolder = folder) }
         try {
             c.vault.importReplace(other.vault.exportText()!!, "mala".toCharArray())
         } catch (e: app.seguridad.crypto.CryptoFailure) {
             // expected
         }
-        assertEquals(listOf("doc-2"), c.settings.settings.value.autoBackupCopies)
+        assertEquals(listOf("doc-2"), c.settings.settings.value.principal.autoBackupCopies)
     }
 
     // ---- Audit 1.3.0, F2: BOV-1 ----

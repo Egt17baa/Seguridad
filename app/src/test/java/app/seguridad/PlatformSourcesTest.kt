@@ -50,7 +50,9 @@ class PlatformSourcesTest {
         val calls = File(dir, "app/src/main/java/app/seguridad").walk().filter { it.isFile && it.name.endsWith(".kt") }.flatMap { f ->
             Regex("""rememberDocumentPicker\(([^\n]*)""").findAll(f.readText()).map { f.name to it.groupValues[1] }
         }.filterNot { (_, args) -> args.isBlank() }.toList()
-        assertEquals(29, calls.size) // 2.0, task 1: +1, the copy before the upgrade to format v4 (VaultUpgrade.kt).
+        // 2.0, task 1: +1, the copy before the upgrade to format v4 (VaultUpgrade.kt); task 2: +1, «Importar como bóveda
+        // nueva» (VaultPickerScreen.kt, PickerPlace.IMPORT_COPY).
+        assertEquals(30, calls.size)
         for ((file, args) in calls) assertTrue("$file: $args", Regex("""place = (PickerPlace\.[A-Z_]+|null)""").containsMatchIn(args))
         assertTrue("place = PickerPlace.IMPORT_OTHER" in code("ui/screens/ImportScreen.kt"))
         val settings = code("ui/screens/SettingsScreen.kt")

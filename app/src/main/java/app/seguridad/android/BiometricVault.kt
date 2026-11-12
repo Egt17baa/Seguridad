@@ -35,6 +35,7 @@ import app.seguridad.tools.promptErrorKind
 import app.seguridad.tools.shouldMarkStrongBoxFailed
 import app.seguridad.tools.shouldSayEnableInterrupted
 import app.seguridad.tools.unlockBlamesStrongBox
+import app.seguridad.vault.perVaultName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -68,7 +69,7 @@ private const val KEY_BLOB = "wrapped"
 // The current key was created with setIsStrongBoxBacked(true): KeyInfo cannot say so before Android 12. Goes with the key.
 private const val KEY_IN_STRONGBOX = "key_strongbox"
 
-// About the phone, not the key: they survive disable(). Not secrets.
+// About the phone, not the key: they survive disable(), and are kept in the first vault's PREFS for every vault (2.0). Not secrets.
 private const val KEY_STRONGBOX_FAILED = "strongbox_failed"
 private const val KEY_STRONGBOX_HINT_SHOWN = "strongbox_hint_shown"
 
@@ -84,12 +85,17 @@ private const val PROMPT_GONE_WAIT_MS = 2_000L
  * Wraps the vault's data key with an AES key that lives in the Android Keystore (StrongBox when the phone has it, else
  * the processor's secure zone) and can only be used right after a strong biometric check. Adding a new fingerprint
  * invalidates it. The wrapped key never leaves the phone and is not part of exported vaults.
+ *
+ * 2.0, task 2: one key per vault, by its local id ([app.seguridad.vault.VaultInfo]): the first vault keeps [ALIAS] and
+ * [PREFS] as they were (its key still opens it after the upgrade to v4, AppNameTest), the others get `<ALIAS>_<id>` and
+ * `<PREFS>_<id>` ([perVaultName]). Each key wraps only its vault's data key, which opens no other vault. What is known
+ * about StrongBox on this phone is shared. One queue for all of them ([KeyOpsQueue]).
  */
 object BiometricVault {
     fun available(context: Context): Boolean =
         BiometricManager.from(context).canAuthenticate(BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
 
-    fun enabled(context: Context): Boolean = prefs(context).contains(KEY_BLOB)
+    fun enabled(context: Context, vaultId: String): Boolean = prefs(context, vaultId).contains(KEY_BLOB)
 
     /** The phone declares a StrongBox Keymaster/KeyMint (Android 9 or later). */
     fun hasStrongBox(context: Context): Boolean =
@@ -97,25 +103,32 @@ object BiometricVault {
             context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
 
     /** StrongBox failed on this phone once: enabling goes straight to the processor's secure zone. */
-    fun strongBoxFailed(context: Context): Boolean = prefs(context).getBoolean(KEY_STRONGBOX_FAILED, false)
+    fun strongBoxFailed(context: Context): Boolean = phonePrefs(context).getBoolean(KEY_STRONGBOX_FAILED, false)
 
-    fun strongBoxHintShown(context: Context): Boolean = prefs(context).getBoolean(KEY_STRONGBOX_HINT_SHOWN, false)
+    fun strongBoxHintShown(context: Context): Boolean = phonePrefs(context).getBoolean(KEY_STRONGBOX_HINT_SHOWN, false)
 
-    fun markStrongBoxHintShown(context: Context) = prefs(context).edit { putBoolean(KEY_STRONGBOX_HINT_SHOWN, true) }
+    fun markStrongBoxHintShown(context: Context) = phonePrefs(context).edit { putBoolean(KEY_STRONGBOX_HINT_SHOWN, true) }
 
-    private fun markStrongBoxFailed(context: Context) = prefs(context).edit { putBoolean(KEY_STRONGBOX_FAILED, true) }
+    private fun markStrongBoxFailed(context: Context) = phonePrefs(context).edit { putBoolean(KEY_STRONGBOX_FAILED, true) }
 
-    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    /** The wrapped key of the vault [vaultId] and where it was made: [PREFS] for the first vault, `<PREFS>_<id>` for the others. */
+    private fun prefs(context: Context, vaultId: String) = context.getSharedPreferences(perVaultName(PREFS, vaultId), Context.MODE_PRIVATE)
+
+    /** What is known about StrongBox on this phone, for every vault: in [PREFS], where it was before 2.0. */
+    private fun phonePrefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** The Keystore alias of the vault [vaultId]'s key: [ALIAS] for the first vault, `<ALIAS>_<id>` for the others. */
+    private fun aliasOf(vaultId: String) = perVaultName(ALIAS, vaultId)
 
     private fun keyStore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
-    private fun deleteKey() {
-        runCatching { keyStore().deleteEntry(ALIAS) }
+    private fun deleteKey(vaultId: String) {
+        runCatching { keyStore().deleteEntry(aliasOf(vaultId)) }
     }
 
     /** The key of 1.1 and 1.2.2, plus setIsStrongBoxBacked(true) when [strongBox]; nothing else changes. */
-    private fun createKey(strongBox: Boolean): SecretKey {
-        val spec = KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+    private fun createKey(vaultId: String, strongBox: Boolean): SecretKey {
+        val spec = KeyGenParameterSpec.Builder(aliasOf(vaultId), KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
@@ -133,7 +146,7 @@ object BiometricVault {
     }
 
     /** Where [key] is; [KeyLevel.UNKNOWN] if KeyInfo cannot be read. Never throws. */
-    private fun levelOf(context: Context, key: SecretKey): KeyLevel = try {
+    private fun levelOf(context: Context, vaultId: String, key: SecretKey): KeyLevel = try {
         val info = SecretKeyFactory.getInstance(key.algorithm, "AndroidKeyStore").getKeySpec(key, KeyInfo::class.java) as KeyInfo
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             when (info.securityLevel) {
@@ -144,15 +157,15 @@ object BiometricVault {
             }
         } else {
             @Suppress("DEPRECATION")
-            legacyKeyLevel(info.isInsideSecureHardware, prefs(context).getBoolean(KEY_IN_STRONGBOX, false))
+            legacyKeyLevel(info.isInsideSecureHardware, prefs(context, vaultId).getBoolean(KEY_IN_STRONGBOX, false))
         }
     } catch (e: Exception) {
         KeyLevel.UNKNOWN
     }
 
     /** Where the fingerprint key is, for Ajustes; [KeyLevel.UNKNOWN] without a key or if it cannot be read. Never throws. */
-    fun keyLevel(context: Context): KeyLevel = try {
-        (keyStore().getKey(ALIAS, null) as? SecretKey)?.let { levelOf(context, it) } ?: KeyLevel.UNKNOWN
+    fun keyLevel(context: Context, vaultId: String): KeyLevel = try {
+        (keyStore().getKey(aliasOf(vaultId), null) as? SecretKey)?.let { levelOf(context, vaultId, it) } ?: KeyLevel.UNKNOWN
     } catch (e: Exception) {
         KeyLevel.UNKNOWN
     }
@@ -163,19 +176,19 @@ object BiometricVault {
      * failure, its keys wiped). It runs to the end even if the caller is cancelled, so it is never skipped: once it
      * returns, [enabled] is false (CRY-A02 turns the fingerprint off before creating or deleting the vault).
      */
-    suspend fun disable(context: Context) {
+    suspend fun disable(context: Context, vaultId: String) {
         val app = context.applicationContext
-        withContext(NonCancellable) { queue.run(KeyOp.DISABLE) { clear(app) } }
+        withContext(NonCancellable) { queue.run(KeyOp.DISABLE) { clear(app, vaultId) } }
     }
 
     /** [disable] itself, from an operation that already holds the queue (on its thread). */
-    private fun clear(context: Context) {
-        prefs(context).edit {
+    private fun clear(context: Context, vaultId: String) {
+        prefs(context, vaultId).edit {
             remove(KEY_IV)
             remove(KEY_BLOB)
             remove(KEY_IN_STRONGBOX)
         }
-        deleteKey()
+        deleteKey(vaultId)
     }
 
     // Every operation on ALIAS, one at a time from its first step to its last (1.4.0); the Keystore calls run on its
@@ -287,7 +300,7 @@ object BiometricVault {
      * One run of [enable]: both copies of the data key, and what is known about it. [job], [observer], [prompt] and [gone]
      * belong to the main thread; the rest is written by the operation, one step after another, and read once it ended.
      */
-    private class EnableFlow(val activity: FragmentActivity, val keys: List<ByteArray>, val onDone: (String?) -> Unit) {
+    private class EnableFlow(val activity: FragmentActivity, val vaultId: String, val keys: List<ByteArray>, val onDone: (String?) -> Unit) {
         var job: Job? = null
         var observer: LifecycleEventObserver? = null
 
@@ -332,7 +345,7 @@ object BiometricVault {
      * for the new activity, if nothing was stored. The whole of it, both cycles included, is one [KeyOp.ENABLE] in the queue: a [disable]
      * meanwhile cancels it, and it ends as a failure that marks nothing new and says nothing. Call it on the main thread.
      */
-    fun enable(activity: FragmentActivity, dataKey: ByteArray, onDone: (String?) -> Unit) {
+    fun enable(activity: FragmentActivity, vaultId: String, dataKey: ByteArray, onDone: (String?) -> Unit) {
         if (!enabling.compareAndSet(false, true)) {
             dataKey.fill(0) // Another enable is running: this one is ignored, and its copy must not linger.
             return
@@ -340,7 +353,7 @@ object BiometricVault {
         val first = firstAttempt(hasStrongBox(activity), Build.VERSION.SDK_INT, strongBoxFailed(activity))
         // The fallback's own copy, taken before the first attempt can wipe [dataKey]; the operation wipes both.
         val spare = if (nextAfterFailure(first, cancelled = false) != null) dataKey.copyOf() else null
-        val flow = EnableFlow(activity, listOfNotNull(dataKey, spare), onDone)
+        val flow = EnableFlow(activity, vaultId, listOfNotNull(dataKey, spare), onDone)
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_DESTROY) {
                 // Never a silent cancel on a re-creation: the new activity tells the user to tap again. Only recorded here:
@@ -376,12 +389,12 @@ object BiometricVault {
             queue.run(KeyOp.ENABLE) {
                 try {
                     // A wrapped key left behind would point at the Keystore key replaced below.
-                    clear(flow.activity)
+                    clear(flow.activity, flow.vaultId)
                     enableSteps(flow, first, dataKey, spare)
                 } finally {
                     // Still in the queue, also when cancelled: no other operation runs before the key made here is gone.
                     flow.keys.forEach { it.fill(0) }
-                    if (!flow.stored) deleteKey()
+                    if (!flow.stored) deleteKey(flow.vaultId)
                 }
             }
         } catch (e: CancellationException) {
@@ -402,7 +415,7 @@ object BiometricVault {
             val failed = attempt(flow, level, key) ?: return
             // This attempt did not store the key ([Failed.failure] null: the user cancelled). Falls back once, or ends.
             key.fill(0)
-            deleteKey()
+            deleteKey(flow.vaultId)
             val next = nextAfterFailure(level, cancelled = failed.failure == null)
             val retry = fallback
             if (next == null || retry == null || failed.failure == null) {
@@ -436,7 +449,7 @@ object BiometricVault {
         val inStrongBox = level == KeyLevel.STRONGBOX
         // StrongBox key generation can take hundreds of ms: here, on the queue's thread, never on the main one.
         val cipher = try {
-            Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, createKey(inStrongBox)) }
+            Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, createKey(flow.vaultId, inStrongBox)) }
         } catch (e: Exception) {
             return Failed(StrongBoxFailure.KEY_SETUP, "Este móvil no permite guardar la clave con huella")
         }
@@ -458,7 +471,7 @@ object BiometricVault {
                 currentCoroutineContext().ensureActive()
                 val stored = try {
                     val wrapped = c.doFinal(key)
-                    prefs(activity).edit {
+                    prefs(activity, flow.vaultId).edit {
                         putString(KEY_IV, Base64.getEncoder().encodeToString(c.iv))
                         putString(KEY_BLOB, Base64.getEncoder().encodeToString(wrapped))
                         if (inStrongBox) putBoolean(KEY_IN_STRONGBOX, true) else remove(KEY_IN_STRONGBOX)
@@ -529,7 +542,7 @@ object BiometricVault {
      * activity's automatic start is not refused, and waits in the queue behind it, so a second Cipher.init on StrongBox
      * never runs alongside the first. A [disable] waits for an unlock; it cancels nothing.
      */
-    fun unlock(activity: FragmentActivity, onKey: (ByteArray) -> Unit, onError: (String) -> Unit) {
+    fun unlock(activity: FragmentActivity, vaultId: String, onKey: (ByteArray) -> Unit, onError: (String) -> Unit) {
         val ticket = unlocking.start() ?: return
         var observer: LifecycleEventObserver? = null
         // Undispatched: it runs until its operation waits in the queue, so the observer is added before it can end.
@@ -537,7 +550,7 @@ object BiometricVault {
             var key: ByteArray? = null // Released by the fingerprint: always handed over or wiped, never dropped.
             var message: String? = null
             try {
-                queue.run(KeyOp.UNLOCK) { unlockSteps(activity, onKey = { key = it }, onError = { message = it }) }
+                queue.run(KeyOp.UNLOCK) { unlockSteps(activity, vaultId, onKey = { key = it }, onError = { message = it }) }
             } catch (e: CancellationException) {
                 // The activity went away: nothing to say (a key already released is still handed over, below).
             } catch (e: Exception) {
@@ -576,9 +589,9 @@ object BiometricVault {
      * [unlock] itself, in its operation (queue's thread, the prompt on the main one). Calls [onKey] or [onError] at most
      * once, as its last step; neither when it ends with nothing to say (a cancel, no prompt possible).
      */
-    private suspend fun unlockSteps(activity: FragmentActivity, onKey: (ByteArray) -> Unit, onError: (String) -> Unit) {
+    private suspend fun unlockSteps(activity: FragmentActivity, vaultId: String, onKey: (ByteArray) -> Unit, onError: (String) -> Unit) {
         // Read in the operation: the state the last one left.
-        val p = prefs(activity)
+        val p = prefs(activity, vaultId)
         val iv = p.getString(KEY_IV, null)
         val blob = p.getString(KEY_BLOB, null)
         if (iv == null || blob == null) return onError("La huella no está activada")
@@ -588,14 +601,14 @@ object BiometricVault {
         var key: SecretKey? = null
 
         // Created in StrongBox (recorded when enabling) or, if that record is missing, as KeyInfo reports it.
-        fun strongBoxKey() = p.getBoolean(KEY_IN_STRONGBOX, false) || key?.let { levelOf(activity, it) } == KeyLevel.STRONGBOX
+        fun strongBoxKey() = p.getBoolean(KEY_IN_STRONGBOX, false) || key?.let { levelOf(activity, vaultId, it) } == KeyLevel.STRONGBOX
 
         // A StrongBox key failing where the key is used ([unlockBlamesStrongBox]): recorded and turned off, so
         // re-enabling (with the master password) goes to the processor's secure zone. Anything else: [message], as in 1.2.2.
         fun failedAt(failure: UnlockFailure, message: String) {
             if (unlockBlamesStrongBox(failure) && strongBoxKey()) {
                 markStrongBoxFailed(activity)
-                clear(activity)
+                clear(activity, vaultId)
                 onError(FINGERPRINT_NOT_RESPONDING)
             } else {
                 onError(message)
@@ -605,11 +618,11 @@ object BiometricVault {
         // M-5: loading the Keystore and Cipher.init (a begin on the StrongBox chip, tens to hundreds of ms on some phones)
         // run off the main thread. The CryptoObject contract is unchanged: the cipher is initialised before authenticate.
         val cipher = try {
-            val k = keyStore().getKey(ALIAS, null) as? SecretKey ?: throw KeyPermanentlyInvalidatedException()
+            val k = keyStore().getKey(aliasOf(vaultId), null) as? SecretKey ?: throw KeyPermanentlyInvalidatedException()
             key = k
             Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, k, GCMParameterSpec(128, ivBytes)) }
         } catch (e: KeyPermanentlyInvalidatedException) {
-            clear(activity)
+            clear(activity, vaultId)
             return onError("Has cambiado las huellas del móvil: entra con la contraseña maestra y vuelve a activarla")
         } catch (e: Exception) {
             // Broad on purpose: any failure to start a StrongBox key leads to the TEE on re-enable, the safe direction.

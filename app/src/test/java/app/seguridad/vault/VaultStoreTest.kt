@@ -1250,10 +1250,10 @@ class VaultStoreTest {
         val src = vaultScreenCode()
         // The mark is set BEFORE disable(): if disable ever threw, the button would still be gone for this screen.
         assertTrue(
-            Regex("""launchUnlockWithKey\(store, key, onWrongKey = \{\s*fingerprintStale = true\s*BiometricVault\.disable\(context\)\s*\}\)""").containsMatchIn(src),
+            Regex("""launchUnlockWithKey\(store, key, onWrongKey = \{\s*fingerprintStale = true\s*BiometricVault\.disable\(context, store\.id\)\s*\}\)""").containsMatchIn(src),
         )
         // The button and the automatic prompt follow `bio`, which is read again after the failure and is off at once.
-        assertTrue("val bio = !fingerprintStale && BiometricVault.enabled(context) && store.biometricAllowed" in src)
+        assertTrue("val bio = !fingerprintStale && BiometricVault.enabled(context, store.id) && store.biometricAllowed" in src)
         assertTrue("if (bio) OutlinedButton(onClick = ::withFingerprint" in src)
         assertTrue("LaunchedEffect(Unit) { if (bio) withFingerprint() }" in src)
     }
