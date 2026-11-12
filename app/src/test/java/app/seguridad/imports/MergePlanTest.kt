@@ -6,7 +6,8 @@ import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.vault.VaultData
 import app.seguridad.vault.AttachmentRef
-import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
+import app.seguridad.vault.BACKUP_V3_MAX_ENTRY_BYTES
+import app.seguridad.vault.VaultLimits
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MAX_TAGS
 import app.seguridad.vault.PasswordChange
@@ -997,10 +998,34 @@ class MergePlanTest {
     }
 
     @Test fun anEstimateOverTheLimitSaysByHowMuch() {
-        val big = (0 until 100).map { saved("id$it", EntryType.NOTE, "N$it", notes = "x".repeat(64 * 1024)) }
+        // 2.0: against the cap of the copy a v4 vault gets (marker 3, 33 MiB), each entry within its own 64 KiB.
+        val big = (0 until 600).map { saved("id$it", EntryType.NOTE, "N$it", notes = "x".repeat(60_000)) }
         val over = estimatedOverBytes(big)
         assertTrue(over > 0)
-        assertEquals(estimatedVaultFileBytes(big) - BACKUP_MAX_ENTRY_BYTES, over)
+        assertEquals(estimatedVaultFileBytes(big) - BACKUP_V3_MAX_ENTRY_BYTES, over)
         assertNotEquals(0L, over)
+        // What passed the 6 MB of marker 2 fits now.
+        assertEquals(0, estimatedOverBytes((0 until 120).map { saved("id$it", EntryType.NOTE, "N$it", notes = "x".repeat(60_000)) }))
+    }
+
+    /** 2.0, ruling T1-3: an item over the 64 KiB of one entry is in the plan as not fitting, with its own text. */
+    @Test fun anItemOverTheEntryLimitIsSkippedInThePlan() {
+        // Quotes take two bytes each in JSON: 40 000 of them are 80 KB, though the note has 40 000 characters.
+        val big = item(3, importedEntry(EntryType.NOTE, "Grande", notes = "\"".repeat(40_000)))
+        val bigDuplicate = item(4, importedEntry(EntryType.NOTE, "Nota", notes = "x".repeat(66_000)))
+        val small = item(5, importedEntry(EntryType.NOTE, "Pequeña", notes = "x".repeat(60_000)))
+        val p = plan(read(big, bigDuplicate, small), listOf(saved("n", EntryType.NOTE, "Nota", notes = "x".repeat(66_000))))
+        assertEquals(listOf(5), p.newItems.map { it.index })
+        assertEquals(emptyList<Duplicate>(), p.duplicates)
+        assertEquals(
+            listOf(Skipped(3, "Grande", SkipReason.ENTRY_TOO_BIG), Skipped(4, "Nota", SkipReason.ENTRY_TOO_BIG), Skipped(99, "Passkey", SkipReason.PASSKEY)),
+            p.skipped,
+        )
+        assertEquals(SKIP_ENTRY_TOO_BIG, SkipReason.ENTRY_TOO_BIG.text)
+        assertEquals("Pasa de 64 KB, el máximo de una entrada", SKIP_ENTRY_TOO_BIG)
+        // The limit is the vault's own: what the import keeps is within it, the stored form (tags and dates) included.
+        assertTrue(VaultLimits.ENTRY_MAX_JSON_BYTES == 64 * 1024)
+        assertTrue(entryFitsImported(small.entry, listOf("una-carpeta"), ImportFormat.BITWARDEN))
+        assertFalse(entryFitsImported(big.entry, emptyList(), ImportFormat.BITWARDEN))
     }
 }

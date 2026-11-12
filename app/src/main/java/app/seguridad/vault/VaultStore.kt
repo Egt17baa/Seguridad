@@ -772,18 +772,23 @@ class VaultStore(
      *   import even if the vault is opened again before this runs; the copy, if made, stays);
      * - [ApplyResult.TooBig] when the vault would no longer fit in a `.sgbak` ([writeBackup]'s limits, owner's decision
      *   (a)): the attachments plus two over [BACKUP_MAX_ENTRIES] (counted first, an import adds none), the JSON bytes of
-     *   the entries' texts alone ([escapedTextBytes], counted without building anything) over [BACKUP_MAX_ENTRY_BYTES]
-     *   in Base64 (before anything is encoded or encrypted), and then the exact
-     *   encrypted file over [BACKUP_MAX_ENTRY_BYTES] or the whole copy over [BACKUP_MAX_TOTAL_BYTES].
-     * Nothing is written in either case. The data key does not change, so the fingerprint stays on (A11 and CRY-A02:
+     *   the entries' texts alone ([escapedTextBytes], counted without building anything) over the cap of the copy the
+     *   vault would get ([backupMaxEntryBytes]: 33 MiB with marker 3, ruling T1-2) in Base64 (before anything is encoded
+     *   or encrypted), its data over [VaultLimits.VAULT_MAX_DATA_BYTES] once [fitted] (2.0), and then the exact encrypted
+     *   file over that cap or the whole copy over [BACKUP_MAX_TOTAL_BYTES];
+     * - [ApplyResult.EntryTooBig] (2.0) when an entry the import changes would pass the limits of one entry: «Reemplazar»
+     *   joining two notes past 64 KiB (an item too big by itself is already out of the plan, ruling T1-3).
+     * Nothing is written in any of these cases, and none of the vault's limits ([fittedForSave]) is left to throw. The data key does not change, so the fingerprint stays on (A11 and CRY-A02:
      * no clock reset, as the mark only rises, as with any save; no biometric call). A failed write throws, as [modify] does, with nothing saved. A plan
      * that changes nothing (every item skipped) is [ApplyResult.Done] with zeros and writes nothing.
      * Accepted cost (ruling R69, code-review 5): the vault is encoded twice under the mutex ([accept]'s exact size check
-     * and the write), bounded by [BACKUP_MAX_ENTRY_BYTES] and only on «Importar».
+     * and the write), bounded by the copy's cap and only on «Importar»; so is the second [fitted] of the data.
      */
     suspend fun applyImport(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, sinceLock: Int? = null): ApplyResult {
         var result: ApplyResult = ApplyResult.Stale
         var attachmentRefs: List<AttachmentRef> = emptyList()
+        // The copy this vault would get (ruling T1-2): marker 3 for a 4, the only kind that saves an import.
+        var cap = backupMaxEntryBytes(VaultFile.VERSION)
         modify(
             change = change@{ list ->
                 if (_revision.value != plan.revision) return@change null
@@ -796,22 +801,34 @@ class VaultStore(
                     result = ApplyResult.TooBig(overBytes = 0, overFiles = overFiles)
                     return@change null
                 }
+                cap = backupMaxEntryBytes(vault?.version ?: VaultFile.VERSION)
                 val merged = mergedEntries(plan, default, overrides, list, now(), { UUID.randomUUID().toString() })
                 val low = (escapedTextBytes(merged) * 4 + 2) / 3
-                if (low > BACKUP_MAX_ENTRY_BYTES) {
-                    result = ApplyResult.TooBig(overBytes = low - BACKUP_MAX_ENTRY_BYTES)
+                if (low > cap) {
+                    result = ApplyResult.TooBig(overBytes = low - cap)
                     return@change null
                 }
                 val changed = merged.filterIndexed { i, e -> i >= list.size || e !== list[i] }
                 result = ApplyResult.Done(added = merged.size - list.size, replaced = changed.size - (merged.size - list.size))
                 if (changed.isEmpty()) return@change null // Everything skipped: nothing to save, no new copy.
+                // 2.0: the vault's own limits, each with a result of its own, never a failed save (ruling T1-3).
+                if (changed.any { it.entryLimitProblem() != null }) {
+                    result = ApplyResult.EntryTooBig
+                    return@change null
+                }
+                val data = (_state.value as? VaultState.Unlocked)?.data ?: VaultData(entries = list)
+                val size = jsonBytes(data.copy(entries = merged + data.trash).fitted())
+                if (size > VaultLimits.VAULT_MAX_DATA_BYTES) {
+                    result = ApplyResult.TooBig(overBytes = size - VaultLimits.VAULT_MAX_DATA_BYTES)
+                    return@change null
+                }
                 checkCanHold(list, changed)
                 merged
             },
             accept = { next ->
                 val json = utf8Length(VaultCrypto.encodeFile(next))
                 val files = withContext(io) { attachmentRefs.sumOf { attachments.fileOf(it.id).length() } }
-                val over = maxOf(json - BACKUP_MAX_ENTRY_BYTES, BACKUP_MARKER_BYTES + json + files - BACKUP_MAX_TOTAL_BYTES)
+                val over = maxOf(json - cap, BACKUP_MARKER_BYTES + json + files - BACKUP_MAX_TOTAL_BYTES)
                 if (over > 0) result = ApplyResult.TooBig(overBytes = over)
                 over <= 0
             },
@@ -1167,7 +1184,7 @@ class VaultStore(
 
 /**
  * Largest JSON export read (a real one is a few hundred KB): a huge file must not exhaust memory. 2.0: 40 MiB, in
- * proportion to the 32 MiB a vault may take in a copy with marker 3 ([BACKUP_V3_MAX_ENTRY_BYTES]).
+ * proportion to the 33 MiB a vault may take in a copy with marker 3 ([BACKUP_V3_MAX_ENTRY_BYTES]).
  */
 const val VAULT_IMPORT_MAX_BYTES = 40 * 1024 * 1024
 

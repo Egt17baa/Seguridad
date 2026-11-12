@@ -96,14 +96,45 @@ class BackupV3Test {
         assertEquals(null, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray())))
     }
 
-    @Test fun marker3EntryLimitIs32MiB() {
-        assertEquals(32L * 1024 * 1024, BACKUP_V3_MAX_ENTRY_BYTES)
-        assertEquals("Un archivo de la copia pasa de 32 MB", BACKUP_ENTRY_TOO_BIG_V3)
+    @Test fun marker3EntryLimitIs33MiB() {
+        // 2.0, ruling T1-1: 33 MiB, so a vault at its 24 MiB of data always fits (Base64 and the file around it).
+        assertEquals(33L * 1024 * 1024, BACKUP_V3_MAX_ENTRY_BYTES)
+        assertEquals("Un archivo de la copia pasa de 33 MB", BACKUP_ENTRY_TOO_BIG_V3)
+        assertEquals("La bóveda no cabe en una copia (100 MB en total, 33 MB por archivo y 2 000 archivos)", BACKUP_DOES_NOT_FIT_V3)
         val seven = ByteArray(7 * 1024 * 1024) { 'a'.code.toByte() }
         assertEquals(null, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to seven)))
         val over = ByteArray((BACKUP_V3_MAX_ENTRY_BYTES + 1).toInt()) { 'a'.code.toByte() }
         assertEquals(BACKUP_ENTRY_TOO_BIG_V3, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to over)))
         assertEquals(40 * 1024 * 1024, VAULT_IMPORT_MAX_BYTES)
+    }
+
+    /** 2.0, ruling T1-1: a vault at exactly [VaultLimits.VAULT_MAX_DATA_BYTES] of data is saved, copied and read back. */
+    @Test fun aVaultAtTheDataLimitFitsInACopy() = runTest {
+        val tag = "0".repeat(32) // As long as any vaultTag: the size does not depend on its value.
+        val entries = (0 until 400).map { VaultEntry("id%03d".format(it), EntryType.NOTE, "E%03d".format(it), notes = "x".repeat(60_000), createdAt = 0, updatedAt = 0) }.toMutableList()
+        var deficit = VaultLimits.VAULT_MAX_DATA_BYTES - jsonBytes(VaultData(entries = entries, vaultTag = tag))
+        var i = 0
+        while (deficit > 0) {
+            val more = minOf(deficit, 4_000L).toInt()
+            entries[i] = entries[i].copy(notes = entries[i].notes + "x".repeat(more))
+            deficit -= more
+            i++
+        }
+        assertEquals(VaultLimits.VAULT_MAX_DATA_BYTES.toLong(), jsonBytes(VaultData(entries = entries, vaultTag = tag)))
+        val s = store("limite").apply { load(); create(master.toCharArray()) }
+        s.addAll(entries)
+        val saved = (s.state.value as VaultState.Unlocked).data
+        assertEquals(VaultLimits.VAULT_MAX_DATA_BYTES.toLong(), jsonBytes(saved))
+        val copy = ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
+        // The vault file in the copy passes 32 MiB: the old cap would have refused it.
+        val vaultJson = ZipInputStream(ByteArrayInputStream(copy)).use { z ->
+            generateSequence { z.nextEntry }.first { it.name == BACKUP_VAULT }.let { z.readBytes() }
+        }
+        assertTrue("${vaultJson.size}", vaultJson.size > 32L * 1024 * 1024 && vaultJson.size <= BACKUP_V3_MAX_ENTRY_BYTES)
+        val back = store("vuelta").apply { load() }
+        back.importReplace(ByteArrayInputStream(copy), master.toCharArray())
+        assertEquals(400, back.entries().size)
+        assertEquals(saved.entries.map { it.notes.length }, (back.state.value as VaultState.Unlocked).data.entries.map { it.notes.length })
     }
 
     @Test fun marker2EntryLimitStays6MB() {

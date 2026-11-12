@@ -24,6 +24,9 @@ const val SKIP_NOT_TOTP = "Código que no es TOTP (HOTP, Steam…)"
 /** The 2FA of a login that is not read (1.4.2): the login itself enters, and the list must not say otherwise. */
 const val SKIP_LOGIN_TOTP_BROKEN = "2FA dañado o no válido (el acceso se lee sin él)"
 
+/** 2.0 (ruling T1-3): an item whose entry would pass the 64 KiB of one entry ([app.seguridad.vault.VaultLimits]). */
+const val SKIP_ENTRY_TOO_BIG = "Pasa de 64 KB, el máximo de una entrada"
+
 /** The file passes [IMPORT_MAX_BYTES]: refused before anything in it is decoded. */
 const val IMPORT_FILE_TOO_BIG = "El archivo pasa de 16 MB. Clavero no lo lee."
 
@@ -344,6 +347,10 @@ const val IMPORT_CHOOSE_COPY_PLACE_BUTTON = "Elegir dónde guardarla"
 const val IMPORT_COPY_CANCELLED = "Sin la copia de antes de importar no se importa: no se ha importado nada."
 const val IMPORT_COPY_DOCUMENT_FAILED =
     "No se pudo escribir la copia antes de importar en el archivo elegido. ¿Queda espacio? No se ha importado nada."
+
+/** 2.0, ApplyResult.EntryTooBig: «Reemplazar» would join two entries past the 64 KiB of one. */
+const val IMPORT_REPLACE_TOO_BIG =
+    "Al reemplazar, una entrada pasaría de 64 KB. Elige «Conservar los dos» o «Saltar» para ella. No se ha importado nada."
 
 /** ApplyResult.Stale: the vault changed (or locked) between the preview and the save. */
 const val IMPORT_VAULT_CHANGED =

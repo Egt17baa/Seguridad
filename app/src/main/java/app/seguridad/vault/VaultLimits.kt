@@ -166,13 +166,17 @@ internal fun VaultData.fittedForSave(previous: VaultData?): VaultData {
 }
 
 private fun VaultEntry.checkLimits() {
-    if (fields.size > VaultLimits.FIELDS_MAX) throw VaultLimitExceeded(TOO_MANY_FIELDS)
-    if (fields.any { it.name.codePointLength() > VaultLimits.FIELD_NAME_MAX }) throw VaultLimitExceeded(FIELD_NAME_TOO_LONG)
-    if (fields.any { it.value.codePointLength() > VaultLimits.FIELD_VALUE_MAX }) throw VaultLimitExceeded(FIELD_VALUE_TOO_LONG)
-    if (history.size > VaultLimits.HISTORY_MAX_VERSIONS || history.isNotEmpty() && historyBytes() > VaultLimits.HISTORY_MAX_BYTES) {
-        throw VaultLimitExceeded(HISTORY_TOO_BIG)
-    }
-    if (bytesWithoutHistory() > VaultLimits.ENTRY_MAX_JSON_BYTES) throw VaultLimitExceeded(ENTRY_TOO_BIG)
+    entryLimitProblem()?.let { throw VaultLimitExceeded(it) }
+}
+
+/** Which limit of one entry this entry passes (its fixed text), or null when it is within all of them. */
+internal fun VaultEntry.entryLimitProblem(): String? = when {
+    fields.size > VaultLimits.FIELDS_MAX -> TOO_MANY_FIELDS
+    fields.any { it.name.codePointLength() > VaultLimits.FIELD_NAME_MAX } -> FIELD_NAME_TOO_LONG
+    fields.any { it.value.codePointLength() > VaultLimits.FIELD_VALUE_MAX } -> FIELD_VALUE_TOO_LONG
+    history.size > VaultLimits.HISTORY_MAX_VERSIONS || history.isNotEmpty() && historyBytes() > VaultLimits.HISTORY_MAX_BYTES -> HISTORY_TOO_BIG
+    bytesWithoutHistory() > VaultLimits.ENTRY_MAX_JSON_BYTES -> ENTRY_TOO_BIG
+    else -> null
 }
 
 /**

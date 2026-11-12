@@ -6,7 +6,10 @@ import app.seguridad.tools.qr.SPECIAL_SCHEMES
 import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.schemeOf
-import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
+import app.seguridad.vault.VaultFile
+import app.seguridad.vault.VaultLimits
+import app.seguridad.vault.backupMaxEntryBytes
+import app.seguridad.vault.entryLimitProblem
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MAX_TAGS
 import app.seguridad.vault.VaultEntry
@@ -67,8 +70,17 @@ sealed interface ApplyResult {
     data object Stale : ApplyResult
 
     /**
-     * The vault would no longer fit in a `.sgbak` copy (spec «Límites de la bóveda resultante»): nothing was saved.
-     * [overBytes] is how much the vault file passes [BACKUP_MAX_ENTRY_BYTES] (or the copy [app.seguridad.vault.BACKUP_MAX_TOTAL_BYTES]);
+     * 2.0: «Reemplazar» would join a duplicate and the vault's entry past the limits of one entry (64 KiB,
+     * [VaultLimits.ENTRY_MAX_JSON_BYTES]): nothing was saved; «Conservar los dos» or «Saltar» for it does fit. An item too
+     * big by itself never gets here: [planMerge] leaves it out.
+     */
+    data object EntryTooBig : ApplyResult
+
+    /**
+     * The vault would no longer fit in a `.sgbak` copy (spec «Límites de la bóveda resultante»), or (2.0) its data would
+     * pass [VaultLimits.VAULT_MAX_DATA_BYTES]: nothing was saved. [overBytes] is how much the vault file passes the cap of
+     * the copy it would get ([backupMaxEntryBytes]; or the copy [app.seguridad.vault.BACKUP_MAX_TOTAL_BYTES], or the data
+     * its limit);
      * when the file is refused before it is encrypted, it is a lower bound. [overFiles] is how many files the copy
      * would have beyond [app.seguridad.vault.BACKUP_MAX_ENTRIES] (attachments: an import adds none, but it is checked).
      */
@@ -93,7 +105,9 @@ sealed interface ApplyResult {
  * - a `NOTE` matches by its title's key (as a login's) and its text trimmed.
  * Only entries of the same type are compared, so `IDENTITY`, `CONTACT` and `SEED` entries never match. The file is
  * checked against itself first: an item equal to an earlier one is only counted ([MergePlan.repeatedInFile]). Linear
- * in the size of both lists (hash maps, no pairwise comparison).
+ * in the size of both lists (hash maps, no pairwise comparison). 2.0 (ruling T1-3): before anything, an item whose entry
+ * would pass the limits of one entry ([entryFitsImported]) never enters, as a new item or a duplicate: it goes to
+ * [MergePlan.skipped] with [SkipReason.ENTRY_TOO_BIG], with the reader's, in the file's order.
  */
 fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): MergePlan {
     val inVault = Matcher<String>(codesOfEveryType = true)
@@ -106,7 +120,12 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
     val newItems = ArrayList<ImportedItem>()
     val duplicates = ArrayList<Duplicate>()
     var repeated = 0
+    val tooBig = ArrayList<Skipped>()
     for (item in read.items) {
+        if (!entryFitsImported(item.entry, item.folders, read.format)) {
+            tooBig += Skipped(item.index, plainReportText(item.entry.title), SkipReason.ENTRY_TOO_BIG)
+            continue
+        }
         if (inFile.find(item.entry) != null) {
             repeated++
             continue
@@ -124,7 +143,26 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
     }
     val budget = TagBudget(existing.flatMapTo(HashSet()) { it.tags })
     for (item in newItems) budget.tagsFor(item.folders, read.format)
-    return MergePlan(revision, read.format, newItems, duplicates, repeated, read.skipped, read.becameNotes, budget.created)
+    val skipped = if (tooBig.isEmpty()) read.skipped else (read.skipped + tooBig).sortedBy { it.index }
+    return MergePlan(revision, read.format, newItems, duplicates, repeated, skipped, read.becameNotes, budget.created)
+}
+
+/** The longest id the app gives an entry (a UUID) and the widest dates: the stored form is never larger than this. */
+private val WIDEST_ID = "0".repeat(36)
+
+/**
+ * Whether the entry an import makes of [entry] is within the limits of one entry ([VaultLimits.ENTRY_MAX_JSON_BYTES],
+ * [entryLimitProblem]), measured as it would be stored: with an id of a UUID's length, the widest dates and every tag of
+ * [folders] ([importTags]; the budget can only give fewer). The lengths of its texts in JSON are counted first
+ * ([escapedTextBytes], nothing built), so an item clearly over the limit, hostile or not, is never encoded.
+ */
+internal fun entryFitsImported(entry: VaultEntry, folders: List<String>, format: ImportFormat): Boolean {
+    val stored = entry.copy(
+        id = WIDEST_ID, createdAt = Long.MAX_VALUE, updatedAt = Long.MAX_VALUE, tags = importTags(folders, format),
+        passwordHistory = emptyList(), attachments = emptyList(),
+    )
+    if (escapedTextBytes(listOf(stored)) > VaultLimits.ENTRY_MAX_JSON_BYTES) return false
+    return stored.entryLimitProblem() == null
 }
 
 /**
@@ -337,19 +375,27 @@ fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: Zon
  * The preview's estimate of the vault file holding [entries]: `ceil(plainJsonBytes * 4 / 3) + 4096`, the entries' JSON
  * in Base64 (as [app.seguridad.vault.VaultCrypto] stores them) plus room for the nonce, the tag and the file's other
  * fields, so it is never below the real file. If the JSON bytes of the entries' texts alone ([escapedTextBytes], counted
- * without building anything) already give an estimate over [BACKUP_MAX_ENTRY_BYTES], that one is returned without
+ * without building anything) already give an estimate over [cap], that one is returned without
  * encoding them: the answer (too big) is the same, and a hostile import (text made of characters JSON escapes as six
  * bytes each) is never turned into a larger string first. [app.seguridad.vault.VaultStore.applyImport]'s exact check of
  * the encrypted file decides.
  */
-fun estimatedVaultFileBytes(entries: List<VaultEntry>): Long {
+fun estimatedVaultFileBytes(entries: List<VaultEntry>, cap: Long = IMPORT_COPY_CAP): Long {
     val low = base64Estimate(escapedTextBytes(entries))
-    if (low > BACKUP_MAX_ENTRY_BYTES) return low
+    if (low > cap) return low
     return base64Estimate(utf8Length(appJson.encodeToString(entries)))
 }
 
-/** How much [estimatedVaultFileBytes] passes [BACKUP_MAX_ENTRY_BYTES]; 0 when it fits. */
-fun estimatedOverBytes(entries: List<VaultEntry>): Long = (estimatedVaultFileBytes(entries) - BACKUP_MAX_ENTRY_BYTES).coerceAtLeast(0)
+/**
+ * The cap an import is estimated against: that of the copy of a version-4 vault, the only one an import is saved into
+ * (2.0: a vault of version 2 or 3 saves nothing until it passes to 4). [app.seguridad.vault.VaultStore.applyImport]
+ * checks the vault's own ([backupMaxEntryBytes], ruling T1-2).
+ */
+private val IMPORT_COPY_CAP = backupMaxEntryBytes(VaultFile.VERSION)
+
+/** How much [estimatedVaultFileBytes] passes [cap] (the copy's, [IMPORT_COPY_CAP]); 0 when it fits. */
+fun estimatedOverBytes(entries: List<VaultEntry>, cap: Long = IMPORT_COPY_CAP): Long =
+    (estimatedVaultFileBytes(entries, cap) - cap).coerceAtLeast(0)
 
 private fun base64Estimate(plain: Long): Long = (plain * 4 + 2) / 3 + 4096
 

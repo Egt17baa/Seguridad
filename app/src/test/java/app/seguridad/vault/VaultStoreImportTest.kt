@@ -157,11 +157,11 @@ class VaultStoreImportTest {
 
     @Test fun tooBigIsRefused() = runTest {
         val s = opened()
-        // Many small entries: their texts alone fit, but with the field names the encrypted file does not, so only the
-        // exact measure of the file refuses them.
-        val items = (0 until 20_000).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "x".repeat(160)), emptyList()) }
+        // Many small entries: their texts alone fit a copy with marker 3 (33 MiB), but with the field names the data
+        // passes the vault's 24 MiB (2.0), so only the exact measure refuses them: TooBig, never a failed save.
+        val items = (0 until 20_000).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "x".repeat(1_200)), emptyList()) }
         val p = plan(s, read(*items.toTypedArray()))
-        assertTrue("Passes the pre-check", (escapedTextBytes(merged(s, p)) * 4 + 2) / 3 <= BACKUP_MAX_ENTRY_BYTES)
+        assertTrue("Passes the pre-check", (escapedTextBytes(merged(s, p)) * 4 + 2) / 3 <= BACKUP_V3_MAX_ENTRY_BYTES)
         assertTrue("The preview says so too", estimatedOverBytes(merged(s, p)) > 0)
         val bytes = vaultFile.readBytes()
         val revision = s.revision.value
@@ -175,13 +175,13 @@ class VaultStoreImportTest {
     /** I-1: text JSON escapes six times over is refused from its count, before anything is encoded or encrypted. */
     @Test fun aHeavilyEscapedImportIsRefusedBeforeEncoding() = runTest {
         val s = opened()
-        // About 4.7 M control characters, a CSV of about 5 MB: 28 MB of JSON if it were encoded.
-        val items = (0 until 75).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "\u0001".repeat(63_000)), emptyList()) }
+        // 5 M control characters, a CSV of about 5 MB: 30 MB of JSON if it were encoded (each entry 60 KB, within its 64 KiB).
+        val items = (0 until 500).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "\u0001".repeat(10_000)), emptyList()) }
         val p = plan(s, read(*items.toTypedArray()))
         val bytes = vaultFile.readBytes()
         val r = s.applyImport(p, DuplicateChoice.SKIP, emptyMap())
         // Exactly the pre-check's figure (the exact measure of an encrypted file would give a larger one).
-        assertEquals(ApplyResult.TooBig(overBytes = (escapedTextBytes(merged(s, p)) * 4 + 2) / 3 - BACKUP_MAX_ENTRY_BYTES), r)
+        assertEquals(ApplyResult.TooBig(overBytes = (escapedTextBytes(merged(s, p)) * 4 + 2) / 3 - BACKUP_V3_MAX_ENTRY_BYTES), r)
         assertArrayEquals(bytes, vaultFile.readBytes())
         assertFalse(File(tmp.root, "vault.bin.tmp").exists())
     }
@@ -243,11 +243,60 @@ class VaultStoreImportTest {
 
     @Test fun aFileClearlyTooBigIsRefusedBeforeEncrypting() = runTest {
         val s = opened()
-        val items = (0 until 120).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "x".repeat(64 * 1024)), emptyList()) }
+        val items = (0 until 600).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "x".repeat(60_000)), emptyList()) }
         val bytes = vaultFile.readBytes()
         val r = s.applyImport(plan(s, read(*items.toTypedArray())), DuplicateChoice.SKIP, emptyMap())
-        assertTrue("$r", r is ApplyResult.TooBig && r.overBytes > (120L * 64 * 1024 * 4 / 3) - BACKUP_MAX_ENTRY_BYTES - 1)
+        assertTrue("$r", r is ApplyResult.TooBig && r.overBytes > (600L * 60_000 * 4 / 3) - BACKUP_V3_MAX_ENTRY_BYTES - 1)
         assertArrayEquals(bytes, vaultFile.readBytes())
+    }
+
+    /** 2.0, ruling T1-2: what passed the 6 MB of a copy with marker 2 fits the 33 MiB of the one a v4 vault gets. */
+    @Test fun theFitIsTheCapOfTheCopyThatWouldBeWritten() = runTest {
+        val s = opened()
+        val items = (0 until 150).map { ImportedItem(it, importedEntry(EntryType.NOTE, "N$it", notes = "x".repeat(60_000)), emptyList()) }
+        val p = plan(s, read(*items.toTypedArray()))
+        assertTrue("Over what marker 2 allows", (escapedTextBytes(merged(s, p)) * 4 + 2) / 3 > BACKUP_MAX_ENTRY_BYTES)
+        assertEquals(ApplyResult.Done(added = 150, replaced = 0), s.applyImport(p, DuplicateChoice.SKIP, emptyMap()))
+        assertEquals(BACKUP_V3_MAX_ENTRY_BYTES, backupMaxEntryBytes(VaultFile.VERSION))
+        assertEquals(BACKUP_MAX_ENTRY_BYTES, backupMaxEntryBytes(VaultFile.VERSION_3))
+        assertEquals(BACKUP_MAX_ENTRY_BYTES, backupMaxEntryBytes(VaultFile.VERSION_2))
+        // And its copy is written and read back.
+        val copy = java.io.ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
+        val other = VaultStore(File(tmp.root, "otra.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+            .apply { load() }
+        other.importReplace(java.io.ByteArrayInputStream(copy), "maestra".toCharArray())
+        assertEquals(151, (other.state.value as VaultState.Unlocked).entries.size)
+    }
+
+    /** 2.0, ruling T1-3: an item over 64 KiB stays out in the plan; the rest is saved, never a failed save. */
+    @Test fun anItemOverTheEntryLimitNeverFailsTheSave() = runTest {
+        val s = opened()
+        val p = plan(
+            s,
+            read(
+                ImportedItem(0, importedEntry(EntryType.NOTE, "Grande", notes = "\"".repeat(40_000)), emptyList()),
+                ImportedItem(1, importedEntry(EntryType.NOTE, "Pequeña", notes = "hola"), emptyList()),
+            ),
+        )
+        assertEquals(listOf(0), p.skipped.map { it.index })
+        assertEquals(ApplyResult.Done(added = 1, replaced = 0), s.applyImport(p, DuplicateChoice.SKIP, emptyMap()))
+        assertEquals(setOf("Banco", "Pequeña"), entries(s).map { it.title }.toSet())
+    }
+
+    /** 2.0: «Reemplazar» that would join two notes past 64 KiB is refused with its own result, and nothing is saved. */
+    @Test fun aReplaceThatWouldPassTheEntryLimitIsRefusedWithItsOwnResult() = runTest {
+        val s = opened()
+        // A login of the vault whose notes differ from the file's: «Reemplazar» appends the file's under a heading.
+        s.upsert(VaultEntry("m", EntryType.LOGIN, "Correo", username = "ana", notes = "c".repeat(40_000), createdAt = 1, updatedAt = 1))
+        val login = plan(s, read(ImportedItem(0, importedEntry(EntryType.LOGIN, "Correo", username = "ana", notes = "d".repeat(40_000)), emptyList())))
+        assertEquals(1, login.duplicates.size)
+        val bytes = vaultFile.readBytes()
+        val revision = s.revision.value
+        assertEquals(ApplyResult.EntryTooBig, s.applyImport(login, DuplicateChoice.REPLACE, emptyMap()))
+        assertArrayEquals(bytes, vaultFile.readBytes())
+        assertEquals(revision, s.revision.value)
+        // «Conservar los dos» brings it in as a new entry, which fits.
+        assertEquals(ApplyResult.Done(added = 1, replaced = 0), s.applyImport(login, DuplicateChoice.KEEP_BOTH, emptyMap()))
     }
 
     @Test fun aVaultWithTooManyAttachmentsForACopyIsRefused() = runTest {

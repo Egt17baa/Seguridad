@@ -352,6 +352,11 @@ class ImportSession(
                     // M-2: the exact check said no: «Importar» stays off until a choice changes and a new estimate comes.
                     overBytes = maxOf(1L, r.overBytes)
                 }
+                // 2.0: «Reemplazar» past the 64 KiB of one entry: back to the preview, to choose again for it.
+                ApplyResult.EntryTooBig -> {
+                    step = ImportStep.Preview
+                    error = IMPORT_REPLACE_TOO_BIG
+                }
                 // A Done here would be ImportFlow's mistake: treated as a plan that no longer holds.
                 ApplyResult.Stale, is ApplyResult.Done -> {
                     dropAll()

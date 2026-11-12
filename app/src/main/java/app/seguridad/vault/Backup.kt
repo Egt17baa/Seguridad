@@ -26,7 +26,7 @@ import java.util.zip.ZipOutputStream
  *  - `vault.json`: the vault file exactly as on disk (`VaultFile`, still encrypted);
  *  - `att/<id>.bin`: each attachment file exactly as stored (still encrypted), ids in ascending order.
  * Reading ignores any other name; the valid ones are checked with exact patterns (no zip-slip). Limits on the bytes
- * really read: 100 MB in all, 6 MB per entry (32 MiB with marker 3) and 2 000 entries, and [BACKUP_MAX_READ_BYTES] of
+ * really read: 100 MB in all, 6 MB per entry (33 MiB with marker 3) and 2 000 entries, and [BACKUP_MAX_READ_BYTES] of
  * the file itself.
  */
 
@@ -43,8 +43,19 @@ private val BACKUP_VERSION_3 = "3\n".toByteArray(Charsets.US_ASCII)
 /** The newest copy version this app reads (and writes, for a version-4 vault). */
 internal const val BACKUP_NEWEST = 3
 
-/** 2.0: the most a file of a copy with marker 3 may take (the vault of up to 24 MiB of data, encrypted, in Base64). */
-const val BACKUP_V3_MAX_ENTRY_BYTES = 32L * 1024 * 1024
+/**
+ * 2.0: the most a file of a copy with marker 3 may take. The vault of up to [VaultLimits.VAULT_MAX_DATA_BYTES] of data,
+ * encrypted and in Base64 with the file around it, is just over 32 MiB: 33 MiB leaves it room (ruling T1-1;
+ * BackupV3Test.aVaultAtTheDataLimitFitsInACopy).
+ */
+const val BACKUP_V3_MAX_ENTRY_BYTES = 33L * 1024 * 1024
+
+/**
+ * The most the vault file may take in the copy a vault of [vaultVersion] gets: marker 3 for a version-4 vault
+ * ([BACKUP_V3_MAX_ENTRY_BYTES]), marker 2 for any other ([BACKUP_MAX_ENTRY_BYTES]). What «Importar de otra app» checks
+ * the vault it would save against (ruling T1-2).
+ */
+fun backupMaxEntryBytes(vaultVersion: Int): Long = if (vaultVersion == VaultFile.VERSION) BACKUP_V3_MAX_ENTRY_BYTES else BACKUP_MAX_ENTRY_BYTES
 
 const val BACKUP_MAX_TOTAL_BYTES = 100L * 1024 * 1024
 const val BACKUP_MAX_ENTRY_BYTES = 6L * 1024 * 1024
@@ -69,10 +80,10 @@ internal const val BACKUP_DAMAGED = "La copia está dañada o no es una copia de
 internal const val BACKUP_NEWER = "La copia es de una versión más nueva de Clavero"
 internal const val BACKUP_TOO_BIG = "La copia pasa de 100 MB"
 internal const val BACKUP_ENTRY_TOO_BIG = "Un archivo de la copia pasa de 6 MB"
-internal const val BACKUP_ENTRY_TOO_BIG_V3 = "Un archivo de la copia pasa de 32 MB"
+internal const val BACKUP_ENTRY_TOO_BIG_V3 = "Un archivo de la copia pasa de 33 MB"
 internal const val BACKUP_TOO_MANY = "La copia tiene más de 2 000 archivos"
 internal const val BACKUP_DOES_NOT_FIT = "La bóveda no cabe en una copia (100 MB en total, 6 MB por archivo y 2 000 archivos)"
-internal const val BACKUP_DOES_NOT_FIT_V3 = "La bóveda no cabe en una copia (100 MB en total, 32 MB por archivo y 2 000 archivos)"
+internal const val BACKUP_DOES_NOT_FIT_V3 = "La bóveda no cabe en una copia (100 MB en total, 33 MB por archivo y 2 000 archivos)"
 
 /** Whether [vaultJson] is a version-4 vault file, whose copy gets the marker 3; anything else keeps the marker 2. */
 private fun isV4(vaultJson: String): Boolean = try {

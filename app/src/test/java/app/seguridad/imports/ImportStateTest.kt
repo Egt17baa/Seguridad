@@ -537,6 +537,19 @@ class ImportStateTest {
         assertTrue(s.canConfirm)
     }
 
+    /** 2.0: «Reemplazar» that would pass the 64 KiB of an entry: back to the preview with its own text, to choose again. */
+    @Test fun aReplacePastTheEntryLimitSaysSoAndKeepsThePreview() {
+        val (s, run) = saving()
+        s.onOutcome(run, ImportOutcome.NotApplied(ApplyResult.EntryTooBig), inAutoFolder = true)
+        assertEquals(ImportStep.Preview, s.step)
+        assertEquals(IMPORT_REPLACE_TOO_BIG, s.error)
+        assertEquals(
+            "Al reemplazar, una entrada pasaría de 64 KB. Elige «Conservar los dos» o «Saltar» para ella. No se ha importado nada.",
+            IMPORT_REPLACE_TOO_BIG,
+        )
+        assertTrue(s.plan != null)
+    }
+
     @Test fun aWipeWhileSavingSaysTheImportMayHaveHappened() {
         // M-4: the save is not cut; the screen, still shown, must not look as if nothing happened.
         val (s, run) = saving()
