@@ -43,3 +43,6 @@ Ruling (T1, ⚠️ O-3 con carpeta): con la copia automática bien hecha, el pas
 Ruling (T1, menores): `CLAUDE.md` («Detalles menores: se arreglan todos») manda sobre la regla de la skill de aplazarlos — M-1, M-2, M-3, M-5 y M-7 entran en la ronda 1; M-4 va a la tarea 3 (no quitar `passwordHistory` sin conciliar las dos listas y probar el paso con una entrada grande); M-6 a la prueba de rendimiento (tarea 4 y revisión final: medir un `upsert` en el tope de 24 MiB); M-8 a la tarea 2 (sacar el paso pendiente de `VaultStore.kt` a su propia pieza al partirlo por bóveda).
 Task 1: fix round 1/5 dispatched and done (fe9e944): I-1, O-3 con carpeta, M-1, M-2, M-3, M-5, M-7; app 1956 y jvm-check 1949 en verde. Re-review en marcha.
 Ruling (T1, ronda 1): el aviso de después del paso vive solo en memoria y se pierde si Android cierra el proceso antes de enseñarlo — se acepta: el paso ya está hecho y la copia de antes en su carpeta; O-3 también lo dicen las «Novedades», las notas y el README (tarea 12) — si molesta, se guarda una marca en los ajustes.
+Task 1: fix round 1/5 (8 addressed, 0 open; commits 9804b28..fe9e944).
+Task 1: complete (commits 7744994..fe9e944, review clean). Informes: `task-1-report.md`, `task-1-review.md`, `task-1-rereview-1.md`.
+Task 1: minor (deferred): M-4 → tarea 3; M-6 → rendimiento (tarea 4 y final); M-8 → tarea 2.
