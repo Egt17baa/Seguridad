@@ -12,7 +12,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
    - `desarrollo-movil-senior` para la arquitectura, el ciclo de vida, la concurrencia y el rendimiento;
    - `seguridad-criptografia-movil` cuando se tocan Keystore, StrongBox, la biometría o el cifrado;
    - `auditoria-seguridad-movil` (OWASP MASVS) en las revisiones.
-4. **Abogado Digital** no interviene en cada tarea: hace **una sola revisión al final**, con todo terminado y antes de publicar.
+4. **Abogado Digital** no interviene en cada tarea: da su **visto bueno dos veces**, **al principio** (sobre el diseño, antes de programar) y **al final** (con todo terminado y antes de publicar). Si no lo da, el diseño o el trabajo se adaptan a lo que diga (dueño, 12-11-2026; hasta la 1.4.3 solo revisaba al final).
    - Revisa todos los textos de la interfaz y de la documentación, las licencias y, sobre todo, la **política de privacidad y seguridad** (`docs/privacidad.html`) y la ficha de Google Play.
    - Comprueba que cumplen la ley española, la europea y la internacional que aplique. La app no se publica en Francia en Google Play.
    - Usa `despacho-digital`, más `privacidad-proteccion-datos`, `regulacion-digital-ue` y `propiedad-intelectual-ia` según el caso.

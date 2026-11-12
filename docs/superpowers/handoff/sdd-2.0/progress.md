@@ -2,6 +2,7 @@
 
 Diseño: `docs/superpowers/specs/2026-11-12-clavero-2.0-design.md` (aprobado por el dueño el 12-11-2026). Plan aprobado el 12-11-2026. Rama `ccr-0aa27f95-u038cd` (la designada; sin *worktree* aparte: el contenedor es propio de la sesión). Base de la tarea 1: `6c25222`.
 
+Owner decision (12-11-2026): el Abogado Digital da su visto bueno al principio (sobre el diseño, antes de la tarea 1) y al final; si no lo da, se adapta lo que diga. La tarea 1 espera a la revisión inicial.
 Ruling: el registro vive aquí, en `docs/superpowers/handoff/sdd-2.0/` (convención del proyecto, como `sdd-1.4.0/`); las *briefs* y los paquetes de revisión, en `.superpowers/sdd/` (ignorado por git) — los informes de cada tarea se copian aquí al cerrarla — si se pierde `.superpowers/`, se rehace desde el plan y `git log`.
 
 ## Revisión previa (pre-flight)
