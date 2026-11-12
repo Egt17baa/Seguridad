@@ -109,8 +109,12 @@ object Expiry {
     fun items(e: VaultEntry, zone: ZoneId = ZoneId.systemDefault()): List<ExpiryItem> {
         if (e.type.isPersonal) return emptyList()
         val out = ArrayList<ExpiryItem>(2)
-        // Review M-4: one expiry per entry; a template's own date wins where it has one.
-        if (hasOwnExpiry(e.type)) e.expiresAt?.let(::expiryDay)?.let { out += ExpiryItem(EXPIRY_ENTRY, it, ExpiryKind.ENTRY) }
+        // Review M-4: one expiry per entry; a template's own date wins where it has one. Ruling T5, ronda 1: where that
+        // date is missing (or is no date), the entry's own (from a copy) counts, so it is never lost silently.
+        val byTemplate = !hasOwnExpiry(e.type) && e.fields.any { f ->
+            f.kind == FieldKind.DATE && Templates.templateField(e.type, f.id)?.expires == true && parseFieldDate(f.value) != null
+        }
+        if (!byTemplate) e.expiresAt?.let(::expiryDay)?.let { out += ExpiryItem(EXPIRY_ENTRY, it, ExpiryKind.ENTRY) }
         for (f in e.fields) {
             // Review M-6: a template's field says its label, not the name a copy gave it.
             val name = Templates.templateField(e.type, f.id)?.label ?: f.name

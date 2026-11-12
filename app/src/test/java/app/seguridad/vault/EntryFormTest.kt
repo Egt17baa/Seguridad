@@ -227,4 +227,35 @@ class EntryFormTest {
         assertTrue("key(\"c\", i, f.id) {" in ui && "key(\"t\", t.key) {" in ui)
         assertFalse(Regex("""key\(f\.id\)""").containsMatchIn(ui))
     }
+
+    /**
+     * Ruling T5, ronda 1: the editor of a card, licence or passport offers no date of its own (M-4), so an `expiresAt` a
+     * copy brought goes to the template's empty expiry when the form loads, and is saved there: never lost on a save.
+     */
+    @Test fun aCopysExpiryGoesToTheTemplatesField() {
+        val day = expiresAtOf(java.time.LocalDate.parse("2027-05-31"))
+        val card = VaultEntry("c", EntryType.CARD, "Tarjeta", createdAt = 1, updatedAt = 1, expiresAt = day)
+        val s = session(id = "c", type = EntryType.CARD)
+        s.load(listOf(card))
+        assertEquals("05/27", s.templateValue(EntryType.CARD, "expiry"))
+        val saved = (fieldsToSave(EntryType.CARD, s.templateValues.value, s.customFields.value) as FormFields.Ok).fields
+        assertEquals(listOf(CustomField("expiry", "Caducidad", FieldKind.DATE, "2027-05-31", expires = true)), saved)
+        // Another day of a month, in a passport: as a full date.
+        val p = session(id = "p", type = EntryType.PASSPORT)
+        p.load(listOf(VaultEntry("p", EntryType.PASSPORT, "Pasaporte", createdAt = 1, updatedAt = 1, expiresAt = expiresAtOf(java.time.LocalDate.parse("2030-03-15")))))
+        assertEquals("15/03/2030", p.templateValue(EntryType.PASSPORT, "expiry"))
+        // With both, the template's wins and the entry's goes (one expiry per entry).
+        val both = VaultEntry(
+            "b", EntryType.LICENSE, "Licencia", createdAt = 1, updatedAt = 1, expiresAt = day,
+            fields = listOf(CustomField("expiry", "Caducidad", FieldKind.DATE, "2028-01-10", expires = true)),
+        )
+        val b = session(id = "b", type = EntryType.LICENSE)
+        b.load(listOf(both))
+        assertEquals("10/01/2028", b.templateValue(EntryType.LICENSE, "expiry"))
+        // A login keeps its own date in its own field.
+        val l = session(id = "l")
+        l.load(listOf(VaultEntry("l", EntryType.LOGIN, "Banco", createdAt = 1, updatedAt = 1, expiresAt = day)))
+        assertEquals("31/05/2027", l.expiresText.value)
+        assertEquals("", l.templateValue(EntryType.LOGIN, "expiry"))
+    }
 }

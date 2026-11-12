@@ -149,4 +149,17 @@ class ExpiryTest {
         // A wifi has no date of its template: its own counts.
         assertEquals(listOf("wifi"), due(entry("wifi", type = EntryType.WIFI, expiresAt = day("2026-11-01"))))
     }
+
+    /**
+     * Ruling T5, ronda 1: a card, licence or passport whose template's expiry is empty but that brings its own date (a
+     * copy made elsewhere) keeps that date as its expiry, so nothing is lost silently; with both, the template's wins.
+     */
+    @Test fun aTemplateWithoutItsDateKeepsTheEntrysOwn() {
+        val passport = entry("pasaporte", type = EntryType.PASSPORT, expiresAt = day("2026-11-20"))
+        assertEquals(listOf(ExpiryItem("Caducidad", LocalDate.parse("2026-11-20"), ExpiryKind.ENTRY)), Expiry.items(passport, utc))
+        assertEquals(listOf("pasaporte"), due(passport))
+        // A date in the field that is no date: the entry's own still counts.
+        val bad = passport.copy(fields = listOf(CustomField("expiry", "Caducidad", FieldKind.DATE, "mañana", expires = true)))
+        assertEquals(listOf("pasaporte"), due(bad))
+    }
 }

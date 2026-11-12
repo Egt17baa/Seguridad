@@ -232,6 +232,13 @@ class EntryEditSession(
                 rows += nextRow()
             }
         }
+        // Ruling T5, ronda 1: a card, licence or passport offers no date of its own (M-4): the one a copy brought fills
+        // the template's expiry when it is empty, so the next save keeps it there instead of losing it.
+        val expiryField = Templates.fieldsFor(type).firstOrNull { it.expires }
+        val own = e?.expiresAt?.let(::expiryDay)?.toString()
+        if (expiryField != null && own != null && values[templateValueKey(type, expiryField.key)].isNullOrBlank()) {
+            values[templateValueKey(type, expiryField.key)] = if (expiryField.monthYear) displayMonthYear(own) else displayDate(own)
+        }
         // A new wifi starts as the most common network: WPA, not hidden.
         if (e == null && type == EntryType.WIFI) {
             values[templateValueKey(type, WIFI_SECURITY_KEY)] = "WPA"
