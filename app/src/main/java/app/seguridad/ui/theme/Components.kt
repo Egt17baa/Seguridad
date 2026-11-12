@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +19,7 @@ import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSeparato
 import androidx.compose.foundation.text.contextmenu.modifier.filterTextContextMenuComponents
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,7 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -37,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
@@ -49,24 +52,30 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.tools.QR_SCAN
 
 val SectionShape = RoundedCornerShape(16.dp)
 
-/** A plain card on the surface color with a thin outline: groups one result or one block of settings. */
+/**
+ * A card that groups one result or one block of settings: in «Cristal» a glass panel ([glass], never blurred), in «Sólido»
+ * the surface colour with a thin outline, as in 1.4.x. Every screen's cards are these, so they all take the look.
+ */
 @Composable
 fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    val colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    val glass = LocalLook.current.glass
+    val colors = CardDefaults.cardColors(containerColor = if (glass) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer)
+    val border = if (glass) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    val m = if (glass) modifier.glass(PanelLevel.CARD, SectionShape) else modifier
     if (onClick != null) {
-        Card(onClick = onClick, modifier = modifier, shape = SectionShape, colors = colors, border = border, content = content)
+        Card(onClick = onClick, modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
     } else {
-        Card(modifier = modifier, shape = SectionShape, colors = colors, border = border, content = content)
+        Card(modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
     }
 }
 
 /** Screen with a title and a back arrow. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackScaffold(title: String, onBack: () -> Unit, content: @Composable (PaddingValues) -> Unit) {
     Scaffold(
@@ -81,6 +90,107 @@ fun BackScaffold(title: String, onBack: () -> Unit, content: @Composable (Paddin
         },
         content = content,
     )
+}
+
+/**
+ * 2.0, task 5 bis: the app's top bar. In «Cristal» a glass bar ([PanelLevel.BAR]: blurred from Android 12, more opaque
+ * before); in «Sólido» Material's. The content of the screen is laid out below it (the Scaffold's padding), so nothing
+ * with the focus is ever under it (R-C7).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TopAppBar(title: @Composable () -> Unit, navigationIcon: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {}) {
+    if (!LocalLook.current.glass) {
+        androidx.compose.material3.TopAppBar(title = title, navigationIcon = navigationIcon, actions = actions)
+        return
+    }
+    androidx.compose.material3.TopAppBar(
+        title = title,
+        modifier = Modifier.glass(PanelLevel.BAR, panelShape(PanelLevel.BAR)),
+        navigationIcon = navigationIcon,
+        actions = actions,
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
+    )
+}
+
+/** 2.0, task 5 bis: the app's bottom bar, glass in «Cristal» as [TopAppBar]. */
+@Composable
+fun NavigationBar(content: @Composable RowScope.() -> Unit) {
+    if (!LocalLook.current.glass) {
+        androidx.compose.material3.NavigationBar(content = content)
+        return
+    }
+    androidx.compose.material3.NavigationBar(
+        modifier = Modifier.glass(PanelLevel.BAR, panelShape(PanelLevel.BAR)),
+        containerColor = Color.Transparent,
+        tonalElevation = 0.dp,
+        content = content,
+    )
+}
+
+/**
+ * 2.0, task 5 bis: every dialog of the app. In «Cristal» a glass panel ([PanelLevel.OVERLAY]: blurred from Android 12);
+ * in «Sólido» Material's. The same name and the same parameters as Material's, so a screen only imports this one; it
+ * filters obscured touches in its window like every dialog (ANDROID-3), and the caller still does so in its own text.
+ */
+@Composable
+fun AlertDialog(
+    onDismissRequest: () -> Unit,
+    confirmButton: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    dismissButton: @Composable (() -> Unit)? = null,
+    icon: @Composable (() -> Unit)? = null,
+    title: @Composable (() -> Unit)? = null,
+    text: @Composable (() -> Unit)? = null,
+    properties: DialogProperties = DialogProperties(),
+) {
+    val glass = LocalLook.current.glass
+    val shape = panelShape(PanelLevel.OVERLAY)
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            FilterObscuredTouches()
+            confirmButton()
+        },
+        modifier = if (glass) modifier.glass(PanelLevel.OVERLAY, shape) else modifier,
+        dismissButton = dismissButton,
+        icon = icon,
+        title = title,
+        text = text,
+        shape = shape,
+        containerColor = if (glass) Color.Transparent else AlertDialogDefaults.containerColor,
+        tonalElevation = if (glass) 0.dp else AlertDialogDefaults.TonalElevation,
+        properties = properties,
+    )
+}
+
+/**
+ * 2.0, task 5 bis: every menu of the app. In «Cristal» translucent with the glass edge, never blurred, and opaque enough
+ * to read over anything under it ([AppColors.floorAlpha]); in «Sólido» Material's. As [AlertDialog], the same name and
+ * parameters as Material's.
+ */
+@Composable
+fun DropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val look = LocalLook.current
+    if (!look.glass) {
+        androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest, modifier = modifier) {
+            FilterObscuredTouches()
+            content()
+        }
+        return
+    }
+    val colors = look.colors
+    androidx.compose.material3.DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        modifier = modifier,
+        containerColor = colors.panelColor(PanelLevel.OVERLAY).copy(alpha = look.alpha(PanelLevel.OVERLAY, blurNow = false)),
+        tonalElevation = 0.dp,
+        border = BorderStroke(colors.borderWidth.dp, colors.border),
+    ) {
+        FilterObscuredTouches()
+        content()
+    }
 }
 
 /**

@@ -13,7 +13,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import app.seguridad.ui.theme.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -23,7 +23,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import app.seguridad.ui.theme.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,7 +51,6 @@ import app.seguridad.settings.KdfProfile
 import app.seguridad.settings.LockAfter
 import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
-import app.seguridad.settings.ThemeMode
 import app.seguridad.settings.availableOn
 import app.seguridad.settings.settingsEditable
 import app.seguridad.settings.vault
@@ -107,14 +106,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private fun ThemeMode.label() = when (this) {
-    ThemeMode.DARK -> "Oscuro"
-    ThemeMode.LIGHT -> "Claro"
-    ThemeMode.SYSTEM -> "Como el sistema"
-}
-
 @Composable
-private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     SectionCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
@@ -124,7 +117,7 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 }
 
 @Composable
-private fun Hint(text: String) {
+internal fun Hint(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
@@ -145,7 +138,7 @@ private fun Choice(label: String, selected: Boolean, enabled: Boolean = true, on
 }
 
 @Composable
-private fun <T> Choices(options: List<T>, selected: T, label: (T) -> String, enabled: (T) -> Boolean = { true }, onSelect: (T) -> Unit) {
+internal fun <T> Choices(options: List<T>, selected: T, label: (T) -> String, enabled: (T) -> Boolean = { true }, onSelect: (T) -> Unit) {
     Column(Modifier.selectableGroup()) {
         options.forEach { o -> Choice(label(o), o == selected, enabled(o)) { onSelect(o) } }
     }
@@ -433,6 +426,7 @@ fun SettingsScreen(
     releaseIfUnused: (String) -> Unit,
     onAbout: () -> Unit,
     onCheckBackup: () -> Unit,
+    onAppearance: () -> Unit,
 ) {
     VaultIdleLock(vault)
     val settings by store.settings.collectAsStateWithLifecycle()
@@ -496,8 +490,10 @@ fun SettingsScreen(
                         )
                 }
             }
-            Section("Tema") {
-                Choices(ThemeMode.entries, settings.theme, { it.label() }) { v -> change { it.copy(theme = v) } }
+            // 2.0, task 5 bis: the mode, the style and the palette have their own screen, with a preview.
+            Section(APPEARANCE_TITLE) {
+                Hint(appearanceSummary(settings))
+                OutlinedButton(onClick = onAppearance, modifier = Modifier.fillMaxWidth()) { Text(APPEARANCE_CHANGE) }
             }
             Section("Copia de la bóveda") {
                 val unlocked = vaultState is VaultState.Unlocked

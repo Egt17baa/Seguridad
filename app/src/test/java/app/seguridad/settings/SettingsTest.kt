@@ -57,6 +57,85 @@ class SettingsTest {
         assertTrue(again.settings.value.noticeAccepted)
     }
 
+    /**
+     * 2.0, tarea 5 bis: un settings.json de la 1.4.3 no tiene aspecto (ni estilo, ni paleta, ni «Alto contraste»; la 1.4.x
+     * no tenía colores de acento): se lee en «Noche» y «Cristal», con el modo que tenía, y nada más cambia.
+     */
+    @Test fun oldSettingsGetNightAndGlass() = runTest {
+        for (mode in ThemeMode.entries) {
+            file().writeText(
+                """{"lockAfter":"MIN_1","clipboard":"S15","theme":"${mode.name}","noticeAccepted":true,""" +
+                    """"clockHighWaterMs":1761500000000,"renameNoticePending":false}""",
+            )
+            val s = store().apply { load() }.settings.value
+            assertEquals(mode, s.theme)
+            assertEquals(ThemeStyle.GLASS, s.style)
+            assertEquals(PaletteId.NIGHT, s.palette)
+            assertNull(s.custom)
+            assertFalse(s.reduceTransparency)
+            assertFalse(s.highContrast)
+            assertEquals(LockAfter.MIN_1, s.lockAfter)
+            assertEquals(1761500000000, s.principal.clockHighWaterMs)
+        }
+    }
+
+    /** Un aspecto que no se entiende no tira los demás ajustes: la paleta vuelve a «Noche» y los tonos quedan entre los 12. */
+    @Test fun aStrangeAppearanceKeepsTheOtherSettings() = runTest {
+        file().writeText(
+            """{"lockAfter":"MIN_1","theme":"LIGHT","style":"FROSTED","palette":"PINK",""" +
+                """"custom":{"accentHue":99,"backgroundHue":-5,"glass":"HIGH"}}""",
+        )
+        val s = store().apply { load() }.settings.value
+        assertEquals(LockAfter.MIN_1, s.lockAfter)
+        assertEquals(ThemeMode.LIGHT, s.theme)
+        assertEquals(ThemeStyle.GLASS, s.style)
+        assertEquals(PaletteId.NIGHT, s.palette)
+        assertEquals(CustomPalette(99.mod(CUSTOM_HUES), (-5).mod(CUSTOM_HUES), GlassLevel.HIGH), s.custom)
+        // A «Personalizado» that cannot be read at all goes, and only it.
+        for (bad in listOf("""{"accentHue":1,"backgroundHue":2,"glass":"ULTRA"}""", """{"accentHue":"x"}""", "7")) {
+            file().writeText("""{"lockAfter":"MIN_1","theme":"LIGHT","palette":"CUSTOM","highContrast":true,"custom":$bad}""")
+            val t = store().apply { load() }.settings.value
+            assertEquals(bad, LockAfter.MIN_1, t.lockAfter)
+            assertEquals(bad, ThemeMode.LIGHT, t.theme)
+            assertNull(bad, t.custom)
+            assertTrue(bad, t.highContrast)
+        }
+    }
+
+    @Test fun theAppearanceIsSavedAndReadBack() = runTest {
+        val custom = CustomPalette(accentHue = 3, backgroundHue = 8, glass = GlassLevel.HIGH)
+        store().apply {
+            load()
+            update { it.copy(style = ThemeStyle.SOLID, palette = PaletteId.CUSTOM, custom = custom, reduceTransparency = true, highContrast = true) }
+        }
+        val s = store().apply { load() }.settings.value
+        assertEquals(ThemeStyle.SOLID, s.style)
+        assertEquals(PaletteId.CUSTOM, s.palette)
+        assertEquals(custom, s.custom)
+        assertTrue(s.reduceTransparency)
+        assertTrue(s.highContrast)
+    }
+
+    /**
+     * R-C8: la línea de cómo volver a «Sólido» es para quien actualiza (había un settings.json o una bóveda), también si
+     * ya había visto el aviso del nombre nuevo; una instalación nueva no la ve. Se decide una vez.
+     */
+    @Test fun theAppearanceNoticeIsForThoseWhoUpdated() = runTest {
+        file().writeText("""{"theme":"LIGHT","renameNoticePending":false}""")
+        val updated = store().apply { load(); decideRenameNotice(vaultExists = false) }
+        assertEquals(true, updated.settings.value.appearanceNoticePending)
+        assertEquals(false, updated.settings.value.renameNoticePending)
+        updated.update { it.copy(appearanceNoticePending = false) }
+        val again = store().apply { load(); decideRenameNotice(vaultExists = true) }
+        assertEquals(false, again.settings.value.appearanceNoticePending)
+
+        file().delete()
+        val fresh = store().apply { load(); decideRenameNotice(vaultExists = false) }
+        assertEquals(false, fresh.settings.value.appearanceNoticePending)
+        val withVault = SettingsStore(File(tmp.root, "other.json"), Dispatchers.Unconfined).apply { load(); decideRenameNotice(vaultExists = true) }
+        assertEquals(true, withVault.settings.value.appearanceNoticePending)
+    }
+
     @Test fun clipboardHistoryNoticeIsNotAcceptedByDefault() {
         assertFalse(Settings().clipboardHistoryNoticeAccepted)
     }

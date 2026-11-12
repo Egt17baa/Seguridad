@@ -52,6 +52,24 @@ data class Settings(
      * defaults ([vault]): no automatic copies.
      */
     val perVault: Map<String, VaultSettings> = emptyMap(),
+    /**
+     * 2.0, task 5 bis: the look (design «Aspecto «Cristal», temas y logo»), with defaults, so a settings.json of 1.4.3
+     * (which had only [theme]) reads as «Noche» and «Cristal» with the mode it had. Never a secret.
+     */
+    val style: ThemeStyle = ThemeStyle.GLASS,
+    val palette: PaletteId = PaletteId.NIGHT,
+    /** The tones of «Personalizado», kept also while another palette is chosen; null until they are first applied. */
+    val custom: CustomPalette? = null,
+    /** «Reducir transparencias»: opaque panels, never blurred. [highContrast] turns it on too (its switch shows it so). */
+    val reduceTransparency: Boolean = false,
+    /** «Alto contraste»: texts at 7:1, opaque panels and marked borders. */
+    val highContrast: Boolean = false,
+    /**
+     * R-C8 of the Abogado Digital: the one line, after updating, that says how to go back to a look without transparencies.
+     * As [renameNoticePending]: null until the first start of 2.0 decides it ([SettingsStore.decideRenameNotice]), true
+     * only if data from an earlier version was there, false once shown or for a new install.
+     */
+    val appearanceNoticePending: Boolean? = null,
 )
 
 /**

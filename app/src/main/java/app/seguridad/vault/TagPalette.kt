@@ -7,8 +7,9 @@ import kotlin.math.pow
  * as its name (with «#») in its colour, on the list's surfaces, so every colour has a contrast of at least 4.5:1 (WCAG
  * 2.2 AA for text) on each of them, in the light theme and in the dark one ([TagPaletteTest]). The colour is never the
  * only sign of anything (R-1): the name of the tag is always written, and the picker names each colour
- * ([tagColorName]). Measured against the real themes too (`TagPaletteThemeTest`, review M-8), which also checks that the
- * backgrounds listed here are the theme's. The dynamic colour of Android 12 (task 10) does not change these: they are fixed.
+ * ([tagColorName]). Measured against the real themes too (`TagPaletteThemeTest`, review M-8, widened in task 5 bis to every
+ * palette and style), which keep every surface inside [LIGHT_MIN_BACKGROUND_LUMINANCE] and [DARK_MAX_BACKGROUND_LUMINANCE].
+ * The palettes, the wallpaper's colours included, do not change these: they are fixed.
  */
 object TagPalette {
     private val LIGHT = mapOf(
@@ -34,13 +35,15 @@ object TagPalette {
     )
 
     /**
-     * What a tag sits on in the light theme (ui/theme/Theme.kt): the surface, the background, the variant surface and the
-     * container of a selected chip.
+     * 2.0, task 5 bis: what a tag can sit on is no longer a few fixed surfaces (six palettes, «Personalizado», the
+     * wallpaper's colours, glass or solid), so this gives a bound instead: every surface of a light theme has at least
+     * this relative luminance, and every colour of [LIGHT] has 4.5:1 on it (the tightest needs 0.681). The themes keep
+     * every surface inside it (ui/theme/Palettes.kt, TagPaletteThemeTest).
      */
-    val LIGHT_BACKGROUNDS = listOf(0xFFFFFFFFL, 0xFFF6F8FAL, 0xFFEFF2F5L, 0xFFE7ECF0L)
+    const val LIGHT_MIN_BACKGROUND_LUMINANCE = 0.70
 
-    /** The same in the dark theme. */
-    val DARK_BACKGROUNDS = listOf(0xFF161B22L, 0xFF0E1116L, 0xFF21262DL, 0xFF2D333BL)
+    /** The same for a dark theme: at most this luminance, and every colour of [DARK] has 4.5:1 on it (the tightest allows 0.0729). */
+    const val DARK_MAX_BACKGROUND_LUMINANCE = 0.070
 
     fun light(c: TagColor): Long = LIGHT.getValue(c)
 

@@ -24,7 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
+import app.seguridad.ui.theme.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -49,7 +49,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -109,6 +108,7 @@ import app.seguridad.vault.SortOrder
 import app.seguridad.vault.TAG_COLORS_OPEN
 import app.seguridad.vault.TagColor
 import app.seguridad.vault.TagPalette
+import app.seguridad.ui.theme.isDarkTheme
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VIEWS_MANAGE
 import app.seguridad.vault.VIEW_SAVE
@@ -266,8 +266,7 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
 @Composable
 internal fun tagTextColor(color: TagColor?): Color {
     if (color == null) return MaterialTheme.colorScheme.onSurfaceVariant
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    return Color(if (dark) TagPalette.dark(color) else TagPalette.light(color))
+    return Color(if (isDarkTheme) TagPalette.dark(color) else TagPalette.light(color))
 }
 
 /** Where an entry being dragged by its handle is, in the window, and which entry. */

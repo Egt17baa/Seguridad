@@ -1,6 +1,6 @@
 package app.seguridad.ui
 
-import androidx.compose.material3.AlertDialog
+import app.seguridad.ui.theme.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable

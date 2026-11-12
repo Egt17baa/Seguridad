@@ -40,7 +40,7 @@ class MainActivity : FragmentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            SeguridadTheme(settings.theme) {
+            SeguridadTheme(settings) {
                 // A7: no keyboard learns from any field, dialogs included. A14: the clipboard notice, for every screen.
                 NoLearningInput {
                     AppNavHost(container)

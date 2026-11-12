@@ -54,8 +54,14 @@ class SettingsStore(
      */
     suspend fun decideRenameNotice(vaultExists: Boolean) = mutex.withLock {
         val s = _settings.value
-        if (s.renameNoticePending != null) return@withLock
-        val next = s.copy(renameNoticePending = fileExistedAtLoad || vaultExists)
+        val earlier = fileExistedAtLoad || vaultExists
+        // 2.0, task 5 bis (R-C8): the line about the new look is decided the same way, on its own: those who updated from
+        // 1.3.x or 1.4.x already have the notice of the name decided, and they are the ones who see the new look.
+        val next = s.copy(
+            renameNoticePending = s.renameNoticePending ?: earlier,
+            appearanceNoticePending = s.appearanceNoticePending ?: earlier,
+        )
+        if (next == s) return@withLock
         try {
             write(next)
         } catch (e: Exception) {
@@ -128,8 +134,10 @@ class SettingsStore(
     }
 
     private fun sane(settings: Settings): Settings {
-        if (settings.perVault.values.all { saneVault(it) == it }) return settings
-        return settings.copy(perVault = settings.perVault.mapValues { saneVault(it.value) })
+        val custom = settings.custom?.let(::saneCustom)
+        val s = if (custom == settings.custom) settings else settings.copy(custom = custom)
+        if (s.perVault.values.all { saneVault(it) == it }) return s
+        return s.copy(perVault = s.perVault.mapValues { saneVault(it.value) })
     }
 
     private fun saneVault(settings: VaultSettings): VaultSettings {
@@ -150,7 +158,13 @@ private val VAULT_FIELDS: Set<String> = VaultSettings.serializer().descriptor.le
  */
 internal fun decodeSettings(text: String): Settings {
     val tree = appJson.parseToJsonElement(text).jsonObject
-    val read = appJson.decodeFromJsonElement(Settings.serializer(), tree)
+    // 2.0, task 5 bis: a «Personalizado» that cannot be read goes alone, so the lock time and the vaults' settings stay.
+    val read = try {
+        appJson.decodeFromJsonElement(Settings.serializer(), tree)
+    } catch (e: IllegalArgumentException) { // SerializationException is one
+        if ("custom" !in tree) throw e
+        appJson.decodeFromJsonElement(Settings.serializer(), JsonObject(tree - "custom"))
+    }
     if (PRIMARY_VAULT_ID in read.perVault || tree.keys.none { it in VAULT_FIELDS }) return read
     val old = appJson.decodeFromJsonElement(VaultSettings.serializer(), JsonObject(tree.filterKeys { it in VAULT_FIELDS }))
     return read.copy(perVault = read.perVault + (PRIMARY_VAULT_ID to old))

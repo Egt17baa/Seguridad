@@ -9,9 +9,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
+import app.seguridad.ui.theme.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
+import app.seguridad.ui.theme.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -45,6 +45,8 @@ import app.seguridad.tools.APP_RENAMED_TEXT
 import app.seguridad.tools.APP_RENAMED_TITLE
 import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
 import app.seguridad.ui.screens.AboutScreen
+import app.seguridad.ui.screens.AppearanceNoticeDialog
+import app.seguridad.ui.screens.AppearanceScreen
 import app.seguridad.ui.screens.EntryHistoryScreen
 import app.seguridad.ui.screens.TrashScreen
 import app.seguridad.ui.screens.BreachScreen
@@ -218,6 +220,14 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     LaunchedEffect(renameReady) { if (renameReady) container.renameNotice.showIfDue() }
     val renameVisible by container.renameNotice.visible.collectAsStateWithLifecycle()
     if (renameVisible && renameReady) RenameNoticeDialog(onClose = container.renameNotice::closed)
+    // 2.0, task 5 bis (R-C8): the line on how to go back to a look without transparencies, once, to those who updated. As
+    // the notice of the name, only with the vault open or with none; never over that notice nor over the one of the
+    // upgrade of the vault (O-3): it waits until they are closed.
+    val upgradeDone by vault.upgradeDone.collectAsStateWithLifecycle()
+    val appearanceReady = renameReady && !renameVisible && upgradeDone == null
+    LaunchedEffect(appearanceReady) { if (appearanceReady) container.appearanceNotice.showIfDue() }
+    val appearanceVisible by container.appearanceNotice.visible.collectAsStateWithLifecycle()
+    if (appearanceVisible && appearanceReady) AppearanceNoticeDialog(onClose = container.appearanceNotice::closed)
     // Review I-2: what the last action of «Bóvedas» said, also after the switch it made (it rebuilt every screen).
     val vaultsNotice by container.vaultsNotice.collectAsStateWithLifecycle()
     vaultsNotice?.let { shown ->
@@ -373,8 +383,11 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                         settingsStore, vault, container.autoBackup, container::releaseIfUnused,
                         onAbout = { nav.navigate("settings/about") },
                         onCheckBackup = { nav.navigate("settings/check-backup") },
+                        onAppearance = { nav.navigate("settings/appearance") },
                     )
                 }
+                // 2.0, task 5 bis: the look (mode, style, palette, «Personalizado», transparencies, contrast).
+                composable("settings/appearance") { AppearanceScreen(settingsStore, onBack = backOnce(nav)) }
                 composable("settings/check-backup") {
                     BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
                 }

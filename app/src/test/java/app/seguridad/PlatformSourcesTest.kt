@@ -868,4 +868,51 @@ class PlatformSourcesTest {
         assertEquals(2, Regex("""keyboardOptions = SECRET_TEXT_KEYBOARD,""").findAll(code("ui/screens/SecretShareScreen.kt")).count())
         assertTrue("keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password)," in code("ui/screens/SecurityToolsScreen.kt"))
     }
+
+    /**
+     * 2.0, task 5 bis: the blur (RenderEffect) only from Android 12 (API 31) and only in ui/theme/Glass.kt, inside one
+     * function marked for API 31 whose every call is behind the version check. Which panels blur (bars, dialogs, never the
+     * rows) is GlassContrastTest's; this is the part the JVM cannot run.
+     */
+    @Test fun blurOnlyFromApi31() {
+        val blurApi = Regex("""\b(BlurEffect|RenderEffect|renderEffect|setRenderEffect)\b|\.blur\(""")
+        val users = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .filter { f -> blurApi.containsMatchIn(blank(f.readText()).lines().filterNot { it.trimStart().startsWith("import") }.joinToString("\n")) }
+            .map { it.name }.toList()
+        assertEquals(listOf("Glass.kt"), users)
+        val glass = blank(main("ui/theme/Glass.kt"))
+        val fn = Regex("""@RequiresApi\(Build\.VERSION_CODES\.S\)\s+private fun (\w+)\(""").find(glass) ?: error("no API 31 function")
+        val name = fn.groupValues[1]
+        // The function: from its annotation to the brace that closes its body (its signature has no braces).
+        val body = fn.range.first until closing(glass, glass.indexOf('{', fn.range.last))
+        val outside = blurApi.findAll(glass).filter { it.range.first !in body }
+            .filterNot { glass.substring(glass.lastIndexOf('\n', it.range.first) + 1, it.range.first).trimStart().startsWith("import") }.toList()
+        assertTrue("blur API outside $name: ${outside.map { it.value }}", outside.isEmpty())
+        val src = main("ui/theme/Glass.kt")
+        val calls = Regex("""\b$name\(""").findAll(glass).filter { it.range.first !in body }.toList()
+        assertTrue("$name is called", calls.isNotEmpty())
+        for (c in calls) {
+            val line = src.substring(src.lastIndexOf('\n', c.range.first) + 1, src.indexOf('\n', c.range.first))
+            assertTrue("not behind the version check: $line", "Build.VERSION.SDK_INT >= Build.VERSION_CODES.S" in line)
+        }
+        // lookFor decides the blur from the version it is given, and the activity gives it the phone's.
+        assertTrue("blur = !opaque && sdk >= Build.VERSION_CODES.S" in code("ui/theme/Glass.kt"))
+        assertTrue("sdk = Build.VERSION.SDK_INT" in code("ui/theme/Theme.kt"))
+    }
+
+    /** 2.0, task 5 bis: the theme's state is the look only: no secret, no vault, no key reaches it. */
+    @Test fun theThemeStateHasNoSecret() {
+        val banned = Regex("""import app\.seguridad\.crypto\.|\b(VaultStore|VaultEntry|VaultData|Secret|AppContainer)\b""")
+        for (f in listOf("ui/theme/Theme.kt", "ui/theme/Palettes.kt", "ui/theme/Glass.kt", "ui/screens/AppearanceScreen.kt")) {
+            val hit = banned.find(code(f))
+            assertTrue("$f: ${hit?.value}", hit == null)
+        }
+        // What Settings keeps of the look: enums, booleans and two tone numbers.
+        val settings = code("settings/Settings.kt")
+        for (field in listOf("val style: ThemeStyle = ThemeStyle.GLASS", "val palette: PaletteId = PaletteId.NIGHT", "val custom: CustomPalette? = null",
+            "val reduceTransparency: Boolean = false", "val highContrast: Boolean = false")) {
+            assertTrue(field, field in settings)
+        }
+        assertTrue("data class CustomPalette(val accentHue: Int, val backgroundHue: Int, val glass: GlassLevel)" in code("settings/Appearance.kt"))
+    }
 }
