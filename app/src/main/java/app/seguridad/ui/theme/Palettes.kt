@@ -102,7 +102,7 @@ fun colorsFor(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highCon
         PaletteId.CUSTOM -> custom?.let { customSpec(fixContrast(it)) } ?: NAMED.getValue(PaletteId.NIGHT)
         else -> NAMED.getValue(palette)
     }
-    return cached(spec, dark, highContrast)
+    return cached(spec, dark, highContrast).colors
 }
 
 /**
@@ -112,7 +112,7 @@ fun colorsFor(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highCon
  */
 fun fixContrast(custom: CustomPalette): CustomPalette {
     var c = saneCustom(custom)
-    while (c.glass != GlassLevel.LOW && !(build(customSpec(c), true, false).met && build(customSpec(c), false, false).met)) {
+    while (c.glass != GlassLevel.LOW && !(cached(customSpec(c), true, false).met && cached(customSpec(c), false, false).met)) {
         c = c.copy(glass = GlassLevel.entries[c.glass.ordinal - 1])
     }
     return c
@@ -195,14 +195,15 @@ private val BLOB_PLACES = listOf(Triple(0.18f, 0.10f, 0.55f), Triple(0.92f, 0.42
 
 private class Built(val colors: AppColors, val met: Boolean)
 
-private val cache = object : LinkedHashMap<Triple<Spec, Boolean, Boolean>, AppColors>(64, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Triple<Spec, Boolean, Boolean>, AppColors>?) = size > 64
+/** The last palettes worked out (each takes about a millisecond): a theme, its preview and «Personalizado» ask again often. */
+private val cache = object : LinkedHashMap<Triple<Spec, Boolean, Boolean>, Built>(64, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Triple<Spec, Boolean, Boolean>, Built>?) = size > 64
 }
 
-private fun cached(spec: Spec, dark: Boolean, highContrast: Boolean): AppColors {
+private fun cached(spec: Spec, dark: Boolean, highContrast: Boolean): Built {
     val key = Triple(spec, dark, highContrast)
     synchronized(cache) { cache[key] }?.let { return it }
-    val made = build(spec, dark, highContrast).colors
+    val made = build(spec, dark, highContrast)
     synchronized(cache) { cache[key] = made }
     return made
 }

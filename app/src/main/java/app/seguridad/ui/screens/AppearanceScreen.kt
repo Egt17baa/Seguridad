@@ -74,7 +74,7 @@ internal const val APPEARANCE_STYLE = "Estilo"
 internal const val APPEARANCE_PALETTE = "Paleta"
 internal const val STYLE_GLASS_SHORT = "Cristal: paneles translúcidos sobre un fondo de color."
 internal const val STYLE_SOLID_SHORT = "Sólido: paneles opacos sobre un fondo liso, sin transparencias."
-internal const val STYLE_MORE = "Desde Android 12, las barras y los diálogos difuminan lo que tienen detrás. En Android 8 a 11 son más opacos. " +
+internal const val STYLE_MORE = "Desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás. En Android 8 a 11 son más opacos. " +
     "«Reducir transparencias» los hace opacos."
 internal const val WALLPAPER_SHORT = "Usa los colores que Android calcula del fondo de pantalla (desde Android 12)."
 internal const val WALLPAPER_MORE = "La app no lee la imagen del fondo de pantalla ni pide permisos. Ajusta los tonos para que el texto tenga contraste suficiente."
@@ -137,7 +137,7 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
     var accent by rememberSaveable { mutableIntStateOf(saved.accentHue) }
     var background by rememberSaveable { mutableIntStateOf(saved.backgroundHue) }
     var glass by rememberSaveable { mutableStateOf(saved.glass) }
-    val draft = fixContrast(CustomPalette(accent, background, glass))
+    val draft = remember(accent, background, glass) { fixContrast(CustomPalette(accent, background, glass)) }
     val customOpen = editing || settings.palette == PaletteId.CUSTOM
     val wallpaperOffered = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 

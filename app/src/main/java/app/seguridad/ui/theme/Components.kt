@@ -64,9 +64,15 @@ val SectionShape = RoundedCornerShape(16.dp)
  */
 @Composable
 fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    val glass = LocalLook.current.glass
+    val look = LocalLook.current
+    val glass = look.glass
     val colors = CardDefaults.cardColors(containerColor = if (glass) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer)
-    val border = if (glass) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    // «Alto contraste» marks the edge in «Sólido» too (the glass draws its own).
+    val border = when {
+        glass -> null
+        look.highContrast -> BorderStroke(look.colors.borderWidth.dp, look.colors.border)
+        else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    }
     val m = if (glass) modifier.glass(PanelLevel.CARD, SectionShape) else modifier
     if (onClick != null) {
         Card(onClick = onClick, modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
