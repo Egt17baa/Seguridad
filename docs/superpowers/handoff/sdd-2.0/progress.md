@@ -29,3 +29,4 @@ Ruling: el registro vive aquí, en `docs/superpowers/handoff/sdd-2.0/` (convenci
 ## Tareas
 Ruling: este contenedor no trae `/opt/android-sdk`; el SDK (plataforma 36, build-tools 36.0.0, platform-tools) se instaló en `/home/user/android-sdk` con `sdkmanager` desde dl.google.com — todos los comandos usan `export ANDROID_HOME=/home/user/android-sdk` — fuera del repositorio, se pierde con el contenedor y se vuelve a instalar igual.
 Línea base: `jvm-check` 1915 tests en verde en `25aa637`.
+Línea base: `:app:testDebugUnitTest :app:assembleDebug` en verde en `25aa637` (1920 tests).
