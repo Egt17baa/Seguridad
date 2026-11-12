@@ -99,6 +99,12 @@ fun expiresAtToSave(text: String): Result<Long?> {
     return Result.success(if (iso.isEmpty()) null else parseFieldDate(iso)?.let(::expiresAtOf))
 }
 
+/**
+ * The entry's own date of expiry saved for [type] (re-review N-2): only for a type that has one ([hasOwnExpiry]); for a
+ * card, a licence or a passport «Caduca el» is not on screen, so it is never read (no error on a field not shown).
+ */
+fun entryExpiresAt(type: EntryType, text: String): Result<Long?> = if (hasOwnExpiry(type)) expiresAtToSave(text) else Result.success(null)
+
 /** The reminders the editor offers, in months («No» is null). */
 val ROTATE_CHOICES = listOf(3, 6, 12)
 
@@ -247,6 +253,18 @@ class EntryEditSession(
         templateValues.value = values
         customFields.value = custom
         customRows.value = rows
+    }
+
+    /**
+     * The type chosen while creating an entry (re-review N-2). To a type whose template has its expiry (card, licence,
+     * passport), a date typed in «Caduca el» goes to that field if it is empty, so it is not dropped silently; «Caduca
+     * el» keeps it for a type with its own date.
+     */
+    fun changeType(to: EntryType) {
+        type.value = to
+        val field = Templates.fieldsFor(to).firstOrNull { it.expires } ?: return
+        val typed = expiresText.value.trim()
+        if (typed.isNotEmpty() && templateValue(to, field.key).isBlank()) setTemplateValue(to, field.key, typed)
     }
 
     /** What was typed in the template field [key] of [type]. */

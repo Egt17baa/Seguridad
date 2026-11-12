@@ -92,10 +92,9 @@ import app.seguridad.vault.DUPLICATE_OPEN
 import app.seguridad.vault.FormFields
 import app.seguridad.vault.duplicatedText
 import app.seguridad.vault.entryLimitProblem
-import app.seguridad.vault.expiresAtToSave
+import app.seguridad.vault.entryExpiresAt
 import app.seguridad.vault.fieldsToSave
 import app.seguridad.vault.rotates
-import app.seguridad.vault.hasOwnExpiry
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import com.journeyapps.barcodescanner.ScanContract
@@ -499,7 +498,7 @@ fun VaultEntryEditScreen(
             Column(Modifier.padding(padding).imePadding().touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (existing == null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                        VAULT_ENTRY_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${typeIcon(t)} ${t.label}") }) }
+                        VAULT_ENTRY_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { form.changeType(t) }, label = { Text("${typeIcon(t)} ${t.label}") }) }
                     }
                 }
                 OutlinedTextField(title, { title = it }, label = { Text("Nombre (p. ej. «Correo» o «Cartera»)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -601,7 +600,8 @@ fun VaultEntryEditScreen(
                                 return@Button
                             }
                         }
-                        val expiresAt = expiresAtToSave(form.expiresText.value).getOrElse {
+                        // Re-review N-2: «Caduca el» only where it is on screen.
+                        val expiresAt = entryExpiresAt(type, form.expiresText.value).getOrElse {
                             error = it.message
                             return@Button
                         }
@@ -622,7 +622,7 @@ fun VaultEntryEditScreen(
                             fields = fields,
                             notesFormat = form.notesFormat.value,
                             // Review M-4: a template with its own date of expiry has that one only.
-                            expiresAt = if (hasOwnExpiry(type)) expiresAt else null,
+                            expiresAt = expiresAt,
                             rotateMonths = if (rotates(type)) form.rotateMonths.value else null,
                         )
                         // The limits of one entry, with their own text, before the store refuses it (an old entry that

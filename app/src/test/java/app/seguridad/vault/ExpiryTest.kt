@@ -125,6 +125,14 @@ class ExpiryTest {
         assertEquals("05/29", displayMonthYear("2029-05-31"))
         assertEquals("15/05/2029", displayMonthYear("2029-05-15"))
         assertEquals("raro", displayMonthYear("raro"))
+        // Re-review N-1: two digits are read as 2000 to 2099, so out of it the full date (never rewritten on an edit).
+        assertEquals("31/12/1999", displayMonthYear("1999-12-31"))
+        assertEquals("31/01/2150", displayMonthYear("2150-01-31"))
+        assertEquals("01/00", displayMonthYear("2000-01-31"))
+        assertEquals("12/99", displayMonthYear("2099-12-31"))
+        for (iso in listOf("1999-12-31", "2150-01-31", "2000-01-31", "2099-12-31")) {
+            assertEquals(iso, normalizeDateInput(displayMonthYear(iso), monthYear = true))
+        }
         assertEquals("", normalizeDateInput("  "))
         for (v in bad.filter { it.isNotBlank() } + listOf("31/02/2026", "13/29", "00/30")) assertNull(v.take(20), normalizeDateInput(v, monthYear = true))
         assertEquals("12/11/2026", displayDate("2026-11-12"))

@@ -258,4 +258,34 @@ class EntryFormTest {
         assertEquals("31/05/2027", l.expiresText.value)
         assertEquals("", l.templateValue(EntryType.LOGIN, "expiry"))
     }
+
+    /**
+     * Re-review N-2: «Caduca el» typed on a new login, then the type changed to one whose template has its expiry: the
+     * date goes to the template's field if it is empty (nothing lost silently), and the hidden «Caduca el» is never
+     * read when saving (no error on a field not on screen).
+     */
+    @Test fun aTypedExpiryFollowsTheTypeChange() {
+        val s = session()
+        s.load(emptyList())
+        s.expiresText.value = "15/03/2030"
+        s.changeType(EntryType.PASSPORT)
+        assertEquals(EntryType.PASSPORT, s.type.value)
+        assertEquals("15/03/2030", s.templateValue(EntryType.PASSPORT, "expiry"))
+        // A template's own date already typed wins.
+        s.setTemplateValue(EntryType.CARD, "expiry", "05/29")
+        s.changeType(EntryType.CARD)
+        assertEquals("05/29", s.templateValue(EntryType.CARD, "expiry"))
+        // Back to a type with its own date: «Caduca el» is still what was typed.
+        s.changeType(EntryType.LOGIN)
+        assertEquals("15/03/2030", s.expiresText.value)
+        // When saving, only a type with its own date reads «Caduca el».
+        assertEquals(Result.success(null), entryExpiresAt(EntryType.CARD, "mañana"))
+        assertEquals(Result.success(null), entryExpiresAt(EntryType.LICENSE, "15/03/2030"))
+        assertTrue(entryExpiresAt(EntryType.LOGIN, "mañana").isFailure)
+        assertEquals(Result.success(expiresAtOf(java.time.LocalDate.parse("2030-03-15"))), entryExpiresAt(EntryType.WIFI, "15/03/2030"))
+        // The screen saves through it, and changes the type through the session.
+        val ui = source("ui/screens/VaultEntryScreen.kt")
+        assertTrue("val expiresAt = entryExpiresAt(type, form.expiresText.value).getOrElse {" in ui)
+        assertTrue("onClick = { form.changeType(t) }" in ui)
+    }
 }

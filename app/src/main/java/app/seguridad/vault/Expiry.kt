@@ -82,12 +82,13 @@ fun displayDate(value: String): String =
     parseFieldDate(value)?.let { "%02d/%02d/%04d".format(Locale.ROOT, it.dayOfMonth, it.monthValue, it.year) } ?: value
 
 /**
- * A kept date as a card shows its expiry (review M-3): `MM/AA` for the last day of a month, as it was asked;
- * [displayDate] for any other.
+ * A kept date as a card shows its expiry (review M-3): `MM/AA` for the last day of a month of 2000 to 2099, as it was
+ * asked; [displayDate] for any other, so an edit never rewrites it.
  */
 fun displayMonthYear(value: String): String {
     val d = parseFieldDate(value) ?: return value
-    if (d != YearMonth.from(d).atEndOfMonth()) return displayDate(value)
+    // Re-review N-1: two digits are read back as 2000 to 2099 ([normalizeDateInput]); any other year as the full date.
+    if (d != YearMonth.from(d).atEndOfMonth() || d.year !in 2000..2099) return displayDate(value)
     return "%02d/%02d".format(Locale.ROOT, d.monthValue, d.year % 100)
 }
 

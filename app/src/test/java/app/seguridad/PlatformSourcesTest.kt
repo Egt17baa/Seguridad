@@ -812,7 +812,7 @@ class PlatformSourcesTest {
         val card = code("ui/screens/VaultEntryScreen.kt")
         assertTrue("OutlinedButton(enabled = !duplicating, onClick = {" in card && "if (duplicating) return@OutlinedButton" in card)
         assertTrue(Regex("""finally \{\s*duplicating = false""").containsMatchIn(card))
-        assertTrue("expiresAt = if (hasOwnExpiry(type)) expiresAt else null," in card)
+        assertTrue("val expiresAt = entryExpiresAt(type, form.expiresText.value).getOrElse {" in card)
         val list = code("ui/screens/VaultList.kt")
         assertTrue("cache?.takeIf { it.data === data && it.day == today }" in list)
         assertTrue("Text(\"⏰ \", Modifier.clearAndSetSemantics { }" in list)
