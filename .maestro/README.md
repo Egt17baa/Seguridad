@@ -1,6 +1,6 @@
-# Flujos de Maestro de Clavero 1.4.0
+# Flujos de Maestro de Clavero (1.4.0 a 1.4.2)
 
-Pruebas de interfaz para las «Pruebas de la 1.4.0» del README del repositorio (P-1 a P-27; las siete últimas, de los ataques, son manuales), según la decisión del dueño (g) del 8-11-2026: se ejecutan en tu ordenador con el plugin «Android qa libre» (Mobile MCP y Maestro), en el emulador de Android Studio o con el móvil por USB. En el contenedor de la nube no hay emulador, así que estos flujos se han escrito a partir de los textos del código y **no se han ejecutado todavía**: la primera vez, alguno puede necesitar un ajuste (ver «Lo que puede fallar la primera vez»).
+Pruebas de interfaz para las «Pruebas de la 1.4.0» del README del repositorio (P-1 a P-27; las siete últimas, de los ataques, son manuales), según la decisión del dueño (g) del 8-11-2026: se ejecutan en tu ordenador con el plugin «Android qa libre» (Mobile MCP y Maestro), en el emulador de Android Studio o con el móvil por USB. Los de la raíz pasaron en un móvil con la 1.4.1 (7 de 7, fallo F-3). Para la 1.4.2 se pusieron al día con el texto mínimo y se ensayaron en un emulador sin aceleración de la nube con el APK publicado `Clavero-v1.4.2.apk`, con un intérprete propio de estos comandos y no con Maestro (ver «Ensayo con la 1.4.2»).
 
 ## Carpetas
 
@@ -113,3 +113,36 @@ Los flujos no se han podido ejecutar en el contenedor. Lo más probable que haya
 - **El diálogo de la huella** lo pinta el sistema, y el del fabricante puede pedir la cara sin el botón «Usar contraseña maestra», unos segundos después de abrir. `comun/abrir-app.yaml` lo busca varias veces y, si ve su título («Desbloquear la bóveda»), pulsa «Usar contraseña maestra» o «Cancelar». Nunca «Atrás», que cerraría Clavero si el diálogo ya se está cerrando.
 - **Si un flujo falla**, Maestro guarda en `~/.maestro/tests/<fecha>/<flujo>/screen-hierarchy/` la estructura de la pantalla del paso que falla, y `logs/maestro.log` dice qué encontró en cada intento.
 
+
+### Ensayo con la 1.4.2
+
+Sin Maestro en la nube, los flujos se ensayaron con un intérprete propio de estos comandos (uiautomator y `adb`), en un emulador sin aceleración (Android 11, letra al 130 %) con `Clavero-v1.4.2.apk`. No es Maestro: lo que dice este ensayo es que los textos y los pasos cuadran con la 1.4.2, no que Maestro los ejecute igual.
+
+| Flujo | Ensayo |
+|---|---|
+| `p14-comprobar-una-copia-pantalla`, `p15-laboratorio-hashes`, `p20-version-y-licencias` | Completos, sin fallos. |
+| `borra-datos/p05-ayuda-codigos-qr`, `borra-datos/p19-crear-boveda-maestra-nueva` | Completos, sin fallos. |
+| `p16-laboratorio-clasico`, `p17-repartir-un-secreto` | Fallaron por cómo escribía el intérprete (a trozos, y perdía espacios), no por la app; sin repetir. Pasaron en un móvil con la 1.4.1 y solo cambian los textos plegados. |
+| `giro-conserva-estado`, `p19-recorrer-herramientas` | Sin ensayar. Pasaron en un móvil con la 1.4.1. |
+| `borra-datos/p15-p16-p17-bloquear-borra` | Llegó a la tercera herramienta; el cambio del bloqueo, sin ensayar. |
+| `semiautomaticas/p08-volver-atras-borra`, `semiautomaticas/p17-recomponer-vector-oficial` | Completos, sin fallos. El archivo se eligió con el teclado: el selector del emulador no abre un archivo al tocarlo (solo del ensayo). |
+| `semiautomaticas/p07-p09-p10-copia-y-duplicados`, `semiautomaticas/p14-comprobar-una-copia-archivo` | La primera parte, bien (la copia, «No, déjalo» y «no es una copia»); se cortaron en el segundo archivo, en el selector del emulador. |
+| `semiautomaticas/p12-archivos-hostiles`, `semiautomaticas/p15-laboratorio-hashes-archivo`, `semiautomaticas/p04-lo-que-no-se-lee` | Sin terminar: el selector del emulador se cerraba solo al abrir su menú. Sus textos de Clavero se comprobaron contra el código. |
+
+**Comprobaciones que faltan, con Maestro en tu ordenador y el móvil por USB:**
+
+1. Las semiautomáticas de la fila de arriba enteras, y las dos que se cortaron.
+2. `p16`, `p17`, `giro-conserva-estado`, `p19-recorrer-herramientas` y `borra-datos/p15-p16-p17-bloquear-borra` (el cambio de «Bloquear»).
+3. `borra-datos/p05-ayuda-codigos-qr` toca «Añadir» por debajo del texto «Tu bóveda está vacía…»: si Maestro toca otra cosa, apúntalo.
+4. Con TalkBack, que el botón «Añadir» de la bóveda se lea como «Añadir».
+5. Si la bóveda se bloquea sola antes de tiempo con una herramienta abierta, y si «Repartir un secreto» conserva entonces sus partes (en el emulador pasó una vez; puede ser por su lentitud).
+
+### Lo que cambió con la 1.4.2 (texto mínimo, M-3)
+
+- **Cada pantalla enseña una o dos líneas y pliega el resto bajo «Más información»** (al abrirlo pasa a «Menos información»). Los flujos comprueban la línea corta a la vista y, para un texto plegado, bajan hasta su «Más información», lo pulsan y después lo buscan. Lo que no protege cada herramienta y la nota de lo que se borra tienen su línea corta a la vista y el texto completo en el pliegue del final.
+- **Puede haber dos «Más información» en la misma pantalla:** en «Importar de otra app», el primero (`index: 0`) pliega la explicación, los formatos y la ayuda de los códigos QR, y el del final, los avisos completos. En «Repartir un secreto», el aviso tiene el suyo dentro de su tarjeta.
+- **Al crear la bóveda**, se cierra el teclado después de la primera contraseña antes de buscar «Repítela»: en una pantalla pequeña o con la letra grande, el teclado tapa el campo.
+- **El botón «Añadir» de la bóveda no da su texto** a las herramientas de accesibilidad: P-5 lo pulsa por su sitio, debajo de «Tu bóveda está vacía. Pulsa «Añadir».».
+- **Los tipos de entrada van en una fila que se desliza:** con la letra grande, «Código 2FA» queda fuera, a la derecha, y P-5 desliza la fila antes de pulsarlo.
+- **El selector de archivos** baja hasta el archivo y lo lleva al centro antes de tocarlo: con muchos archivos en Descargas, el de prueba puede estar más abajo o pegado a la barra del sistema.
+- **«Bloquear borra»** prueba el botón «Bloquear». Si al llegar a la pestaña la bóveda ya está bloqueada (en un dispositivo lento puede bloquearse sola antes), el flujo la desbloquea y la bloquea con el botón.

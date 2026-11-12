@@ -81,10 +81,6 @@ tags:
     element:
       text: "Ubyn Zhaqb"
     direction: DOWN
-- scrollUntilVisible:
-    element:
-      text: 'Solo se cambian las letras A-Z\..*'
-    direction: DOWN
 
 # Vigenère: sin clave lo dice; con «LEMON», el ejemplo clásico.
 - scrollUntilVisible:
@@ -266,4 +262,28 @@ tags:
 - assertNotVisible: "Hola Mundo"
 - assertNotVisible: "Ubyn Zhaqb"
 - assertNotVisible: "30"
+
+# 1.4.2 (texto mínimo): el aviso de borrado, en una línea a la vista; las explicaciones completas, plegadas
+# bajo «Más información», al final de la pantalla.
+- scrollUntilVisible:
+    element:
+      text: 'Lo escrito y el resultado se borran al volver atrás.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Más información"
+    direction: DOWN
+- tapOn: "Más información"
+- scrollUntilVisible:
+    element:
+      text: 'Solo se cambian las letras A-Z\..*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Enigma I y M3 con sus cableados históricos\. Cada pulsación.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Lo que escribes aquí y el resultado se borran si vuelves atrás.*'
+    direction: DOWN
 - tapOn: "Atrás"

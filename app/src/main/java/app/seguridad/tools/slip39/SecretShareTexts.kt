@@ -92,7 +92,8 @@ const val SHARE_RESULT_NOTE =
 fun slip39TooManyParts(max: Int) = "Hay demasiadas partes: como mucho $max."
 const val SLIP39_NO_PARTS = "Escribe al menos una parte."
 fun slip39PartTooLong(part: Int) = "La parte $part es demasiado larga."
-fun slip39WordCount(part: Int, count: Int, min: Int, max: Int) = "La parte $part tiene $count palabras: una parte tiene de $min a $max."
+fun slip39WordCount(part: Int, count: Int, min: Int, max: Int) =
+    "La parte $part tiene $count ${if (count == 1) "palabra" else "palabras"}: una parte tiene de $min a $max."
 fun slip39UnknownWord(position: Int, part: Int) = "La palabra $position de la parte $part no es de la lista SLIP-39."
 fun slip39Checksum(part: Int) = "La parte $part tiene alguna palabra mal: su suma de control no cuadra."
 fun slip39BadLength(part: Int) = "La parte $part no tiene una longitud válida."
