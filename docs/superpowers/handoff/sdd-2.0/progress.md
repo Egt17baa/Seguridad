@@ -107,3 +107,5 @@ Task 5: fix round 2/5 (N-1, N-2 addressed, 0 open; 8cf26fd..6b15fe2; app 2092, j
 Task 5: complete (commits 788451d..6b15fe2, review clean). Informes: `task-5-report.md`, `task-5-review.md`, `task-5-rereview-1.md`.
 Task 5: deferred: la contraseña del wifi en «Comprobar filtraciones» — a la revisión final del Abogado; «Duplicar» en el menú de la fila — tarea 6.
 Task 5 bis: dispatched (base 6b15fe2, model opus).
+Sesión nueva (12-11-2026): la tarea 5 bis no tenía commit; se empieza de nuevo desde 2ab573c. SDK otra vez en `/home/user/android-sdk`.
+Task 5 bis: dispatched (base 2ab573c, model opus).
