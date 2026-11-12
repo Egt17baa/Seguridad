@@ -31,6 +31,7 @@ import app.seguridad.vault.EntryType
 import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MASTER_WORD_LISTS
 import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.oldPasswords
 import app.seguridad.vault.masterWords
 import app.seguridad.vault.newMasterProblem
 import app.seguridad.vault.query
@@ -903,7 +904,7 @@ class RedTeamRecheckTest {
         val item = ImportedItem(0, importedEntry(EntryType.LOGIN, "Banco", username = "ana", password = "\u200B", url = "https://banco.es/otra"), emptyList())
         val after = mergedEntries(plan(item, vault), DuplicateChoice.REPLACE, emptyMap(), vault, 2, { "n" }).single()
         assertEquals("\u200B", after.password)
-        assertEquals(listOf("la-buena"), after.passwordHistory.map { it.password })
+        assertEquals(listOf("la-buena"), after.oldPasswords().map { it.password })
         assertEquals("https://banco.es/otra", after.url)
         assertEquals("ana · banco.es", duplicateSubline(item.entry))
     }

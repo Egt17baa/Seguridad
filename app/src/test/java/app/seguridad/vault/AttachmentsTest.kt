@@ -178,7 +178,10 @@ class AttachmentsTest {
         s.addAttachment("b", ByteArrayInputStream(bytes(10)), "b")
         val fa = fileOf(s.entry("a").attachments.single())
         val fb = fileOf(s.entry("b").attachments.single())
+        // 2.0, task 3: deleting sends it to the trash, with its files; they go when it is deleted for good.
         s.delete("a")
+        assertTrue(fa.exists())
+        assertEquals(1, s.deleteForever(setOf("a")))
         assertFalse(fa.exists())
         assertTrue(fb.exists())
         assertArrayEquals(bytes(10), s.openAttachment("b", s.entry("b").attachments.single().id))

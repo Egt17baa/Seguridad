@@ -87,8 +87,9 @@ class PlatformSourcesTest {
     @Test fun `deleting an entry goes back once, when the entry is gone`() {
         val src = code("ui/screens/VaultEntryScreen.kt")
         assertTrue("if (entry == null) return LockedNotice(onBack)" in src)
-        assertTrue("store.delete(entry.id)" in src)
-        assertFalse("a second onBack after the delete", Regex("""store\.delete\(entry\.id\)\)\s*onBack\(\)""").containsMatchIn(src))
+        // 2.0, task 3: to the trash, through «Deshacer».
+        assertTrue("undo.moveToTrash(setOf(entry.id))" in src)
+        assertFalse("a second onBack after the delete", Regex("""undo\.moveToTrash\(setOf\(entry\.id\)\)\s*onBack\(\)""").containsMatchIn(src))
     }
 
     /**
@@ -692,9 +693,21 @@ class PlatformSourcesTest {
                 "Field(\"Web\", entry.url, plain = true)",
                 "if (plain) plainReportText(value, value.length) else value",
                 "entry.tags.map { \"#\${plainReportText(it)}\" }",
-                "Text(\"¿Borrar «\${plainReportText(entry.title)}»?\")",
+                "Text(moveToTrashTitle(plainReportText(entry.title)))",
                 "\${plainReportText(entries.single().title)}",
                 "entries.joinToString(\", \") { plainReportText(it.title) }",
+            ),
+            // 2.0, task 3: the trash and the versions of an entry.
+            "ui/screens/TrashScreen.kt" to listOf(
+                "Text(\"\${typeIcon(e.type)} \${plainReportText(e.title)}\", maxLines = 2",
+                "Text(trashDeleteForeverTitle(plainReportText(e.title)))",
+            ),
+            "ui/screens/EntryHistoryScreen.kt" to listOf(
+                "BackScaffold(\"\$HISTORY_TITLE · \${plainReportText(entry.title)}\", onBack)",
+                "Text(\"\${typeIcon(e.type)} \${plainReportText(e.title)}\")",
+                "Field(\"Usuario\", e.username, plain = true)",
+                "Field(\"Web\", e.url, plain = true)",
+                "Text(historyClearTitle(plainReportText(entry.title)))",
             ),
             "ui/screens/OtpQrScreen.kt" to listOf("Text(plainReportText(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(\" · \"))"),
             "ui/screens/HealthScreen.kt" to listOf("Text(plainReportText(title).ifEmpty { \"(sin título)\" }"),

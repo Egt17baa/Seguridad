@@ -75,6 +75,7 @@ class SeguridadApp : Application() {
             container.settings.load()
             container.decideRenameNotice()
         }
-        container.rememberClock(System.currentTimeMillis()) // The clock mark also rises when the app starts, not only on use.
+        // The clock mark also rises when the app starts, not only on use; the trash's clock does not (task 3, focus 3).
+        container.appStarted(System.currentTimeMillis())
     }
 }

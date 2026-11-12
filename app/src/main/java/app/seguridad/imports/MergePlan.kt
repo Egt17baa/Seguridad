@@ -16,7 +16,7 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.totpKeyOf
-import app.seguridad.vault.withNewPassword
+import app.seguridad.vault.withVersion
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
@@ -113,6 +113,8 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
     val inVault = Matcher<String>(codesOfEveryType = true)
     val byId = HashMap<String, VaultEntry>(existing.size * 2)
     for (e in existing) {
+        // 2.0, task 3 (focus 5): what is in the trash is no duplicate.
+        if (e.deletedAt != null) continue
         inVault.add(e, e.id)
         byId.putIfAbsent(e.id, e)
     }
@@ -141,11 +143,18 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
             newItems += item
         }
     }
-    val budget = TagBudget(existing.flatMapTo(HashSet()) { it.tags })
+    val budget = TagBudget(liveTags(existing))
     for (item in newItems) budget.tagsFor(item.folders, read.format)
     val skipped = if (tooBig.isEmpty()) read.skipped else (read.skipped + tooBig).sortedBy { it.index }
     return MergePlan(revision, read.format, newItems, duplicates, repeated, skipped, read.becameNotes, budget.created)
 }
+
+/**
+ * The tags of the entries of [existing] not in the trash: a tag only an entry in the trash has is new to an import, and
+ * counts against [IMPORT_MAX_NEW_TAGS] (2.0, task 3, focus 5: the trash is not in the vault the user sees).
+ */
+private fun liveTags(existing: List<VaultEntry>): Set<String> =
+    existing.filter { it.deletedAt == null }.flatMapTo(HashSet()) { it.tags }
 
 /** The longest id the app gives an entry (a UUID) and the widest dates: the stored form is never larger than this. */
 private val WIDEST_ID = "0".repeat(36)
@@ -265,13 +274,13 @@ fun mergeImport(
     newId: () -> String,
     zone: ZoneId = ZoneId.systemDefault(),
 ): MergeResult {
-    val had = existing.flatMapTo(HashSet()) { it.tags }
+    val had = liveTags(existing)
     val budget = TagBudget(had)
     // The new folder tags the cap kept off an entry that would otherwise have had them.
     val lost = HashSet<String>()
     val out = existing.toMutableList()
     val position = HashMap<String, Int>(existing.size * 2)
-    existing.forEachIndexed { i, e -> position.putIfAbsent(e.id, i) }
+    existing.forEachIndexed { i, e -> if (e.deletedAt == null) position.putIfAbsent(e.id, i) }
     val duplicateOf = plan.duplicates.associateBy { it.item.index }
     val added = ArrayList<VaultEntry>()
     for (item in (plan.newItems + plan.duplicates.map { it.item }).sortedBy { it.index }) {
@@ -325,9 +334,9 @@ fun mergeImport(
  *   compared trimmed, as the duplicate rule compares them, so notes that differ only by the spaces or line breaks around
  *   them are the same (branch review A, M-2);
  * - tags: its own, then [incoming]'s it lacks, up to [MAX_TAGS] (its own are never dropped);
- * - password: the one exception to R59 (ruling R62): any non-empty one ([String.isEmpty], not «shows nothing») goes
- *   through [withNewPassword], since a password is an opaque secret the file could set to anything visible anyway, and
- *   the old one goes to the history.
+ * - password: the one exception to R59 (ruling R62): any non-empty one ([String.isEmpty], not «shows nothing») replaces
+ *   it, since a password is an opaque secret the file could set to anything visible anyway; 2.0 (task 3): the entry as
+ *   it was, old password included, goes to its history ([withVersion]).
  * An `IDENTITY` or `CONTACT` [existing], an [incoming] of another type, or a replacement that would only change
  * `updatedAt`, gives [existing] itself.
  */
@@ -366,9 +375,10 @@ fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: Zon
         tags = (existing.tags + incoming.tags.filter { it !in existing.tags }).distinct().take(maxOf(MAX_TAGS, existing.tags.size)),
         updatedAt = now,
     )
-    val replaced = if (incoming.password.isEmpty()) merged else merged.withNewPassword(incoming.password, now)
-    // Nothing but the date would change: the entry stays as it is (no save, no new copy for nothing).
-    return if (replaced.copy(updatedAt = existing.updatedAt) == existing) existing else replaced
+    val replaced = if (incoming.password.isEmpty()) merged else merged.copy(password = incoming.password)
+    // Nothing but the date would change: the entry stays as it is (no save, no new copy for nothing). 2.0, task 3: what
+    // changes keeps the entry as it was in its history, the old password included ([withVersion], M-4).
+    return if (replaced.copy(updatedAt = existing.updatedAt) == existing) existing else replaced.withVersion(existing, now)
 }
 
 /**

@@ -198,6 +198,12 @@ class VaultStore(
     /** Told the time after the master password was verified (unlock, [confirmMaster], import): the mark restarts there, even lower. */
     private val onClockReset: (Long) -> Unit = {},
     /**
+     * 2.0, task 3: the highest time this vault was seen in use before an unlock, which the trash's clock rule reads
+     * ([purgedTrash], focus 3): read once at the start of each unlock, before that unlock tells the time. [clockHighWater]
+     * by default; the app passes its own, which the start of the app does not raise ([app.seguridad.AppContainer.trashClockMark]).
+     */
+    private val trashClockMark: () -> Long = clockHighWater,
+    /**
      * A clock that only moves forward and keeps counting while the phone sleeps (Android: SystemClock.elapsedRealtime),
      * in ms: the idle lock and its backstop measure time without use with it, so a wall clock set back (by hand, NITZ
      * or NTP) never delays them (COV2-2). [now] stays for the dates and the A11 clock mark.
@@ -522,9 +528,12 @@ class VaultStore(
     /** True when it opened a vault of version 2 or 3 whose version 4 waits in memory (not saved yet). */
     private suspend fun unlockLocked(master: CharArray, since: Int): Boolean {
         val v = vault ?: return false
+        // 2.0, task 3: the time and the trash's mark of before this unlock, read before it tells the time to anyone.
+        val at = now()
+        val mark = trashClockMark()
         val key = derive { VaultCrypto.unlock(v, master) }
         val checked = try {
-            derive { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
+            derive { VaultCrypto.afterMasterUnlock(v, key, master, at, kdf(), prepare = { it.purgedTrash(at, mark) }) }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -600,6 +609,9 @@ class VaultStore(
 
     private suspend fun unlockWithKeyLocked(key: ByteArray, since: Int) {
         val v = vault ?: return key.fill(0)
+        // 2.0, task 3: read before this unlock tells the time (see [unlockLocked]).
+        val at = now()
+        val mark = trashClockMark()
         // A file this version cannot open: the key is not tried, so it is never taken for a stale one.
         if (!VaultCrypto.opens(v)) {
             key.fill(0)
@@ -616,9 +628,11 @@ class VaultStore(
             key.fill(0)
             throw StaleBiometricKey()
         }
-        // A CryptoFailure of opened() is entries that authenticate but do not decode, and keeps the fingerprint.
-        opened(known, key, since)
-        collectGarbage()
+        // A CryptoFailure here is entries that authenticate but do not decode, and keeps the fingerprint.
+        // 2.0, task 3: the unlock is recorded and the trash emptied of what is due ([purgedTrash]), as a bookkeeping save:
+        // a full disk never keeps the vault closed ([commit] with mustSave false). Its attachments go with the collection.
+        val next = withContext(compute) { VaultCrypto.write(known, key, VaultCrypto.read(known, key).purgedTrash(at, mark)) }
+        commit(next, key, since, mustSave = false)
     }
 
     /**
@@ -748,39 +762,41 @@ class VaultStore(
     /**
      * Adds or replaces [entry]. Throws [IllegalStateException] (nothing is saved) for an [EntryType.IDENTITY] when the
      * vault has another one, and for an identity or contact while the vault is still version 2 (see
-     * [needsMasterForContacts]). Identities and contacts never keep attachments or password history.
+     * [needsMasterForContacts]). Identities and contacts never keep attachments or history. 2.0, task 3: a change keeps
+     * the entry as it was in its history ([withVersion]); the history, the legacy list of old passwords and the
+     * attachments are the store's to keep, whatever the caller sends. False, with nothing saved, for an id that is in the
+     * trash (a screen left open on it): it is restored with [restore], never overwritten.
      */
-    suspend fun upsert(entry: VaultEntry) = modify { list ->
+    suspend fun upsert(entry: VaultEntry) = modifyData { data ->
+        if (data.entries.any { it.id == entry.id && it.deletedAt != null }) return@modifyData null
+        val list = data.live
         checkCanHold(list, listOf(entry))
         val saved = list.firstOrNull { it.id == entry.id }
-        if (entry.type.isPersonal) {
+        val next = if (entry.type.isPersonal) {
             // No passwords, history or attachments of their own: whatever the caller sends is dropped.
-            val plain = entry.copy(passwordHistory = emptyList(), attachments = emptyList())
-            if (saved == null) list + plain else list.map { if (it.id == entry.id) plain else it }
+            entry.copy(passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null)
         } else if (saved == null) {
-            list + entry.copy(passwordHistory = emptyList(), attachments = emptyList())
+            entry.copy(passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null)
         } else {
-            // The history is the store's to keep: whatever the caller sends is replaced by the stored one plus this change.
-            val history = if (saved.type == EntryType.LOGIN && entry.type == EntryType.LOGIN) {
-                saved.withNewPassword(entry.password, now()).passwordHistory
-            } else {
-                emptyList() // A type change never files a passphrase or another secret as an old password.
-            }
             // The attachments too: only [addAttachment] and [removeAttachment] change them, so an editor that does
             // not send them never drops one (and the collection after the save never deletes its file).
-            list.map { if (it.id == entry.id) entry.copy(passwordHistory = history, attachments = saved.attachments) else it }
+            entry.copy(history = saved.history, passwordHistory = saved.passwordHistory, attachments = saved.attachments, deletedAt = null)
+                .withVersion(saved, now())
         }
+        val entries = if (saved == null) list + next else list.map { if (it.id == entry.id) next else it }
+        data.copy(entries = entries + data.trash)
     }
 
     /**
      * Adds new entries with a single write, all or none (a Google Authenticator batch). An id already in the vault is
      * left as it is, and new entries start without password history, as with [upsert].
      */
-    suspend fun addAll(entries: List<VaultEntry>) = modify { list ->
-        val ids = list.mapTo(HashSet()) { it.id }
+    suspend fun addAll(entries: List<VaultEntry>) = modifyData { data ->
+        // The ids of the trash too: an entry there is never shadowed by a new one with its id.
+        val ids = data.entries.mapTo(HashSet()) { it.id }
         val added = entries.filter { ids.add(it.id) }
-        checkCanHold(list, added)
-        list + added.map { it.copy(passwordHistory = emptyList(), attachments = emptyList()) }
+        checkCanHold(data.live, added)
+        data.copy(entries = data.live + added.map { it.copy(passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null) } + data.trash)
     }
 
     /**
@@ -898,8 +914,119 @@ class VaultStore(
         return modifyData { data -> if (data.name == next) null else data.copy(name = next) }
     }
 
-    /** Deletes the entry; its attachment files go with the collection after the save. */
-    suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }
+    /**
+     * 2.0, task 3: sends the entry to the trash ([moveToTrash]); true when it was there to move. The identity and the
+     * contacts ([EntryType.isPersonal], their own tab) never go to the trash: they are deleted for good, as before, after
+     * the screen's own confirmations, which say so; their files go with the collection after the save.
+     */
+    suspend fun delete(id: String): Boolean {
+        val personal = (_state.value as? VaultState.Unlocked)?.entries?.any { it.id == id && it.type.isPersonal } == true
+        if (!personal) return moveToTrash(setOf(id)) > 0
+        return modify { list -> if (list.none { it.id == id && it.type.isPersonal }) null else list.filterNot { it.id == id } }
+    }
+
+    /**
+     * 2.0, task 3: sends the entries of [ids] not in the trash there ([VaultEntry.deletedAt] = now), with their
+     * attachments, in one save; how many went (0, with nothing saved, when none or the vault is locked). Never the
+     * identity nor a contact ([delete]).
+     */
+    suspend fun moveToTrash(ids: Set<String>): Int = trash(ids).size
+
+    /** [moveToTrash], with the ids it really moved ([UndoTrash] brings back only those). */
+    internal suspend fun trash(ids: Set<String>): Set<String> {
+        val moved = HashSet<String>()
+        modifyData { data ->
+            moved.clear()
+            val at = now()
+            val entries = data.entries.map { e ->
+                if (e.deletedAt == null && !e.type.isPersonal && e.id in ids && moved.add(e.id)) e.copy(deletedAt = at) else e
+            }
+            if (moved.isEmpty()) null else data.copy(entries = entries)
+        }.let { saved -> if (!saved) moved.clear() }
+        return moved
+    }
+
+    /**
+     * 2.0, task 3: brings the entries of [ids] back from the trash, in one save; how many came back. The app never sends
+     * an identity there ([moveToTrash]), but a copy made elsewhere may bring one: it does not come back while the vault
+     * has another one (there is only one identity); it stays in the trash.
+     */
+    suspend fun restore(ids: Set<String>): Int {
+        var count = 0
+        modifyData { data ->
+            count = 0
+            var identity = data.live.any { it.type == EntryType.IDENTITY }
+            val entries = data.entries.map { e ->
+                if (e.deletedAt == null || e.id !in ids) return@map e
+                if (e.type == EntryType.IDENTITY) {
+                    if (identity) return@map e
+                    identity = true
+                }
+                count++
+                e.copy(deletedAt = null)
+            }
+            if (count == 0) null else data.copy(entries = entries)
+        }.let { saved -> if (!saved) count = 0 }
+        return count
+    }
+
+    /**
+     * 2.0, task 3: «Borrar para siempre»: removes from the vault the entries of [ids] that are in the trash (never one
+     * that is not); their attachments' files go with the collection after the save. How many went. The copies already
+     * made keep them (Abogado Digital, O-2).
+     */
+    suspend fun deleteForever(ids: Set<String>): Int = removeFromTrash { it.id in ids }
+
+    /** 2.0, task 3: «Vaciar papelera»: [deleteForever] of everything in the trash. */
+    suspend fun emptyTrash(): Int = removeFromTrash { true }
+
+    private suspend fun removeFromTrash(which: (VaultEntry) -> Boolean): Int {
+        var count = 0
+        modifyData { data ->
+            val kept = data.entries.filterNot { it.deletedAt != null && which(it) }
+            count = data.entries.size - kept.size
+            if (count == 0) null else data.copy(entries = kept)
+        }.let { saved -> if (!saved) count = 0 }
+        return count
+    }
+
+    /**
+     * 2.0, task 3: «Restaurar esta versión»: the version of entry [entryId] saved at [savedAt] becomes the entry again,
+     * as a new save, which keeps what was there as a new version ([withVersion]); its attachments stay. False, with
+     * nothing saved, when there is no such entry (out of the trash) or version, or the version is the entry as it is.
+     */
+    suspend fun restoreVersion(entryId: String, savedAt: Long): Boolean = modifyData { data ->
+        val current = data.live.firstOrNull { it.id == entryId } ?: return@modifyData null
+        val version = current.history.firstOrNull { it.savedAt == savedAt }?.entry ?: return@modifyData null
+        val restored = version.copy(
+            id = current.id, createdAt = current.createdAt, updatedAt = now(), lastUsedAt = current.lastUsedAt,
+            history = current.history, passwordHistory = current.passwordHistory, attachments = current.attachments, deletedAt = null,
+        )
+        if (!restored.changedFrom(current)) return@modifyData null
+        checkCanHold(data.live.filterNot { it.id == entryId }, listOf(restored))
+        data.copy(entries = data.entries.map { if (it.id == entryId) restored.withVersion(current, now()) else it })
+    }
+
+    /**
+     * 2.0, task 3: «Borrar historial» of entry [entryId] (out of the trash): its versions and the legacy list of old
+     * passwords of 1.4.3. False, with nothing saved, when it had none. The copies already made keep them (O-2).
+     */
+    suspend fun clearHistory(entryId: String): Boolean = modifyData { data ->
+        val e = data.live.firstOrNull { it.id == entryId } ?: return@modifyData null
+        val cleared = e.withoutHistory()
+        if (cleared === e) null else data.copy(entries = data.entries.map { if (it === e) cleared else it })
+    }
+
+    /** 2.0, task 3: «Borrar historial» of every entry, those in the trash too; how many had any. */
+    suspend fun clearAllHistory(): Int {
+        var count = 0
+        modifyData { data ->
+            count = 0
+            val entries = data.entries.map { e -> e.withoutHistory().also { if (it !== e) count++ } }
+            if (count == 0) null else data.copy(entries = entries)
+        }.let { saved -> if (!saved) count = 0 }
+        return count
+    }
 
     /**
      * Encrypts [input] as a new attachment of entry [entryId] and saves the vault. Throws [AttachmentLimit] over

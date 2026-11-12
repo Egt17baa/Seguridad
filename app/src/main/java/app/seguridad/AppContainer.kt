@@ -34,6 +34,7 @@ import app.seguridad.vault.LockReason
 import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.TagColor
+import app.seguridad.vault.UndoTrash
 import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultDeletion
 import app.seguridad.vault.VaultRegistry
@@ -249,10 +250,39 @@ class AppContainer(
      */
     fun rememberClock(seen: Long) {
         synchronized(clockLock) {
-            for (id in clockIds()) if (seen > (clockSeen[id] ?: 0L)) clockSeen[id] = seen
+            for (id in clockIds()) {
+                if (seen > (clockSeen[id] ?: 0L)) clockSeen[id] = seen
+                if (seen > (clockUsed[id] ?: 0L)) clockUsed[id] = seen
+            }
         }
         saveClock()
     }
+
+    /**
+     * The start of the app (SeguridadApp): raises the A11 marks as [rememberClock] does, but is no use of any vault, so
+     * the trash's clock ([trashClockMark]) does not take it: a clock set forward while the app was closed is seen at the
+     * start, and must still look set forward at the first unlock (task 3, focus 3).
+     */
+    fun appStarted(now: Long) {
+        synchronized(clockLock) {
+            for (id in clockIds()) if (now > (clockSeen[id] ?: 0L)) clockSeen[id] = now
+        }
+        saveClock()
+    }
+
+    /**
+     * Per vault, the highest time seen in this process by a use (an unlock, a touch, a master check; any vault's, as the
+     * A11 marks), never by the start of the app ([appStarted]): in memory only.
+     */
+    private val clockUsed = HashMap<String, Long>()
+
+    /**
+     * 2.0, task 3: the mark the trash's clock rule of the vault [id] reads before an unlock ([app.seguridad.vault.purgedTrash],
+     * focus 3): the highest time the app saw in use in this process; 0 when none. Not the A11 mark, which the start of the
+     * app raises to the time of that start (so a clock set forward while the app was closed would never look so), and
+     * which is saved (so a start of an earlier process would count too).
+     */
+    fun trashClockMark(id: String): Long = synchronized(clockLock) { clockUsed[id] ?: 0L }
 
     /**
      * After a master password check of the vault [id] its mark restarts at [now], even lower: a clock set forward by
@@ -263,6 +293,7 @@ class AppContainer(
         synchronized(clockLock) {
             clockLowered[id] = now
             clockSeen[id] = now
+            clockUsed[id] = now
             clockResets++
         }
         saveClock()
@@ -283,6 +314,7 @@ class AppContainer(
         synchronized(clockLock) {
             clockSeen.remove(id)
             clockLowered.remove(id)
+            clockUsed.remove(id)
         }
     }
 
@@ -362,6 +394,8 @@ class AppContainer(
             clockHighWater = { clockMark(id) },
             onClockSeen = ::rememberClock,
             onClockReset = { now -> resetClock(id, now) },
+            // 2.0, task 3: the trash's clock, which the start of the app does not raise.
+            trashClockMark = { trashClockMark(id) },
             elapsed = elapsedRealtime,
             awayInMultiWindow = { _awayInOtherApp.value },
             // 2.0: the copy before the vault passes to v4, in this vault's automatic copies' folder; none (no folder, or it
@@ -388,6 +422,9 @@ class AppContainer(
             importCopies = { settings.settings.value.vault(id).currentImportCopies },
             onImportCopy = { folder, copy, generation -> recordImportCopy(id, store, folder, copy, generation) },
         )
+
+        /** 2.0, task 3: «Deshacer» after a move to this vault's trash; a lock of this vault (a switch locks it) forgets it. */
+        val undoTrash = UndoTrash(store, elapsedRealtime)
     }
 
     private val slots = HashMap<String, Slot>()
@@ -420,6 +457,9 @@ class AppContainer(
 
     /** The automatic copies of [vault]. */
     val autoBackup: AutoBackup get() = slot(_activeVault.value.id).autoBackup // Review M-3: always [vault]'s.
+
+    /** 2.0, task 3: «Deshacer» of the active vault's trash; another vault's (after a switch) has nothing to undo. */
+    val undoTrash: UndoTrash get() = slot(_activeVault.value.id).undoTrash
 
     /** The state of whichever vault is active: what app-wide clean-ups follow (a lock, a switch). */
     val vaultState: Flow<VaultState> = activeVault.flatMapLatest { it.state }

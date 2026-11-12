@@ -72,7 +72,7 @@ class VaultStoreImportTest {
         assertEquals(3, list.size)
         val bank = list.first { it.id == "b" }
         assertEquals("nueva", bank.password)
-        assertEquals(listOf("vieja"), bank.passwordHistory.map { it.password })
+        assertEquals(listOf("vieja"), bank.oldPasswords().map { it.password })
         assertTrue(list.first { it.type == EntryType.TOTP }.tags.containsAll(listOf(ORIGIN_TAG_AEGIS, "trabajo")))
         // On disk: a new store reads the same entries.
         val again = store().apply { load(); unlock("maestra".toCharArray()) }

@@ -2,6 +2,7 @@ package app.seguridad.health
 
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.oldPasswords
 import java.net.URI
 import java.text.Normalizer
 import java.util.Locale
@@ -23,9 +24,12 @@ private val KEYBOARD_ROWS = listOf("qwertyuiop", "asdfghjkl", "zxcvbnm", "123456
 /** The most used passwords that [estimateBits] gives 0 bits (as typed in the list, before any normalization). */
 internal fun commonPasswords(): Set<String> = COMMON
 
-/** LOGIN entries with a non-empty password, grouped by password: password -> entry ids (in vault order). */
+/**
+ * LOGIN entries with a non-empty password, grouped by password: password -> entry ids (in vault order). 2.0, task 3:
+ * not those in the trash.
+ */
 fun uniquePasswords(entries: List<VaultEntry>): Map<String, List<String>> =
-    entries.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }
+    entries.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() && it.deletedAt == null }
         .groupBy({ it.password }, { it.id })
 
 /**
@@ -33,9 +37,11 @@ fun uniquePasswords(entries: List<VaultEntry>): Map<String, List<String>> =
  * number of times its password appeared in leaks (filled in memory by the user-triggered check; empty otherwise).
  */
 fun vaultHealth(entries: List<VaultEntry>, now: Long, breached: Map<String, Int> = emptyMap()): List<HealthItem> {
-    val logins = entries.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }
+    // 2.0, task 3: what is in the trash is not in «Salud», nor a 2FA that counts for another entry.
+    val live = entries.filter { it.deletedAt == null }
+    val logins = live.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }
     val counts = logins.groupingBy { it.password }.eachCount()
-    val totpNames = entries.filter { it.type == EntryType.TOTP }
+    val totpNames = live.filter { it.type == EntryType.TOTP }
         .flatMap { listOfNotNull(it.totp?.issuer, it.title) }
         .map { normalizeName(it) }
         .filter { it.isNotEmpty() }
@@ -44,7 +50,8 @@ fun vaultHealth(entries: List<VaultEntry>, now: Long, breached: Map<String, Int>
         val issues = buildSet {
             if ((counts[e.password] ?: 0) >= 2) add(Issue.REUSED)
             if (estimateBits(e.password) < WEAK_BITS) add(Issue.WEAK)
-            val changed = e.passwordHistory.firstOrNull()?.changedAt ?: e.updatedAt
+            // The last change of the password: from the history and the list of 1.4.3 (task 3, M-4).
+            val changed = e.oldPasswords().firstOrNull()?.changedAt ?: e.updatedAt
             if (now - changed > OLD_DAYS * DAY_MS) add(Issue.OLD)
             if (!has2fa(e, totpNames)) add(Issue.NO_2FA)
             if ((breached[e.id] ?: 0) > 0) add(Issue.BREACHED)

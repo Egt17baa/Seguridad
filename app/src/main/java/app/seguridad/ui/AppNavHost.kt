@@ -45,6 +45,8 @@ import app.seguridad.tools.APP_RENAMED_TEXT
 import app.seguridad.tools.APP_RENAMED_TITLE
 import app.seguridad.tools.PASSWORD_CHANGE_CLOSE
 import app.seguridad.ui.screens.AboutScreen
+import app.seguridad.ui.screens.EntryHistoryScreen
+import app.seguridad.ui.screens.TrashScreen
 import app.seguridad.ui.screens.BreachScreen
 import app.seguridad.ui.screens.ClassicLabScreen
 import app.seguridad.ui.screens.CodesScreen
@@ -193,6 +195,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     val onHealth: () -> Unit = { nav.navigate("vault/health") }
     val onNew: (EntryType) -> Unit = { type -> nav.navigate("vault/edit?type=${type.name}") }
     val onImportOther: () -> Unit = { nav.navigate("vault/import") }
+    val onTrash: () -> Unit = { nav.navigate("vault/trash") }
 
     // After the master password changes (from any screen), the dialog about the old copies and the identity. It lives in
     // AppContainer, not here: a rotation while the new key is derived re-creates this composition, and the screen that
@@ -268,11 +271,22 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
             },
         ) { padding ->
             NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
-                composable("vault") { VaultScreen(vault, totpOnly = false, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther) }
-                composable("codes") { VaultScreen(vault, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther) }
+                composable("vault") { VaultScreen(vault, container.undoTrash, totpOnly = false, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
+                composable("codes") { VaultScreen(vault, container.undoTrash, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
+                // 2.0, task 3: the trash and the versions of an entry (the id encoded, LIBRE-1).
+                composable("vault/trash") { TrashScreen(vault, onBack = backOnce(nav)) }
+                composable("vault/entry/{id}/history") { entry ->
+                    EntryHistoryScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
+                }
                 composable("vault/entry/{id}") { entry ->
                     val id = entry.arguments?.getString("id").orEmpty()
-                    VaultEntryDetailScreen(vault, id, onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") }, onBack = backOnce(nav))
+                    VaultEntryDetailScreen(
+                        vault, container.undoTrash, id,
+                        onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") },
+                        onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") },
+                        onHistory = { nav.navigate("vault/entry/${Uri.encode(id)}/history") },
+                        onBack = backOnce(nav),
+                    )
                 }
                 composable("vault/entry/{id}/qr") { entry ->
                     OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))

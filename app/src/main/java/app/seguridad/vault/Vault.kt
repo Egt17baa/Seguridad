@@ -70,7 +70,11 @@ data class VaultEntry(
     val favorite: Boolean = false,
     /** Lowercase labels, see [normalizeTags]. */
     val tags: List<String> = emptyList(),
-    /** Previous LOGIN passwords, newest first, at most [MAX_PASSWORD_HISTORY]; kept by [withNewPassword]. */
+    /**
+     * Previous LOGIN passwords of 1.4.3 and before, newest first, at most [MAX_PASSWORD_HISTORY]. 2.0 (task 3, M-4): a
+     * read-only legacy list, never written again (old passwords go to [history]); [oldPasswords] reads both, and only
+     * «Borrar historial» empties it.
+     */
     val passwordHistory: List<PasswordChange> = emptyList(),
     /** Encrypted files kept in files/vault/att/ (see [AttachmentStore]); the store keeps them across edits. */
     val attachments: List<AttachmentRef> = emptyList(),
@@ -268,8 +272,8 @@ private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it) }
 /**
  * 2.0, the upgrade to v4: each LOGIN's [VaultEntry.passwordHistory] also becomes [VaultEntry.history], one
  * [EntryVersion] per old password, with its date (the entry as it is, with that password; without history or
- * attachments). [VaultEntry.passwordHistory] is kept, as the entry screen and «Salud» still read it until the history of
- * task 3 replaces them. A missing [VaultData.vaultTag] is made (16 random bytes in hex).
+ * attachments). [VaultEntry.passwordHistory] is kept as a read-only legacy list (task 3, M-4): [oldPasswords] reads both,
+ * so an old password whose version [fitted] trims still shows. A missing [VaultData.vaultTag] is made (16 random bytes in hex).
  */
 private fun VaultData.upgraded(random: SecureRandom): VaultData = copy(
     entries = entries.map { e ->
@@ -444,16 +448,28 @@ object VaultCrypto {
      * Argon2id; the next unlock does it. [VaultStore.unlock] keeps a 4 made from a 3 in memory until the copy before it is
      * made or declined ([VaultStore.pendingUpgrade]).
      *
+     * 2.0, task 3: [prepare] gets the data about to be written (upgraded and fitted, for an old file) and gives what is
+     * written instead: [VaultStore.unlock] records the unlock and empties the trash there ([purgedTrash]); an import
+     * passes nothing, so a copy keeps its trash.
+     *
      * Whatever is wrapped again never costs less than the file did on any axis (CR-2): memory, passes and parallelism
      * are each the higher of the file's and [kdf]'s. A lower parallelism alone is not «cheaper»: Argon2id's cost to an
      * attacker is its memory and its passes (the lanes split that work across threads, RFC 9106 §4), so it is not a reason to
      * wrap again, but it is never lowered when wrapping for another reason.
      */
-    fun afterMasterUnlock(file: VaultFile, dek: ByteArray, master: CharArray, now: Long, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): VaultFile {
+    fun afterMasterUnlock(
+        file: VaultFile,
+        dek: ByteArray,
+        master: CharArray,
+        now: Long,
+        kdf: KdfParams = KdfParams(),
+        random: SecureRandom = secureRandom,
+        prepare: (VaultData) -> VaultData = { it },
+    ): VaultFile {
         val known = resolve(file, dek)
         val old = known.version != VaultFile.VERSION
         val read = read(known, dek)
-        val data = if (old) read.upgraded(random).fitted() else read.copy(vaultTag = read.vaultTag.ifEmpty { newVaultTag(random) })
+        val data = prepare(if (old) read.upgraded(random).fitted() else read.copy(vaultTag = read.vaultTag.ifEmpty { newVaultTag(random) }))
         val weaker = known.kdf.memoryKiB < kdf.memoryKiB || known.kdf.iterations < kdf.iterations
         // Whatever is wrapped again never costs less than the file did on any axis (a stronger old file keeps its strength).
         val cost = KdfParams(

@@ -1,15 +1,8 @@
 package app.seguridad.vault
 
-const val MAX_PASSWORD_HISTORY = 5
-
 /**
- * This entry with [newPassword]. For a LOGIN whose non-empty password changes, the old one goes first in
- * [VaultEntry.passwordHistory] (at most [MAX_PASSWORD_HISTORY]); otherwise only `password` changes.
+ * How many old passwords 1.4.3 and before kept in [VaultEntry.passwordHistory]. 2.0 (task 3) no longer writes that list:
+ * a change goes to [VaultEntry.history] ([withVersion]), and the list is only read ([oldPasswords]) until «Borrar
+ * historial» empties it ([withoutHistory]).
  */
-fun VaultEntry.withNewPassword(newPassword: String, now: Long): VaultEntry {
-    if (type != EntryType.LOGIN || password.isEmpty() || password == newPassword) return copy(password = newPassword)
-    return copy(
-        password = newPassword,
-        passwordHistory = (listOf(PasswordChange(password, now)) + passwordHistory).take(MAX_PASSWORD_HISTORY),
-    )
-}
+const val MAX_PASSWORD_HISTORY = 5

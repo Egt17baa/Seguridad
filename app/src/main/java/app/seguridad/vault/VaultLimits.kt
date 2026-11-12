@@ -93,7 +93,7 @@ private fun String.codePointLength(): Int = codePointCount(0, length)
  * The history of this entry within [VaultLimits.HISTORY_MAX_VERSIONS] and [VaultLimits.HISTORY_MAX_BYTES]: the oldest
  * versions (by [EntryVersion.savedAt]) go first; the order of the rest does not change. The same object when it fits.
  */
-private fun VaultEntry.fittedHistory(): VaultEntry {
+internal fun VaultEntry.fittedHistory(): VaultEntry {
     if (history.isEmpty()) return this
     var kept = history
     if (kept.size > VaultLimits.HISTORY_MAX_VERSIONS) {

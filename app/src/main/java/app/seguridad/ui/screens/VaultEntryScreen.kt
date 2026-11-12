@@ -72,6 +72,12 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.MOVE_TO_TRASH
+import app.seguridad.vault.MOVE_TO_TRASH_TEXT
+import app.seguridad.vault.UndoTrash
+import app.seguridad.vault.historyOpen
+import app.seguridad.vault.moveToTrashTitle
+import app.seguridad.vault.oldPasswords
 import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.passwordToSave
 import app.seguridad.vault.seedWordCount
@@ -93,7 +99,7 @@ private fun LockedNotice(onBack: () -> Unit) {
 }
 
 @Composable
-private fun Field(label: String, value: String, secret: Boolean = false, mono: Boolean = false, plain: Boolean = false) {
+internal fun Field(label: String, value: String, secret: Boolean = false, mono: Boolean = false, plain: Boolean = false) {
     if (value.isBlank()) return
     val context = LocalContext.current
     var shown by remember { mutableStateOf(!secret) }
@@ -110,7 +116,7 @@ private fun Field(label: String, value: String, secret: Boolean = false, mono: B
     }
 }
 
-private val historyDate: java.time.format.DateTimeFormatter =
+internal val historyDate: java.time.format.DateTimeFormatter =
     java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.MEDIUM).withLocale(java.util.Locale.forLanguageTag("es-ES"))
 
 /** Old passwords, folded away by default; each one is hidden until shown and copies as sensitive, like the current one. */
@@ -128,7 +134,15 @@ private fun PasswordHistorySection(history: List<PasswordChange>) {
 }
 
 @Composable
-fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, onShowQr: () -> Unit, onBack: () -> Unit) {
+fun VaultEntryDetailScreen(
+    store: VaultStore,
+    undo: UndoTrash,
+    id: String,
+    onEdit: () -> Unit,
+    onShowQr: () -> Unit,
+    onHistory: () -> Unit,
+    onBack: () -> Unit,
+) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     val entry = (state as? VaultState.Unlocked)?.entries?.firstOrNull { it.id == id }
@@ -145,7 +159,7 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
     }
     BackScaffold("${typeIcon(entry.type)} ${plainReportText(entry.title)}", onBack) { padding ->
         Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (failed) Text("No se pudo borrar (¿almacenamiento lleno?)", color = NegativeColor)
+            if (failed) Text("No se pudo mover a la papelera (¿almacenamiento lleno?)", color = NegativeColor)
             entry.totp?.let { t ->
                 if (!t.isSupported()) {
                     // A saved code with an algorithm, digits or period this app does not calculate: the reason, not a wrong code.
@@ -178,7 +192,8 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
             Field("Usuario", entry.username, plain = true)
             Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true)
             Field("Web", entry.url, plain = true)
-            PasswordHistorySection(entry.passwordHistory)
+            // 2.0, task 3 (M-4): from the history and from the list of 1.4.3, so none disappears when the history is trimmed.
+            PasswordHistorySection(entry.oldPasswords())
             if (entry.seedWords.isNotBlank()) {
                 val (n, valid) = seedWordCount(entry.seedWords)
                 Field("Frase semilla ($n palabras${if (valid) "" else ", número poco habitual"})", entry.seedWords, secret = true)
@@ -194,19 +209,22 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                 OutlinedButton(onClick = onShowQr) { Text("Mostrar QR para otra app") }
             }
             AttachmentsSection(store, entry.id, entry.attachments)
+            if (entry.history.isNotEmpty() || entry.passwordHistory.isNotEmpty()) {
+                OutlinedButton(onClick = onHistory) { Text(historyOpen(entry.history.size)) }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onEdit) { Text("Editar") }
-                TextButton(onClick = { confirm = true }) { Text("Borrar", color = NegativeColor) }
+                TextButton(onClick = { confirm = true }) { Text(MOVE_TO_TRASH, color = NegativeColor) }
             }
         }
     }
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text("¿Borrar «${plainReportText(entry.title)}»?") },
+            title = { Text(moveToTrashTitle(plainReportText(entry.title))) },
             text = {
                 FilterObscuredTouches()
-                Text("Se borrará de la bóveda. No se puede deshacer.")
+                Text(MOVE_TO_TRASH_TEXT)
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -214,13 +232,14 @@ fun VaultEntryDetailScreen(store: VaultStore, id: String, onEdit: () -> Unit, on
                     scope.launch {
                         try {
                             // No onBack here: once the entry is gone this screen leaves by itself (LockedNotice, as
-                            // after a lock), and a second popBackStack would take the vault list too (1.4.1).
-                            store.delete(entry.id)
+                            // after a lock), and a second popBackStack would take the vault list too (1.4.1). 2.0, task
+                            // 3: to the trash, with «Deshacer» on the list for 5 s ([UndoTrash]).
+                            undo.moveToTrash(setOf(entry.id))
                         } catch (e: Exception) {
                             failed = true
                         }
                     }
-                }) { Text("Borrar", color = NegativeColor) }
+                }) { Text(MOVE_TO_TRASH, color = NegativeColor) }
             },
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancelar") } },
         )

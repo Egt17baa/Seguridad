@@ -102,6 +102,14 @@ import app.seguridad.vault.newMasterProblem
 import app.seguridad.vault.query
 import app.seguridad.vault.seedWordCount
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
+import app.seguridad.vault.TRASH_OPEN
+import app.seguridad.vault.UNDO
+import app.seguridad.vault.UNDO_TRASH_MS
+import app.seguridad.vault.UndoTrash
+import app.seguridad.vault.movedToTrash
 import kotlinx.coroutines.launch
 
 internal tailrec fun Context.fragmentActivity(): FragmentActivity? = when (this) {
@@ -145,11 +153,13 @@ fun VaultIdleTicker(store: VaultStore) {
 @Composable
 fun VaultScreen(
     store: VaultStore,
+    undo: UndoTrash,
     totpOnly: Boolean,
     onOpen: (String) -> Unit,
     onNew: (EntryType) -> Unit,
     onHealth: () -> Unit,
     onImportOther: () -> Unit,
+    onTrash: () -> Unit,
 ) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
@@ -172,6 +182,26 @@ fun VaultScreen(
                 val activity = generateSequence(context) { (it as? ContextWrapper)?.baseContext }.filterIsInstance<Activity>().firstOrNull()
                 if (activity?.isChangingConfigurations != true) BiometricVault.interruptionShown(message)
             }
+        }
+    }
+
+    // 2.0, task 3: «Deshacer» for 5 s after a move to the trash; a lock (or leaving the list) ends it, and a lock forgets it.
+    val undoCount by undo.offer.collectAsStateWithLifecycle()
+    val unlocked = state is VaultState.Unlocked
+    LaunchedEffect(undoCount, unlocked) {
+        if (undoCount == 0) return@LaunchedEffect
+        if (!unlocked) return@LaunchedEffect undo.forget()
+        val answer = withTimeoutOrNull(UNDO_TRASH_MS) {
+            snackbar.showSnackbar(movedToTrash(undoCount), actionLabel = UNDO, duration = SnackbarDuration.Indefinite)
+        }
+        if (answer == SnackbarResult.ActionPerformed) {
+            try {
+                undo.undo()
+            } catch (e: Exception) {
+                undo.forget() // A full disk: the entries stay in the trash, where «Restaurar» still brings them back.
+            }
+        } else {
+            undo.forget()
         }
     }
 
@@ -207,6 +237,12 @@ fun VaultScreen(
                             DropdownMenuItem(text = { Text("🩺 Salud de la bóveda") }, onClick = {
                                 menu = false
                                 onHealth()
+                            })
+                            // 2.0, task 3: the trash, with how many entries it holds.
+                            val trashed = (state as? VaultState.Unlocked)?.trash?.size ?: 0
+                            DropdownMenuItem(text = { Text("🗑 $TRASH_OPEN ($trashed)") }, onClick = {
+                                menu = false
+                                onTrash()
                             })
                             DropdownMenuItem(text = { Text("Exportar copia cifrada") }, onClick = {
                                 menu = false

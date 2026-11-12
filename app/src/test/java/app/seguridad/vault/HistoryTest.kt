@@ -22,30 +22,35 @@ class HistoryTest {
     private fun store() =
         VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { 5_000L }, kdf = { KdfParams(1024, 1, 1) })
 
+    // 2.0, task 3 (M-4): the list of 1.4.3 is only read; a change goes to the history ([withVersion]), and the old
+    // passwords are read from both ([oldPasswords]).
+
     @Test fun changeKeepsPreviousFirst() {
-        val a = login("uno").withNewPassword("dos", 10).withNewPassword("tres", 20)
-        assertEquals("tres", a.password)
-        assertEquals(listOf(PasswordChange("dos", 20), PasswordChange("uno", 10)), a.passwordHistory)
+        val one = login("uno")
+        val two = login("dos").withVersion(one, 10)
+        val three = login("tres").copy(history = two.history).withVersion(two, 20)
+        assertEquals("tres", three.password)
+        assertEquals(listOf(PasswordChange("dos", 20), PasswordChange("uno", 10)), three.oldPasswords())
+        assertTrue(three.passwordHistory.isEmpty())
     }
 
-    @Test fun keepsAtMostFive() {
-        var e = login("p0")
-        for (i in 1..8) e = e.withNewPassword("p$i", i.toLong())
-        assertEquals(5, e.passwordHistory.size)
-        assertEquals(listOf("p7", "p6", "p5", "p4", "p3"), e.passwordHistory.map { it.password })
+    @Test fun legacyListIsStillRead() {
+        val legacy = (7 downTo 3).map { PasswordChange("p$it", it.toLong()) }
+        assertEquals(MAX_PASSWORD_HISTORY, legacy.size)
+        assertEquals(legacy, login("p8", legacy).oldPasswords())
     }
 
     @Test fun sameOrEmptyPasswordNoHistory() {
-        assertTrue(login("x").withNewPassword("x", 1).passwordHistory.isEmpty())
-        assertTrue(login("").withNewPassword("y", 1).passwordHistory.isEmpty())
-        assertEquals("y", login("").withNewPassword("y", 1).password)
+        assertTrue(login("x").withVersion(login("x"), 1).oldPasswords().isEmpty())
+        assertTrue(login("y").withVersion(login(""), 1).oldPasswords().isEmpty())
+        assertEquals("y", login("y").withVersion(login(""), 1).password)
     }
 
     @Test fun nonLoginTypesNoHistory() {
         for (t in listOf(EntryType.SEED, EntryType.NOTE, EntryType.TOTP)) {
-            val e = login("old").copy(type = t).withNewPassword("new", 1)
+            val e = login("new").copy(type = t).withVersion(login("old").copy(type = t), 1)
             assertEquals("new", e.password)
-            assertTrue(e.passwordHistory.isEmpty())
+            assertTrue(e.oldPasswords().isEmpty())
         }
     }
 
@@ -56,8 +61,8 @@ class HistoryTest {
         s.upsert(login("dos").copy(updatedAt = 9))
         val e = (s.state.value as VaultState.Unlocked).entries.single()
         assertEquals("dos", e.password)
-        assertEquals(listOf("uno"), e.passwordHistory.map { it.password })
-        assertEquals(5_000L, e.passwordHistory[0].changedAt)
+        assertEquals(listOf("uno"), e.oldPasswords().map { it.password })
+        assertEquals(5_000L, e.oldPasswords()[0].changedAt)
     }
 
     @Test fun historySurvivesLockUnlock() = runTest {
@@ -67,7 +72,7 @@ class HistoryTest {
         s.lock()
         val again = store().apply { load(); unlock("m".toCharArray()) }
         val e = (again.state.value as VaultState.Unlocked).entries.single()
-        assertEquals(listOf(PasswordChange("uno", 5_000L)), e.passwordHistory)
+        assertEquals(listOf(PasswordChange("uno", 5_000L)), e.oldPasswords())
     }
 
     @Test fun oldJsonWithoutHistoryDecodes() {

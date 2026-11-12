@@ -13,6 +13,7 @@ import app.seguridad.vault.MAX_TAGS
 import app.seguridad.vault.PasswordChange
 import app.seguridad.vault.VaultCrypto
 import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.oldPasswords
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -718,8 +719,10 @@ class MergePlanTest {
         // Taken from the file, as they are not empty there.
         assertEquals("https://banco.es/entrar", r.url)
         assertEquals("nueva", r.password)
-        // The old password goes to the history (withNewPassword).
-        assertEquals(listOf(PasswordChange("vieja", now)), r.passwordHistory)
+        // The old password goes to the history (2.0, task 3: the entry as it was, as a version).
+        assertEquals(listOf(PasswordChange("vieja", now)), r.oldPasswords())
+        assertEquals(bank.password, r.history.single().entry.password)
+        assertTrue(r.passwordHistory.isEmpty())
         // Both have notes and they differ: the vault's, then the file's under the heading.
         assertEquals("nota de la bóveda\n\nImportado el 4-11-2026:\nnota del archivo", r.notes)
         // Tags: the union.
@@ -740,7 +743,7 @@ class MergePlanTest {
         assertEquals("del archivo", replaceWith(noNotes, importedEntry(EntryType.LOGIN, "Banco", notes = "del archivo"), now, ZoneOffset.UTC).notes)
         assertEquals(bank.notes, replaceWith(bank, importedEntry(EntryType.LOGIN, "Banco", notes = bank.notes), now, ZoneOffset.UTC).notes)
         // The same password: nothing goes to the history.
-        assertTrue(replaceWith(bank, importedEntry(EntryType.LOGIN, "Banco", password = "vieja"), now, ZoneOffset.UTC).passwordHistory.isEmpty())
+        assertTrue(replaceWith(bank, importedEntry(EntryType.LOGIN, "Banco", password = "vieja"), now, ZoneOffset.UTC).oldPasswords().isEmpty())
     }
 
     @Test fun replaceTakesTheCodeOfATotp() {
@@ -756,7 +759,7 @@ class MergePlanTest {
         val renamed = replaceWith(code, importedEntry(EntryType.TOTP, "C", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Otro", account = "eva")), now, ZoneOffset.UTC)
         val renamedTotp = checkNotNull(renamed.totp)
         assertEquals("Otro" to "eva", renamedTotp.issuer to renamedTotp.account)
-        assertTrue(r.passwordHistory.isEmpty())
+        assertTrue(r.oldPasswords().isEmpty())
     }
 
     /** M-2: the same file replaced twice changes the entry once: no second notes block, no new date. */
@@ -833,7 +836,7 @@ class MergePlanTest {
         val r = mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(hostless), now, newId).single()
         assertEquals("3", r.password)
         assertEquals("https://b.es", r.url)
-        assertEquals(listOf("2", "1"), r.passwordHistory.map { it.password })
+        assertEquals(listOf("2", "1"), r.oldPasswords().map { it.password })
     }
 
     // ---- Tags ----
@@ -1027,5 +1030,33 @@ class MergePlanTest {
         assertTrue(VaultLimits.ENTRY_MAX_JSON_BYTES == 64 * 1024)
         assertTrue(entryFitsImported(small.entry, listOf("una-carpeta"), ImportFormat.BITWARDEN))
         assertFalse(entryFitsImported(big.entry, emptyList(), ImportFormat.BITWARDEN))
+    }
+
+    // ---- 2.0, task 3: the trash (focus 5) ----
+
+    @Test fun trashIsNotADuplicate() {
+        val trashed = saved("t", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", tags = listOf("solo-en-papelera"))
+            .copy(deletedAt = now - 1)
+        val code = saved("c", EntryType.TOTP, "Correo", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Correo")).copy(deletedAt = now - 1)
+        val live = saved("v", EntryType.NOTE, "Lista", notes = "pan")
+        val p = plan(
+            read(
+                login(0, "Banco", user = "ana", url = "https://banco.es/", folders = listOf("solo-en-papelera")),
+                totp(1, "Correo", "JBSWY3DPEHPK3PXP"),
+                note(2, "Lista", "pan"),
+            ),
+            listOf(trashed, code, live),
+        )
+        // What is in the trash is no duplicate: the items enter as new.
+        assertEquals(listOf(0, 1), p.newItems.map { it.index })
+        assertEquals(listOf(2), p.duplicates.map { it.item.index })
+        assertEquals("v", p.duplicates.single().existingId)
+        // A tag only an entry in the trash has is a new one: it spends the budget as any other.
+        assertTrue("solo-en-papelera" in p.newTags)
+        val merged = mergeImport(p, DuplicateChoice.SKIP, emptyMap(), listOf(trashed, code, live), now, newId, ZoneOffset.UTC)
+        assertTrue("solo-en-papelera" in merged.newTags)
+        // The trash is kept as it is.
+        assertEquals(listOf(trashed, code, live), merged.entries.take(3))
+        assertEquals(5, merged.entries.size)
     }
 }

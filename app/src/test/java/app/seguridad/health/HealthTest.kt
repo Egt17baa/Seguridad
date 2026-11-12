@@ -8,6 +8,7 @@ import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MIN_MASTER
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.newMasterProblem
+import app.seguridad.vault.withVersion
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -285,5 +286,25 @@ class HealthTest {
 
     @Test fun `F3 the copy of the old function uses the same common list`() {
         assertEquals(commonPasswords(), oldCommon)
+    }
+
+    /** 2.0, task 3: what is in the trash is not in «Salud». */
+    @Test fun trashNotCounted() {
+        val trashed = login("t", "hola1").copy(deletedAt = now - day)
+        val r = vaultHealth(listOf(login("a", strong), trashed, login("b", "hola2")), now)
+        assertEquals(setOf("a", "b"), r.map { it.entryId }.toSet())
+        assertTrue(Issue.WEAK in issues(r, "b"))
+        // Its password is not one more use of the same one.
+        val same = vaultHealth(listOf(login("a", strong), login("t2", strong).copy(deletedAt = now - day)), now)
+        assertFalse(Issue.REUSED in issues(same, "a"))
+        assertEquals(mapOf(strong to listOf("a")), uniquePasswords(listOf(login("a", strong), login("t2", strong).copy(deletedAt = now))))
+    }
+
+    /** 2.0, task 3 (M-4): the age of a password reads the history too, not only the list of 1.4.3. */
+    @Test fun oldReadsTheHistory() {
+        val old = now - 400 * day
+        val before = login("h", "otra-clave-larga-de-prueba-1", updatedAt = old)
+        val changed = login("h", strong, updatedAt = old).withVersion(before, now - day)
+        assertFalse(Issue.OLD in issues(vaultHealth(listOf(changed), now), "h"))
     }
 }
