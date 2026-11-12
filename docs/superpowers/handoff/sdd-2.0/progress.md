@@ -58,3 +58,4 @@ Ruling (T2, menores): todos a la ronda 1 (`CLAUDE.md`): M-1 borrar un hueco vac�
 Task 2: fix round 1 done (f6b98b7; app 1980, jvm-check 1973). Ruling: la doble derivación de «Importar como bóveda nueva» (comprobar antes de cambiar) se acepta — es el precio de no dejar al usuario ante una bóveda cerrada — un Argon2id más, solo en esa acción.
 Task 2: fix round 1/5 (9 addressed, 0 open; 4056f34..f6b98b7). Fix round 2/5 (2 menores de la re-review addressed, 0 open; f6b98b7..6c05936; la re-review 2 no pudo escribir su archivo y dio su informe en el mensaje: «All findings addressed, no new Critical/Important breakage»).
 Task 2: complete (commits 643512a..6c05936, review clean). Informes: `task-2-report.md`, `task-2-review.md`, `task-2-rereview-1.md`. App 1982, jvm-check 1975.
+Task 3: dispatched (base 3b32c65, model opus).
