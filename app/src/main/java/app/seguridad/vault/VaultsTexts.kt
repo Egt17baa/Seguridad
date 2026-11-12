@@ -57,6 +57,21 @@ const val VAULT_DELETE_EMPTY_WARNING =
 /** Review M-2: a file that could not be read is kept for recovery, so that slot is not deleted from here. */
 const val VAULT_DELETE_DAMAGED = "Esta bóveda tiene un archivo que no se pudo leer y que se guarda para recuperarlo: no se puede borrar desde aquí."
 
+/** The vault locked while it was being deleted (or its master could not be checked): nothing was deleted. */
+const val VAULT_DELETE_LOCKED = "La bóveda se bloqueó: no se ha borrado nada. Ábrela y vuelve a intentarlo."
+
+/** How [app.seguridad.AppContainer.deleteVault] ended; nothing is deleted unless it is [DELETED]. */
+enum class VaultDeletion { DELETED, WRONG_NAME, LOCKED, KEPT_DAMAGED, LAST_VAULT }
+
+/** What «Bóvedas» says after a deletion: one text for each way it can end (re-review 1, minor 2). */
+fun deletionText(outcome: VaultDeletion): String = when (outcome) {
+    VaultDeletion.DELETED -> VAULT_DELETED
+    VaultDeletion.WRONG_NAME -> VAULT_DELETE_NAME_WRONG
+    VaultDeletion.LOCKED -> VAULT_DELETE_LOCKED
+    VaultDeletion.KEPT_DAMAGED -> VAULT_DELETE_DAMAGED
+    VaultDeletion.LAST_VAULT -> VAULT_DELETE_LAST
+}
+
 const val VAULT_DELETE_MASTER = "Contraseña maestra de esta bóveda"
 const val VAULT_DELETED = "Bóveda borrada de este móvil. Las copias ya hechas siguen donde estaban."
 const val VAULT_DELETE_NAME_WRONG = "El nombre no coincide: no se ha borrado nada."

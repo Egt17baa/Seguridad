@@ -35,6 +35,7 @@ import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.TagColor
 import app.seguridad.vault.VaultData
+import app.seguridad.vault.VaultDeletion
 import app.seguridad.vault.VaultRegistry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
@@ -566,30 +567,33 @@ class AppContainer(
      * 2.0, task 2 (ruling 3): deletes the vault [id] from this phone. It is opened with [master] (a wrong one throws
      * [app.seguridad.crypto.CryptoFailure], nothing deleted) and so shows its name; [typedName] must be that name as it is
      * shown ([displayName]), compared as the import compares titles ([compareKey]): an invisible character, or spaces at
-     * the ends, do not count, the case does. A vault with no file (nothing to protect) needs neither. False, with nothing
-     * deleted, when the name is not its own, or it is the only vault (the existing «He olvidado la contraseña» is for that).
+     * the ends, do not count, the case does. A vault with no file (nothing to protect) needs neither. What happened is the
+     * result ([VaultDeletion]); nothing is deleted unless it is [VaultDeletion.DELETED]: not when the name is not its own,
+     * the vault locked meanwhile, a file of it is kept for recovery, or it is the only vault (the existing «He olvidado la
+     * contraseña» is for that).
      * It switches to [id] first if it was not the active one (locking the one open). Deletes its folder (its file and
      * attachments), its fingerprint key and its settings, and gives back its copies' folder if no other vault uses it; it
      * never touches the copies already made (R-9, O-2: the confirmation says so). Then the first vault left is active,
      * locked.
      */
-    suspend fun deleteVault(id: String, master: CharArray, typedName: String): Boolean = changingVaults.withLock {
+    suspend fun deleteVault(id: String, master: CharArray, typedName: String): VaultDeletion = changingVaults.withLock {
         require(registry.vaults.value.any { it.id == id }) { "Unknown vault" }
-        if (registry.vaults.value.size <= 1) return@withLock false
+        // Re-review 1, minor 2: its own outcome, never taken for a damaged file.
+        if (registry.vaults.value.size <= 1) return@withLock VaultDeletion.LAST_VAULT
         switchTo(id)
         val store = slot(id).store // Review M-3: the vault named, whatever is active.
         store.load()
         // Review M-2: no master nor name only for a slot with no vault file at all; a file set aside or unreadable stays.
-        if (store.state.value is VaultState.NoVault && !isEmptySlot(id)) return@withLock false
+        if (store.state.value is VaultState.NoVault && !isEmptySlot(id)) return@withLock VaultDeletion.KEPT_DAMAGED
         if (store.state.value !is VaultState.NoVault) {
             if (store.state.value is VaultState.Unlocked) {
-                if (!store.confirmMaster(master)) return@withLock false
+                if (!store.confirmMaster(master)) return@withLock VaultDeletion.LOCKED
             } else {
                 store.unlock(master)
             }
-            val data = (store.state.value as? VaultState.Unlocked)?.data ?: return@withLock false
+            val data = (store.state.value as? VaultState.Unlocked)?.data ?: return@withLock VaultDeletion.LOCKED
             val order = registry.vaults.value.indexOfFirst { it.id == id }
-            if (compareKey(typedName) != compareKey(displayName(data, order))) return@withLock false
+            if (compareKey(typedName) != compareKey(displayName(data, order))) return@withLock VaultDeletion.WRONG_NAME
         }
         withContext(NonCancellable) {
             switchTo(registry.vaults.value.first { it.id != id }.id)
@@ -610,7 +614,7 @@ class AppContainer(
             }
             folder?.let { releaseIfUnused(it) }
         }
-        true
+        VaultDeletion.DELETED
     }
 
     /**
@@ -641,10 +645,16 @@ class AppContainer(
     /**
      * Runs one action of «Bóvedas» to its end ([block] gives what to say, or null) and keeps what it says in
      * [vaultsNotice]: a limit or a refusal by its own text, a wrong password or a damaged copy by the store's text, and
-     * anything else by [VAULT_FAILED]. Not cut by the caller leaving.
+     * anything else by [VAULT_FAILED]. Not cut by the caller leaving. One at a time: while another runs ([vaultsBusy]),
+     * nothing is done and the result is null.
      */
-    suspend fun runVaultsAction(block: suspend () -> String?): String? = withContext(NonCancellable) {
-        _vaultsBusy.value = true
+    suspend fun runVaultsAction(block: suspend () -> String?): String? {
+        if (!_vaultsBusy.compareAndSet(false, true)) return null // Another one runs: this one does nothing.
+        return runMarked(block)
+    }
+
+    /** [runVaultsAction] once [vaultsBusy] is set by the caller; clears it at the end. */
+    private suspend fun runMarked(block: suspend () -> String?): String? = withContext(NonCancellable) {
         val message = try {
             block()
         } catch (e: VaultLimitExceeded) {
@@ -664,8 +674,9 @@ class AppContainer(
 
     /** [runVaultsAction] in [appScope], for the screen; one at a time ([vaultsBusy]). */
     fun launchVaultsAction(block: suspend () -> String?) {
-        if (_vaultsBusy.value) return
-        appScope.launch { runVaultsAction(block) }
+        // Re-review 1, minor 1: marked busy here, at once and atomically, so a second tap in the same frame does nothing.
+        if (!_vaultsBusy.compareAndSet(false, true)) return
+        appScope.launch { runMarked(block) }
     }
 
     /**

@@ -3,6 +3,8 @@ package app.seguridad
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.VaultDeletion
+import app.seguridad.vault.deletionText
 import app.seguridad.vault.VAULT_IMPORT_NEW_DONE
 import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.VaultEntry
@@ -193,13 +195,13 @@ class AppContainerVaultsTest {
         assertTrue(dirB.exists())
         // Its master opens it (and shows its name); a name that is not its own deletes nothing.
         c.vault.lock()
-        assertFalse(c.deleteVault(idB, masterB.toCharArray(), "Tres"))
+        assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, masterB.toCharArray(), "Tres"))
         assertTrue(c.vault.unlocked())
-        assertFalse(c.deleteVault(idB, masterB.toCharArray(), "dos"))
+        assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, masterB.toCharArray(), "dos"))
         assertTrue(dirB.exists())
         assertTrue(c.registry.vaults.value.any { it.id == idB })
         // The same text as it is shown: an invisible character does not count.
-        assertTrue(c.deleteVault(idB, masterB.toCharArray(), " Do​s "))
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), " Do​s "))
         assertFalse(dirB.exists())
         assertEquals(listOf(PRIMARY_VAULT_ID), c.registry.vaults.value.map { it.id })
         assertEquals(null, c.settings.settings.value.perVault[idB])
@@ -208,7 +210,7 @@ class AppContainerVaultsTest {
         assertEquals(PRIMARY_VAULT_ID, c.activeVaultId)
         assertFalse(c.vault.unlocked())
         // The last one is not deleted from here («He olvidado la contraseña» is the way for it).
-        assertFalse(c.deleteVault(PRIMARY_VAULT_ID, masterA.toCharArray(), "Uno"))
+        assertEquals(VaultDeletion.LAST_VAULT, c.deleteVault(PRIMARY_VAULT_ID, masterA.toCharArray(), "Uno"))
         assertTrue(File(c.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").exists())
     }
 
@@ -319,7 +321,7 @@ class AppContainerVaultsTest {
         val (_, idB) = twoVaults(c)
         c.vault.destroy() // «He olvidado la contraseña maestra» on B: an empty slot.
         assertTrue(c.isEmptySlot(idB))
-        assertTrue(c.deleteVault(idB, CharArray(0), ""))
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, CharArray(0), ""))
         assertFalse(c.registry.dirOf(idB).exists())
         // A third vault whose file could not be read and was set aside for recovery (BOV-2): no master, no deletion.
         c.vault.unlock(masterA.toCharArray())
@@ -332,7 +334,7 @@ class AppContainerVaultsTest {
         fresh.switchTo(idC)
         assertEquals(VaultState.NoVault, fresh.vault.state.value)
         assertFalse(fresh.isEmptySlot(idC))
-        assertFalse(fresh.deleteVault(idC, CharArray(0), ""))
+        assertEquals(VaultDeletion.KEPT_DAMAGED, fresh.deleteVault(idC, CharArray(0), ""))
         assertTrue(File(dirC, "vault.bin.bad-1").exists())
         assertTrue(fresh.registry.vaults.value.any { it.id == idC })
     }
@@ -343,9 +345,44 @@ class AppContainerVaultsTest {
         val (_, idB) = twoVaults(c)
         val storeB = c.vault
         c.settings.updateVault(idB) { it.copy(autoBackupUri = "content://dos") }
-        assertTrue(c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
         c.recordAutoBackup(idB, storeB, app.seguridad.vault.AutoBackupResult("content://dos", 1L, null, listOf("x")))
         c.recordImportCopy(idB, storeB, "content://dos", "y", storeB.generation)
         assertEquals(null, c.settings.settings.value.perVault[idB])
+    }
+
+    /** Re-review 1, minor 1: two taps in one frame start the action once (the busy mark is set before it is launched). */
+    @Test fun twoTapsRunTheActionOnce() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val runs = java.util.concurrent.atomic.AtomicInteger()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        c.launchVaultsAction { runs.incrementAndGet(); release.await(); "uno" }
+        c.launchVaultsAction { runs.incrementAndGet(); "dos" }
+        assertTrue(c.vaultsBusy.value)
+        testScheduler.runCurrent()
+        release.complete(Unit)
+        val said = withTimeout(30_000) { c.vaultsNotice.first { it != null } }
+        withTimeout(30_000) { c.vaultsBusy.first { !it } }
+        assertEquals(1, runs.get())
+        assertEquals("uno", said)
+        // Once it ended, the next one runs.
+        c.launchVaultsAction { runs.incrementAndGet(); "tres" }
+        withTimeout(30_000) { c.vaultsNotice.first { it == "tres" } }
+        assertEquals(2, runs.get())
+    }
+
+    /** Re-review 1, minor 2: each way a deletion can end has its own text; the only vault is never «dañado». */
+    @Test fun eachDeletionOutcomeSaysWhatHappened() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        // The only vault, empty: not deleted, and the text says why (not that a file is damaged).
+        assertEquals(VaultDeletion.LAST_VAULT, c.deleteVault(PRIMARY_VAULT_ID, CharArray(0), ""))
+        assertEquals(app.seguridad.vault.VAULT_DELETE_LAST, deletionText(VaultDeletion.LAST_VAULT))
+        assertEquals(app.seguridad.vault.VAULT_DELETED, deletionText(VaultDeletion.DELETED))
+        assertEquals(app.seguridad.vault.VAULT_DELETE_NAME_WRONG, deletionText(VaultDeletion.WRONG_NAME))
+        assertEquals(app.seguridad.vault.VAULT_DELETE_DAMAGED, deletionText(VaultDeletion.KEPT_DAMAGED))
+        assertEquals(app.seguridad.vault.VAULT_DELETE_LOCKED, deletionText(VaultDeletion.LOCKED))
+        assertEquals(VaultDeletion.entries.size, VaultDeletion.entries.map(::deletionText).distinct().size)
     }
 }

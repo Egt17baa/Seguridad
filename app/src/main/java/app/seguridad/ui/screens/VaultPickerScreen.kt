@@ -67,12 +67,10 @@ import app.seguridad.vault.VAULT_CHOOSE
 import app.seguridad.vault.VAULT_COLOR
 import app.seguridad.vault.VAULT_CREATE
 import app.seguridad.vault.VAULT_DELETE
-import app.seguridad.vault.VAULT_DELETED
 import app.seguridad.vault.VAULT_DELETE_DAMAGED
 import app.seguridad.vault.VAULT_DELETE_EMPTY_WARNING
 import app.seguridad.vault.VAULT_DELETE_LAST
 import app.seguridad.vault.VAULT_DELETE_MASTER
-import app.seguridad.vault.VAULT_DELETE_NAME_WRONG
 import app.seguridad.vault.VAULT_DELETE_OPEN_FIRST
 import app.seguridad.vault.VAULT_DOWN
 import app.seguridad.vault.VAULT_FAILED
@@ -90,6 +88,7 @@ import app.seguridad.vault.VaultLimitExceeded
 import app.seguridad.vault.VaultLimits
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
+import app.seguridad.vault.deletionText
 import app.seguridad.vault.displayName
 import app.seguridad.vault.label
 import app.seguridad.vault.mayBeVaultImport
@@ -329,7 +328,7 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
                 val id = active.id
                 run {
                     try {
-                        if (container.deleteVault(id, master, typed)) VAULT_DELETED else VAULT_DELETE_NAME_WRONG
+                        deletionText(container.deleteVault(id, master, typed))
                     } finally {
                         master.fill('\u0000')
                     }
@@ -347,7 +346,7 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
                 TextButton(onClick = {
                     dialog = null
                     val id = active.id
-                    run { if (container.deleteVault(id, CharArray(0), "")) VAULT_DELETED else VAULT_DELETE_DAMAGED }
+                    run { deletionText(container.deleteVault(id, CharArray(0), "")) }
                 }) { Text("Borrar", color = NegativeColor) }
             },
             dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancelar") } },
