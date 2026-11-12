@@ -72,7 +72,11 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.MOVE_TO
 import app.seguridad.vault.MOVE_TO_TRASH
+import app.seguridad.vault.folderCrumb
+import app.seguridad.vault.folderPath
+import app.seguridad.vault.storeSaveErrorText
 import app.seguridad.vault.MOVE_TO_TRASH_TEXT
 import app.seguridad.vault.UndoTrash
 import app.seguridad.vault.historyOpen
@@ -100,7 +104,7 @@ private fun LockedNotice(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun Field(label: String, value: String, secret: Boolean = false, mono: Boolean = false, plain: Boolean = false) {
+internal fun Field(label: String, value: String, secret: Boolean = false, mono: Boolean = false, plain: Boolean = false, onCopied: () -> Unit = {}) {
     if (value.isBlank()) return
     val context = LocalContext.current
     var shown by remember { mutableStateOf(!secret) }
@@ -110,7 +114,10 @@ internal fun Field(label: String, value: String, secret: Boolean = false, mono: 
             // No text selection: the system "Copy" would skip the sensitive flag and the timed clearing.
             Text(if (shown) (if (plain) plainReportText(value, value.length) else value) else "•".repeat(minOf(value.length, 16)), fontFamily = if (mono || secret) FontFamily.Monospace else FontFamily.Default)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { copySensitive(context, value) }) { Text("Copiar") }
+                FilledTonalButton(onClick = {
+                    copySensitive(context, value)
+                    onCopied()
+                }) { Text("Copiar") }
                 if (secret) OutlinedButton(onClick = { shown = !shown }) { Text(if (shown) "Ocultar" else "Mostrar") }
             }
         }
@@ -151,6 +158,12 @@ fun VaultEntryDetailScreen(
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    // 2.0, task 4: «Mover a…», and copying a field counts as a use («Recientes», the order «por uso»): a bookkeeping
+    // save that makes no version and no automatic copy ([VaultStore.markUsed]); a failure only loses the mark.
+    var moving by remember { mutableStateOf(false) }
+    var moveError by remember { mutableStateOf<String?>(null) }
+    val used: () -> Unit = { scope.launch { runCatching { store.markUsed(entry.id) } } }
+    val folders = (state as? VaultState.Unlocked)?.data?.folders.orEmpty()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -179,7 +192,7 @@ fun VaultEntryDetailScreen(
                                 Text("Caduca en $left s", color = if (left <= 5) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Field("Código", code, mono = true)
+                        Field("Código", code, mono = true, onCopied = used)
                     }
                 }
             }
@@ -190,32 +203,50 @@ fun VaultEntryDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Field("Usuario", entry.username, plain = true)
-            Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true)
-            Field("Web", entry.url, plain = true)
+            entry.folderId?.let { id -> folderPath(folders, id).takeIf { it.isNotEmpty() } }?.let { path ->
+                Text(folderCrumb(path.map { plainReportText(it.name) }), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Field("Usuario", entry.username, plain = true, onCopied = used)
+            Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true, onCopied = used)
+            Field("Web", entry.url, plain = true, onCopied = used)
             // 2.0, task 3 (M-4): from the history and from the list of 1.4.3, so none disappears when the history is trimmed.
             PasswordHistorySection(entry.oldPasswords())
             if (entry.seedWords.isNotBlank()) {
                 val (n, valid) = seedWordCount(entry.seedWords)
-                Field("Frase semilla ($n palabras${if (valid) "" else ", número poco habitual"})", entry.seedWords, secret = true)
+                Field("Frase semilla ($n palabras${if (valid) "" else ", número poco habitual"})", entry.seedWords, secret = true, onCopied = used)
                 Text(
                     "Nunca escribas esta frase en una web ni se la des a nadie: quien la tenga controla tus fondos.",
                     style = MaterialTheme.typography.bodySmall,
                     color = NegativeColor,
                 )
             }
-            Field("Notas", entry.notes, secret = entry.type == EntryType.NOTE)
+            Field("Notas", entry.notes, secret = entry.type == EntryType.NOTE, onCopied = used)
             entry.totp?.let {
-                Field("Clave secreta 2FA", it.secret, secret = true, mono = true)
+                Field("Clave secreta 2FA", it.secret, secret = true, mono = true, onCopied = used)
                 OutlinedButton(onClick = onShowQr) { Text("Mostrar QR para otra app") }
             }
             AttachmentsSection(store, entry.id, entry.attachments)
             if (entry.history.isNotEmpty() || entry.passwordHistory.isNotEmpty()) {
                 OutlinedButton(onClick = onHistory) { Text(historyOpen(entry.history.size, entry.oldPasswords().size)) }
             }
+            moveError?.let { Text(it, color = NegativeColor) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onEdit) { Text("Editar") }
+                if (!entry.type.isPersonal && (folders.isNotEmpty() || entry.folderId != null)) OutlinedButton(onClick = { moving = true }) { Text(MOVE_TO) }
                 TextButton(onClick = { confirm = true }) { Text(MOVE_TO_TRASH, color = NegativeColor) }
+            }
+        }
+    }
+    if (moving) {
+        EntryFolderPicker(entry.title, folders, onDismiss = { moving = false }) { target ->
+            moving = false
+            scope.launch {
+                try {
+                    store.moveEntries(setOf(entry.id), target)
+                    moveError = null
+                } catch (e: Exception) {
+                    moveError = storeSaveErrorText(e)
+                }
             }
         }
     }

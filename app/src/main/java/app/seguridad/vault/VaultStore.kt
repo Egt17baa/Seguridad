@@ -737,12 +737,18 @@ class VaultStore(
      * What it gives is fitted to the limits ([fittedForSave]: the oldest history goes first) and a vault that still
      * does not fit throws [VaultLimitExceeded], with nothing saved. [accept] sees the file about to be saved, still with
      * the mutex held, and false refuses it (nothing saved, false). 2.0: while [pendingUpgrade], throws
-     * [IllegalStateException] with [UPGRADE_PENDING] and saves nothing.
+     * [IllegalStateException] with [UPGRADE_PENDING] and saves nothing. 2.0, task 4: with [bookkeeping] the save is
+     * like the last master check's ([commit] with `mustSave` false: the file keeps the time of the last change, [revision]
+     * does not go up, a failed write leaves the change in memory only), and while the upgrade waits it saves nothing and
+     * gives false instead of throwing.
      */
     private suspend fun modifyData(
         accept: suspend (VaultFile) -> Boolean = { true },
+        bookkeeping: Boolean = false,
         change: suspend (VaultData) -> VaultData?,
     ): Boolean = mutex.withLock {
+        // 2.0, task 4: bookkeeping ([markUsed]) is no change the user made: while the upgrade waits it is only skipped.
+        if (bookkeeping && upgrade != null) return@withLock false
         check(upgrade == null) { UPGRADE_PENDING }
         val v = vault ?: return@withLock false
         val since = epoch
@@ -758,7 +764,8 @@ class VaultStore(
             key.fill(0)
             return@withLock false
         }
-        commit(next, key, since)
+        // With [bookkeeping], a save that keeps the file's time and does not raise [revision] (no automatic copy for it).
+        commit(next, key, since, mustSave = !bookkeeping)
         true
     }
 
@@ -777,10 +784,13 @@ class VaultStore(
         checkCanHold(list, listOf(entry))
         val saved = list.firstOrNull { it.id == entry.id }
         val next = if (entry.type.isPersonal) {
-            // No passwords, history or attachments of their own: whatever the caller sends is dropped.
-            entry.copy(passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null)
+            // No passwords, history or attachments of their own: whatever the caller sends is dropped. 2.0, task 4: no
+            // folder either (they have their own tab).
+            entry.copy(passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null, folderId = null)
         } else if (saved == null) {
-            entry.copy(passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null)
+            // 2.0, task 4: a new entry may start in a folder of the vault; any other folder id is dropped.
+            val folder = entry.folderId?.takeIf { id -> data.folders.any { it.id == id } }
+            entry.copy(passwordHistory = emptyList(), attachments = emptyList(), history = emptyList(), deletedAt = null, folderId = folder)
         } else {
             // The attachments too: only [addAttachment] and [removeAttachment] change them, so an editor that does
             // not send them never drops one (and the collection after the save never deletes its file).
@@ -790,8 +800,11 @@ class VaultStore(
             } else {
                 saved.passwordHistory
             }
-            entry.copy(history = saved.history, passwordHistory = passwords, attachments = saved.attachments, deletedAt = null)
-                .withVersion(saved, now())
+            // 2.0, task 4: the folder and the last use too ([moveEntries] and [markUsed] change them, not the editor).
+            entry.copy(
+                history = saved.history, passwordHistory = passwords, attachments = saved.attachments, deletedAt = null,
+                folderId = saved.folderId, lastUsedAt = saved.lastUsedAt,
+            ).withVersion(saved, now())
         }
         val entries = if (saved == null) list + next else list.map { if (it.id == entry.id) next else it }
         data.copy(entries = entries + data.trash)
@@ -924,6 +937,53 @@ class VaultStore(
         return modifyData { data -> if (data.name == next) null else data.copy(name = next) }
     }
 
+    // 2.0, task 4: folders, views, tag colours and the last use (Folders.kt). Each is one save with the mutex held, and
+    // gives false (or null, or 0), with nothing saved, when the vault is locked or nothing changes. A change refused
+    // throws [OrganizeRefused] or [VaultLimitExceeded] with its fixed text ([storeSaveErrorText]), with nothing saved.
+
+    /** A new folder [name] inside [parentId] (null for the top): the folder, or null when the vault is locked. */
+    suspend fun createFolder(name: String, parentId: String?): Folder? {
+        val id = newOrganizeId()
+        val saved = modifyData { data -> data.withNewFolder(name, parentId, id) }
+        return if (!saved) null else (_state.value as? VaultState.Unlocked)?.data?.folders?.firstOrNull { it.id == id }
+    }
+
+    suspend fun renameFolder(id: String, name: String): Boolean = modifyData { data -> data.withFolderRenamed(id, name) }
+
+    /** Moves folder [id] inside [newParentId] (null for the top); refuses a cycle and more than 5 levels. */
+    suspend fun moveFolder(id: String, newParentId: String?): Boolean = modifyData { data -> data.withFolderMoved(id, newParentId) }
+
+    /** Deletes folder [id]; its entries go to the folder above or to the trash ([FolderDeletion], [withoutFolder]). */
+    suspend fun deleteFolder(id: String, entriesTo: FolderDeletion): Boolean = modifyData { data -> data.withoutFolder(id, entriesTo, now()) }
+
+    /** Moves the entries of [ids] to [folderId] (null for none), in one save; how many moved ([withEntriesMoved]). */
+    suspend fun moveEntries(ids: Set<String>, folderId: String?): Int {
+        var count = 0
+        modifyData { data ->
+            count = 0
+            data.withEntriesMoved(ids, folderId)?.let { (next, n) ->
+                count = n
+                next
+            }
+        }.let { saved -> if (!saved) count = 0 }
+        return count
+    }
+
+    suspend fun saveView(view: SavedView): Boolean = modifyData { data -> data.withView(view) }
+
+    suspend fun deleteView(id: String): Boolean = modifyData { data -> data.withoutView(id) }
+
+    /** Gives [tag] the colour [color], or none for null ([withTagColor]). */
+    suspend fun setTagColor(tag: String, color: TagColor?): Boolean = modifyData { data -> data.withTagColor(tag, color) }
+
+    /**
+     * Notes that entry [id] was used now ([VaultEntry.lastUsedAt], for «Recientes» and the order «por uso»): saved in the
+     * vault, but no new version of its history and no change for the automatic copies (design «Ordenar»): the file keeps
+     * the time of the last change and [revision] does not go up ([modifyData] with `bookkeeping`). At most once a minute
+     * per entry ([MARK_USED_EVERY_MS]); never for one in the trash. True when it was written.
+     */
+    suspend fun markUsed(id: String): Boolean = modifyData(bookkeeping = true) { data -> data.withUsed(id, now()) }
+
     /**
      * 2.0, task 3: sends the entry to the trash ([moveToTrash]); true when it was there to move. The identity and the
      * contacts ([EntryType.isPersonal], their own tab) never go to the trash: they are deleted for good, as before, after
@@ -966,6 +1026,8 @@ class VaultStore(
         modifyData { data ->
             count = 0
             var identity = data.live.any { it.type == EntryType.IDENTITY }
+            // 2.0, task 4: back to its folder if it is still there, to no folder if not ([deleteFolder]).
+            val folders = data.folders.mapTo(HashSet()) { it.id }
             val entries = data.entries.map { e ->
                 if (e.deletedAt == null || e.id !in ids) return@map e
                 if (e.type == EntryType.IDENTITY) {
@@ -973,7 +1035,7 @@ class VaultStore(
                     identity = true
                 }
                 count++
-                e.copy(deletedAt = null)
+                e.copy(deletedAt = null, folderId = e.folderId?.takeIf { it in folders })
             }
             if (count == 0) null else data.copy(entries = entries)
         }.let { saved -> if (!saved) count = 0 }
@@ -1020,7 +1082,7 @@ class VaultStore(
             current.passwordHistory
         }
         val restored = version.copy(
-            id = current.id, createdAt = current.createdAt, updatedAt = now(), lastUsedAt = current.lastUsedAt,
+            id = current.id, createdAt = current.createdAt, updatedAt = now(), lastUsedAt = current.lastUsedAt, folderId = current.folderId,
             history = current.history, passwordHistory = passwords, attachments = current.attachments, deletedAt = null,
         )
         if (!restored.changedFrom(current)) return@modifyData null
@@ -1408,6 +1470,7 @@ fun storeSaveErrorText(e: Throwable): String {
     val text = e.message
     return when {
         e is VaultLimitExceeded && text != null -> text
+        e is OrganizeRefused && text != null -> text
         e is IllegalStateException && text in setOf(UPGRADE_PENDING, NEEDS_MASTER_FOR_CONTACTS, ONLY_ONE_IDENTITY) -> text!!
         else -> TRASH_SAVE_FAILED
     }

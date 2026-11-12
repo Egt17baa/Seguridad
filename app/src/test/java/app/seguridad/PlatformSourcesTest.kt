@@ -116,19 +116,26 @@ class PlatformSourcesTest {
      * them, and a lock of the vault drops them.
      */
     @Test fun `the vault list keeps its search, filters and place after an entry, and drops them on lock`() {
-        val src = code("ui/screens/VaultScreen.kt")
-        assertTrue("the list's own ViewModel", "private class EntryListViewModel(" in src)
+        // 2.0, task 4: the list (its ViewModel, rows and filters) is in VaultList.kt.
+        val src = code("ui/screens/VaultList.kt")
+        assertTrue("the list's own ViewModel", "internal class EntryListViewModel(" in src)
+        assertTrue("viewModel { EntryListViewModel(store, totpOnly) }" in code("ui/screens/VaultScreen.kt"))
         // The place as two numbers, never the LazyListState (it holds the list's last layout; the 1.4.1 audit, finding 2).
         assertTrue("the scroll position is the ViewModel's", "LazyListState(list.firstIndex, list.firstOffset)" in src)
         assertTrue("and goes back to it", "list.firstIndex = listState.firstVisibleItemIndex" in src)
         assertFalse("no LazyListState kept in the ViewModel", Regex("""var listState by""").containsMatchIn(src))
-        assertTrue("a gone tag filter is dropped", "if (tag != null && tag !in allTags) tag = null" in src)
-        for (v in listOf("query", "type", "tag")) assertTrue(v, "var $v by list::$v" in src)
+        assertTrue("a gone tag filter is dropped", "val tags = f.tags.filter { it in result.tags }.toSet()" in src)
+        assertTrue("and a gone folder", "val folder = f.folderId?.takeIf { id -> folders.any { it.id == id } }" in src)
+        for (v in listOf("query", "filter")) assertTrue(v, "var $v by mutableStateOf(" in src)
         assertFalse("no search in local state", Regex("""var query by remember""").containsMatchIn(src))
-        assertFalse("nothing of the list in saved state", Regex("""rememberSaveable""").containsMatchIn(src))
+        assertFalse("nothing of the list in saved state", Regex("""rememberSaveable""").containsMatchIn(src + code("ui/screens/VaultOrganize.kt")))
         // From the vault's own state, in the ViewModel: a lock while another tab is shown drops them too.
         assertTrue("a lock drops them", "store.state.collect { if (it !is VaultState.Unlocked) reset() }" in src)
         assertFalse("not only while the list is on screen", "list.reset()" in src)
+        // The search and the filters run off the main thread, each run cancelling the one before; a lock drops the result.
+        assertTrue("withContext(Dispatchers.Default) { compute(data, qf.first, qf.second) }" in src && ".collectLatest {" in src)
+        assertTrue("if (store.state.value is VaultState.Unlocked) _result.value = r" in src)
+        assertTrue(Regex("""fun reset\(\) \{[^}]*cache = null\s+_result.value = ListResult.EMPTY""").containsMatchIn(src))
     }
 
     @Test fun `COV2-4 the window and every dialog are marked accessibility data sensitive on Android 14+`() {
@@ -651,7 +658,7 @@ class PlatformSourcesTest {
         // M-5: «Elegir otro archivo» on the password step opens the picker, as on the other steps.
         assertTrue(flat, "OutlinedButton(onClick = { vm.cancel() launchPick() }" in flat)
         // R18: the vault's tag chips are lazy.
-        assertTrue("LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(allTags, key = { it })" in code("ui/screens/VaultScreen.kt").replace(Regex("""\s+"""), " "))
+        assertTrue("LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(result.tags, key = { it })" in code("ui/screens/VaultList.kt").replace(Regex("""\s+"""), " "))
         // A document created for the copy and not used (refused, failed) is deleted, never left empty.
         assertTrue("discardDocumentNow(appContext, uri)" in src)
         // «Quitar el archivo exportado»: the document picked in this run, once, after an import; the provider asked first.
@@ -682,15 +689,29 @@ class PlatformSourcesTest {
      */
     @Test fun `R9 every title, user, URL, service, account and tag shown goes through plainReportText`() {
         val pins = mapOf(
-            "ui/screens/VaultScreen.kt" to listOf(
+            "ui/screens/VaultList.kt" to listOf(
                 "Text(plainReportText(e.title), maxLines = 1",
                 "if (sub.isNotBlank()) Text(plainReportText(sub)",
-                "label = { Text(\"#\${plainReportText(t)}\") }",
+                "label = { Text(\"#\${plainReportText(t)}\", color = tagTextColor(tagColors[t])) }",
+                // 2.0, task 4: the folder and the tags of each row, the views, the folders' crumb and the dragged entry.
+                "Text(\"📁 \" + plainReportText(it.name, 30)",
+                "e.tags.take(3).forEach { t -> Text(\"#\${plainReportText(t)}\"",
+                "label = { Text(\"👁 \${plainReportText(v.name)}\") }",
+                "folderCrumb(folderPath(folders, id).map { plainReportText(it.name) })",
+                "Text(plainReportText(d.entry.title, 40)",
+            ),
+            "ui/screens/VaultOrganize.kt" to listOf(
+                "\"📁 \${plainReportText(f.name)} (\${counts[f.id] ?: 0})\"",
+                "moveToTitle(plainReportText(e.title))",
+                "folderDeleteTitle(plainReportText(f.name))",
+                "\"#\${plainReportText(t)} · ",
+                "Text(\"👁 \${plainReportText(v.name)}\"",
             ),
             "ui/screens/VaultEntryScreen.kt" to listOf(
                 "BackScaffold(\"\${typeIcon(entry.type)} \${plainReportText(entry.title)}\", onBack)",
-                "Field(\"Usuario\", entry.username, plain = true)",
-                "Field(\"Web\", entry.url, plain = true)",
+                "Field(\"Usuario\", entry.username, plain = true,",
+                "Field(\"Web\", entry.url, plain = true,",
+                "folderCrumb(path.map { plainReportText(it.name) })",
                 "if (plain) plainReportText(value, value.length) else value",
                 "entry.tags.map { \"#\${plainReportText(it)}\" }",
                 "Text(moveToTrashTitle(plainReportText(entry.title)))",

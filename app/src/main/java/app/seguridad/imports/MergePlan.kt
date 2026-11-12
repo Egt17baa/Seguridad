@@ -511,6 +511,19 @@ internal fun urlHost(url: String): String? {
 }
 
 /**
+ * 2.0, task 4: the host of [url] as the vault's search reads it: read like [urlHost] (as a browser, `https://` in front
+ * of a text with no scheme), in the form it is shown in (Unicode, so «españa.es» is found by «españa»), without `www.`;
+ * null when there is no host (only the host is searched, never the rest of the link, which may hold a user and a
+ * password: `https://ana:clave@banco.es/x` gives `banco.es`).
+ */
+internal fun searchHost(url: String): String? {
+    val t = asBrowserReadsIt(url)
+    if (t.isEmpty()) return null
+    val link = parseLink(comparedLink(t))
+    return (link.unicodeHost ?: link.host)?.removePrefix("www.")?.takeUnless { showsNothing(it) }
+}
+
+/**
  * The URL of a login as the merge compares it (RT-4, ruling R41): its scheme and [urlHost], «https://banco.es»; null for
  * no URL, read through [asBrowserReadsIt] (ruling R54). So `http://banco.es/` and `https://banco.es/` are not duplicates, nor is a link of any other scheme
  * (`javascript://banco.es/…`, `intent://banco.es/…`, `file://banco.es/…`, `ftp://banco.es/`): «Reemplazar» can never

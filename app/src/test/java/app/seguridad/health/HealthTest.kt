@@ -100,6 +100,14 @@ class HealthTest {
         assertTrue(Issue.NO_2FA in issues(r, "x"))
     }
 
+    /** 2.0, task 4: a login with a 2FA code of its own (R67 of 1.4.0) has 2FA, for «Salud» and for the filter «Sin 2FA». */
+    @Test fun loginWithItsOwnCodeHas2fa() {
+        val own = login("own").copy(totp = TotpSecret(secret = "JBSWY3DPEHPK3PXP"))
+        val r = vaultHealth(listOf(own, login("none")), now)
+        assertFalse(Issue.NO_2FA in issues(r, "own"))
+        assertTrue(Issue.NO_2FA in issues(r, "none"))
+    }
+
     @Test fun breachedFromMap() {
         val r = vaultHealth(listOf(login("a"), login("b", "z8#Vq2!zRw9@Lm4pXt7&")), now, breached = mapOf("a" to 12, "b" to 0))
         assertTrue(Issue.BREACHED in issues(r, "a"))

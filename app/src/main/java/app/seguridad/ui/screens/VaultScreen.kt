@@ -4,23 +4,16 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -33,13 +26,10 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -47,14 +37,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -63,23 +51,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.android.BiometricVault
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.CryptoFailure
-import app.seguridad.crypto.TOTP_UNSUPPORTED_ROW
-import app.seguridad.crypto.isSupported
 import app.seguridad.crypto.newPasswordFailureMessage
-import app.seguridad.crypto.totpCode
 import app.seguridad.imports.IMPORT_TITLE
-import app.seguridad.imports.plainReportText
 import app.seguridad.tools.RESET_WIPES_DAMAGED
 import app.seguridad.tools.VAULT_CREATE_INTRO
 import app.seguridad.tools.VAULT_CREATE_SHORT
@@ -87,20 +67,16 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.CLOCK_CHANGED_TEXT
-import app.seguridad.vault.ListQuery
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MIN_MASTER
 import app.seguridad.vault.NOT_A_VAULT
 import app.seguridad.vault.UPGRADE_NEEDS_MASTER
-import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.launchUnlockWithKey
 import app.seguridad.vault.newMasterProblem
-import app.seguridad.vault.query
-import app.seguridad.vault.seedWordCount
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.material3.SnackbarDuration
@@ -276,7 +252,9 @@ fun VaultScreen(
             }
         },
     ) { padding ->
-        VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) { entries -> EntryList(entries, totpOnly, list, onOpen) }
+        VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) {
+            EntryList(store, totpOnly, list, onOpen, onMessage = { text -> scope.launch { snackbar.showSnackbar(text) } })
+        }
     }
 }
 
@@ -470,149 +448,6 @@ private fun UnlockVault(store: VaultStore) {
             },
             dismissButton = { TextButton(onClick = { confirmDestroy = false }) { Text("Cancelar") } },
         )
-    }
-}
-
-/**
- * What the vault list shows while the vault stays open: the search, the type and tag filters and the scroll position
- * (1.4.1, F-4). They live here, in the ViewModel of the tab's back-stack entry, so opening, editing or deleting an entry
- * brings the list back as it was (deleting «Beta» from «Alfa, Beta, Gamma» leaves «Alfa, Gamma» on screen, not the top).
- * Never in saved state: the search can name an entry. [reset] runs as soon as the vault is not open, from the vault's
- * own state, so a lock while another tab is on screen drops them too.
- */
-private class EntryListViewModel(store: VaultStore, private val totpOnly: Boolean) : ViewModel() {
-    var query by mutableStateOf("")
-    var type by mutableStateOf(initialType())
-    var tag by mutableStateOf<String?>(null)
-
-    /**
-     * Where the list was, as two numbers: never the LazyListState itself, which holds the last layout of its list (its
-     * rows' text and, after a rotation, the old Activity) while the tab is not shown (the 1.4.1 audit, finding 2).
-     */
-    var firstIndex = 0
-    var firstOffset = 0
-
-    private fun initialType(): EntryType? = if (totpOnly) EntryType.TOTP else null
-
-    init {
-        viewModelScope.launch { store.state.collect { if (it !is VaultState.Unlocked) reset() } }
-    }
-
-    fun reset() {
-        query = ""
-        type = initialType()
-        tag = null
-        firstIndex = 0
-        firstOffset = 0
-    }
-}
-
-@Composable
-private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, list: EntryListViewModel, onOpen: (String) -> Unit) {
-    // Identity and contacts have their own tab (and no chip or row here): the list only shows what the vault tab always did.
-    val entries = remember(allEntries) { allEntries.filterNot { it.type.isPersonal } }
-    var query by list::query
-    var type by list::type
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(1_000)
-        }
-    }
-    var tag by list::tag
-    val allTags = remember(entries) { entries.flatMap { it.tags }.distinct().sorted() }
-    // A tag filter whose tag is gone is dropped, not only hidden: it would come back with a new tag of that name.
-    LaunchedEffect(allTags) { if (tag != null && tag !in allTags) tag = null }
-    // The list's place comes from the ViewModel and goes back to it when the list leaves the screen.
-    val listState = remember { LazyListState(list.firstIndex, list.firstOffset) }
-    DisposableEffect(listState) {
-        onDispose {
-            list.firstIndex = listState.firstVisibleItemIndex
-            list.firstOffset = listState.firstVisibleItemScrollOffset
-        }
-    }
-    // A tag no entry has any more (deleted or renamed) must not keep filtering the list.
-    val activeTag = tag?.takeIf { it in allTags }
-    val shown = remember(entries, query, type, activeTag) { entries.query(ListQuery(query, activeTag, type)) }
-    LazyColumn(state = listState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        item {
-            OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Buscar") }, singleLine = true,
-                // No corrections or suggestions. autoCorrectEnabled = false does not stop the keyboard from learning: that
-                // is NoLearningInput (IME_FLAG_NO_PERSONALIZED_LEARNING, for every field of the app).
-                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                modifier = Modifier.fillMaxWidth())
-        }
-        if (!totpOnly) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    FilterChip(selected = type == null, onClick = { type = null }, label = { Text("Todo (${entries.size})") })
-                    VAULT_ENTRY_TYPES.forEach { t ->
-                        FilterChip(selected = type == t, onClick = { type = t }, label = { Text("${t.label} (${entries.count { it.type == t }})") })
-                    }
-                }
-            }
-        }
-        if (allTags.isNotEmpty()) {
-            item {
-                // R18: lazy, so a vault with many tags composes only the chips on screen.
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(allTags, key = { it }) { t ->
-                        FilterChip(selected = activeTag == t, onClick = { tag = if (activeTag == t) null else t }, label = { Text("#${plainReportText(t)}") })
-                    }
-                }
-            }
-        }
-        if (shown.isEmpty()) {
-            item {
-                Text(
-                    if (entries.isEmpty()) "Tu bóveda está vacía. Pulsa «Añadir»." else "Sin resultados",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(24.dp),
-                )
-            }
-        }
-        items(shown, key = { it.id }) { e ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().clickable { onOpen(e.id) }.padding(vertical = 10.dp),
-            ) {
-                Text(typeIcon(e.type), style = MaterialTheme.typography.titleLarge)
-                Column(Modifier.weight(1f)) {
-                    Text(plainReportText(e.title), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    val sub = when (e.type) {
-                        EntryType.LOGIN -> e.username.ifBlank { e.url }
-                        EntryType.SEED -> "${seedWordCount(e.seedWords).first} palabras"
-                        EntryType.NOTE -> "Nota"
-                        EntryType.TOTP -> listOf(e.totp?.issuer, e.totp?.account).filter { !it.isNullOrBlank() }.joinToString(" · ")
-                        EntryType.IDENTITY, EntryType.CONTACT -> "" // Never listed here.
-                        EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> e.type.label // 2.0, task 5.
-                    }
-                    if (sub.isNotBlank()) Text(plainReportText(sub), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                }
-                if (e.favorite) Text("★", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                e.totp?.let { t ->
-                    // A setting this app does not calculate: why there is no code, as small as the seconds of one (F4).
-                    // totpCode below gives null for it; any other null (a key that is not usable) still shows nothing.
-                    if (!t.isSupported()) {
-                        Text(
-                            TOTP_UNSUPPORTED_ROW,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                    }
-                    totpCode(t, now)?.let { (code, left) ->
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(code.chunked(3).joinToString(" "), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
-                            Text("${left}s", style = MaterialTheme.typography.labelSmall, color = if (left <= 5) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-            HorizontalDivider()
-        }
     }
 }
 

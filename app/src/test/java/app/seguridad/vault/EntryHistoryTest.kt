@@ -82,9 +82,13 @@ class EntryHistoryTest {
         assertTrue(e.copy(lastUsedAt = 99, updatedAt = 7).withVersion(e, clock).history.isEmpty())
         val s = open()
         s.edit(login("uno"))
+        // 2.0, task 4: the last use is the store's ([VaultStore.markUsed]); an editor that sends another changes nothing.
         s.edit(login("uno").copy(lastUsedAt = 77L))
         assertTrue(s.entry().history.isEmpty())
-        assertEquals(77L, s.entry().lastUsedAt)
+        assertEquals(null, s.entry().lastUsedAt)
+        assertTrue(s.markUsed("a"))
+        assertTrue(s.entry().history.isEmpty())
+        assertEquals(clock, s.entry().lastUsedAt)
     }
 
     @Test fun capAt20() = runTest {

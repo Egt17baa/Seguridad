@@ -154,20 +154,27 @@ fun VaultData.checkLimits() {
  * What [VaultStore] saves instead of [this]: [fitted], and then [checkLimits], except that the limits of one entry are
  * only checked on the entries that are not, as the same objects, in [previous] (the vault as it was): an entry that
  * 1.4.3 or before saved over 64 KiB (its notes had no limit) is kept as it is, and only an entry added or changed must be
- * within them. So an old vault always opens, passes to v4 and keeps working. The structure and the whole vault are
+ * within them (a move to a folder or to the trash, or a use, is no change of what it holds). So an old vault always opens, passes to v4 and keeps working. The structure and the whole vault are
  * always checked.
  */
 internal fun VaultData.fittedForSave(previous: VaultData?): VaultData {
     val old: MutableSet<VaultEntry> = Collections.newSetFromMap(IdentityHashMap())
     previous?.entries?.let { old.addAll(it) }
-    // Decided before fitting, which may make a new object of an old entry by trimming its history.
-    val kept = entries.filter { it in old }.mapTo(HashSet()) { it.id }
+    val before = previous?.entries?.associateBy { it.id }.orEmpty()
+    // Decided before fitting, which may make a new object of an old entry by trimming its history. 2.0, task 4: an entry
+    // that only changed its folder, its last use or its place in the trash ([sameButPlace]) is kept too, so an old entry
+    // over 64 KiB can still be moved, used and sent to the trash.
+    val kept = entries.filter { it in old || before[it.id]?.let(it::sameButPlace) == true }.mapTo(HashSet()) { it.id }
     val (data, size) = fittedWithSize()
     data.checkStructure()
     data.entries.forEach { if (it.id !in kept) it.checkLimits() }
     if (size > VaultLimits.VAULT_MAX_DATA_BYTES) throw VaultLimitExceeded(VAULT_TOO_BIG)
     return data
 }
+
+/** Whether this entry is [other] but for [VaultEntry.folderId], [VaultEntry.lastUsedAt] and [VaultEntry.deletedAt]. */
+private fun VaultEntry.sameButPlace(other: VaultEntry): Boolean =
+    copy(folderId = other.folderId, lastUsedAt = other.lastUsedAt, deletedAt = other.deletedAt) == other
 
 private fun VaultEntry.checkLimits() {
     entryLimitProblem()?.let { throw VaultLimitExceeded(it) }

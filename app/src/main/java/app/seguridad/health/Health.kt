@@ -41,11 +41,7 @@ fun vaultHealth(entries: List<VaultEntry>, now: Long, breached: Map<String, Int>
     val live = entries.filter { it.deletedAt == null }
     val logins = live.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }
     val counts = logins.groupingBy { it.password }.eachCount()
-    val totpNames = live.filter { it.type == EntryType.TOTP }
-        .flatMap { listOfNotNull(it.totp?.issuer, it.title) }
-        .map { normalizeName(it) }
-        .filter { it.isNotEmpty() }
-        .toSet()
+    val totpNames = totpServiceNames(live)
     return logins.mapNotNull { e ->
         val issues = buildSet {
             if ((counts[e.password] ?: 0) >= 2) add(Issue.REUSED)
@@ -77,7 +73,26 @@ private fun hostOf(url: String): String {
     }
 }
 
+/**
+ * 2.0, task 4: the ids of the logins (out of the trash) with no 2FA, as «Salud» reads it ([Issue.NO_2FA]): no code of
+ * their own and none in the vault for their service. The list's filter «Sin 2FA» uses it, with or without a password.
+ */
+fun loginsWithout2fa(entries: List<VaultEntry>): Set<String> {
+    val live = entries.filter { it.deletedAt == null }
+    val names = totpServiceNames(live)
+    return live.filter { it.type == EntryType.LOGIN && !has2fa(it, names) }.mapTo(HashSet()) { it.id }
+}
+
+private fun totpServiceNames(live: List<VaultEntry>): Set<String> =
+    live.filter { it.type == EntryType.TOTP }
+        .flatMap { listOfNotNull(it.totp?.issuer, it.title) }
+        .map { normalizeName(it) }
+        .filter { it.isNotEmpty() }
+        .toSet()
+
 private fun has2fa(e: VaultEntry, totpNames: Set<String>): Boolean {
+    // 2.0, task 4: a login with a code of its own (R67 of 1.4.0) has 2FA.
+    if (e.totp != null) return true
     if (totpNames.isEmpty()) return false
     val host = normalizeName(hostOf(e.url))
     // accounts.google.com -> "accounts.google": its whole form or any of its labels may be the service name.
