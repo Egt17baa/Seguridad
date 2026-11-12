@@ -150,14 +150,27 @@ class PlatformSourcesTest {
      * called «colors» or a view whose id is «manage» never repeats a key, which closes the app at every opening.
      */
     @Test fun `C-1 the keys of the vault's lazy rows never meet the fixed ones`() {
-        for (file in listOf("ui/screens/VaultList.kt", "ui/screens/VaultOrganize.kt")) {
-            val src = code(file)
-            val dataKeys = Regex("""items\([^\n]*?key = \{([^}]*)\}""").findAll(src).map { it.groupValues[1].trim() }.toList()
-            assertTrue(file, dataKeys.isNotEmpty())
-            for (k in dataKeys) assertTrue("$file: $k", k.startsWith("lazyKey("))
-            val fixed = Regex("""\bitem\(key = "([^"]*)"\)""").findAll(src).map { it.groupValues[1] }.toList()
-            for (k in fixed) assertFalse("$file: $k", ':' in k)
+        // Re-review M-9: every screen, and a call to items( that spans several lines too.
+        val dataKey = Regex("""\bitems(?:Indexed)?\((?:(?!\bitems(?:Indexed)?\()[\s\S]){0,400}?key = \{([^}]*)\}""")
+        val fixedKey = Regex("""\bitem\([^)]*?key = "([^"]*)"""")
+        // The tools' grid: its rows are the app's own routes, never data of the vault.
+        val ownRows = setOf("ToolsScreen.kt")
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/java/app/seguridad/ui/screens").isDirectory) dir = dir.parentFile
+        val screens = File(dir!!, "app/src/main/java/app/seguridad/ui/screens").listFiles()!!.filter { it.name.endsWith(".kt") }
+        assertTrue(screens.size > 10)
+        var checked = 0
+        for (f in screens) {
+            val src = code("ui/screens/${f.name}")
+            val fixed = fixedKey.findAll(src).map { it.groupValues[1] }.toList()
+            for (k in fixed) assertFalse("${f.name}: $k", ':' in k)
+            if (fixed.isEmpty() || f.name in ownRows) continue
+            val dataKeys = dataKey.findAll(src).map { it.groupValues[1].trim() }.toList()
+            assertTrue(f.name, dataKeys.isNotEmpty())
+            for (k in dataKeys) assertTrue("${f.name}: $k", k.startsWith("lazyKey("))
+            checked++
         }
+        assertTrue("VaultList.kt and VaultOrganize.kt at least", checked >= 2)
         assertTrue("internal fun lazyKey(kind: Char, id: String): String = \"\$kind:\$id\"" in code("ui/screens/VaultList.kt"))
     }
 

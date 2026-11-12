@@ -61,7 +61,7 @@ const val FOLDER_CYCLE = "Una carpeta no puede estar dentro de sí misma. Muéve
 const val TOO_MANY_VIEWS = "Puede haber como mucho 50 vistas guardadas. Borra alguna."
 const val TOO_MANY_TAG_COLORS = "Puede haber como mucho 200 etiquetas con color. Quita el color de alguna."
 /** Two folders or two views with the same id: only a copy made elsewhere has them ([checkStructure]). */
-const val ORGANIZE_DAMAGED = "Las carpetas o las vistas de la bóveda están dañadas."
+const val ORGANIZE_DAMAGED = "Las carpetas o las vistas de la bóveda están dañadas: hay una repetida. Borra la que sale dos veces para poder guardar."
 const val VAULT_NAME_TOO_LONG = "El nombre de la bóveda puede tener como mucho 100 caracteres. Acórtalo."
 
 /** Counts what is written to it, and keeps nothing. */
