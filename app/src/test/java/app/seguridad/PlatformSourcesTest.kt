@@ -50,7 +50,7 @@ class PlatformSourcesTest {
         val calls = File(dir, "app/src/main/java/app/seguridad").walk().filter { it.isFile && it.name.endsWith(".kt") }.flatMap { f ->
             Regex("""rememberDocumentPicker\(([^\n]*)""").findAll(f.readText()).map { f.name to it.groupValues[1] }
         }.filterNot { (_, args) -> args.isBlank() }.toList()
-        assertEquals(28, calls.size)
+        assertEquals(29, calls.size) // 2.0, task 1: +1, the copy before the upgrade to format v4 (VaultUpgrade.kt).
         for ((file, args) in calls) assertTrue("$file: $args", Regex("""place = (PickerPlace\.[A-Z_]+|null)""").containsMatchIn(args))
         assertTrue("place = PickerPlace.IMPORT_OTHER" in code("ui/screens/ImportScreen.kt"))
         val settings = code("ui/screens/SettingsScreen.kt")

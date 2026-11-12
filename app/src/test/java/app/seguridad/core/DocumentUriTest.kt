@@ -69,7 +69,8 @@ class DocumentUriTest {
         assertTrue("Pickers not guarded:\n" + offending.joinToString("\n"), offending.isEmpty())
         // The three saves of a restored file use the contract of Pickers.kt that names the type (CreateRestoredDocument).
         val guarded = files.sumOf { guardedPicker.findAll(it.readText()).count() + restoredSave.findAll(it.readText()).count() }
-        assertEquals("Number of guarded pickers changed: update this test", 28, guarded)
+        // 2.0, task 1: +1, the copy before the upgrade to format v4 (VaultUpgrade.kt).
+        assertEquals("Number of guarded pickers changed: update this test", 29, guarded)
         assertEquals(3, files.sumOf { restoredSave.findAll(it.readText()).count() })
     }
 
