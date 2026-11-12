@@ -35,8 +35,6 @@ data class Settings(
     val clipboard: ClipboardClear = ClipboardClear.S45,
     val theme: ThemeMode = ThemeMode.DARK,
     val noticeAccepted: Boolean = false,
-    /** The highest time of day the app ever saw (epoch ms), a mark that only rises: a clock set back behind it ends the fingerprint. */
-    val clockHighWaterMs: Long = 0,
     /**
      * A14: the notice about the keyboard's clipboard history (Android 8 to 12, with no EXTRA_IS_SENSITIVE) was accepted;
      * copying a secret no longer asks. With a default, so a settings.json from 1.2.2 or before still reads.
@@ -65,6 +63,13 @@ data class Settings(
 @Serializable
 data class VaultSettings(
     val kdf: KdfProfile = KdfProfile.STANDARD,
+    /**
+     * The highest time of day the app ever saw (epoch ms), a mark that only rises, except that this vault's master
+     * password restarts it: a clock set back behind it ends this vault's fingerprint (A11). 2.0 (ruling T2, I-1): one per
+     * vault, so another vault's master password never heals this one's clock; 1.4.3 kept it at the top of the file,
+     * where [SettingsStore.load] reads it as the first vault's.
+     */
+    val clockHighWaterMs: Long = 0,
     /** The folder (a SAF tree URI, with a persistable permission) for the automatic copies; null when off. */
     val autoBackupUri: String? = null,
     /** How many automatic copies to keep: one of [AUTO_BACKUP_KEEP_CHOICES]. */
@@ -246,10 +251,10 @@ const val CLOCK_WRITE_STEP_MS = 30_000L
 fun clockMarkWorthWriting(mark: Long, seen: Long): Boolean = seen >= mark + CLOCK_WRITE_STEP_MS
 
 /** These settings having seen [seen]: the mark only rises. */
-fun Settings.seeingClock(seen: Long): Settings = if (seen > clockHighWaterMs) copy(clockHighWaterMs = seen) else this
+fun VaultSettings.seeingClock(seen: Long): VaultSettings = if (seen > clockHighWaterMs) copy(clockHighWaterMs = seen) else this
 
 /** These settings after a master password check at [now]: the mark restarts there, which may lower it. */
-fun Settings.resettingClock(now: Long): Settings = if (now == clockHighWaterMs) this else copy(clockHighWaterMs = now)
+fun VaultSettings.resettingClock(now: Long): VaultSettings = if (now == clockHighWaterMs) this else copy(clockHighWaterMs = now)
 
 /**
  * COV2-1 (owner's ruling): whether Ajustes lets the copies' folder (choose, change, turn off), «Conservar las N

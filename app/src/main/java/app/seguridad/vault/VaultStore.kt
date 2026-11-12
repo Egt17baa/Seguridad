@@ -529,7 +529,9 @@ class VaultStore(
             key.fill(0)
             throw e
         }
-        onClockReset(now()) // The master password was right: a clock set forward no longer blocks the fingerprint.
+        // The master password was right: a clock set forward no longer blocks this vault's fingerprint. 2.0 (review I-1):
+        // only for the active vault, which is the only one this unlock can open.
+        if (active()) onClockReset(now())
         if (v.version == VaultFile.VERSION) {
             // A full disk must not lock the user out of their passwords: open anyway (see [commit]).
             commit(checked, key, since, mustSave = false)

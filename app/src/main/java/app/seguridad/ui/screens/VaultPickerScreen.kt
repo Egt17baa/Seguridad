@@ -49,7 +49,6 @@ import app.seguridad.AppContainer
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.core.PickerPlace
 import app.seguridad.core.readAtMost
-import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.newPasswordFailureMessage
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
@@ -69,6 +68,8 @@ import app.seguridad.vault.VAULT_COLOR
 import app.seguridad.vault.VAULT_CREATE
 import app.seguridad.vault.VAULT_DELETE
 import app.seguridad.vault.VAULT_DELETED
+import app.seguridad.vault.VAULT_DELETE_DAMAGED
+import app.seguridad.vault.VAULT_DELETE_EMPTY_WARNING
 import app.seguridad.vault.VAULT_DELETE_LAST
 import app.seguridad.vault.VAULT_DELETE_MASTER
 import app.seguridad.vault.VAULT_DELETE_NAME_WRONG
@@ -96,7 +97,6 @@ import app.seguridad.vault.newMasterProblem
 import app.seguridad.vault.vaultDeleteTypeName
 import app.seguridad.vault.vaultDeleteWarning
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -148,6 +148,7 @@ private sealed interface PickerDialog {
     data object New : PickerDialog
     data object Rename : PickerDialog
     data object Delete : PickerDialog
+    data object DeleteEmpty : PickerDialog
     data class ImportNew(val uri: Uri) : PickerDialog
 }
 
@@ -167,31 +168,21 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
     val active by container.activeVault.collectAsStateWithLifecycle()
     val activeState by active.state.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<PickerDialog?>(null) }
-    var busy by remember { mutableStateOf(false) }
+    // Review I-2: the actions run in AppContainer, which keeps what they say ([AppContainer.vaultsNotice], shown by the
+    // navigation) and whether one runs: a switch rebuilds this screen, and neither is lost with it.
+    val busy by container.vaultsBusy.collectAsStateWithLifecycle()
     val openData = (activeState as? VaultState.Unlocked)?.data
     // COV2-1: another vault, the order and the colours only from an open one (or with none on the phone), so someone
     // holding the phone with every vault locked changes nothing here but which one is shown; read off the main thread.
     val canAdd by produceState(false, activeState, vaults) { value = withContext(Dispatchers.IO) { container.canAddVault() } }
     VaultIdleLock(active)
 
-    fun run(block: suspend () -> String?) {
-        if (busy) return
-        busy = true
-        scope.launch {
-            val message = try {
-                withContext(NonCancellable) { block() }
-            } catch (e: VaultLimitExceeded) {
-                e.message
-            } catch (e: CryptoFailure) {
-                e.message ?: "Contraseña incorrecta"
-            } catch (e: Exception) {
-                VAULT_FAILED
-            } finally {
-                busy = false
-            }
-            message?.let { snackbar.showSnackbar(it) }
-        }
+    // Review M-1: an empty slot (no vault file at all) can be taken away without a master; read off the main thread.
+    val emptySlot by produceState(false, active, activeState) {
+        value = activeState is VaultState.NoVault && withContext(Dispatchers.IO) { container.isEmptySlot(active.id) }
     }
+
+    fun run(block: suspend () -> String?) = container.launchVaultsAction(block)
 
     val importer = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.IMPORT_COPY) { uri ->
         VaultLock.keepOpenOnce = false
@@ -228,9 +219,9 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (!isActive) {
                                 OutlinedButton(enabled = !busy, onClick = {
+                                    // The switch rebuilds the navigation: its unlock screen comes next.
                                     run {
                                         container.switchTo(info.id)
-                                        onBack() // To its unlock screen.
                                         null
                                     }
                                 }) { Text(VAULT_CHOOSE) }
@@ -279,6 +270,10 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
                                 }
                             }
                             if (vaults.size <= 1) Text(VAULT_DELETE_LAST, style = MaterialTheme.typography.bodySmall)
+                        } else if (isActive && vaults.size > 1 && emptySlot) {
+                            TextButton(enabled = !busy, onClick = { dialog = PickerDialog.DeleteEmpty }) { Text(VAULT_DELETE, color = NegativeColor) }
+                        } else if (isActive && vaults.size > 1 && activeState is VaultState.NoVault) {
+                            Text(VAULT_DELETE_DAMAGED, style = MaterialTheme.typography.bodySmall)
                         } else if (isActive && vaults.size > 1) {
                             Text(VAULT_DELETE_OPEN_FIRST, style = MaterialTheme.typography.bodySmall)
                         }
@@ -309,8 +304,7 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
             run {
                 try {
                     container.createVault(name, master)
-                    onBack() // To the new vault, open.
-                    null
+                    null // The switch rebuilds the navigation: the new vault, open, comes next.
                 } catch (e: VaultLimitExceeded) {
                     e.message
                 } catch (e: Exception) {
@@ -342,6 +336,22 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
                 }
             }
         }
+        PickerDialog.DeleteEmpty -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text(VAULT_DELETE) },
+            text = {
+                FilterObscuredTouches()
+                Text(VAULT_DELETE_EMPTY_WARNING, color = NegativeColor)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    dialog = null
+                    val id = active.id
+                    run { if (container.deleteVault(id, CharArray(0), "")) VAULT_DELETED else VAULT_DELETE_DAMAGED }
+                }) { Text("Borrar", color = NegativeColor) }
+            },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancelar") } },
+        )
         // The copy's master password, in the dialog of «Importar copia» (it already exists: only its length, CRY-A01). The
         // new vault keeps the copy's name; it can be changed here once it is open.
         is PickerDialog.ImportNew -> PasswordDialog(

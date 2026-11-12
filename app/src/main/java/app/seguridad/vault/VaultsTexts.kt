@@ -50,6 +50,13 @@ fun vaultDeleteWarning(name: String): String =
 
 fun vaultDeleteTypeName(name: String): String = "Para confirmar, escribe su nombre: «$name»"
 
+/** Review M-1, on view: a slot with no vault file at all goes without its master (there is nothing to open). */
+const val VAULT_DELETE_EMPTY_WARNING =
+    "Se quita esta bóveda vacía de este móvil: no tiene ningún archivo de bóveda. Las copias ya hechas, si las hay, no se borran."
+
+/** Review M-2: a file that could not be read is kept for recovery, so that slot is not deleted from here. */
+const val VAULT_DELETE_DAMAGED = "Esta bóveda tiene un archivo que no se pudo leer y que se guarda para recuperarlo: no se puede borrar desde aquí."
+
 const val VAULT_DELETE_MASTER = "Contraseña maestra de esta bóveda"
 const val VAULT_DELETED = "Bóveda borrada de este móvil. Las copias ya hechas siguen donde estaban."
 const val VAULT_DELETE_NAME_WRONG = "El nombre no coincide: no se ha borrado nada."

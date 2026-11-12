@@ -4,6 +4,7 @@ import app.seguridad.settings.principal
 import app.seguridad.settings.updatePrincipal
 import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.vault.BiometricRefusal
+import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.VaultState
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -145,14 +146,14 @@ class AppContainerTest {
         c.settings.load()
         c.vault.load()
         c.vault.create("maestra-larga".toCharArray())
-        val saved = c.settings.settings.value.clockHighWaterMs
+        val saved = c.settings.settings.value.principal.clockHighWaterMs
         fillDisk()
         // The highest time seen is an hour ahead of the phone's clock now (the clock went back an hour).
         val ahead = System.currentTimeMillis() + 60 * 60_000L
         c.rememberClock(ahead)
         assertTrue(errors.isEmpty())
-        assertEquals(saved, c.settings.settings.value.clockHighWaterMs) // Not saved...
-        assertEquals(ahead, c.clockMark) // ...but kept in memory,
+        assertEquals(saved, c.settings.settings.value.principal.clockHighWaterMs) // Not saved...
+        assertEquals(ahead, c.clockMark(PRIMARY_VAULT_ID)) // ...but kept in memory,
         assertEquals(BiometricRefusal.CLOCK, c.vault.biometricRefusal) // so the fingerprint still asks for the master.
         // The master password with the disk still full: it opens, and its reset of the mark does not close the app.
         c.vault.lock()
@@ -160,30 +161,30 @@ class AppContainerTest {
         assertTrue(c.vault.state.value is VaultState.Unlocked)
         assertTrue(errors.isEmpty())
         assertNull(c.vault.biometricRefusal) // The reset holds in memory too.
-        assertTrue(c.clockMark < ahead)
+        assertTrue(c.clockMark(PRIMARY_VAULT_ID) < ahead)
         // Space again: the next time seen, once the back-off has passed, saves the mark.
         freeDisk()
         c.rememberClock(System.currentTimeMillis())
-        assertEquals(saved, c.settings.settings.value.clockHighWaterMs) // Not yet: a failed write waits a little.
+        assertEquals(saved, c.settings.settings.value.principal.clockHighWaterMs) // Not yet: a failed write waits a little.
         elapsed += CLOCK_WRITE_STEP_MS
         c.rememberClock(System.currentTimeMillis())
-        assertEquals(c.clockMark, c.settings.settings.value.clockHighWaterMs)
-        assertTrue(c.settings.settings.value.clockHighWaterMs < ahead)
+        assertEquals(c.clockMark(PRIMARY_VAULT_ID), c.settings.settings.value.principal.clockHighWaterMs)
+        assertTrue(c.settings.settings.value.principal.clockHighWaterMs < ahead)
         assertTrue(errors.isEmpty())
     }
 
     @Test fun `BOV-1 a mark that rises less than the step is kept in memory and not written`() = runTest {
         val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), settingsIo = Dispatchers.Unconfined)
         c.settings.load()
-        c.settings.update { it.copy(clockHighWaterMs = 1_000_000L) }
+        c.settings.updatePrincipal { it.copy(clockHighWaterMs = 1_000_000L) }
         c.rememberClock(1_000_000L + CLOCK_WRITE_STEP_MS - 1)
-        assertEquals(1_000_000L, c.settings.settings.value.clockHighWaterMs)
-        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS - 1, c.clockMark)
+        assertEquals(1_000_000L, c.settings.settings.value.principal.clockHighWaterMs)
+        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS - 1, c.clockMark(PRIMARY_VAULT_ID))
         c.rememberClock(1_000_000L + CLOCK_WRITE_STEP_MS)
-        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS, c.settings.settings.value.clockHighWaterMs)
+        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS, c.settings.settings.value.principal.clockHighWaterMs)
         // A lower time never lowers it (only a master password check does).
         c.rememberClock(5L)
-        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS, c.clockMark)
+        assertEquals(1_000_000L + CLOCK_WRITE_STEP_MS, c.clockMark(PRIMARY_VAULT_ID))
     }
 
     @Test fun `BOV-1 an exception in a background job never reaches the thread's uncaught handler, an Error does`() {

@@ -1,7 +1,9 @@
 package app.seguridad
 
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.VAULT_IMPORT_NEW_DONE
 import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
@@ -9,6 +11,7 @@ import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -115,12 +118,26 @@ class AppContainerVaultsTest {
         assertFalse(c.vault.unlocked())
     }
 
-    /** Review focus 2: a save that starts in one vault and ends after the switch lands there, or nowhere; never in the other. */
+    /**
+     * Review focus 2: a save that starts in one vault and ends after the switch lands there, or nowhere; never in the
+     * other. The interleaving is forced (review M-4): the save of A holds A's mutex and waits on the compute thread, which
+     * is held, when the switch starts; the switch locks A and must then wait for that save (if it did not, it would end
+     * before the compute thread is let go, and this test fails). No sleeps: each step waits for the one before.
+     */
     @Test fun lateWriteNeverLandsInAnotherVault() = runBlocking {
         val pool = Executors.newSingleThreadExecutor()
-        val compute = pool.asCoroutineDispatcher()
+        // Tells when a block is handed to the compute thread, once armed.
+        val armed = java.util.concurrent.atomic.AtomicReference<CountDownLatch?>(null)
+        val compute = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                pool.execute(block)
+                armed.getAndSet(null)?.countDown()
+            }
+        }
+        // Let go in every case: a failed assertion must end the test, not leave the save of A waiting for ever.
+        val gate = CountDownLatch(1)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
         try {
-            val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
             val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = scope, vaultCompute = compute)
             val (_, idB) = twoVaults(c)
             c.switchTo(PRIMARY_VAULT_ID)
@@ -128,19 +145,23 @@ class AppContainerVaultsTest {
             val a = c.vault
             val fileB = File(c.registry.dirOf(idB), "vault.bin")
             val before = fileB.readText()
-            // The save of A waits on the compute thread, holding A's mutex, while the switch to B starts.
-            val gate = CountDownLatch(1)
+            // The compute thread is held; the save of A takes A's mutex and is handed to it.
             pool.execute { gate.await() }
-            val save = async(Dispatchers.IO) { a.upsert(note("tarde")) }
-            Thread.sleep(200)
-            val switch = async(Dispatchers.IO) { c.switchTo(idB) }
-            Thread.sleep(200)
+            val handed = CountDownLatch(1)
+            armed.set(handed)
+            val save = scope.async { a.upsert(note("tarde")) }
+            assertTrue("the save of A reached the compute thread", handed.await(30, java.util.concurrent.TimeUnit.SECONDS))
+            // The switch starts: it locks A at once, and then waits for A's save.
+            val switch = scope.async { c.switchTo(idB) }
+            withTimeout(30_000) { a.state.first { it is VaultState.Locked } }
+            assertEquals("the switch waits for the save of A", null, kotlinx.coroutines.withTimeoutOrNull(1_000) { switch.await() })
+            assertSame("A is still the active vault while its save runs", a, c.vault)
             gate.countDown()
             withTimeout(60_000) { switch.await() }
-            val saved = withTimeout(60_000) { save.await() }
+            assertTrue("a save already started lands in A", withTimeout(60_000) { save.await() })
             assertEquals(before, fileB.readText())
             assertFalse(a.unlocked())
-            // B, opened, does not have it; A has it if the save said so.
+            // B, opened, does not have it.
             c.vault.unlock(masterB.toCharArray())
             assertTrue(c.vault.data().entries.none { it.id == "tarde" })
             // A stale screen of A writing now, with B open, saves nothing anywhere.
@@ -148,11 +169,12 @@ class AppContainerVaultsTest {
             assertTrue(c.vault.data().entries.none { it.id == "despues" })
             c.switchTo(PRIMARY_VAULT_ID)
             c.vault.unlock(masterA.toCharArray())
-            assertEquals(saved, c.vault.data().entries.any { it.id == "tarde" })
+            assertTrue(c.vault.data().entries.any { it.id == "tarde" })
             assertTrue(c.vault.data().entries.none { it.id == "despues" })
-            scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
         } finally {
-            pool.shutdownNow()
+            gate.countDown()
+            scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
+            pool.shutdown()
         }
     }
 
@@ -236,5 +258,94 @@ class AppContainerVaultsTest {
         assertTrue(c.canAddVault())
         c.createVault("Dos", masterB.toCharArray())
         assertEquals(2, c.registry.vaults.value.size)
+    }
+
+    /**
+     * Review I-1 (ruling T2, I-1): the A11 clock mark is each vault's. Any time seen raises every vault's mark; the master
+     * password of one vault lowers only its own, so another vault's master never heals the clock of A's fingerprint.
+     */
+    @Test fun masterOfOneDoesNotHealTheClockOfAnother() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (a, idB) = twoVaults(c)
+        // The clock went back an hour: the highest time seen is ahead of it, for every vault.
+        val ahead = System.currentTimeMillis() + 60 * 60_000L
+        c.rememberClock(ahead)
+        assertEquals(ahead, c.clockMark(PRIMARY_VAULT_ID))
+        assertEquals(ahead, c.clockMark(idB))
+        assertEquals(BiometricRefusal.CLOCK, a.biometricRefusal)
+        // B's master password heals B's clock only.
+        c.vault.lock()
+        c.vault.unlock(masterB.toCharArray())
+        assertTrue(c.clockMark(idB) < ahead)
+        assertEquals(null, c.vault.biometricRefusal)
+        assertEquals(ahead, c.clockMark(PRIMARY_VAULT_ID))
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertEquals(BiometricRefusal.CLOCK, c.vault.biometricRefusal)
+        // A new vault starts at the highest mark of that moment.
+        c.vault.unlock(masterA.toCharArray())
+        assertEquals(null, c.vault.biometricRefusal)
+        c.rememberClock(ahead + 1)
+        val third = c.createVault("Tres", "maestra-de-prueba-c".toCharArray())
+        assertTrue(c.clockMark(third) >= ahead + 1)
+    }
+
+    /** Review I-2: a wrong password of the copy leaves the open vault as it was, open, and says so. */
+    @Test fun importAsNewWithAWrongPasswordStaysWhereItWas() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val copy = ByteArrayOutputStream().also { assertTrue(c.vault.exportBackup(it)) }.toByteArray()
+        val message = c.runVaultsAction { c.importAsNewVault(ByteArrayInputStream(copy), masterB.toCharArray(), ""); VAULT_IMPORT_NEW_DONE }
+        assertEquals(CryptoFailure().message, message)
+        assertEquals(message, c.vaultsNotice.value)
+        assertEquals(PRIMARY_VAULT_ID, c.activeVaultId)
+        assertTrue("never locked by the attempt", c.vault.unlocked())
+        assertEquals(listOf(PRIMARY_VAULT_ID), c.registry.vaults.value.map { it.id })
+        // Shown: gone. A good one says so, kept after the switch it makes.
+        c.vaultsNoticeShown(message!!)
+        assertEquals(null, c.vaultsNotice.value)
+        val done = c.runVaultsAction { c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), ""); VAULT_IMPORT_NEW_DONE }
+        assertEquals(VAULT_IMPORT_NEW_DONE, done)
+        assertEquals(VAULT_IMPORT_NEW_DONE, c.vaultsNotice.value)
+        assertNotEquals(PRIMARY_VAULT_ID, c.activeVaultId)
+        assertTrue(c.vault.unlocked())
+        assertEquals("Uno", c.vault.data().name)
+    }
+
+    /** Review M-1, M-2: a slot with no vault file at all goes without master or name; one with a file set aside does not. */
+    @Test fun anEmptySlotGoesWithoutMasterButASetAsideFileStays() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        c.vault.destroy() // «He olvidado la contraseña maestra» on B: an empty slot.
+        assertTrue(c.isEmptySlot(idB))
+        assertTrue(c.deleteVault(idB, CharArray(0), ""))
+        assertFalse(c.registry.dirOf(idB).exists())
+        // A third vault whose file could not be read and was set aside for recovery (BOV-2): no master, no deletion.
+        c.vault.unlock(masterA.toCharArray())
+        val idC = c.createVault("Tres", masterB.toCharArray())
+        c.switchTo(PRIMARY_VAULT_ID)
+        val dirC = c.registry.dirOf(idC)
+        File(dirC, "vault.bin").renameTo(File(dirC, "vault.bin.bad-1"))
+        val fresh = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        fresh.settings.load()
+        fresh.switchTo(idC)
+        assertEquals(VaultState.NoVault, fresh.vault.state.value)
+        assertFalse(fresh.isEmptySlot(idC))
+        assertFalse(fresh.deleteVault(idC, CharArray(0), ""))
+        assertTrue(File(dirC, "vault.bin.bad-1").exists())
+        assertTrue(fresh.registry.vaults.value.any { it.id == idC })
+    }
+
+    /** Review M-5: a late result of the copies of a vault already deleted does not bring its settings back. */
+    @Test fun aLateCopyResultOfADeletedVaultIsDropped() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        val storeB = c.vault
+        c.settings.updateVault(idB) { it.copy(autoBackupUri = "content://dos") }
+        assertTrue(c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        c.recordAutoBackup(idB, storeB, app.seguridad.vault.AutoBackupResult("content://dos", 1L, null, listOf("x")))
+        c.recordImportCopy(idB, storeB, "content://dos", "y", storeB.generation)
+        assertEquals(null, c.settings.settings.value.perVault[idB])
     }
 }

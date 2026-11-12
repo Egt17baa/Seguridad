@@ -1,6 +1,11 @@
 package app.seguridad
 
 import app.seguridad.core.MemoryPlaceStore
+import app.seguridad.vault.VaultLimitExceeded
+import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
+import app.seguridad.vault.VAULT_FAILED
+import app.seguridad.crypto.CryptoFailure
+import app.seguridad.core.Notice
 import app.seguridad.core.PickerPlaces
 import app.seguridad.core.PlaceStore
 import app.seguridad.net.PwnedPasswords
@@ -200,16 +205,19 @@ class AppContainer(
         _awayInOtherApp.value = false
     }
 
-    // The A11 clock mark. The one in force is kept here, in memory, and saved to the settings when it is worth it: a
-    // write that fails (a full disk) never closes the app and never lowers the mark the fingerprint is checked against
-    // (BOV-1). All guarded by [clockLock].
+    // The A11 clock marks, one per vault (2.0, ruling T2, I-1). The ones in force are kept here, in memory, and saved to
+    // the settings when it is worth it: a write that fails (a full disk) never closes the app and never lowers the mark
+    // the fingerprint is checked against (BOV-1). All guarded by [clockLock].
     private val clockLock = Any()
 
-    /** The highest time told by [rememberClock] since the last [resetClock] (or since the app started). */
-    private var clockSeen = 0L
+    /**
+     * Per vault, the highest time told by [rememberClock] since that vault's last [resetClock] (or since the app started).
+     * 2.0 (ruling T2, I-1): every time seen raises it for every vault; a reset is only its own vault's.
+     */
+    private val clockSeen = HashMap<String, Long>()
 
-    /** A reset not saved yet: the mark restarts there instead of at the saved one. */
-    private var clockLowered: Long? = null
+    /** Per vault, a reset not saved yet: its mark restarts there instead of at the saved one. */
+    private val clockLowered = HashMap<String, Long>()
 
     /** Counts the resets, so a write that started before one never clears it. */
     private var clockResets = 0
@@ -219,42 +227,73 @@ class AppContainer(
     /** [elapsedRealtime] before which no write is tried again, after one failed. */
     private var clockRetryAt = Long.MIN_VALUE
 
-    /**
-     * The highest time the app has seen (A11): the saved mark, or the reset not saved yet, raised by every time seen
-     * since. The vault's fingerprint gate reads it, so a mark that could not be saved still counts.
-     */
-    val clockMark: Long
-        get() = synchronized(clockLock) { maxOf(clockLowered ?: settings.settings.value.clockHighWaterMs, clockSeen) }
+    /** The vaults of the list: the only ones whose marks are kept and written (a deleted one is never brought back). */
+    private fun clockIds(): List<String> = registry.vaults.value.map { it.id }
+
+    /** [clockMark] with [clockLock] held. */
+    private fun markOf(id: String): Long =
+        maxOf(clockLowered[id] ?: settings.settings.value.vault(id).clockHighWaterMs, clockSeen[id] ?: 0L)
 
     /**
-     * Keeps the highest time seen (it only rises). Called at every unlock and touch and once at start, so it writes
-     * only when the time is [CLOCK_WRITE_STEP_MS] past the saved mark: the saved one may lag by that much, well under
-     * the 5 minutes of slack, and the one in memory never does.
+     * The highest time the app has seen (A11) for the vault [id]: its saved mark, or its reset not saved yet, raised by
+     * every time seen since. That vault's fingerprint gate reads it, so a mark that could not be saved still counts.
+     * Only that vault's master password lowers it ([resetClock]).
+     */
+    fun clockMark(id: String): Long = synchronized(clockLock) { markOf(id) }
+
+    /**
+     * Keeps the highest time seen (it only rises), for every vault. Called at every unlock and touch and once at start,
+     * so it writes only when the time is [CLOCK_WRITE_STEP_MS] past a saved mark: the saved one may lag by that much,
+     * well under the 5 minutes of slack, and the one in memory never does.
      */
     fun rememberClock(seen: Long) {
-        synchronized(clockLock) { if (seen > clockSeen) clockSeen = seen }
-        saveClock()
-    }
-
-    /** After a master password check the mark restarts at [now], even lower: a clock set forward by mistake heals. */
-    private fun resetClock(now: Long) {
         synchronized(clockLock) {
-            clockLowered = now
-            clockSeen = now
-            clockResets++
+            for (id in clockIds()) if (seen > (clockSeen[id] ?: 0L)) clockSeen[id] = seen
         }
         saveClock()
     }
 
     /**
-     * Writes [clockMark] to the settings when it is due (a reset, or a rise of [CLOCK_WRITE_STEP_MS]), one write at a
-     * time. A failed write is tried again by a later call, once [CLOCK_WRITE_STEP_MS] have passed; meanwhile the mark in
-     * memory is the one that counts.
+     * After a master password check of the vault [id] its mark restarts at [now], even lower: a clock set forward by
+     * mistake heals, for that vault only (ruling T2, I-1: another vault's master never heals the clock of this one's
+     * fingerprint).
+     */
+    private fun resetClock(id: String, now: Long) {
+        synchronized(clockLock) {
+            clockLowered[id] = now
+            clockSeen[id] = now
+            clockResets++
+        }
+        saveClock()
+    }
+
+    /** A new vault [id] starts with the highest mark of that moment, of any vault (ruling T2, I-1). */
+    private fun startClock(id: String) {
+        synchronized(clockLock) {
+            val highest = (clockIds() - id).maxOfOrNull { markOf(it) } ?: 0L
+            clockLowered.remove(id)
+            clockSeen[id] = maxOf(highest, clockSeen[id] ?: 0L)
+        }
+        saveClock()
+    }
+
+    /** A vault that is gone: its mark is not kept. */
+    private fun forgetClock(id: String) {
+        synchronized(clockLock) {
+            clockSeen.remove(id)
+            clockLowered.remove(id)
+        }
+    }
+
+    /**
+     * Writes the vaults' marks to the settings when one is due (a reset, or a rise of [CLOCK_WRITE_STEP_MS]), one write
+     * at a time, all of them in that write. A failed write is tried again by a later call, once [CLOCK_WRITE_STEP_MS]
+     * have passed; meanwhile the marks in memory are the ones that count.
      */
     private fun saveClock() {
         synchronized(clockLock) {
-            val saved = settings.settings.value.clockHighWaterMs
-            val due = clockLowered != null || clockMarkWorthWriting(saved, clockSeen)
+            val s = settings.settings.value
+            val due = clockLowered.isNotEmpty() || clockIds().any { clockMarkWorthWriting(s.vault(it).clockHighWaterMs, clockSeen[it] ?: 0L) }
             if (!due || clockWriting || elapsedRealtime() < clockRetryAt) return
             clockWriting = true
         }
@@ -265,19 +304,22 @@ class AppContainer(
                 settings.update { s ->
                     synchronized(clockLock) {
                         resets = clockResets
-                        // The reset not saved yet (it may lower the mark), then the highest time seen since (only raises it).
-                        (clockLowered?.let(s::resettingClock) ?: s).seeingClock(clockSeen)
+                        // For each vault, its reset not saved yet (it may lower the mark), then the highest time seen since
+                        // (only raises it).
+                        clockIds().fold(s) { all, id ->
+                            all.withVault(id) { v -> (clockLowered[id]?.let(v::resettingClock) ?: v).seeingClock(clockSeen[id] ?: 0L) }
+                        }
                     }
                 }
                 saved = true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // A full disk: the mark stays in memory (see [clockMark]) and is written later. Never closes the app.
+                // A full disk: the marks stay in memory (see [clockMark]) and are written later. Never closes the app.
             } finally {
                 synchronized(clockLock) {
                     clockWriting = false
-                    if (saved && resets == clockResets) clockLowered = null
+                    if (saved && resets == clockResets) clockLowered.clear()
                     if (!saved) clockRetryAt = elapsedRealtime() + CLOCK_WRITE_STEP_MS
                 }
             }
@@ -315,9 +357,10 @@ class AppContainer(
             // before the vault is saved, and put back if that fails (COPIAS-3); a copy still being written of the replaced
             // vault is told apart by the vault's generation (CADENAS-3, see [recordAutoBackup]).
             beforeReplace = { settings.forgetAutoBackupCopiesForImport(id) },
-            clockHighWater = { clockMark },
+            // A11, each vault's own mark: every time seen raises them all, its master password lowers only its own.
+            clockHighWater = { clockMark(id) },
             onClockSeen = ::rememberClock,
-            onClockReset = ::resetClock,
+            onClockReset = { now -> resetClock(id, now) },
             elapsed = elapsedRealtime,
             awayInMultiWindow = { _awayInOtherApp.value },
             // 2.0: the copy before the vault passes to v4, in this vault's automatic copies' folder; none (no folder, or it
@@ -375,7 +418,7 @@ class AppContainer(
     val activeVaultId: String get() = activeId
 
     /** The automatic copies of [vault]. */
-    val autoBackup: AutoBackup get() = slot(activeId).autoBackup
+    val autoBackup: AutoBackup get() = slot(_activeVault.value.id).autoBackup // Review M-3: always [vault]'s.
 
     /** The state of whichever vault is active: what app-wide clean-ups follow (a lock, a switch). */
     val vaultState: Flow<VaultState> = activeVault.flatMapLatest { it.state }
@@ -439,19 +482,28 @@ class AppContainer(
      * [IllegalStateException] unless [canAddVault]. If creating it
      * fails, nothing is left of it and the vault of before is active again, locked.
      */
-    suspend fun createVault(name: String, master: CharArray): String = newVault(name) { it.create(master, name.trim()) }
+    suspend fun createVault(name: String, master: CharArray): String = newVault(name, made = { it.create(master, name.trim()) })
 
     /**
      * 2.0, task 2: «Importar como bóveda nueva»: a new vault from a copy ([VaultStore.importReplace], with its master
      * password), with a new id, also when the same copy was imported before; it becomes the active one, open. [name] is
-     * its name if not blank, else it keeps the copy's. Returns its id. The vault open before is locked, and not touched.
-     * If the import fails (a wrong password, a damaged copy), nothing is left of the new vault and the vault of before
-     * is active again, locked; the exception says why.
+     * its name if not blank, else it keeps the copy's. Returns its id. The copy is checked and saved in the new vault's
+     * folder first, with the vault open before still the active one (review I-2): a wrong password or a damaged copy
+     * throws (the exception says why), leaves nothing of the new vault and the vault of before as it was, open or not.
+     * Only then is the vault open before locked and the new one opened with [master] (a second key derivation).
      */
-    suspend fun importAsNewVault(input: InputStream, master: CharArray, name: String): String = newVault(name) { store ->
-        store.importReplace(input, master)
-        if (name.isNotBlank()) store.rename(name)
-    }
+    suspend fun importAsNewVault(input: InputStream, master: CharArray, name: String): String = newVault(
+        name,
+        // Not the active one yet: its gate keeps it locked, so the vault open now stays open while the copy is checked.
+        before = { store ->
+            store.load()
+            store.importReplace(input, master)
+        },
+        made = { store ->
+            store.unlock(master)
+            if (name.isNotBlank()) store.rename(name)
+        },
+    )
 
     /**
      * Whether another vault can be made now: only from an open one, or when no vault of the phone has a file yet
@@ -462,14 +514,26 @@ class AppContainer(
     fun canAddVault(): Boolean =
         vault.state.value is VaultState.Unlocked || registry.vaults.value.none { File(registry.dirOf(it.id), "vault.bin").exists() }
 
-    private suspend fun newVault(name: String, make: suspend (VaultStore) -> Unit): String = changingVaults.withLock {
-        check(canAddVault()) { "Open a vault first" }
+    /**
+     * A new vault: [before] runs on its store while the vault of now is still the active one (so a failure there changes
+     * nothing of it), then the switch, then [made]. Review M-3: both get the new vault's own store, never whichever
+     * is active.
+     */
+    private suspend fun newVault(
+        name: String,
+        before: suspend (VaultStore) -> Unit = {},
+        made: suspend (VaultStore) -> Unit,
+    ): String = changingVaults.withLock {
+        if (!canAddVault()) throw VaultsRefused(VAULT_NEW_NEEDS_OPEN)
         VaultData(name = name.trim()).checkStructure() // A name too long: nothing is made.
         val previous = activeId
         val info = registry.create(nextColor())
+        startClock(info.id) // Ruling T2, I-1: the highest mark of this moment.
+        val store = slot(info.id).store
         try {
+            before(store)
             switchTo(info.id)
-            make(vault)
+            made(store)
         } catch (e: Throwable) {
             withContext(NonCancellable) { dropVault(info.id, previous) }
             throw e
@@ -485,6 +549,7 @@ class AppContainer(
             // Already gone from the list: the first vault is shown instead (below).
         }
         synchronized(slots) { slots.remove(id) }?.let { it.store.lock(); it.scope.cancel() }
+        forgetClock(id)
         try {
             registry.remove(id)
         } catch (e: Exception) {
@@ -512,8 +577,10 @@ class AppContainer(
         require(registry.vaults.value.any { it.id == id }) { "Unknown vault" }
         if (registry.vaults.value.size <= 1) return@withLock false
         switchTo(id)
-        val store = vault
+        val store = slot(id).store // Review M-3: the vault named, whatever is active.
         store.load()
+        // Review M-2: no master nor name only for a slot with no vault file at all; a file set aside or unreadable stays.
+        if (store.state.value is VaultState.NoVault && !isEmptySlot(id)) return@withLock false
         if (store.state.value !is VaultState.NoVault) {
             if (store.state.value is VaultState.Unlocked) {
                 if (!store.confirmMaster(master)) return@withLock false
@@ -528,6 +595,7 @@ class AppContainer(
             switchTo(registry.vaults.value.first { it.id != id }.id)
             val gone = synchronized(slots) { slots.remove(id) }
             gone?.scope?.cancel()
+            forgetClock(id)
             registry.remove(id)
             try {
                 forgetBiometric(id)
@@ -543,6 +611,61 @@ class AppContainer(
             folder?.let { releaseIfUnused(it) }
         }
         true
+    }
+
+    /**
+     * Whether the folder of the vault [id] has no vault file at all: no `vault.bin` (also one that could not be read) and
+     * nothing set aside as damaged (`vault.bin.bad-…`, `att.bad-…`, BOV-2, kept for recovery). Only such a slot is deleted
+     * without its master and its name (review M-2). Reads the disk.
+     */
+    fun isEmptySlot(id: String): Boolean {
+        val names = registry.dirOf(id).list() ?: return true
+        return names.none { it == "vault.bin" || it.startsWith("vault.bin.bad-") || it.startsWith("att.bad-") }
+    }
+
+    private val vaultsNotices = Notice<String>()
+
+    /**
+     * 2.0 (review I-2): what the last action of «Bóvedas» said (created, imported, deleted, or why not), until it is shown
+     * ([vaultsNoticeShown]). Here, not in the screen: the action switches vaults, which rebuilds every screen.
+     */
+    val vaultsNotice: StateFlow<String?> = vaultsNotices.value
+
+    fun vaultsNoticeShown(message: String) = vaultsNotices.shown(message)
+
+    private val _vaultsBusy = MutableStateFlow(false)
+
+    /** An action of «Bóvedas» is running ([runVaultsAction]); its screen waits, also after it was rebuilt. */
+    val vaultsBusy: StateFlow<Boolean> = _vaultsBusy.asStateFlow()
+
+    /**
+     * Runs one action of «Bóvedas» to its end ([block] gives what to say, or null) and keeps what it says in
+     * [vaultsNotice]: a limit or a refusal by its own text, a wrong password or a damaged copy by the store's text, and
+     * anything else by [VAULT_FAILED]. Not cut by the caller leaving.
+     */
+    suspend fun runVaultsAction(block: suspend () -> String?): String? = withContext(NonCancellable) {
+        _vaultsBusy.value = true
+        val message = try {
+            block()
+        } catch (e: VaultLimitExceeded) {
+            e.message
+        } catch (e: VaultsRefused) {
+            e.message
+        } catch (e: CryptoFailure) {
+            e.message ?: CryptoFailure().message
+        } catch (e: Exception) {
+            VAULT_FAILED
+        } finally {
+            _vaultsBusy.value = false
+        }
+        message?.let(vaultsNotices::post)
+        message
+    }
+
+    /** [runVaultsAction] in [appScope], for the screen; one at a time ([vaultsBusy]). */
+    fun launchVaultsAction(block: suspend () -> String?) {
+        if (_vaultsBusy.value) return
+        appScope.launch { runVaultsAction(block) }
     }
 
     /**
@@ -602,9 +725,10 @@ class AppContainer(
      * (a write that takes that same lock), so a copy of the replaced vault can never put its list back, whichever of the
      * two writes first (CADENAS-3). Only the settings of [id] change.
      */
-    private suspend fun recordAutoBackup(id: String, store: VaultStore, result: AutoBackupResult) {
+    internal suspend fun recordAutoBackup(id: String, store: VaultStore, result: AutoBackupResult) {
         try {
-            settings.update { it.withVault(id) { v -> v.withAutoBackupResult(result, store.generation) } }
+            // Review M-5: a late result of a vault deleted meanwhile is dropped, so its settings never come back.
+            settings.update { s -> if (!listed(id)) s else s.withVault(id) { v -> v.withAutoBackupResult(result, store.generation) } }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -617,13 +741,19 @@ class AppContainer(
      * [recordAutoBackup], the vault's generation is read inside the settings' lock, so a copy of a vault replaced
      * meanwhile is never listed.
      */
-    private suspend fun recordImportCopy(id: String, store: VaultStore, folder: String, copy: String, generation: Long) {
+    internal suspend fun recordImportCopy(id: String, store: VaultStore, folder: String, copy: String, generation: Long) {
         try {
-            settings.update { it.withVault(id) { v -> v.withImportCopy(folder, copy, generation, store.generation) } }
+            settings.update { s -> if (!listed(id)) s else s.withVault(id) { v -> v.withImportCopy(folder, copy, generation, store.generation) } }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // A full disk: the copy is there, only not listed (A6 counts it as unlisted by its name); never closes the app.
         }
     }
+
+    /** Whether [id] is still a vault of the list (a result that arrives after its deletion is not). */
+    private fun listed(id: String): Boolean = registry.vaults.value.any { it.id == id }
 }
+
+/** A vault action refused by a rule of the app (not a failure): [message] is a fixed Spanish text that says why. */
+class VaultsRefused(message: String) : IllegalStateException(message)

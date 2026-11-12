@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -111,31 +112,34 @@ private val tabs = listOf(
  * the switch, so it can never write to it again (nor to the other: it only knows its own store).
  */
 internal class VaultScopes : ViewModel() {
-    private var vaultId: String? = null
-    private var store = ViewModelStore()
+    private val stores = HashMap<String, ViewModelStore>()
 
-    fun storeFor(id: String): ViewModelStore {
-        if (vaultId != id) {
-            store.clear()
-            store = ViewModelStore()
-            vaultId = id
-        }
-        return store
+    fun storeFor(id: String): ViewModelStore = stores.getOrPut(id) { ViewModelStore() }
+
+    /** The vault [id] is no longer the active one: its ViewModels go (their scopes are cancelled). */
+    fun drop(id: String) {
+        stores.remove(id)?.clear()
     }
 
     override fun onCleared() {
-        store.clear()
+        stores.values.forEach { it.clear() }
+        stores.clear()
     }
 }
 
 @Composable
-private fun VaultScoped(vault: VaultStore, content: @Composable () -> Unit) {
+private fun VaultScoped(container: AppContainer, vault: VaultStore, content: @Composable () -> Unit) {
     val scopes = viewModel<VaultScopes>()
     val owner = remember(vault) {
         val store = scopes.storeFor(vault.id)
         object : ViewModelStoreOwner {
             override val viewModelStore: ViewModelStore = store
         }
+    }
+    // Review M-6: cleared in an effect, once this composition leaves, never while one is being composed; and only when
+    // the vault is no longer the active one (a re-created activity keeps them, as the navigation's own were kept).
+    DisposableEffect(vault) {
+        onDispose { if (container.activeVault.value !== vault) scopes.drop(vault.id) }
     }
     CompositionLocalProvider(LocalViewModelStoreOwner provides owner) { content() }
 }
@@ -167,7 +171,7 @@ fun AppNavHost(container: AppContainer) {
     }
 
     key(vault) {
-        VaultScoped(vault) { VaultNav(container, vault) }
+        VaultScoped(container, vault) { VaultNav(container, vault) }
     }
 }
 
@@ -211,6 +215,18 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     LaunchedEffect(renameReady) { if (renameReady) container.renameNotice.showIfDue() }
     val renameVisible by container.renameNotice.visible.collectAsStateWithLifecycle()
     if (renameVisible && renameReady) RenameNoticeDialog(onClose = container.renameNotice::closed)
+    // Review I-2: what the last action of «Bóvedas» said, also after the switch it made (it rebuilt every screen).
+    val vaultsNotice by container.vaultsNotice.collectAsStateWithLifecycle()
+    vaultsNotice?.let { shown ->
+        AlertDialog(
+            onDismissRequest = { container.vaultsNoticeShown(shown) },
+            text = {
+                FilterObscuredTouches()
+                Text(shown)
+            },
+            confirmButton = { TextButton(onClick = { container.vaultsNoticeShown(shown) }) { Text(PASSWORD_CHANGE_CLOSE) } },
+        )
+    }
     val replacing by container.autoBackup.replacing.collectAsStateWithLifecycle()
     if (masterState.open) {
         MasterChangedDialog(

@@ -57,7 +57,8 @@ class PerVaultSettingsTest {
         assertEquals(ClipboardClear.S15, g.clipboard)
         assertEquals(ThemeMode.LIGHT, g.theme)
         assertTrue(g.noticeAccepted)
-        assertEquals(1800000000000L, g.clockHighWaterMs)
+        // 2.0, ruling T2, I-1: the A11 mark is each vault's; 1.4.3's goes to the first.
+        assertEquals(1800000000000L, v.clockHighWaterMs)
         assertTrue(g.clipboardHistoryNoticeAccepted)
         assertEquals(false, g.renameNoticePending)
         // Written once in the new shape: read again, the same; the old fields are gone from the top.
