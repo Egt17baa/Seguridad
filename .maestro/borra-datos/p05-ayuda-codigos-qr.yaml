@@ -26,8 +26,35 @@ env:
     visible: "Elegir archivo"
     timeout: 15000
 - assertVisible: "Importar de otra app"
-- assertVisible: 'Lee un archivo que hayas exportado de otro gestor de contraseñas, de un navegador o de una app de 2FA.*'
-- assertVisible: '.* solo exporta sus códigos como uno o varios códigos QR.*pulsa «Añadir», elige «Código 2FA» y luego «Escanear QR».*'
+# 1.4.2 (texto mínimo): una línea a la vista; la explicación y la ayuda de los QR, plegadas bajo el primer
+# «Más información» (al abrirlo pasa a «Menos información»).
+- assertVisible: 'Añade a la bóveda lo que exportaste de otro gestor de contraseñas, un navegador o una app de 2FA\. Antes te enseña lo que entra\.'
+- tapOn:
+    text: "Más información"
+    index: 0
+- scrollUntilVisible:
+    element:
+      text: 'Lee un archivo que hayas exportado de otro gestor de contraseñas, de un navegador o de una app de 2FA.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: '.* solo exporta sus códigos como uno o varios códigos QR.*pulsa «Añadir», elige «Código 2FA» y luego «Escanear QR».*'
+    direction: DOWN
+# Los avisos del final: una línea de cada uno a la vista, y completos bajo el otro «Más información», que
+# ahora es el único que lo dice.
+- scrollUntilVisible:
+    element:
+      text: 'Un archivo exportado sin contraseña suele estar sin cifrar en tu móvil\.'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Lo leído se borra al volver atrás.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Más información"
+    direction: DOWN
+- tapOn: "Más información"
 - scrollUntilVisible:
     element:
       text: 'Clavero no protege el archivo exportado\..*'
@@ -43,16 +70,35 @@ env:
 - tapOn: "Atrás"
 
 # Los botones que nombra la ayuda.
+# El botón «Añadir» no da su texto a las herramientas de accesibilidad (por eso Maestro no lo encuentra
+# por su nombre): se pulsa lo primero que hay debajo del aviso de la bóveda vacía, que es ese botón.
 - extendedWaitUntil:
-    visible: "Añadir"
+    visible: 'Tu bóveda está vacía\. Pulsa «Añadir»\.'
     timeout: 10000
-- tapOn: "Añadir"
+- tapOn:
+    below:
+      text: 'Tu bóveda está vacía\. Pulsa «Añadir»\.'
 - extendedWaitUntil:
     visible: "Nueva entrada"
     timeout: 10000
+# Los tipos van en una fila que se desliza: en una pantalla estrecha o con la letra grande, «Código 2FA»
+# puede quedar fuera, a la derecha.
+- runFlow:
+    when:
+      notVisible: '.*Código 2FA'
+    commands:
+      # Desde el segundo tipo, para que el dedo tenga recorrido hasta el borde izquierdo.
+      - swipe:
+          from:
+            text: '.*Frase semilla'
+          direction: LEFT
 - tapOn: '.*Código 2FA'
-- extendedWaitUntil:
-    visible: '.*Escanear QR'
-    timeout: 10000
-- assertVisible: "Pegar enlace"
+- scrollUntilVisible:
+    element:
+      text: '.*Escanear QR'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Pegar enlace"
+    direction: DOWN
 - tapOn: "Atrás"

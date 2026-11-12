@@ -5,6 +5,12 @@ appId: io.github.egt17baa.seguridad
 - assertVisible: "Crea tu bóveda"
 - tapOn: 'Contraseña maestra \(mínimo 10 caracteres\)'
 - inputText: ${MAESTRA}
+# Se cierra el teclado antes de buscar el segundo campo: tapa media pantalla.
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Repítela"
+    direction: DOWN
 - tapOn: "Repítela"
 - inputText: ${MAESTRA}
 - hideKeyboard

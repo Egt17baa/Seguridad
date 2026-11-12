@@ -42,7 +42,8 @@ env:
 - runFlow: ../comun/abrir-importar.yaml
 - assertNotVisible: "Contraseña del archivo"
 - assertNotVisible: 'Archivo: .*'
-- assertVisible: 'Lee un archivo que hayas exportado de otro gestor.*'
+# 1.4.2 (texto mínimo): a la vista queda la línea corta; la explicación va bajo «Más información».
+- assertVisible: 'Añade a la bóveda lo que exportaste de otro gestor de contraseñas, un navegador o una app de 2FA\..*'
 
 # Una contraseña equivocada: el texto fijo, y se puede volver a escribir.
 - tapOn: "Elegir archivo"

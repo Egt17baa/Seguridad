@@ -82,6 +82,12 @@ class Slip39Test {
         put(39, slip39WordCount(1, 19, SLIP39_MIN_WORDS, SLIP39_MAX_WORDS))
     }
 
+    @Test
+    fun wordCountSaysPalabraForOne() {
+        assertEquals("La parte 1 tiene 1 palabra: una parte tiene de 20 a 59.", slip39WordCount(1, 1, SLIP39_MIN_WORDS, SLIP39_MAX_WORDS))
+        assertEquals("La parte 2 tiene 19 palabras: una parte tiene de 20 a 59.", slip39WordCount(2, 19, SLIP39_MIN_WORDS, SLIP39_MAX_WORDS))
+    }
+
     private fun roundTrip(master: ByteArray, gt: Int, groups: List<GroupSpec>, pick: (List<List<String>>) -> List<String>) {
         val parts = slip.splitSecret(master, "frase".toCharArray(), gt, groups, iterationExponent = 0)
         assertEquals(groups.map { it.count }, parts.map { it.size })

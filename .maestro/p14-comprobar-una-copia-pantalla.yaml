@@ -18,7 +18,7 @@ tags:
 - extendedWaitUntil:
     visible: "Atrás"
     timeout: 15000
-- assertVisible: 'Comprueba una copia \.sgbak sin importarla.*'
+- assertVisible: 'Comprueba que una copia \.sgbak se abre con su contraseña y que sus adjuntos coinciden, sin importarla\.'
 # Debajo del texto de entrada: en un móvil con letra grande quedan fuera de la pantalla.
 - scrollUntilVisible:
     element:
@@ -34,6 +34,25 @@ tags:
       containsDescendants:
         - text: "Comprobar"
       enabled: false
+    direction: DOWN
+# 1.4.2 (texto mínimo): lo que no comprueba y el aviso de borrado, en una línea a la vista; las
+# explicaciones completas, plegadas bajo «Más información», al final de la pantalla.
+- scrollUntilVisible:
+    element:
+      text: 'No dice si es tu copia más reciente ni si tiene lo que cambiaste después\.'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: 'Lo escrito y el resultado se borran al volver atrás.*'
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Más información"
+    direction: DOWN
+- tapOn: "Más información"
+- scrollUntilVisible:
+    element:
+      text: 'Comprueba una copia \.sgbak sin importarla.*'
     direction: DOWN
 - scrollUntilVisible:
     element:
