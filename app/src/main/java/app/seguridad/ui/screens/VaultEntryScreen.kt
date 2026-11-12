@@ -87,6 +87,16 @@ import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.passwordToSave
 import app.seguridad.vault.seedWordCount
 import app.seguridad.vault.totpImportEntries
+import app.seguridad.vault.DUPLICATE
+import app.seguridad.vault.DUPLICATE_OPEN
+import app.seguridad.vault.FormFields
+import app.seguridad.vault.duplicatedText
+import app.seguridad.vault.entryLimitProblem
+import app.seguridad.vault.expiresAtToSave
+import app.seguridad.vault.fieldsToSave
+import app.seguridad.vault.rotates
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import com.journeyapps.barcodescanner.ScanContract
 import app.seguridad.android.scanQrOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -141,6 +151,7 @@ private fun PasswordHistorySection(history: List<PasswordChange>) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun VaultEntryDetailScreen(
     store: VaultStore,
@@ -150,6 +161,7 @@ fun VaultEntryDetailScreen(
     onShowQr: () -> Unit,
     onHistory: () -> Unit,
     onBack: () -> Unit,
+    onOpenEntry: (String) -> Unit = {},
 ) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
@@ -162,6 +174,8 @@ fun VaultEntryDetailScreen(
     // save that makes no version and no automatic copy ([VaultStore.markUsed]); a failure only loses the mark.
     var moving by remember { mutableStateOf(false) }
     var moveError by remember { mutableStateOf<String?>(null) }
+    // 2.0, task 5: «Duplicar» says what it made and offers to open it (the id and the title shown, no secret).
+    var duplicated by remember { mutableStateOf<Pair<String, String>?>(null) }
     val used: () -> Unit = { scope.launch { runCatching { store.markUsed(entry.id) } } }
     val folders = (state as? VaultState.Unlocked)?.data?.folders.orEmpty()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -206,6 +220,8 @@ fun VaultEntryDetailScreen(
             entry.folderId?.let { id -> folderPath(folders, id).takeIf { it.isNotEmpty() } }?.let { path ->
                 Text(folderCrumb(path.map { plainReportText(it.name) }), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            // 2.0, task 5: the earliest date of expiry, only inside the app (O-4).
+            ExpiryCardLine(entry, now)
             Field("Usuario", entry.username, plain = true, onCopied = used)
             Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true, onCopied = used)
             Field("Web", entry.url, plain = true, onCopied = used)
@@ -220,7 +236,9 @@ fun VaultEntryDetailScreen(
                     color = NegativeColor,
                 )
             }
-            Field("Notas", entry.notes, secret = entry.type == EntryType.NOTE, onCopied = used)
+            // 2.0, task 5: the template's fields and the user's own, then the notes (with their format, if they have it).
+            EntryFieldsCard(entry, onCopied = used)
+            NotesCard(entry, onCopied = used)
             entry.totp?.let {
                 Field("Clave secreta 2FA", it.secret, secret = true, mono = true, onCopied = used)
                 OutlinedButton(onClick = onShowQr) { Text("Mostrar QR para otra app") }
@@ -230,8 +248,26 @@ fun VaultEntryDetailScreen(
                 OutlinedButton(onClick = onHistory) { Text(historyOpen(entry.history.size, entry.oldPasswords().size)) }
             }
             moveError?.let { Text(it, color = NegativeColor) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            duplicated?.let { (copyId, copyTitle) ->
+                Text(duplicatedText(copyTitle), color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = { onOpenEntry(copyId) }) { Text(DUPLICATE_OPEN) }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onEdit) { Text("Editar") }
+                if (!entry.type.isPersonal) {
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            try {
+                                duplicated = store.duplicate(entry.id)?.let { it.id to plainReportText(it.title) }
+                                moveError = null
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                moveError = storeSaveErrorText(e)
+                            }
+                        }
+                    }) { Text(DUPLICATE) }
+                }
                 if (!entry.type.isPersonal && (folders.isNotEmpty() || entry.folderId != null)) OutlinedButton(onClick = { moving = true }) { Text(MOVE_TO) }
                 TextButton(onClick = { confirm = true }) { Text(MOVE_TO_TRASH, color = NegativeColor) }
             }
@@ -335,7 +371,8 @@ private class EntryEditViewModel(private val store: VaultStore, id: String?, ini
             } catch (x: CancellationException) {
                 throw x
             } catch (x: Exception) {
-                if (form.loaded) form.error.value = "No se pudo guardar"
+                // 2.0, task 5: a limit says which, with its own text ([storeSaveErrorText]); anything else, the store's fixed text.
+                if (form.loaded) form.error.value = storeSaveErrorText(x)
             } finally {
                 form.saving.value = false
             }
@@ -430,7 +467,7 @@ fun VaultEntryEditScreen(
     val info = form.info.value
     val saving = form.saving.value
     // Typing counts as use too, so a long note is not lost to the idle lock.
-    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp, tagsText) { store.touch() }
+    LaunchedEffect(type, title, username, loginPassword, seedPassphrase, url, notes, seed, totp, tagsText, form.templateValues.value, form.customFields.value, form.expiresText.value) { store.touch() }
 
     LaunchedEffect(Unit) {
         form.takeHandOver(otpAuthText)?.let(vm::applyOtpAuth)
@@ -487,8 +524,8 @@ fun VaultEntryEditScreen(
                         )
                     }
                     EntryType.NOTE, EntryType.IDENTITY, EntryType.CONTACT -> Unit // The last two have their own tab.
-                    // 2.0: their templates come with task 5; until then only their notes, as a note.
-                    EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> Unit
+                    // 2.0, task 5: the fixed fields of their template.
+                    EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> TemplateFieldsEditor(form, type)
                     EntryType.TOTP -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = {
@@ -515,15 +552,9 @@ fun VaultEntryEditScreen(
                         }
                     }
                 }
-                OutlinedTextField(
-                    notes,
-                    { notes = it },
-                    label = { Text(if (type == EntryType.NOTE) "Nota" else "Notas") },
-                    minLines = if (type == EntryType.NOTE) 5 else 2,
-                    // Secure notes: a password field, as the seed words (no learning or suggestions from well-behaved keyboards).
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                // 2.0, task 5: the user's own fields, the notes (with their format if chosen) and the dates of expiry.
+                CustomFieldsEditor(form)
+                NotesEditor(form, type)
                 OutlinedTextField(
                     tagsText,
                     { tagsText = it },
@@ -536,6 +567,7 @@ fun VaultEntryEditScreen(
                     Switch(checked = favorite, onCheckedChange = { favorite = it })
                     Text("Favorito")
                 }
+                ExpiryEditor(form, type)
                 if (existing == null) {
                     Text("Guarda la entrada para poder añadirle adjuntos.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
@@ -555,6 +587,17 @@ fun VaultEntryEditScreen(
                             else -> null
                         }
                         if (error != null) return@Button
+                        val fields = when (val f = fieldsToSave(type, form.templateValues.value, form.customFields.value)) {
+                            is FormFields.Ok -> f.fields
+                            is FormFields.Problem -> {
+                                error = f.text
+                                return@Button
+                            }
+                        }
+                        val expiresAt = expiresAtToSave(form.expiresText.value).getOrElse {
+                            error = it.message
+                            return@Button
+                        }
                         val e = VaultEntry(
                             id = form.entryId,
                             type = type,
@@ -569,7 +612,17 @@ fun VaultEntryEditScreen(
                             updatedAt = now,
                             favorite = favorite,
                             tags = normalizeTags(tagsText),
+                            fields = fields,
+                            notesFormat = form.notesFormat.value,
+                            expiresAt = expiresAt,
+                            rotateMonths = if (rotates(type)) form.rotateMonths.value else null,
                         )
+                        // The limits of one entry, with their own text, before the store refuses it (an old entry that
+                        // only moves keeps its size; one that is edited must fit).
+                        e.entryLimitProblem()?.let {
+                            error = it
+                            return@Button
+                        }
                         vm.save(e)
                     },
                     enabled = !saving,

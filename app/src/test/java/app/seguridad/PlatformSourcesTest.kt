@@ -753,6 +753,7 @@ class PlatformSourcesTest {
                 "Text(moveToTrashTitle(plainReportText(entry.title)))",
                 "\${plainReportText(entries.single().title)}",
                 "entries.joinToString(\", \") { plainReportText(it.title) }",
+                "store.duplicate(entry.id)?.let { it.id to plainReportText(it.title) }",
             ),
             // 2.0, task 3: the trash and the versions of an entry.
             "ui/screens/TrashScreen.kt" to listOf(
@@ -765,6 +766,12 @@ class PlatformSourcesTest {
                 "Field(\"Usuario\", e.username, plain = true)",
                 "Field(\"Web\", e.url, plain = true)",
                 "Text(historyClearTitle(plainReportText(entry.title)))",
+            ),
+            // 2.0, task 5: the names of the fields (a copy brings any), the expiry line and the duplicate's title.
+            "ui/screens/EntryFields.kt" to listOf(
+                "Field(plainReportText(f.name, 100), shownValue(entry.type, f)",
+                "val name = plainReportText(f.name, 100)",
+                "expiryLine(item.copy(what = plainReportText(item.what, 100)), today)",
             ),
             "ui/screens/OtpQrScreen.kt" to listOf("Text(plainReportText(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(\" · \"))"),
             "ui/screens/HealthScreen.kt" to listOf("Text(plainReportText(title).ifEmpty { \"(sin título)\" }"),

@@ -3,6 +3,7 @@ package app.seguridad.health
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.oldPasswords
+import app.seguridad.vault.passwordForHealth
 import java.net.URI
 import java.text.Normalizer
 import java.util.Locale
@@ -33,15 +34,27 @@ fun uniquePasswords(entries: List<VaultEntry>): Map<String, List<String>> =
         .groupBy({ it.password }, { it.id })
 
 /**
- * Problems of each LOGIN that has a password; entries with none are left out. [breached] maps entry id to the
+ * Problems of each LOGIN that has a password, and (2.0, task 5) of each wifi's password: reused or weak, never old,
+ * without 2FA or leaked (the check of leaks reads only the logins, [uniquePasswords]); entries with none are left out. [breached] maps entry id to the
  * number of times its password appeared in leaks (filled in memory by the user-triggered check; empty otherwise).
  */
 fun vaultHealth(entries: List<VaultEntry>, now: Long, breached: Map<String, Int> = emptyMap()): List<HealthItem> {
     // 2.0, task 3: what is in the trash is not in «Salud», nor a 2FA that counts for another entry.
     val live = entries.filter { it.deletedAt == null }
     val logins = live.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }
-    val counts = logins.groupingBy { it.password }.eachCount()
+    // 2.0, task 5: a wifi's password counts as a password too (reused with a login or another wifi, or weak); the other
+    // secrets of the templates (a card's number, a CVV, a licence's key) are no passwords one reuses.
+    val wifis = live.filter { it.type == EntryType.WIFI && it.passwordForHealth().isNotEmpty() }
+    val counts = (logins + wifis).groupingBy { it.passwordForHealth() }.eachCount()
     val totpNames = totpServiceNames(live)
+    val wifiItems = wifis.mapNotNull { e ->
+        val p = e.passwordForHealth()
+        val issues = buildSet {
+            if ((counts[p] ?: 0) >= 2) add(Issue.REUSED)
+            if (estimateBits(p) < WEAK_BITS) add(Issue.WEAK)
+        }
+        if (issues.isEmpty()) null else HealthItem(e.id, issues)
+    }
     return logins.mapNotNull { e ->
         val issues = buildSet {
             if ((counts[e.password] ?: 0) >= 2) add(Issue.REUSED)
@@ -53,7 +66,7 @@ fun vaultHealth(entries: List<VaultEntry>, now: Long, breached: Map<String, Int>
             if ((breached[e.id] ?: 0) > 0) add(Issue.BREACHED)
         }
         if (issues.isEmpty()) null else HealthItem(e.id, issues)
-    }
+    } + wifiItems
 }
 
 /** Lowercase, without `www.` and without the TLD (`Google.com` -> `google`). Names that are not domains stay as they are. */

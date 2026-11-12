@@ -40,6 +40,26 @@ class HealthTest {
         assertFalse(Issue.REUSED in issues(r, "c"))
     }
 
+    /** 2.0, task 5: a wifi's password counts as a password (reused, weak); the other secrets of the templates do not. */
+    @Test fun wifiPasswordCountsOtherSecretsDoNot() {
+        fun wifi(id: String, pw: String) = VaultEntry(
+            id, EntryType.WIFI, id, createdAt = 0, updatedAt = 0,
+            fields = listOf(app.seguridad.vault.CustomField("password", "Contraseña", app.seguridad.vault.FieldKind.HIDDEN, pw)),
+        )
+        val card = VaultEntry(
+            "card", EntryType.CARD, "card", createdAt = 0, updatedAt = 0,
+            fields = listOf(app.seguridad.vault.CustomField("pin", "PIN", app.seguridad.vault.FieldKind.HIDDEN, "1234")),
+        )
+        val r = vaultHealth(listOf(login("a"), wifi("casa", strong), wifi("bar", "1234"), card), now)
+        assertEquals(setOf(Issue.REUSED), issues(r, "casa"))
+        assertTrue(Issue.REUSED in issues(r, "a"))
+        assertEquals(setOf(Issue.WEAK), issues(r, "bar")) // Never «sin 2FA» nor «antigua» for a wifi.
+        assertTrue(issues(r, "card").isEmpty())
+        // The leak check sends only the logins' passwords.
+        assertEquals(listOf(strong), uniquePasswords(listOf(login("a"), wifi("casa", strong), card)).keys.toList())
+        assertEquals(listOf("a"), uniquePasswords(listOf(login("a"), wifi("casa", strong))).getValue(strong))
+    }
+
     @Test fun weakVsStrong() {
         assertTrue(estimateBits(strong) > estimateBits("Tr0ub4dor&3"))
         assertTrue(estimateBits(strong) >= 50)

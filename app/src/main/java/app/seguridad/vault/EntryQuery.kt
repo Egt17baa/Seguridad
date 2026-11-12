@@ -51,9 +51,6 @@ fun normalizeTags(raw: String): List<String> =
 
 // 2.0, task 4: the list's query with [EntryFilter] (design «Vistas guardadas», «Ordenar», «Búsqueda que perdona erratas»).
 
-/** «Caducan pronto»: what expires within this time, or has already. */
-const val EXPIRING_SOON_MS = 30 * 24 * 60 * 60_000L
-
 /** The longest search text, and the longest text of a view, in code points (review M-1 of task 4). */
 const val SEARCH_TEXT_MAX = 200
 
@@ -175,7 +172,8 @@ fun List<VaultEntry>.query(
             (folderIds == null || e.folderId in folderIds) &&
             (tags.isEmpty() || tags.all { it in e.tags }) &&
             (!filter.favorites || e.favorite) &&
-            (!filter.expiringSoon || (e.expiresAt != null && e.expiresAt <= now + EXPIRING_SOON_MS)) &&
+            // 2.0, task 5: the entry's date, its date fields marked «caduca» and the reminder to change the password.
+            (!filter.expiringSoon || Expiry.isDue(e, now)) &&
             (missing2fa == null || missing2fa(e)) &&
             (!filter.weak || weak(e))
     }

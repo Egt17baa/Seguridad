@@ -85,6 +85,9 @@ import app.seguridad.vault.EntryFilter
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.FAVORITES_TITLE
 import app.seguridad.vault.FILTER_EXPIRING
+import app.seguridad.vault.EXPIRY_NOTICE_OPEN
+import app.seguridad.vault.Expiry
+import app.seguridad.vault.expiryNotice
 import app.seguridad.vault.FILTER_FAVORITES
 import app.seguridad.vault.FILTER_NO_2FA
 import app.seguridad.vault.FILTER_WEAK
@@ -147,6 +150,8 @@ internal class ListResult(
     val typeCounts: Map<EntryType, Int>,
     /** Every tag of those entries, sorted. */
     val tags: List<String>,
+    /** 2.0, task 5: how many of them expire within 30 days or already have ([Expiry]). */
+    val dueSoon: Int = 0,
 ) {
     companion object {
         val EMPTY = ListResult(null, emptyList(), emptyList(), emptyList(), 0, emptyMap(), emptyList())
@@ -178,7 +183,7 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
     private val _result = MutableStateFlow(ListResult.EMPTY)
     val result: StateFlow<ListResult> = _result.asStateFlow()
 
-    private class Cache(val data: VaultData, val index: SearchIndex, val weak: Set<String>, val no2fa: Set<String>)
+    private class Cache(val data: VaultData, val index: SearchIndex, val weak: Set<String>, val no2fa: Set<String>, val dueSoon: Int)
 
     /** Only read and written by the one run of [collectLatest] at a time (each waits for the one before to end). */
     @Volatile private var cache: Cache? = null
@@ -227,7 +232,7 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
         val c = cache?.takeIf { it.data === data } ?: run {
             val health = vaultHealth(data.entries, now)
             val weak = health.filter { Issue.WEAK in it.issues }.mapTo(HashSet()) { it.entryId }
-            Cache(data, SearchIndex.build(listable, data.folders, previous = cache?.index), weak, loginsWithout2fa(data.entries))
+            Cache(data, SearchIndex.build(listable, data.folders, previous = cache?.index), weak, loginsWithout2fa(data.entries), Expiry.dueSoon(listable, now).size)
         }.also { cache = it }
         val filter = f.copy(text = text)
         val shown = listable.query(filter, data, now, weak = { it.id in c.weak }, no2fa = { it.id in c.no2fa }, index = c.index)
@@ -240,6 +245,7 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
             total = listable.size,
             typeCounts = listable.groupingBy { it.type }.eachCount(),
             tags = listable.flatMapTo(HashSet()) { it.tags }.sorted(),
+            dueSoon = c.dueSoon,
         )
     }
 
@@ -354,6 +360,15 @@ internal fun EntryList(
                         modifier = Modifier.fillMaxWidth())
                     // What the search reads, folded, while there is text (M-3): not a row more over every list.
                     if (!totpOnly && list.query.isNotBlank()) MoreInfo { Text(SEARCH_MORE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+            // 2.0, task 5 (design «Caducidad», O-4): the notice over the list, only inside the app; it opens «Caducan pronto».
+            if (!totpOnly && result.dueSoon > 0 && !f.expiringSoon) {
+                item(key = "expiry") {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text("⏰ " + expiryNotice(result.dueSoon), color = NegativeColor, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { list.filter = f.copy(expiringSoon = true) }) { Text(EXPIRY_NOTICE_OPEN) }
+                    }
                 }
             }
             if (!totpOnly) {
@@ -503,7 +518,8 @@ private fun QuickFilters(list: EntryListViewModel, result: ListResult) {
     val f = list.filter
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
         FilterChip(selected = f.types.isEmpty(), onClick = { list.filter = f.copy(types = emptySet()) }, label = { Text("$ALL_ENTRIES (${result.total})") })
-        VAULT_ENTRY_TYPES.forEach { t ->
+        // 2.0, task 5: a template's chip only once the vault has one of it (or it is the filter on), so the row stays short.
+        VAULT_ENTRY_TYPES.filter { !it.v4Only || (result.typeCounts[it] ?: 0) > 0 || f.types == setOf(it) }.forEach { t ->
             val on = f.types == setOf(t)
             FilterChip(selected = on, onClick = { list.filter = f.copy(types = if (on) emptySet() else setOf(t)) }, label = { Text("${t.label} (${result.typeCounts[t] ?: 0})") })
         }

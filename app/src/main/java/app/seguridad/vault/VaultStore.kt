@@ -834,6 +834,28 @@ class VaultStore(
     }
 
     /**
+     * 2.0, task 5 (design «Duplicar»): a new entry «<título> (copia)» with everything of entry [id] but its attachments,
+     * its history and its last use: a new id, made and saved now (in its folder, with its tags, fields, notes and dates).
+     * Null, with nothing saved, when [id] is not in the vault (or is in the trash), is the identity or a contact, or the
+     * vault is locked. A copy that does not fit throws [VaultLimitExceeded], as any save.
+     */
+    suspend fun duplicate(id: String): VaultEntry? {
+        var made: VaultEntry? = null
+        val saved = modifyData { data ->
+            made = null
+            val source = data.live.firstOrNull { it.id == id && !it.type.isPersonal } ?: return@modifyData null
+            val at = now()
+            val copy = source.copy(
+                id = UUID.randomUUID().toString(), title = duplicateTitle(source.title), createdAt = at, updatedAt = at,
+                history = emptyList(), passwordHistory = emptyList(), attachments = emptyList(), lastUsedAt = null, deletedAt = null,
+            )
+            made = copy
+            data.copy(entries = data.live + copy + data.trash)
+        }
+        return made.takeIf { saved }
+    }
+
+    /**
      * Adds new entries with a single write, all or none (a Google Authenticator batch). An id already in the vault is
      * left as it is, and new entries start without password history, as with [upsert].
      */

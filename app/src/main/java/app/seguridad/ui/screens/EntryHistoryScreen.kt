@@ -30,7 +30,6 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.EntryVersion
-import app.seguridad.vault.FieldKind
 import app.seguridad.vault.HISTORY_CLEAR
 import app.seguridad.vault.HISTORY_CLEARED
 import app.seguridad.vault.HISTORY_CLEAR_TEXT
@@ -157,7 +156,8 @@ private fun VersionCard(v: EntryVersion, onRestore: () -> Unit) {
                 Field("Frase semilla", e.seedWords, secret = true)
                 Field("Notas", e.notes, secret = e.type == EntryType.NOTE)
                 e.totp?.let { Field("Clave secreta 2FA", it.secret, secret = true, mono = true) }
-                e.fields.forEach { f -> Field(plainReportText(f.name), f.value, secret = f.kind == FieldKind.HIDDEN, plain = f.kind != FieldKind.HIDDEN) }
+                // 2.0, task 5: as on the card: the template's labels, and its secrets hidden whatever kind a copy gave them.
+                EntryFieldsCard(e, onCopied = {})
                 if (e.tags.isNotEmpty()) Text(e.tags.joinToString("  ") { "#${plainReportText(it)}" }, style = MaterialTheme.typography.bodySmall)
             }
         }

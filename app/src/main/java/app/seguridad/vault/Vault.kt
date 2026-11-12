@@ -36,9 +36,12 @@ enum class EntryType(
     /** Someone else's card, to encrypt for them and to know who signed what; version-3 vaults only. */
     CONTACT("Contacto"),
 
-    /** 2.0, templates (task 5): offered nowhere yet ([VAULT_ENTRY_TYPES]). */
-    CARD("Tarjeta", v4Only = true),
-    WIFI("Wifi", v4Only = true),
+    /**
+     * 2.0, the templates of task 5 ([Templates]): their fixed fields are in [VaultEntry.fields]. Abogado Digital, R-4:
+     * «Tarjeta bancaria» (a «tarjeta» is also a contact's card) and «wifi» in lower case, never the brand «Wi-Fi».
+     */
+    CARD("Tarjeta bancaria", v4Only = true),
+    WIFI("Red wifi", v4Only = true),
     LICENSE("Licencia", v4Only = true),
     PASSPORT("Pasaporte", v4Only = true),
     ;
@@ -48,10 +51,10 @@ enum class EntryType(
 }
 
 /**
- * The types the password list and the entry form offer: everything but [EntryType.isPersonal] and, until their templates
- * exist (task 5), the [EntryType.v4Only] ones.
+ * The types the password list and the entry form offer: everything but [EntryType.isPersonal]. 2.0, task 5: the
+ * templates too ([EntryType.v4Only]; every vault the app saves is version 4).
  */
-val VAULT_ENTRY_TYPES: List<EntryType> = EntryType.entries.filterNot { it.isPersonal || it.v4Only }
+val VAULT_ENTRY_TYPES: List<EntryType> = EntryType.entries.filterNot { it.isPersonal }
 
 @Serializable
 data class VaultEntry(

@@ -286,6 +286,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                         onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") },
                         onHistory = { nav.navigate("vault/entry/${Uri.encode(id)}/history") },
                         onBack = backOnce(nav),
+                        onOpenEntry = { copy -> nav.navigate("vault/entry/${Uri.encode(copy)}") },
                     )
                 }
                 composable("vault/entry/{id}/qr") { entry ->
