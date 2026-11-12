@@ -26,7 +26,7 @@ import java.util.zip.ZipOutputStream
  *  - `vault.json`: the vault file exactly as on disk (`VaultFile`, still encrypted);
  *  - `att/<id>.bin`: each attachment file exactly as stored (still encrypted), ids in ascending order.
  * Reading ignores any other name; the valid ones are checked with exact patterns (no zip-slip). Limits on the bytes
- * really read: 100 MB in all, 6 MB per entry (33 MiB with marker 3) and 2 000 entries, and [BACKUP_MAX_READ_BYTES] of
+ * really read: 100 MB in all, 6 MB per entry (33 MiB for `vault.json` with marker 3) and 2 000 entries, and [BACKUP_MAX_READ_BYTES] of
  * the file itself.
  */
 
@@ -128,15 +128,23 @@ internal class BackupAttachmentMismatch(val id: String) : Exception()
 
 /**
  * Writes the copy to [out] (left open: the caller closes it), with the marker 3 when [vaultJson] is a version-4 vault and
- * the marker 2 otherwise, each with its own limit per file. [attachments] maps each attachment id to its file;
+ * the marker 2 otherwise: [vaultVersion] says which (review M-2: the caller has the file, so it is not decoded again);
+ * without it (the tests), the version is read from [vaultJson]. With the marker 3 only the vault file gets
+ * [BACKUP_V3_MAX_ENTRY_BYTES]; an attachment keeps [BACKUP_MAX_ENTRY_BYTES] with either (review M-7). [attachments] maps each attachment id to its file;
  * with [expectedSha256] (id to hex), every file is checked while it is written and a missing or different one throws
  * [BackupAttachmentMismatch], so a copy that could never be restored is never finished. For the same reason a vault
  * over the limits [BackupReader] applies throws [CryptoFailure] with [BACKUP_DOES_NOT_FIT].
  */
-fun writeBackup(out: OutputStream, vaultJson: String, attachments: Map<String, File>, expectedSha256: Map<String, String> = emptyMap()) {
+fun writeBackup(
+    out: OutputStream,
+    vaultJson: String,
+    attachments: Map<String, File>,
+    expectedSha256: Map<String, String> = emptyMap(),
+    vaultVersion: Int? = null,
+) {
     require(attachments.keys.all { ATTACHMENT_ID.matches(it) }) { "Id de adjunto no válido" }
     val json = vaultJson.toByteArray(Charsets.UTF_8)
-    val v4 = isV4(vaultJson)
+    val v4 = if (vaultVersion != null) vaultVersion == VaultFile.VERSION else isV4(vaultJson)
     val marker = if (v4) BACKUP_VERSION_3 else BACKUP_VERSION
     val entryMax = if (v4) BACKUP_V3_MAX_ENTRY_BYTES else BACKUP_MAX_ENTRY_BYTES
     val doesNotFit = if (v4) BACKUP_DOES_NOT_FIT_V3 else BACKUP_DOES_NOT_FIT
@@ -167,7 +175,7 @@ fun writeBackup(out: OutputStream, vaultJson: String, attachments: Map<String, F
                 if (n < 0) break
                 size += n
                 total += n
-                if (size > entryMax || total > BACKUP_MAX_TOTAL_BYTES) throw CryptoFailure(doesNotFit)
+                if (size > BACKUP_MAX_ENTRY_BYTES || total > BACKUP_MAX_TOTAL_BYTES) throw CryptoFailure(doesNotFit)
                 digest.update(buf, 0, n)
                 zip.write(buf, 0, n)
             }
@@ -277,13 +285,14 @@ class BackupReader {
         var total = 0L
         var vaultJson: String? = null
         var copyVersion = BACKUP_NEWEST
-        // The marker comes first, so every other entry is read with its version's limit.
-        var entryMax = BACKUP_MAX_ENTRY_BYTES
-        var entryTooBig = BACKUP_ENTRY_TOO_BIG
+        // The marker comes first, so the vault file is read with its version's limit; every other entry (an attachment,
+        // a name this version ignores) keeps BACKUP_MAX_ENTRY_BYTES with either marker (review M-7).
+        var vaultMax = BACKUP_MAX_ENTRY_BYTES
+        var vaultTooBig = BACKUP_ENTRY_TOO_BIG
         val attachments = LinkedHashMap<String, File>()
 
         /** Copies the current entry to [sink] (or nowhere), counting the bytes really read against every limit. */
-        fun copy(sink: OutputStream?) {
+        fun copy(sink: OutputStream?, entryMax: Long = BACKUP_MAX_ENTRY_BYTES, entryTooBig: String = BACKUP_ENTRY_TOO_BIG) {
             var size = 0L
             while (true) {
                 val n = zip.read(buf)
@@ -296,7 +305,8 @@ class BackupReader {
             }
         }
 
-        fun bytes(): ByteArray = java.io.ByteArrayOutputStream().also { copy(it) }.toByteArray()
+        fun bytes(max: Long = BACKUP_MAX_ENTRY_BYTES, tooBig: String = BACKUP_ENTRY_TOO_BIG): ByteArray =
+            java.io.ByteArrayOutputStream().also { copy(it, max, tooBig) }.toByteArray()
 
         while (true) {
             val entry = zip.nextEntry ?: break
@@ -316,8 +326,8 @@ class BackupReader {
                     }
                 }
                 if (copyVersion == 3) {
-                    entryMax = BACKUP_V3_MAX_ENTRY_BYTES
-                    entryTooBig = BACKUP_ENTRY_TOO_BIG_V3
+                    vaultMax = BACKUP_V3_MAX_ENTRY_BYTES
+                    vaultTooBig = BACKUP_ENTRY_TOO_BIG_V3
                 }
                 continue
             }
@@ -326,7 +336,7 @@ class BackupReader {
                 name == BACKUP_MARKER -> throw CryptoFailure(BACKUP_DAMAGED) // Twice.
                 name == BACKUP_VAULT -> {
                     if (vaultJson != null) throw CryptoFailure(BACKUP_DAMAGED) // Twice.
-                    vaultJson = bytes().decodeToString()
+                    vaultJson = bytes(vaultMax, vaultTooBig).decodeToString()
                 }
                 att != null -> {
                     val id = att.groupValues[1]

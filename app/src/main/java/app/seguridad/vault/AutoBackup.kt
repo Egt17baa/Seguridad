@@ -412,18 +412,19 @@ class AutoBackup(
      * lock, so it never overlaps an automatic copy or its rotation, and the caller leaving cannot cut it between the
      * rename and the list.
      */
-    suspend fun copyBeforeImport(): CopyResult? = scope.async { lock.withLock { copyBeforeNow(IMPORT_COPY_PREFIX) } }.await()
+    suspend fun copyBeforeImport(): CopyResult? = scope.async { lock.withLock { copyBeforeNow(IMPORT_COPY_PREFIX, store::exportBackup) } }.await()
 
     /**
      * 2.0: the copy before the vault passes to format v4 ([VaultStore.pendingUpgrade]), written as [copyBeforeImport]
      * and listed with the import copies, named `seguridad-antes-de-2-0-AAAAMMDD-HHMMSS.sgbak`. It is the file still on
-     * disk ([VaultStore.exportBackup] while the upgrade waits), of version 2 or 3, with the marker 2: what earlier versions
-     * open. Null with no folder, so the store asks the user. The [CopyResult.Failed] texts are the import's: the store
-     * only tells a copy made from one not made, and then the user chooses.
+     * disk ([VaultStore.exportBeforeUpgrade]), of version 2 or 3, with the marker 2: what earlier versions open. Once no
+     * upgrade waits (review I-1) nothing is written: [CopyResult.Failed], and its temporary document is deleted. Null with
+     * no folder, so the store asks the user. The [CopyResult.Failed] texts are the import's: the store only tells a copy
+     * made from one not made, and then the user chooses.
      */
-    suspend fun copyBeforeUpgrade(): CopyResult? = scope.async { lock.withLock { copyBeforeNow(UPGRADE_COPY_PREFIX) } }.await()
+    suspend fun copyBeforeUpgrade(): CopyResult? = scope.async { lock.withLock { copyBeforeNow(UPGRADE_COPY_PREFIX, store::exportBeforeUpgrade) } }.await()
 
-    private suspend fun copyBeforeNow(prefix: String): CopyResult? {
+    private suspend fun copyBeforeNow(prefix: String, export: suspend (OutputStream) -> Boolean): CopyResult? {
         val uri = folder() ?: return null
         return try {
             val target = open(uri) ?: return CopyResult.Failed(IMPORT_COPY_NO_FOLDER)
@@ -431,7 +432,7 @@ class AutoBackup(
             // As [attempt]: a copy whose vault was replaced while it was written is never listed as this vault's.
             val generation = store.generation
             // A lock meanwhile refuses the copy, and schedules no automatic one (nothing changed in the vault).
-            val written = copyTo(target, now(), prefix, defer = false) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
+            val written = copyTo(target, now(), prefix, defer = false, export = export) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
             if (store.generation != generation) return CopyResult.Failed(IMPORT_COPY_VAULT_CHANGED)
             try {
                 onImportCopy(uri, written.id, generation)
@@ -585,11 +586,17 @@ class AutoBackup(
      * Writes the copy under its temporary name, then renames it; the copy, or null if there was nothing to copy.
      * If the provider cannot rename, the copy is written again straight under its name.
      */
-    private suspend fun copyTo(folder: BackupTarget, now: Long, prefix: String = AUTO_BACKUP_PREFIX, defer: Boolean = true): BackupEntry? {
+    private suspend fun copyTo(
+        folder: BackupTarget,
+        now: Long,
+        prefix: String = AUTO_BACKUP_PREFIX,
+        defer: Boolean = true,
+        export: suspend (OutputStream) -> Boolean = store::exportBackup,
+    ): BackupEntry? {
         val name = freeName(folder.list(prefix).mapTo(HashSet()) { it.name }, now, prefix)
         val temp = folder.create(name + TEMP_SUFFIX)
         if (temp.canRename) {
-            if (!fill(temp, defer)) return null
+            if (!fill(temp, defer, export)) return null
             val renamed = try {
                 temp.rename(name)
                 true
@@ -603,17 +610,17 @@ class AutoBackup(
             discard(temp)
         }
         val direct = folder.create(name)
-        return if (fill(direct, defer)) BackupEntry(direct.id, name) else null
+        return if (fill(direct, defer, export)) BackupEntry(direct.id, name) else null
     }
 
     /**
      * Writes the copy to [file]; false if there was nothing to copy. On false or a failure, [file] is deleted. With
      * [defer], a vault locked meanwhile has an automatic copy made at the next unlock ([defer]).
      */
-    private suspend fun fill(file: BackupFile, defer: Boolean = true): Boolean {
+    private suspend fun fill(file: BackupFile, defer: Boolean = true, export: suspend (OutputStream) -> Boolean = store::exportBackup): Boolean {
         try {
             var exported = false
-            file.write { out -> exported = store.exportBackup(out) }
+            file.write { out -> exported = export(out) }
             if (!exported) {
                 file.delete() // Locked or deleted meanwhile: no empty file left.
                 if (defer) defer()

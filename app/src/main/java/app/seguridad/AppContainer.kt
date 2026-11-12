@@ -21,7 +21,6 @@ import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupTarget
-import app.seguridad.vault.CopyResult
 import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
@@ -170,7 +169,7 @@ class AppContainer(
         awayInMultiWindow = { _awayInOtherApp.value },
         // 2.0: the copy before the vault passes to v4, in the automatic copies' folder; none (no folder, or it failed)
         // leaves the choice to the user (the upgrade dialog, Abogado Digital O-3). [autoBackup] exists by the first unlock.
-        beforeUpgrade = { autoBackup.copyBeforeUpgrade() is CopyResult.Saved },
+        beforeUpgrade = { autoBackup.copyBeforeUpgrade() },
     )
 
     /**

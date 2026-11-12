@@ -205,12 +205,13 @@ class VaultStore(
     private val elapsed: () -> Long = { System.nanoTime() / 1_000_000 },
     /**
      * 2.0: runs after an unlock with the master password of a vault of version 2 or 3, with the vault already open and
-     * its version-4 file only in memory ([pendingUpgrade]): the app makes the copy `seguridad-antes-de-2-0-…` in the
-     * automatic copies' folder ([AutoBackup.copyBeforeUpgrade], which exports the file still on disk). True when the copy
-     * is made, and then the v4 is saved; false (no folder, or the copy failed) leaves the choice to the user
-     * ([completeUpgrade]). Not cancelled with the caller. Must not throw.
+     * its version-4 file only in memory, every save refused: the app makes the copy `seguridad-antes-de-2-0-…` in the
+     * automatic copies' folder ([AutoBackup.copyBeforeUpgrade], with [exportBeforeUpgrade]). [CopyResult.Saved] when the
+     * copy is made: then the v4 is saved and [upgradeDone] tells it once. Null (no folder) or [CopyResult.Failed] (the
+     * copy failed; [upgradeAutoCopyFailed]) leaves the choice to the user ([pendingUpgrade], [completeUpgrade]). Not
+     * cancelled with the caller; whatever it throws counts as a failed copy.
      */
-    private val beforeUpgrade: suspend () -> Boolean = { false },
+    private val beforeUpgrade: suspend () -> CopyResult? = { null },
     /** Writes the vault file; only the tests change it (a write that dies half way, [upgradeInterruptedKeepsV3]). */
     private val writeFile: (File, String) -> Unit = { f, text -> f.writeTextAtomically(text) },
 ) {
@@ -262,11 +263,34 @@ class VaultStore(
     /**
      * 2.0: true while the open vault is still of version 2 or 3 on disk, its version-4 file ready in memory, and the
      * user has to choose: export a copy first, or go on without one ([completeUpgrade] in both cases; Abogado Digital,
-     * O-3). Meanwhile the vault shows its entries, every save throws [IllegalStateException] with [UPGRADE_PENDING], and
+     * O-3). Only once there is a choice to make (review I-1): with no automatic copies' folder, or when their copy
+     * ([beforeUpgrade]) or the save after it failed; never while that copy runs. From the unlock until the v4 is saved,
+     * shown or not, the vault shows its entries, every save throws [IllegalStateException] with [UPGRADE_PENDING], and
      * [exportBackup] exports the file on disk, which earlier versions open. A [lock] drops the version 4 (false again):
      * the file stays as it was, and the next unlock with the master password asks again.
      */
     val pendingUpgrade: StateFlow<Boolean> = _pendingUpgrade.asStateFlow()
+
+    /**
+     * 2.0 (review M-5): whether, before [pendingUpgrade] asked, there was an automatic copies' folder and its copy before
+     * the upgrade was not made; the dialog says so. Read when [pendingUpgrade] turns true.
+     */
+    @Volatile var upgradeAutoCopyFailed: Boolean = false
+        private set
+
+    private val _upgradeDone = MutableStateFlow<String?>(null)
+
+    /**
+     * 2.0 (O-3 with a folder): the name of the copy made before the upgrade (a file name, never a path), after the
+     * upgrade was saved with no question asked, until [upgradeDoneShown]: the vault screen tells it once that earlier
+     * versions no longer open the vault nor its new copies. In memory only: a process death before it is shown loses it.
+     */
+    val upgradeDone: StateFlow<String?> = _upgradeDone.asStateFlow()
+
+    /** The notice of [upgradeDone] was shown. */
+    fun upgradeDoneShown() {
+        _upgradeDone.value = null
+    }
 
     /**
      * The version-4 file [pendingUpgrade] waits to save, under the open data key; only set with the vault open. Written
@@ -421,6 +445,7 @@ class VaultStore(
             if (data == null || epoch != since) {
                 upgrade = null
                 _pendingUpgrade.value = false
+                upgradeAutoCopyFailed = false
                 key.fill(0)
                 // [v] is the vault in memory, and on disk: even an import from «Crea tu bóveda» cut by leaving the app
                 // shows it locked, never «Crea tu bóveda» again (which would refuse a new import and set it aside, BOV-2).
@@ -432,7 +457,9 @@ class VaultStore(
             lastUse = elapsed()
             onClockSeen(now())
             upgrade = upgraded
-            _pendingUpgrade.value = upgraded != null
+            // Shown only once there is a choice to make ([unlock], review I-1); an import that replaced the vault ends it.
+            _pendingUpgrade.value = false
+            upgradeAutoCopyFailed = false
             _state.value = VaultState.Unlocked(data)
         }
     }
@@ -479,21 +506,34 @@ class VaultStore(
     suspend fun unlock(master: CharArray) {
         val since = epoch
         val upgrading = mutex.withLock { withContext(NonCancellable) { unlockLocked(master, since) } }
-        // 2.0: a vault of version 2 or 3 is open, its version 4 in memory. With the mutex free, so the copy can export
-        // the file still on disk; not cut by the caller leaving (the copy runs in AutoBackup's scope anyway).
-        if (upgrading) {
-            withContext(NonCancellable) {
-                val copied = try {
-                    beforeUpgrade()
-                } catch (e: Exception) {
-                    false // No copy: the user chooses.
+        if (!upgrading) return
+        // 2.0: a vault of version 2 or 3 is open, its version 4 in memory. The master password is no longer needed (the
+        // key is wrapped again already): wiped now, not after the copy (review M-1). The caller wipes it too.
+        master.fill('\u0000')
+        // With the mutex free, so the copy can export the file still on disk; not cut by the caller leaving (the copy
+        // runs in AutoBackup's scope anyway).
+        withContext(NonCancellable) {
+            val copy = try {
+                beforeUpgrade()
+            } catch (e: Exception) {
+                CopyResult.Failed(AUTO_BACKUP_FAILED) // No copy: the user chooses.
+            }
+            if (copy is CopyResult.Saved && completeUpgradeLocked(since)) {
+                _upgradeDone.value = copy.where // O-3 with a folder: told once.
+                return@withContext
+            }
+            // Now there is a choice to make (review I-1): unless the vault locked meanwhile, which dropped the upgrade.
+            synchronized(opening) {
+                if (upgrade != null && epoch == since) {
+                    // A folder whose copy was not made (M-5); a copy made whose save then failed is not that.
+                    upgradeAutoCopyFailed = copy != null && copy !is CopyResult.Saved
+                    _pendingUpgrade.value = true
                 }
-                if (copied) completeUpgradeLocked(since)
             }
         }
     }
 
-    /** True when it opened a vault of version 2 or 3 whose version 4 waits in memory ([pendingUpgrade]). */
+    /** True when it opened a vault of version 2 or 3 whose version 4 waits in memory (not saved yet). */
     private suspend fun unlockLocked(master: CharArray, since: Int): Boolean {
         val v = vault ?: return false
         val key = derive { VaultCrypto.unlock(v, master) }
@@ -513,14 +553,14 @@ class VaultStore(
         // declined; a process death meanwhile leaves it as it was (focus 1).
         opened(v, key, since, upgraded = checked)
         collectGarbage()
-        return _pendingUpgrade.value
+        return upgrade != null
     }
 
     /**
-     * 2.0: saves the version-4 file [pendingUpgrade] waits for, after the copy before it was made or declined (Abogado
+     * 2.0: saves the version-4 file waiting since the unlock, after the copy before it was made or declined (Abogado
      * Digital, O-3). True when it was saved; false when there was nothing to save (no upgrade waiting: the vault locked
      * meanwhile, or it is done) or the write failed: then the file on disk is still the 2 or 3 of before, which opens
-     * with the master password, and the choice stays. A bookkeeping save ([saveBookkeeping]): the data does not change,
+     * with the master password, and the choice stays ([pendingUpgrade]). A bookkeeping save ([saveBookkeeping]): the data does not change,
      * so no automatic copy is due. Not cancelled with the caller.
      */
     suspend fun completeUpgrade(): Boolean = completeUpgradeLocked(null)
@@ -634,6 +674,7 @@ class VaultStore(
         // 2.0: an upgrade not saved yet is dropped; the file stays the 2 or 3 it is.
         upgrade = null
         _pendingUpgrade.value = false
+        upgradeAutoCopyFailed = false
         if (vault != null && _state.value is VaultState.Unlocked) {
             lastLockReason = reason
             lastLockInForeground = inForeground()
@@ -947,11 +988,25 @@ class VaultStore(
      * Attachment files never change once written, so the worst a concurrent change can do is delete one of them,
      * which makes this fail rather than write a wrong copy.
      */
-    suspend fun exportBackup(out: OutputStream): Boolean {
+    suspend fun exportBackup(out: OutputStream): Boolean = export(out, beforeUpgradeOnly = false)
+
+    /**
+     * 2.0 (review I-1): [exportBackup] only while the upgrade to v4 waits, so what it writes is always the file of
+     * version 2 or 3 still on disk, with the marker 2 earlier versions open: the copy before the upgrade (the automatic
+     * one, [AutoBackup.copyBeforeUpgrade], and «Exportar una copia antes»). False, with nothing written, once there is no
+     * upgrade waiting (saved, dropped by a lock, or a vault that was always a 4): the caller deletes its empty document.
+     * Checked with the mutex held, where the snapshot is taken; an upgrade saved after it does not change what is written.
+     */
+    suspend fun exportBeforeUpgrade(out: OutputStream): Boolean = export(out, beforeUpgradeOnly = true)
+
+    private suspend fun export(out: OutputStream, beforeUpgradeOnly: Boolean): Boolean {
         val refs: List<AttachmentRef>
         val json: String
+        val version: Int
         mutex.withLock {
+            if (beforeUpgradeOnly && upgrade == null) return false
             val v = vault ?: return false
+            version = v.version
             // The trash's attachments too: a copy brings the trash back (2.0).
             refs = (_state.value as? VaultState.Unlocked)?.data?.entries?.flatMap { it.attachments } ?: return false
             json = VaultCrypto.encodeFile(v)
@@ -960,7 +1015,7 @@ class VaultStore(
         val files = refs.associate { it.id to attachments.fileOf(it.id) }
         val expected = refs.associate { it.id to it.sha256 }
         try {
-            withContext(io) { writeBackup(out, json, files, expected) }
+            withContext(io) { writeBackup(out, json, files, expected, vaultVersion = version) }
         } catch (e: BackupAttachmentMismatch) {
             throw CryptoFailure(attachmentUnusable(refs.firstOrNull { it.id == e.id }?.name ?: e.id))
         }
@@ -1165,6 +1220,7 @@ class VaultStore(
     suspend fun destroy() = mutex.withLock {
         nextGeneration()
         lock()
+        _upgradeDone.value = null // Nothing to tell of a vault that is gone.
         withContext(io) {
             file.delete()
             // What keepAside() left (vault.bin.bad-<time>, att.bad-<time>) goes too: «He olvidado la contraseña» says so.

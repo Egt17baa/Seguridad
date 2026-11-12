@@ -27,7 +27,7 @@ import java.util.zip.ZipOutputStream
  * (bóveda versión 2) y `backup-1.1.sgbak` (copia versión 1). Contraseña maestra `maestra-de-prueba`,
  * `masterCheckedAt` = 1790000000000, KDF (1024, 1, 1); entradas «Banco» (con el adjunto hola.txt) y «Correo».
  * 2.0, tarea 1: lo que era «pasar a la 3» es ahora pasar a la 4 (`VaultV4Test`), y la huella no abre una 2 ni una 3.
- * La tienda de estos tests hace la copia de antes del paso (`beforeUpgrade` da true), así que la maestra lo guarda ya.
+ * La tienda de estos tests hace la copia de antes del paso (`beforeUpgrade` da `CopyResult.Saved`), así que la maestra lo guarda ya.
  */
 class VaultV3Test {
     @get:Rule val tmp = TemporaryFolder()
@@ -40,7 +40,7 @@ class VaultV3Test {
 
     private fun phone(name: String) = File(tmp.root, name).apply { mkdirs() }
 
-    private fun store(dir: File, beforeUpgrade: suspend () -> Boolean = { true }) =
+    private fun store(dir: File, beforeUpgrade: suspend () -> CopyResult? = { CopyResult.Saved("seguridad-antes-de-2-0-20261112-100000.sgbak") }) =
         VaultStore(
             File(dir, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
             beforeUpgrade = beforeUpgrade,
@@ -159,7 +159,7 @@ class VaultV3Test {
 
     @Test fun enLa2QueEsperaElPasoNoSeGuardaNiUnContacto() = runTest {
         val (dir, _) = phone11()
-        val waiting = store(dir, beforeUpgrade = { false }).apply { load() }
+        val waiting = store(dir, beforeUpgrade = { null }).apply { load() }
         waiting.unlock(master.toCharArray())
         assertTrue(waiting.pendingUpgrade.value)
         assertTrue(waiting.needsMasterForContacts.value)
@@ -229,7 +229,7 @@ class VaultV3Test {
         assertFalse(s.needsMasterForContacts.value)
         // Con el paso pendiente, tampoco lo hace: solo comprueba.
         val (dirW, _) = phone11("espera")
-        val waiting = store(dirW, beforeUpgrade = { false }).apply { load() }
+        val waiting = store(dirW, beforeUpgrade = { null }).apply { load() }
         waiting.unlock(master.toCharArray())
         val waitingBefore = File(dirW, "vault.bin").readText()
         assertTrue(waiting.confirmMaster(master.toCharArray()))
@@ -255,7 +255,7 @@ class VaultV3Test {
         assertFalse(none.needsMasterForContacts.value)
         // La real de la 1.1: pendiente desde que se carga hasta que se guarda en la 4.
         val (dir, _) = phone11()
-        val s = store(dir, beforeUpgrade = { false }).apply { load() }
+        val s = store(dir, beforeUpgrade = { null }).apply { load() }
         assertTrue(s.needsMasterForContacts.value)
         s.unlock(master.toCharArray())
         assertTrue(s.needsMasterForContacts.value) // Abierta, el paso espera.

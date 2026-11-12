@@ -23,6 +23,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.core.PickerPlace
+import app.seguridad.crypto.CryptoFailure
+import app.seguridad.imports.plainReportText
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultStore
@@ -43,6 +45,20 @@ internal const val UPGRADE_EXPORT = "Exportar una copia antes"
 internal const val UPGRADE_SKIP = "Seguir sin copia"
 internal const val UPGRADE_EXPORT_FAILED = "No se pudo guardar la copia. Vuelve a intentarlo o sigue sin copia."
 internal const val UPGRADE_SAVE_FAILED = "No se pudo guardar la bóveda en el formato nuevo. ¿Queda espacio en el móvil? Vuelve a intentarlo."
+
+/** Review M-5: at sight, when there was an automatic copies' folder and its copy before the upgrade was not made. */
+internal const val UPGRADE_AUTO_COPY_FAILED = "No se pudo hacer la copia automática de antes del cambio."
+
+// O-3 with a folder (ruling of the review of task 1): told once, after the upgrade saved with its automatic copy.
+internal const val UPGRADE_DONE_TITLE = "Bóveda en el formato nuevo"
+internal const val UPGRADE_DONE_NOT_BACK = "Las versiones anteriores de Clavero ya no abren esta bóveda ni sus copias nuevas."
+internal const val UPGRADE_DONE_OK = "Entendido"
+
+/** [name] is the copy's file name ([app.seguridad.vault.CopyResult.Saved.where]), never a path or a URI. */
+internal fun upgradeDoneCopy(name: String) = "La copia de antes del cambio está en la carpeta de la copia automática: «$name»."
+
+/** Review M-3: what the dialog says when «Exportar una copia antes» failed: the export's own reason, as «Exportar» does. */
+internal fun upgradeExportFailure(e: Throwable?): String = (e as? CryptoFailure)?.message ?: UPGRADE_EXPORT_FAILED
 
 /**
  * Shown over every vault screen while [VaultStore.pendingUpgrade]: a vault of version 2 or 3 was opened with the master
@@ -67,15 +83,16 @@ internal fun VaultUpgradeDialog(store: VaultStore) {
             busy = false
         } else {
             scope.launch {
-                val ok = runCatching {
-                    withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")!!.use { store.exportBackup(it) } }
-                }.getOrNull() == true
-                if (ok) {
+                // Only the file still on disk, of version 2 or 3 (review I-1): false once no upgrade waits.
+                val result = runCatching {
+                    withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")!!.use { store.exportBeforeUpgrade(it) } }
+                }
+                if (result.getOrNull() == true) {
                     complete()
                 } else {
                     // Never leave an empty or cut copy that looks like a backup.
                     discardDocumentNow(context, uri)
-                    error = UPGRADE_EXPORT_FAILED
+                    error = upgradeExportFailure(result.exceptionOrNull())
                 }
                 busy = false
             }
@@ -88,6 +105,7 @@ internal fun VaultUpgradeDialog(store: VaultStore) {
         text = {
             FilterObscuredTouches()
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (store.upgradeAutoCopyFailed) Text(UPGRADE_AUTO_COPY_FAILED, color = NegativeColor)
                 Text(UPGRADE_NOT_BACK)
                 Text(UPGRADE_COPY_FIRST)
                 MoreInfo { Text(UPGRADE_MORE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -118,5 +136,26 @@ internal fun VaultUpgradeDialog(store: VaultStore) {
                 }
             }) { Text(UPGRADE_SKIP) }
         },
+    )
+}
+
+/**
+ * O-3 with a folder: shown once after the vault passed to v4 with its automatic copy made, no question asked
+ * ([VaultStore.upgradeDone]): earlier versions no longer open the vault nor its new copies, and where the copy from before
+ * is. Informational: closing it any way counts as shown.
+ */
+@Composable
+internal fun VaultUpgradeDoneNotice(store: VaultStore, copyName: String) {
+    AlertDialog(
+        onDismissRequest = { store.upgradeDoneShown() },
+        title = { Text(UPGRADE_DONE_TITLE) },
+        text = {
+            FilterObscuredTouches()
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(UPGRADE_DONE_NOT_BACK)
+                Text(upgradeDoneCopy(plainReportText(copyName)))
+            }
+        },
+        confirmButton = { TextButton(onClick = { store.upgradeDoneShown() }) { Text(UPGRADE_DONE_OK) } },
     )
 }

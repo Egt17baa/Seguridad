@@ -254,6 +254,7 @@ fun VaultScreen(
 fun VaultGate(store: VaultStore, onImport: () -> Unit, modifier: Modifier = Modifier, content: @Composable (List<VaultEntry>) -> Unit) {
     val state by store.state.collectAsStateWithLifecycle()
     val upgradePending by store.pendingUpgrade.collectAsStateWithLifecycle()
+    val upgradeDone by store.upgradeDone.collectAsStateWithLifecycle()
     Box(modifier.fillMaxSize().touchesVault(store)) {
         when (val s = state) {
             VaultState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -262,7 +263,12 @@ fun VaultGate(store: VaultStore, onImport: () -> Unit, modifier: Modifier = Modi
             is VaultState.Unlocked -> {
                 content(s.entries)
                 // 2.0: the choice before passing to format v4, over whatever vault screen is open.
-                if (upgradePending) VaultUpgradeDialog(store)
+                if (upgradePending) {
+                    VaultUpgradeDialog(store)
+                } else {
+                    // O-3 with a folder: once, after the upgrade saved with its automatic copy.
+                    upgradeDone?.let { VaultUpgradeDoneNotice(store, it) }
+                }
             }
         }
     }

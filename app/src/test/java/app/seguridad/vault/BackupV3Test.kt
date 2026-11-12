@@ -137,6 +137,34 @@ class BackupV3Test {
         assertEquals(saved.entries.map { it.notes.length }, (back.state.value as VaultState.Unlocked).data.entries.map { it.notes.length })
     }
 
+    /** Review M-2: the copy takes the vault's version from the caller, without decoding the file again. */
+    @Test fun writeBackupTakesTheVaultVersion() {
+        fun marker(json: String, version: Int?): String =
+            firstEntry(ByteArrayOutputStream().also { writeBackup(it, json, emptyMap(), vaultVersion = version) }.toByteArray()).second
+        // «{}» is no vault file: with the version given, the marker follows it all the same.
+        assertEquals("3\n", marker("{}", VaultFile.VERSION))
+        assertEquals("2\n", marker("{}", VaultFile.VERSION_3))
+        assertEquals("2\n", marker("{}", VaultFile.VERSION_2))
+        assertEquals("2\n", marker("{}", null)) // Not given (the tests): read from the file.
+    }
+
+    /** Review M-7: with marker 3 only `vault.json` gets 33 MiB; an attachment keeps the 6 MB of a copy's other files. */
+    @Test fun marker3KeepsTheAttachmentCap() {
+        val over = ByteArray((BACKUP_MAX_ENTRY_BYTES + 1).toInt()) { 7 }
+        val att = "att/" + "a".repeat(32) + ".bin"
+        assertEquals(BACKUP_ENTRY_TOO_BIG, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray(), att to over)))
+        assertEquals(BACKUP_ENTRY_TOO_BIG, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray(), "otro" to over)))
+        assertEquals(null, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray(), att to over.copyOf(BACKUP_MAX_ENTRY_BYTES.toInt()))))
+        // And the writer never makes one.
+        val file = File(tmp.root, "grande.bin").apply { writeBytes(over) }
+        try {
+            writeBackup(ByteArrayOutputStream(), "{}", mapOf("a".repeat(32) to file), vaultVersion = VaultFile.VERSION)
+            fail("an attachment over 6 MB is never written, whatever the marker")
+        } catch (e: CryptoFailure) {
+            assertEquals(BACKUP_DOES_NOT_FIT_V3, e.message)
+        }
+    }
+
     @Test fun marker2EntryLimitStays6MB() {
         val over = ByteArray((BACKUP_MAX_ENTRY_BYTES + 1).toInt()) { 'a'.code.toByte() }
         assertEquals(BACKUP_ENTRY_TOO_BIG, readFails(zipOf(BACKUP_MARKER to "2\n".toByteArray(), BACKUP_VAULT to over)))

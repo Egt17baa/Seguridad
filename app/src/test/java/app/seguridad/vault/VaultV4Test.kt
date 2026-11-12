@@ -42,7 +42,7 @@ class VaultV4Test {
 
     private fun store(
         dir: File,
-        beforeUpgrade: suspend () -> Boolean = { false },
+        beforeUpgrade: suspend () -> CopyResult? = { null },
         writeFile: (File, String) -> Unit = { f, t -> f.writeTextAtomically(t) },
     ) = VaultStore(
         File(dir, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { kdf },
@@ -57,6 +57,16 @@ class VaultV4Test {
 
     private fun disk(dir: File) = VaultCrypto.decodeFile(File(dir, "vault.bin").readText())
     private fun VaultStore.entries() = (state.value as VaultState.Unlocked).entries
+    private val copied = CopyResult.Saved("seguridad-antes-de-2-0-20261112-100000.sgbak")
+
+    /** The marker and the vault file of a `seguridad-backup` copy. */
+    private fun markerAndVault(copy: ByteArray): Pair<String, String> = ZipInputStream(ByteArrayInputStream(copy)).use { z ->
+        assertEquals(BACKUP_MARKER, z.nextEntry!!.name)
+        val marker = z.readBytes().decodeToString()
+        assertEquals(BACKUP_VAULT, z.nextEntry!!.name)
+        marker to z.readBytes().decodeToString()
+    }
+
     private fun note(id: String) = VaultEntry(id, EntryType.NOTE, "Nota $id", notes = "n $id", createdAt = 0, updatedAt = 0)
 
     private fun assertNewFieldsAreDefaults(e: VaultEntry) {
@@ -211,15 +221,17 @@ class VaultV4Test {
             }
             f.writeTextAtomically(t)
         }
-        val s = store(dir, beforeUpgrade = { true }, writeFile = killed).apply { load() }
+        val s = store(dir, beforeUpgrade = { copied }, writeFile = killed).apply { load() }
         s.unlock(master143.toCharArray())
         assertEquals(text("vault-1.4.3.json"), File(dir, "vault.bin").readText())
         assertTrue("still to do", s.pendingUpgrade.value)
+        assertNull("not saved: nothing to tell", s.upgradeDone.value)
+        assertFalse("the copy was made: only the save failed", s.upgradeAutoCopyFailed)
         assertEquals(listOf("e1", "e2", "e3", "e4").sorted(), s.entries().map { it.id }.sorted())
 
         // A new start: the v3 of before opens with the master password.
         fail = false
-        val again = store(dir, beforeUpgrade = { true }, writeFile = killed).apply { load() }
+        val again = store(dir, beforeUpgrade = { copied }, writeFile = killed).apply { load() }
         assertEquals(3, disk(dir).version)
         again.unlock(master143.toCharArray())
         assertEquals(4, disk(dir).version)
@@ -245,12 +257,9 @@ class VaultV4Test {
         assertEquals(text("vault-1.4.3.json"), File(dir, "vault.bin").readText())
         // «Exportar una copia antes» exports the v3 on disk, which earlier versions open.
         val out = ByteArrayOutputStream()
-        assertTrue(s.exportBackup(out))
-        val zip = ZipInputStream(ByteArrayInputStream(out.toByteArray()))
-        assertEquals(BACKUP_MARKER, zip.nextEntry!!.name)
-        assertEquals("2\n", zip.readBytes().decodeToString())
-        assertEquals(BACKUP_VAULT, zip.nextEntry!!.name)
-        assertEquals(text("vault-1.4.3.json"), zip.readBytes().decodeToString())
+        assertTrue(s.exportBeforeUpgrade(out))
+        assertEquals("2\n" to text("vault-1.4.3.json"), markerAndVault(out.toByteArray()))
+        assertFalse("no folder: nothing failed", s.upgradeAutoCopyFailed)
 
         assertTrue(s.completeUpgrade())
         assertFalse(s.pendingUpgrade.value)
@@ -281,33 +290,87 @@ class VaultV4Test {
             seen += disk(dir).version
             // The copy is made from the open vault: the v3 still on disk, with the store free to export it.
             assertTrue(s!!.state.value is VaultState.Unlocked)
-            assertTrue(s!!.exportBackup(ByteArrayOutputStream()))
-            true
+            // Review I-1: no choice is asked while the automatic copy runs, and nothing can be saved meanwhile.
+            assertFalse(s!!.pendingUpgrade.value)
+            assertEquals(UPGRADE_PENDING, assertThrows(IllegalStateException::class.java) { kotlinx.coroutines.runBlocking { s!!.upsert(note("n")) } }.message)
+            val out = ByteArrayOutputStream()
+            assertTrue(s!!.exportBeforeUpgrade(out))
+            assertEquals("2\n" to text("vault-1.4.3.json"), markerAndVault(out.toByteArray()))
+            copied
         }).apply { load() }
         s.unlock(master143.toCharArray())
         assertEquals(listOf(3), seen)
         assertEquals(4, disk(dir).version)
         assertFalse(s.pendingUpgrade.value)
         assertEquals(2, VaultCrypto.read(disk(dir), dek("vault-1.4.3.json", master143)).entries.single { it.id == "e1" }.history.size)
+        // O-3 with a folder: told once, with the copy's name.
+        assertEquals(copied.where, s.upgradeDone.value)
+        s.upgradeDoneShown()
+        assertNull(s.upgradeDone.value)
+        assertFalse(s.upgradeAutoCopyFailed)
 
-        // The copy failed (or there was none): nothing saved, the choice is still to make.
+        // The copy failed: nothing saved, the choice is still to make, and the dialog says the copy failed (M-5).
         val other = phone143("sin-copia")
-        val t = store(other, beforeUpgrade = { false }).apply { load() }
+        val t = store(other, beforeUpgrade = { CopyResult.Failed("x") }).apply { load() }
         t.unlock(master143.toCharArray())
         assertEquals(text("vault-1.4.3.json"), File(other, "vault.bin").readText())
         assertTrue(t.pendingUpgrade.value)
+        assertTrue(t.upgradeAutoCopyFailed)
+        assertNull(t.upgradeDone.value)
+        // A copy that throws is the same.
+        val thrown = store(phone143("lanza"), beforeUpgrade = { throw IOException("x") }).apply { load() }
+        thrown.unlock(master143.toCharArray())
+        assertTrue(thrown.pendingUpgrade.value)
+        assertTrue(thrown.upgradeAutoCopyFailed)
+        // No folder: asked, without any line about a failed copy.
+        val none = store(phone143("sin-carpeta")).apply { load() }
+        none.unlock(master143.toCharArray())
+        assertTrue(none.pendingUpgrade.value)
+        assertFalse(none.upgradeAutoCopyFailed)
 
-        // A v4 is never copied first.
+        // A v4 is never copied first, and has nothing to tell.
         var called = false
-        val u = store(dir, beforeUpgrade = { called = true; true }).apply { load() }
+        val u = store(dir, beforeUpgrade = { called = true; copied }).apply { load() }
         u.unlock(master143.toCharArray())
         assertFalse(called)
         assertFalse(u.pendingUpgrade.value)
+        assertNull(u.upgradeDone.value)
+    }
+
+    /** Review I-1: the copy «de antes del paso» is never the v4, and never leaves an empty document. */
+    @Test fun theCopyBeforeTheUpgradeIsNeverTheV4() = runTest {
+        val s = store(phone143()).apply { load() }
+        s.unlock(master143.toCharArray())
+        assertTrue(s.completeUpgrade())
+        val out = ByteArrayOutputStream()
+        assertFalse(s.exportBeforeUpgrade(out))
+        assertEquals(0, out.size())
+        // A vault that was always a 4 has no copy before an upgrade either; the plain export still works.
+        val (f, _) = VaultCrypto.create("otra-maestra".toCharArray(), clock, kdf)
+        val v4 = phone143("v4").also { File(it, "vault.bin").writeText(VaultCrypto.encodeFile(f)) }
+        val t = store(v4).apply { load(); unlock("otra-maestra".toCharArray()) }
+        assertFalse(t.exportBeforeUpgrade(ByteArrayOutputStream()))
+        val plain = ByteArrayOutputStream()
+        assertTrue(t.exportBackup(plain))
+        assertEquals("3\n", markerAndVault(plain.toByteArray()).first)
+        // Locked: nothing either.
+        val u = store(phone143("cerrada")).apply { load() }
+        assertFalse(u.exportBeforeUpgrade(ByteArrayOutputStream()))
+    }
+
+    /** Review M-1: the master password is wiped before the copy and the save, which do not need it. */
+    @Test fun theMasterIsWipedBeforeTheCopy() = runTest {
+        val master = master143.toCharArray()
+        var wipedFirst = false
+        val s = store(phone143(), beforeUpgrade = { wipedFirst = master.all { it == '\u0000' }; copied }).apply { load() }
+        s.unlock(master)
+        assertTrue(wipedFirst)
+        assertEquals(4, s.entries().size)
     }
 
     @Test fun aV4VaultOpensWithTheFingerprint() = runTest {
         val dir = phone143()
-        val s = store(dir, beforeUpgrade = { true }).apply { load() }
+        val s = store(dir, beforeUpgrade = { copied }).apply { load() }
         s.unlock(master143.toCharArray())
         s.lock()
         assertNull(s.biometricRefusal)

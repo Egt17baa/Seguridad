@@ -159,25 +159,53 @@ class AutoBackupImportCopyTest {
         assertEquals(CopyResult.Saved("seguridad-antes-de-importar-20261026-100001.sgbak"), auto(s, t).copyBeforeImport())
     }
 
+    /** A store with the real vault of 1.4.3 opened with its master, its upgrade to v4 waiting for the user. */
+    private suspend fun waitingUpgrade(): VaultStore {
+        File(tmp.root, "vault.bin").writeBytes(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() })
+        settings = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined).apply {
+            load()
+            update { it.copy(autoBackupUri = folder) }
+        }
+        return VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+            .apply { load(); unlock("maestra-de-prueba-143".toCharArray()) }
+    }
+
     /** 2.0, tarea 1: the copy before the upgrade to v4 ([AutoBackup.copyBeforeUpgrade]) is written as the import one. */
     @Test fun theUpgradeCopyHasItsOwnNameAndIsListedForA6() = runTest {
-        val s = setup()
+        val s = waitingUpgrade()
+        assertTrue(s.pendingUpgrade.value)
         val t = ImportCopyTarget()
         assertEquals(CopyResult.Saved("seguridad-antes-de-2-0-20261026-100000.sgbak"), auto(s, t).copyBeforeUpgrade())
         assertEquals(listOf("seguridad-antes-de-2-0-20261026-100000.sgbak.tmp"), t.created)
-        assertTrue(isBackup(t.files.values.single().copyOf(BACKUP_HEAD_BYTES)))
+        val bytes = t.files.values.single()
+        assertTrue(isBackup(bytes.copyOf(BACKUP_HEAD_BYTES)))
+        // The file still on disk, with marker 2: what earlier versions open.
+        java.util.zip.ZipInputStream(bytes.inputStream()).use { z ->
+            z.nextEntry
+            assertEquals("2\n", z.readBytes().decodeToString())
+        }
         assertEquals(listOf(t.idOfName(t.files.keys.single())), settings.settings.value.importCopies)
         // No folder: null, so the store waits for the user's choice.
         settings.update { it.copy(autoBackupUri = null) }
         assertNull(auto(s, t).copyBeforeUpgrade())
-        // A cut copy (its temporary name) goes with the next rotation, as the import ones.
         settings.update { it.copy(autoBackupUri = folder) }
+        // Review I-1: once the upgrade is saved there is no copy «de antes» to make: refused, and no file left behind.
+        assertTrue(s.completeUpgrade())
+        val before = t.files.keys.toList()
+        assertTrue(auto(s, t).copyBeforeUpgrade() is CopyResult.Failed)
+        assertEquals(before, t.files.keys.toList())
+    }
+
+    @Test fun aCutUpgradeCopyGoesWithTheNextRotation() = runTest {
+        val s = setup()
+        val t = ImportCopyTarget()
         t.put("seguridad-antes-de-2-0-20200101-000000.sgbak.tmp")
+        t.put("seguridad-antes-de-2-0-20200101-000000.sgbak") // Complete and not listed: counted, never deleted.
         auto(s, t)
         s.upsert(note("1"))
         settle()
         assertFalse("seguridad-antes-de-2-0-20200101-000000.sgbak.tmp" in t.files.keys)
-        assertTrue("seguridad-antes-de-2-0-20261026-100000.sgbak" in t.files.keys)
+        assertTrue("seguridad-antes-de-2-0-20200101-000000.sgbak" in t.files.keys)
     }
 
     @Test fun itIsListedInImportCopiesAndNotInTheAutomaticOnes() = runTest {
