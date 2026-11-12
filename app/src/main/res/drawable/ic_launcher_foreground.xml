@@ -34,8 +34,8 @@
             </aapt:attr>
         </path>
         <path
-            android:pathData="M70,73 V79 M77,73 V78"
-            android:strokeWidth="5"
+            android:pathData="M69,73 V81.5 M77.5,73 V80"
+            android:strokeWidth="6"
             android:strokeLineCap="round">
             <aapt:attr name="android:strokeColor">
                 <gradient android:type="linear" android:startX="35" android:startY="35" android:endX="80" android:endY="80">

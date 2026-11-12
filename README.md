@@ -6,7 +6,7 @@ App Android de seguridad y criptografía, sin cuentas, sin nube propia y sin anu
 
 **Licencia: [Apache-2.0](LICENSE).** Se permite usar, estudiar, modificar y redistribuir el código conforme a esa licencia. Las dependencias conservan sus propias licencias. Copyright 2026 Egt17baa ([NOTICE](NOTICE)).
 
-**Nombre.** La licencia Apache-2.0 no da permiso para usar el nombre «Clavero» ni el icono (§6). Si publicas una versión modificada, usa otro nombre y otro icono, para que nadie la confunda con esta.
+**Nombre.** La licencia Apache-2.0 no da permiso para usar el nombre «Clavero» ni sus iconos, el actual y los anteriores (§6). Los archivos del icono se publican con la Apache-2.0, pero su dibujo identifica a Clavero. Si publicas una versión modificada, usa otro nombre y otro icono, para que nadie la confunda con esta.
 
 **Gratuita y sin monetizar, por compromiso.** La app no tendrá nunca precio, anuncios, compras integradas, versión de pago, donaciones ni uso de datos con fines comerciales. No es solo una preferencia: la publicación se plantea como la de un particular sin actividad económica, y cualquier cambio de modelo obligaría a revisar sus obligaciones legales (consumo, Cyber Resilience Act, responsabilidad por productos).
 
