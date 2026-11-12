@@ -44,6 +44,7 @@ import app.seguridad.vault.oldPasswords
 import app.seguridad.vault.HISTORY_SHORT
 import app.seguridad.vault.HISTORY_TITLE
 import app.seguridad.vault.TRASH_SAVE_FAILED
+import app.seguridad.vault.storeSaveErrorText
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.historyClearTitle
@@ -99,11 +100,9 @@ fun EntryHistoryScreen(store: VaultStore, id: String, onBack: () -> Unit) {
                             if (store.restoreVersion(entry.id, v.savedAt, index = i)) HISTORY_RESTORED to false else HISTORY_RESTORE_REFUSED to true
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
-                        } catch (e: IllegalStateException) {
-                            // Review M-2: the store's own Spanish texts (a limit, the upgrade waiting, one identity), not «espacio».
-                            (e.message ?: TRASH_SAVE_FAILED) to true
                         } catch (e: Exception) {
-                            TRASH_SAVE_FAILED to true
+                            // Review M-2 and N-1: only the store's own Spanish texts, else «espacio».
+                            storeSaveErrorText(e) to true
                         }
                     }
                 }

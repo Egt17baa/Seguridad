@@ -306,3 +306,15 @@ class EntryHistoryTest {
         assertEquals("Contraseñas anteriores (3)", historyOpen(versions = 0, oldPasswords = 3))
     }
 }
+
+/** Re-review N-1 of task 3: the history screen shows only the store's own texts. */
+class StoreSaveErrorTextTest {
+    @Test fun onlyKnownTextsReachTheScreen() {
+        assertEquals(VAULT_TOO_BIG, storeSaveErrorText(VaultLimitExceeded(VAULT_TOO_BIG)))
+        assertEquals(UPGRADE_PENDING, storeSaveErrorText(IllegalStateException(UPGRADE_PENDING)))
+        assertEquals("Solo puede haber una identidad", storeSaveErrorText(IllegalStateException("Solo puede haber una identidad")))
+        assertEquals(TRASH_SAVE_FAILED, storeSaveErrorText(IllegalStateException("A vault already exists")))
+        assertEquals(TRASH_SAVE_FAILED, storeSaveErrorText(IllegalStateException()))
+        assertEquals(TRASH_SAVE_FAILED, storeSaveErrorText(java.io.IOException("No space left on device")))
+    }
+}

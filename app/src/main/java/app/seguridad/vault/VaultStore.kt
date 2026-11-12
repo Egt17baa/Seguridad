@@ -1399,6 +1399,20 @@ const val VAULT_IMPORT_MAX_BYTES = 40 * 1024 * 1024
  */
 const val UPGRADE_PENDING = "Antes de guardar nada, elige en el aviso si exportas una copia de la bóveda."
 
+/**
+ * 2.0, re-review N-1 of task 3: what a screen says when a save of the store throws [e]. Only the store's own Spanish
+ * texts (a limit, the upgrade waiting, the master for contacts, one identity) reach the screen; any other message, such
+ * as an English one from a future check, gives [TRASH_SAVE_FAILED].
+ */
+fun storeSaveErrorText(e: Throwable): String {
+    val text = e.message
+    return when {
+        e is VaultLimitExceeded && text != null -> text
+        e is IllegalStateException && text in setOf(UPGRADE_PENDING, NEEDS_MASTER_FOR_CONTACTS, ONLY_ONE_IDENTITY) -> text!!
+        else -> TRASH_SAVE_FAILED
+    }
+}
+
 private const val NEEDS_MASTER_FOR_CONTACTS = "Hace falta la contraseña maestra para guardar la identidad o los contactos"
 private const val REPLACE_NEEDS_OPEN = "Abre la bóveda antes de importar una copia"
 
