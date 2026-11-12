@@ -26,7 +26,7 @@ import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.hasHiddenChars
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.visibleText
-import app.seguridad.vault.EntryFilter
+import app.seguridad.vault.ListQuery
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MASTER_WORD_LISTS
@@ -664,7 +664,7 @@ class RedTeamRecheckTest {
         }
         // What that does: the search for the title misses the replaced entry.
         val shadowed = replaced(fileItem("Café Ban\u2800co", "ana", "https://banco.es/"), vault)
-        if (shadowed.query(EntryFilter(text = "fé banco")).isEmpty()) wrong += "search «fé banco» finds nothing"
+        if (shadowed.query(ListQuery(text = "fé banco")).isEmpty()) wrong += "search «fé banco» finds nothing"
         assertTrue("replaced with what only differs invisibly: " + wrong.joinToString("; "), wrong.isEmpty())
     }
 
@@ -795,7 +795,7 @@ class RedTeamRecheckTest {
         }
         val one = ImportedItem(0, importedEntry(EntryType.TOTP, "Banco", totp = code.copy(issuer = "Ban\u200Bco")), emptyList())
         val after = mergedEntries(plan(one, vault), DuplicateChoice.REPLACE, emptyMap(), vault, 2, { "n" })
-        if (after.query(EntryFilter(text = "banco", type = EntryType.TOTP)).isEmpty()) wrong += "search «banco» misses the 2FA"
+        if (after.query(ListQuery(text = "banco", type = EntryType.TOTP)).isEmpty()) wrong += "search «banco» misses the 2FA"
         assertTrue(wrong.joinToString("; "), wrong.isEmpty())
     }
 

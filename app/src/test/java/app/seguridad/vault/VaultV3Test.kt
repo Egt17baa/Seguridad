@@ -26,6 +26,8 @@ import java.util.zip.ZipOutputStream
  * Bóveda versión 3 y copia versión 2 (identidad y contactos), con los archivos reales de la 1.1: `vault-1.1.json`
  * (bóveda versión 2) y `backup-1.1.sgbak` (copia versión 1). Contraseña maestra `maestra-de-prueba`,
  * `masterCheckedAt` = 1790000000000, KDF (1024, 1, 1); entradas «Banco» (con el adjunto hola.txt) y «Correo».
+ * 2.0, tarea 1: lo que era «pasar a la 3» es ahora pasar a la 4 (`VaultV4Test`), y la huella no abre una 2 ni una 3.
+ * La tienda de estos tests hace la copia de antes del paso (`beforeUpgrade` da true), así que la maestra lo guarda ya.
  */
 class VaultV3Test {
     @get:Rule val tmp = TemporaryFolder()
@@ -38,8 +40,11 @@ class VaultV3Test {
 
     private fun phone(name: String) = File(tmp.root, name).apply { mkdirs() }
 
-    private fun store(dir: File) =
-        VaultStore(File(dir, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+    private fun store(dir: File, beforeUpgrade: suspend () -> Boolean = { true }) =
+        VaultStore(
+            File(dir, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            beforeUpgrade = beforeUpgrade,
+        )
 
     private fun fixtureBytes(name: String) = javaClass.getResourceAsStream("/seguridad/$name")!!.use { it.readBytes() }
 
@@ -68,7 +73,7 @@ class VaultV3Test {
         VaultCrypto.unlock(VaultCrypto.decodeFile(fixtureBytes("vault-1.1.json").decodeToString()), master.toCharArray())
 
     private fun fixtureEntries(): List<VaultEntry> =
-        VaultCrypto.read(VaultCrypto.decodeFile(fixtureBytes("vault-1.1.json").decodeToString()), fixtureDek()).sortedBy { it.title.lowercase() }
+        VaultCrypto.read(VaultCrypto.decodeFile(fixtureBytes("vault-1.1.json").decodeToString()), fixtureDek()).entries.sortedBy { it.title.lowercase() }
 
     // ---- Los archivos reales de la 1.1 ----
 
@@ -84,13 +89,13 @@ class VaultV3Test {
         assertEquals("hola", s.openAttachment(entries[0].id, entries[0].attachments.single().id)!!.decodeToString())
     }
 
-    @Test fun trasLaMaestraElArchivoEsLaVersion3ConLasMismasEntradas() = runTest {
+    @Test fun trasLaMaestraElArchivoEsLaVersion4ConLasMismasEntradas() = runTest {
         val before = fixtureEntries()
         val (dir, s) = phone11()
         s.unlock(master.toCharArray())
         val onDisk = diskFile(dir)
         assertEquals("seguridad-vault", onDisk.format)
-        assertEquals(3, onDisk.version)
+        assertEquals(4, onDisk.version)
         assertEquals(VaultFile.VERSION, onDisk.version)
         assertEquals(clock, onDisk.masterCheckedAt)
         assertFalse(s.needsMasterForContacts.value)
@@ -105,9 +110,12 @@ class VaultV3Test {
         assertEquals("hola", again.openAttachment(before[0].id, before[0].attachments.single().id)!!.decodeToString())
     }
 
-    /** El JSON de las entradas tal como está escrito en [dir]/vault.bin: se lee el archivo y se descifra con la clave de datos. */
+    /**
+     * El JSON de las entradas tal como está escrito en [dir]/vault.bin (2.0: lo que va tras `{"entries":` en el objeto de la
+     * v4): se lee el archivo y se descifra con la clave de datos.
+     */
     private fun jsonOnDisk(dir: File, dek: ByteArray): String =
-        VaultCrypto.readJson(diskFile(dir), dek).also { assertTrue(it.startsWith("[")) }
+        VaultCrypto.readJson(diskFile(dir), dek).also { assertTrue(it, it.startsWith("{\"entries\":[")) }.removePrefix("{\"entries\":")
 
     @Test fun lasEntradasAntiguasNoGananCamposNuevosAlEscribirse() = runTest {
         val dek = fixtureDek()
@@ -115,8 +123,8 @@ class VaultV3Test {
         listOf("identitySeed", "\"card\"", "verified").forEach { assertFalse(it, original.contains(it)) }
         val (dir, s) = phone11()
         s.unlock(master.toCharArray())
-        // Lo escrito en el disco por la migración es, byte a byte, el JSON de la 1.1: ningún campo nuevo.
-        assertEquals(original, jsonOnDisk(dir, dek))
+        // Lo escrito en el disco por la migración empieza, byte a byte, por el JSON de la 1.1: ningún campo nuevo.
+        assertTrue(jsonOnDisk(dir, dek).startsWith(original))
         // Y al guardar otra entrada, las antiguas siguen sin campos nuevos; la nueva (una nota) tampoco los lleva.
         s.upsert(VaultEntry("n1", EntryType.NOTE, "Nota", notes = "x", createdAt = 1, updatedAt = 1))
         val afterSave = jsonOnDisk(dir, dek)
@@ -135,57 +143,58 @@ class VaultV3Test {
         assertFalse(withIdentity.contains("\"verified\""))
     }
 
-    // ---- Abierta con la huella: sigue en la versión 2 ----
+    // ---- La huella no abre la versión 2: el paso a la 4 pide la maestra (2.0) ----
 
-    @Test fun conLaHuellaSigueEnLa2YNoSeAdmiteLaIdentidad() = runTest {
+    @Test fun conLaHuellaNoSeAbreLa2YNoSeTocaElArchivo() = runTest {
         val (dir, s) = phone11()
         val diskBefore = File(dir, "vault.bin").readText()
-        s.unlockWithKey(fixtureDek())
-        assertEquals(VaultState.Unlocked::class, s.state.value::class)
-        assertEquals(2, diskFile(dir).version)
-        assertTrue(s.needsMasterForContacts.value)
-        failsWith<IllegalStateException> { s.upsert(identityEntry()) }
+        assertEquals(BiometricRefusal.UPGRADE, s.biometricRefusal)
+        val key = fixtureDek()
+        assertEquals(BiometricRefusal.UPGRADE, failsWith<MasterRequired> { s.unlockWithKey(key) }.reason)
+        assertTrue(key.all { it == 0.toByte() })
+        assertFalse(s.state.value is VaultState.Unlocked)
         assertEquals(diskBefore, File(dir, "vault.bin").readText()) // Nada se escribió.
-        assertEquals(listOf("Banco", "Correo"), s.entries().map { it.title })
         assertTrue(s.needsMasterForContacts.value)
     }
 
-    @Test fun conLaHuellaUnaEntradaNormalSeGuardaEnLa2() = runTest {
-        val (dir, s) = phone11()
-        s.unlockWithKey(fixtureDek())
-        s.upsert(VaultEntry("n1", EntryType.NOTE, "Nota", notes = "x", createdAt = 1, updatedAt = 1))
-        assertEquals(2, diskFile(dir).version) // La 1.1 todavía puede abrirla: no se ha pedido nada nuevo.
-        assertEquals(3, s.entries().size)
-        assertTrue(s.needsMasterForContacts.value)
-    }
-
-    @Test fun unContactoTampocoSeAdmiteEnLa2() = runTest {
-        val (dir, s) = phone11()
-        s.unlockWithKey(fixtureDek())
+    @Test fun enLa2QueEsperaElPasoNoSeGuardaNiUnContacto() = runTest {
+        val (dir, _) = phone11()
+        val waiting = store(dir, beforeUpgrade = { false }).apply { load() }
+        waiting.unlock(master.toCharArray())
+        assertTrue(waiting.pendingUpgrade.value)
+        assertTrue(waiting.needsMasterForContacts.value)
         val contact = contactEntry("Ana")
-        failsWith<IllegalStateException> { s.upsert(contact) }
-        failsWith<IllegalStateException> { s.addAll(listOf(contact)) }
-        failsWith<IllegalStateException> { s.addAll(listOf(identityEntry())) }
+        assertEquals(UPGRADE_PENDING, failsWith<IllegalStateException> { waiting.upsert(contact) }.message)
+        assertEquals(UPGRADE_PENDING, failsWith<IllegalStateException> { waiting.addAll(listOf(contact)) }.message)
+        assertEquals(UPGRADE_PENDING, failsWith<IllegalStateException> { waiting.upsert(identityEntry()) }.message)
         assertEquals(2, diskFile(dir).version)
-        assertEquals(2, s.entries().size)
+        assertEquals(2, waiting.entries().size)
+        // Hecho el paso, la identidad y los contactos se guardan.
+        assertTrue(waiting.completeUpgrade())
+        assertFalse(waiting.needsMasterForContacts.value)
+        waiting.upsert(contact)
+        waiting.upsert(identityEntry())
+        assertEquals(4, diskFile(dir).version)
+        assertEquals(4, waiting.entries().size)
     }
 
-    @Test fun confirmMaestraMigraALa3YDejaGuardarLaIdentidad() = runTest {
+    @Test fun trasLaMaestraSeGuardaLaIdentidadYLaHuellaSigueValiendo() = runTest {
         val (dir, s) = phone11()
-        s.unlockWithKey(fixtureDek())
-        assertTrue(s.needsMasterForContacts.value)
-        s.confirmMaster(master.toCharArray())
+        s.unlock(master.toCharArray())
         assertFalse(s.needsMasterForContacts.value)
         val migrated = diskFile(dir)
-        assertEquals(3, migrated.version)
+        assertEquals(4, migrated.version)
         assertEquals(clock, migrated.masterCheckedAt)
         assertEquals(listOf("Banco", "Correo"), s.entries().map { it.title })
         val identity = identityEntry()
         s.upsert(identity)
-        assertEquals(3, diskFile(dir).version)
+        assertEquals(4, diskFile(dir).version)
         assertEquals(identity.id, s.entries().identity()!!.id)
-        // La clave de datos no cambió: la huella sigue valiendo.
+        // La clave de datos no cambió: la huella de antes del paso sigue valiendo.
         assertArrayEquals(fixtureDek(), s.dataKeyCopy())
+        s.lock()
+        s.unlockWithKey(fixtureDek())
+        assertEquals(setOf("Banco", "Correo", "Mi identidad"), s.entries().map { it.title }.toSet())
         s.lock()
         val again = store(dir).apply { load() }
         again.unlock(master.toCharArray())
@@ -195,7 +204,7 @@ class VaultV3Test {
 
     @Test fun confirmMaestraConUnaMaestraMalaLanzaLoMismoQueUnlockYNoTocaElArchivo() = runTest {
         val (dir, s) = phone11()
-        s.unlockWithKey(fixtureDek())
+        s.unlock(master.toCharArray())
         val before = File(dir, "vault.bin").readText()
         val unlockError = try {
             store(dir).apply { load() }.unlock("mala".toCharArray())
@@ -206,11 +215,10 @@ class VaultV3Test {
         val confirmError = failsWith<CryptoFailure> { s.confirmMaster("mala".toCharArray()) }
         assertEquals(unlockError!!.message, confirmError.message)
         assertEquals(before, File(dir, "vault.bin").readText())
-        assertTrue(s.needsMasterForContacts.value)
         assertTrue(s.state.value is VaultState.Unlocked) // Sigue abierta, como estaba.
     }
 
-    @Test fun confirmMaestraEnLaVersion3SoloComprueba() = runTest {
+    @Test fun confirmMaestraEnLaVersion4SoloComprueba() = runTest {
         val (dir, s) = phone11()
         s.unlock(master.toCharArray())
         val before = File(dir, "vault.bin").readText()
@@ -219,14 +227,21 @@ class VaultV3Test {
         failsWith<CryptoFailure> { s.confirmMaster("mala".toCharArray()) }
         assertEquals(before, File(dir, "vault.bin").readText())
         assertFalse(s.needsMasterForContacts.value)
+        // Con el paso pendiente, tampoco lo hace: solo comprueba.
+        val (dirW, _) = phone11("espera")
+        val waiting = store(dirW, beforeUpgrade = { false }).apply { load() }
+        waiting.unlock(master.toCharArray())
+        val waitingBefore = File(dirW, "vault.bin").readText()
+        assertTrue(waiting.confirmMaster(master.toCharArray()))
+        assertEquals(waitingBefore, File(dirW, "vault.bin").readText())
+        assertTrue(waiting.pendingUpgrade.value)
     }
 
     @Test fun confirmMaestraDiceSiHizoAlgo() = runTest {
         val (_, s) = phone11()
         assertFalse(s.confirmMaster(master.toCharArray())) // Cerrada: no hace nada.
-        s.unlockWithKey(fixtureDek())
-        assertTrue(s.confirmMaster(master.toCharArray())) // Migra.
-        assertTrue(s.confirmMaster(master.toCharArray())) // Ya es la 3: solo comprueba.
+        s.unlock(master.toCharArray())
+        assertTrue(s.confirmMaster(master.toCharArray())) // Solo comprueba.
         failsWith<CryptoFailure> { s.confirmMaster("mala".toCharArray()) }
         s.lock()
         assertFalse(s.confirmMaster(master.toCharArray())) // Bloqueada otra vez.
@@ -238,56 +253,50 @@ class VaultV3Test {
         // Sin bóveda: no hace falta nada.
         val none = store(phone("ninguna")).apply { load() }
         assertFalse(none.needsMasterForContacts.value)
-        // La real de la 1.1: pendiente desde que se carga hasta que se escribe la maestra.
-        val (dir, s) = phone11()
+        // La real de la 1.1: pendiente desde que se carga hasta que se guarda en la 4.
+        val (dir, _) = phone11()
+        val s = store(dir, beforeUpgrade = { false }).apply { load() }
         assertTrue(s.needsMasterForContacts.value)
-        s.unlockWithKey(fixtureDek())
-        assertTrue(s.needsMasterForContacts.value)
+        s.unlock(master.toCharArray())
+        assertTrue(s.needsMasterForContacts.value) // Abierta, el paso espera.
         s.lock()
         assertTrue(s.needsMasterForContacts.value) // Bloquear no migra.
-        s.unlockWithKey(fixtureDek())
-        s.confirmMaster(master.toCharArray())
+        s.unlock(master.toCharArray())
+        assertTrue(s.completeUpgrade())
         assertFalse(s.needsMasterForContacts.value)
         s.lock()
         assertFalse(s.needsMasterForContacts.value)
-        // unlock con la maestra migra.
+        // unlock con la maestra y la copia hecha lo guarda ya.
         val (_, viaUnlock) = phone11("p11b")
         assertTrue(viaUnlock.needsMasterForContacts.value)
         viaUnlock.unlock(master.toCharArray())
         assertFalse(viaUnlock.needsMasterForContacts.value)
-        // Importar (siempre con la maestra) la deja en la 3.
-        val (_, viaImport) = phone11("p11c")
-        viaImport.unlockWithKey(fixtureDek())
-        assertTrue(viaImport.needsMasterForContacts.value)
+        // Importar (siempre con la maestra) en un teléfono sin bóveda la deja en la 4.
+        val viaImport = store(phone("p11c")).apply { load() }
         viaImport.importReplace(ByteArrayInputStream(fixtureBytes("backup-1.1.sgbak")), master.toCharArray())
         assertFalse(viaImport.needsMasterForContacts.value)
-        // Cambiar la maestra desde la huella también.
-        val (_, viaChange) = phone11("p11d")
-        viaChange.unlockWithKey(fixtureDek())
-        assertTrue(viaChange.needsMasterForContacts.value)
-        assertTrue(viaChange.changeMaster("nueva".toCharArray()))
-        assertFalse(viaChange.needsMasterForContacts.value)
+        assertEquals(4, diskFile(phone("p11c")).version)
         // Borrar la bóveda.
-        viaChange.destroy()
-        assertFalse(viaChange.needsMasterForContacts.value)
-        assertEquals(3, diskFile(dir).version)
+        viaImport.destroy()
+        assertFalse(viaImport.needsMasterForContacts.value)
+        assertEquals(4, diskFile(dir).version)
     }
 
-    @Test fun unaBovedaNuevaEsLaVersion3YNoPideLaMaestraParaLosContactos() = runTest {
+    @Test fun unaBovedaNuevaEsLaVersion4YNoPideLaMaestraParaLosContactos() = runTest {
         val dir = phone("nueva")
         val s = store(dir).apply { load(); create("otra".toCharArray()) }
-        assertEquals(3, diskFile(dir).version)
+        assertEquals(4, diskFile(dir).version)
         assertFalse(s.needsMasterForContacts.value)
         s.upsert(identityEntry())
         s.upsert(contactEntry("Ana"))
         assertEquals(setOf(EntryType.IDENTITY, EntryType.CONTACT), s.entries().map { it.type }.toSet())
     }
 
-    @Test fun elCambioDeMaestraDeUnaBovedaDeLaHuellaLaDejaEnLa3() = runTest {
+    @Test fun elCambioDeMaestraDeUnaBovedaPasadaALa4LaDejaEnLa4() = runTest {
         val (dir, s) = phone11()
-        s.unlockWithKey(fixtureDek())
+        s.unlock(master.toCharArray())
         assertTrue(s.changeMaster("nueva-maestra".toCharArray()))
-        assertEquals(3, diskFile(dir).version)
+        assertEquals(4, diskFile(dir).version)
         val again = store(dir).apply { load() }
         again.unlock("nueva-maestra".toCharArray())
         assertEquals(listOf("Banco", "Correo"), again.entries().map { it.title })
@@ -360,7 +369,7 @@ class VaultV3Test {
         assertEquals(listOf("Banco", "Correo"), entries.map { it.title })
         val banco = entries[0]
         assertEquals("hola", s.openAttachment(banco.id, banco.attachments.single().id)!!.decodeToString())
-        assertEquals(3, diskFile(dir).version) // La importación pide la maestra, así que queda en la 3.
+        assertEquals(4, diskFile(dir).version) // La importación pide la maestra, así que queda en la 4 (2.0).
         assertEquals(fixtureEntries(), entries)
     }
 
@@ -390,11 +399,11 @@ class VaultV3Test {
 
     private suspend fun backupOf(s: VaultStore): ByteArray = ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
 
-    @Test fun exportBackupEscribeLaVersion2YSeVuelveAImportar() = runTest {
+    @Test fun exportBackupEscribeLaVersion3YSeVuelveAImportar() = runTest {
         val (_, s) = phone11()
         s.unlock(master.toCharArray())
         val zip = backupOf(s)
-        assertEquals("2\n", markerOf(zip))
+        assertEquals("3\n", markerOf(zip)) // 2.0: la copia de una bóveda v4.
         val dest = store(phone("otro")).apply { load(); create("otra".toCharArray()) }
         dest.importReplace(ByteArrayInputStream(zip), master.toCharArray())
         assertEquals(fixtureEntries(), dest.entries())
@@ -407,7 +416,7 @@ class VaultV3Test {
         s.unlock(master.toCharArray())
         val zip = backupOf(s)
         val dest = store(phone("otro")).apply { load(); create("otra".toCharArray()) }
-        listOf("3\n", "4\n", "10\n").forEach { marker ->
+        listOf("4\n", "5\n", "10\n").forEach { marker -> // 2.0 lee hasta la 3.
             val error = failsWith<CryptoFailure> { dest.importReplace(ByteArrayInputStream(withMarker(zip, marker)), master.toCharArray()) }
             assertEquals(BACKUP_NEWER, error.message)
         }
@@ -419,7 +428,7 @@ class VaultV3Test {
         assertEquals(0, dest.entries().size) // Nada cambió: sigue su bóveda vacía.
     }
 
-    @Test fun unaCopiaVersion2ConIdentidadImportadaSobreLaHuellaQuedaEnLa3() = runTest {
+    @Test fun unaCopiaConIdentidadImportadaSobreLaBovedaDeLa11QuedaEnLa4() = runTest {
         // El teléfono A tiene una identidad y hace una copia.
         val a = store(phone("a")).apply { load(); create("maestra-a".toCharArray()) }
         val identity = identityEntry()
@@ -427,13 +436,12 @@ class VaultV3Test {
         a.upsert(identity)
         a.upsert(contact)
         val zip = backupOf(a)
-        assertEquals("2\n", markerOf(zip))
-        // El teléfono B se abrió con la huella: su bóveda es la versión 2.
+        assertEquals("3\n", markerOf(zip))
+        // El teléfono B tiene la bóveda de la 1.1, abierta con la maestra.
         val (dirB, b) = phone11("b")
-        b.unlockWithKey(fixtureDek())
-        assertTrue(b.needsMasterForContacts.value)
+        b.unlock(master.toCharArray())
         b.importReplace(ByteArrayInputStream(zip), "maestra-a".toCharArray())
-        assertEquals(3, diskFile(dirB).version)
+        assertEquals(4, diskFile(dirB).version)
         assertFalse(b.needsMasterForContacts.value)
         assertEquals(identity.id, b.entries().identity()!!.id)
         assertTrue(b.entries().any { it.id == contact.id })
@@ -442,10 +450,10 @@ class VaultV3Test {
 
     // ---- Una copia con dos identidades no se importa ----
 
-    /** Un archivo de bóveda de la versión 3 con [entries] dentro, como lo escribiría un teléfono con dos identidades. */
+    /** Un archivo de bóveda (2.0: de la versión 4) con [entries] dentro, como lo escribiría un teléfono con dos identidades. */
     private fun vaultJsonWith(entries: List<VaultEntry>, masterOfCopy: String): String {
         val (file, dek) = VaultCrypto.create(masterOfCopy.toCharArray(), clock, KdfParams(1024, 1, 1))
-        return VaultCrypto.encodeFile(VaultCrypto.write(file, dek, entries))
+        return VaultCrypto.encodeFile(VaultCrypto.write(file, dek, VaultData(entries = entries)))
     }
 
     private fun snapshot(dir: File): Map<String, String> =
@@ -476,23 +484,24 @@ class VaultV3Test {
 
     @Test fun cambiarLaVersionDeUnArchivoRompeLaApertura() = runTest {
         val (dir, s) = phone11()
-        s.unlock(master.toCharArray()) // Ahora es la 3.
-        val v3 = diskFile(dir)
-        assertEquals(3, v3.version)
-        assertThrows(CryptoFailure::class.java) { VaultCrypto.unlock(v3.copy(version = 2), master.toCharArray()) }
+        s.unlock(master.toCharArray()) // Ahora es la 4 (2.0).
+        val v4 = diskFile(dir)
+        assertEquals(4, v4.version)
+        assertThrows(CryptoFailure::class.java) { VaultCrypto.unlock(v4.copy(version = 2), master.toCharArray()) }
+        assertThrows(CryptoFailure::class.java) { VaultCrypto.unlock(v4.copy(version = 3), master.toCharArray()) }
         val v2 = VaultCrypto.decodeFile(fixtureBytes("vault-1.1.json").decodeToString())
         assertThrows(CryptoFailure::class.java) { VaultCrypto.unlock(v2.copy(version = 3), master.toCharArray()) }
-        assertThrows(CryptoFailure::class.java) { VaultCrypto.unlock(v3.copy(version = 4), master.toCharArray()) }
+        assertThrows(CryptoFailure::class.java) { VaultCrypto.unlock(v2.copy(version = 4), master.toCharArray()) }
         // Ni con la clave de datos se leen las entradas con otra versión.
         val dek = fixtureDek()
-        assertThrows(CryptoFailure::class.java) { VaultCrypto.read(v2.copy(version = 3), dek) }
+        assertThrows(CryptoFailure::class.java) { VaultCrypto.read(v2.copy(version = 3), dek).entries }
     }
 
     // ---- Manipulaciones de la versión (los tests de VaultTamperTest no se tocan) ----
 
     private fun v2Fixture() = VaultCrypto.decodeFile(fixtureBytes("vault-1.1.json").decodeToString())
 
-    /** La bóveda real ya migrada a la 3 con la maestra, y su clave de datos. */
+    /** La bóveda real ya migrada con la maestra (2.0: a la 4), y su clave de datos. */
     private fun v3Fixture(): VaultFile =
         VaultCrypto.afterMasterUnlock(v2Fixture(), fixtureDek(), master.toCharArray(), clock, KdfParams(1024, 1, 1))
 
@@ -503,56 +512,56 @@ class VaultV3Test {
         val dek = VaultCrypto.unlock(stripped, master.toCharArray())
         assertArrayEquals(fixtureDek(), dek)
         assertEquals(2, VaultCrypto.resolve(stripped, dek).version)
-        assertEquals(fixtureEntries().map { it.title }.toSet(), VaultCrypto.read(stripped, dek).map { it.title }.toSet())
-        // Con la maestra se migra a la 3.
-        assertEquals(3, VaultCrypto.afterMasterUnlock(stripped, dek, master.toCharArray(), clock, KdfParams(1024, 1, 1)).version)
-        // Y con la huella (en la tienda) queda en la 2: nada de identidad hasta la maestra.
+        assertEquals(fixtureEntries().map { it.title }.toSet(), VaultCrypto.read(stripped, dek).entries.map { it.title }.toSet())
+        // Con la maestra se migra a la 4 (2.0).
+        assertEquals(4, VaultCrypto.afterMasterUnlock(stripped, dek, master.toCharArray(), clock, KdfParams(1024, 1, 1)).version)
+        // Y la huella (en la tienda) no la abre: pide la maestra una vez, sin probar la clave ni reescribir el archivo.
         val dir = phone("sinversion")
         File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(stripped))
         val before = File(dir, "vault.bin").readText()
         val s = store(dir).apply { load() }
-        s.unlockWithKey(fixtureDek())
-        assertTrue(s.state.value is VaultState.Unlocked)
+        assertEquals(BiometricRefusal.UPGRADE, failsWith<MasterRequired> { s.unlockWithKey(fixtureDek()) }.reason)
+        assertFalse(s.state.value is VaultState.Unlocked)
         assertTrue(s.needsMasterForContacts.value)
-        // Abrir con la huella no reescribe el archivo: sigue sin el campo version.
         assertEquals(before, File(dir, "vault.bin").readText())
         assertFalse(File(dir, "vault.bin").readText().contains("\"version\""))
     }
 
-    @Test fun deLaVersion3NoSePasaALa2PorLaHuella() = runTest {
-        val v3 = v3Fixture()
+    @Test fun deLaVersion4NoSePasaALa3NiALa2() = runTest {
+        val v4 = v3Fixture()
         val dek = fixtureDek()
-        // Una v3 sin el campo version se resuelve como 3, nunca como 2.
-        assertEquals(3, VaultCrypto.resolve(v3.copy(version = VaultFile.VERSION_UNKNOWN), dek).version)
-        // Diciendo que es la 2, ni la clave de datos abre las entradas.
-        failsWith<CryptoFailure> { VaultCrypto.read(v3.copy(version = 2), dek) }
-        // Por el camino de la tienda: el archivo en disco con la versión cambiada no se abre y no se toca.
+        // Una v4 sin el campo version no se resuelve como 3 ni como 2: no abre.
+        failsWith<CryptoFailure> { VaultCrypto.resolve(v4.copy(version = VaultFile.VERSION_UNKNOWN), dek) }
+        // Diciendo que es la 3 o la 2, ni la clave de datos abre las entradas.
+        failsWith<CryptoFailure> { VaultCrypto.read(v4.copy(version = 3), dek).entries }
+        failsWith<CryptoFailure> { VaultCrypto.read(v4.copy(version = 2), dek).entries }
+        // Por el camino de la tienda: el archivo en disco con la versión cambiada no se abre y no se toca. Con la huella,
+        // una 2 o una 3 pide antes la maestra (2.0), sin probar la clave; con la maestra, la clave envuelta no abre.
         val dir = phone("degradada")
-        File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(v3.copy(version = 2)))
+        File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(v4.copy(version = 2)))
         val before = File(dir, "vault.bin").readText()
         val s = store(dir).apply { load() }
-        // Final review F1: a key that does not authenticate the entries is a StaleBiometricKey (FINGERPRINT_STALE,
-        // as before).
-        failsWith<StaleBiometricKey> { s.unlockWithKey(dek) }
+        assertEquals(BiometricRefusal.UPGRADE, failsWith<MasterRequired> { s.unlockWithKey(dek) }.reason)
+        failsWith<CryptoFailure> { s.unlock(master.toCharArray()) }
         assertFalse(s.state.value is VaultState.Unlocked)
         assertEquals(before, File(dir, "vault.bin").readText())
         assertNull(s.dataKeyCopy())
     }
 
-    @Test fun unaClaveEnvueltaDeLaVersion2JuntoAUnosDatosDeLaVersion3SeRechaza() = runTest {
+    @Test fun unaClaveEnvueltaDeLaVersion2JuntoAUnosDatosDeLaVersion4SeRechaza() = runTest {
         val v2 = v2Fixture()
-        val v3 = v3Fixture()
+        val v3 = v3Fixture() // 2.0: a 4.
         val dek = fixtureDek()
-        // Sal, coste y clave envuelta de la 2, con los datos de la 3, diciendo 3, 2 o nada.
-        val hybrids = listOf(3, 2, VaultFile.VERSION_UNKNOWN).map { v ->
+        // Sal, coste y clave envuelta de la 2, con los datos de la 4, diciendo 4, 3, 2 o nada.
+        val hybrids = listOf(4, 3, 2, VaultFile.VERSION_UNKNOWN).map { v ->
             v3.copy(version = v, kdf = v2.kdf, salt = v2.salt, wrappedKey = v2.wrappedKey)
         }
-        // Y la clave envuelta de la 2 sola, con la sal y el coste de la 3: no abre con la maestra (la clave de datos
-        // no va ligada a esa clave envuelta, así que con ella las entradas de la 3 siguen siendo las suyas).
-        val onlyKey = listOf(3, 2).map { v -> v3.copy(version = v, wrappedKey = v2.wrappedKey) }
-        // Lo que dice la nota: con la clave de datos, la 3 con la clave envuelta de la 2 sigue dando sus propias entradas.
-        onlyKey.filter { it.version == 3 }.forEach { h ->
-            assertEquals(VaultCrypto.read(v3, dek).map { it.title }, VaultCrypto.read(h, dek).map { it.title })
+        // Y la clave envuelta de la 2 sola, con la sal y el coste de la 4: no abre con la maestra (la clave de datos
+        // no va ligada a esa clave envuelta, así que con ella las entradas de la 4 siguen siendo las suyas).
+        val onlyKey = listOf(4, 3, 2).map { v -> v3.copy(version = v, wrappedKey = v2.wrappedKey) }
+        // Lo que dice la nota: con la clave de datos, la 4 con la clave envuelta de la 2 sigue dando sus propias entradas.
+        onlyKey.filter { it.version == 4 }.forEach { h ->
+            assertEquals(VaultCrypto.read(v3, dek).entries.map { it.title }, VaultCrypto.read(h, dek).entries.map { it.title })
         }
         (hybrids + onlyKey).forEach { h ->
             // Con la maestra, o no abre la clave (AAD con otra versión o sal) o no abre las entradas.
@@ -570,12 +579,17 @@ class VaultV3Test {
         }
         hybrids.forEach { h ->
             // Con la clave de datos (la huella), tampoco se leen las entradas de la 3 con la sal y el coste de la 2.
-            failsWith<CryptoFailure> { VaultCrypto.read(h, dek) }
+            failsWith<CryptoFailure> { VaultCrypto.read(h, dek).entries }
             val dir = phone("huella-${h.version}")
             File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(h))
             val before = File(dir, "vault.bin").readText()
             val s = store(dir).apply { load() }
-            failsWith<StaleBiometricKey> { s.unlockWithKey(dek.copyOf()) } // Does not authenticate: F1.
+            // Does not authenticate: F1. 2.0: a file that says 2, 3 or nothing is asked to upgrade first, key untried.
+            if (h.version == VaultFile.VERSION) {
+                failsWith<StaleBiometricKey> { s.unlockWithKey(dek.copyOf()) }
+            } else {
+                assertEquals(BiometricRefusal.UPGRADE, failsWith<MasterRequired> { s.unlockWithKey(dek.copyOf()) }.reason)
+            }
             assertFalse(s.state.value is VaultState.Unlocked)
             assertEquals(before, File(dir, "vault.bin").readText())
         }
@@ -584,23 +598,23 @@ class VaultV3Test {
     @Test fun elLectorDeLaVersion2YDeLaVersion3() = runTest {
         val v2 = VaultCrypto.decodeFile(fixtureBytes("vault-1.1.json").decodeToString())
         val dek = fixtureDek()
-        // write() conserva la versión del archivo.
-        assertEquals(2, VaultCrypto.write(v2, dek, fixtureEntries()).version)
-        val v3 = VaultCrypto.afterMasterUnlock(v2, dek.copyOf(), master.toCharArray(), clock, KdfParams(1024, 1, 1))
-        assertEquals(3, v3.version)
-        assertEquals(v2.revision + 1, v3.revision)
-        assertEquals(3, VaultCrypto.write(v3, dek, fixtureEntries()).version)
-        assertArrayEquals(dek, VaultCrypto.unlock(v3, master.toCharArray()))
+        // 2.0: write() solo escribe la 4; una 2 o una 3 pasa a la 4 con la maestra.
+        assertThrows(IllegalStateException::class.java) { VaultCrypto.write(v2, dek, VaultData(entries = fixtureEntries())) }
+        val v4 = VaultCrypto.afterMasterUnlock(v2, dek.copyOf(), master.toCharArray(), clock, KdfParams(1024, 1, 1))
+        assertEquals(4, v4.version)
+        assertEquals(v2.revision + 1, v4.revision)
+        assertEquals(4, VaultCrypto.write(v4, dek, VaultData(entries = fixtureEntries())).version)
+        assertArrayEquals(dek, VaultCrypto.unlock(v4, master.toCharArray()))
     }
 
-    @Test fun writeEnLaVersion2RechazaIdentidadYContactos() {
+    @Test fun writeEnLaVersion2RechazaIdentidadYContactos() { // 2.0: y cualquier otra cosa (solo escribe la 4).
         val v2 = VaultCrypto.decodeFile(fixtureBytes("vault-1.1.json").decodeToString())
         val dek = fixtureDek()
-        assertThrows(IllegalStateException::class.java) { VaultCrypto.write(v2, dek, fixtureEntries() + identityEntry()) }
-        assertThrows(IllegalStateException::class.java) { VaultCrypto.write(v2, dek, fixtureEntries() + contactEntry("Ana")) }
+        assertThrows(IllegalStateException::class.java) { VaultCrypto.write(v2, dek, VaultData(entries = fixtureEntries() + identityEntry())) }
+        assertThrows(IllegalStateException::class.java) { VaultCrypto.write(v2, dek, VaultData(entries = fixtureEntries() + contactEntry("Ana"))) }
         val v3 = VaultCrypto.afterMasterUnlock(v2, dek.copyOf(), master.toCharArray(), clock, KdfParams(1024, 1, 1))
-        val written = VaultCrypto.write(v3, dek, fixtureEntries() + identityEntry() + contactEntry("Ana"))
-        assertEquals(4, VaultCrypto.read(written, dek).size)
+        val written = VaultCrypto.write(v3, dek, VaultData(entries = fixtureEntries() + identityEntry() + contactEntry("Ana")))
+        assertEquals(4, VaultCrypto.read(written, dek).entries.size)
     }
 
     private fun contactEntry(name: String): VaultEntry {
@@ -688,26 +702,28 @@ class VaultV3Test {
         dek.fill(0)
         fun refusal(f: VaultFile, at: Long = now) = VaultCrypto.biometricRefusal(f, at)
         val unsupported = BiometricRefusal.UNSUPPORTED
-        for (v in listOf(1, 4, -1)) assertEquals("version $v", unsupported, refusal(file.copy(version = v)))
+        for (v in listOf(1, 5, -1)) assertEquals("version $v", unsupported, refusal(file.copy(version = v)))
         assertEquals(unsupported, refusal(file.copy(format = "otra-cosa")))
         assertEquals(unsupported, refusal(file.copy(format = "otra-cosa", version = VaultFile.VERSION_UNKNOWN)))
         // Before the clock and the 7 days: a file that does not open is that, whatever its dates say.
-        assertEquals(unsupported, refusal(file.copy(version = 4), now - 1))
-        assertEquals(unsupported, refusal(file.copy(version = 4), now + MASTER_RECHECK_MS))
-        // Versions 0, 2 and 3 do not change: allowed within the 7 days, MASTER_DUE after them, CLOCK with the clock
-        // back.
-        for (v in listOf(VaultFile.VERSION_UNKNOWN, VaultFile.VERSION_2, VaultFile.VERSION)) {
-            assertNull("version $v", refusal(file.copy(version = v), now + 1_000))
-            val due = refusal(file.copy(version = v), now + MASTER_RECHECK_MS)
-            assertEquals("version $v", BiometricRefusal.MASTER_DUE, due)
-            assertEquals("version $v", BiometricRefusal.CLOCK, refusal(file.copy(version = v), now - 1))
+        assertEquals(unsupported, refusal(file.copy(version = 5), now - 1))
+        assertEquals(unsupported, refusal(file.copy(version = 5), now + MASTER_RECHECK_MS))
+        // Version 4: allowed within the 7 days, MASTER_DUE after them, CLOCK with the clock back.
+        assertNull(refusal(file, now + 1_000))
+        assertEquals(BiometricRefusal.MASTER_DUE, refusal(file, now + MASTER_RECHECK_MS))
+        assertEquals(BiometricRefusal.CLOCK, refusal(file, now - 1))
+        // 2.0: versions 0, 2 and 3 open, but pass to 4 with the master password first, whatever their dates say.
+        for (v in listOf(VaultFile.VERSION_UNKNOWN, VaultFile.VERSION_2, VaultFile.VERSION_3)) {
+            for (at in listOf(now + 1_000, now + MASTER_RECHECK_MS, now - 1)) {
+                assertEquals("version $v", BiometricRefusal.UPGRADE, refusal(file.copy(version = v), at))
+            }
         }
         // The texts: MASTER_DUE keeps its own; UNSUPPORTED carries the existing «No es una bóveda compatible».
         assertEquals("Escribe tu contraseña maestra (se pide cada 7 días)", MasterRequired().message)
         assertEquals("No es una bóveda compatible", MasterRequired(BiometricRefusal.UNSUPPORTED).message)
-        // Through the store: a vault.bin that says version 4 refuses the fingerprint, and nothing changes on disk.
-        val dir = phone("version-4")
-        File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(v3Fixture().copy(version = 4)))
+        // Through the store: a vault.bin that says version 5 refuses the fingerprint, and nothing changes on disk.
+        val dir = phone("version-5")
+        File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(v3Fixture().copy(version = 5)))
         val before = File(dir, "vault.bin").readText()
         val s = store(dir).apply { load() }
         assertEquals(BiometricRefusal.UNSUPPORTED, s.biometricRefusal)
@@ -724,7 +740,7 @@ class VaultV3Test {
         val v2 = v2Fixture()
         val up = VaultCrypto.afterMasterUnlock(v2, fixtureDek(), master.toCharArray(), clock, KdfParams(512, 3, 1))
         assertEquals(VaultKdf(1024, 3, 1), up.kdf)
-        assertEquals(3, up.version)
+        assertEquals(4, up.version)
         val keep = VaultCrypto.afterMasterUnlock(v2, fixtureDek(), master.toCharArray(), clock, KdfParams(256, 1, 1))
         assertEquals(v2.kdf, keep.kdf)
         assertArrayEquals(fixtureDek(), VaultCrypto.unlock(up, master.toCharArray()))

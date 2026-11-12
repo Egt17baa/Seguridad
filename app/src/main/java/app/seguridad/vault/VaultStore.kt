@@ -54,7 +54,14 @@ sealed interface VaultState {
     data object Loading : VaultState
     data object NoVault : VaultState
     data object Locked : VaultState
-    data class Unlocked(val entries: List<VaultEntry>) : VaultState
+    /**
+     * The open vault: [data] as stored (format v4; a vault of version 2 or 3 reads the same). [entries] are those not in
+     * the trash, in the order stored, and [trash] the others.
+     */
+    data class Unlocked(val data: VaultData) : VaultState {
+        val entries: List<VaultEntry> = data.live
+        val trash: List<VaultEntry> = data.trash
+    }
 }
 
 /** Shown instead of the 7-day notice when the clock gate refused the fingerprint (A11). */
@@ -144,6 +151,7 @@ class MasterRequired(val reason: BiometricRefusal = BiometricRefusal.MASTER_DUE)
         when (reason) {
             BiometricRefusal.CLOCK -> CLOCK_CHANGED_TEXT
             BiometricRefusal.UNSUPPORTED -> NOT_A_VAULT
+            BiometricRefusal.UPGRADE -> UPGRADE_NEEDS_MASTER
             BiometricRefusal.MASTER_DUE -> "Escribe tu contraseña maestra (se pide cada 7 días)"
         },
     )
@@ -195,6 +203,16 @@ class VaultStore(
      * or NTP) never delays them (COV2-2). [now] stays for the dates and the A11 clock mark.
      */
     private val elapsed: () -> Long = { System.nanoTime() / 1_000_000 },
+    /**
+     * 2.0: runs after an unlock with the master password of a vault of version 2 or 3, with the vault already open and
+     * its version-4 file only in memory ([pendingUpgrade]): the app makes the copy `seguridad-antes-de-2-0-…` in the
+     * automatic copies' folder ([AutoBackup.copyBeforeUpgrade], which exports the file still on disk). True when the copy
+     * is made, and then the v4 is saved; false (no folder, or the copy failed) leaves the choice to the user
+     * ([completeUpgrade]). Not cancelled with the caller. Must not throw.
+     */
+    private val beforeUpgrade: suspend () -> Boolean = { false },
+    /** Writes the vault file; only the tests change it (a write that dies half way, [upgradeInterruptedKeepsV3]). */
+    private val writeFile: (File, String) -> Unit = { f, text -> f.writeTextAtomically(text) },
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -231,13 +249,30 @@ class VaultStore(
     private val _needsMaster = MutableStateFlow(false)
 
     /**
-     * Whether the vault is not yet version 3 (it was written by 1.1 and opened here with the fingerprint, or is not
-     * opened yet): identity and contacts cannot be saved until [confirmMaster] (or [unlock]) wraps the key again under
-     * the master password. False with no vault. Follows the file the store holds, so it changes after [load], [unlock],
-     * [unlockWithKey], [confirmMaster], an import, [changeMaster] and [destroy]; [lock] leaves it as it is (the file
-     * on disk does not change by locking).
+     * Whether the vault file is not of version 3 or 4 (it was written by 1.1): identity and contacts cannot be saved. In
+     * 2.0 an open vault is always a 4, but for one of version 2 whose upgrade waits for the user ([pendingUpgrade]),
+     * when nothing can be saved anyway. False with no vault. Follows the file the store holds, so it changes after
+     * [load], [unlock], [completeUpgrade], an import, [changeMaster] and [destroy]; [lock] leaves it as it is (the file on
+     * disk does not change by locking).
      */
     val needsMasterForContacts: StateFlow<Boolean> = _needsMaster.asStateFlow()
+
+    private val _pendingUpgrade = MutableStateFlow(false)
+
+    /**
+     * 2.0: true while the open vault is still of version 2 or 3 on disk, its version-4 file ready in memory, and the
+     * user has to choose: export a copy first, or go on without one ([completeUpgrade] in both cases; Abogado Digital,
+     * O-3). Meanwhile the vault shows its entries, every save throws [IllegalStateException] with [UPGRADE_PENDING], and
+     * [exportBackup] exports the file on disk, which earlier versions open. A [lock] drops the version 4 (false again):
+     * the file stays as it was, and the next unlock with the master password asks again.
+     */
+    val pendingUpgrade: StateFlow<Boolean> = _pendingUpgrade.asStateFlow()
+
+    /**
+     * The version-4 file [pendingUpgrade] waits to save, under the open data key; only set with the vault open. Written
+     * with [opening] held (and dropped by [lock], on the main thread); read under the mutex.
+     */
+    @Volatile private var upgrade: VaultFile? = null
 
     private var vault: VaultFile? = null
         set(value) {
@@ -303,7 +338,8 @@ class VaultStore(
      * already saved and the next collection tries again.
      */
     private suspend fun collectGarbage() {
-        val entries = (_state.value as? VaultState.Unlocked)?.entries ?: return
+        // Every entry, those in the trash too: their attachments go only when the trash is emptied.
+        val entries = (_state.value as? VaultState.Unlocked)?.data?.entries ?: return
         val live = entries.flatMapTo(HashSet()) { e -> e.attachments.map { it.id } }
         try {
             withContext(io) { attachments.collectGarbage(live) }
@@ -320,7 +356,7 @@ class VaultStore(
      */
     private suspend fun <T> derive(block: () -> T): T = KdfLock.derive(compute, block)
 
-    private suspend fun save(v: VaultFile) = withContext(io) { file.writeTextAtomically(VaultCrypto.encodeFile(v)) }
+    private suspend fun save(v: VaultFile) = withContext(io) { writeFile(file, VaultCrypto.encodeFile(v)) }
 
     /**
      * [save] for bookkeeping only (the last master check, a format upgrade): the file keeps the time of the last
@@ -328,7 +364,7 @@ class VaultStore(
      */
     private suspend fun saveBookkeeping(v: VaultFile) = withContext(io) {
         val changedAt = file.lastModified()
-        file.writeTextAtomically(VaultCrypto.encodeFile(v))
+        writeFile(file, VaultCrypto.encodeFile(v))
         if (changedAt > 0) file.setLastModified(changedAt)
     }
 
@@ -368,16 +404,23 @@ class VaultStore(
         collectGarbage()
     }
 
-    private fun opened(v: VaultFile, key: ByteArray, since: Int) {
+    /**
+     * [upgraded] is the version-4 file of a vault of version 2 or 3 that [v] still is on disk ([pendingUpgrade]): its data
+     * is what opens (same data key), and it waits for [completeUpgrade]; null for any other opening, which ends a pending
+     * upgrade (an import replaced the vault).
+     */
+    private fun opened(v: VaultFile, key: ByteArray, since: Int, upgraded: VaultFile? = null) {
         vault = v
-        val entries = if (epoch != since) null else try {
-            VaultCrypto.read(v, key).sortedBy { it.title.lowercase() }
+        val data = if (epoch != since) null else try {
+            VaultCrypto.read(upgraded ?: v, key).let { d -> d.copy(entries = d.entries.sortedBy { it.title.lowercase() }) }
         } catch (e: CryptoFailure) {
             key.fill(0)
             throw e
         }
         synchronized(opening) {
-            if (entries == null || epoch != since) {
+            if (data == null || epoch != since) {
+                upgrade = null
+                _pendingUpgrade.value = false
                 key.fill(0)
                 // [v] is the vault in memory, and on disk: even an import from «Crea tu bóveda» cut by leaving the app
                 // shows it locked, never «Crea tu bóveda» again (which would refuse a new import and set it aside, BOV-2).
@@ -388,7 +431,9 @@ class VaultStore(
             dek = key
             lastUse = elapsed()
             onClockSeen(now())
-            _state.value = VaultState.Unlocked(entries)
+            upgrade = upgraded
+            _pendingUpgrade.value = upgraded != null
+            _state.value = VaultState.Unlocked(data)
         }
     }
 
@@ -433,11 +478,24 @@ class VaultStore(
      */
     suspend fun unlock(master: CharArray) {
         val since = epoch
-        mutex.withLock { withContext(NonCancellable) { unlockLocked(master, since) } }
+        val upgrading = mutex.withLock { withContext(NonCancellable) { unlockLocked(master, since) } }
+        // 2.0: a vault of version 2 or 3 is open, its version 4 in memory. With the mutex free, so the copy can export
+        // the file still on disk; not cut by the caller leaving (the copy runs in AutoBackup's scope anyway).
+        if (upgrading) {
+            withContext(NonCancellable) {
+                val copied = try {
+                    beforeUpgrade()
+                } catch (e: Exception) {
+                    false // No copy: the user chooses.
+                }
+                if (copied) completeUpgradeLocked(since)
+            }
+        }
     }
 
-    private suspend fun unlockLocked(master: CharArray, since: Int) {
-        val v = vault ?: return
+    /** True when it opened a vault of version 2 or 3 whose version 4 waits in memory ([pendingUpgrade]). */
+    private suspend fun unlockLocked(master: CharArray, since: Int): Boolean {
+        val v = vault ?: return false
         val key = derive { VaultCrypto.unlock(v, master) }
         val checked = try {
             derive { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
@@ -446,8 +504,45 @@ class VaultStore(
             throw e
         }
         onClockReset(now()) // The master password was right: a clock set forward no longer blocks the fingerprint.
-        // A full disk must not lock the user out of their passwords: open anyway (see [commit]).
-        commit(checked, key, since, mustSave = false)
+        if (v.version == VaultFile.VERSION) {
+            // A full disk must not lock the user out of their passwords: open anyway (see [commit]).
+            commit(checked, key, since, mustSave = false)
+            return false
+        }
+        // 2.0, the upgrade: nothing is written yet. The file on disk stays the 2 or 3 until the copy before it is made or
+        // declined; a process death meanwhile leaves it as it was (focus 1).
+        opened(v, key, since, upgraded = checked)
+        collectGarbage()
+        return _pendingUpgrade.value
+    }
+
+    /**
+     * 2.0: saves the version-4 file [pendingUpgrade] waits for, after the copy before it was made or declined (Abogado
+     * Digital, O-3). True when it was saved; false when there was nothing to save (no upgrade waiting: the vault locked
+     * meanwhile, or it is done) or the write failed: then the file on disk is still the 2 or 3 of before, which opens
+     * with the master password, and the choice stays. A bookkeeping save ([saveBookkeeping]): the data does not change,
+     * so no automatic copy is due. Not cancelled with the caller.
+     */
+    suspend fun completeUpgrade(): Boolean = completeUpgradeLocked(null)
+
+    /** [completeUpgrade]; with [since], only if no lock happened since that epoch (the automatic path of [unlock]). */
+    private suspend fun completeUpgradeLocked(since: Int?): Boolean = mutex.withLock {
+        withContext(NonCancellable) {
+            val next = upgrade
+            if (next == null || since != null && epoch != since) return@withContext false
+            try {
+                saveBookkeeping(next)
+            } catch (e: Exception) {
+                return@withContext false // The file on disk is the one of before: the next try, or the next unlock.
+            }
+            synchronized(opening) {
+                // Saved: from here the file is the 4, also if a lock came after the save.
+                vault = next
+                upgrade = null
+                _pendingUpgrade.value = false
+            }
+            true
+        }
     }
 
     val biometricAllowed: Boolean get() = biometricRefusal == null && vault != null
@@ -460,11 +555,11 @@ class VaultStore(
      * wiped, also when the caller is cancelled while it waits for the mutex (BOV-3). In this order:
      * 1. [MasterRequired] with [BiometricRefusal.UNSUPPORTED] for a file this version cannot open, without trying the
      *    key;
-     * 2. for a file that states its version (2 or 3), [MasterRequired] when the 7-day recheck is due or the clock went
-     *    back, before the key is used at all;
-     * 3. [StaleBiometricKey] when the key does not authenticate the entries (for a file of unknown version this is
-     *    also how its version is found, and the 7-day rule and the clock are looked at only after it);
-     * 4. [CryptoFailure] when the entries authenticate but do not decode.
+     * 2. [MasterRequired] with [BiometricRefusal.UPGRADE] for a file of version 2 or 3, or without a version (2.0: it
+     *    passes to 4 with the master password), without trying the key either;
+     * 3. [MasterRequired] when the 7-day recheck is due or the clock went back, before the key is used at all;
+     * 4. [StaleBiometricKey] when the key does not authenticate the entries;
+     * 5. [CryptoFailure] when the entries authenticate but do not decode.
      */
     suspend fun unlockWithKey(key: ByteArray) {
         val since = epoch
@@ -483,38 +578,31 @@ class VaultStore(
             key.fill(0)
             throw MasterRequired(BiometricRefusal.UNSUPPORTED)
         }
-        fun refuseIfDue(file: VaultFile) {
-            val refusal = VaultCrypto.biometricRefusal(file, now(), clockHighWater())
-            if (refusal != null) {
-                key.fill(0)
-                throw MasterRequired(refusal)
-            }
+        // The access rule first (2.0, a file to upgrade; then the 7 days and the clock), so the fingerprint key decrypts
+        // nothing when it refuses (as in 1.3.0). Only a version-4 file gets past it, and a 4 always states its version.
+        VaultCrypto.biometricRefusal(v, now(), clockHighWater())?.let { refusal ->
+            key.fill(0)
+            throw MasterRequired(refusal)
         }
-        // A file that states its version: the access rule (7 days, clock) first, so the fingerprint key decrypts
-        // nothing when it refuses (as in 1.3.0). A file of unknown version needs the key to tell its version.
-        val stated = v.version != VaultFile.VERSION_UNKNOWN
-        if (stated) refuseIfDue(v)
         // Whether the key authenticates the entries (AES-GCM only): only that failure is a stale fingerprint (F1).
         val known = VaultCrypto.authenticated(v, key) ?: run {
             key.fill(0)
             throw StaleBiometricKey()
         }
-        if (!stated) refuseIfDue(known)
         // A CryptoFailure of opened() is entries that authenticate but do not decode, and keeps the fingerprint.
         opened(known, key, since)
         collectGarbage()
     }
 
     /**
-     * For an open vault that is not version 3 yet (see [needsMasterForContacts]): checks [master] and, if right, turns
-     * it into version 3 (same data key, so the fingerprint keeps working). A version-3 vault is only checked and
-     * stays as it is. A wrong password throws what [unlock] throws ([CryptoFailure]) and touches neither the file nor
-     * the open vault. Returns false, having checked nothing, when there is no vault or it is locked ([unlock] is the
-     * way in; the caller must not go on to save), and true when the password is right (checked or migrated). Like
-     * [unlock], it leaves [master] to the caller to wipe, and a full disk does not matter here (see [commit]): the
-     * next save writes the upgrade. A version-3 vault whose Argon2id is cheaper than the profile chosen in Ajustes is not
-     * wrapped again here (CR-3): that second Argon2id would delay the save the user is waiting for, and the next
-     * [unlock] with the master password does it ([VaultCrypto.afterMasterUnlock]).
+     * Checks [master] against the open vault, which stays as it is (2.0: an open vault is a 4, or a 2 or a 3 whose
+     * upgrade waits for the user, [pendingUpgrade], which only [completeUpgrade] saves). A wrong password throws what
+     * [unlock] throws ([CryptoFailure]) and touches neither the file nor the open vault. Returns false, having checked
+     * nothing, when there is no vault or it is locked ([unlock] is the way in; the caller must not go on to save), and
+     * true when the password is right. Like [unlock], it leaves [master] to the caller to wipe. A vault whose Argon2id
+     * is cheaper than the profile chosen in Ajustes is not wrapped again here (CR-3): that second Argon2id would delay
+     * the save the user is waiting for, and the next [unlock] with the master password does it
+     * ([VaultCrypto.afterMasterUnlock]).
      */
     suspend fun confirmMaster(master: CharArray): Boolean = mutex.withLock { withContext(NonCancellable) { confirmMasterLocked(master) } }
 
@@ -522,20 +610,9 @@ class VaultStore(
     private suspend fun confirmMasterLocked(master: CharArray): Boolean {
         val v = vault ?: return false
         if (dek == null || _state.value !is VaultState.Unlocked) return false
-        val since = epoch
         val key = derive { VaultCrypto.unlock(v, master) }
         onClockReset(now())
-        if (v.format == VaultFile.FORMAT && v.version == VaultFile.VERSION) {
-            key.fill(0) // Only the check.
-            return true
-        }
-        val upgraded = try {
-            derive { VaultCrypto.afterMasterUnlock(v, key, master, now(), kdf()) }
-        } catch (e: Exception) {
-            key.fill(0)
-            throw e
-        }
-        commit(upgraded, key, since, mustSave = false)
+        key.fill(0) // Only the check.
         return true
     }
 
@@ -554,6 +631,9 @@ class VaultStore(
         epoch++
         dek?.fill(0)
         dek = null
+        // 2.0: an upgrade not saved yet is dropped; the file stays the 2 or 3 it is.
+        upgrade = null
+        _pendingUpgrade.value = false
         if (vault != null && _state.value is VaultState.Unlocked) {
             lastLockReason = reason
             lastLockInForeground = inForeground()
@@ -593,21 +673,34 @@ class VaultStore(
     }
 
     /**
-     * Saves the change even if the vault locks meanwhile (with a copy of the key), then reopens only if it did not.
-     * False if the vault was already locked, or [change] returned null (nothing to change), so nothing was saved.
-     * [change] runs with the mutex held: it must never wait on anything outside the app (a document provider).
-     * [accept] sees the file about to be saved, still with the mutex held, and false refuses it (nothing saved, false).
+     * [modifyData] on the entries not in the trash: [change] gets them and gives the new list, and the trash and the
+     * rest of the vault's data are kept as they are.
      */
     private suspend fun modify(
         accept: suspend (VaultFile) -> Boolean = { true },
         change: suspend (List<VaultEntry>) -> List<VaultEntry>?,
+    ): Boolean = modifyData(accept) { data -> change(data.live)?.let { data.copy(entries = it + data.trash) } }
+
+    /**
+     * Saves the change even if the vault locks meanwhile (with a copy of the key), then reopens only if it did not.
+     * False if the vault was already locked, or [change] returned null (nothing to change), so nothing was saved.
+     * [change] runs with the mutex held: it must never wait on anything outside the app (a document provider).
+     * What it gives is fitted to the limits ([fittedForSave]: the oldest history goes first) and a vault that still
+     * does not fit throws [VaultLimitExceeded], with nothing saved. [accept] sees the file about to be saved, still with
+     * the mutex held, and false refuses it (nothing saved, false). 2.0: while [pendingUpgrade], throws
+     * [IllegalStateException] with [UPGRADE_PENDING] and saves nothing.
+     */
+    private suspend fun modifyData(
+        accept: suspend (VaultFile) -> Boolean = { true },
+        change: suspend (VaultData) -> VaultData?,
     ): Boolean = mutex.withLock {
+        check(upgrade == null) { UPGRADE_PENDING }
         val v = vault ?: return@withLock false
         val since = epoch
         val key = dek?.copyOf() ?: return@withLock false
-        val current = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock false.also { key.fill(0) }
+        val current = (_state.value as? VaultState.Unlocked)?.data ?: return@withLock false.also { key.fill(0) }
         val next = try {
-            withContext(compute) { change(current)?.let { VaultCrypto.write(v, key, it) }?.takeIf { accept(it) } }
+            withContext(compute) { change(current)?.fittedForSave(current)?.let { VaultCrypto.write(v, key, it) }?.takeIf { accept(it) } }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -696,7 +789,8 @@ class VaultStore(
                 if (_revision.value != plan.revision) return@change null
                 // Ruling R66 (R37): a lock since saving started cancels the import, even if the vault was opened again.
                 if (sinceLock != null && epoch != sinceLock) return@change null
-                attachmentRefs = list.flatMap { it.attachments }
+                // Every attachment the copy would hold, those of the trash too.
+                attachmentRefs = ((_state.value as? VaultState.Unlocked)?.data?.entries ?: list).flatMap { it.attachments }
                 val overFiles = attachmentRefs.size + 2 - BACKUP_MAX_ENTRIES
                 if (overFiles > 0) {
                     result = ApplyResult.TooBig(overBytes = 0, overFiles = overFiles)
@@ -739,11 +833,11 @@ class VaultStore(
     }
 
     /**
-     * Whether [file] is not yet a [VaultFile.FORMAT] version-3 file, so identity and contacts need the master password
-     * first; false with no vault. The one rule behind [needsMasterForContacts] and [checkCanHold].
+     * Whether [file] is not a [VaultFile.FORMAT] file of version 3 or 4, so identity and contacts cannot be saved in it;
+     * false with no vault. The one rule behind [needsMasterForContacts] and [checkCanHold].
      */
     private fun needsMaster(file: VaultFile?): Boolean =
-        file != null && (file.format != VaultFile.FORMAT || file.version != VaultFile.VERSION)
+        file != null && (file.format != VaultFile.FORMAT || (file.version != VaultFile.VERSION && file.version != VaultFile.VERSION_3))
 
     /** Deletes the entry; its attachment files go with the collection after the save. */
     suspend fun delete(id: String) = modify { list -> list.filterNot { it.id == id } }
@@ -801,6 +895,7 @@ class VaultStore(
      * which also proves they remember it. If anything fails, it throws and the vault stays open as it was.
      */
     suspend fun changeMaster(newMaster: CharArray): Boolean = mutex.withLock {
+        check(upgrade == null) { UPGRADE_PENDING }
         val v = vault ?: return@withLock false
         val key = dek?.copyOf() ?: return@withLock false
         val (next, newKey) = try {
@@ -840,7 +935,8 @@ class VaultStore(
         val json: String
         mutex.withLock {
             val v = vault ?: return false
-            refs = (_state.value as? VaultState.Unlocked)?.entries?.flatMap { it.attachments } ?: return false
+            // The trash's attachments too: a copy brings the trash back (2.0).
+            refs = (_state.value as? VaultState.Unlocked)?.data?.entries?.flatMap { it.attachments } ?: return false
             json = VaultCrypto.encodeFile(v)
             refs.firstOrNull { !isAttachmentId(it.id) }?.let { throw CryptoFailure(attachmentUnusable(it.name)) }
         }
@@ -871,6 +967,8 @@ class VaultStore(
      */
     private fun checkCanReplace() {
         if (vault != null && _state.value !is VaultState.Unlocked) throw CryptoFailure(REPLACE_NEEDS_OPEN)
+        // 2.0: not while the upgrade waits for the user's choice (its dialog is in front of everything anyway).
+        if (upgrade != null) throw CryptoFailure(UPGRADE_PENDING)
     }
 
     private suspend fun importText(text: String, master: CharArray, since: Int): Boolean {
@@ -919,7 +1017,9 @@ class VaultStore(
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
             val checked = derive { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
-            val incomingEntries = withContext(compute) { VaultCrypto.read(checked, key) }
+            val incomingData = withContext(compute) { VaultCrypto.read(checked, key) }
+            val incomingEntries = incomingData.entries
+            checkCopyStructure(incomingData)
             // The rules «Comprobar una copia» checks too (BackupCheck.kt), so the two never drift apart: one identity per
             // vault (see [upsert]), and what [upsert] and [addAttachment] keep. A copy that breaks one is refused before
             // anything changes.
@@ -1065,8 +1165,17 @@ class VaultStore(
     }
 }
 
-/** Largest JSON export read (a real one is a few hundred KB): a huge file must not exhaust memory. */
-const val VAULT_IMPORT_MAX_BYTES = 20 * 1024 * 1024
+/**
+ * Largest JSON export read (a real one is a few hundred KB): a huge file must not exhaust memory. 2.0: 40 MiB, in
+ * proportion to the 32 MiB a vault may take in a copy with marker 3 ([BACKUP_V3_MAX_ENTRY_BYTES]).
+ */
+const val VAULT_IMPORT_MAX_BYTES = 40 * 1024 * 1024
+
+/**
+ * 2.0: what a save says while the vault waits for the choice before passing to v4 ([VaultStore.pendingUpgrade]); the
+ * dialog that offers the choice is in front of every vault screen, so it is only a last defence.
+ */
+const val UPGRADE_PENDING = "Antes de guardar nada, elige en el aviso si exportas una copia de la bóveda."
 
 private const val NEEDS_MASTER_FOR_CONTACTS = "Hace falta la contraseña maestra para guardar la identidad o los contactos"
 private const val REPLACE_NEEDS_OPEN = "Abre la bóveda antes de importar una copia"
@@ -1081,7 +1190,7 @@ const val IMPORT_SETTINGS_FAILED = "No se ha importado la copia: no se pudieron 
  */
 class ReplacePrepared(val droppedRequest: Boolean, val undo: suspend () -> Unit)
 private const val ONLY_ONE_IDENTITY = "Solo puede haber una identidad"
-private const val IMPORT_TOO_BIG = "El archivo pasa de 20 MB: no es una copia de la bóveda"
+private const val IMPORT_TOO_BIG = "El archivo pasa de 40 MB: no es una copia de la bóveda"
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"
 private const val IMPORT_DIR_PREFIX = "import-"
 

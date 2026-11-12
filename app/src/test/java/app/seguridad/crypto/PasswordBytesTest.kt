@@ -177,12 +177,12 @@ class PasswordBytesTest {
         assertArrayEquals(dek, opened)
         assertEquals(entries, vault.read(legacyFile, opened))
         assertThrows(CryptoFailure::class.java) { vault.unlock(legacyFile, "maestra-de-prueba".toCharArray()) }
-        // The upgrade to version 3 after unlocking (what VaultStore does with the same master) keeps it opening.
+        // The upgrade to version 4 after unlocking (what VaultStore does with the same master; 2.0) keeps it opening.
         val v3 = vault.afterMasterUnlock(legacyFile, opened, legacy.toCharArray(), 1_790_000_000_001L, quick)
-        assertEquals(3, v3.version)
+        assertEquals(4, v3.version)
         val reopened = vault.unlock(v3, legacy.toCharArray())
         assertArrayEquals(dek, reopened)
-        assertEquals(entries, vault.read(v3, reopened))
+        assertEquals(entries.entries, vault.read(v3, reopened).entries)
         // But no new vault, and no new master, is made with it.
         assertEquals(PASSWORD_NOT_TEXT, assertThrows(CryptoFailure::class.java) { vault.create(legacy.toCharArray(), 1L, quick) }.message)
         assertEquals(

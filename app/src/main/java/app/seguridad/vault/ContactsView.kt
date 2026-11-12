@@ -404,7 +404,7 @@ fun VaultEntry.myCard(): MyCard = openIdentity().use { id ->
  * de la bóveda), por orden de nombre. Nunca la identidad ni otros tipos.
  */
 fun contactsList(entries: List<VaultEntry>, text: String): List<VaultEntry> =
-    entries.query(EntryFilter(text = text, type = EntryType.CONTACT))
+    entries.query(ListQuery(text = text, type = EntryType.CONTACT))
 
 /** Lo que se escribe junto al nombre en la lista y en el detalle. */
 fun verificationMark(entry: VaultEntry): String = when {

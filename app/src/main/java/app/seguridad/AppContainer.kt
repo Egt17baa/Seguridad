@@ -21,6 +21,7 @@ import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupTarget
+import app.seguridad.vault.CopyResult
 import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
@@ -150,7 +151,7 @@ class AppContainer(
     }
 
     /** Password vault (files/vault/vault.bin); never in backups (allowBackup is off). Lock time and Argon2id cost come from the settings. */
-    val vault = VaultStore(
+    val vault: VaultStore = VaultStore(
         File(vaultDir, "vault.bin"),
         kdf = { settings.settings.value.kdf.params },
         idleLockMs = { settings.settings.value.lockAfter.ms },
@@ -167,6 +168,9 @@ class AppContainer(
         onClockReset = ::resetClock,
         elapsed = elapsedRealtime,
         awayInMultiWindow = { _awayInOtherApp.value },
+        // 2.0: the copy before the vault passes to v4, in the automatic copies' folder; none (no folder, or it failed)
+        // leaves the choice to the user (the upgrade dialog, Abogado Digital O-3). [autoBackup] exists by the first unlock.
+        beforeUpgrade = { autoBackup.copyBeforeUpgrade() is CopyResult.Saved },
     )
 
     /**
@@ -279,7 +283,7 @@ class AppContainer(
     val pwned: PwnedPasswords by lazy { PwnedPasswords(client) }
 
     /** Encrypted copies to the folder chosen in Ajustes, a few seconds after each change to the vault. */
-    val autoBackup = AutoBackup(
+    val autoBackup: AutoBackup = AutoBackup(
         vault,
         folder = { settings.settings.value.autoBackupUri },
         open = backupFolder,

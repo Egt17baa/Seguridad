@@ -104,7 +104,20 @@ private val IMPORT_TEMP_NAME = Regex("seguridad-antes-de-importar-\\d{8}-\\d{6}\
 /** [COPY_NAME] for [IMPORT_COPY_PREFIX]: only counted by the «copias sin apuntar» notice, never deleted by name. */
 private val IMPORT_COPY_NAME = Regex("seguridad-antes-de-importar-\\d{8}-\\d{6}\\.sgbak")
 
-/** What [AUTO_BACKUP_PREFIX] and [IMPORT_COPY_PREFIX] start with: the rotation lists the folder once for both. */
+/**
+ * 2.0: the copy made just before the vault passes to format v4 ([AutoBackup.copyBeforeUpgrade]), of the file of version
+ * 2 or 3 still on disk, which earlier versions open. Kept as the import copies are: listed with them (so A6 deletes it
+ * after a change of master password, as it is under the password of before), never rotated.
+ */
+const val UPGRADE_COPY_PREFIX = "seguridad-antes-de-2-0-"
+
+/** [TEMP_NAME] for [UPGRADE_COPY_PREFIX]. */
+private val UPGRADE_TEMP_NAME = Regex("seguridad-antes-de-2-0-\\d{8}-\\d{6}\\.sgbak\\.tmp")
+
+/** [COPY_NAME] for [UPGRADE_COPY_PREFIX]: only counted by the «copias sin apuntar» notice, never deleted by name. */
+private val UPGRADE_COPY_NAME = Regex("seguridad-antes-de-2-0-\\d{8}-\\d{6}\\.sgbak")
+
+/** What [AUTO_BACKUP_PREFIX], [IMPORT_COPY_PREFIX] and [UPGRADE_COPY_PREFIX] start with: the rotation lists the folder once for all. */
 private const val COPIES_PREFIX = "seguridad-"
 
 private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
@@ -399,9 +412,18 @@ class AutoBackup(
      * lock, so it never overlaps an automatic copy or its rotation, and the caller leaving cannot cut it between the
      * rename and the list.
      */
-    suspend fun copyBeforeImport(): CopyResult? = scope.async { lock.withLock { importCopyNow() } }.await()
+    suspend fun copyBeforeImport(): CopyResult? = scope.async { lock.withLock { copyBeforeNow(IMPORT_COPY_PREFIX) } }.await()
 
-    private suspend fun importCopyNow(): CopyResult? {
+    /**
+     * 2.0: the copy before the vault passes to format v4 ([VaultStore.pendingUpgrade]), written as [copyBeforeImport]
+     * and listed with the import copies, named `seguridad-antes-de-2-0-AAAAMMDD-HHMMSS.sgbak`. It is the file still on
+     * disk ([VaultStore.exportBackup] while the upgrade waits), of version 2 or 3, with the marker 2: what earlier versions
+     * open. Null with no folder, so the store asks the user. The [CopyResult.Failed] texts are the import's: the store
+     * only tells a copy made from one not made, and then the user chooses.
+     */
+    suspend fun copyBeforeUpgrade(): CopyResult? = scope.async { lock.withLock { copyBeforeNow(UPGRADE_COPY_PREFIX) } }.await()
+
+    private suspend fun copyBeforeNow(prefix: String): CopyResult? {
         val uri = folder() ?: return null
         return try {
             val target = open(uri) ?: return CopyResult.Failed(IMPORT_COPY_NO_FOLDER)
@@ -409,7 +431,7 @@ class AutoBackup(
             // As [attempt]: a copy whose vault was replaced while it was written is never listed as this vault's.
             val generation = store.generation
             // A lock meanwhile refuses the copy, and schedules no automatic one (nothing changed in the vault).
-            val written = copyTo(target, now(), IMPORT_COPY_PREFIX, defer = false) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
+            val written = copyTo(target, now(), prefix, defer = false) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
             if (store.generation != generation) return CopyResult.Failed(IMPORT_COPY_VAULT_CHANGED)
             try {
                 onImportCopy(uri, written.id, generation)
@@ -645,7 +667,7 @@ class AutoBackup(
         val old = others.filter { it in doomed }
         val rest = others.filter { it !in doomed }
         val surplus = rest.dropLast(keepN - 1)
-        val leftovers = present.filter { TEMP_NAME.matches(it.name) || IMPORT_TEMP_NAME.matches(it.name) }.map { it.id }
+        val leftovers = present.filter { TEMP_NAME.matches(it.name) || IMPORT_TEMP_NAME.matches(it.name) || UPGRADE_TEMP_NAME.matches(it.name) }.map { it.id }
         // Import copies: never rotated, only deleted as targets of a replacement (A6), by id from their own list.
         val listedImports = importCopies()
         val imports = listedImports.filter { it in ids && it != newest.id }.distinct()
@@ -670,7 +692,8 @@ class AutoBackup(
         val ownedIds = owned.toHashSet()
         val importIds = listedImports.toHashSet()
         val unlisted = present.count {
-            it.id != newest.id && (COPY_NAME.matches(it.name) && it.id !in ownedIds || IMPORT_COPY_NAME.matches(it.name) && it.id !in importIds)
+            it.id != newest.id &&
+                (COPY_NAME.matches(it.name) && it.id !in ownedIds || (IMPORT_COPY_NAME.matches(it.name) || UPGRADE_COPY_NAME.matches(it.name)) && it.id !in importIds)
         }
         val targetsLeft = (old + oldImports).filter { it in notDeleted }
         val done = targetsLeft.isEmpty() && !leftoverLeft

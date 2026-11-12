@@ -147,7 +147,7 @@ class EntryEditSessionTest {
     // m6 (CR re-review): the ViewModel's wiring, as a function the ViewModel calls: the vault's state is followed with no
     // composition at all (a lock in the background clears at once), and leaving or being cleared lets it go.
     @Test fun followingTheVaultClearsOnALockWithNoScreenAndReloadsOnTheNextUnlock() = runTest {
-        val state = MutableStateFlow<VaultState>(VaultState.Unlocked(listOf(saved)))
+        val state = MutableStateFlow<VaultState>(VaultState.Unlocked(VaultData(entries = listOf(saved))))
         val s = session(id = "e1")
         s.followVault(state, backgroundScope)
         runCurrent()
@@ -156,7 +156,7 @@ class EntryEditSessionTest {
         state.value = VaultState.Locked // In the background: no composition exists.
         runCurrent()
         s.assertEmpty()
-        state.value = VaultState.Unlocked(listOf(saved))
+        state.value = VaultState.Unlocked(VaultData(entries = listOf(saved)))
         runCurrent()
         assertEquals("Banco", s.title.value)
         assertEquals("clave-guardada", s.loginPassword.value)

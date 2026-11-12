@@ -87,11 +87,12 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.CLOCK_CHANGED_TEXT
-import app.seguridad.vault.EntryFilter
+import app.seguridad.vault.ListQuery
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MIN_MASTER
 import app.seguridad.vault.NOT_A_VAULT
+import app.seguridad.vault.UPGRADE_NEEDS_MASTER
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
@@ -386,6 +387,8 @@ private fun UnlockVault(store: VaultStore) {
                 BiometricRefusal.CLOCK -> Text(CLOCK_CHANGED_TEXT, style = MaterialTheme.typography.bodySmall)
                 BiometricRefusal.MASTER_DUE ->
                     Text("Por seguridad, cada 7 días hay que escribir la contraseña maestra.", style = MaterialTheme.typography.bodySmall)
+                // 2.0: a vault of version 2 or 3 passes to v4 with the master password, once.
+                BiometricRefusal.UPGRADE -> Text(UPGRADE_NEEDS_MASTER, style = MaterialTheme.typography.bodySmall)
                 // A file this version cannot open: no notice (the master password says it is not compatible).
                 BiometricRefusal.UNSUPPORTED, null -> Unit
             }
@@ -479,7 +482,7 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, list: Ent
     }
     // A tag no entry has any more (deleted or renamed) must not keep filtering the list.
     val activeTag = tag?.takeIf { it in allTags }
-    val shown = remember(entries, query, type, activeTag) { entries.query(EntryFilter(query, activeTag, type)) }
+    val shown = remember(entries, query, type, activeTag) { entries.query(ListQuery(query, activeTag, type)) }
     LazyColumn(state = listState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         item {
             OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Buscar") }, singleLine = true,
@@ -532,6 +535,7 @@ private fun EntryList(allEntries: List<VaultEntry>, totpOnly: Boolean, list: Ent
                         EntryType.NOTE -> "Nota"
                         EntryType.TOTP -> listOf(e.totp?.issuer, e.totp?.account).filter { !it.isNullOrBlank() }.joinToString(" · ")
                         EntryType.IDENTITY, EntryType.CONTACT -> "" // Never listed here.
+                        EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> e.type.label // 2.0, task 5.
                     }
                     if (sub.isNotBlank()) Text(plainReportText(sub), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
@@ -567,4 +571,8 @@ fun typeIcon(t: EntryType) = when (t) {
     EntryType.TOTP -> "⏱"
     EntryType.IDENTITY -> "🪪"
     EntryType.CONTACT -> "👤"
+    EntryType.CARD -> "💳"
+    EntryType.WIFI -> "📶"
+    EntryType.LICENSE -> "🧾"
+    EntryType.PASSPORT -> "🛂"
 }

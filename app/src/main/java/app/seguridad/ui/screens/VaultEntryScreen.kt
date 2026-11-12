@@ -435,6 +435,8 @@ fun VaultEntryEditScreen(
                         )
                     }
                     EntryType.NOTE, EntryType.IDENTITY, EntryType.CONTACT -> Unit // The last two have their own tab.
+                    // 2.0: their templates come with task 5; until then only their notes, as a note.
+                    EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> Unit
                     EntryType.TOTP -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = {

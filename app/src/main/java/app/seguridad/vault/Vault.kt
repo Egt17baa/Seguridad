@@ -20,7 +20,11 @@ import java.security.SecureRandom
 import java.util.Base64
 
 @Serializable
-enum class EntryType(val label: String) {
+enum class EntryType(
+    val label: String,
+    /** 2.0: only a version-4 vault holds it (the templates of task 5); no earlier version knows it. */
+    val v4Only: Boolean = false,
+) {
     LOGIN("Acceso"),
     SEED("Frase semilla"),
     NOTE("Nota"),
@@ -31,14 +35,23 @@ enum class EntryType(val label: String) {
 
     /** Someone else's card, to encrypt for them and to know who signed what; version-3 vaults only. */
     CONTACT("Contacto"),
+
+    /** 2.0, templates (task 5): offered nowhere yet ([VAULT_ENTRY_TYPES]). */
+    CARD("Tarjeta", v4Only = true),
+    WIFI("Wifi", v4Only = true),
+    LICENSE("Licencia", v4Only = true),
+    PASSPORT("Pasaporte", v4Only = true),
     ;
 
     /** [IDENTITY] and [CONTACT]: they live in the vault but have their own tab, with no passwords, attachments, history or health. */
     val isPersonal: Boolean get() = this == IDENTITY || this == CONTACT
 }
 
-/** The types the password list and the entry form offer: everything but [EntryType.isPersonal]. */
-val VAULT_ENTRY_TYPES: List<EntryType> = EntryType.entries.filterNot { it.isPersonal }
+/**
+ * The types the password list and the entry form offer: everything but [EntryType.isPersonal] and, until their templates
+ * exist (task 5), the [EntryType.v4Only] ones.
+ */
+val VAULT_ENTRY_TYPES: List<EntryType> = EntryType.entries.filterNot { it.isPersonal || it.v4Only }
 
 @Serializable
 data class VaultEntry(
@@ -74,6 +87,20 @@ data class VaultEntry(
     val verifiedAt: Long = 0,
     /** `"qr"` or `"fingerprint"` when [verified]; empty otherwise. */
     val verifiedBy: String = "",
+    // 2.0 (format v4): all with a default, so an entry of version 2 or 3 reads the same and is written the same.
+    /** The [Folder.id] it is in; null for none. */
+    val folderId: String? = null,
+    /** Fields the user added ([VaultLimits]: at most 30). */
+    val fields: List<CustomField> = emptyList(),
+    val notesFormat: NotesFormat = NotesFormat.PLAIN,
+    /** Earlier versions of this entry ([fitted] keeps it within its limits), each without history or attachments. */
+    val history: List<EntryVersion> = emptyList(),
+    /** When it went to the trash; null when it is not there. */
+    val deletedAt: Long? = null,
+    val expiresAt: Long? = null,
+    /** Change the password every this many months; null for no reminder. */
+    val rotateMonths: Int? = null,
+    val lastUsedAt: Long? = null,
 )
 
 /**
@@ -118,10 +145,11 @@ data class VaultFile(
     val format: String,
     /**
      * 2: every field is authenticated (see [VaultCrypto]). 3: the same binding (the version number is one of the bound
-     * fields, so a 2 cannot pass for a 3 or the other way round) and the only one that may hold [EntryType.IDENTITY]
-     * and [EntryType.CONTACT] entries. This app always writes it: 2 (1.0 and 1.1) or 3. A file without it
-     * ([VERSION_UNKNOWN], edited by hand) is tried as both: the version whose associated data opens the blobs is the
-     * right one (see [VaultCrypto.resolve]).
+     * fields, so a 2 cannot pass for a 3 or the other way round) and the first that may hold [EntryType.IDENTITY]
+     * and [EntryType.CONTACT] entries. 4 (2.0): the same binding again, and the data blob is a [VaultData] instead of a
+     * list of entries. This app always writes it: 2 (1.0 and 1.1), 3 (1.2 to 1.4.3) or 4. A file without it
+     * ([VERSION_UNKNOWN], edited by hand) is tried as 3 and as 2, never as 4 (a 4 always says it): the version whose
+     * associated data opens the blobs is the right one (see [VaultCrypto.resolve]).
      */
     val version: Int = VERSION_UNKNOWN,
     val kdf: VaultKdf,
@@ -138,17 +166,25 @@ data class VaultFile(
 ) {
     companion object {
         const val FORMAT = "seguridad-vault"
+
         /**
-         * The version this app writes. Version 1.1 only reads [VERSION_2] and loses nothing: with the master password it
+         * The version this app writes (2.0). 1.2 to 1.4.3 read only 2 and 3: a 4 gets «No es una bóveda compatible»
+         * with the master password and no fingerprint ([BiometricRefusal.UNSUPPORTED]), and nothing changes. That only
+         * happens if an earlier version is installed over 2.0, which Android does not allow for a published app without
+         * uninstalling it first; the unlock screen says so before the upgrade (Abogado Digital, O-3).
+         */
+        const val VERSION = 4
+
+        /**
+         * What 1.2 to 1.4.3 wrote. Version 1.1 only reads [VERSION_2] and loses nothing: with the master password it
          * says "No es una bóveda compatible"; opened with the fingerprint, a 3 without an identity or contacts shows its
          * entries, every save fails and the file does not change, except that changing the master password rewrites it as
          * a 2 holding the same entries (all of them types 1.1 knows); a 3 with an identity gives "Contraseña incorrecta o
-         * datos dañados". It only happens if 1.1 is installed over 1.2, which Android does not allow for a published app
-         * without uninstalling it first.
+         * datos dañados". 2.0 reads it and passes it to [VERSION] at the first unlock with the master password.
          */
-        const val VERSION = 3
+        const val VERSION_3 = 3
 
-        /** What 1.1 wrote and 1.2 still reads: no identity or contacts, and it stays 2 until the master password is typed. */
+        /** What 1.1 wrote: no identity or contacts. 2.0 reads it and passes it to [VERSION] as a 3. */
         const val VERSION_2 = 2
         const val VERSION_UNKNOWN = 0
     }
@@ -162,13 +198,14 @@ private fun fieldsAad(label: String, f: VaultFile, version: Int, vararg extra: A
     (listOf(label, f.format, version, f.kdf.memoryKiB, f.kdf.iterations, f.kdf.parallelism, f.salt) + extra)
         .joinToString("\u0000").toByteArray(Charsets.UTF_8)
 
-/** What [VaultCrypto] can open: a [VaultFile.FORMAT] file of version 2 or 3, or one that does not say its version. */
-private fun supported(f: VaultFile) = f.format == VaultFile.FORMAT &&
-    (f.version == VaultFile.VERSION_UNKNOWN || f.version == VaultFile.VERSION_2 || f.version == VaultFile.VERSION)
+/** What [VaultCrypto] can open: a [VaultFile.FORMAT] file of version 2, 3 or 4, or one that does not say its version. */
+private fun supported(f: VaultFile) = f.format == VaultFile.FORMAT && f.version in READ_VERSIONS
 
-/** Versions to try for [f]: its own, or both when the file does not say (newest first). */
+private val READ_VERSIONS = setOf(VaultFile.VERSION_UNKNOWN, VaultFile.VERSION_2, VaultFile.VERSION_3, VaultFile.VERSION)
+
+/** Versions to try for [f]: its own, or 3 and 2 when the file does not say (newest first); never 4, which always says it. */
 private fun candidates(f: VaultFile) =
-    if (f.version != VaultFile.VERSION_UNKNOWN) listOf(f.version) else listOf(VaultFile.VERSION, VaultFile.VERSION_2)
+    if (f.version != VaultFile.VERSION_UNKNOWN) listOf(f.version) else listOf(VaultFile.VERSION_3, VaultFile.VERSION_2)
 
 /**
  * Opens the first candidate version that authenticates. Trying the 2 after the 3 is no downgrade: the version is one
@@ -186,9 +223,9 @@ private fun openAny(key: ByteArray, sealed: String, f: VaultFile, aad: (Int) -> 
 }
 
 /**
- * The label comes from the file's own format ("seguridad-vault-key-v2"). Versions 2 and 3 share it and bind the format,
+ * The label comes from the file's own format ("seguridad-vault-key-v2"). Versions 2, 3 and 4 share it and bind the format,
  * version, Argon2id cost and salt to the wrapped key: the version number inside the associated data is what tells
- * them apart, so wrapping again under a 3 needs the master password. Internal only so a test can wrap the real 1.1.1
+ * them apart, so wrapping again under a 4 needs the master password. Internal only so a test can wrap the real 1.1.1
  * fixture under the key Bouncy Castle 1.80 derived (`PasswordBytesTest`, review F5, m3).
  */
 internal fun keyAad(f: VaultFile, version: Int) = fieldsAad("${f.format}-key-v2", f, version)
@@ -223,12 +260,37 @@ private fun open(key: ByteArray, sealed: String, aad: ByteArray): ByteArray {
 /** What [VaultCrypto] says of a file it cannot open; the unlock screen shows it, not «Contraseña incorrecta» (F2). */
 internal const val NOT_A_VAULT = "No es una bóveda compatible"
 
+/** 2.0: the unlock screen's line for [BiometricRefusal.UPGRADE] (design «Formato v4»). */
+const val UPGRADE_NEEDS_MASTER = "Clavero 2.0 necesita la maestra una vez para pasar la bóveda al formato nuevo."
+
+private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it) }
+
+/**
+ * 2.0, the upgrade to v4: each LOGIN's [VaultEntry.passwordHistory] also becomes [VaultEntry.history], one
+ * [EntryVersion] per old password, with its date (the entry as it is, with that password; without history or
+ * attachments). [VaultEntry.passwordHistory] is kept, as the entry screen and «Salud» still read it until the history of
+ * task 3 replaces them. A missing [VaultData.vaultTag] is made (16 random bytes in hex).
+ */
+private fun VaultData.upgraded(random: SecureRandom): VaultData = copy(
+    entries = entries.map { e ->
+        if (e.passwordHistory.isEmpty() || e.history.isNotEmpty()) {
+            e
+        } else {
+            val base = e.copy(history = emptyList(), attachments = emptyList(), passwordHistory = emptyList())
+            e.copy(history = e.passwordHistory.map { EntryVersion(it.changedAt, base.copy(password = it.password)) })
+        }
+    },
+    vaultTag = vaultTag.ifEmpty { newVaultTag(random) },
+)
+
+private fun newVaultTag(random: SecureRandom): String = hex(randomBytes(16, random))
+
 object VaultCrypto {
     /** A new vault: fresh DEK wrapped with [master]. Returns the file and the open DEK (caller keeps it while unlocked). */
     fun create(master: CharArray, now: Long, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): Pair<VaultFile, ByteArray> {
         val dek = randomBytes(KEY_BYTES, random)
         try {
-            return wrap(dek, emptyList(), master, PasswordUse.NEW, now, kdf, random) to dek
+            return wrap(dek, VaultData(vaultTag = newVaultTag(random)), master, PasswordUse.NEW, now, kdf, random) to dek
         } catch (e: Exception) {
             dek.fill(0)
             throw e
@@ -236,11 +298,11 @@ object VaultCrypto {
     }
 
     /**
-     * A [VaultFile.FORMAT] version-3 file holding [entries] under [dek], with [dek] wrapped by [master] (fresh salt). [use]
+     * A [VaultFile.FORMAT] version-4 file holding [data] under [dek], with [dek] wrapped by [master] (fresh salt). [use]
      * is [PasswordUse.NEW] for a new vault or a new master password, and [PasswordUse.EXISTING] when wrapping again under
      * the master that has just opened the file (review F5, M1: a 1.0.x/1.1.x master must keep working after the upgrade).
      */
-    private fun wrap(dek: ByteArray, entries: List<VaultEntry>, master: CharArray, use: PasswordUse, now: Long, kdf: KdfParams, random: SecureRandom, revision: Long = 0): VaultFile {
+    private fun wrap(dek: ByteArray, data: VaultData, master: CharArray, use: PasswordUse, now: Long, kdf: KdfParams, random: SecureRandom, revision: Long = 0): VaultFile {
         val salt = randomBytes(SALT_BYTES, random)
         val kek = argon2id(master, salt, kdf, use = use)
         try {
@@ -256,7 +318,7 @@ object VaultCrypto {
             )
             return plain.copy(
                 wrappedKey = seal(kek, dek, keyAad(plain, VaultFile.VERSION), random, wipe = false), // The open DEK stays in use.
-                data = seal(dek, encodeEntries(entries), dataAad(plain, VaultFile.VERSION), random),
+                data = seal(dek, encodeData(data), dataAad(plain, VaultFile.VERSION), random),
             )
         } finally {
             kek.fill(0)
@@ -280,18 +342,33 @@ object VaultCrypto {
         }
     }
 
-    fun read(file: VaultFile, dek: ByteArray): List<VaultEntry> {
-        val json = openAny(dek, file.data, file) { dataAad(file, it) }.first
+    /**
+     * The vault's data: a [VaultData] for a version-4 file, and `VaultData(entries = list)` for one of version 2 or 3
+     * (or without a version). [CryptoFailure] for a key that does not open it, or data that does not decode: also JSON
+     * nested deeper than [VaultLimits.JSON_MAX_DEPTH], refused before it is decoded. The versions in
+     * [VaultEntry.history] come back without history or attachments of their own, whatever the file says.
+     */
+    fun read(file: VaultFile, dek: ByteArray): VaultData {
+        val (json, version) = openAny(dek, file.data, file) { dataAad(file, it) }
         try {
-            return appJson.decodeFromString<List<VaultEntry>>(json.toString(Charsets.UTF_8))
+            if (!jsonNestingWithin(json)) throw CryptoFailure()
+            val text = json.toString(Charsets.UTF_8)
+            val data = if (version == VaultFile.VERSION) {
+                appJson.decodeFromString(VaultData.serializer(), text)
+            } else {
+                VaultData(entries = appJson.decodeFromString<List<VaultEntry>>(text))
+            }
+            return data.withPlainVersions()
         } catch (e: kotlinx.serialization.SerializationException) {
             throw CryptoFailure()
+        } catch (e: IllegalArgumentException) {
+            throw CryptoFailure() // A value the serializer refused (kotlinx's own errors are of this kind too).
         } finally {
             json.fill(0)
         }
     }
 
-    /** The entries' JSON exactly as stored (decrypted, not decoded): for tests that check what was really written. */
+    /** The data's JSON exactly as stored (decrypted, not decoded): for tests that check what was really written. */
     internal fun readJson(file: VaultFile, dek: ByteArray): String {
         val json = openAny(dek, file.data, file) { dataAad(file, it) }.first
         try {
@@ -329,35 +406,35 @@ object VaultCrypto {
     }
 
     /**
-     * Re-encrypts all entries with a fresh nonce and the next revision, **keeping the file's version**: a [VaultFile.FORMAT]
-     * file of version 2 or 3 only (see [afterMasterUnlock]). Throws [IllegalStateException] for any other file, and for a
-     * version-2 file with [EntryType.IDENTITY] or [EntryType.CONTACT] entries: those need the version 3, which needs the
-     * master password (wrapping the key again), so a vault opened with the fingerprint never writes them.
+     * Re-encrypts [data] with a fresh nonce and the next revision: a [VaultFile.FORMAT] file of version 4 only. Throws
+     * [IllegalStateException] for any other file: a 2 or a 3 passes to 4 only with the master password, which wraps the
+     * key again ([afterMasterUnlock]), so this app never writes a 2 or a 3 again. [data] is written as it is: the store
+     * fits it first ([fittedForSave]).
      */
-    fun write(file: VaultFile, dek: ByteArray, entries: List<VaultEntry>, random: SecureRandom = secureRandom): VaultFile {
-        check(file.format == VaultFile.FORMAT && (file.version == VaultFile.VERSION_2 || file.version == VaultFile.VERSION)) {
+    fun write(file: VaultFile, dek: ByteArray, data: VaultData, random: SecureRandom = secureRandom): VaultFile {
+        check(file.format == VaultFile.FORMAT && file.version == VaultFile.VERSION) {
             "Old vault format: unlock with the master password first"
         }
-        check(file.version == VaultFile.VERSION || entries.none { it.type.isPersonal }) {
-            "Identity and contacts need a version-3 vault: confirm the master password first"
-        }
         val next = file.copy(revision = file.revision + 1)
-        return next.copy(data = seal(dek, encodeEntries(entries), dataAad(next, file.version), random))
+        return next.copy(data = seal(dek, encodeData(data), dataAad(next, file.version), random))
     }
 
     /**
-     * After the master password opened [file]: records the check (re-sealing, since it is authenticated) and turns a
-     * version-2 file into version 3, which needs the master password once more to wrap the key with the new binding.
-     * The data key stays the same (a fingerprint set up with it keeps working) and the revision goes up by one. A
-     * version-3 file is only re-sealed, unless its Argon2id is cheaper than [kdf] in memory or passes: then the key is
+     * After the master password opened [file]: records the check (re-sealing, since it is authenticated) and always
+     * gives a version-4 file. A file of version 2 or 3 (or without a version) passes to 4, which needs the master password
+     * once more to wrap the key with the new binding, and its data is [upgraded] (the old passwords also in the history,
+     * a [VaultData.vaultTag]) and [fitted]. The data key stays the same (a fingerprint set up with it keeps working) and
+     * the revision goes up by one. No limit of [VaultLimits] refuses it: an old vault always passes. A
+     * version-4 file is only re-sealed, unless its Argon2id is cheaper than [kdf] in memory or passes: then the key is
      * wrapped again with the cost asked, same data key, revision + 1. That happens at any unlock with the master
      * password, on purpose: after an import of a copy made with a lower cost (A8), and also after a higher cost was
      * chosen in Ajustes, which takes effect at the next unlock with the master password (that unlock then runs Argon2id
      * twice: once to open with the old cost, once to wrap with the new one). If saving that fails ([VaultStore] opens
      * anyway), the vault in memory already has the new cost and any later save writes it; only if no save ever succeeds
      * does the next start do it again, never silently lowering anything. [VaultStore.confirmMaster] (a check inside an
-     * open session) does not do it: it only checks a version-3 file, so a save the user is waiting for is not delayed
-     * by a second Argon2id; the next unlock does it.
+     * open session) does not do it: it only checks, so a save the user is waiting for is not delayed by a second
+     * Argon2id; the next unlock does it. [VaultStore.unlock] keeps a 4 made from a 3 in memory until the copy before it is
+     * made or declined ([VaultStore.pendingUpgrade]).
      *
      * Whatever is wrapped again never costs less than the file did on any axis (CR-2): memory, passes and parallelism
      * are each the higher of the file's and [kdf]'s. A lower parallelism alone is not «cheaper»: Argon2id's cost to an
@@ -366,7 +443,9 @@ object VaultCrypto {
      */
     fun afterMasterUnlock(file: VaultFile, dek: ByteArray, master: CharArray, now: Long, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): VaultFile {
         val known = resolve(file, dek)
-        val entries = read(known, dek)
+        val old = known.version != VaultFile.VERSION
+        val read = read(known, dek)
+        val data = if (old) read.upgraded(random).fitted() else read.copy(vaultTag = read.vaultTag.ifEmpty { newVaultTag(random) })
         val weaker = known.kdf.memoryKiB < kdf.memoryKiB || known.kdf.iterations < kdf.iterations
         // Whatever is wrapped again never costs less than the file did on any axis (a stronger old file keeps its strength).
         val cost = KdfParams(
@@ -374,29 +453,30 @@ object VaultCrypto {
             maxOf(known.kdf.iterations, kdf.iterations),
             maxOf(known.kdf.parallelism, kdf.parallelism),
         )
-        return if (known.format != VaultFile.FORMAT || known.version != VaultFile.VERSION || weaker) {
-            wrap(dek, entries, master, PasswordUse.EXISTING, now, cost, random, known.revision + 1)
+        return if (known.format != VaultFile.FORMAT || old || weaker) {
+            wrap(dek, data, master, PasswordUse.EXISTING, now, cost, random, known.revision + 1)
         } else {
-            write(known.copy(masterCheckedAt = now), dek, entries, random)
+            write(known.copy(masterCheckedAt = now), dek, data, random)
         }
     }
 
     /**
-     * Same entries under a new master password, new salt and a **new data key**: an old export plus the old (maybe
-     * leaked) password must not open anything saved after the change. Returns the file and the new open DEK.
+     * Same data under a new master password, new salt and a **new data key**, as a version-4 file: an old export plus
+     * the old (maybe leaked) password must not open anything saved after the change. Returns the file and the new open DEK.
      */
     fun changeMaster(file: VaultFile, dek: ByteArray, newMaster: CharArray, now: Long, kdf: KdfParams = KdfParams(), random: SecureRandom = secureRandom): Pair<VaultFile, ByteArray> {
-        val entries = read(file, dek)
+        val read = read(file, dek)
+        val data = if (resolve(file, dek).version == VaultFile.VERSION) read else read.upgraded(random).fitted()
         val newDek = randomBytes(KEY_BYTES, random)
         try {
-            return wrap(newDek, entries, newMaster, PasswordUse.NEW, now, kdf, random, file.revision + 1) to newDek
+            return wrap(newDek, data, newMaster, PasswordUse.NEW, now, kdf, random, file.revision + 1) to newDek
         } catch (e: Exception) {
             newDek.fill(0)
             throw e
         }
     }
 
-    private fun encodeEntries(entries: List<VaultEntry>): ByteArray = appJson.encodeToString(entries).toByteArray(Charsets.UTF_8)
+    private fun encodeData(data: VaultData): ByteArray = appJson.encodeToString(VaultData.serializer(), data).toByteArray(Charsets.UTF_8)
 
     fun encodeFile(file: VaultFile): String = appJson.encodeToString(VaultFile.serializer(), file)
 
@@ -407,9 +487,10 @@ object VaultCrypto {
     }
 
     /**
-     * Whether a biometric unlock may proceed: only for a file [unlock] would open (a [VaultFile.FORMAT] file of version
-     * 2 or 3, or one that does not say its version, whose version [VaultStore] finds with the key), within 7 days of
-     * the last master check and never with a date in the future. Any other format or version (1, 4…) is
+     * Whether a biometric unlock may proceed: only for a version-4 file, within 7 days of the last master check and never
+     * with a date in the future. A file [unlock] would open but of version 2 or 3, or without a version, is
+     * [BiometricRefusal.UPGRADE], before the clock and the 7 days: passing it to 4 wraps the key again, which needs the
+     * master password (2.0, design «Formato v4»). Any other format or version (1, 5…) is
      * [BiometricRefusal.UNSUPPORTED]: the unlock screen offers no fingerprint and shows no notice for it, the key is
      * never tried on it, and the master password then gets «No es una bóveda compatible» ([NOT_A_VAULT]) instead of
      * «Contraseña incorrecta». [highWater] is the highest time the app ever saw (a mark that only rises): a clock set
@@ -421,6 +502,7 @@ object VaultCrypto {
     /** Why [biometricAllowed] says no, or null when it says yes; the screen words the reasons differently. */
     fun biometricRefusal(file: VaultFile, now: Long, highWater: Long = 0): BiometricRefusal? = when {
         !supported(file) -> BiometricRefusal.UNSUPPORTED
+        file.version != VaultFile.VERSION -> BiometricRefusal.UPGRADE
         now < file.masterCheckedAt || now < highWater - CLOCK_SLACK_MS -> BiometricRefusal.CLOCK
         now - file.masterCheckedAt >= MASTER_RECHECK_MS -> BiometricRefusal.MASTER_DUE
         else -> null
@@ -428,10 +510,11 @@ object VaultCrypto {
 }
 
 /**
- * Why the fingerprint is refused: the master password is due (7 days), the clock went backwards, or this version cannot
- * open the file (its format or version; the screen shows no notice for it).
+ * Why the fingerprint is refused: the master password is due (7 days), the clock went backwards, this version cannot
+ * open the file (its format or version; the screen shows no notice for it), or the file is of an earlier version and
+ * passes to v4 with the master password once ([UPGRADE_NEEDS_MASTER]).
  */
-enum class BiometricRefusal { MASTER_DUE, CLOCK, UNSUPPORTED }
+enum class BiometricRefusal { MASTER_DUE, CLOCK, UNSUPPORTED, UPGRADE }
 
 /** How far behind the highest time seen the clock may be before the fingerprint asks for the master password. */
 const val CLOCK_SLACK_MS = 5 * 60_000L

@@ -255,7 +255,7 @@ class VaultStoreImportTest {
         val (file, dek) = VaultCrypto.create("maestra".toCharArray(), clock, KdfParams(1024, 1, 1))
         val refs = (0 until BACKUP_MAX_ENTRIES - 1).map { AttachmentRef("%032x".format(it), "f$it", 1, "0".repeat(64), "k") }
         val heavy = VaultEntry("h", EntryType.NOTE, "Adjuntos", attachments = refs, createdAt = 1, updatedAt = 1)
-        vaultFile.writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, listOf(heavy))))
+        vaultFile.writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, VaultData(entries = listOf(heavy)))))
         val s = store().apply { load(); unlock("maestra".toCharArray()) }
         val bytes = vaultFile.readBytes()
         val r = s.applyImport(plan(s), DuplicateChoice.SKIP, emptyMap())
@@ -274,7 +274,7 @@ class VaultStoreImportTest {
         assertEquals(before.wrappedKey, after.wrappedKey)
         assertEquals(before.salt, after.salt)
         assertEquals(before.masterCheckedAt, after.masterCheckedAt)
-        assertEquals(3, VaultCrypto.read(after, key).size - 1)
+        assertEquals(3, VaultCrypto.read(after, key).entries.size - 1)
         val withKey = store().apply { load(); unlockWithKey(key.copyOf()) }
         assertEquals(4, entries(withKey).size)
     }

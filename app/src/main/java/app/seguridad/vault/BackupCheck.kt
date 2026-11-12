@@ -27,7 +27,7 @@ const val BACKUP_CHECK_DIR = "comprobar"
 private const val RUN_PREFIX = "run-"
 
 /**
- * What [checkBackup] found: the copy's [version] (1 or 2), how many entries of each type it holds, how many attachments
+ * What [checkBackup] found: the copy's [version] (1, 2 or 3, its marker), how many entries of each type it holds, how many attachments
  * its entries list and how many of them are in the copy as their entry records them, and the [problems] found (texts of
  * BackupCheckTexts.kt, with counts only: never an entry's content, title or attachment name). No problems means the copy
  * passes every check of its contents the import makes: it is a readable `seguridad-backup` within the limits, its
@@ -85,8 +85,10 @@ suspend fun checkBackup(
         KdfLock.derive(compute) { key = unlock(incoming, master) }
         currentCoroutineContext().ensureActive()
         val dek = key!!
-        val entries = withContext(compute) { VaultCrypto.read(incoming, dek) }
+        val data = withContext(compute) { VaultCrypto.read(incoming, dek) }
+        val entries = data.entries
         checkCopyEntries(entries)
+        checkCopyStructure(data)
         val refs = entries.flatMap { it.attachments }
         val found = withContext(io) {
             refs.map {
@@ -166,6 +168,18 @@ internal fun checkCopyEntries(entries: List<VaultEntry>) {
     val refs = entries.flatMap { it.attachments }
     if (refs.any { it.size !in 0..MAX_ATTACHMENT_BYTES.toLong() } || refs.sumOf { it.size } > MAX_ATTACHMENTS_TOTAL_BYTES) {
         throw CryptoFailure(ATTACHMENTS_TOTAL_TOO_BIG)
+    }
+}
+
+/**
+ * 2.0: the folders, views and tag colours of a copy within [VaultLimits] ([checkStructure]: no folder inside itself), or
+ * the copy is refused as damaged, before anything changes. A copy of 1.4.3 or before has none, and always passes.
+ */
+internal fun checkCopyStructure(data: VaultData) {
+    try {
+        data.checkStructure()
+    } catch (e: VaultLimitExceeded) {
+        throw CryptoFailure(COPY_DAMAGED)
     }
 }
 

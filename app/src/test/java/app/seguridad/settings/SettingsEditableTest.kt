@@ -1,5 +1,6 @@
 package app.seguridad.settings
 
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.FolderGrant
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.hasFolderGrant
@@ -10,7 +11,7 @@ import org.junit.Test
 /** Audit 1.3.0, batch F3: COV2-1 (owner ruling) and the persisted-permission check of the backup folder (CADENAS-1). */
 class SettingsEditableTest {
     @Test fun `COV2-1 the guarded settings change only with the vault open or with no vault`() {
-        assertTrue(settingsEditable(VaultState.Unlocked(emptyList())))
+        assertTrue(settingsEditable(VaultState.Unlocked(VaultData(entries = emptyList()))))
         assertTrue("no vault: nothing to protect, and Argon2id also serves text and file encryption", settingsEditable(VaultState.NoVault))
         assertFalse(settingsEditable(VaultState.Locked))
         assertFalse("not known yet: closed", settingsEditable(VaultState.Loading))

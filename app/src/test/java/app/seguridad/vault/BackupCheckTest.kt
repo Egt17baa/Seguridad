@@ -109,7 +109,7 @@ class BackupCheckTest {
         val parts = entriesOf(zip)
         val file = VaultCrypto.decodeFile(parts.single { it.first == BACKUP_VAULT }.second.decodeToString())
         val dek = VaultCrypto.unlock(file, master.toCharArray())
-        val json = VaultCrypto.encodeFile(VaultCrypto.write(file, dek, change(VaultCrypto.read(file, dek)))).toByteArray()
+        val json = VaultCrypto.encodeFile(VaultCrypto.write(file, dek, VaultData(entries = change(VaultCrypto.read(file, dek).entries)))).toByteArray()
         return zipOf(parts.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json else it })
     }
 
@@ -146,7 +146,7 @@ class BackupCheckTest {
         val a = phoneA()
         val temp = temp()
         val report = check(a.backup(), temp)
-        assertEquals(BackupCheckReport(2, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 3, emptyList()), report)
+        assertEquals(BackupCheckReport(3, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 3, emptyList()), report) // 2.0: marker 3.
         assertTrue(temp.listFiles().isNullOrEmpty())
         // A copy of version 1 (1.1.x) is read the same way, and says so.
         val v1 = zipOf(listOf(BACKUP_MARKER to "1\n".toByteArray()) + entriesOf(a.backup()).drop(1))
@@ -177,7 +177,7 @@ class BackupCheckTest {
         val zip = a.backup()
         val oneGone = zipOf(entriesOf(zip).filterNot { it.first == "att/${refs[1].id}.bin" })
         val report = check(oneGone, temp())
-        assertEquals(BackupCheckReport(2, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 2, listOf(backupCheckMissing(1))), report)
+        assertEquals(BackupCheckReport(3, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 2, listOf(backupCheckMissing(1))), report)
         // Several of each, counted apart.
         val ref0 = "att/${refs[0].id}.bin"
         val mixed = zipOf(
@@ -199,11 +199,11 @@ class BackupCheckTest {
 
     @Test fun newerVersionThrowsNewerMessage() = runTest {
         val good = entriesOf(phoneA().backup())
-        val newer = zipOf(listOf(BACKUP_MARKER to "3\n".toByteArray()) + good.drop(1))
+        val newer = zipOf(listOf(BACKUP_MARKER to "4\n".toByteArray()) + good.drop(1))
         assertEquals(BACKUP_NEWER, checkFails(newer, temp()))
         assertEquals(importFails(newer), checkFails(newer, temp()))
         // A vault file of a newer version inside a copy: what the import says too.
-        val json = good[1].second.decodeToString().replace("\"version\":3", "\"version\":4")
+        val json = good[1].second.decodeToString().replace("\"version\":4", "\"version\":5")
         val newerVault = zipOf(good.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json.toByteArray() else it })
         assertEquals(NOT_A_VAULT, checkFails(newerVault, temp()))
         assertEquals(importFails(newerVault), checkFails(newerVault, temp()))
@@ -238,7 +238,7 @@ class BackupCheckTest {
         check(zip, temp)
         assertTrue(temp.listFiles().isNullOrEmpty())
         checkFails(zip, temp, pw = "contraseña-mala")
-        checkFails(zipOf(listOf(BACKUP_MARKER to "3\n".toByteArray()) + entriesOf(zip).drop(1)), temp)
+        checkFails(zipOf(listOf(BACKUP_MARKER to "4\n".toByteArray()) + entriesOf(zip).drop(1)), temp)
         checkFails(zip.copyOf(zip.size / 2), temp)
         checkFails(rewritten(zip) { it + it.first() }, temp)
         // A problem in the report is no failure, and leaves nothing either.

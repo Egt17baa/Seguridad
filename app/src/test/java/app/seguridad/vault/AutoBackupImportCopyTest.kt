@@ -159,6 +159,27 @@ class AutoBackupImportCopyTest {
         assertEquals(CopyResult.Saved("seguridad-antes-de-importar-20261026-100001.sgbak"), auto(s, t).copyBeforeImport())
     }
 
+    /** 2.0, tarea 1: the copy before the upgrade to v4 ([AutoBackup.copyBeforeUpgrade]) is written as the import one. */
+    @Test fun theUpgradeCopyHasItsOwnNameAndIsListedForA6() = runTest {
+        val s = setup()
+        val t = ImportCopyTarget()
+        assertEquals(CopyResult.Saved("seguridad-antes-de-2-0-20261026-100000.sgbak"), auto(s, t).copyBeforeUpgrade())
+        assertEquals(listOf("seguridad-antes-de-2-0-20261026-100000.sgbak.tmp"), t.created)
+        assertTrue(isBackup(t.files.values.single().copyOf(BACKUP_HEAD_BYTES)))
+        assertEquals(listOf(t.idOfName(t.files.keys.single())), settings.settings.value.importCopies)
+        // No folder: null, so the store waits for the user's choice.
+        settings.update { it.copy(autoBackupUri = null) }
+        assertNull(auto(s, t).copyBeforeUpgrade())
+        // A cut copy (its temporary name) goes with the next rotation, as the import ones.
+        settings.update { it.copy(autoBackupUri = folder) }
+        t.put("seguridad-antes-de-2-0-20200101-000000.sgbak.tmp")
+        auto(s, t)
+        s.upsert(note("1"))
+        settle()
+        assertFalse("seguridad-antes-de-2-0-20200101-000000.sgbak.tmp" in t.files.keys)
+        assertTrue("seguridad-antes-de-2-0-20261026-100000.sgbak" in t.files.keys)
+    }
+
     @Test fun itIsListedInImportCopiesAndNotInTheAutomaticOnes() = runTest {
         val s = setup()
         val t = ImportCopyTarget()

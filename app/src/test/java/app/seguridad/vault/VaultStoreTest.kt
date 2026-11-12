@@ -38,7 +38,7 @@ class VaultStoreTest {
     /** A .sgbak (no attachments) of a vault made with [kdf] and one note, opened by the master password "m". */
     private fun backupWith(kdf: KdfParams): Pair<ByteArray, VaultFile> {
         val (file, dek) = VaultCrypto.create("m".toCharArray(), clock, kdf)
-        val written = VaultCrypto.write(file, dek, listOf(entry("1", "Wallet")))
+        val written = VaultCrypto.write(file, dek, VaultData(entries = listOf(entry("1", "Wallet"))))
         return java.io.ByteArrayOutputStream().also { writeBackup(it, VaultCrypto.encodeFile(written), emptyMap()) }.toByteArray() to written
     }
 
@@ -150,7 +150,7 @@ class VaultStoreTest {
     /** An export written by hand with its master password, holding [entries] as they are (no store checks). */
     private fun handMadeExport(vararg entries: VaultEntry): String {
         val (file, dek) = VaultCrypto.create("m".toCharArray(), clock, KdfParams(1024, 1, 1))
-        return VaultCrypto.encodeFile(VaultCrypto.write(file, dek, entries.toList()))
+        return VaultCrypto.encodeFile(VaultCrypto.write(file, dek, VaultData(entries = entries.toList())))
     }
 
     private fun ref(id: String, size: Long) = AttachmentRef(id, "a.bin", size, "00".repeat(32), "AA".repeat(22))
@@ -384,14 +384,15 @@ class VaultStoreTest {
     }
 
     @Test fun `a 1_9_2 vault opens with the master password and is rewritten with its version`() = runTest {
-        val s = store().apply { load(); create("m".toCharArray()); upsert(entry("1", "Wallet")); lock() }
-        // Make it look like a file from before the version key was always written.
+        // 2.0: a 3 (the real vault-1.4.3.json) made to look like a file from before the version key was always written;
+        // a 4 always says it. It opens, and the upgrade to 4 writes the version.
         val f = File(tmp.root, "vault.bin")
-        f.writeText(f.readText().replace("\"version\":3,", ""))
+        f.writeText(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString().replace("\"version\":3,", ""))
         val again = store().apply { load() }
-        again.unlock("m".toCharArray())
-        assertEquals(listOf("Wallet"), (again.state.value as VaultState.Unlocked).entries.map { it.title })
-        assertTrue(f.readText().contains("\"version\":3"))
+        again.unlock("maestra-de-prueba-143".toCharArray())
+        assertEquals(4, (again.state.value as VaultState.Unlocked).entries.size)
+        assertTrue(again.completeUpgrade())
+        assertTrue(f.readText().contains("\"version\":4"))
     }
 
     /** A directory where the temporary file goes makes every save fail (even for root, unlike permissions). */
@@ -1012,46 +1013,42 @@ class VaultStoreTest {
         assertTrue(foreign.all { it == 0.toByte() })
     }
 
-    /** A vault file of unknown version (VERSION_UNKNOWN: a 1.0 or 1.1 file), written to disk and loaded; returns it with its data key. */
+    /**
+     * A vault file of unknown version (VERSION_UNKNOWN: a 1.0 or 1.1 file; here the real vault-1.4.3.json without its
+     * version), written to disk and loaded; returns it with its data key.
+     */
     private suspend fun unknownVersionVault(): Pair<VaultStore, ByteArray> {
-        val (written, dek) = VaultCrypto.create("m".toCharArray(), clock, KdfParams(1024, 1, 1))
-        File(tmp.root, "vault.bin").writeText(VaultCrypto.encodeFile(written.copy(version = VaultFile.VERSION_UNKNOWN)))
+        val text = javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString().replace("\"version\":3,", "")
+        File(tmp.root, "vault.bin").writeText(text)
+        val dek = VaultCrypto.unlock(VaultCrypto.decodeFile(text), "maestra-de-prueba-143".toCharArray())
         return store().apply { load() } to dek
     }
 
-    @Test fun `CRY-A02 another vault's key on a vault of unknown version (VERSION_UNKNOWN) is just as stale`() = runTest {
-        // With no stated version the key is how the version is found: VaultCrypto.authenticated tries the candidate
-        // versions with it, and a key that authenticates under none is a StaleBiometricKey (not a CryptoFailure).
-        val (s, _) = unknownVersionVault()
-        val foreign = foreignKey()
-        var off = 0
-        val errors = mutableListOf<String>()
-        launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
-        assertEquals(1, off)
-        assertEquals(listOf(FINGERPRINT_STALE), errors)
-        assertTrue(foreign.all { it == 0.toByte() })
+    @Test fun `CRY-A02 on a vault of unknown version (VERSION_UNKNOWN) no key is tried, another vault's or its own`() = runTest {
+        // 2.0: until 1.4.3 the key was how the version of such a file was found. Now the file passes to v4 with the
+        // master password first (BiometricRefusal.UPGRADE), before the clock and the 7 days: the key is never tried, so a
+        // stale one is not found here either, and the fingerprint stays on.
+        val (s, dek) = unknownVersionVault()
+        for (key in listOf(foreignKey(), dek.copyOf())) {
+            var off = 0
+            val errors = mutableListOf<String>()
+            launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
+            assertEquals(0, off)
+            assertEquals(listOf(UPGRADE_NEEDS_MASTER), errors)
+            assertTrue(key.all { it == 0.toByte() })
+        }
+        assertEquals(VaultState.Locked, s.state.value)
     }
 
-    @Test fun `CRY-A02 with the master password due, a vault of unknown version tries the key first, so a stale key still turns the fingerprint off`() = runTest {
-        // The other order than version 3 (see «a version-3 vault asks for it before trying the key», below): with no stated
-        // version the key has to be tried (VaultCrypto.authenticated) to know it, before the 7-day rule is looked at. A stale
-        // key is a StaleBiometricKey there; the right key then meets the 7-day rule.
+    @Test fun `CRY-A02 with the master password due, a vault of unknown version still asks to upgrade first, without the key`() = runTest {
         val (s, dek) = unknownVersionVault()
         clock += MASTER_RECHECK_MS
-        val foreign = foreignKey()
+        val key = dek.copyOf()
         var off = 0
         val errors = mutableListOf<String>()
-        launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
-        assertEquals(1, off)
-        assertEquals(listOf(FINGERPRINT_STALE), errors)
-        assertTrue(foreign.all { it == 0.toByte() })
-        // The right key, same vault, same clock: the master password is due and the fingerprint stays.
-        val key = dek.copyOf()
-        off = 0
-        errors.clear()
         launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
         assertEquals(0, off)
-        assertEquals(listOf(MasterRequired().message!!), errors)
+        assertEquals(listOf(UPGRADE_NEEDS_MASTER), errors)
         assertTrue(key.all { it == 0.toByte() })
     }
 
@@ -1194,8 +1191,10 @@ class VaultStoreTest {
             val errors = mutableListOf<String>()
             launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
             assertEquals("version $version", 0, off)
-            // «Contraseña incorrecta o datos dañados», the text a damaged vault always had: not FINGERPRINT_STALE.
-            assertEquals("version $version", listOf(CryptoFailure().message!!), errors)
+            // «Contraseña incorrecta o datos dañados», the text a damaged vault always had: not FINGERPRINT_STALE. 2.0: a
+            // file without a version is asked to upgrade first, without trying the key.
+            val expected = if (version == VaultFile.VERSION) CryptoFailure().message!! else UPGRADE_NEEDS_MASTER
+            assertEquals("version $version", listOf(expected), errors)
             assertEquals(VaultState.Locked, s.state.value)
             assertTrue(key.all { it == 0.toByte() })
         }

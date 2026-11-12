@@ -8,7 +8,8 @@ import java.util.Locale
 const val MAX_TAGS = 10
 const val MAX_TAG_LENGTH = 24
 
-data class EntryFilter(val text: String = "", val tag: String? = null, val type: EntryType? = null)
+/** What the vault list and the contacts ask [query] for (until 2.0 named `EntryFilter`, now the saved views' filter). */
+data class ListQuery(val text: String = "", val tag: String? = null, val type: EntryType? = null)
 
 private val accents = Regex("\\p{M}+")
 
@@ -22,7 +23,7 @@ private fun collator(): Collator = Collator.getInstance(Locale.forLanguageTag("e
  * Entries that match [f], favorites first and then by title (es-ES, ignoring case and accents).
  * The text only looks at the title, user, URL, 2FA service name and tags: never at passwords, seed words, notes or 2FA secrets.
  */
-fun List<VaultEntry>.query(f: EntryFilter): List<VaultEntry> {
+fun List<VaultEntry>.query(f: ListQuery): List<VaultEntry> {
     val needle = fold(f.text.trim())
     val tag = f.tag?.let { fold(it.trim()) }
     val c = collator()

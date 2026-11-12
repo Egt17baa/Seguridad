@@ -21,6 +21,7 @@ internal fun passwordToSave(type: EntryType, loginPassword: String, seedPassphra
     EntryType.LOGIN -> loginPassword
     EntryType.SEED -> seedPassphrase
     EntryType.NOTE, EntryType.TOTP, EntryType.IDENTITY, EntryType.CONTACT -> ""
+    EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> "" // 2.0: their fields come with task 5.
 }
 
 /** A Google Authenticator export waiting for the user's confirmation: the [entries] it would add and what it leaves out. */

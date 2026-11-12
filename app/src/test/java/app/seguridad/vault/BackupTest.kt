@@ -121,8 +121,8 @@ class BackupTest {
         // so it would not count towards the 50 MB in all. Its file and SHA-256 are untouched.
         val file = VaultCrypto.decodeFile(parts.single { it.first == BACKUP_VAULT }.second.decodeToString())
         val dek = VaultCrypto.unlock(file, master.toCharArray())
-        val lying = VaultCrypto.read(file, dek).map { e -> e.copy(attachments = e.attachments.map { if (it.size == 70_000L) it.copy(size = 0) else it }) }
-        val json = VaultCrypto.encodeFile(VaultCrypto.write(file, dek, lying)).toByteArray()
+        val lying = VaultCrypto.read(file, dek).entries.map { e -> e.copy(attachments = e.attachments.map { if (it.size == 70_000L) it.copy(size = 0) else it }) }
+        val json = VaultCrypto.encodeFile(VaultCrypto.write(file, dek, VaultData(entries = lying))).toByteArray()
         val zip = zipOf(parts.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json else it })
         val b = store(phone("b")).apply { load() }
         assertImportFails(b, zip, "La copia está incompleta o dañada: falta o no coincide el adjunto «pasaporte.jpg»")
@@ -243,7 +243,7 @@ class BackupTest {
         } catch (e: CryptoFailure) {
             // expected
         }
-        assertTrue(huge.given <= 20L * 1024 * 1024 + 8192 + 64)
+        assertTrue(huge.given <= VAULT_IMPORT_MAX_BYTES + 8192L + 64) // 40 MiB since 2.0.
     }
 
     @Test fun missingAttachmentRejectsWholeImport() = runTest {
@@ -317,7 +317,8 @@ class BackupTest {
     }
 
     @Test fun oversizedEntryRejected() = runTest {
-        val good = entriesOf(phoneA().backup())
+        // The limits of a copy with marker 2 (2.0: the copy of a v4 vault has marker 3, BackupV3Test).
+        val good = listOf(marker) + entriesOf(phoneA().backup()).drop(1)
         val temp = File(phone("work"), "temp")
         val sixMb = 6 * 1024 * 1024
         // Zeros compress to almost nothing: the limit is on the bytes really read, not on what the header says.
@@ -349,7 +350,7 @@ class BackupTest {
     @Test fun notABackupOrNewerVersionRejected() = runTest {
         val good = entriesOf(phoneA().backup())
         val temp = File(phone("work"), "temp")
-        readFails(zipOf(listOf("seguridad-backup" to "3\n".toByteArray()) + good.drop(1)), temp)
+        readFails(zipOf(listOf("seguridad-backup" to "4\n".toByteArray()) + good.drop(1)), temp) // 2.0 reads up to 3.
         readFails(zipOf(listOf("seguridad-backup" to "1".toByteArray()) + good.drop(1)), temp)
         readFails(zipOf(good.drop(1)), temp) // No marker.
         readFails(zipOf(listOf(good[1], good[0]) + good.drop(2)), temp) // Marker not first.
@@ -428,7 +429,7 @@ class BackupTest {
         val entries = entriesOf(zip)
         val ids = a.entries().flatMap { it.attachments }.map { it.id }.sorted()
         assertEquals(listOf("seguridad-backup", "vault.json") + ids.map { "att/$it.bin" }, entries.map { it.first })
-        assertArrayEquals("2\n".toByteArray(Charsets.US_ASCII), entries[0].second)
+        assertArrayEquals("3\n".toByteArray(Charsets.US_ASCII), entries[0].second) // 2.0: a v4 vault's copy.
         // The vault file exactly as on disk, and the attachment files exactly as stored (still encrypted).
         assertEquals(File(phone("a"), "vault.bin").readText(), entries[1].second.decodeToString())
         for ((name, data) in entries.drop(2)) assertArrayEquals(File(phone("a"), name).readBytes(), data)
@@ -438,8 +439,8 @@ class BackupTest {
         assertFalse(isBackup(zipOf(listOf("vault.json" to ByteArray(3), marker)).copyOf(BACKUP_HEAD_BYTES)))
         assertFalse(isBackup(zip.copyOf(40)))
         assertFalse(isBackup(ByteArray(0)))
-        // «Importar copia» lets the current formats through its pre-check: this copy (seguridad-backup v2) and the
-        // vault file as written today (seguridad-vault v3), the one a JSON export holds (ImportHeadTest).
+        // «Importar copia» lets the current formats through its pre-check: this copy (seguridad-backup, marker 3) and the
+        // vault file as written today (seguridad-vault v4), the one a JSON export holds (ImportHeadTest).
         assertTrue(mayBeVaultImport(zip.copyOf(BACKUP_HEAD_BYTES)))
         assertTrue(mayBeVaultImport(File(phone("a"), "vault.bin").readBytes().copyOf(BACKUP_HEAD_BYTES)))
         assertEquals("seguridad-boveda-20261026.sgbak", backupFileName(LocalDate.of(2026, 10, 26)))

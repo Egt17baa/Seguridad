@@ -4,6 +4,7 @@ import app.seguridad.core.appJson
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.AttachmentRef
 import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
 import app.seguridad.vault.EntryType
@@ -968,7 +969,7 @@ class MergePlanTest {
         val json = appJson.encodeToString(entries).toByteArray(Charsets.UTF_8).size.toLong()
         assertEquals((json * 4 + 2) / 3 + 4096, estimatedVaultFileBytes(entries))
         val (file, key) = VaultCrypto.create("m".toCharArray(), now, app.seguridad.crypto.KdfParams(1024, 1, 1))
-        val real = VaultCrypto.encodeFile(VaultCrypto.write(file, key, entries)).toByteArray(Charsets.UTF_8).size.toLong()
+        val real = VaultCrypto.encodeFile(VaultCrypto.write(file, key, VaultData(entries = entries))).toByteArray(Charsets.UTF_8).size.toLong()
         assertTrue("$real > estimate", real <= estimatedVaultFileBytes(entries))
         assertEquals(0, estimatedOverBytes(entries))
     }

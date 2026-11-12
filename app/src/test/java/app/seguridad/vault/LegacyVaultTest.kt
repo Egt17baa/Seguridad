@@ -164,7 +164,7 @@ class LegacyVaultTest {
     @Test fun writeRefusesAnotherFormat() {
         val (file, dek) = VaultCrypto.create(master.toCharArray(), clock, KdfParams(1024, 1, 1))
         try {
-            VaultCrypto.write(file.copy(format = "otra-cosa"), dek, emptyList())
+            VaultCrypto.write(file.copy(format = "otra-cosa"), dek, VaultData(entries = emptyList()))
             fail()
         } catch (e: IllegalStateException) {
             // expected: write only ever re-seals a file of this app's format.

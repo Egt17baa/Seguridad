@@ -322,7 +322,7 @@ class ContactsViewTest {
         // «» para que no pase por la marca; y solo al cambiarle el nombre hay que poner otro.
         val legacy = contactOf(person(), "Ana", title = "Ana (verificado)")
         val (file, dek) = app.seguridad.vault.VaultCrypto.create("maestra".toCharArray(), now, app.seguridad.crypto.KdfParams(1024, 1, 1))
-        val read = VaultCrypto.read(VaultCrypto.write(file, dek, listOf(legacy)), dek)
+        val read = VaultCrypto.read(VaultCrypto.write(file, dek, VaultData(entries = listOf(legacy))), dek).entries
         assertEquals(listOf(legacy), read)
         assertEquals(listOf(legacy), contactsList(read, "verificado"))
         assertEquals("«Ana (verificado)»", shownContactTitle(legacy.title))
