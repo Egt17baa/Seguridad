@@ -32,3 +32,4 @@ Línea base: `jvm-check` 1915 tests en verde en `25aa637`.
 Línea base: `:app:testDebugUnitTest :app:assembleDebug` en verde en `25aa637` (1920 tests).
 Abogado inicial (12-11-2026): «visto bueno con cambios» (`abogado-2.0-inicial.md`); O-1 a O-11 y R-1 a R-12 aplicados al diseño (sección «Revisión inicial del Abogado Digital») y al plan (restricciones globales). Sin choque técnico ni de seguridad. Corregido el tope del historial a 64 KiB en todo el diseño (O-2).
 Task 1: dispatched (base 7744994, model opus).
+Owner decision (12-11-2026, opción A): el nombre de cada bóveda va cifrado dentro de ella (`VaultData.name`, tarea 2); antes de abrir se ve «Bóveda N» y su color; el registro no guarda nombres. O-1 del Abogado deja de aplicar en su parte del aviso; la política dirá que el móvil guarda sin cifrar cuántas bóvedas hay y su color (revisión final).
