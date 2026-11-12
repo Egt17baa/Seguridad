@@ -47,3 +47,7 @@ Task 1: fix round 1/5 (8 addressed, 0 open; commits 9804b28..fe9e944).
 Task 1: complete (commits 7744994..fe9e944, review clean). Informes: `task-1-report.md`, `task-1-review.md`, `task-1-rereview-1.md`.
 Task 1: minor (deferred): M-4 → tarea 3; M-6 → rendimiento (tarea 4 y final); M-8 → tarea 2.
 Task 2: dispatched (base 643512a, model opus).
+Task 2: implementer DONE_WITH_CONCERNS (4056f34; app 1976 y jvm-check 1969 en verde). Se paró una vez por el límite de uso y se reanudó.
+Ruling (T2, duda 1): crear o importar otra bóveda pide una bóveda abierta (`canAddVault`, cierra COV2-1); el hueco que deja «He olvidado la contraseña maestra» se puede convertir en una bóveda nueva desde su pantalla — se acepta: es lo mismo que hoy hace la 1.4.3 con su única bóveda (quien olvida la maestra crea otra), y no abre ninguna bóveda existente — si el dueño lo quiere cerrar, es una decisión de producto aparte.
+Ruling (T2, duda 2): se aceptan — los avisos de StrongBox son del teléfono, no de la bóveda; «Importar como bóveda nueva» conserva el nombre de la copia (va cifrado); una bóveda nueva empieza con el coste STANDARD de Argon2id; una bóveda sin archivo se borra sin maestra ni nombre (no hay nada que proteger).
+Task 2: minor (deferred): `VaultStore.kt` ~1 310 líneas; la próxima pieza para sacar es la importación — a la revisión final.
