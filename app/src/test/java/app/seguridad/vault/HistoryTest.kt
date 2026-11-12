@@ -22,8 +22,8 @@ class HistoryTest {
     private fun store() =
         VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { 5_000L }, kdf = { KdfParams(1024, 1, 1) })
 
-    // 2.0, task 3 (M-4): the list of 1.4.3 is only read; a change goes to the history ([withVersion]), and the old
-    // passwords are read from both ([oldPasswords]).
+    // 2.0, task 3 (M-4, ruling T3 I-2): a change goes to the history ([withVersion]) and, as in 1.4.3, to the list of
+    // the 5 newest old passwords ([withNewPassword]); the old passwords are read from both ([oldPasswords]).
 
     @Test fun changeKeepsPreviousFirst() {
         val one = login("uno")
@@ -31,7 +31,15 @@ class HistoryTest {
         val three = login("tres").copy(history = two.history).withVersion(two, 20)
         assertEquals("tres", three.password)
         assertEquals(listOf(PasswordChange("dos", 20), PasswordChange("uno", 10)), three.oldPasswords())
-        assertTrue(three.passwordHistory.isEmpty())
+    }
+
+    @Test fun listKeepsTheFiveNewest() {
+        var e = login("p0")
+        for (i in 1..8) e = e.withNewPassword("p$i", i.toLong())
+        assertEquals(listOf("p7", "p6", "p5", "p4", "p3"), e.passwordHistory.map { it.password })
+        assertTrue(login("x").withNewPassword("x", 1).passwordHistory.isEmpty())
+        assertTrue(login("").withNewPassword("y", 1).passwordHistory.isEmpty())
+        assertTrue(login("a").copy(type = EntryType.NOTE).withNewPassword("b", 1).passwordHistory.isEmpty())
     }
 
     @Test fun legacyListIsStillRead() {

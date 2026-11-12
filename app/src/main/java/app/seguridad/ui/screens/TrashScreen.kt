@@ -83,6 +83,8 @@ fun TrashScreen(store: VaultStore, onBack: () -> Unit) {
         scope.launch {
             try {
                 if (block() == 0 && none != null) message = none
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 message = TRASH_SAVE_FAILED
             }

@@ -20,6 +20,11 @@ data class VaultData(
     /** The last unlock with the master password or the fingerprint (the trash's clock, task 3); 0 for unknown. */
     val lastUnlockAt: Long = 0,
     /**
+     * Whether the last unlock left the trash as it was because the clock looked set forward ([purgedTrash]): the next
+     * one empties it whatever the clock says, so it is skipped at most once in a row (ruling T3, I-1).
+     */
+    val trashPurgeSkipped: Boolean = false,
+    /**
      * 16 random bytes in lowercase hex, made with the vault or when it passes to v4: only tells whether a checked copy is
      * of this vault. Not a secret and not a key; empty in a vault read from version 2 or 3.
      */

@@ -76,6 +76,7 @@ import app.seguridad.vault.MOVE_TO_TRASH
 import app.seguridad.vault.MOVE_TO_TRASH_TEXT
 import app.seguridad.vault.UndoTrash
 import app.seguridad.vault.historyOpen
+import app.seguridad.vault.saveRefusedText
 import app.seguridad.vault.moveToTrashTitle
 import app.seguridad.vault.oldPasswords
 import app.seguridad.vault.normalizeTags
@@ -210,7 +211,7 @@ fun VaultEntryDetailScreen(
             }
             AttachmentsSection(store, entry.id, entry.attachments)
             if (entry.history.isNotEmpty() || entry.passwordHistory.isNotEmpty()) {
-                OutlinedButton(onClick = onHistory) { Text(historyOpen(entry.history.size)) }
+                OutlinedButton(onClick = onHistory) { Text(historyOpen(entry.history.size, entry.oldPasswords().size)) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onEdit) { Text("Editar") }
@@ -297,7 +298,8 @@ private class EntryEditViewModel(private val store: VaultStore, id: String?, ini
                 if (store.upsert(entry)) {
                     form.finish()
                 } else if (form.loaded) {
-                    form.error.value = "La bóveda se bloqueó: no se ha guardado"
+                    // Review M-3: an entry that went to the trash meanwhile is said so, not «se bloqueó».
+                    form.error.value = saveRefusedText(store.state.value, entry.id)
                 }
             } catch (x: CancellationException) {
                 throw x

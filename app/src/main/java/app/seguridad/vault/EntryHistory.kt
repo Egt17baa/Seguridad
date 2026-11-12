@@ -6,10 +6,10 @@ package app.seguridad.vault
  * versions and 64 KiB; the oldest go first). A version holds every field but the attachments, which are not versioned,
  * and has no history of its own.
  *
- * Old passwords (review M-4 of task 1): 2.0 keeps them only in [VaultEntry.history]. [VaultEntry.passwordHistory], the
- * list of 1.4.3 and before, stays as a read-only legacy field: never written again, kept as it is (also after a version
- * that came from it was trimmed), and emptied only by «Borrar historial». [oldPasswords] reads both, so no old password
- * disappears from the card or from «Salud» because the history was trimmed.
+ * Old passwords (review M-4 of task 1, ruling T3 I-2): a change of password goes to the history and also, as in 1.4.3,
+ * to [VaultEntry.passwordHistory] (the 5 newest, [withNewPassword]), which the limits of the history never trim.
+ * [oldPasswords] reads both, so no old password disappears from the card or from «Salud» because the history was
+ * trimmed; «Borrar historial» empties both.
  */
 
 /** The entry as a version: without history, attachments or the legacy list of old passwords. */
@@ -54,6 +54,6 @@ fun VaultEntry.oldPasswords(): List<PasswordChange> {
     return found.values.sortedByDescending { it.changedAt }
 }
 
-/** This entry without history nor the legacy list of old passwords («Borrar historial»); the same object when it had none. */
+/** This entry without history nor the list of old passwords («Borrar historial»); the same object when it had none. */
 fun VaultEntry.withoutHistory(): VaultEntry =
     if (history.isEmpty() && passwordHistory.isEmpty()) this else copy(history = emptyList(), passwordHistory = emptyList())

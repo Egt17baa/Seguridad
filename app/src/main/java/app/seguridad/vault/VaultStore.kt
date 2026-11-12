@@ -422,7 +422,7 @@ class VaultStore(
      * With [mustSave] false a failed write still opens the vault: [next] then only differs from the disk by
      * bookkeeping (the last master check, the format upgrade), which the next successful save writes out.
      */
-    private suspend fun commit(next: VaultFile, key: ByteArray, since: Int, mustSave: Boolean = true) = withContext(NonCancellable) {
+    private suspend fun commit(next: VaultFile, key: ByteArray, since: Int, mustSave: Boolean = true, read: VaultData? = null) = withContext(NonCancellable) {
         try {
             if (mustSave) {
                 save(next)
@@ -436,7 +436,7 @@ class VaultStore(
                 throw e
             }
         }
-        opened(next, key, since)
+        opened(next, key, since, read = read)
         // After a failed save that did not have to succeed, the disk differs only by bookkeeping: same attachments.
         collectGarbage()
     }
@@ -446,10 +446,11 @@ class VaultStore(
      * is what opens (same data key), and it waits for [completeUpgrade]; null for any other opening, which ends a pending
      * upgrade (an import replaced the vault).
      */
-    private fun opened(v: VaultFile, key: ByteArray, since: Int, upgraded: VaultFile? = null) {
+    private fun opened(v: VaultFile, key: ByteArray, since: Int, upgraded: VaultFile? = null, read: VaultData? = null) {
         vault = v
         val data = if (epoch != since) null else try {
-            VaultCrypto.read(upgraded ?: v, key).let { d -> d.copy(entries = d.entries.sortedBy { it.title.lowercase() }) }
+            // [read]: what [v] holds, already decrypted by the caller (review M-5: the fingerprint's unlock reads it once).
+            (read ?: VaultCrypto.read(upgraded ?: v, key)).let { d -> d.copy(entries = d.entries.sortedBy { it.title.lowercase() }) }
         } catch (e: CryptoFailure) {
             key.fill(0)
             throw e
@@ -631,8 +632,10 @@ class VaultStore(
         // A CryptoFailure here is entries that authenticate but do not decode, and keeps the fingerprint.
         // 2.0, task 3: the unlock is recorded and the trash emptied of what is due ([purgedTrash]), as a bookkeeping save:
         // a full disk never keeps the vault closed ([commit] with mustSave false). Its attachments go with the collection.
-        val next = withContext(compute) { VaultCrypto.write(known, key, VaultCrypto.read(known, key).purgedTrash(at, mark)) }
-        commit(next, key, since, mustSave = false)
+        // Decrypted once (review M-5): what is written is what opens.
+        val data = withContext(compute) { VaultCrypto.read(known, key).purgedTrash(at, mark) }
+        val next = withContext(compute) { VaultCrypto.write(known, key, data) }
+        commit(next, key, since, mustSave = false, read = data)
     }
 
     /**
@@ -763,9 +766,10 @@ class VaultStore(
      * Adds or replaces [entry]. Throws [IllegalStateException] (nothing is saved) for an [EntryType.IDENTITY] when the
      * vault has another one, and for an identity or contact while the vault is still version 2 (see
      * [needsMasterForContacts]). Identities and contacts never keep attachments or history. 2.0, task 3: a change keeps
-     * the entry as it was in its history ([withVersion]); the history, the legacy list of old passwords and the
-     * attachments are the store's to keep, whatever the caller sends. False, with nothing saved, for an id that is in the
-     * trash (a screen left open on it): it is restored with [restore], never overwritten.
+     * the entry as it was in its history ([withVersion]), and a new LOGIN password puts the old one in the list of the 5
+     * newest ([withNewPassword], ruling T3 I-2); the history, that list and the attachments are the store's to keep,
+     * whatever the caller sends. False, with nothing saved, for an id that is in the trash (a screen left open on it): it
+     * is restored with [restore], never overwritten ([saveRefusedText] tells the editor why).
      */
     suspend fun upsert(entry: VaultEntry) = modifyData { data ->
         if (data.entries.any { it.id == entry.id && it.deletedAt != null }) return@modifyData null
@@ -780,7 +784,13 @@ class VaultStore(
         } else {
             // The attachments too: only [addAttachment] and [removeAttachment] change them, so an editor that does
             // not send them never drops one (and the collection after the save never deletes its file).
-            entry.copy(history = saved.history, passwordHistory = saved.passwordHistory, attachments = saved.attachments, deletedAt = null)
+            // A type change never files a passphrase or another secret as an old password: the list stays as it was.
+            val passwords = if (saved.type == EntryType.LOGIN && entry.type == EntryType.LOGIN) {
+                saved.withNewPassword(entry.password, now()).passwordHistory
+            } else {
+                saved.passwordHistory
+            }
+            entry.copy(history = saved.history, passwordHistory = passwords, attachments = saved.attachments, deletedAt = null)
                 .withVersion(saved, now())
         }
         val entries = if (saved == null) list + next else list.map { if (it.id == entry.id) next else it }
@@ -992,15 +1002,26 @@ class VaultStore(
 
     /**
      * 2.0, task 3: «Restaurar esta versión»: the version of entry [entryId] saved at [savedAt] becomes the entry again,
-     * as a new save, which keeps what was there as a new version ([withVersion]); its attachments stay. False, with
-     * nothing saved, when there is no such entry (out of the trash) or version, or the version is the entry as it is.
+     * as a new save, which keeps what was there as a new version ([withVersion]) and its password in the list of old
+     * ones ([withNewPassword]); its attachments stay. [index] is the version's place in the history, as the screen showed
+     * it (review M-7: two versions of the same millisecond); with it, the version there must have [savedAt], and without
+     * it the first with [savedAt] is taken. False, with nothing saved, when there is no such entry (out of the trash) or
+     * version, the version is the entry as it is, or either is an identity or a contact (review M-2: a version from a
+     * copy made elsewhere never turns an entry into one).
      */
-    suspend fun restoreVersion(entryId: String, savedAt: Long): Boolean = modifyData { data ->
+    suspend fun restoreVersion(entryId: String, savedAt: Long, index: Int = -1): Boolean = modifyData { data ->
         val current = data.live.firstOrNull { it.id == entryId } ?: return@modifyData null
-        val version = current.history.firstOrNull { it.savedAt == savedAt }?.entry ?: return@modifyData null
+        val found = if (index >= 0) current.history.getOrNull(index)?.takeIf { it.savedAt == savedAt } else current.history.firstOrNull { it.savedAt == savedAt }
+        val version = found?.entry ?: return@modifyData null
+        if (version.type.isPersonal || current.type.isPersonal) return@modifyData null
+        val passwords = if (current.type == EntryType.LOGIN && version.type == EntryType.LOGIN) {
+            current.withNewPassword(version.password, now()).passwordHistory
+        } else {
+            current.passwordHistory
+        }
         val restored = version.copy(
             id = current.id, createdAt = current.createdAt, updatedAt = now(), lastUsedAt = current.lastUsedAt,
-            history = current.history, passwordHistory = current.passwordHistory, attachments = current.attachments, deletedAt = null,
+            history = current.history, passwordHistory = passwords, attachments = current.attachments, deletedAt = null,
         )
         if (!restored.changedFrom(current)) return@modifyData null
         checkCanHold(data.live.filterNot { it.id == entryId }, listOf(restored))

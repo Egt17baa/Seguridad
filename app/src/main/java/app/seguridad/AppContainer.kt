@@ -136,6 +136,8 @@ class AppContainer(
     private val forgetBiometric: suspend (String) -> Unit = {},
     /** Where the vaults derive and encrypt ([VaultStore]'s compute); the tests hold it to stop a save half way. */
     private val vaultCompute: CoroutineDispatcher = Dispatchers.Default,
+    /** The wall clock of the vaults ([VaultStore]'s now); the tests move it (the trash's 30 days, task 3). */
+    private val vaultNow: () -> Long = System::currentTimeMillis,
 ) {
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE), settingsIo)
 
@@ -380,6 +382,7 @@ class AppContainer(
         val store: VaultStore = VaultStore(
             File(registry.dirOf(id), "vault.bin"),
             compute = vaultCompute,
+            now = vaultNow,
             kdf = { settings.settings.value.vault(id).kdf.params },
             idleLockMs = { settings.settings.value.lockAfter.ms },
             inForeground = { foreground },
@@ -424,7 +427,7 @@ class AppContainer(
         )
 
         /** 2.0, task 3: «Deshacer» after a move to this vault's trash; a lock of this vault (a switch locks it) forgets it. */
-        val undoTrash = UndoTrash(store, elapsedRealtime)
+        val undoTrash = UndoTrash(store, elapsedRealtime, scope)
     }
 
     private val slots = HashMap<String, Slot>()

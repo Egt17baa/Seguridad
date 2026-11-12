@@ -16,6 +16,7 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.totpKeyOf
+import app.seguridad.vault.withNewPassword
 import app.seguridad.vault.withVersion
 import java.time.Instant
 import java.time.ZoneId
@@ -334,9 +335,9 @@ fun mergeImport(
  *   compared trimmed, as the duplicate rule compares them, so notes that differ only by the spaces or line breaks around
  *   them are the same (branch review A, M-2);
  * - tags: its own, then [incoming]'s it lacks, up to [MAX_TAGS] (its own are never dropped);
- * - password: the one exception to R59 (ruling R62): any non-empty one ([String.isEmpty], not «shows nothing») replaces
- *   it, since a password is an opaque secret the file could set to anything visible anyway; 2.0 (task 3): the entry as
- *   it was, old password included, goes to its history ([withVersion]).
+ * - password: the one exception to R59 (ruling R62): any non-empty one ([String.isEmpty], not «shows nothing») goes
+ *   through [withNewPassword], since a password is an opaque secret the file could set to anything visible anyway, and
+ *   the old one goes to the list of old passwords; 2.0 (task 3): the entry as it was goes to its history too ([withVersion]).
  * An `IDENTITY` or `CONTACT` [existing], an [incoming] of another type, or a replacement that would only change
  * `updatedAt`, gives [existing] itself.
  */
@@ -375,7 +376,7 @@ fun replaceWith(existing: VaultEntry, incoming: VaultEntry, now: Long, zone: Zon
         tags = (existing.tags + incoming.tags.filter { it !in existing.tags }).distinct().take(maxOf(MAX_TAGS, existing.tags.size)),
         updatedAt = now,
     )
-    val replaced = if (incoming.password.isEmpty()) merged else merged.copy(password = incoming.password)
+    val replaced = if (incoming.password.isEmpty()) merged else merged.withNewPassword(incoming.password, now)
     // Nothing but the date would change: the entry stays as it is (no save, no new copy for nothing). 2.0, task 3: what
     // changes keeps the entry as it was in its history, the old password included ([withVersion], M-4).
     return if (replaced.copy(updatedAt = existing.updatedAt) == existing) existing else replaced.withVersion(existing, now)

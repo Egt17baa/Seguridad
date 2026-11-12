@@ -38,6 +38,9 @@ import app.seguridad.vault.HISTORY_EMPTY
 import app.seguridad.vault.HISTORY_MORE
 import app.seguridad.vault.HISTORY_RESTORE
 import app.seguridad.vault.HISTORY_RESTORED
+import app.seguridad.vault.HISTORY_RESTORE_REFUSED
+import app.seguridad.vault.historyOldPasswords
+import app.seguridad.vault.oldPasswords
 import app.seguridad.vault.HISTORY_SHORT
 import app.seguridad.vault.HISTORY_TITLE
 import app.seguridad.vault.TRASH_SAVE_FAILED
@@ -76,16 +79,31 @@ fun EntryHistoryScreen(store: VaultStore, id: String, onBack: () -> Unit) {
                     message?.let { (text, bad) -> Text(text, color = if (bad) NegativeColor else MaterialTheme.colorScheme.primary) }
                     if (entry.history.isEmpty()) Text(HISTORY_EMPTY, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                     if (hasAny) OutlinedButton(onClick = { clearing = true }, modifier = Modifier.fillMaxWidth()) { Text(HISTORY_CLEAR, color = NegativeColor) }
+                    // Review M-4: the old passwords «Borrar historial» also deletes, shown here (hidden until shown).
+                    val old = entry.oldPasswords()
+                    if (old.isNotEmpty()) {
+                        Text(historyOldPasswords(old.size), style = MaterialTheme.typography.titleSmall)
+                        old.forEach { h ->
+                            val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
+                            Field("Cambiada el $date", h.password, secret = true)
+                        }
+                    }
                 }
             }
-            itemsIndexed(entry.history, key = { i, v -> "${v.savedAt}-$i" }) { _, v ->
+            itemsIndexed(entry.history, key = { i, v -> "${v.savedAt}-$i" }) { i, v ->
                 VersionCard(v) {
                     message = null
                     scope.launch {
                         message = try {
-                            if (store.restoreVersion(entry.id, v.savedAt)) HISTORY_RESTORED to false else null
+                            // Review M-7: the version at this place, not only the first of its millisecond.
+                            if (store.restoreVersion(entry.id, v.savedAt, index = i)) HISTORY_RESTORED to false else HISTORY_RESTORE_REFUSED to true
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: IllegalStateException) {
+                            // Review M-2: the store's own Spanish texts (a limit, the upgrade waiting, one identity), not «espacio».
+                            (e.message ?: TRASH_SAVE_FAILED) to true
                         } catch (e: Exception) {
-                            (e.message?.takeIf { e is app.seguridad.vault.VaultLimitExceeded } ?: TRASH_SAVE_FAILED) to true
+                            TRASH_SAVE_FAILED to true
                         }
                     }
                 }
@@ -106,6 +124,8 @@ fun EntryHistoryScreen(store: VaultStore, id: String, onBack: () -> Unit) {
                     scope.launch {
                         message = try {
                             if (store.clearHistory(entry.id)) HISTORY_CLEARED to false else null
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             TRASH_SAVE_FAILED to true
                         }

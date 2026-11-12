@@ -722,7 +722,7 @@ class MergePlanTest {
         // The old password goes to the history (2.0, task 3: the entry as it was, as a version).
         assertEquals(listOf(PasswordChange("vieja", now)), r.oldPasswords())
         assertEquals(bank.password, r.history.single().entry.password)
-        assertTrue(r.passwordHistory.isEmpty())
+        assertEquals(listOf(PasswordChange("vieja", now)), r.passwordHistory)
         // Both have notes and they differ: the vault's, then the file's under the heading.
         assertEquals("nota de la bóveda\n\nImportado el 4-11-2026:\nnota del archivo", r.notes)
         // Tags: the union.

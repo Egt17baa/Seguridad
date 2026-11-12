@@ -83,5 +83,26 @@ fun historyClearTitle(name: String): String = "¿Borrar el historial de «$name�
 /** On view in the confirmation of «Borrar historial» (O-2). */
 const val HISTORY_CLEAR_TEXT = "Se quitan sus versiones y sus contraseñas anteriores. $COPIES_KEEP_IT"
 const val HISTORY_CLEARED = "Historial borrado"
-fun historyOpen(count: Int): String = "Versiones ($count)"
+/**
+ * The card's button to the versions (review M-4): their number; with none, the old passwords the screen shows instead
+ * (the list of 1.4.3, or one whose version was trimmed), so «Borrar historial» never deletes what is not shown.
+ */
+fun historyOpen(versions: Int, oldPasswords: Int): String =
+    if (versions > 0) "Versiones ($versions)" else "Contraseñas anteriores ($oldPasswords)"
+
+/** Above the old passwords on the screen of the versions. */
+fun historyOldPasswords(count: Int): String = "Contraseñas anteriores ($count)"
+
+/** «Restaurar esta versión» refused it: not there any more, the entry as it is, or a type it cannot take (review M-2). */
+const val HISTORY_RESTORE_REFUSED = "Esta versión no se puede restaurar."
+
+/** Review M-3: the editor of an entry that went to the trash meanwhile. */
+const val ENTRY_IN_TRASH = "Está en la papelera: no se ha guardado. Restáurala desde la papelera para editarla."
+
+/** The editor's save found the vault locked. */
+const val SAVE_LOCKED = "La bóveda se bloqueó: no se ha guardado"
+
+/** Why a save of the entry [id] gave false, for the editor: in the trash, or the vault locked. */
+fun saveRefusedText(state: VaultState, id: String): String =
+    if ((state as? VaultState.Unlocked)?.trash?.any { it.id == id } == true) ENTRY_IN_TRASH else SAVE_LOCKED
 fun versionUntil(date: String): String = "Hasta el $date"

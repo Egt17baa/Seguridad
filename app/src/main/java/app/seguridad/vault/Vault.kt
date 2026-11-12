@@ -71,9 +71,9 @@ data class VaultEntry(
     /** Lowercase labels, see [normalizeTags]. */
     val tags: List<String> = emptyList(),
     /**
-     * Previous LOGIN passwords of 1.4.3 and before, newest first, at most [MAX_PASSWORD_HISTORY]. 2.0 (task 3, M-4): a
-     * read-only legacy list, never written again (old passwords go to [history]); [oldPasswords] reads both, and only
-     * «Borrar historial» empties it.
+     * Previous LOGIN passwords, newest first, at most [MAX_PASSWORD_HISTORY]; kept by [withNewPassword]. 2.0 (task 3,
+     * ruling T3 I-2): written as in 1.4.3, besides [history], so trimming the history never drops an old password;
+     * [oldPasswords] reads both, and «Borrar historial» empties both.
      */
     val passwordHistory: List<PasswordChange> = emptyList(),
     /** Encrypted files kept in files/vault/att/ (see [AttachmentStore]); the store keeps them across edits. */

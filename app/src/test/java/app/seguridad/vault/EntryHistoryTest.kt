@@ -55,8 +55,8 @@ class EntryHistoryTest {
         assertTrue(v.entry.history.isEmpty())
         // The old password, on the card and in «Salud», from the history.
         assertEquals(listOf(PasswordChange("uno", clock)), e.oldPasswords())
-        // Not in the legacy list: 2.0 never writes it again.
-        assertTrue(e.passwordHistory.isEmpty())
+        // And in the list of the 5 newest, as in 1.4.3 (ruling T3, I-2).
+        assertEquals(listOf(PasswordChange("uno", clock)), e.passwordHistory)
         // Any field counts, not only the password; newest first.
         s.edit(login("dos", notes = "nota nueva"))
         assertEquals(listOf("dos", "uno"), s.entry().history.map { it.entry.password })
@@ -235,5 +235,74 @@ class EntryHistoryTest {
         val again = store(dir).apply { load(); unlock(master143.toCharArray()) }
         assertEquals(legacy, again.entry("grande").oldPasswords())
         assertNotNull(again.entry("grande").history.single())
+    }
+
+    /** Ruling T3, I-2: a change of password, then edits of the notes of a large entry: the old password stays on the card. */
+    @Test fun oldPasswordSurvivesTrimmedHistory() = runTest {
+        val big = "n".repeat(40 * 1024)
+        val s = open()
+        s.edit(login("clave-a", notes = big + "0"))
+        s.edit(login("clave-b", notes = big + "0"))
+        val changedAt = clock
+        for (i in 1..3) s.edit(login("clave-b", notes = big + i))
+        // The version with «clave-a» was trimmed (one version of 40 KiB fits)…
+        assertTrue(s.entry().history.none { it.entry.password == "clave-a" })
+        // …and the card still has it.
+        assertEquals(listOf(PasswordChange("clave-a", changedAt)), s.entry().oldPasswords())
+        // 21 edits of a small entry after one change: the same.
+        val t = open2()
+        t.edit(login("uno"))
+        t.edit(login("dos"))
+        for (i in 1..21) t.edit(login("dos", notes = "nota $i"))
+        assertEquals(VaultLimits.HISTORY_MAX_VERSIONS, t.entry().history.size)
+        assertEquals(listOf("uno"), t.entry().oldPasswords().map { it.password })
+        // «Reemplazar» too.
+        val replaced = app.seguridad.imports.replaceWith(login("de-antes"), login("del-archivo"), 60)
+        assertEquals(listOf(PasswordChange("de-antes", 60)), replaced.passwordHistory)
+    }
+
+    private suspend fun open2(): VaultStore = store(tmp.newFolder("otra")).apply { load(); create(master.toCharArray()) }
+
+    /** Review M-2: a hostile version never makes the entry an identity or a contact. */
+    @Test fun restoreVersionNeverMakesItPersonal() = runTest {
+        val s = open()
+        s.edit(login("uno"))
+        s.lock()
+        val f = File(tmp.root, "vault.bin")
+        val file = VaultCrypto.decodeFile(f.readText())
+        val dek = VaultCrypto.unlock(file, master.toCharArray())
+        val data = VaultCrypto.read(file, dek)
+        val hostile = EntryVersion(77L, VaultEntry("a", EntryType.IDENTITY, "Yo", identitySeed = "AAAA", createdAt = 0, updatedAt = 0))
+        val contact = EntryVersion(78L, VaultEntry("a", EntryType.CONTACT, "Otro", card = "AAAA", createdAt = 0, updatedAt = 0))
+        f.writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, data.copy(entries = data.entries.map { it.copy(history = listOf(contact, hostile)) }))))
+        val again = store().apply { load(); unlock(master.toCharArray()) }
+        assertFalse(again.restoreVersion("a", 77L))
+        assertFalse(again.restoreVersion("a", 78L))
+        assertEquals(EntryType.LOGIN, again.entry().type)
+    }
+
+    /** Review M-7: two versions of the same millisecond: the one at the index asked for. */
+    @Test fun restoreVersionByIndex() = runTest {
+        val s = open()
+        s.edit(login("uno"))
+        s.edit(login("dos"))
+        s.edit(login("tres"))
+        s.lock()
+        val f = File(tmp.root, "vault.bin")
+        val file = VaultCrypto.decodeFile(f.readText())
+        val dek = VaultCrypto.unlock(file, master.toCharArray())
+        val data = VaultCrypto.read(file, dek)
+        f.writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, data.copy(entries = data.entries.map { e -> e.copy(history = e.history.map { it.copy(savedAt = 5L) }) }))))
+        val again = store().apply { load(); unlock(master.toCharArray()) }
+        assertEquals(listOf("dos", "uno"), again.entry().history.map { it.entry.password })
+        assertFalse("The index must match the date", again.restoreVersion("a", 6L, index = 1))
+        assertTrue(again.restoreVersion("a", 5L, index = 1))
+        assertEquals("uno", again.entry().password)
+    }
+
+    /** Review M-4: the button and the screen count the old passwords of 1.4.3 too. */
+    @Test fun historyLabelCountsLegacy() {
+        assertEquals("Versiones (2)", historyOpen(versions = 2, oldPasswords = 1))
+        assertEquals("Contraseñas anteriores (3)", historyOpen(versions = 0, oldPasswords = 3))
     }
 }

@@ -141,12 +141,14 @@ class TrashTest {
                 note("justo").copy(deletedAt = now - 30 * day),
                 note("nuevo").copy(deletedAt = now - 29 * day),
                 note("vivo"),
-                note("futuro").copy(deletedAt = now + day), // A clock that went back: never purged.
+                note("futuro").copy(deletedAt = now + day), // A clock that went back: counted from now (review M-6).
             ),
             lastUnlockAt = now - day,
         )
         val purged = data.purgedTrash(now, clockMark = now - 10 * day)
         assertEquals(listOf("justo", "nuevo", "vivo", "futuro"), purged.entries.map { it.id })
+        assertEquals(now, purged.entries.single { it.id == "futuro" }.deletedAt)
+        assertFalse(purged.trashPurgeSkipped)
         assertEquals(now, purged.lastUnlockAt)
         // Only one of the two signs of a jump: still purged.
         assertEquals(purged.entries, data.copy(lastUnlockAt = 0).purgedTrash(now, clockMark = now - day).entries)
@@ -318,5 +320,74 @@ class TrashTest {
         assertEquals("Se quita en 30 días", trashLeavesIn(t0, t0))
         assertEquals("Se quita en 1 día", trashLeavesIn(t0, t0 + 29 * day))
         assertEquals("Se quita al abrir la bóveda", trashLeavesIn(t0, t0 + 31 * day))
+    }
+
+    /**
+     * Ruling T3, I-1: the purge is skipped at most once in a row. Unlocks 3 days apart, each in a new process (a new
+     * AppContainer: no use seen yet), each one a «jump» by the rule: the first skips, the next one purges.
+     */
+    @Test fun spacedUnlocksStillEmptyTheTrash() = runTest {
+        val files = tmp.newFolder("movil")
+        val cache = tmp.newFolder("cache-movil")
+        var now = t0
+        fun process() = AppContainer(files, cache, appVersion = "test", appScope = backgroundScope, vaultNow = { now })
+        val first = process()
+        first.settings.load()
+        first.vault.load()
+        first.vault.create(master.toCharArray())
+        assertTrue(first.vault.upsert(note("viejo")))
+        assertTrue(first.vault.upsert(note("nuevo")))
+        now = t0 - 40 * day
+        first.vault.moveToTrash(setOf("viejo"))
+        now = t0
+        first.vault.moveToTrash(setOf("nuevo"))
+        first.vault.lock()
+        val seen = ArrayList<List<String>>()
+        // Unlocks at t0 + 3, + 6 (a skip, then a purge), then + 31, + 34 (again: a skip, then a purge).
+        for (at in listOf(3, 6, 31, 34)) {
+            now = t0 + at * day
+            val c = process()
+            c.settings.load()
+            c.vault.load()
+            c.vault.unlock(master.toCharArray())
+            seen += c.vault.open().trash.map { it.id }.sorted()
+            c.vault.lock()
+        }
+        assertEquals(listOf(listOf("nuevo", "viejo"), listOf("nuevo"), listOf("nuevo"), emptyList()), seen)
+        // Pure: never two skips in a row.
+        var d = VaultData(entries = listOf(note("x").copy(deletedAt = t0)), lastUnlockAt = t0)
+        val skipped = (1..6).map { i -> d.purgedTrash(t0 + i * 3 * day, clockMark = 0).also { d = it.copy(entries = d.entries) }.trashPurgeSkipped }
+        assertEquals(listOf(true, false, true, false, true, false), skipped)
+    }
+
+    /** Review M-1: a move, a switch to another vault and back: no «Deshacer» left over. */
+    @Test fun undoOfferGoesWithTheLock() = runTest {
+        val c = AppContainer(tmp.newFolder("app3"), tmp.newFolder("cache3"), appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create("maestra-de-prueba-a".toCharArray(), name = "Uno")
+        val a = c.vault
+        assertTrue(a.upsert(note("a")))
+        assertEquals(1, c.undoTrash.moveToTrash(setOf("a")))
+        val undoA = c.undoTrash
+        assertEquals(1, undoA.offer.value)
+        c.createVault("Dos", "maestra-de-prueba-b".toCharArray())
+        testScheduler.runCurrent()
+        assertEquals(0, undoA.offer.value)
+        c.switchTo(a.id)
+        c.vault.unlock("maestra-de-prueba-a".toCharArray())
+        testScheduler.runCurrent()
+        assertEquals(0, c.undoTrash.offer.value)
+    }
+
+    /** Review M-3: the editor on an entry that is in the trash says so, not «se bloqueó». */
+    @Test fun saveRefusedSaysWhy() = runTest {
+        val s = withTwo()
+        s.moveToTrash(setOf("a"))
+        assertFalse(s.upsert(note("a", "Otra")))
+        assertEquals(ENTRY_IN_TRASH, saveRefusedText(s.state.value, "a"))
+        assertEquals(SAVE_LOCKED, saveRefusedText(s.state.value, "b"))
+        s.lock()
+        assertEquals(SAVE_LOCKED, saveRefusedText(s.state.value, "a"))
     }
 }
