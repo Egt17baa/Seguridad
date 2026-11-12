@@ -25,7 +25,6 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
    - `code-review` y `security-review`;
    - la auditoría completa con `experto-seguridad-cripto`, `auditoria-seguridad-movil` y `auditoria-seguridad`;
    - la revisión final del Abogado Digital (punto 4), con sus cambios aplicados.
-7. **Segunda opinión:** `/advisor <modelo> [pregunta]` (skill del proyecto `.claude/skills/advisor/`) lanza un subagente de solo lectura con otro modelo, por defecto Fable. Es una opinión: no sustituye a las revisiones del punto 6.
 
 ## Estado actual: Clavero 1.4.2, publicada (11-11-2026)
 
