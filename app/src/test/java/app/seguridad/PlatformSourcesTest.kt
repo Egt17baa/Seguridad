@@ -136,6 +136,29 @@ class PlatformSourcesTest {
         assertTrue("withContext(Dispatchers.Default) { compute(data, qf.first, qf.second) }" in src && ".collectLatest {" in src)
         assertTrue("if (store.state.value is VaultState.Unlocked) _result.value = r" in src)
         assertTrue(Regex("""fun reset\(\) \{[^}]*cache = null\s+_result.value = ListResult.EMPTY""").containsMatchIn(src))
+        // Review M-4: the place goes back to the ViewModel only while the vault is open (a lock already reset it).
+        assertTrue(Regex("""onDispose \{\s*if \(store\.state\.value is VaultState\.Unlocked\) \{\s*list\.firstIndex""").containsMatchIn(src))
+        // Review I-2: a save opens what it wrote, never decrypting the vault again on the caller's thread.
+        val store = code("vault/VaultStore.kt")
+        assertTrue("commit(next, key, since, mustSave = !bookkeeping, read = saved)" in store)
+        assertTrue("withContext(compute) { VaultCrypto.read(next, key) }" in store)
+    }
+
+    /**
+     * 2.0, review C-1 of task 4: in the lazy lists made from the vault's data (the list, its chips, the dialogs) every
+     * row of data has the key [lazyKey] gives (a kind, «:» and the id), and no fixed row has a «:» in its key. So a tag
+     * called «colors» or a view whose id is «manage» never repeats a key, which closes the app at every opening.
+     */
+    @Test fun `C-1 the keys of the vault's lazy rows never meet the fixed ones`() {
+        for (file in listOf("ui/screens/VaultList.kt", "ui/screens/VaultOrganize.kt")) {
+            val src = code(file)
+            val dataKeys = Regex("""items\([^\n]*?key = \{([^}]*)\}""").findAll(src).map { it.groupValues[1].trim() }.toList()
+            assertTrue(file, dataKeys.isNotEmpty())
+            for (k in dataKeys) assertTrue("$file: $k", k.startsWith("lazyKey("))
+            val fixed = Regex("""\bitem\(key = "([^"]*)"\)""").findAll(src).map { it.groupValues[1] }.toList()
+            for (k in fixed) assertFalse("$file: $k", ':' in k)
+        }
+        assertTrue("internal fun lazyKey(kind: Char, id: String): String = \"\$kind:\$id\"" in code("ui/screens/VaultList.kt"))
     }
 
     @Test fun `COV2-4 the window and every dialog are marked accessibility data sensitive on Android 14+`() {
@@ -658,7 +681,7 @@ class PlatformSourcesTest {
         // M-5: «Elegir otro archivo» on the password step opens the picker, as on the other steps.
         assertTrue(flat, "OutlinedButton(onClick = { vm.cancel() launchPick() }" in flat)
         // R18: the vault's tag chips are lazy.
-        assertTrue("LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(result.tags, key = { it })" in code("ui/screens/VaultList.kt").replace(Regex("""\s+"""), " "))
+        assertTrue("LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(result.tags, key = { lazyKey('t', it) })" in code("ui/screens/VaultList.kt").replace(Regex("""\s+"""), " "))
         // A document created for the copy and not used (refused, failed) is deleted, never left empty.
         assertTrue("discardDocumentNow(appContext, uri)" in src)
         // «Quitar el archivo exportado»: the document picked in this run, once, after an import; the provider asked first.

@@ -54,6 +54,12 @@ fun normalizeTags(raw: String): List<String> =
 /** «Caducan pronto»: what expires within this time, or has already. */
 const val EXPIRING_SOON_MS = 30 * 24 * 60 * 60_000L
 
+/** The longest search text, and the longest text of a view, in code points (review M-1 of task 4). */
+const val SEARCH_TEXT_MAX = 200
+
+/** [text] cut to [SEARCH_TEXT_MAX] code points: what the search box takes, and what a view's text is read as. */
+fun searchText(text: String): String = takeCodePoints(text, SEARCH_TEXT_MAX)
+
 /** How many entries «Recientes» shows. */
 const val RECENT_MAX = 5
 

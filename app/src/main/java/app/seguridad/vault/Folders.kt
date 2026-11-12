@@ -81,12 +81,20 @@ fun descendants(folders: List<Folder>, id: String): Set<String> {
 /** How many levels [id] is down (1 for a top folder), or 0 when it is not there. */
 internal fun folderDepth(folders: List<Folder>, id: String): Int = folderPath(folders, id).size
 
-/** How many levels the branch of [id] holds (1 for a folder with no subfolders). */
+/**
+ * How many levels the branch of [id] holds (1 for a folder with no subfolders): level by level, each folder id once
+ * (review I-1 of task 4: a copy with repeated ids, or a cycle, never makes it walk every path).
+ */
 internal fun branchHeight(folders: List<Folder>, id: String): Int {
     val children = folders.groupBy { it.parentId }
-    fun height(at: String, seen: Set<String>): Int =
-        1 + (children[at].orEmpty().filter { it.id !in seen }.maxOfOrNull { height(it.id, seen + it.id) } ?: 0)
-    return height(id, setOf(id))
+    val seen = hashSetOf(id)
+    var level = listOf(id)
+    var height = 0
+    while (level.isNotEmpty()) {
+        height++
+        level = level.flatMap { at -> children[at].orEmpty().map { it.id } }.filter { seen.add(it) }
+    }
+    return height
 }
 
 /**
@@ -231,14 +239,15 @@ internal fun VaultData.withEntriesMoved(ids: Set<String>, folderId: String?): Pa
 /**
  * This vault with [view] saved: replacing the one of its id, or as a new one at the end. Its name is trimmed and must
  * show something, be at most [ORGANIZE_NAME_MAX] code points and differ (as [organizeKey] reads it) from the other views';
- * its folder must be in the vault. Null when it is saved like that already.
+ * its folder must be in the vault; its text is cut to [SEARCH_TEXT_MAX] code points. Null when it is saved like that already.
  */
 internal fun VaultData.withView(view: SavedView): VaultData? {
     val n = checkedName(view.name, VIEW_NAME_EMPTY, VIEW_NAME_LONG)
     checkFolder(view.filter.folderId)
     val key = organizeKey(n)
     if (views.any { it.id != view.id && organizeKey(it.name) == key }) throw OrganizeRefused(VIEW_NAME_TAKEN)
-    val saved = view.copy(name = n)
+    // Review M-1: the text of a view, cut as the search box cuts it.
+    val saved = view.copy(name = n, filter = view.filter.copy(text = searchText(view.filter.text)))
     val i = views.indexOfFirst { it.id == view.id }
     if (i >= 0) return if (views[i] == saved) null else copy(views = views.toMutableList().also { it[i] = saved })
     if (views.size >= VaultLimits.VIEWS_MAX) throw VaultLimitExceeded(TOO_MANY_VIEWS)

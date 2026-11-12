@@ -436,7 +436,14 @@ class VaultStore(
                 throw e
             }
         }
-        opened(next, key, since, read = read)
+        // 2.0, review I-2 of task 4: with no [read], the file is decrypted and decoded here, off the caller's thread.
+        val data = read ?: if (epoch != since) null else try {
+            withContext(compute) { VaultCrypto.read(next, key) }
+        } catch (e: CryptoFailure) {
+            key.fill(0)
+            throw e
+        }
+        opened(next, key, since, read = data)
         // After a failed save that did not have to succeed, the disk differs only by bookkeeping: same attachments.
         collectGarbage()
     }
@@ -549,7 +556,14 @@ class VaultStore(
         }
         // 2.0, the upgrade: nothing is written yet. The file on disk stays the 2 or 3 until the copy before it is made or
         // declined; a process death meanwhile leaves it as it was (focus 1).
-        opened(v, key, since, upgraded = checked)
+        // Review I-2 of task 4: the version 4 waiting is decrypted off the caller's thread, as in [commit].
+        val read = try {
+            withContext(compute) { VaultCrypto.read(checked, key) }
+        } catch (e: CryptoFailure) {
+            key.fill(0)
+            throw e
+        }
+        opened(v, key, since, upgraded = checked, read = read)
         collectGarbage()
         return upgrade != null
     }
@@ -754,8 +768,17 @@ class VaultStore(
         val since = epoch
         val key = dek?.copyOf() ?: return@withLock false
         val current = (_state.value as? VaultState.Unlocked)?.data ?: return@withLock false.also { key.fill(0) }
+        // 2.0, review I-2 of task 4: what is written is what opens (as the fingerprint's unlock, review M-5 of task 1): the
+        // data saved goes to [commit] with the file, so the vault is never decrypted and decoded again on the caller's
+        // thread (the main one for a tap) after each save, nor for [markUsed].
+        var saved: VaultData? = null
         val next = try {
-            withContext(compute) { change(current)?.fittedForSave(current)?.let { VaultCrypto.write(v, key, it) }?.takeIf { accept(it) } }
+            withContext(compute) {
+                change(current)?.fittedForSave(current)?.withPlainVersions()?.let { data ->
+                    saved = data
+                    VaultCrypto.write(v, key, data)
+                }?.takeIf { accept(it) }
+            }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -765,7 +788,7 @@ class VaultStore(
             return@withLock false
         }
         // With [bookkeeping], a save that keeps the file's time and does not raise [revision] (no automatic copy for it).
-        commit(next, key, since, mustSave = !bookkeeping)
+        commit(next, key, since, mustSave = !bookkeeping, read = saved)
         true
     }
 

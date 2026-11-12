@@ -10,10 +10,10 @@ const val SEARCH_LABEL = "Buscar"
 
 /** Under the search box, folded: what the search reads and what it never reads. */
 const val SEARCH_MORE =
-    "Busca en el nombre, el usuario, la web (solo su dominio), el servicio del 2FA, las etiquetas, las carpetas y los " +
-        "nombres de los campos que no están ocultos. Nunca en las contraseñas, los campos ocultos, las notas ni las " +
-        "palabras de una frase semilla. Perdona una errata en palabras de 4 a 7 letras y dos desde 8; primero salen las " +
-        "que coinciden tal cual."
+    "Busca en el nombre, el usuario, la web (solo su dominio), el servicio y la cuenta del 2FA, las etiquetas, las " +
+        "carpetas y los nombres de los campos que no están ocultos. Nunca en las contraseñas, los campos ocultos, las " +
+        "notas ni las palabras de una frase semilla. Perdona una errata en palabras de 4 a 7 letras y dos desde 8, y una " +
+        "en el principio de una palabra mientras escribes; primero salen las que coinciden tal cual."
 
 const val ALL_ENTRIES = "Todo"
 const val RECENT_TITLE = "Recientes"

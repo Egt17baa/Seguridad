@@ -185,7 +185,7 @@ private fun FoldersDialog(folders: List<Folder>, result: ListResult, list: Entry
                 }) { Text(FOLDER_ALL) }
                 if (tree.isEmpty()) Text(FOLDERS_EMPTY, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    items(tree, key = { it.first.id }) { (f, depth) ->
+                    items(tree, key = { lazyKey('f', it.first.id) }) { (f, depth) ->
                         var menu by remember { mutableStateOf(false) }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = (depth * 16).dp)) {
                             Text(
@@ -286,7 +286,7 @@ private fun FolderPicker(title: String, folders: List<Folder>, exclude: Set<Stri
                 error?.let { Text(it, color = NegativeColor) }
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
                     item(key = "none") { Text(none, modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { choose(null) }.padding(vertical = 10.dp)) }
-                    items(tree, key = { it.first.id }) { (f, depth) ->
+                    items(tree, key = { lazyKey('f', it.first.id) }) { (f, depth) ->
                         Text(
                             "📁 ${plainReportText(f.name)}", maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { choose(f.id) }.padding(start = (depth * 16).dp, top = 10.dp, bottom = 10.dp),
@@ -369,7 +369,7 @@ private fun ViewsDialog(store: VaultStore, views: List<SavedView>, onDone: () ->
                 Text(VIEW_DELETE_SHORT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 error?.let { Text(it, color = NegativeColor) }
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    items(views, key = { it.id }) { v ->
+                    items(views.distinctBy { it.id }, key = { lazyKey('v', it.id) }) { v ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("👁 ${plainReportText(v.name)}", maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             if (asking == v.id) {
@@ -422,7 +422,7 @@ private fun TagColorsDialog(store: VaultStore, tags: List<String>, colors: Map<S
                 if (tags.isEmpty()) Text(TAGS_EMPTY, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 error?.let { Text(it, color = NegativeColor) }
                 LazyColumn(Modifier.heightIn(max = 400.dp)) {
-                    items(tags, key = { it }) { t ->
+                    items(tags, key = { lazyKey('t', it) }) { t ->
                         val current = colors[t]
                         Column {
                             Text(

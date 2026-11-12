@@ -22,7 +22,7 @@ data class StatusColors(val positive: Color, val negative: Color, val caution: C
 private val DarkStatus = StatusColors(positive = Color(0xFF4ADE80), negative = Color(0xFFF87171), caution = Color(0xFFFCD34D))
 private val LightStatus = StatusColors(positive = Color(0xFF166534), negative = Color(0xFFB91C1C), caution = Color(0xFF854D0E))
 
-private val DarkColors = darkColorScheme(
+internal val DarkColors = darkColorScheme(
     primary = Color(0xFF5EEAD4),
     onPrimary = Color(0xFF0E1116),
     primaryContainer = Color(0xFF134E4A),
@@ -56,7 +56,7 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = Color(0xFFFEE2E2),
 )
 
-private val LightColors = lightColorScheme(
+internal val LightColors = lightColorScheme(
     primary = Color(0xFF0F766E),
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFCCFBF1),

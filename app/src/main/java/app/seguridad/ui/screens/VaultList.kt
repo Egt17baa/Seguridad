@@ -118,6 +118,7 @@ import app.seguridad.vault.folderPath
 import app.seguridad.vault.folderTree
 import app.seguridad.vault.movedTo
 import app.seguridad.vault.query
+import app.seguridad.vault.searchText
 import app.seguridad.vault.recentEntries
 import app.seguridad.vault.seedWordCount
 import app.seguridad.vault.sortName
@@ -185,13 +186,21 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
     fun initialFilter(): EntryFilter = if (totpOnly) EntryFilter(types = setOf(EntryType.TOTP)) else EntryFilter()
 
     /** Whether nothing narrows the list (the order may be any). */
-    fun unfiltered(): Boolean = query.isBlank() && filter.copy(sort = SortOrder.NAME) == initialFilter()
+    fun unfiltered(): Boolean = query.isBlank() && plain(filter)
+
+    /** Whether [f] narrows nothing: its order may be any, and «Con subcarpetas» means nothing without a folder (review M-5). */
+    private fun plain(f: EntryFilter): Boolean =
+        f.copy(sort = SortOrder.NAME, includeSubfolders = f.includeSubfolders || f.folderId == null) == initialFilter()
 
     /** The filter of a view as it would be saved: with the text of the box. */
     fun current(): EntryFilter = filter.copy(text = query)
 
+    /** Whether [view] is the filter on now; its text read as [apply] reads it. */
+    fun isOn(view: SavedView): Boolean = view.filter.copy(text = searchText(view.filter.text)) == current()
+
+    /** Review M-1: a view's text is cut to [SEARCH_TEXT_MAX] code points as it is read (one from a copy may hold more). */
     fun apply(view: SavedView) {
-        query = view.filter.text
+        query = searchText(view.filter.text)
         filter = view.filter.copy(text = "")
     }
 
@@ -222,7 +231,7 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
         }.also { cache = it }
         val filter = f.copy(text = text)
         val shown = listable.query(filter, data, now, weak = { it.id in c.weak }, no2fa = { it.id in c.no2fa }, index = c.index)
-        val top = !totpOnly && text.isBlank() && f.copy(sort = SortOrder.NAME) == initialFilter()
+        val top = !totpOnly && text.isBlank() && plain(f)
         return ListResult(
             data = data,
             shown = shown,
@@ -283,14 +292,18 @@ internal fun EntryList(
         val f = list.filter
         val tags = f.tags.filter { it in result.tags }.toSet()
         val folder = f.folderId?.takeIf { id -> folders.any { it.id == id } }
-        if (tags != f.tags || folder != f.folderId) list.filter = f.copy(tags = tags, folderId = folder)
+        // Review M-5: with no folder, «Con subcarpetas» goes back to on, as «Quitar carpeta» leaves it.
+        if (tags != f.tags || folder != f.folderId) list.filter = f.copy(tags = tags, folderId = folder, includeSubfolders = f.includeSubfolders || folder == null)
     }
     // The list's place comes from the ViewModel and goes back to it when the list leaves the screen.
     val listState = remember { LazyListState(list.firstIndex, list.firstOffset) }
     DisposableEffect(listState) {
         onDispose {
-            list.firstIndex = listState.firstVisibleItemIndex
-            list.firstOffset = listState.firstVisibleItemScrollOffset
+            // Review M-4: after a lock the list leaves with its old place; [EntryListViewModel.reset] already dropped it.
+            if (store.state.value is VaultState.Unlocked) {
+                list.firstIndex = listState.firstVisibleItemIndex
+                list.firstOffset = listState.firstVisibleItemScrollOffset
+            }
         }
     }
     var dialog by remember { mutableStateOf<OrganizeDialog?>(null) }
@@ -334,7 +347,7 @@ internal fun EntryList(
         LazyColumn(state = listState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             item(key = "search") {
                 Column {
-                    OutlinedTextField(value = list.query, onValueChange = { list.query = it }, label = { Text(SEARCH_LABEL) }, singleLine = true,
+                    OutlinedTextField(value = list.query, onValueChange = { list.query = searchText(it) }, label = { Text(SEARCH_LABEL) }, singleLine = true,
                         // No corrections or suggestions. autoCorrectEnabled = false does not stop the keyboard from learning: that
                         // is NoLearningInput (IME_FLAG_NO_PERSONALIZED_LEARNING, for every field of the app).
                         keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
@@ -361,13 +374,13 @@ internal fun EntryList(
                     }
                 }
                 item(key = "chips") { QuickFilters(list, result) }
-                val views = data?.views.orEmpty()
+                // One chip per id, whatever a copy made elsewhere holds (checkStructure refuses repeated ids too).
+                val views = data?.views.orEmpty().distinctBy { it.id }
                 if (views.isNotEmpty()) {
                     item(key = "views") {
-                        val current = list.current()
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(views, key = { it.id }) { v ->
-                                val on = v.filter == current
+                            items(views, key = { lazyKey('v', it.id) }) { v ->
+                                val on = list.isOn(v)
                                 FilterChip(selected = on, onClick = { if (on) { list.query = ""; list.filter = list.initialFilter().copy(sort = f.sort) } else list.apply(v) }, label = { Text("👁 ${plainReportText(v.name)}") })
                             }
                             item(key = "manage") { FilterChip(selected = false, onClick = { dialog = OrganizeDialog.Views }, label = { Text(VIEWS_MANAGE) }) }
@@ -379,7 +392,7 @@ internal fun EntryList(
                 item(key = "tags") {
                     // R18: lazy, so a vault with many tags composes only the chips on screen.
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(result.tags, key = { it }) { t ->
+                        items(result.tags, key = { lazyKey('t', it) }) { t ->
                             val on = t in f.tags
                             FilterChip(
                                 selected = on,
@@ -391,14 +404,14 @@ internal fun EntryList(
                     }
                 }
             }
-            fun LazyListScope.section(title: String, entries: List<VaultEntry>, prefix: String) {
+            fun LazyListScope.section(title: String, entries: List<VaultEntry>, prefix: Char) {
                 if (entries.isEmpty()) return
                 item(key = "h-$prefix") { Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)) }
-                items(entries, key = { "$prefix:${it.id}" }) { e -> row(e) }
+                items(entries, key = { lazyKey(prefix, it.id) }) { e -> row(e) }
             }
             val sections = result.recent.isNotEmpty() || result.favorites.isNotEmpty()
-            section(RECENT_TITLE, result.recent, "r")
-            section(FAVORITES_TITLE, result.favorites, "f")
+            section(RECENT_TITLE, result.recent, 'r')
+            section(FAVORITES_TITLE, result.favorites, 'f')
             if (sections && result.shown.isNotEmpty()) {
                 item(key = "h-a") { Text(ALL_TITLE, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)) }
             }
@@ -412,7 +425,7 @@ internal fun EntryList(
                     }
                 }
             }
-            items(result.shown, key = { "a:${it.id}" }) { e -> row(e) }
+            items(result.shown, key = { lazyKey('a', it.id) }) { e -> row(e) }
         }
         // While an entry is dragged by its handle: the folders to drop it on, over the top of the list.
         dragging?.let { d ->
@@ -439,6 +452,13 @@ internal fun EntryList(
     }
     dialog?.let { d -> OrganizeDialogs(store, d, list, result, onDone = { dialog = null }, onNext = { dialog = it }, onMessage = onMessage) }
 }
+
+/**
+ * The key of a row of a lazy list made from the vault's data: its [kind] and its id, with a «:» that no fixed key has
+ * («search», «colors», «manage»…). So a tag called «colors» or a view whose id is «manage» never repeats a key in the
+ * same list, which would close the app at every opening of the list (review C-1 of task 4).
+ */
+internal fun lazyKey(kind: Char, id: String): String = "$kind:$id"
 
 private const val NO_FOLDER_TARGET = "\u0000sin-carpeta"
 

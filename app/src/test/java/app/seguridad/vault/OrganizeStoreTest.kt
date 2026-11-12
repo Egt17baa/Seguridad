@@ -1,5 +1,6 @@
 package app.seguridad.vault
 
+import app.seguridad.core.writeTextAtomically
 import app.seguridad.crypto.KdfParams
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -7,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -22,9 +24,9 @@ class OrganizeStoreTest {
     private val master = "maestra-de-prueba-organizar"
     private val file get() = File(tmp.root, "vault.bin")
 
-    private fun store() = VaultStore(
+    private fun store(writeFile: (File, String) -> Unit = { f, t -> f.writeTextAtomically(t) }) = VaultStore(
         file, Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
-        elapsed = { clock }, clockHighWater = { clock }, trashClockMark = { clock },
+        elapsed = { clock }, clockHighWater = { clock }, trashClockMark = { clock }, writeFile = writeFile,
     )
 
     private fun login(id: String, title: String = "Acceso $id", tags: List<String> = emptyList()) =
@@ -116,5 +118,91 @@ class OrganizeStoreTest {
         before.copy(entries = listOf(big.copy(folderId = "f"))).fittedForSave(before)
         before.copy(entries = listOf(big.copy(lastUsedAt = 5, deletedAt = 6))).fittedForSave(before)
         assertEquals(ENTRY_TOO_BIG, assertThrows(VaultLimitExceeded::class.java) { before.copy(entries = listOf(big.copy(notes = big.notes + "y"))).fittedForSave(before) }.message)
+    }
+
+    /**
+     * Review I-2: a save (an edit, a move, [VaultStore.markUsed]) opens what it wrote, without decrypting and decoding the
+     * vault again on the caller's thread: an entry it did not change is still the same object (a decoding makes new ones).
+     */
+    @Test fun savesOpenWhatTheyWroteWithoutDecodingAgain() = runTest {
+        val s = open()
+        assertTrue(s.addAll(listOf(login("a"), login("b"))))
+        val a = s.data().live.single { it.id == "a" }
+        assertTrue(s.upsert(login("b", title = "Otra")))
+        assertSame(a, s.data().live.single { it.id == "a" })
+        val f = s.createFolder("F", null)!!
+        assertEquals(1, s.moveEntries(setOf("b"), f.id))
+        assertSame(a, s.data().live.single { it.id == "a" })
+        clock += 120_000
+        assertTrue(s.markUsed("b"))
+        assertSame(a, s.data().live.single { it.id == "a" })
+        // And what it opened is what is on disk.
+        s.lock()
+        s.unlock(master.toCharArray())
+        assertEquals(clock, s.data().live.single { it.id == "b" }.lastUsedAt)
+        assertEquals(f.id, s.data().live.single { it.id == "b" }.folderId)
+        assertEquals("Otra", s.data().live.single { it.id == "b" }.title)
+    }
+
+    /**
+     * Review M-6: a write that fails leaves the vault open and the use in memory, as the last master check does; the next
+     * save that works (here the unlock's own) writes it out.
+     */
+    @Test fun markUsedWithAFailedWrite() = runTest {
+        var fail = false
+        val s = store { f, t -> if (fail) throw java.io.IOException("lleno") else f.writeTextAtomically(t) }.apply {
+            load()
+            create(master.toCharArray())
+        }
+        assertTrue(s.upsert(login("a")))
+        val before = file.readText()
+        fail = true
+        clock += 120_000
+        assertTrue(s.markUsed("a")) // No exception reaches the card.
+        assertTrue(s.state.value is VaultState.Unlocked)
+        assertEquals(clock, s.data().live.single().lastUsedAt)
+        assertEquals(before, file.readText())
+        val usedAt = clock
+        fail = false
+        s.lock()
+        clock += 1_000
+        s.unlock(master.toCharArray())
+        assertEquals(usedAt, s.data().live.single().lastUsedAt)
+        // Now on disk: another store on the same file sees it.
+        val again = store().apply { load() }
+        again.unlock(master.toCharArray())
+        assertEquals(usedAt, again.data().live.single().lastUsedAt)
+    }
+
+    /** Review M-6: a lock while the use is being written leaves the vault locked; the next unlock sees it saved. */
+    @Test fun markUsedCutByALock() = runTest {
+        var lockWhileWriting = false
+        lateinit var s: VaultStore
+        s = store { f, t ->
+            f.writeTextAtomically(t)
+            if (lockWhileWriting) s.lock()
+        }
+        s.load()
+        s.create(master.toCharArray())
+        assertTrue(s.upsert(login("a")))
+        lockWhileWriting = true
+        clock += 120_000
+        s.markUsed("a")
+        assertEquals(VaultState.Locked, s.state.value)
+        lockWhileWriting = false
+        s.unlock(master.toCharArray())
+        assertEquals(clock, s.data().live.single().lastUsedAt)
+    }
+
+    /** Review M-1: the search text and a view's text are cut to 200 code points. */
+    @Test fun searchAndViewTextsAreCapped() = runTest {
+        val long = "😀" + "a".repeat(500)
+        assertEquals(SEARCH_TEXT_MAX, searchText(long).codePointCount(0, searchText(long).length))
+        assertTrue(searchText(long).startsWith("😀"))
+        assertEquals("corto", searchText("corto"))
+        assertEquals(SEARCH_TEXT_MAX, FuzzySearch.prepare("b".repeat(5_000)).normalized.length)
+        val s = open()
+        assertTrue(s.saveView(SavedView("v", "Larga", EntryFilter(text = long))))
+        assertEquals(searchText(long), s.data().views.single().filter.text)
     }
 }

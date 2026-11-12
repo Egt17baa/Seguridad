@@ -184,4 +184,55 @@ class FoldersTest {
         assertTrue(s.restoreVersion("1", version.savedAt, 0))
         assertNull(s.data().live.single().folderId)
     }
+
+    /** Review I-1: a copy made elsewhere with a folder id twice is damaged, and nothing walks every path of it. */
+    @Test fun duplicateFolderIdsRefused() {
+        val twice = VaultData(folders = listOf(Folder("a", "A"), Folder("a", "Otra A")))
+        assertEquals(ORGANIZE_DAMAGED, assertThrows(VaultLimitExceeded::class.java) { twice.checkStructure() }.message)
+        assertEquals(COPY_DAMAGED, assertThrows(app.seguridad.crypto.CryptoFailure::class.java) { checkCopyStructure(twice) }.message)
+        // 100 folders «A» at the top, 100 «B» in «A»… down to «E»: 500 and 5 levels, the shape of the review.
+        val hostile = listOf("A", "B", "C", "D", "E").flatMapIndexed { i, id ->
+            (0 until 100).map { Folder(id, "$id$it", parentId = if (i == 0) null else listOf("A", "B", "C", "D")[i - 1]) }
+        }
+        assertEquals(500, hostile.size)
+        val t0 = System.nanoTime()
+        assertEquals(5, branchHeight(hostile, "A"))
+        assertTrue("${(System.nanoTime() - t0) / 1_000_000} ms", System.nanoTime() - t0 < 100_000_000)
+        assertThrows(app.seguridad.crypto.CryptoFailure::class.java) { checkCopyStructure(VaultData(folders = hostile)) }
+        // A cycle does not loop either.
+        assertEquals(2, branchHeight(listOf(Folder("x", "X", parentId = "y"), Folder("y", "Y", parentId = "x")), "x"))
+    }
+
+    /** Review I-1: two views with the same id (or an id «manage») only come from a copy made elsewhere: damaged. */
+    @Test fun duplicateViewIdsRefused() {
+        val twice = VaultData(views = listOf(SavedView("manage", "Una", EntryFilter()), SavedView("manage", "Otra", EntryFilter())))
+        assertEquals(ORGANIZE_DAMAGED, assertThrows(VaultLimitExceeded::class.java) { twice.checkStructure() }.message)
+        assertEquals(COPY_DAMAGED, assertThrows(app.seguridad.crypto.CryptoFailure::class.java) { checkCopyStructure(twice) }.message)
+        // One view called «manage» is fine (its key in the list has its own prefix, review C-1).
+        VaultData(views = listOf(SavedView("manage", "Una", EntryFilter()))).checkStructure()
+    }
+
+    /** Review I-1, through the store: importing a copy whose folders repeat an id changes nothing. */
+    @Test fun hostileCopyWithRepeatedIdsIsNotImported() = runTest {
+        val maker = open()
+        val file = VaultCrypto.decodeFile(maker.exportText()!!)
+        val key = VaultCrypto.unlock(file, master.toCharArray())
+        val hostile = VaultData(
+            entries = listOf(note("1")),
+            folders = listOf(Folder("a", "A"), Folder("a", "B", parentId = "a")),
+            views = listOf(SavedView("manage", "V", EntryFilter()), SavedView("manage", "W", EntryFilter())),
+        )
+        val text = VaultCrypto.encodeFile(VaultCrypto.write(file, key, hostile))
+        val other = VaultStore(
+            File(tmp.newFolder("otra"), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+            elapsed = { clock }, clockHighWater = { clock }, trashClockMark = { clock },
+        ).apply {
+            load()
+            create(master.toCharArray())
+            upsert(note("mía"))
+        }
+        val e = assertThrows(app.seguridad.crypto.CryptoFailure::class.java) { kotlinx.coroutines.runBlocking { other.importReplace(text, master.toCharArray()) } }
+        assertEquals(COPY_DAMAGED, e.message)
+        assertEquals(listOf("mía"), other.data().live.map { it.id })
+    }
 }

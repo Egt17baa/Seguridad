@@ -60,6 +60,8 @@ const val FOLDERS_TOO_DEEP = "Las carpetas pueden anidarse como mucho 5 niveles.
 const val FOLDER_CYCLE = "Una carpeta no puede estar dentro de sí misma. Muévela a otro sitio."
 const val TOO_MANY_VIEWS = "Puede haber como mucho 50 vistas guardadas. Borra alguna."
 const val TOO_MANY_TAG_COLORS = "Puede haber como mucho 200 etiquetas con color. Quita el color de alguna."
+/** Two folders or two views with the same id: only a copy made elsewhere has them ([checkStructure]). */
+const val ORGANIZE_DAMAGED = "Las carpetas o las vistas de la bóveda están dañadas."
 const val VAULT_NAME_TOO_LONG = "El nombre de la bóveda puede tener como mucho 100 caracteres. Acórtalo."
 
 /** Counts what is written to it, and keeps nothing. */
@@ -191,7 +193,8 @@ internal fun VaultEntry.entryLimitProblem(): String? = when {
 }
 
 /**
- * The limits on what organises the vault: folders (count, depth and no folder inside itself), views and tag colours.
+ * The limits on what organises the vault: folders (count, depth, no folder inside itself and no id twice), views (count
+ * and no id twice) and tag colours.
  * A folder whose parent is not in the vault counts as a top folder. Also checked on a copy before it is imported.
  */
 internal fun VaultData.checkStructure() {
@@ -199,6 +202,12 @@ internal fun VaultData.checkStructure() {
     if (views.size > VaultLimits.VIEWS_MAX) throw VaultLimitExceeded(TOO_MANY_VIEWS)
     if (tagColors.size > VaultLimits.TAG_COLORS_MAX) throw VaultLimitExceeded(TOO_MANY_TAG_COLORS)
     if (name.codePointLength() > VaultLimits.VAULT_NAME_MAX) throw VaultLimitExceeded(VAULT_NAME_TOO_LONG)
+    // 2.0, review I-1 of task 4: the app never repeats an id (a new folder or view gets a random one), so a repeated one
+    // only comes from a copy made elsewhere, which [checkCopyStructure] then refuses as damaged.
+    val folderIds = HashSet<String>()
+    if (!folders.all { folderIds.add(it.id) }) throw VaultLimitExceeded(ORGANIZE_DAMAGED)
+    val viewIds = HashSet<String>()
+    if (!views.all { viewIds.add(it.id) }) throw VaultLimitExceeded(ORGANIZE_DAMAGED)
     val parent = HashMap<String, String?>()
     folders.forEach { parent.putIfAbsent(it.id, it.parentId) }
     var deepest = 0

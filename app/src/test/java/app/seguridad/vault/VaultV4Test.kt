@@ -239,6 +239,17 @@ class VaultV4Test {
         assertEquals(listOf("Cartera de prueba", "Correo de ejemplo", "Foro de ejemplo", "Nota de prueba"), again.entries().map { it.title })
     }
 
+    /** Review M-6 of task 4: while the upgrade waits, a use is not saved and does not throw; the file stays the v3. */
+    @Test fun markUsedWhileTheUpgradeWaits() = runTest {
+        val dir = phone143("uso")
+        val s = store(dir).apply { load() }
+        s.unlock(master143.toCharArray())
+        assertTrue(s.pendingUpgrade.value)
+        assertFalse(s.markUsed("e1"))
+        assertNull(s.entries().single { it.id == "e1" }.lastUsedAt)
+        assertEquals(text("vault-1.4.3.json"), File(dir, "vault.bin").readText())
+    }
+
     @Test fun upgradeWaitsForChoiceWithoutBackupFolder() = runTest {
         val dir = phone143()
         val s = store(dir).apply { load() }

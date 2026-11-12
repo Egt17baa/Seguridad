@@ -54,9 +54,34 @@ class FuzzySearchTest {
         assertNull(s("fcturcoin", "Facturación")) // Three: no.
         assertNotNull(s("bnaco", "banco"))
         assertNull(s("bnacp", "banco"))
-        // 7 letters: still one.
+        // 6 letters: one.
         assertNotNull(s("netflx", "Netflix"))
         assertNull(s("netlfx", "Netflix"))
+    }
+
+    /** Review M-3: the exact edges of [FuzzySearch.allowedEdits]: 3, 4, 7 and 8 letters. */
+    @Test fun typoLimitsAtTheEdges() {
+        assertEquals(listOf(0, 0, 0, 1, 1, 1, 1, 2, 2), (1..9).map(FuzzySearch::allowedEdits))
+        assertNull(s("bvv", "bbv")) // 3 letters, one typo: no.
+        assertNotNull(s("bnco", "banco")) // 4 letters, one typo (a letter missing).
+        assertNull(s("entflxi", "Netflix")) // 7 letters, two transpositions: no.
+        assertNotNull(s("entflix", "Netflix")) // 7 letters, one.
+        assertNotNull(s("afctuars", "facturas")) // 8 letters, two transpositions: yes.
+        assertNull(s("afctuasr", "facturas")) // 8 letters, three: no.
+    }
+
+    /**
+     * Ruling T4, M-7: the start of a word counts while typing, with one typo at most whatever the length, and after
+     * every match of whole words.
+     */
+    @Test fun startOfAWordOneTypoAndLast() {
+        assertNotNull(s("gmia", "Gmail")) // «gmai» at one transposition.
+        assertNull(s("contrato", "Contraseña del banco")) // Two from «contras»: never.
+        val whole = s("gmial", "Gmail")!!
+        val start = s("gmia", "Gmail")!!
+        assertTrue("$whole < $start", whole < start && start >= FuzzySearch.PREFIX_BASE)
+        // A whole word with two typos still comes before the start of one with one.
+        assertTrue(s("fcturacoin", "Facturación")!! < start)
     }
 
     @Test fun shortWordsExactOnly() {

@@ -7,7 +7,8 @@ import kotlin.math.pow
  * as its name (with «#») in its colour, on the list's surfaces, so every colour has a contrast of at least 4.5:1 (WCAG
  * 2.2 AA for text) on each of them, in the light theme and in the dark one ([TagPaletteTest]). The colour is never the
  * only sign of anything (R-1): the name of the tag is always written, and the picker names each colour
- * ([tagColorName]). The dynamic colour of Android 12 (task 10) does not change these: they are fixed.
+ * ([tagColorName]). Measured against the real themes too (`TagPaletteThemeTest`, review M-8), which also checks that the
+ * backgrounds listed here are the theme's. The dynamic colour of Android 12 (task 10) does not change these: they are fixed.
  */
 object TagPalette {
     private val LIGHT = mapOf(
