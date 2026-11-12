@@ -46,3 +46,4 @@ Ruling (T1, ronda 1): el aviso de después del paso vive solo en memoria y se pi
 Task 1: fix round 1/5 (8 addressed, 0 open; commits 9804b28..fe9e944).
 Task 1: complete (commits 7744994..fe9e944, review clean). Informes: `task-1-report.md`, `task-1-review.md`, `task-1-rereview-1.md`.
 Task 1: minor (deferred): M-4 → tarea 3; M-6 → rendimiento (tarea 4 y final); M-8 → tarea 2.
+Task 2: dispatched (base 643512a, model opus).
