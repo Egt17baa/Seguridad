@@ -1071,11 +1071,17 @@ class VaultStore(
      * 2.0, task 8: «Comprobar una copia» checked a copy whose [VaultData.vaultTag] is [copyTag]: keeps the date
      * ([VaultData.lastCheckedBackupAt], now) when it is this vault's own tag ([withBackupChecked]), compared here, under the
      * mutex, with the vault as it is. A bookkeeping save, as [markUsed]: no version, no change for the automatic copies.
-     * False, with nothing saved, for another vault's copy or one without a tag, or when the vault locked since [sinceLock]
-     * (the [lockEpoch] when the check started), also if it was opened again meanwhile.
+     * True when it was kept; false when the copy is not of this vault (another vault's tag, or none: made before 2.0);
+     * null when nothing could be compared: the vault is not open, its upgrade waits, or it locked since [sinceLock] (the
+     * [lockEpoch] when the check started), also if it was opened again meanwhile.
      */
-    suspend fun recordBackupChecked(copyTag: String, sinceLock: Int = epoch): Boolean =
-        modifyData(bookkeeping = true, sinceLock = sinceLock) { data -> data.withBackupChecked(copyTag, now()) }
+    suspend fun recordBackupChecked(copyTag: String, sinceLock: Int = epoch): Boolean? {
+        var own: Boolean? = null
+        val saved = modifyData(bookkeeping = true, sinceLock = sinceLock) { data ->
+            data.withBackupChecked(copyTag, now()).also { own = it != null }
+        }
+        return if (saved) true else own
+    }
 
     /**
      * 2.0, task 3: sends the entry to the trash ([moveToTrash]); true when it was there to move. The identity and the

@@ -167,12 +167,18 @@ class BackupCheckSessionTest {
         runs.start(master()) { report.copy(vaultTag = "propia", problems = listOf(backupCheckMissing(1))) }
         testScheduler.advanceUntilIdle()
         assertEquals(2, recorded.size)
-        assertEquals(false, session.counted)
+        assertNull(session.counted)
         // A lock while it runs: nothing recorded, nothing shown.
         runs.start(master()) { epoch++; report.copy(vaultTag = "propia") }
         testScheduler.advanceUntilIdle()
         assertEquals(2, recorded.size)
         assertNull(session.report)
+        assertNull(session.counted)
+        // Not compared (the vault locked when the check ended): nothing said, neither «counted» nor «not counted».
+        val notOpen = BackupCheckRuns(session, this, { epoch }) { _, _ -> null }
+        notOpen.start(master()) { report.copy(vaultTag = "propia") }
+        testScheduler.advanceUntilIdle()
+        assertEquals(report.copy(vaultTag = "propia"), session.report)
         assertNull(session.counted)
         // A wipe forgets it.
         runs.start(master()) { report.copy(vaultTag = "propia") }

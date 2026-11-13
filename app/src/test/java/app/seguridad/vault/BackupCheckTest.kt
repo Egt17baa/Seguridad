@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -608,17 +609,20 @@ class BackupCheckTest {
         val revision = a.revision.value
 
         // Another vault's copy, and one with no tag (before 2.0): nothing recorded.
-        assertFalse(a.recordBackupChecked(other.vaultTag))
-        assertFalse(a.recordBackupChecked(""))
+        assertEquals(false, a.recordBackupChecked(other.vaultTag))
+        assertEquals(false, a.recordBackupChecked(""))
         assertEquals(0L, a.data().lastCheckedBackupAt)
         assertEquals(null, a.data().withBackupChecked("", 5L))
         assertEquals(null, a.data().withBackupChecked(other.vaultTag, 5L))
 
         // Its own copy: the date is kept, saved (it is there after a lock and a new unlock) and makes no automatic copy.
-        assertTrue(a.recordBackupChecked(own.vaultTag))
+        assertEquals(true, a.recordBackupChecked(own.vaultTag))
         assertEquals(7_000L, a.data().lastCheckedBackupAt)
         assertEquals(revision, a.revision.value)
         a.lock()
+        // Locked: nothing can be compared (the screen then says nothing about it), even for its own copy.
+        assertNull(a.recordBackupChecked(own.vaultTag))
+        assertNull(a.recordBackupChecked(other.vaultTag))
         a.unlock(master.toCharArray())
         assertEquals(7_000L, a.data().lastCheckedBackupAt)
 
@@ -631,9 +635,9 @@ class BackupCheckTest {
         val tag = b2.data().vaultTag
         b2.lock()
         b2.unlock(master.toCharArray())
-        assertFalse(b2.recordBackupChecked(tag, started))
+        assertNull(b2.recordBackupChecked(tag, started))
         assertEquals(0L, b2.data().lastCheckedBackupAt)
-        assertTrue(b2.recordBackupChecked(tag, b2.lockEpoch))
+        assertEquals(true, b2.recordBackupChecked(tag, b2.lockEpoch))
     }
 
     /** 2.0, task 8: the reminder, only after 30 days, or while no copy was ever checked (0). */

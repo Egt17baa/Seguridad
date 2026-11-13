@@ -304,7 +304,8 @@ class AutoBackup(
     private val now: () -> Long,
     /** Keeps the result before the next copy starts (it holds [AutoBackupResult.copies]); must not throw. */
     private val onResult: suspend (AutoBackupResult) -> Unit,
-    private val zone: ZoneId = ZoneId.systemDefault(),
+    /** The time zone of the calendar and of the copies' names; null: the phone's, read at each use (it may change). */
+    private val zone: ZoneId? = null,
     /**
      * Keeps the id of an import copy (or of before 2.0) just written to the target [folder], made from the vault of
      * [generation] (VaultStore.generation when it started); must not throw. Waited for before the next copy, as [onResult].
@@ -417,13 +418,12 @@ class AutoBackup(
         lock.withLock {
             for (t in targets()) {
                 val replace = t.replacePending
-                val calendar = t.schedule != BackupSchedule.ON_CHANGE && t.due(now, zone)
+                val calendar = t.schedule != BackupSchedule.ON_CHANGE && t.due(now, zone())
                 val run = replace || t.uri in pending || calendar || (t.schedule == BackupSchedule.ON_CHANGE && missed(t))
                 if (!run) continue
-                if (store.state.value !is VaultState.Unlocked) {
-                    defer(t.uri)
-                    continue
-                }
+                // Locked: nothing is written, and nothing is kept as pending either: the unlock runs this again, from
+                // what is saved then (the calendar, A6, a change missed), so a clock corrected meanwhile makes no copy.
+                if (store.state.value !is VaultState.Unlocked) continue
                 // Read inside the lock, from what is saved: a request made before a restart is done too.
                 val result = attempt(t.uri, if (replace) Replace(t.replaceTargets, announce = true) else null) ?: continue
                 if (replace) notices += result
@@ -522,6 +522,8 @@ class AutoBackup(
         // Not saved (a full disk): do not say it will be done.
         return AutoBackupResult(uri, null, if (target(uri)?.replacePending == true) AUTO_BACKUP_REPLACE_WAITS else AUTO_BACKUP_FAILED)
     }
+
+    private fun zone(): ZoneId = zone ?: ZoneId.systemDefault()
 
     /** The target of [uri] as it is saved now; null once it is no longer one. */
     private fun target(uri: String): BackupTargetSettings? = targets().firstOrNull { it.uri == uri }
@@ -776,7 +778,7 @@ class AutoBackup(
     private fun freeName(taken: Set<String>, now: Long, prefix: String): String {
         var at = Instant.ofEpochMilli(now)
         while (true) {
-            val name = prefix + STAMP.format(at.atZone(zone)) + SUFFIX
+            val name = prefix + STAMP.format(at.atZone(zone())) + SUFFIX
             if (name !in taken && name + TEMP_SUFFIX !in taken) return name
             at = at.plusSeconds(1)
         }

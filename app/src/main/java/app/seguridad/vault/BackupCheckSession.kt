@@ -41,7 +41,7 @@ class BackupCheckSession(
     /**
      * 2.0, task 8: whether the last report counted as this vault's last copy checked ([BackupCheckRuns]'s record: a copy of
      * the open vault, without problems); false for one of another vault or made before 2.0, which the screen says (O-5 of
-     * the Abogado Digital); null with no report.
+     * the Abogado Digital); null with no report, with problems, or when it could not be compared (the vault locked).
      */
     private val countedCell = cells.cell<Boolean?>(null)
     var counted: Boolean? by countedCell
@@ -76,7 +76,7 @@ class BackupCheckRuns(
     private val session: BackupCheckSession,
     private val scope: CoroutineScope,
     private val lockEpoch: () -> Int = { 0 },
-    private val record: suspend (report: BackupCheckReport, sinceLock: Int) -> Boolean = { _, _ -> false },
+    private val record: suspend (report: BackupCheckReport, sinceLock: Int) -> Boolean? = { _, _ -> null },
 ) {
     private var job: Job? = null
     private var runId = 0L
@@ -108,12 +108,17 @@ class BackupCheckRuns(
             try {
                 val report = op(password)
                 // Only a copy without problems counts as checked; a failure to save it only means it does not count.
-                val counted = report.problems.isEmpty() && current(mine, epoch) && try {
-                    record(report, epoch)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    false
+                // null when it could not be compared (the vault not open): then the screen says nothing about it.
+                val counted = if (report.problems.isEmpty() && current(mine, epoch)) {
+                    try {
+                        record(report, epoch)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        null
+                    }
+                } else {
+                    null
                 }
                 if (current(mine, epoch)) {
                     session.report = report
