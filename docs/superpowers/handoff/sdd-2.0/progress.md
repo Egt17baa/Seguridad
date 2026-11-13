@@ -139,3 +139,4 @@ Task 6: fix round 2/5 (1 addressed, 0 open; 0f6051d..04b9865; app 2152, jvm-chec
 Task 6: complete (commits f8d1d54..04b9865, review clean). Informes: `task-6-report.md`, `task-6-review.md`, `task-6-rereview-1.md`, `task-6-rereview-2.md`.
 Deferred (al móvil, tarea 11): la fila elegida opaca en «Cristal», la marca quieta sin animaciones en las filas, deslizar con su vibración, la oferta al volver de otra app.
 Task 7: dispatched (base de la tarea: el commit de este registro, model opus).
+Owner decision (13-11-2026): se cambia el orden de las dos últimas tareas — primero la 12 (versión 2.0, documentos y revisión final con `code-review`, `security-review`, la auditoría, el ataque y el Abogado final) y después la 11 (los flujos de Maestro), con la 2.0 ya hecha.
