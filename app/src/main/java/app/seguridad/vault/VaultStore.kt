@@ -1068,6 +1068,16 @@ class VaultStore(
     suspend fun markUsed(id: String): Boolean = modifyData(bookkeeping = true) { data -> data.withUsed(id, now()) }
 
     /**
+     * 2.0, task 8: «Comprobar una copia» checked a copy whose [VaultData.vaultTag] is [copyTag]: keeps the date
+     * ([VaultData.lastCheckedBackupAt], now) when it is this vault's own tag ([withBackupChecked]), compared here, under the
+     * mutex, with the vault as it is. A bookkeeping save, as [markUsed]: no version, no change for the automatic copies.
+     * False, with nothing saved, for another vault's copy or one without a tag, or when the vault locked since [sinceLock]
+     * (the [lockEpoch] when the check started), also if it was opened again meanwhile.
+     */
+    suspend fun recordBackupChecked(copyTag: String, sinceLock: Int = epoch): Boolean =
+        modifyData(bookkeeping = true, sinceLock = sinceLock) { data -> data.withBackupChecked(copyTag, now()) }
+
+    /**
      * 2.0, task 3: sends the entry to the trash ([moveToTrash]); true when it was there to move. The identity and the
      * contacts ([EntryType.isPersonal], their own tab) never go to the trash: they are deleted for good, as before, after
      * the screen's own confirmations, which say so; their files go with the collection after the save.

@@ -42,6 +42,11 @@ data class BackupCheckReport(
     val attachments: Int,
     val attachmentsOk: Int,
     val problems: List<String>,
+    /**
+     * 2.0, task 8: the copy's [VaultData.vaultTag], read from the very data checked above (decision (b): what was checked
+     * is what is recorded); empty for a copy made before 2.0, which has none.
+     */
+    val vaultTag: String = "",
 )
 
 /**
@@ -107,12 +112,37 @@ suspend fun checkBackup(
                 backupCheckMissing(missing).takeIf { missing > 0 },
                 backupCheckChanged(changed).takeIf { changed > 0 },
             ),
+            vaultTag = data.vaultTag,
         )
     } finally {
         key?.fill(0)
         dir?.let { d -> withContext(NonCancellable) { withContext(io) { endRun(d) } } }
     }
 }
+
+/**
+ * 2.0, task 8: these data after «Comprobar una copia» checked, at [now], a copy whose tag is [copyTag]: the date is kept
+ * only when [copyTag] is this vault's own [VaultData.vaultTag] (a copy of this vault, or of the vault it was restored
+ * from); null (nothing to save) for a copy of another vault, or one made before 2.0, whose tag is empty.
+ */
+fun VaultData.withBackupChecked(copyTag: String, now: Long): VaultData? =
+    if (copyTag.isNotEmpty() && vaultTag.isNotEmpty() && copyTag == vaultTag) copy(lastCheckedBackupAt = now) else null
+
+/** The days after which [backupCheckNotice] reminds to check a copy. */
+const val BACKUP_CHECK_REMIND_DAYS = 30
+
+/**
+ * 2.0, task 8: the line in Ajustes and in the vault: null until [BACKUP_CHECK_REMIND_DAYS] days have passed since the last
+ * check of a copy of this vault ([VaultData.lastCheckedBackupAt], 0 for never); then how many days ago it was, or that
+ * none was ever checked.
+ */
+fun backupCheckNotice(lastCheckedBackupAt: Long, now: Long): String? {
+    if (lastCheckedBackupAt <= 0L) return BACKUP_CHECK_NEVER
+    val days = (now - lastCheckedBackupAt) / DAY_MS
+    return if (days >= BACKUP_CHECK_REMIND_DAYS) backupCheckDaysAgo(days) else null
+}
+
+private const val DAY_MS = 24L * 60 * 60 * 1000
 
 /** The run folders in use in this process: [removeBackupCheckLeftovers] never deletes one of them. Guarded by itself. */
 private val activeRuns = HashSet<String>()

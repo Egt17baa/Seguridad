@@ -75,3 +75,9 @@ const val BACKUP_CHECK_NOT_PROVEN =
 const val BACKUP_CHECK_STOPS_NOTE =
     "La contraseña se borra del campo al pulsar «Comprobar». Si sales de la app, vuelves atrás o se bloquea la bóveda " +
         "mientras se comprueba, la comprobación se detiene en cuanto puede y no se muestra su resultado."
+
+/** 2.0, task 8: [backupCheckNotice] when no copy of this vault was ever checked. */
+const val BACKUP_CHECK_NEVER = "Aún no has comprobado ninguna copia."
+
+/** 2.0, task 8: [backupCheckNotice] once [days] (30 or more) have passed since the last check. */
+fun backupCheckDaysAgo(days: Long) = "Tu última copia comprobada es de hace $days días."

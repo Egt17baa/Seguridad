@@ -52,6 +52,8 @@ class BackupCheckTest {
 
     private fun VaultStore.entries() = (state.value as VaultState.Unlocked).entries
 
+    private fun VaultStore.data() = (state.value as VaultState.Unlocked).data
+
     private fun bytes(n: Int, seed: Int = n) = Random(seed).nextBytes(n)
 
     /** A vault with two notes and a login, and three attachments (one note with two). */
@@ -146,7 +148,8 @@ class BackupCheckTest {
         val a = phoneA()
         val temp = temp()
         val report = check(a.backup(), temp)
-        assertEquals(BackupCheckReport(3, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 3, emptyList()), report) // 2.0: marker 3.
+        // 2.0: marker 3; task 8: with the vault's tag.
+        assertEquals(BackupCheckReport(3, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 3, emptyList(), a.data().vaultTag), report)
         assertTrue(temp.listFiles().isNullOrEmpty())
         // A copy of version 1 (1.1.x) is read the same way, and says so.
         val v1 = zipOf(listOf(BACKUP_MARKER to "1\n".toByteArray()) + entriesOf(a.backup()).drop(1))
@@ -177,7 +180,7 @@ class BackupCheckTest {
         val zip = a.backup()
         val oneGone = zipOf(entriesOf(zip).filterNot { it.first == "att/${refs[1].id}.bin" })
         val report = check(oneGone, temp())
-        assertEquals(BackupCheckReport(3, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 2, listOf(backupCheckMissing(1))), report)
+        assertEquals(BackupCheckReport(3, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 2, listOf(backupCheckMissing(1)), a.data().vaultTag), report)
         // Several of each, counted apart.
         val ref0 = "att/${refs[0].id}.bin"
         val mixed = zipOf(
@@ -584,5 +587,66 @@ class BackupCheckTest {
             // The cancellation goes through as it is, never as a damaged copy.
         }
         assertTrue(temp.listFiles().isNullOrEmpty())
+    }
+
+    /**
+     * 2.0, task 8 (design «Copias», ruling (b)): the date of the check is kept only for a copy whose tag, read from the very
+     * data checked, is the open vault's; never for another vault's copy, one with no tag (made before 2.0), or after a lock.
+     */
+    @Test fun checkRecordsDateOnlyForOwnTag() = runTest {
+        val a = phoneA()
+        val b = store(phone("b")).apply {
+            load()
+            create(master.toCharArray())
+            upsert(note("9"))
+        }
+        val own = check(a.backup(), temp())
+        val other = check(b.backup(), temp())
+        assertTrue(own.vaultTag.isNotEmpty())
+        assertEquals(a.data().vaultTag, own.vaultTag)
+        assertTrue(own.vaultTag != other.vaultTag)
+        val revision = a.revision.value
+
+        // Another vault's copy, and one with no tag (before 2.0): nothing recorded.
+        assertFalse(a.recordBackupChecked(other.vaultTag))
+        assertFalse(a.recordBackupChecked(""))
+        assertEquals(0L, a.data().lastCheckedBackupAt)
+        assertEquals(null, a.data().withBackupChecked("", 5L))
+        assertEquals(null, a.data().withBackupChecked(other.vaultTag, 5L))
+
+        // Its own copy: the date is kept, saved (it is there after a lock and a new unlock) and makes no automatic copy.
+        assertTrue(a.recordBackupChecked(own.vaultTag))
+        assertEquals(7_000L, a.data().lastCheckedBackupAt)
+        assertEquals(revision, a.revision.value)
+        a.lock()
+        a.unlock(master.toCharArray())
+        assertEquals(7_000L, a.data().lastCheckedBackupAt)
+
+        // A lock after the check started drops it, even with the vault open again.
+        val b2 = store(phone("c")).apply {
+            load()
+            create(master.toCharArray())
+        }
+        val started = b2.lockEpoch
+        val tag = b2.data().vaultTag
+        b2.lock()
+        b2.unlock(master.toCharArray())
+        assertFalse(b2.recordBackupChecked(tag, started))
+        assertEquals(0L, b2.data().lastCheckedBackupAt)
+        assertTrue(b2.recordBackupChecked(tag, b2.lockEpoch))
+    }
+
+    /** 2.0, task 8: the reminder, only after 30 days, or while no copy was ever checked (0). */
+    @Test fun noticeAfter30Days() {
+        val day = 24L * 60 * 60 * 1000
+        val now = 1_800_000_000_000L
+        assertEquals("Aún no has comprobado ninguna copia.", backupCheckNotice(0L, now))
+        assertEquals(null, backupCheckNotice(now, now))
+        assertEquals(null, backupCheckNotice(now - 29 * day, now))
+        assertEquals(null, backupCheckNotice(now - 30 * day + 1, now))
+        assertEquals("Tu última copia comprobada es de hace 30 días.", backupCheckNotice(now - 30 * day, now))
+        assertEquals("Tu última copia comprobada es de hace 45 días.", backupCheckNotice(now - 45 * day - 5, now))
+        // A clock set back behind the check: no reminder (it is not 30 days old).
+        assertEquals(null, backupCheckNotice(now + 3 * day, now))
     }
 }
