@@ -300,6 +300,9 @@ private fun VaultData.upgraded(random: SecureRandom): VaultData = copy(
 private fun newVaultTag(random: SecureRandom): String = hex(randomBytes(16, random))
 
 object VaultCrypto {
+    /** 2.0, task 8 (D-12): a new [VaultData.vaultTag] (16 random bytes in hex), for a vault imported as a new one. */
+    fun newTag(): String = newVaultTag(secureRandom)
+
     /** A new vault: fresh DEK wrapped with [master]. Returns the file and the open DEK (caller keeps it while unlocked). */
     fun create(
         master: CharArray,

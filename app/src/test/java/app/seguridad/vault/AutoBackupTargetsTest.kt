@@ -360,7 +360,7 @@ class AutoBackupTargetsTest {
         assertTrue("A change does not copy to a target with a calendar", f.files.isEmpty())
         a.runDue(clock)
         assertEquals(1, f.copies().size)
-        a.scheduledNotice.value?.let(a::scheduledShown)
+        a.scheduledNotice.value?.let { assertTrue(a.takeScheduled(it)) }
         // The same day, later in the week, and with the clock set back: nothing.
         for (t in listOf(at(13, 18), at(19, 23, 59), at(12), at(10))) {
             clock = t

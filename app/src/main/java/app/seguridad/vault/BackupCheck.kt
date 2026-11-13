@@ -133,11 +133,13 @@ const val BACKUP_CHECK_REMIND_DAYS = 30
 
 /**
  * 2.0, task 8: the line in Ajustes and in the vault: null until [BACKUP_CHECK_REMIND_DAYS] days have passed since the last
- * check of a copy of this vault ([VaultData.lastCheckedBackupAt], 0 for never); then how many days ago it was, or that
- * none was ever checked.
+ * check of a copy of this vault ([VaultData.lastCheckedBackupAt], 0 for never); then how many days ago it was
+ * («Comprobaste una copia por última vez hace N días.», D-8), or that none was ever checked. A date more than a day ahead
+ * of [now] (checked with the clock set forward) cannot be counted from: [BACKUP_CHECK_DATE_AHEAD] (review M-6).
  */
 fun backupCheckNotice(lastCheckedBackupAt: Long, now: Long): String? {
     if (lastCheckedBackupAt <= 0L) return BACKUP_CHECK_NEVER
+    if (lastCheckedBackupAt - now > DAY_MS) return BACKUP_CHECK_DATE_AHEAD
     val days = (now - lastCheckedBackupAt) / DAY_MS
     return if (days >= BACKUP_CHECK_REMIND_DAYS) backupCheckDaysAgo(days) else null
 }

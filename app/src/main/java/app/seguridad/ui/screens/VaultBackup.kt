@@ -260,13 +260,15 @@ internal fun PasswordDialog(
 }
 
 /**
- * 2.0, task 8 (design «Copias»): the line «Tu última copia comprobada es de hace N días.», or that none was checked yet, once
+ * 2.0, task 8 (design «Copias»): the line «Comprobaste una copia por última vez hace N días.», or that none was checked yet, once
  * 30 days have passed since «Comprobar una copia» checked a copy of this vault ([backupCheckNotice]); nothing before. In
  * Ajustes with [explain] (what the date counts, O-5 of the Abogado Digital, under «Más información»); one line in the vault.
  */
 @Composable
 fun BackupCheckNoticeLine(lastCheckedBackupAt: Long, modifier: Modifier = Modifier, explain: Boolean = true) {
-    val text = remember(lastCheckedBackupAt) { backupCheckNotice(lastCheckedBackupAt, System.currentTimeMillis()) } ?: return
+    // Review M-6: the day is part of the key, so the line is worked out again on another day, not only on another check.
+    val now = System.currentTimeMillis()
+    val text = remember(lastCheckedBackupAt, now / (24L * 60 * 60 * 1000)) { backupCheckNotice(lastCheckedBackupAt, now) } ?: return
     Column(modifier) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = CautionColor)
         if (explain) MoreInfo { Hint(BACKUP_CHECK_NOTICE_MORE) }

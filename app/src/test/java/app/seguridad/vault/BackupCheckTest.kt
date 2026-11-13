@@ -648,8 +648,8 @@ class BackupCheckTest {
         assertEquals(null, backupCheckNotice(now, now))
         assertEquals(null, backupCheckNotice(now - 29 * day, now))
         assertEquals(null, backupCheckNotice(now - 30 * day + 1, now))
-        assertEquals("Tu última copia comprobada es de hace 30 días.", backupCheckNotice(now - 30 * day, now))
-        assertEquals("Tu última copia comprobada es de hace 45 días.", backupCheckNotice(now - 45 * day - 5, now))
+        assertEquals("Comprobaste una copia por última vez hace 30 días.", backupCheckNotice(now - 30 * day, now))
+        assertEquals("Comprobaste una copia por última vez hace 45 días.", backupCheckNotice(now - 45 * day - 5, now))
         // A clock set back behind the check: no reminder (it is not 30 days old).
         assertEquals(null, backupCheckNotice(now + 3 * day, now))
     }

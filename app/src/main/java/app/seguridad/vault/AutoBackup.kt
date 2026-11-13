@@ -194,6 +194,12 @@ fun replacedText(unlistedLeft: Int, folders: Int = 1): String {
 
 const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda con la contraseña nueva."
 
+/**
+ * 2.0, task 8 (review M-3): how long after a failed copy opening the app does not try that target again (the next unlock,
+ * a change saved or its A6 request still do).
+ */
+const val RETRY_AFTER_FAILURE_MS = 5 * 60_000L
+
 /** 2.0, task 8: what [AutoBackup.runDue] says after [n] copies made by the calendar. */
 fun scheduledCopiesText(n: Int): String = if (n == 1) "Se hizo la copia con calendario." else "Se hicieron $n copias con calendario."
 
@@ -347,13 +353,42 @@ class AutoBackup(
 
     private val scheduled = Notice<String>()
 
+    /** Guards [scheduled] and [scheduledEpoch] together (review M-1 of task 8). */
+    private val scheduledLock = Any()
+
+    /** The [VaultStore.lockEpoch] of the run that posted [scheduled]. */
+    private var scheduledEpoch = -1
+
     /**
      * 2.0, task 8 (design «Copias»: «se hace la copia y se dice»): what [runDue] did by the calendar
-     * ([scheduledCopiesText]), until shown ([scheduledShown]). Dropped at every lock, so it is never shown after one.
+     * ([scheduledCopiesText]), until shown ([takeScheduled]). Posted only if no lock came during that run, and dropped at
+     * every lock, so it is never shown after one.
      */
     val scheduledNotice: StateFlow<String?> = scheduled.value
 
-    fun scheduledShown(shown: String) = scheduled.shown(shown)
+    /**
+     * The screen is about to show [shown]: it is gone from [scheduledNotice] whatever this says, and true only if no lock
+     * came since it was posted (a lock and an unlock too quick for the collector still count, by the lock epoch).
+     */
+    fun takeScheduled(shown: String): Boolean = synchronized(scheduledLock) {
+        val current = scheduled.value.value === shown && scheduledEpoch == store.lockEpoch && store.state.value is VaultState.Unlocked
+        scheduled.shown(shown)
+        current
+    }
+
+    /** Posts [scheduledCopiesText] of [n] copies, only while the lock epoch is still [epoch], the run's. */
+    private fun postScheduled(n: Int, epoch: Int) = synchronized(scheduledLock) {
+        if (n > 0 && store.lockEpoch == epoch && store.state.value is VaultState.Unlocked) {
+            scheduledEpoch = epoch
+            scheduled.post(scheduledCopiesText(n))
+        }
+    }
+
+    /** Review M-4 of task 8: the [VaultStore.revision] each target last copied, so a change copied already is not copied again. */
+    private val copiedRevision = ConcurrentHashMap<String, Long>()
+
+    /** Review M-3 of task 8: when each target's last copy failed (in memory), so opening the app does not retry it at once. */
+    private val failedAt = ConcurrentHashMap<String, Long>()
 
     /** One copy at a time: the collector's, [runDue]'s, [replaceOldCopies]'s and the copies before importing never overlap. */
     private val lock = Mutex()
@@ -366,12 +401,12 @@ class AutoBackup(
             // Each time the vault is opened (not each change saved while it is open: those wait for the debounce).
             val opened = store.state.map { it is VaultState.Unlocked }.distinctUntilChanged().filter { it }.map { false }
             // One collector: copies never overlap.
-            merge(due, opened).collect { isDue -> if (isDue) runChanged() else runDue(now()) }
+            merge(due, opened).collect { isDue -> if (isDue) runChanged() else runDue(now(), afterUnlock = true) }
         }
         scope.launch {
             // A lock drops what the calendar's copies said: never shown after it.
             store.state.map { it is VaultState.Unlocked }.distinctUntilChanged().filter { !it }.collect {
-                scheduled.value.value?.let(scheduled::shown)
+                synchronized(scheduledLock) { scheduled.value.value?.let(scheduled::shown) }
             }
         }
     }
@@ -387,56 +422,84 @@ class AutoBackup(
 
     /**
      * The debounced run: the [BackupSchedule.ON_CHANGE] targets after a change, and the targets [request] asked for. A
-     * target with an A6 request does it with this copy, as 1.x did.
+     * target with an A6 request does it with this copy, as 1.x did. Each target is read again just before its copy, inside
+     * [lock] (review I-3 of task 8): an import or a change of master password during the copy of the one before is seen.
      */
     private suspend fun runChanged() {
         val notices = ArrayList<AutoBackupResult>()
         lock.withLock {
             val change = changed.getAndSet(false)
-            for (t in targets()) {
-                val wanted = asked.remove(t.uri)
+            val told = toldInRequests()
+            val revision = store.revision.value
+            for (uri in targets().map { it.uri }) {
+                val wanted = asked.remove(uri)
+                val t = target(uri) ?: continue
                 if (!wanted && !(change && t.schedule == BackupSchedule.ON_CHANGE)) continue
-                // Read inside the lock, from what is saved: a request made before a restart is done too.
-                val replace = t.replacePending
-                val result = attempt(t.uri, if (replace) Replace(t.replaceTargets, announce = true) else null) ?: continue
-                if (replace) notices += result
+                // Review M-4: the state of now was already copied there (the app was opened meanwhile): no second copy.
+                if (!wanted && !t.replacePending && copiedRevision[uri] == revision) continue
+                val result = attempt(uri, if (t.replacePending) Replace(t.replaceTargets, announce = true, told = told) else null) ?: continue
+                if (t.replacePending) notices += result
             }
         }
         tell(notices)
     }
 
+    /** 2.0, task 8 (review M-2): [runDue] in this object's scope, so a deletion of the vault cancels it with the rest. */
+    fun launchDue(now: Long) {
+        scope.launch { runDue(now) }
+    }
+
     /**
-     * 2.0, task 8: called when the vault is unlocked (here) and when the app is opened (AppContainer): makes, one at a
-     * time and in the order of the targets, the copies that are due at [now]: a target with a calendar when [due] says so,
-     * an [BackupSchedule.ON_CHANGE] one when a change was missed, any one that waited for the unlock or has an A6 request.
-     * With the vault locked, nothing is written: those copies wait for the unlock. A lock in the middle stops the copies
-     * that follow. Returns once they are done; cancelled with this object's scope.
+     * 2.0, task 8: called when the vault is unlocked (here, [afterUnlock]) and when the app is opened ([launchDue]): makes,
+     * one at a time and in the order of the targets, the copies that are due at [now]: a target with a calendar when [due]
+     * says so, an [BackupSchedule.ON_CHANGE] one when a change was missed, any one that waited for the unlock or has an A6
+     * request. Each target is read again just before its copy, inside [lock] (review I-3). With the vault locked, nothing
+     * is written: the unlock runs this again. A lock in the middle stops the copies that follow. A target whose copy failed
+     * is not tried again when the app is opened within [RETRY_AFTER_FAILURE_MS] (review M-3), only at the next unlock, its
+     * A6 request, or later. Returns once they are done; cancelled with this object's scope.
      */
-    suspend fun runDue(now: Long) {
+    suspend fun runDue(now: Long, afterUnlock: Boolean = false) {
         val notices = ArrayList<AutoBackupResult>()
         var byCalendar = 0
+        var epoch = 0
         lock.withLock {
-            for (t in targets()) {
+            epoch = store.lockEpoch
+            if (afterUnlock) failedAt.clear()
+            val told = toldInRequests()
+            for (uri in targets().map { it.uri }) {
+                val t = target(uri) ?: continue
                 val replace = t.replacePending
+                val waited = uri in pending
                 val calendar = t.schedule != BackupSchedule.ON_CHANGE && t.due(now, zone())
-                val run = replace || t.uri in pending || calendar || (t.schedule == BackupSchedule.ON_CHANGE && missed(t))
+                val run = replace || waited || calendar || (t.schedule == BackupSchedule.ON_CHANGE && missed(t))
                 if (!run) continue
                 // Locked: nothing is written, and nothing is kept as pending either: the unlock runs this again, from
                 // what is saved then (the calendar, A6, a change missed), so a clock corrected meanwhile makes no copy.
                 if (store.state.value !is VaultState.Unlocked) continue
-                // Read inside the lock, from what is saved: a request made before a restart is done too.
-                val result = attempt(t.uri, if (replace) Replace(t.replaceTargets, announce = true) else null) ?: continue
+                if (!replace && !waited && failedLately(uri, now)) continue
+                val result = attempt(uri, if (replace) Replace(t.replaceTargets, announce = true, told = told) else null) ?: continue
                 if (replace) notices += result
                 if (calendar && result.writtenAt != null && result.copies != null) byCalendar++
             }
         }
         tell(notices)
-        if (byCalendar > 0 && store.state.value is VaultState.Unlocked) scheduled.post(scheduledCopiesText(byCalendar))
+        postScheduled(byCalendar, epoch)
     }
+
+    /** Whether the last copy to [uri] failed less than [RETRY_AFTER_FAILURE_MS] before [now] (a clock set back: no). */
+    private fun failedLately(uri: String, now: Long): Boolean = failedAt[uri]?.let { now >= it && now - it < RETRY_AFTER_FAILURE_MS } == true
+
+    /**
+     * Review I-2 of task 8: the failures already told for the A6 request, which is one per change of master password
+     * whatever the number of targets: those told in any target that still has it. A failure is told once in all.
+     */
+    private fun toldInRequests(): Set<String> = targets().filter { it.replacePending }.flatMapTo(HashSet()) { it.replaceTold }
 
     /**
      * M2: how the A6 requests that ran by themselves went ([notices], one per target that tried), told once: the success
-     * when every one replaced its old copies (which ends the requests), or a failure not yet told.
+     * when every one replaced its old copies (which ends the requests), or the failures not yet told. With several
+     * targets, every failure a target records as told ([AutoBackupResult.toldKey]) is in the one outcome shown (review I-2),
+     * each once, one per line.
      */
     private fun tell(notices: List<AutoBackupResult>) {
         if (notices.size == 1) {
@@ -444,10 +507,10 @@ class AutoBackup(
             val only = notices.single()
             if (only.replaced || only.toldKey != null) outcome.post(only)
         } else if (notices.isNotEmpty()) {
-            val told = notices.firstNotNullOfOrNull { it.toldKey }
+            val told = notices.mapNotNull { it.toldKey }.distinct()
             when {
                 notices.all { it.replaced } -> outcome.post(combined(notices, null, replaced = true))
-                told != null -> outcome.post(combined(notices, told, replaced = false))
+                told.isNotEmpty() -> outcome.post(combined(notices, told.joinToString("\n"), replaced = false))
             }
         }
     }
@@ -483,21 +546,26 @@ class AutoBackup(
         try {
             val all = targets()
             if (all.isEmpty()) return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
+            // Review I-3 of task 8: an import during the copies replaces the vault; the targets after it never say they
+            // deleted copies of the vault of before (see [attempt]).
+            val since = store.generation
             val results = ArrayList<AutoBackupResult>()
-            for (t in all) {
+            for (uri in all.map { it.uri }) {
+                val t = target(uri) ?: continue // Read again: removed meanwhile.
                 results += when (store.state.value) {
                     is VaultState.Unlocked -> {
                         // A failure here is reported: asked while open, it is not retried behind the user's back (unless a
                         // request saved while locked is still pending: it goes on, with its own targets, and what it told
                         // starts again).
                         val ids = if (t.replacePending) t.replaceTargets ?: asked else asked
-                        attempt(t.uri, Replace(ids, announce = false, newRequest = true))
-                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(t.uri, asked) else AutoBackupResult(t.uri, null, AUTO_BACKUP_FAILED)
+                        attempt(uri, Replace(ids, announce = false, newRequest = true, since = since))
+                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, asked) else AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
                     }
-                    is VaultState.Locked -> waitForUnlock(t.uri, asked)
-                    else -> AutoBackupResult(t.uri, null, AUTO_BACKUP_FAILED)
+                    is VaultState.Locked -> waitForUnlock(uri, asked)
+                    else -> AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
                 }
             }
+            if (results.isEmpty()) return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
             // One target: its own result, as 1.x gave it.
             if (results.size == 1) return@withLock results.single()
             val error = results.firstNotNullOfOrNull { it.error }
@@ -614,7 +682,15 @@ class AutoBackup(
      * 1.3.0); [announce] when its failure may be told to the user ([AutoBackupResult.toldKey]); [newRequest] when it was
      * asked again just now.
      */
-    private class Replace(val targets: List<String>?, val announce: Boolean, val newRequest: Boolean = false)
+    private class Replace(
+        val targets: List<String>?,
+        val announce: Boolean,
+        val newRequest: Boolean = false,
+        /** The failures already told for this request, in any target (review I-2): not told again. */
+        val told: Set<String> = emptySet(),
+        /** [VaultStore.generation] when [replaceOldCopies] was asked: an import since makes it say it deleted nothing. */
+        val since: Long? = null,
+    )
 
     /**
      * One copy to the target of [uri], then its rotation ([replace]: its targets go too, see [rotate]). The result it gave
@@ -636,7 +712,10 @@ class AutoBackup(
             // so the copy is of the vault the list belongs to. The vault's mutex only covers the snapshot, not the write
             // (a slow provider must not hold the vault), so an import can run while the copy is written (CADENAS-3).
             val generation = store.generation
+            // Review M-4: the state this copy holds at least (read before its snapshot).
+            val revision = store.revision.value
             val written = copyTo(uri, folder, at) ?: return null
+            if (store.generation == generation) copiedRevision[uri] = revision
             if (store.generation != generation) {
                 stale(uri, at, generation, replaceAll)
             } else {
@@ -655,11 +734,18 @@ class AutoBackup(
                 if (rotation.mine == null) {
                     stale(uri, at, generation, replaceAll)
                 } else {
+                    // Review I-3 of task 8: the request is still the one asked for when this ends: still saved for this
+                    // target (an import drops it), or, asked now ([replaceOldCopies]), no import since it was asked.
+                    // Otherwise nothing it was asked to delete is said to be deleted.
+                    val stillAsked = replace == null ||
+                        if (replace.newRequest) replace.since == null || replace.since == generation else target(uri)?.replacePending == true
+                    val done = rotation.replaceDone && stillAsked
+                    val error = if (replaceAll && rotation.error == null && !stillAsked) AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY else rotation.error
                     // CR-1: «replaced» (which clears the saved request) only when every target and every leftover temporary
                     // copy went. Otherwise the request stays with the targets left, and the next copy (after a change, or
                     // the next unlock) tries again.
                     AutoBackupResult(
-                        uri, at, rotation.error, rotation.mine, replaced = replaceAll && rotation.replaceDone,
+                        uri, at, error, rotation.mine, replaced = replaceAll && done,
                         generation = generation, unlistedLeft = rotation.unlistedLeft,
                         replaceTargets = if (replaceAll) rotation.targetsLeft else null, newRequest = replace?.newRequest == true,
                         importCopies = rotation.importsLeft,
@@ -681,8 +767,13 @@ class AutoBackup(
         } else {
             result
         }
-        val told = said.error?.takeIf { replace != null && replace.announce && !said.replaced && it !in target(uri)?.replaceTold.orEmpty() }
+        // Review I-2: told once per request, whatever the target that told it.
+        val told = said.error?.takeIf {
+            replace != null && replace.announce && !said.replaced && it !in replace.told && it !in target(uri)?.replaceTold.orEmpty()
+        }
         val recorded = if (told != null) said.copy(toldKey = told) else said
+        // Review M-3: a copy that could not be written is not tried again at once when the app is opened.
+        if (recorded.writtenAt == null && recorded.error != null) failedAt[uri] = now() else if (recorded.writtenAt != null) failedAt.remove(uri)
         onResult(recorded)
         return recorded
     }

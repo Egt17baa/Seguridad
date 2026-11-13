@@ -295,8 +295,8 @@ fun VaultScreen(
             val scheduled = autoBackup?.scheduledNotice?.collectAsStateWithLifecycle()?.value
             if (scheduled != null) {
                 LaunchedEffect(scheduled) {
-                    autoBackup.scheduledShown(scheduled)
-                    snackbar.showSnackbar(scheduled)
+                    // Review M-1: taken once, and shown only if no lock came since it was posted.
+                    if (autoBackup.takeScheduled(scheduled)) snackbar.showSnackbar(scheduled)
                 }
             }
             // 2.0, task 6: back in the app after «Copiar usuario», «Copiar contraseña» for what is left of its 30 s.

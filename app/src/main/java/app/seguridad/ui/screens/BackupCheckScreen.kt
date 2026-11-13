@@ -248,7 +248,7 @@ fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
         }
         s.error?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         s.report?.let { Report(it) }
-        // O-5 of the Abogado Digital: a copy that does not count for «Tu última copia comprobada» says why.
+        // O-5 of the Abogado Digital: a copy that does not count for «Comprobaste una copia por última vez» says why.
         if (s.report?.problems?.isEmpty() == true && s.counted == false) Text(BACKUP_CHECK_NOT_COUNTED, color = MaterialTheme.colorScheme.onSurfaceVariant)
         // What it does not protect stays on view (O-4 of the Abogado, 1.4.2).
         Text(BACKUP_CHECK_NOT_PROVEN_SHORT, color = CautionColor)

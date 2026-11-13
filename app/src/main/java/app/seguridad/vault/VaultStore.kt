@@ -1357,9 +1357,9 @@ class VaultStore(
         if (upgrade != null) throw CryptoFailure(UPGRADE_PENDING)
     }
 
-    private suspend fun importText(text: String, master: CharArray, since: Int): Boolean {
+    private suspend fun importText(text: String, master: CharArray, since: Int, newTag: Boolean = false): Boolean {
         val incoming = withContext(compute) { VaultCrypto.decodeFile(text) }
-        return replace(incoming, master, null, since)
+        return replace(incoming, master, null, since, newTag)
     }
 
     /**
@@ -1369,9 +1369,10 @@ class VaultStore(
      * nothing: its master password and every attachment (present, with the SHA-256 its entry records) are checked
      * before anything is replaced; if writing the vault then fails, the attachments are put back as they were.
      * The attachments the old vault had and the new one does not are collected after the save. Returns what the
-     * other [importReplace] does.
+     * other [importReplace] does. With [newTag] (2.0, «Importar como bóveda nueva»), the vault gets a new
+     * [VaultData.vaultTag] instead of the copy's.
      */
-    suspend fun importReplace(input: InputStream, master: CharArray): Boolean {
+    suspend fun importReplace(input: InputStream, master: CharArray, newTag: Boolean = false): Boolean {
         checkCanReplace()
         val since = epoch // Leaving the app while the file is read still locks: the copy is imported, but stays locked.
         val buffered = BufferedInputStream(input)
@@ -1382,13 +1383,13 @@ class VaultStore(
         if (!isBackup(head)) {
             val bytes = withContext(io) { buffered.readAtMost(VAULT_IMPORT_MAX_BYTES + 1) }
             if (bytes.size > VAULT_IMPORT_MAX_BYTES) throw CryptoFailure(IMPORT_TOO_BIG)
-            return importText(bytes.decodeToString(), master, since)
+            return importText(bytes.decodeToString(), master, since, newTag)
         }
         val temp = File(attachments.dir.absoluteFile.parentFile, IMPORT_DIR_PREFIX + randomBytes(8).joinToString("") { "%02x".format(it) })
         return try {
             val contents = withContext(io) { BackupReader().read(buffered, temp) }
             val incoming = withContext(compute) { VaultCrypto.decodeFile(contents.vaultJson) }
-            replace(incoming, master, contents to temp, since)
+            replace(incoming, master, contents to temp, since, newTag)
         } finally {
             withContext(NonCancellable) { withContext(io) { temp.deleteRecursively() } }
         }
@@ -1398,11 +1399,21 @@ class VaultStore(
      * [importReplace]; [backup] is the copy read and its temporary folder, null for a JSON export. [since] is [epoch]
      * when the import started: a lock since then leaves the imported vault locked. Returns [ReplacePrepared.droppedRequest].
      */
-    private suspend fun replace(incoming: VaultFile, master: CharArray, backup: Pair<BackupContents, File>?, since: Int): Boolean = mutex.withLock {
+    private suspend fun replace(
+        incoming: VaultFile,
+        master: CharArray,
+        backup: Pair<BackupContents, File>?,
+        since: Int,
+        newTag: Boolean = false,
+    ): Boolean = mutex.withLock {
         val key = derive { VaultCrypto.unlock(incoming, master) }
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
-            val checked = derive { VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf()) }
+            // 2.0, task 8 (D-12): «Importar como bóveda nueva» gives the new vault a tag of its own, so a copy of the vault
+            // it came from never counts as checked for it (nor the other way round).
+            val checked = derive {
+                VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf(), prepare = { if (newTag) it.copy(vaultTag = VaultCrypto.newTag()) else it })
+            }
             val incomingData = withContext(compute) { VaultCrypto.read(checked, key) }
             val incomingEntries = incomingData.entries
             checkCopyStructure(incomingData)

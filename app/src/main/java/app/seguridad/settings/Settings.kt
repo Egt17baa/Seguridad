@@ -140,14 +140,21 @@ val VaultSettings.listedCopies: List<String> get() = targets.flatMap { it.copies
 /** Whether any target waits to replace its old copies (A6). */
 val VaultSettings.replacePending: Boolean get() = targets.any { it.replacePending }
 
-/** Whether a failure of the A6 request was already told in any target. */
-val VaultSettings.replaceToldAny: Boolean get() = targets.any { it.replaceTold.isNotEmpty() }
+/**
+ * The targets the dialog after a change of master password reads (review M-5 of task 8): those whose A6 request still
+ * waits, while any does; once none does, every target (the replacement went to all of them).
+ */
+private val VaultSettings.a6Targets: List<BackupTargetSettings> get() = targets.filter { it.replacePending }.ifEmpty { targets }
 
-/** The first target's failure, in their order; null when none failed. */
-val VaultSettings.firstBackupError: String? get() = targets.firstNotNullOfOrNull { it.lastError }
+/** Whether a failure of the A6 request was already told in any target that has it. */
+val VaultSettings.replaceToldAny: Boolean get() = a6Targets.any { it.replaceTold.isNotEmpty() }
 
-/** When the target that copied least recently last did; null if any has none yet (or there is no target). */
-val VaultSettings.oldestBackupAt: Long? get() = if (targets.isEmpty() || targets.any { it.lastAt == null }) null else targets.minOf { it.lastAt!! }
+/** The first failure, in the targets' order, of those [a6Targets]; null when none failed. */
+val VaultSettings.firstBackupError: String? get() = a6Targets.firstNotNullOfOrNull { it.lastError }
+
+/** When the target of [a6Targets] that copied least recently last did; null if any has none yet (or there is no target). */
+val VaultSettings.oldestBackupAt: Long?
+    get() = a6Targets.let { t -> if (t.isEmpty() || t.any { it.lastAt == null }) null else t.minOf { it.lastAt!! } }
 
 /** Why a target cannot be added ([withTargetAdded]); null when it can. */
 enum class TargetRefusal { TOO_MANY, ALREADY_A_TARGET }
@@ -162,12 +169,17 @@ fun VaultSettings.canAddTarget(uri: String): TargetRefusal? = when {
 /**
  * These settings with [uri] added as the last target, with [schedule] and [keep]: as they are if [canAddTarget] refuses.
  * The lists of that folder kept from before ([pastTargets]) come back with it, so its copies go on rotating, as 1.4.3 did
- * with the same folder chosen again.
+ * with the same folder chosen again, and so do its «Conservar las N últimas» and its calendar (review I-1 of task 8: a
+ * folder chosen again never rotates with fewer copies than the user had chosen for it, so no setting deletes copies the
+ * user wanted to keep).
  */
 fun VaultSettings.withTargetAdded(uri: String, schedule: BackupSchedule, keep: Int = AUTO_BACKUP_KEEP_DEFAULT): VaultSettings {
     if (canAddTarget(uri) != null) return this
     val past = pastTargets.firstOrNull { it.uri == uri }
-    val added = BackupTargetSettings(uri, keep, schedule, copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty())
+    val added = BackupTargetSettings(
+        uri, past?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: keep, past?.schedule ?: schedule,
+        copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty(),
+    )
     return copy(targets = targets + added, pastTargets = pastTargets.filter { it.uri != uri }, autoBackupOffForNewVault = false)
 }
 
@@ -182,7 +194,9 @@ fun VaultSettings.withTargetFolderChanged(from: String, to: String): VaultSettin
     if (from == to) return withTarget(from) { it.copy(lastAt = null, lastError = null) }.copy(autoBackupOffForNewVault = false)
     if (targets.any { it.uri == to }) return this
     val past = pastTargets.firstOrNull { it.uri == to }
-    val fresh = BackupTargetSettings(to, old.keep, old.schedule, copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty())
+    // Review I-1: the folder's lists rotate with the larger of the two numbers of copies, never with fewer than chosen.
+    val keep = maxOf(old.keep, past?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: old.keep)
+    val fresh = BackupTargetSettings(to, keep, old.schedule, copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty())
     return copy(
         targets = targets.map { if (it.uri == from) fresh else it },
         pastTargets = keptPast(pastTargets.filter { it.uri != to && it.uri != from }, old),
@@ -196,10 +210,13 @@ fun VaultSettings.withTargetRemoved(uri: String): VaultSettings {
     return copy(targets = targets.filter { it.uri != uri }, pastTargets = keptPast(pastTargets.filter { it.uri != uri }, old))
 }
 
-/** [past] with the lists of [gone] added as the newest, at most [PAST_TARGETS_MAX]; nothing added when it has none. */
-private fun keptPast(past: List<BackupTargetSettings>, gone: BackupTargetSettings): List<BackupTargetSettings> {
+/**
+ * [past] with the lists of [gone] (and its number of copies and calendar) added as the newest, at most [PAST_TARGETS_MAX];
+ * nothing added when it has none.
+ */
+internal fun keptPast(past: List<BackupTargetSettings>, gone: BackupTargetSettings): List<BackupTargetSettings> {
     if (gone.copies.isEmpty() && gone.importCopies.isEmpty()) return past
-    val kept = BackupTargetSettings(gone.uri, gone.keep, BackupSchedule.ON_CHANGE, copies = gone.copies, importCopies = gone.importCopies)
+    val kept = BackupTargetSettings(gone.uri, gone.keep, gone.schedule, copies = gone.copies, importCopies = gone.importCopies)
     return (past + kept).takeLast(PAST_TARGETS_MAX)
 }
 

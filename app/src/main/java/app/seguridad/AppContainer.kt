@@ -468,8 +468,8 @@ class AppContainer(
      * them too. No background work: if the app is not opened, there is no copy (Ajustes says so).
      */
     fun appOpened() {
-        val backup = autoBackup
-        appScope.launch { backup.runDue(System.currentTimeMillis()) }
+        // Review M-2: in the vault's own scope, which its deletion cancels.
+        autoBackup.launchDue(System.currentTimeMillis())
     }
 
     /** 2.0, task 3: «Deshacer» of the active vault's trash; another vault's (after a switch) has nothing to undo. */
@@ -552,7 +552,8 @@ class AppContainer(
         // Not the active one yet: its gate keeps it locked, so the vault open now stays open while the copy is checked.
         before = { store ->
             store.load()
-            store.importReplace(input, master)
+            // 2.0, task 8 (D-12): a tag of its own, never the copy's.
+            store.importReplace(input, master, newTag = true)
         },
         made = { store ->
             store.unlock(master)

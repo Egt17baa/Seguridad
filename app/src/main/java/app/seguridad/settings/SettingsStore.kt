@@ -147,9 +147,15 @@ class SettingsStore(
         var s = settings
         if (s.kdf == KdfProfile.HIGH && !KdfProfile.HIGH.availableOn(heapKiB())) s = s.copy(kdf = KdfProfile.STANDARD)
         // 2.0, task 8: at most [VaultLimits.BACKUP_TARGETS_MAX] targets, never one folder twice, each keeping 3, 5 or 10.
-        val targets = s.targets.distinctBy { it.uri }.take(VaultLimits.BACKUP_TARGETS_MAX)
+        val keptAt = s.targets.withIndex().distinctBy { it.value.uri }.take(VaultLimits.BACKUP_TARGETS_MAX).mapTo(HashSet()) { it.index }
+        val targets = s.targets.filterIndexed { i, _ -> i in keptAt }
             .map { if (it.keep in AUTO_BACKUP_KEEP_CHOICES) it else it.copy(keep = AUTO_BACKUP_KEEP_DEFAULT) }
-        if (targets != s.targets) s = s.copy(targets = targets)
+        if (targets != s.targets) {
+            // Review M-7 of task 8: the lists of a target dropped (a fourth one, a folder twice) are kept as a past one's,
+            // never deleted by anything, and never lost.
+            val dropped = s.targets.filterIndexed { i, _ -> i !in keptAt }
+            s = s.copy(targets = targets, pastTargets = dropped.fold(s.pastTargets) { acc, gone -> keptPast(acc, gone) })
+        }
         if (s.pastTargets.size > PAST_TARGETS_MAX) s = s.copy(pastTargets = s.pastTargets.takeLast(PAST_TARGETS_MAX))
         return s
     }
