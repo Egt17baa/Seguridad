@@ -1020,6 +1020,28 @@ class VaultStore(
         return count
     }
 
+    /**
+     * 2.0, task 6: «Favorita» of the selection bar: the entries of [ids] the list holds marked as favourites, or not, in
+     * one save, each with a version as the editor makes ([withFavorite]); how many changed (0, with nothing saved, when
+     * none or the vault is locked).
+     */
+    suspend fun setFavorite(ids: Set<String>, favorite: Boolean): Int = changeSelected { data -> data.withFavorite(ids, favorite, now()) }
+
+    /** 2.0, task 6: «Etiquetar» of the selection bar: [tag] added to the entries of [ids] ([withTagAdded]); how many got it. */
+    suspend fun addTag(ids: Set<String>, tag: String): Int = changeSelected { data -> data.withTagAdded(ids, tag, now()) }
+
+    private suspend fun changeSelected(change: (VaultData) -> Pair<VaultData, Int>?): Int {
+        var count = 0
+        modifyData { data ->
+            count = 0
+            change(data)?.let { (next, n) ->
+                count = n
+                next
+            }
+        }.let { saved -> if (!saved) count = 0 }
+        return count
+    }
+
     suspend fun saveView(view: SavedView): Boolean = modifyData { data -> data.withView(view) }
 
     suspend fun deleteView(id: String): Boolean = modifyData { data -> data.withoutView(id) }

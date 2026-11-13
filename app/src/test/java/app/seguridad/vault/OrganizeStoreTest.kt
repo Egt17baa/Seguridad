@@ -205,4 +205,26 @@ class OrganizeStoreTest {
         assertTrue(s.saveView(SavedView("v", "Larga", EntryFilter(text = long))))
         assertEquals(searchText(long), s.data().views.single().filter.text)
     }
+    /** 2.0, task 6: the selection bar's «Favorita» and «Etiquetar», one save for all, with a version each, never the trash. */
+    @Test fun selectionFavoriteAndTagSaveOnce() = runTest {
+        val s = open()
+        assertTrue(s.addAll(listOf(login("a"), login("b"), login("c"))))
+        s.moveToTrash(setOf("c"))
+        val revision = s.revision.value
+        clock += 60_000
+        assertEquals(2, s.setFavorite(setOf("a", "b", "c", "nope"), favorite = true))
+        assertEquals(revision + 1, s.revision.value) // One save, and a change for the copies.
+        assertEquals(setOf("a", "b"), s.data().live.filter { it.favorite }.mapTo(HashSet()) { it.id })
+        assertFalse(s.data().trash.single().favorite)
+        assertEquals(0, s.setFavorite(setOf("a", "b"), favorite = true)) // Nothing to change: nothing saved.
+        assertEquals(revision + 1, s.revision.value)
+        assertEquals(2, s.addTag(setOf("a", "b", "c"), "Viajes"))
+        assertEquals(listOf("viajes"), s.data().live.first { it.id == "a" }.tags)
+        assertEquals(2, s.data().live.first { it.id == "a" }.history.size)
+        assertEquals(0, s.addTag(setOf("a"), " , "))
+        s.lock()
+        assertEquals(0, s.setFavorite(setOf("a"), favorite = false))
+        assertEquals(0, s.addTag(setOf("a"), "otra"))
+    }
 }
+

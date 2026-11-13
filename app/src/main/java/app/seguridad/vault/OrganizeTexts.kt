@@ -24,7 +24,7 @@ const val FILTER_WEAK = "Débiles"
 const val FILTER_NO_2FA = "Sin 2FA"
 const val FILTER_EXPIRING = "Caducan pronto"
 const val NO_RESULTS = "Sin resultados"
-const val EMPTY_VAULT = "Tu bóveda está vacía. Pulsa «Añadir»."
+const val EMPTY_VAULT = "Tu bóveda está vacía."
 const val CLEAR_FILTERS = "Quitar filtros"
 
 const val SORT_LABEL = "Orden"
