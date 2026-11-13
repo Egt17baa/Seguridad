@@ -156,3 +156,9 @@ Task 7: complete (commits 1651eec..bb74e6d, review clean). Informes: `task-7-rep
 Deferred (al móvil, tarea 11): el diálogo al cambiar de pestaña, tocar una pestaña durante un guardado (sin señal, Info-3), los botones apilados con la letra al 200 %, la propuesta al pegar un 2FA o una frase.
 Task 8: dispatched (model opus).
 Task 8: el primer intento se perdió con un reinicio del contenedor (sin commits); se lanzó de nuevo desde 65f89fa (model opus), con commits a menudo.
+Task 8: se paró por el límite de uso; el controlador guardó su WIP (1acb8dc) y se reanudó. Implementer DONE_WITH_CONCERNS (7089212..7a389da; app 2196, jvm-check 2159). Los tests de `AutoBackupTargetsTest` se escribieron después del motor (el primer intento se perdió); comprobados con mutaciones (4 de 6 en rojo).
+Ruling (T8, D-1/D-2): `BackupTargetSettings.importCopies` y `VaultSettings.pastTargets` (≤ 6) fuera del brief se aceptan — los pide A6 por destino (R15) y que la migración de la 1.4.3 no pierda listas — la revisión los mira.
+Ruling (T8, D-3): un destino con calendario copia aunque la bóveda no haya cambiado (lo pide el brief) — se acepta — si el dueño prefiere saltarla, es un cambio pequeño.
+Ruling (T8, D-8, Abogado O-5 manda): el aviso habla de la fecha de la comprobación: «Comprobaste una copia por última vez hace N días.» en lugar del texto del brief — O-5 es un requisito del diseño — a la ronda 1.
+Ruling (T8, D-12, seguridad): «Importar como bóveda nueva» da a la bóveda nueva un `vaultTag` propio — con el mismo tag, comprobar una copia de A contaba como comprobada para B, una seguridad falsa — a la ronda 1, con test.
+Task 8 review: dispatched (196b155..7a389da, model opus).
