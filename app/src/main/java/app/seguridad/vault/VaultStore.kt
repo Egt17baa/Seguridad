@@ -428,8 +428,7 @@ class VaultStore(
         val v = vault ?: return null
         val tag = (_state.value as? VaultState.Unlocked)?.data?.vaultTag ?: return null
         val changedAt = lastChangeSavedAt() ?: return null
-        val raw = "$changedAt|${v.kdf.memoryKiB},${v.kdf.iterations},${v.kdf.parallelism}|$tag"
-        return java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        return changeMarkOf(changedAt, v.kdf, tag)
     }
 
     /**
@@ -1669,4 +1668,10 @@ internal fun backstopFromLeaving(chosen: Long): Boolean = chosen <= 0L
 object VaultLock {
     /** Set just before the vault opens a system screen (file picker, QR scanner) so leaving the app for it does not lock. */
     @Volatile var keepOpenOnce = false
+}
+
+/** [VaultStore.changeMark] of a vault last changed at [changedAt], with the cost [kdf] and the tag [tag]: SHA-256, in hex. */
+internal fun changeMarkOf(changedAt: Long, kdf: VaultKdf, tag: String): String {
+    val raw = "$changedAt|${kdf.memoryKiB},${kdf.iterations},${kdf.parallelism}|$tag"
+    return java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }
