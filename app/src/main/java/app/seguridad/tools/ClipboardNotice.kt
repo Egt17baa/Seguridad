@@ -106,7 +106,8 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
             if (p.epoch != lockEpoch()) return AcceptOutcome.LOCKED
             p
         }
-        val text = p.produce() ?: return AcceptOutcome.NOTHING_WAITING
+        // Review N-1 of task 6: nothing left to copy (the entry went meanwhile) copies nothing, but the notice was accepted.
+        val text = p.produce() ?: return AcceptOutcome.NOTHING_TO_COPY.also { acceptedNow = true }
         try {
             p.write(text)
         } catch (e: Exception) {
@@ -127,5 +128,9 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
     }
 }
 
-/** What [ClipboardNoticeRequest.acceptOutcome] did. Only [WRITE_FAILED] is told to the user: with a lock the dialog is gone. */
-enum class AcceptOutcome { COPIED, NOTHING_WAITING, LOCKED, WRITE_FAILED }
+/**
+ * What [ClipboardNoticeRequest.acceptOutcome] did. Only [WRITE_FAILED] is told to the user: with a lock the dialog is gone.
+ * [NOTHING_TO_COPY]: accepted (recorded as [COPIED] is), but a text worked out at the write ([copyOrAskNoticeFor]) was
+ * gone by then, so nothing was copied.
+ */
+enum class AcceptOutcome { COPIED, NOTHING_WAITING, LOCKED, WRITE_FAILED, NOTHING_TO_COPY }

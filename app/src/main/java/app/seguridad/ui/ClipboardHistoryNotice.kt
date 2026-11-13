@@ -57,7 +57,8 @@ fun ClipboardHistoryNotice(container: AppContainer) {
                 // Writes the waiting copy (and its onCopied); nothing if the vault locked meanwhile (then the screen is
                 // gone too, so nothing is said). A failed write is told, and the notice is not recorded as accepted.
                 when (notice.acceptOutcome()) {
-                    AcceptOutcome.COPIED -> Unit
+                    // Review N-1 of task 6: accepted with nothing left to copy is still accepted, and saved as such.
+                    AcceptOutcome.COPIED, AcceptOutcome.NOTHING_TO_COPY -> Unit
                     AcceptOutcome.WRITE_FAILED -> { copyFailed = true; return@TextButton }
                     AcceptOutcome.LOCKED, AcceptOutcome.NOTHING_WAITING -> return@TextButton
                 }

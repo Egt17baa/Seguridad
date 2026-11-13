@@ -82,9 +82,27 @@ class ClipboardNoticeTest {
         assertFalse(copyOrAskNoticeFor({ null }, notice, accepted = true, sdk = 33, write = write, onCopied = { copied++ }))
         val other = ClipboardNoticeRequest(lockEpoch = { epoch })
         assertFalse(copyOrAskNoticeFor({ null }, other, accepted = false, sdk = 30, write = write, onCopied = { copied++ }))
-        assertEquals(AcceptOutcome.NOTHING_WAITING, other.acceptOutcome())
+        assertEquals(AcceptOutcome.NOTHING_TO_COPY, other.acceptOutcome())
         assertEquals(1, copied)
         assertEquals(2, written.size)
+    }
+
+    /**
+     * Review N-1 of task 6 (round 2): «Entendido, copiar» with nothing left to copy (the entry went meanwhile) copies
+     * nothing, but the notice was accepted: it is recorded, so it does not come back on the next copy.
+     */
+    @Test fun acceptedWithNothingToCopyStillCountsAsAccepted() {
+        var copied = 0
+        assertFalse(copyOrAskNoticeFor({ null }, notice, accepted = false, sdk = 30, write = write, onCopied = { copied++ }))
+        assertTrue(notice.asking.value)
+        assertEquals(AcceptOutcome.NOTHING_TO_COPY, notice.acceptOutcome())
+        assertTrue(written.isEmpty())
+        assertEquals(0, copied)
+        assertFalse(notice.asking.value)
+        assertTrue("the notice was accepted", notice.acceptedNow)
+        // The next copy goes straight through.
+        assertTrue(copyOrAskNotice("otro", notice, accepted = false, sdk = 30, write = write))
+        assertEquals(listOf("otro"), written)
     }
 
     @Test fun aDroppedCopyAndItsCallbackAreForgotten() {
