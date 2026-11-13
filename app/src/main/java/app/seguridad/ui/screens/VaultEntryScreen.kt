@@ -763,8 +763,10 @@ fun VaultEntryEditScreen(
     if (form.askingToLeave.value) {
         AlertDialog(
             onDismissRequest = form::keepEditing,
-            title = { Text(UNSAVED_TITLE) },
-            text = { FilterObscuredTouches() },
+            title = {
+                FilterObscuredTouches()
+                Text(UNSAVED_TITLE)
+            },
             confirmButton = {
                 TextButton(enabled = !saving, onClick = {
                     form.keepEditing()

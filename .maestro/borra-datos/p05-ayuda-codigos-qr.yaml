@@ -75,21 +75,14 @@ env:
     visible: 'Tu bóveda está vacía\.'
     timeout: 10000
 - tapOn: "Crear la primera"
+# 2.0, tarea 7: «Crear la primera», como el «+», pregunta qué guardar; «Código 2FA» es la segunda opción.
+- extendedWaitUntil:
+    visible: "¿Qué quieres guardar?"
+    timeout: 10000
+- tapOn: '.*Código 2FA'
 - extendedWaitUntil:
     visible: "Nueva entrada"
     timeout: 10000
-# Los tipos van en una fila que se desliza: en una pantalla estrecha o con la letra grande, «Código 2FA»
-# puede quedar fuera, a la derecha.
-- runFlow:
-    when:
-      notVisible: '.*Código 2FA'
-    commands:
-      # Desde el segundo tipo, para que el dedo tenga recorrido hasta el borde izquierdo.
-      - swipe:
-          from:
-            text: '.*Frase semilla'
-          direction: LEFT
-- tapOn: '.*Código 2FA'
 - scrollUntilVisible:
     element:
       text: '.*Escanear QR'

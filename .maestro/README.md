@@ -133,7 +133,7 @@ Sin Maestro en la nube, los flujos se ensayaron con un intérprete propio de est
 
 1. Las semiautomáticas de la fila de arriba enteras, y las dos que se cortaron.
 2. `p16`, `p17`, `giro-conserva-estado`, `p19-recorrer-herramientas` y `borra-datos/p15-p16-p17-bloquear-borra` (el cambio de «Bloquear»).
-3. `borra-datos/p05-ayuda-codigos-qr` pulsa «Crear la primera» de la bóveda vacía (2.0): comprobar que Maestro la encuentra por su texto.
+3. `borra-datos/p05-ayuda-codigos-qr` pulsa «Crear la primera» de la bóveda vacía (2.0) y, en «¿Qué quieres guardar?» (tarea 7 de la 2.0), «Código 2FA»: comprobar que Maestro encuentra los dos por su texto. Cambiado sin ejecutar.
 4. Con TalkBack, que el botón «Añadir» de la bóveda se lea como «Añadir».
 5. Si la bóveda se bloquea sola antes de tiempo con una herramienta abierta, y si «Repartir un secreto» conserva entonces sus partes (en el emulador pasó una vez; puede ser por su lentitud).
 
@@ -143,6 +143,6 @@ Sin Maestro en la nube, los flujos se ensayaron con un intérprete propio de est
 - **Puede haber dos «Más información» en la misma pantalla:** en «Importar de otra app», el primero (`index: 0`) pliega la explicación, los formatos y la ayuda de los códigos QR, y el del final, los avisos completos. En «Repartir un secreto», el aviso tiene el suyo dentro de su tarjeta.
 - **Al crear la bóveda**, se cierra el teclado después de la primera contraseña antes de buscar «Repítela»: en una pantalla pequeña o con la letra grande, el teclado tapa el campo.
 - **El botón «Añadir» de la bóveda no da su texto** a las herramientas de accesibilidad. Desde la 2.0, P-5 pulsa «Crear la primera» de la bóveda vacía, que sí lo da.
-- **Los tipos de entrada van en una fila que se desliza:** con la letra grande, «Código 2FA» queda fuera, a la derecha, y P-5 desliza la fila antes de pulsarlo.
+- **Los tipos de entrada van en una fila que se desliza:** con la letra grande, «Código 2FA» queda fuera, a la derecha. Desde la 2.0 (tarea 7), P-5 lo elige en «¿Qué quieres guardar?», que abren el «+» y «Crear la primera», así que ya no desliza la fila.
 - **El selector de archivos** baja hasta el archivo y lo lleva al centro antes de tocarlo: con muchos archivos en Descargas, el de prueba puede estar más abajo o pegado a la barra del sistema.
 - **«Bloquear borra»** prueba el botón «Bloquear». Si al llegar a la pestaña la bóveda ya está bloqueada (en un dispositivo lento puede bloquearse sola antes), el flujo la desbloquea y la bloquea con el botón.
