@@ -288,7 +288,9 @@ sealed interface CopyResult {
  *   ([VaultStore.revision]), and at the unlock when one was missed ([VaultStore.lastChangeSavedAt] newer than its
  *   [BackupTargetSettings.lastAt]), as 1.x did;
  * - a target with a calendar gets one only from [runDue], when [due] says so: at the unlock and when the app is opened
- *   (no background work, no WorkManager, no permission);
+ *   (no background work, no WorkManager, no permission), and only if the vault changed since that target's last copy
+ *   (owner's decision D-3: [VaultStore.changeMark] against [BackupTargetSettings.copiedMark]); never skipped are an A6
+ *   request, a copy that waited for the unlock, the first copy to a target; a skip writes, rotates and dates nothing;
  * - any target gets one after [request] (a folder just chosen, «Hacer una copia ahora»), and at the unlock if one waited
  *   for it, or for its A6 request.
  *
@@ -310,9 +312,10 @@ sealed interface CopyResult {
  * none, by id from the target's own lists only. Asked while the vault is locked, each target's request is handed to
  * [onResult] ([AutoBackupResult.replaceRequested]) to be saved with the ids listed at that moment, its targets (M4); the
  * first copy of that target after the next unlock, even after a restart, whatever its calendar, deletes them. The request
- * is done ([AutoBackupResult.replaced], which clears it) only when every target and every leftover temporary copy is gone
- * (CR-1, M3). How a replacement that ran by itself went is kept in [replaceOutcome] until the user has been told
- * ([replaceOutcomeShown]); each different failure is told once per request (M2).
+ * is done in a target ([AutoBackupResult.replaced], which clears it there) only when every target and every leftover
+ * temporary copy is gone (CR-1, M3), and the target then saves its result for the request ([BackupTargetSettings.replaceDone],
+ * with the request's id, round 4). What is told comes from [a6Summary] and [a6Text] only, kept in [replaceOutcome] until the
+ * user has been told ([replaceOutcomeShown]); each different failure is told once per request (M2).
  *
  * Nothing here can close the app or touch the vault: every outcome goes to [onResult], failures as a fixed Spanish
  * message (never a path, a URI or what an exception said), with [AutoBackupResult.folder] the target it was for. With no
