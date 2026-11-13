@@ -359,7 +359,7 @@ class AutoBackupF3Test {
         assertNull(r.error)
         assertEquals(1, r.unlistedLeft)
         assertTrue("seguridad-auto-20250101-000000.sgbak" in t.files.keys)
-        assertEquals(AUTO_BACKUP_REPLACED + " " + autoBackupUnlistedText(1), replacedText(r.unlistedLeft))
+        assertEquals(AUTO_BACKUP_REPLACED + " " + autoBackupUnlistedText(1), a6Text(emptyList(), A6Summary("x", 1, 1, 0, r.unlistedLeft)))
     }
 
     @Test fun `COPIAS-2 with every copy listed the text has no addition`() = runTest {
@@ -370,7 +370,7 @@ class AutoBackupF3Test {
         val r = a.replaceOldCopies()
         assertNull(r.error)
         assertEquals(0, r.unlistedLeft)
-        assertEquals(AUTO_BACKUP_REPLACED, replacedText(0))
+        assertEquals(AUTO_BACKUP_REPLACED, a6Text(emptyList(), A6Summary("x", 1, 1, 0, 0)))
         assertTrue(autoBackupUnlistedText(2).contains("2 copias"))
         assertTrue(autoBackupUnlistedText(1).contains("1 copia "))
     }

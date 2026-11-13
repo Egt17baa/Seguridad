@@ -276,7 +276,7 @@ class AutoBackupTargetsTest {
         val told = a.replaceOutcome.value!!
         assertTrue(told.replaced)
         assertNull(told.error)
-        assertTrue(replacedText(told.unlistedLeft, 2).startsWith("Se hizo una copia nueva en cada carpeta"))
+        assertTrue(told.text!!.startsWith("Se hizo una copia nueva en cada carpeta"))
     }
 
     /** A settings.json of 1.4.3 (and the objects the builds of tasks 2 to 7 wrote) give one ON_CHANGE target; nothing is lost. */
@@ -795,7 +795,11 @@ class AutoBackupTargetsTest {
         settle()
         assertFalse(target("a", "content://uno").replacePending)
         assertTrue(target("a", "content://dos").replacePending)
-        assertNull("no «se borraron … en cada carpeta» while «dos» still has its old copies", a.replaceOutcome.value)
+        // Round 4: what is told is what happened, never «en cada carpeta» while «dos» still has its old copies.
+        val partial = a.replaceOutcome.value!!
+        assertFalse(partial.replaced)
+        assertEquals(a6PartialText(1, 2), partial.text)
+        a.replaceOutcomeShown(partial)
         assertTrue(oldInTwo.all { it in two.files })
         // «dos» works at the next unlock: now the success, once, with every folder done.
         two.failCreate = null
@@ -824,7 +828,10 @@ class AutoBackupTargetsTest {
         runCurrent()
         assertFalse(target("a", "content://uno").replacePending)
         assertTrue(target("a", "content://dos").replacePending)
-        assertNull(a.replaceOutcome.value)
+        val partial = a.replaceOutcome.value!!
+        assertFalse(partial.replaced)
+        assertEquals(a6PartialText(1, 2), partial.text)
+        a.replaceOutcomeShown(partial)
         assertTrue(oldInTwo.all { it in two.files })
         s.unlock(masterA.toCharArray())
         runCurrent()
@@ -861,12 +868,13 @@ class AutoBackupTargetsTest {
         two.failCreate = java.io.IOException("lleno")
         s.unlock(masterA.toCharArray())
         runCurrent()
-        assertEquals(1, target("a", "content://uno").replaceUnlisted)
+        assertEquals(1, target("a", "content://uno").replaceDone!!.unlisted)
         val failed = a.replaceOutcome.value!!
         assertEquals(AUTO_BACKUP_WRITE_FAILED, failed.error)
+        assertFalse(failed.replaced)
         assertEquals(1, failed.unlistedLeft)
-        assertTrue(replaceOutcomeText(failed, 2).startsWith(AUTO_BACKUP_WRITE_FAILED))
-        assertTrue(replaceOutcomeText(failed, 2).contains("en las carpetas quedaba 1 copia"))
+        // Round 4 (m-3): the failure, and then that one folder of two did replace, with its count: no contradiction.
+        assertEquals(AUTO_BACKUP_WRITE_FAILED + "\n" + a6PartialText(1, 2) + " " + a6UnlistedInDoneText(1, 1), failed.text)
         a.replaceOutcomeShown(failed)
         two.failCreate = null
         clock += 60_000
@@ -875,8 +883,7 @@ class AutoBackupTargetsTest {
         val done = a.replaceOutcome.value!!
         assertTrue(done.replaced)
         assertEquals(1, done.unlistedLeft)
-        assertEquals(0, done.unchecked)
-        assertEquals(AUTO_BACKUP_REPLACED_SEVERAL + " " + autoBackupUnlistedText(1, severalFolders = true), replaceOutcomeText(done, 2))
+        assertEquals(AUTO_BACKUP_REPLACED_SEVERAL + " " + autoBackupUnlistedText(1, severalFolders = true), done.text)
         assertTrue(stranger in one.files)
     }
 
@@ -894,7 +901,7 @@ class AutoBackupTargetsTest {
         val old = settings.settings.value.vault("a").listedCopies
         one.onWrite = { s.lock() }
         assertEquals(AUTO_BACKUP_REPLACE_WAITS, a.replaceOldCopies(old).error)
-        assertEquals(1, target("a", "content://uno").replaceUnlisted)
+        assertEquals(1, target("a", "content://uno").replaceDone!!.unlisted)
         assertTrue(target("a", "content://dos").replacePending)
         s.unlock(masterA.toCharArray())
         runCurrent()
@@ -922,7 +929,7 @@ class AutoBackupTargetsTest {
         two.failListFrom = 1 // The name of the copy is found; the listing of the rotation fails.
         s.unlock(masterA.toCharArray())
         runCurrent()
-        assertNull(target("a", "content://dos").replaceUnlisted)
+        assertNull(target("a", "content://dos").replaceDone)
         assertTrue(target("a", "content://dos").replacePending)
         assertFalse(a.replaceOutcome.value!!.replaced)
         a.replaceOutcomeShown(a.replaceOutcome.value!!)
@@ -931,10 +938,10 @@ class AutoBackupTargetsTest {
         settings.updateVault("a") { it.withTargetAdded("content://tres", BackupSchedule.DAILY) }
         two.failListFrom = null
         cycle(s)
+        // Round 4: the third folder is not in the request: 2 of 3 replaced, and the text says the other did not.
         val done = a.replaceOutcome.value!!
-        assertTrue(done.replaced)
-        assertEquals(1, done.unchecked)
-        assertTrue(replaceOutcomeText(done, 3).endsWith(autoBackupUncheckedText(1)))
+        assertFalse(done.replaced)
+        assertEquals(a6PartialText(2, 3), done.text)
     }
 
     /** Round 3, N-4: an import right after «uno» replaced (its request gone from «dos»): no success, decided in the lock. */
