@@ -1058,8 +1058,9 @@ class AutoBackupTargetsTest {
         a.request("content://f")
         settle()
         assertEquals(2, f.copies().size)
-        // By hand while locked: it waits for the unlock, where it is made though nothing changed.
-        clock = at(14, 12)
+        // By hand while locked, on a day the calendar is due: it waits for the unlock, where it is made though nothing
+        // changed (it may be the copy asked by hand).
+        clock = at(15)
         s.lock()
         runCurrent()
         a.request("content://f")
@@ -1067,13 +1068,15 @@ class AutoBackupTargetsTest {
         s.unlock(masterA.toCharArray())
         runCurrent()
         assertEquals(3, f.copies().size)
-        // A6, with nothing changed since.
-        clock = at(15)
-        a6Asked(s, a)
-        s.unlock(masterA.toCharArray())
-        runCurrent()
+        // A6 saved before a restart (nothing waits in memory), with nothing changed since, on a due day: made.
+        clock = at(16)
+        settings.updateVault("a") { v ->
+            v.withTarget("content://f") { it.copy(replacePending = true, replaceTargets = it.copies) }
+                .withTarget("content://g") { it.copy(replacePending = true, replaceTargets = it.copies) }
+        }
+        cycle(s)
         assertFalse(target("a", "content://f").replacePending)
-        assertFalse(target("a", "content://g").replacePending)
+        assertEquals(1, f.copies().size)
         // «Con cada cambio»: each change copies, as before.
         settings.updateVault("a") { it.withTargetAdded("content://h", BackupSchedule.ON_CHANGE) }
         clock += 60_000
