@@ -736,6 +736,8 @@ class PlatformSourcesTest {
                 "moveSelectedToTrashTitle(shown.size, plainReportText(shown.first().title))",
                 "onMessage(duplicatedText(plainReportText(it.title)))",
             ),
+            // 2.0, task 6: «Ver en grande» names its entry.
+            "ui/screens/BigPasswordScreen.kt" to listOf("plainReportText(entry!!.title) to it"),
             // 2.0, task 6: the row of the list (its title, line, folder and tags; the menu names it).
             "ui/screens/EntryRow.kt" to listOf(
                 "val title = plainReportText(e.title)",
@@ -754,7 +756,7 @@ class PlatformSourcesTest {
                 "Text(\"👁 \${plainReportText(v.name)}\"",
             ),
             "ui/screens/VaultEntryScreen.kt" to listOf(
-                "BackScaffold(\"\${typeIcon(entry.type)} \${plainReportText(entry.title)}\", onBack)",
+                "BackScaffold(\"\${typeIcon(entry.type)} \${plainReportText(entry.title)}\", onBack, snackbarHost",
                 "Field(\"Usuario\", entry.username, plain = true,",
                 "Field(\"Web\", entry.url, plain = true,",
                 "folderCrumb(path.map { plainReportText(it.name) })",

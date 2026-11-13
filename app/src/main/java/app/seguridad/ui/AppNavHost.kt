@@ -66,6 +66,7 @@ import app.seguridad.ui.screens.QrTotpImportScreen
 import app.seguridad.ui.screens.RedactScreen
 import app.seguridad.ui.screens.HashLabScreen
 import app.seguridad.ui.screens.BackupCheckScreen
+import app.seguridad.ui.screens.BigPasswordScreen
 import app.seguridad.ui.screens.SecretShareScreen
 import app.seguridad.ui.screens.GeneratorScreen
 import app.seguridad.ui.screens.HealthScreen
@@ -292,13 +293,21 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                 composable("vault/entry/{id}") { entry ->
                     val id = entry.arguments?.getString("id").orEmpty()
                     VaultEntryDetailScreen(
-                        vault, container.undoTrash, id,
+                        vault, container.undoTrash, container.twoStepCopy, id,
                         onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") },
+                        // 2.0, task 6: only ids in the route; the secret is read from the open vault (BigPasswordScreen).
+                        onBig = { field -> nav.navigate("vault/entry/${Uri.encode(id)}/big" + (field?.let { "?field=${Uri.encode(it)}" } ?: "")) },
                         onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") },
                         onHistory = { nav.navigate("vault/entry/${Uri.encode(id)}/history") },
                         onBack = backOnce(nav),
                         onOpenEntry = { copy -> nav.navigate("vault/entry/${Uri.encode(copy)}") },
                     )
+                }
+                composable(
+                    "vault/entry/{id}/big?field={field}",
+                    arguments = listOf(navArgument("field") { type = NavType.StringType; nullable = true; defaultValue = null }),
+                ) { entry ->
+                    BigPasswordScreen(vault, entry.arguments?.getString("id").orEmpty(), entry.arguments?.getString("field"), onBack = backOnce(nav))
                 }
                 composable("vault/entry/{id}/qr") { entry ->
                     OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))

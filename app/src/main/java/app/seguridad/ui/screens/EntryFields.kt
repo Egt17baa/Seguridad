@@ -130,7 +130,9 @@ private fun shownValue(type: EntryType, field: CustomField): String = when {
  * password, as the password itself.
  */
 @Composable
-internal fun EntryFieldsCard(entry: VaultEntry, onCopied: () -> Unit) {
+internal fun EntryFieldsCard(entry: VaultEntry, onCopied: () -> Unit, onBig: (String) -> Unit = {}) {
+    // 2.0, task 6: a hidden field can be seen big; BigPasswordScreen finds it by its id and checks it is a secret.
+    fun big(f: CustomField): (() -> Unit)? = { onBig(f.id) }.takeIf { bigPasswordValue(entry, f.id) != null }
     val used = HashSet<Int>()
     for (t in Templates.fieldsFor(entry.type)) {
         val i = entry.fields.indexOfFirst { it.id == t.key }
@@ -141,13 +143,13 @@ internal fun EntryFieldsCard(entry: VaultEntry, onCopied: () -> Unit) {
         if (entry.type == EntryType.WIFI && t.key == WIFI_HIDDEN_KEY && f.value != "true") continue
         // Review I-3: each row under its own key, so a «Mostrar» stays with its field when the entry changes.
         key("t", t.key) {
-            Field(t.label, shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = t.secret, plain = true, onCopied = onCopied)
+            Field(t.label, shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = t.secret, plain = true, onCopied = onCopied, onBig = big(f))
         }
     }
     entry.fields.forEachIndexed { i, f ->
         if (i in used) return@forEachIndexed
         key("c", i, f.id) {
-            Field(plainReportText(f.name, 100), shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = f.kind == FieldKind.NUMBER, plain = true, onCopied = onCopied)
+            Field(plainReportText(f.name, 100), shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = f.kind == FieldKind.NUMBER, plain = true, onCopied = onCopied, onBig = big(f))
         }
     }
 }
@@ -166,10 +168,7 @@ internal fun NotesCard(entry: VaultEntry, onCopied: () -> Unit) {
             // No text selection, as every field of the card: the system «Copiar» would skip the sensitive flag.
             if (shown) MarkupText(entry.notes) else Text("•".repeat(minOf(entry.notes.length, 16)), fontFamily = FontFamily.Monospace)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = {
-                    copySensitive(context, entry.notes)
-                    onCopied()
-                }) { Text("Copiar") }
+                FilledTonalButton(onClick = { copySensitive(context, entry.notes) { onCopied() } }) { Text("Copiar") }
                 if (secret) OutlinedButton(onClick = { shown = !shown }) { Text(if (shown) "Ocultar" else "Mostrar") }
             }
         }

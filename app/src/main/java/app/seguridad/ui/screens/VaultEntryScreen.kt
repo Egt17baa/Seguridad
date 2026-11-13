@@ -1,5 +1,10 @@
 package app.seguridad.ui.screens
 
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import app.seguridad.tools.TwoStepCopy
+import app.seguridad.vault.BIG_OPEN
+import app.seguridad.vault.passwordForHealth
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -114,7 +119,15 @@ private fun LockedNotice(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun Field(label: String, value: String, secret: Boolean = false, mono: Boolean = false, plain: Boolean = false, onCopied: () -> Unit = {}) {
+internal fun Field(
+    label: String,
+    value: String,
+    secret: Boolean = false,
+    mono: Boolean = false,
+    plain: Boolean = false,
+    onCopied: () -> Unit = {},
+    onBig: (() -> Unit)? = null,
+) {
     if (value.isBlank()) return
     val context = LocalContext.current
     var shown by remember { mutableStateOf(!secret) }
@@ -123,12 +136,13 @@ internal fun Field(label: String, value: String, secret: Boolean = false, mono: 
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // No text selection: the system "Copy" would skip the sensitive flag and the timed clearing.
             Text(if (shown) (if (plain) plainReportText(value, value.length) else value) else "•".repeat(minOf(value.length, 16)), fontFamily = if (mono || secret) FontFamily.Monospace else FontFamily.Default)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = {
-                    copySensitive(context, value)
-                    onCopied()
-                }) { Text("Copiar") }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // A hidden field copies as the password does (sensitive, cleared after the time of Ajustes, the A14
+                // notice on Android 8 to 12); what follows the copy waits until it is really in the clipboard.
+                FilledTonalButton(onClick = { copySensitive(context, value) { onCopied() } }) { Text("Copiar") }
                 if (secret) OutlinedButton(onClick = { shown = !shown }) { Text(if (shown) "Ocultar" else "Mostrar") }
+                // 2.0, task 6: «Ver en grande» (BigPasswordScreen reads the secret from the vault, never from here).
+                onBig?.let { TextButton(onClick = it) { Text(BIG_OPEN) } }
             }
         }
     }
@@ -139,14 +153,14 @@ internal val historyDate: java.time.format.DateTimeFormatter =
 
 /** Old passwords, folded away by default; each one is hidden until shown and copies as sensitive, like the current one. */
 @Composable
-private fun PasswordHistorySection(history: List<PasswordChange>) {
+private fun PasswordHistorySection(history: List<PasswordChange>, onCopied: () -> Unit) {
     if (history.isEmpty()) return
     var open by remember { mutableStateOf(false) }
     TextButton(onClick = { open = !open }) { Text("${if (open) "▾" else "▸"} Contraseñas anteriores (${history.size})") }
     if (open) {
         history.forEach { h ->
             val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
-            Field("Cambiada el $date", h.password, secret = true)
+            Field("Cambiada el $date", h.password, secret = true, onCopied = onCopied)
         }
     }
 }
@@ -156,8 +170,10 @@ private fun PasswordHistorySection(history: List<PasswordChange>) {
 fun VaultEntryDetailScreen(
     store: VaultStore,
     undo: UndoTrash,
+    twoStep: TwoStepCopy,
     id: String,
     onEdit: () -> Unit,
+    onBig: (fieldId: String?) -> Unit,
     onShowQr: () -> Unit,
     onHistory: () -> Unit,
     onBack: () -> Unit,
@@ -179,6 +195,15 @@ fun VaultEntryDetailScreen(
     // Review M-5: one copy per tap, however fast the second comes.
     var duplicating by remember { mutableStateOf(false) }
     val used: () -> Unit = { scope.launch { runCatching { store.markUsed(entry.id) } } }
+    // 2.0, task 6: any copy ends the offer of «Copiar contraseña»; «Copiar» of the user starts it (design «Copiar usuario
+    // y luego contraseña»), for 30 s, with only the entry's id.
+    val copied: () -> Unit = {
+        twoStep.clear()
+        used()
+    }
+    val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val message: (String) -> Unit = { text -> scope.launch { snackbar.showSnackbar(text) } }
     val folders = (state as? VaultState.Unlocked)?.data?.folders.orEmpty()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -187,7 +212,8 @@ fun VaultEntryDetailScreen(
             delay(1_000)
         }
     }
-    BackScaffold("${typeIcon(entry.type)} ${plainReportText(entry.title)}", onBack) { padding ->
+    PasswordOfferOnReturn(store, twoStep, snackbar) { e -> copyOfferedPassword(context, scope, store, twoStep, e, message) }
+    BackScaffold("${typeIcon(entry.type)} ${plainReportText(entry.title)}", onBack, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (failed) Text("No se pudo mover a la papelera (¿almacenamiento lleno?)", color = NegativeColor)
             entry.totp?.let { t ->
@@ -208,7 +234,7 @@ fun VaultEntryDetailScreen(
                                 Text("Caduca en $left s", color = if (left <= 5) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Field("Código", code, mono = true, onCopied = used)
+                        Field("Código", code, mono = true, onCopied = copied)
                     }
                 }
             }
@@ -224,14 +250,20 @@ fun VaultEntryDetailScreen(
             }
             // 2.0, task 5: the earliest date of expiry, only inside the app (O-4).
             ExpiryCardLine(entry, now)
-            Field("Usuario", entry.username, plain = true, onCopied = used)
-            Field(if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true, onCopied = used)
-            Field("Web", entry.url, plain = true, onCopied = used)
+            Field("Usuario", entry.username, plain = true, onCopied = {
+                used()
+                if (entry.passwordForHealth().isNotEmpty()) twoStep.offerPassword(entry.id)
+            })
+            Field(
+                if (entry.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", entry.password, secret = true, onCopied = copied,
+                onBig = { onBig(null) }.takeIf { bigPasswordValue(entry, null) != null },
+            )
+            Field("Web", entry.url, plain = true, onCopied = copied)
             // 2.0, task 3 (M-4): from the history and from the list of 1.4.3, so none disappears when the history is trimmed.
-            PasswordHistorySection(entry.oldPasswords())
+            PasswordHistorySection(entry.oldPasswords(), onCopied = copied)
             if (entry.seedWords.isNotBlank()) {
                 val (n, valid) = seedWordCount(entry.seedWords)
-                Field("Frase semilla ($n palabras${if (valid) "" else ", número poco habitual"})", entry.seedWords, secret = true, onCopied = used)
+                Field("Frase semilla ($n palabras${if (valid) "" else ", número poco habitual"})", entry.seedWords, secret = true, onCopied = copied)
                 Text(
                     "Nunca escribas esta frase en una web ni se la des a nadie: quien la tenga controla tus fondos.",
                     style = MaterialTheme.typography.bodySmall,
@@ -239,10 +271,10 @@ fun VaultEntryDetailScreen(
                 )
             }
             // 2.0, task 5: the template's fields and the user's own, then the notes (with their format, if they have it).
-            EntryFieldsCard(entry, onCopied = used)
-            NotesCard(entry, onCopied = used)
+            EntryFieldsCard(entry, onCopied = copied, onBig = { fieldId -> onBig(fieldId) })
+            NotesCard(entry, onCopied = copied)
             entry.totp?.let {
-                Field("Clave secreta 2FA", it.secret, secret = true, mono = true, onCopied = used)
+                Field("Clave secreta 2FA", it.secret, secret = true, mono = true, onCopied = copied)
                 OutlinedButton(onClick = onShowQr) { Text("Mostrar QR para otra app") }
             }
             AttachmentsSection(store, entry.id, entry.attachments)
