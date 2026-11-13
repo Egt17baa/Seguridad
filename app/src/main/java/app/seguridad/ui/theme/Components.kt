@@ -1,5 +1,6 @@
 package app.seguridad.ui.theme
 
+import android.animation.ValueAnimator
 import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -62,6 +64,7 @@ val SectionShape = RoundedCornerShape(16.dp)
  * A card that groups one result or one block of settings: in «Cristal» a glass panel ([glass], never blurred), in «Sólido»
  * the surface colour with a thin outline, as in 1.4.x. Every screen's cards are these, so they all take the look.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val look = LocalLook.current
@@ -75,7 +78,10 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
     }
     val m = if (glass) modifier.glass(PanelLevel.CARD, SectionShape) else modifier
     if (onClick != null) {
-        Card(onClick = onClick, modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
+        // Review M-8: the brief glow of a pressed panel (Material's ripple), and none when Android removes animations.
+        CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(ValueAnimator.areAnimatorsEnabled())) {
+            Card(onClick = onClick, modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
+        }
     } else {
         Card(modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
     }
@@ -83,9 +89,10 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
 
 /** Screen with a title and a back arrow. */
 @Composable
-fun BackScaffold(title: String, onBack: () -> Unit, content: @Composable (PaddingValues) -> Unit) {
+fun BackScaffold(title: String, onBack: () -> Unit, snackbarHost: @Composable () -> Unit = {}, content: @Composable (PaddingValues) -> Unit) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = snackbarHost,
         topBar = {
             TopAppBar(
                 title = { Text(title) },

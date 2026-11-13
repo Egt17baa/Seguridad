@@ -44,13 +44,18 @@ class TagPaletteThemeTest {
 
     /** Every surface stays inside the bound that [TagPalette] proves enough for its eight colours. */
     @Test fun everySurfaceIsInsideTheTagBound() {
-        for (dark in listOf(true, false)) for (p in NAMED_PALETTES) {
-            val c = colorsFor(p, null, dark, false)
-            for (s in surfacesOf(c, false)) {
+        fun inside(what: String, c: AppColors) {
+            for (opaque in listOf(false, true)) for (s in surfacesOf(c, opaque)) {
                 val l = TagPalette.luminance(s.argb)
-                if (dark) assertTrue("$p ${s.name}: $l", l <= TagPalette.DARK_MAX_BACKGROUND_LUMINANCE)
-                else assertTrue("$p ${s.name}: $l", l >= TagPalette.LIGHT_MIN_BACKGROUND_LUMINANCE)
+                if (c.dark) assertTrue("$what ${s.name}: $l", l <= TagPalette.DARK_MAX_BACKGROUND_LUMINANCE)
+                else assertTrue("$what ${s.name}: $l", l >= TagPalette.LIGHT_MIN_BACKGROUND_LUMINANCE)
             }
+        }
+        // Review M-6: every palette and style, the 432 «Personalizado» and the whole sweep of the wallpaper's colours.
+        for (dark in listOf(true, false)) for (high in listOf(false, true)) {
+            for (p in NAMED_PALETTES) inside("$p dark=$dark alto=$high", colorsFor(p, null, dark, high))
+            for (c in ALL_CUSTOM) inside("$c dark=$dark alto=$high", colorsFor(PaletteId.CUSTOM, c, dark, high))
+            for (w in WALLPAPER_SWEEP) inside("$w dark=$dark alto=$high", colorsFor(PaletteId.WALLPAPER, null, dark, high, wallpaper = w))
         }
     }
 }

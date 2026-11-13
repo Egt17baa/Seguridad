@@ -106,6 +106,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** Every failed save of a setting, in Ajustes and in «Aspecto» (review M-3 of task 5 bis: the same text). */
+internal const val SETTING_SAVE_FAILED = "No se pudo guardar el ajuste"
+
 @Composable
 internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     SectionCard(Modifier.fillMaxWidth()) {
@@ -195,7 +198,7 @@ private fun AutoBackupSection(
             } catch (e: Exception) {
                 // Given back unless another vault has its copies there (2.0).
                 if (chosen != previous) releaseIfUnused(chosen)
-                snackbar.showSnackbar("No se pudo guardar el ajuste")
+                snackbar.showSnackbar(SETTING_SAVE_FAILED)
                 return@launch
             }
             if (previous != null && previous != chosen) releaseIfUnused(previous)
@@ -246,7 +249,7 @@ private fun AutoBackupSection(
                 try {
                     store.updateVault(id) { it.copy(autoBackupKeep = k) }
                 } catch (e: Exception) {
-                    snackbar.showSnackbar("No se pudo guardar el ajuste")
+                    snackbar.showSnackbar(SETTING_SAVE_FAILED)
                 }
             }
         }
@@ -288,7 +291,7 @@ private fun AutoBackupSection(
                                 if (hadRequest) " $AUTO_BACKUP_REPLACE_DROPPED" else "",
                         )
                     } catch (e: Exception) {
-                        snackbar.showSnackbar("No se pudo guardar el ajuste")
+                        snackbar.showSnackbar(SETTING_SAVE_FAILED)
                     }
                 }
             },
@@ -443,7 +446,7 @@ fun SettingsScreen(
             try {
                 store.update(f)
             } catch (e: Exception) {
-                snackbar.showSnackbar("No se pudo guardar el ajuste")
+                snackbar.showSnackbar(SETTING_SAVE_FAILED)
             }
         }
     }

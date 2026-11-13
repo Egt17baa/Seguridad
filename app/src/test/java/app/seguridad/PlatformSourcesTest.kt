@@ -900,6 +900,24 @@ class PlatformSourcesTest {
         assertTrue("sdk = Build.VERSION.SDK_INT" in code("ui/theme/Theme.kt"))
     }
 
+    /**
+     * 2.0, review M-8 of task 5 bis: a pressed panel ([app.seguridad.ui.theme.SectionCard]) glows only while Android has
+     * animations on; which glow is GlassContrastTest's, that the card asks the system is checked here.
+     */
+    @Test fun `the press glow of a panel follows Android's animations setting`() {
+        val src = code("ui/theme/Components.kt")
+        assertTrue("LocalRippleConfiguration provides panelRipple(ValueAnimator.areAnimatorsEnabled())" in src)
+        assertTrue(insideCall(main("ui/theme/Components.kt"), "CompositionLocalProvider", main("ui/theme/Components.kt").indexOf("Card(onClick = onClick")))
+    }
+
+    /** 2.0, review M-2 of task 5 bis: the highlight is white fading out, as ThemeSurfaces.kt measures it (not black at 0). */
+    @Test fun `the highlight of a panel fades white`() {
+        val src = code("ui/theme/Glass.kt")
+        val highlight = src.substring(src.indexOf("val highlight = Brush.verticalGradient("), src.indexOf("val edge ="))
+        assertTrue(highlight, "0f to Color.White.copy(alpha = colors.highlightAlpha)" in highlight && "0.5f to Color.White.copy(alpha = 0f)" in highlight)
+        assertFalse(highlight, "Transparent" in highlight)
+    }
+
     /** 2.0, task 5 bis: the theme's state is the look only: no secret, no vault, no key reaches it. */
     @Test fun theThemeStateHasNoSecret() {
         val banned = Regex("""import app\.seguridad\.crypto\.|\b(VaultStore|VaultEntry|VaultData|Secret|AppContainer)\b""")

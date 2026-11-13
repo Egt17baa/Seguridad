@@ -1,5 +1,6 @@
 package app.seguridad.ui.theme
 
+import androidx.compose.ui.graphics.Color
 import app.seguridad.settings.CustomPalette
 import app.seguridad.settings.GlassLevel
 import app.seguridad.settings.PaletteId
@@ -8,6 +9,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.random.Random
 
 /**
  * 2.0, task 5 bis (design «Aspecto «Cristal», temas y logo», R-1, R-C5, R-C6): every text reads at 4.5:1 or more on its
@@ -47,6 +49,52 @@ class PalettesTest {
         for (w in WALLPAPER_SWEEP) {
             for (dark in listOf(true, false)) check("$w dark=$dark", colorsFor(PaletteId.WALLPAPER, null, dark, highContrast = false, wallpaper = w))
         }
+    }
+
+    /**
+     * Review M-1: the colours Android gives are any colour, not only the sweep: [wallpaperSeeds] from extreme ones (white,
+     * black, greys, pure primaries, an almost grey) and a fixed random sample off the sweep read too, and reach every
+     * target on their own (no fall back to «Noche»).
+     */
+    @Test fun wallpaperColoursFromAnyColourRead() {
+        val extremes = listOf(
+            Color.White, Color.Black, Color(0xFF808080), Color(0xFF767676), Color.Red, Color.Green, Color.Blue,
+            Color.Yellow, Color.Cyan, Color.Magenta, Color(0xFF7F8081), Color(0xFF010203), Color(0xFFFEFDFC),
+        )
+        val pairs = extremes.flatMap { a -> extremes.map { b -> a to b } }
+        val random = Random(20261112)
+        val sample = List(400) { Color(random.nextInt(0x1000000) or 0xFF000000.toInt()) to Color(random.nextInt(0x1000000) or 0xFF000000.toInt()) }
+        for ((accent, background) in pairs + sample) {
+            val w = wallpaperSeeds(accent, background)
+            assertTrue("$w", w.accentHue in 0f..360f && w.backgroundHue in 0f..360f && w.saturation in 0f..1f)
+            for (dark in listOf(true, false)) for (high in listOf(false, true)) {
+                assertTrue("$w dark=$dark alto=$high", paletteMeets(PaletteId.WALLPAPER, null, dark, high, w))
+                val c = colorsFor(PaletteId.WALLPAPER, null, dark, high, wallpaper = w)
+                val bad = failures(c, opaque = false)
+                assertTrue("$w dark=$dark alto=$high:\n" + bad.take(6).joinToString("\n"), bad.isEmpty())
+            }
+        }
+        // A grey has no hue: its saturation is 0, and the wallpaper's palette is then a quiet one.
+        assertEquals(0f, wallpaperSeeds(Color(0xFF808080), Color.White).saturation)
+        assertEquals(240f, wallpaperSeeds(Color.Blue, Color.White).accentHue, 0.5f)
+    }
+
+    /** Review M-1: every palette reaches every target by itself, so the fall back to «Noche» never hides a palette today. */
+    @Test fun everyPaletteMeetsItsTargetsItself() {
+        for (dark in listOf(true, false)) for (high in listOf(false, true)) {
+            for (p in NAMED_PALETTES) assertTrue("$p dark=$dark alto=$high", paletteMeets(p, null, dark, high))
+            for (c in ALL_CUSTOM) assertTrue("$c dark=$dark alto=$high", paletteMeets(PaletteId.CUSTOM, c, dark, high))
+            for (w in WALLPAPER_SWEEP) assertTrue("$w dark=$dark alto=$high", paletteMeets(PaletteId.WALLPAPER, null, dark, high, w))
+        }
+    }
+
+    /** Review M-5: Ajustes names the palette that is drawn. */
+    @Test fun theShownPaletteIsTheDrawnOne() {
+        assertEquals(PaletteId.NIGHT, shownPalette(PaletteId.WALLPAPER, null, sdk = 30))
+        assertEquals(PaletteId.WALLPAPER, shownPalette(PaletteId.WALLPAPER, null, sdk = 31))
+        assertEquals(PaletteId.NIGHT, shownPalette(PaletteId.CUSTOM, null, sdk = 35))
+        assertEquals(PaletteId.CUSTOM, shownPalette(PaletteId.CUSTOM, CustomPalette(1, 2, GlassLevel.LOW), sdk = 26))
+        for (p in NAMED_PALETTES) for (sdk in listOf(26, 35)) assertEquals(p, shownPalette(p, null, sdk))
     }
 
     /** Without the colours of the wallpaper (Android 8 to 11) the palette is «Noche»; «Personalizado» without tones too. */

@@ -103,4 +103,11 @@ class GlassContrastTest {
             for (level in PanelLevel.entries) assertTrue("$p $level", l.alpha(level, blurNow = l.blurs(level)) < 1f)
         }
     }
+
+    /** Review M-8 (design «Movimiento»): the brief glow of a pressed panel only while Android has animations on. */
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+    @Test fun pressGlowOnlyWithAnimations() {
+        assertEquals(null, panelRipple(animationsOn = false))
+        assertTrue(panelRipple(animationsOn = true) != null)
+    }
 }

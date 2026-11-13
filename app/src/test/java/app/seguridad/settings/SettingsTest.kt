@@ -99,7 +99,17 @@ class SettingsTest {
             assertEquals(bad, ThemeMode.LIGHT, t.theme)
             assertNull(bad, t.custom)
             assertTrue(bad, t.highContrast)
+            // Review M-5: without its tones «Personalizado» is drawn as «Noche», so it is «Noche».
+            assertEquals(bad, PaletteId.NIGHT, t.palette)
         }
+    }
+
+    /** Review M-5: «Personalizado» saved without its tones reads as «Noche»; with them it stays. */
+    @Test fun aCustomWithoutTonesIsNight() = runTest {
+        file().writeText("""{"palette":"CUSTOM"}""")
+        assertEquals(PaletteId.NIGHT, store().apply { load() }.settings.value.palette)
+        file().writeText("""{"palette":"CUSTOM","custom":{"accentHue":2,"backgroundHue":3,"glass":"LOW"}}""")
+        assertEquals(PaletteId.CUSTOM, store().apply { load() }.settings.value.palette)
     }
 
     @Test fun theAppearanceIsSavedAndReadBack() = runTest {

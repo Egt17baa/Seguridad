@@ -52,5 +52,17 @@ class TagPaletteTest {
     @Test fun contrastFormula() {
         assertEquals(21.0, TagPalette.contrast(0xFF000000, 0xFFFFFFFF), 0.01)
         assertEquals(1.0, TagPalette.contrast(0xFF777777, 0xFF777777), 0.001)
+        // 2.0, review M-7 of task 5 bis: references in between, so a changed exponent or threshold shows here (the
+        // themes are corrected and measured with this same formula). #767676 is the lightest grey that reaches 4.5:1 on
+        // white and #777777 the first that does not; #595959 is 7:1, #949494 3:1, and the pure colours known values.
+        assertEquals(4.54, TagPalette.contrast(0xFF767676, 0xFFFFFFFF), 0.01)
+        assertEquals(4.48, TagPalette.contrast(0xFF777777, 0xFFFFFFFF), 0.01)
+        assertTrue(TagPalette.contrast(0xFF767676, 0xFFFFFFFF) >= 4.5 && TagPalette.contrast(0xFF777777, 0xFFFFFFFF) < 4.5)
+        assertEquals(7.00, TagPalette.contrast(0xFF595959, 0xFFFFFFFF), 0.01)
+        assertEquals(3.03, TagPalette.contrast(0xFF949494, 0xFFFFFFFF), 0.01)
+        assertEquals(8.59, TagPalette.contrast(0xFF0000FF, 0xFFFFFFFF), 0.01)
+        assertEquals(4.00, TagPalette.contrast(0xFFFF0000, 0xFFFFFFFF), 0.01)
+        assertEquals(5.25, TagPalette.contrast(0xFFFF0000, 0xFF000000), 0.01)
+        assertEquals(1.37, TagPalette.contrast(0xFF00FF00, 0xFFFFFFFF), 0.01)
     }
 }

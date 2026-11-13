@@ -19,6 +19,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +62,7 @@ import app.seguridad.ui.theme.hueSwatch
 import app.seguridad.ui.theme.isDarkTheme
 import app.seguridad.ui.theme.label
 import app.seguridad.ui.theme.lookFor
+import app.seguridad.ui.theme.shownPalette
 import app.seguridad.vault.TagColor
 import app.seguridad.vault.TagPalette
 import kotlinx.coroutines.launch
@@ -96,7 +99,7 @@ internal const val REDUCE_TRANSPARENCY = "Reducir transparencias"
 internal const val REDUCE_TRANSPARENCY_SHORT = "Paneles opacos y sin difuminar."
 internal const val HIGH_CONTRAST = "Alto contraste"
 internal const val HIGH_CONTRAST_SHORT = "Textos con más contraste y bordes marcados. Enciende «Reducir transparencias»."
-internal const val APPEARANCE_SAVE_FAILED = "No se pudo guardar el ajuste."
+internal const val TRANSPARENCY_AND_CONTRAST = "Transparencias y contraste"
 
 /** R-C8: the one line after updating, with «Entendido» ([app.seguridad.settings.AppearanceNotice]). */
 internal const val APPEARANCE_NOTICE = "Aspecto nuevo. Para volver a uno sin transparencias: Ajustes → Aspecto → «Sólido»."
@@ -109,7 +112,8 @@ private fun ThemeMode.modeLabel() = when (this) {
 }
 
 /** The line of Ajustes that sums up the look: «Cristal · Noche · Oscuro». */
-internal fun appearanceSummary(s: Settings): String = "${s.style.label()} · ${s.palette.label()} · ${s.theme.modeLabel()}"
+internal fun appearanceSummary(s: Settings, sdk: Int = Build.VERSION.SDK_INT): String =
+    "${s.style.label()} · ${shownPalette(s.palette, s.custom, sdk).label()} · ${s.theme.modeLabel()}"
 
 /**
  * Ajustes → «Aspecto»: the mode, the style, the palette («Personalizado» with its preview before it is applied),
@@ -121,15 +125,17 @@ internal fun appearanceSummary(s: Settings): String = "${s.style.label()} · ${s
 fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
     val settings by store.settings.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var failed by remember { mutableStateOf(false) }
-    fun change(f: (Settings) -> Settings) {
+    // Review M-3: a failed save is told as in Ajustes (a snackbar, which shows wherever the user is in the screen).
+    val snackbar = remember { SnackbarHostState() }
+    fun change(onSaved: () -> Unit = {}, f: (Settings) -> Settings) {
         scope.launch {
-            failed = try {
+            try {
                 store.update(f)
-                false
             } catch (e: Exception) {
-                true
+                snackbar.showSnackbar(SETTING_SAVE_FAILED)
+                return@launch
             }
+            onSaved()
         }
     }
     val saved = settings.custom ?: CustomPalette(accentHue = 1, backgroundHue = 8, glass = GlassLevel.MEDIUM)
@@ -138,15 +144,14 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
     var background by rememberSaveable { mutableIntStateOf(saved.backgroundHue) }
     var glass by rememberSaveable { mutableStateOf(saved.glass) }
     val draft = remember(accent, background, glass) { fixContrast(CustomPalette(accent, background, glass)) }
-    val customOpen = editing || settings.palette == PaletteId.CUSTOM
+    val customOpen = editing || (settings.palette == PaletteId.CUSTOM && settings.custom != null)
     val wallpaperOffered = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    BackScaffold(APPEARANCE_TITLE, onBack) { padding ->
+    BackScaffold(APPEARANCE_TITLE, onBack, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (failed) Hint(APPEARANCE_SAVE_FAILED)
             Preview(settings, if (customOpen) draft else null)
             Section(APPEARANCE_MODE) {
                 Choices(ThemeMode.entries, settings.theme, { it.modeLabel() }) { v -> change { it.copy(theme = v) } }
@@ -158,7 +163,9 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
             }
             Section(APPEARANCE_PALETTE) {
                 val offered = PaletteId.entries.filter { it != PaletteId.WALLPAPER || wallpaperOffered }
-                val shown = if (customOpen) PaletteId.CUSTOM else settings.palette
+                // Review M-5: what is drawn is what is marked (the wallpaper's colours before Android 12, or a
+                // «Personalizado» without tones, are drawn as «Noche»).
+                val shown = if (customOpen) PaletteId.CUSTOM else shownPalette(settings.palette, settings.custom, Build.VERSION.SDK_INT)
                 Choices(offered, shown, { it.label() }) { v ->
                     if (v == PaletteId.CUSTOM) {
                         editing = true
@@ -185,16 +192,15 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
                     Choices(GlassLevel.entries, glass, { it.label() }) { glass = it }
                     val applied = settings.palette == PaletteId.CUSTOM && settings.custom == draft
                     Button(
-                        onClick = {
-                            editing = false
-                            change { it.copy(palette = PaletteId.CUSTOM, custom = draft) }
-                        },
+                        // Review M-3: the editor closes only once the palette is saved; a failure keeps the draft on screen.
+                        onClick = { change(onSaved = { editing = false }) { it.copy(palette = PaletteId.CUSTOM, custom = draft) } },
                         enabled = !applied,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(CUSTOM_APPLY) }
                 }
             }
-            Section(REDUCE_TRANSPARENCY) {
+            // Review M-4: a title of its own for both switches.
+            Section(TRANSPARENCY_AND_CONTRAST) {
                 // «Alto contraste» turns it on: the switch shows it on, and it cannot be turned off while that is on.
                 SwitchRow(REDUCE_TRANSPARENCY, settings.reduceTransparency || settings.highContrast, enabled = !settings.highContrast) { v ->
                     change { it.copy(reduceTransparency = v) }

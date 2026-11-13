@@ -95,14 +95,39 @@ private const val UNBLURRED_EXTRA = 0.1f
 /**
  * The colours of [palette] in the dark or the light theme. [custom] is used with [PaletteId.CUSTOM] (after
  * [fixContrast]) and [wallpaper] with [PaletteId.WALLPAPER]; without them, the palette is «Noche». Never throws.
+ *
+ * Review M-1: the colours of the wallpaper are a continuous input the tests can only sample, so if some of them could
+ * not be corrected to every target (the builder says so, [Built.met]), «Noche» is shown instead: what is drawn always
+ * reads. The same for «Personalizado», whose 432 choices the tests measure all.
  */
-fun colorsFor(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highContrast: Boolean, wallpaper: WallpaperSeeds? = null): AppColors {
-    val spec = when (palette) {
-        PaletteId.WALLPAPER -> wallpaper?.let(::wallpaperSpec) ?: NAMED.getValue(PaletteId.NIGHT)
-        PaletteId.CUSTOM -> custom?.let { customSpec(fixContrast(it)) } ?: NAMED.getValue(PaletteId.NIGHT)
-        else -> NAMED.getValue(palette)
-    }
-    return cached(spec, dark, highContrast).colors
+fun colorsFor(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highContrast: Boolean, wallpaper: WallpaperSeeds? = null): AppColors =
+    builtFor(palette, custom, dark, highContrast, wallpaper).colors
+
+/** Whether the colors of [colorsFor] reached every target themselves, without falling back to «Noche». */
+internal fun paletteMeets(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highContrast: Boolean, wallpaper: WallpaperSeeds? = null): Boolean {
+    val spec = specFor(palette, custom, wallpaper)
+    return cached(spec, dark, highContrast).met
+}
+
+private fun specFor(palette: PaletteId, custom: CustomPalette?, wallpaper: WallpaperSeeds?): Spec = when (palette) {
+    PaletteId.WALLPAPER -> wallpaper?.let(::wallpaperSpec) ?: NAMED.getValue(PaletteId.NIGHT)
+    PaletteId.CUSTOM -> custom?.let { customSpec(fixContrast(it)) } ?: NAMED.getValue(PaletteId.NIGHT)
+    else -> NAMED.getValue(palette)
+}
+
+private fun builtFor(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highContrast: Boolean, wallpaper: WallpaperSeeds?): Built {
+    val built = cached(specFor(palette, custom, wallpaper), dark, highContrast)
+    return if (built.met) built else cached(NAMED.getValue(PaletteId.NIGHT), dark, highContrast)
+}
+
+/**
+ * The palette Ajustes shows as chosen (review M-5): «Colores del fondo de pantalla» before Android 12 and «Personalizado»
+ * without its tones are drawn as «Noche» ([colorsFor]), so they are named «Noche» too.
+ */
+fun shownPalette(palette: PaletteId, custom: CustomPalette?, sdk: Int): PaletteId = when {
+    palette == PaletteId.WALLPAPER && sdk < android.os.Build.VERSION_CODES.S -> PaletteId.NIGHT
+    palette == PaletteId.CUSTOM && custom == null -> PaletteId.NIGHT
+    else -> palette
 }
 
 /**
@@ -305,6 +330,8 @@ private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
         var hundredths = (from * 100).roundToLong().toInt()
         fun ok(a: Float) = behind.all { b -> blend(fill, a.toDouble(), b).let { p -> reads(p) && reads(blend(WHITE, highlight, p)) } }
         while (hundredths < 100 && !ok(hundredths / 100f)) hundredths++
+        // Review M-1: even opaque it does not read (the opaque colours are checked too, but not with the highlight).
+        if (hundredths >= 100 && !ok(1f)) met = false
         return min(100, hundredths) / 100f
     }
     val ends = listOf(bgDarkest, bgLightest)

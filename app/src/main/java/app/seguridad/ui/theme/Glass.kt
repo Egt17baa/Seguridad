@@ -1,5 +1,6 @@
 package app.seguridad.ui.theme
 
+import android.animation.ValueAnimator
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -73,7 +76,11 @@ class Look(val colors: AppColors, val style: ThemeStyle, val opaque: Boolean, va
     /** The opacity a panel of [level] is drawn with; [blurNow] when it has the blurred background under it. */
     fun alpha(level: PanelLevel, blurNow: Boolean): Float = colors.panelAlpha(level, opaque, blurNow && blurs(level))
 
-    /** The Material colours: in «Cristal» the background is the app's drawing, so the screens' own is transparent. */
+    /**
+     * The Material colours: in «Cristal» the background is the app's drawing, so the screens' own is transparent.
+     * Material's contentColorFor(Transparent) finds it as `background` and gives `onBackground`, which is how the
+     * transparent Scaffolds, cards and bars keep the right text colour: keep `background` the only transparent role.
+     */
     val scheme: ColorScheme = if (glass) colors.scheme.copy(background = Color.Transparent) else colors.scheme
 }
 
@@ -157,6 +164,13 @@ internal fun DrawScope.drawAppBackground(look: Look, area: Size) {
     }
 }
 
+/**
+ * The brief glow of a pressed panel (design: «Movimiento»): Material's ripple while Android has animations on, and none
+ * when it asks to remove them (review M-8; [ValueAnimator.areAnimatorsEnabled] is false with the animator scale at 0).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+internal fun panelRipple(animationsOn: Boolean): RippleConfiguration? = if (animationsOn) RippleConfiguration() else null
+
 /** The shape of each kind of panel. */
 fun panelShape(level: PanelLevel): Shape = when (level) {
     PanelLevel.CARD -> SectionShape
@@ -199,7 +213,7 @@ fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
         val fill = colors.panelColor(level).copy(alpha = alpha)
         val highlight = Brush.verticalGradient(
             0f to Color.White.copy(alpha = colors.highlightAlpha),
-            0.5f to Color.Transparent,
+            0.5f to Color.White.copy(alpha = 0f), // white fading out (review M-2), as PalettesTest measures it
             startY = 0f,
             endY = size.height,
         )

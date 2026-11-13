@@ -135,7 +135,9 @@ class SettingsStore(
 
     private fun sane(settings: Settings): Settings {
         val custom = settings.custom?.let(::saneCustom)
-        val s = if (custom == settings.custom) settings else settings.copy(custom = custom)
+        var s = if (custom == settings.custom) settings else settings.copy(custom = custom)
+        // Review M-5 of task 5 bis: «Personalizado» without its tones is drawn as «Noche», so it is «Noche».
+        if (s.palette == PaletteId.CUSTOM && s.custom == null) s = s.copy(palette = PaletteId.NIGHT)
         if (s.perVault.values.all { saneVault(it) == it }) return s
         return s.copy(perVault = s.perVault.mapValues { saneVault(it.value) })
     }
