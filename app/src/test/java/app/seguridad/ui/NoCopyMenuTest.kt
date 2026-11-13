@@ -114,4 +114,18 @@ class NoCopyMenuTest {
         assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_DEL, ctrl = false, shift = true))
         assertFalse(isCopyOrCutKey(KeyEvent.KEYCODE_INSERT, ctrl = false, shift = false))
     }
+    /**
+     * 2.0, task 6: the new rows of the list and «Ver en grande» show the vault's secrets as plain text that cannot be
+     * selected (no SelectionContainer, no text field), so the system's «Copiar» never reaches them: only the app's own
+     * copy, with the sensitive flag and the timed clearing.
+     */
+    @Test fun `the rows and the big password have no selectable text`() {
+        for (f in listOf("ui/screens/EntryRow.kt", "ui/screens/BigPasswordScreen.kt")) {
+            var dir: java.io.File? = java.io.File(".").absoluteFile
+            while (dir != null && !java.io.File(dir, "app/src/main/java/app/seguridad/$f").isFile) dir = dir.parentFile
+            val src = java.io.File(dir!!, "app/src/main/java/app/seguridad/$f").readText()
+            for (bad in listOf("SelectionContainer", "TextField(", "BasicText(")) assertFalse("$f: $bad", bad in src)
+        }
+    }
 }
+

@@ -374,12 +374,13 @@ class VaultTotpTest {
         assertTrue("type == EntryType.TOTP && !isUsableTotpKey(totp.secret) ->" in source)
         assertFalse("totpKey(" in source)
         // F4: the list shows the short text instead of the code, only for settings this app does not calculate.
-        val list = File(screen.parentFile, "VaultList.kt").readText() // 2.0, task 4: the list's rows moved there.
+        val list = File(screen.parentFile, "EntryRow.kt").readText() // 2.0, task 6: the list's rows moved there.
         val small = """style = MaterialTheme\.typography\.labelSmall"""
-        val row = Regex("""if \(!t\.isSupported\(\)\) \{\s*Text\(\s*TOTP_UNSUPPORTED_ROW,\s*$small""")
+        val row = Regex("""if \(!t\.isSupported\(\)\) \{(?:\s*//[^\n]*)*\s*Text\(\s*TOTP_UNSUPPORTED_ROW,\s*$small""")
         assertTrue(row.containsMatchIn(list))
         // The code itself is unchanged: totpCode gives null for such settings, and shows nothing for any other null.
-        assertTrue(Regex("""maxLines = 1,\s*\)\s*\}\s*totpCode\(t, now\)\?\.let""").containsMatchIn(list))
+        assertTrue(Regex("""maxLines = 1\)\s*\}\s*else\s*\{\s*TotpBadge\(""").containsMatchIn(list))
+        assertTrue("val (code, left) = totpCode(t, now.value) ?: return" in list)
         assertFalse(list.contains("TOTP_UNSUPPORTED_LINK") || list.contains("TOTP_UNSUPPORTED_ENTRY"))
     }
 }

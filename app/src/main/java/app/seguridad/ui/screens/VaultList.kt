@@ -84,6 +84,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -383,13 +384,18 @@ internal fun EntryList(
     BackHandler(enabled = selecting) { list.selection.clear() }
     val f = list.filter
     val showFolders = !totpOnly && folders.isNotEmpty()
+    // The row's actions are made once (below): what they read that changes is read through these, never a stale copy.
+    val currentFolders by rememberUpdatedState(folders)
+    val open by rememberUpdatedState(onOpen)
+    val edit by rememberUpdatedState(onEdit)
+    val message by rememberUpdatedState(onMessage)
 
     fun move(entry: VaultEntry, folderId: String?) {
         scope.launch {
             try {
-                if (store.moveEntries(setOf(entry.id), folderId) > 0) onMessage(movedTo(folders.firstOrNull { it.id == folderId }?.name?.let { plainReportText(it) }))
+                if (store.moveEntries(setOf(entry.id), folderId) > 0) message(movedTo(currentFolders.firstOrNull { it.id == folderId }?.name?.let { plainReportText(it) }))
             } catch (e: Exception) {
-                onMessage(storeSaveErrorText(e))
+                message(storeSaveErrorText(e))
             }
         }
     }
@@ -403,15 +409,15 @@ internal fun EntryList(
     // after the time of Ajustes, the A14 notice on Android 8 to 12): what follows a copy waits until it is really made.
     val actions = remember(store, twoStep, list) {
         RowActions(
-            open = { e -> onOpen(e.id) },
-            edit = { e -> onEdit(e.id) },
+            open = { e -> open(e.id) },
+            edit = { e -> edit(e.id) },
             askTrash = { e -> trashAsk = e.id },
             toggleSelect = { e -> list.selection.toggle(e.id) },
             copyUsername = { e ->
                 liveEntry(store, e.id)?.let { live ->
                     copySensitive(context, live.username) {
                         used(live.id)
-                        onMessage(USERNAME_COPIED)
+                        message(USERNAME_COPIED)
                         if (live.passwordForHealth().isNotEmpty()) twoStep.offerPassword(live.id)
                     }
                 }
@@ -421,7 +427,7 @@ internal fun EntryList(
                     copySensitive(context, live.passwordForHealth()) {
                         twoStep.clear()
                         used(live.id)
-                        onMessage(PASSWORD_COPIED)
+                        message(PASSWORD_COPIED)
                     }
                 }
             },
@@ -431,18 +437,18 @@ internal fun EntryList(
                     copySensitive(context, c.code) {
                         twoStep.clear()
                         used(live.id)
-                        onMessage(if (c.next) NEXT_CODE_COPIED else CODE_COPIED)
+                        message(if (c.next) NEXT_CODE_COPIED else CODE_COPIED)
                     }
                 }
             },
             duplicate = { e ->
                 scope.launch {
                     try {
-                        store.duplicate(e.id)?.let { onMessage(duplicatedText(plainReportText(it.title))) }
+                        store.duplicate(e.id)?.let { message(duplicatedText(plainReportText(it.title))) }
                     } catch (x: CancellationException) {
                         throw x
                     } catch (x: Exception) {
-                        onMessage(storeSaveErrorText(x))
+                        message(storeSaveErrorText(x))
                     }
                 }
             },

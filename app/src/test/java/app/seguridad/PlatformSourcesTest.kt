@@ -734,7 +734,7 @@ class PlatformSourcesTest {
                 // 2.0, task 6: the confirmations of the trash and the messages that name an entry.
                 "TrashConfirm(moveToTrashTitle(plainReportText(e.title))",
                 "moveSelectedToTrashTitle(shown.size, plainReportText(shown.first().title))",
-                "onMessage(duplicatedText(plainReportText(it.title)))",
+                "message(duplicatedText(plainReportText(it.title)))",
             ),
             // 2.0, task 6: «Ver en grande» names its entry.
             "ui/screens/BigPasswordScreen.kt" to listOf("plainReportText(entry!!.title) to it"),
