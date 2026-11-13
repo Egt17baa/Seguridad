@@ -121,3 +121,6 @@ Ruling (T5 bis, menores): M-1 a M-7 a la ronda 1 (`CLAUDE.md`); M-1: «Colores d
 Task 5 bis: fix round 1 done (43aa2c4; app 2120, jvm-check 2090): M-1 a M-8. Ruling (T5 bis, margen): el corrector apunta a 4,5:1 sin margen — el test mide los colores ya mezclados que dibuja la app; el redondeo de la GPU (±1/255) se comprueba en el móvil — si allí se queda corto, se sube el objetivo a 4,6.
 Task 5 bis: re-review 1 dispatched (e53c4a5..43aa2c4, model sonnet).
 Task 5 bis: fix round 1/5 (8 addressed, 0 open; e53c4a5..43aa2c4). Re-review 1: 3 menores nuevos (N-1 el ajuste de animaciones se lee sin estado; N-2 sin señal al pulsar en «Sólido» sin animaciones; N-3 otras superficies pulsables fuera de `panelRipple`) — a la ronda 2.
+Task 5 bis: fix round 2/5 (3 addressed, 0 open; 43aa2c4..ff8580e; app 2121, jvm-check 2090). Re-review 2: aprobado.
+Ruling (T5 bis, menores de la re-review 2): el test de N-3 solo ve `Card(…clickable)` en una línea, y las filas de la lista con `clickable` no tienen marca estática sin animaciones — los dos a la tarea 6, que hace las filas como paneles y amplía ese test a varias líneas — nada queda sin arreglar.
+Task 5 bis: complete (commits 51ac870..ff8580e, review clean). Informes: `task-5bis-report.md`, `task-5bis-review.md`, `task-5bis-rereview-1.md`, `task-5bis-rereview-2.md`.
