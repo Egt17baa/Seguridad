@@ -6,8 +6,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import java.io.File
+import java.io.FileNotFoundException
 import java.text.Normalizer
 
 /**
@@ -206,5 +209,70 @@ class FormHelpersTest {
         assertFalse(templateSecretIsPassword(EntryType.LICENSE, "key"))
         assertFalse(templateSecretIsPassword(EntryType.PASSPORT, "number"))
         assertFalse(templateSecretIsPassword(EntryType.WIFI, "ssid"))
+    }
+
+    // The lists, once per process and off the main thread, as the other lists of the app (F6).
+
+    @Test fun theListsOfThePhrasesAreReadFromTheAssets() = runBlocking {
+        val dir = listOf("src/main/assets", "../app/src/main/assets").map(::File).first { it.isDirectory }
+        val opened = ArrayList<String>()
+        val lists = WordLists({ name -> opened += name; File(dir, name).inputStream() }, Dispatchers.Unconfined)
+        val read = lists.seedLists()
+        assertNotNull(read)
+        assertEquals(PastedKind.SEED, detectPasted(phrase(spanish, 32).joinToString(" "), read))
+        // Kept: a second form reads nothing again.
+        assertTrue(read === lists.seedLists())
+        assertEquals(listOf(BIP39_ENGLISH_LIST, BIP39_SPANISH_LIST), opened)
+        // A list that cannot be read is not kept: no phrase is recognised, and the next form tries again.
+        var fail = true
+        val broken = WordLists({ name -> if (fail && name == BIP39_SPANISH_LIST) throw FileNotFoundException(name) else File(dir, name).inputStream() }, Dispatchers.Unconfined)
+        assertNull(broken.seedLists())
+        fail = false
+        assertNotNull(broken.seedLists())
+    }
+
+    // The wiring of the screens (read from their sources, as EntryFormTest does).
+
+    private fun source(path: String): String {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null) {
+            val f = File(dir, "app/src/main/java/app/seguridad/$path")
+            if (f.isFile) return f.readText()
+            dir = dir.parentFile
+        }
+        error("$path not found")
+    }
+
+    @Test fun aPasteIsOnlyLookedAtInTheFieldsOwnChange() {
+        val main = generateSequence(File(".").absoluteFile) { it.parentFile }.map { File(it, "app/src/main/java") }.first { it.isDirectory }
+        val callers = main.walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .filter { f -> f.readText().contains("detectPasted(") }.map { it.name }.toSet()
+        // Only the session's change of a field (EntryEditSession.typed) asks; the helpers define it.
+        assertEquals(setOf("FormHelpers.kt", "EntryForm.kt"), callers)
+        val form = source("vault/EntryForm.kt")
+        assertEquals(1, Regex("""detectPasted\(""").findAll(form).count())
+        assertTrue("val block = pastedBlock(before, value) ?: return" in form)
+        // No new reading of the clipboard: the editor's only one is the «Pegar enlace» of the 2FA, as before.
+        val screen = source("ui/screens/VaultEntryScreen.kt")
+        assertEquals(1, Regex("""readClipboardText\(""").findAll(screen).count())
+        assertFalse("readClipboardText" in source("ui/screens/EntryFields.kt") || "readClipboardText" in form)
+        // The fields go through the session; the generator never does.
+        for (slot in listOf("TITLE", "USERNAME", "PASSWORD", "URL", "SEED")) assertTrue(slot, "form.typed(FormSlot.$slot, it)" in screen)
+        assertTrue("form.typed(FormSlot.NOTES, it.text)" in source("ui/screens/EntryFields.kt"))
+        assertTrue("onGenerated = { loginPassword = it }" in screen)
+    }
+
+    @Test fun backAsksWithChangesAndThePlusOpensTheChooser() {
+        val screen = source("ui/screens/VaultEntryScreen.kt")
+        assertTrue("BackHandler(enabled = form.hasUnsavedChanges) { form.back() }" in screen)
+        assertTrue("BackScaffold(if (existing == null) \"Nueva entrada\" else \"Editar\", form::back)" in screen)
+        // «Guardar» of the dialog is the button's.
+        assertEquals(2, Regex("""vm(::|\.)trySave""").findAll(screen).count())
+        val vault = source("ui/screens/VaultScreen.kt")
+        assertTrue("onClick = newEntry," in vault)
+        assertTrue("NewEntryChooser(onDismiss = { choosing = false })" in vault)
+        assertTrue("val newEntry: () -> Unit = { if (totpOnly) onNew(EntryType.TOTP) else choosing = true }" in vault)
+        // «Crear la primera» of the empty vault does what the «+» does.
+        assertTrue("Button(onClick = onNew) { Text(EMPTY_CREATE_FIRST) }" in source("ui/screens/VaultList.kt"))
     }
 }

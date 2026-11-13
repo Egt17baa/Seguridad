@@ -42,7 +42,9 @@ import app.seguridad.android.copySensitive
 import app.seguridad.crypto.PasswordOptions
 import app.seguridad.crypto.generatePassword
 import app.seguridad.imports.plainReportText
+import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
+import app.seguridad.ui.theme.PositiveColor
 import app.seguridad.ui.theme.NoCopy
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.SectionCard
@@ -52,15 +54,16 @@ import app.seguridad.vault.CustomField
 import app.seguridad.vault.EXPIRY_ONLY_IN_APP
 import app.seguridad.vault.EntryEditSession
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.GENERATE_PASSWORD
 import app.seguridad.vault.Expiry
 import app.seguridad.vault.FieldKind
+import app.seguridad.vault.FormSlot
 import app.seguridad.vault.MarkupEdit
 import app.seguridad.vault.NotesFormat
 import app.seguridad.vault.ROTATE_CHOICES
 import app.seguridad.vault.Templates
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.WIFI_HIDDEN_KEY
-import app.seguridad.vault.WIFI_PASSWORD_KEY
 import app.seguridad.vault.WIFI_SECURITY_KEY
 import app.seguridad.vault.WIFI_SECURITY_VALUES
 import app.seguridad.vault.displayDate
@@ -69,6 +72,10 @@ import app.seguridad.vault.hasOwnExpiry
 import app.seguridad.vault.expiryLine
 import app.seguridad.vault.isSecretField
 import app.seguridad.vault.rotates
+import app.seguridad.crypto.Strength
+import app.seguridad.vault.strengthOf
+import app.seguridad.vault.strengthText
+import app.seguridad.vault.templateSecretIsPassword
 import app.seguridad.vault.wifiHiddenLabel
 import app.seguridad.vault.wifiSecurityLabel
 
@@ -224,6 +231,25 @@ private fun SecretNumberField(value: String, onChange: (String) -> Unit, label: 
 
 // The editor.
 
+/**
+ * 2.0, task 7 (design «Formulario»): a password the user chooses, as [PasswordField], with the estimate of «Salud» under
+ * it while it is typed ([strengthText]: in words, the colour only adds to them, R-1) and the generator next to it.
+ * [onGenerated] takes a generated one (never through [onChange], which is the field's own typing and pasting).
+ */
+@Composable
+internal fun PasswordWithTools(value: String, onChange: (String) -> Unit, label: String, onGenerated: (String) -> Unit) {
+    PasswordField(value, onChange, label = label)
+    strengthText(value)?.let { line ->
+        val color = when (strengthOf(value)) {
+            Strength.WEAK -> NegativeColor
+            Strength.FAIR -> CautionColor
+            else -> PositiveColor
+        }
+        Text(line, style = MaterialTheme.typography.bodySmall, color = color)
+    }
+    TextButton(onClick = { generatePassword(PasswordOptions(length = 20))?.let(onGenerated) }) { DecoratedLabel("🎲", GENERATE_PASSWORD) }
+}
+
 /** A date typed as the user likes ([app.seguridad.vault.normalizeDateInput] reads it on save). */
 @Composable
 private fun DateField(value: String, onChange: (String) -> Unit, label: String) {
@@ -252,12 +278,9 @@ internal fun TemplateFieldsEditor(form: EntryEditSession, type: EntryType) {
                 Text(t.label)
             }
             t.secret && t.kind == FieldKind.NUMBER -> SecretNumberField(value, set, label = t.label)
-            t.secret -> {
-                PasswordField(value, set, label = t.label)
-                if (type == EntryType.WIFI && t.key == WIFI_PASSWORD_KEY) {
-                    TextButton(onClick = { set(generatePassword(PasswordOptions(length = 20)) ?: value) }) { DecoratedLabel("🎲", "Generar una al azar") }
-                }
-            }
+            // 2.0, task 7: the wifi's password has the generator and the strength; a number someone else gives does not.
+            t.secret && templateSecretIsPassword(type, t.key) -> PasswordWithTools(value, set, label = t.label, onGenerated = set)
+            t.secret -> PasswordField(value, set, label = t.label)
             t.kind == FieldKind.DATE -> DateField(value, set, "${t.label} (${if (t.monthYear) CARD_DATE_HINT else DATE_HINT})")
             else -> OutlinedTextField(
                 value, set, label = { Text(t.label) }, singleLine = true,
@@ -281,7 +304,8 @@ internal fun CustomFieldsEditor(form: EntryEditSession) {
             val set: (String) -> Unit = { form.setFieldValue(i, it) }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 when (f.kind) {
-                    FieldKind.HIDDEN -> PasswordField(f.value, set, label = name)
+                    // 2.0, task 7: a hidden field follows the rules of a password: the generator and the strength.
+                    FieldKind.HIDDEN -> PasswordWithTools(f.value, set, label = name, onGenerated = set)
                     FieldKind.DATE -> DateField(f.value, set, "$name ($DATE_HINT)")
                     FieldKind.NUMBER -> OutlinedTextField(
                         f.value, set, label = { Text(name) }, singleLine = true,
@@ -376,7 +400,8 @@ internal fun NotesEditor(form: EntryEditSession, type: EntryType) {
         value,
         {
             field = it
-            notes = it.text
+            // 2.0, task 7: the field's own change, where a paste is looked at (EntryEditSession.typed).
+            form.typed(FormSlot.NOTES, it.text)
         },
         label = { Text(if (type == EntryType.NOTE) "Nota" else "Notas") },
         minLines = if (type == EntryType.NOTE) 5 else 2,

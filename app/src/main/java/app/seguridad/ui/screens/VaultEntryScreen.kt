@@ -66,6 +66,19 @@ import app.seguridad.ui.theme.ScanQrLabel
 import app.seguridad.tools.codes.getValue
 import app.seguridad.tools.codes.setValue
 import app.seguridad.vault.EntryEditSession
+import app.seguridad.vault.FormSlot
+import app.seguridad.vault.PASTE_MOVES
+import app.seguridad.vault.PASTE_NO
+import app.seguridad.vault.PASTE_OTPAUTH_QUESTION
+import app.seguridad.vault.PASTE_SEED_QUESTION
+import app.seguridad.vault.PASTE_YES
+import app.seguridad.vault.PastedKind
+import app.seguridad.vault.UNSAVED_DISCARD
+import app.seguridad.vault.UNSAVED_KEEP
+import app.seguridad.vault.UNSAVED_SAVE
+import app.seguridad.vault.UNSAVED_TITLE
+import app.seguridad.vault.WordLists
+import androidx.activity.compose.BackHandler
 import app.seguridad.vault.cleared
 import app.seguridad.vault.followVault
 import app.seguridad.vault.left
@@ -359,12 +372,14 @@ fun VaultEntryDetailScreen(
  * collected for the entry's whole life (not tied to the lifecycle): a lock clears the form at once, also in the
  * background. When the entry is gone for good ([onCleared]), everything goes.
  */
-private class EntryEditViewModel(private val store: VaultStore, id: String?, initialType: EntryType) : ViewModel() {
+private class EntryEditViewModel(private val store: VaultStore, wordLists: WordLists, id: String?, initialType: EntryType) : ViewModel() {
     val form = EntryEditSession(ComposeCells, id, initialType, newId = UUID.randomUUID().toString())
 
     init {
         (store.state.value as? VaultState.Unlocked)?.let { form.load(it.entries) }
         form.followVault(store.state, viewModelScope)
+        // 2.0, task 7: the BIP-39 lists a paste is read with, once per process and off the main thread (not secret).
+        viewModelScope.launch { form.seedLists = wordLists.seedLists() }
     }
 
     /** A 2FA text scanned, pasted or handed over by the QR inspector: applied exactly as a scan here. */
@@ -452,6 +467,71 @@ private class EntryEditViewModel(private val store: VaultStore, id: String?, ini
         }
     }
 
+    /** «Sí» to the question after a paste: a 2FA link is read exactly as a scan here ([applyOtpAuth]). */
+    fun acceptPaste() {
+        form.acceptPaste()?.let(::applyOtpAuth)
+    }
+
+    /**
+     * «Guardar» (the button, and the one of «¿Guardar los cambios?»): what is on the form, checked, as the entry to save;
+     * the first problem goes to [EntryEditSession.error] instead, and the form stays.
+     */
+    fun trySave() {
+        if (form.saving.value) return // A second tap before the button redraws as disabled.
+        val existing = form.existing.value
+        val type = form.type.value
+        val title = form.title.value
+        val totp = form.totp.value
+        val seed = form.seed.value
+        val now = System.currentTimeMillis()
+        form.error.value = when {
+            title.isBlank() -> "Ponle un nombre"
+            type == EntryType.TOTP && !isUsableTotpKey(totp.secret) -> "La clave secreta no es válida (Base32: letras A-Z y números 2-7, al menos 16)"
+            type == EntryType.SEED && seedWordCount(seed).first == 0 -> "Escribe las palabras"
+            else -> null
+        }
+        if (form.error.value != null) return
+        val fields = when (val f = fieldsToSave(type, form.templateValues.value, form.customFields.value)) {
+            is FormFields.Ok -> f.fields
+            is FormFields.Problem -> {
+                form.error.value = f.text
+                return
+            }
+        }
+        // Re-review N-2: «Caduca el» only where it is on screen.
+        val expiresAt = entryExpiresAt(type, form.expiresText.value).getOrElse {
+            form.error.value = it.message
+            return
+        }
+        val e = VaultEntry(
+            id = form.entryId,
+            type = type,
+            title = title.trim(),
+            username = if (type == EntryType.LOGIN) form.username.value.trim() else "",
+            password = passwordToSave(type, form.loginPassword.value, form.seedPassphrase.value),
+            url = if (type == EntryType.LOGIN) form.url.value.trim() else "",
+            notes = form.notes.value,
+            seedWords = if (type == EntryType.SEED) seed.trim().split(Regex("\\s+")).joinToString(" ") { it.lowercase() } else "",
+            totp = if (type == EntryType.TOTP) totp.copy(secret = totp.secret.uppercase().filter { it.isLetterOrDigit() }) else null,
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now,
+            favorite = form.favorite.value,
+            tags = normalizeTags(form.tagsText.value),
+            fields = fields,
+            notesFormat = form.notesFormat.value,
+            // Review M-4: a template with its own date of expiry has that one only.
+            expiresAt = expiresAt,
+            rotateMonths = if (rotates(type)) form.rotateMonths.value else null,
+        )
+        // The limits of one entry, with their own text, before the store refuses it (an old entry that only moves keeps
+        // its size; one that is edited must fit).
+        e.entryLimitProblem()?.let {
+            form.error.value = it
+            return
+        }
+        save(e)
+    }
+
     override fun onCleared() {
         form.cleared()
     }
@@ -474,7 +554,8 @@ fun VaultEntryEditScreen(
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     val unlocked = state as? VaultState.Unlocked ?: return LockedNotice(onDone)
-    val vm = viewModel { EntryEditViewModel(store, id, initialType) }
+    val lists = wordLists()
+    val vm = viewModel { EntryEditViewModel(store, lists, id, initialType) }
     val form = vm.form
     val context = LocalContext.current
     val activity = context.fragmentActivity()
@@ -524,7 +605,10 @@ fun VaultEntryEditScreen(
         }
     }
 
-    BackScaffold(if (existing == null) "Nueva entrada" else "Editar", form::finish) { padding ->
+    // 2.0, task 7: «Atrás» with changes asks first (the bar's arrow, the system's back and its predictive gesture); with
+    // none, the system's back goes as always (and leaving clears the form, [left]).
+    BackHandler(enabled = form.hasUnsavedChanges) { form.back() }
+    BackScaffold(if (existing == null) "Nueva entrada" else "Editar", form::back) { padding ->
         NoCopy {
             // M-9: imePadding, so the notes and the last fields stay above the keyboard with edge-to-edge.
             Column(Modifier.padding(padding).imePadding().touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -533,18 +617,19 @@ fun VaultEntryEditScreen(
                         VAULT_ENTRY_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { form.changeType(t) }, label = { Text("${typeIcon(t)} ${t.label}") }) }
                     }
                 }
-                OutlinedTextField(title, { title = it }, label = { Text("Nombre (p. ej. «Correo» o «Cartera»)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(title, { form.typed(FormSlot.TITLE, it) }, label = { Text("Nombre (p. ej. «Correo» o «Cartera»)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 when (type) {
                     EntryType.LOGIN -> {
-                        OutlinedTextField(username, { username = it }, label = { Text("Usuario o correo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        PasswordField(loginPassword, { loginPassword = it })
-                        TextButton(onClick = { loginPassword = generatePassword(PasswordOptions(length = 20)) ?: loginPassword }) { Text("🎲 Generar una al azar") }
-                        OutlinedTextField(url, { url = it }, label = { Text("Web") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(username, { form.typed(FormSlot.USERNAME, it) }, label = { Text("Usuario o correo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        // 2.0, task 7: the strength while it is typed, and the generator next to it.
+                        PasswordWithTools(loginPassword, { form.typed(FormSlot.PASSWORD, it) }, label = "Contraseña", onGenerated = { loginPassword = it })
+                        // The title, if it is empty, takes the domain of the web (EntryEditSession.typed, titleFromUrl).
+                        OutlinedTextField(url, { form.typed(FormSlot.URL, it) }, label = { Text("Web") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
                     EntryType.SEED -> {
                         OutlinedTextField(
                             seed,
-                            { seed = it },
+                            { form.typed(FormSlot.SEED, it) },
                             label = { Text("Palabras de recuperación, separadas por espacios") },
                             minLines = 3,
                             // A password field: well-behaved keyboards (Gboard among them) neither suggest from it nor sync it. Not
@@ -554,8 +639,7 @@ fun VaultEntryEditScreen(
                         )
                         val (n, valid) = seedWordCount(seed)
                         if (n > 0) Text("$n palabras" + if (valid) " ✓" else " (lo habitual son 12, 15, 18, 21 o 24)", style = MaterialTheme.typography.bodySmall)
-                        PasswordField(seedPassphrase, { seedPassphrase = it }, label = "Passphrase BIP-39 (opcional)")
-                        TextButton(onClick = { seedPassphrase = generatePassword(PasswordOptions(length = 20)) ?: seedPassphrase }) { Text("🎲 Generar una al azar") }
+                        PasswordWithTools(seedPassphrase, { seedPassphrase = it }, label = "Passphrase BIP-39 (opcional)", onGenerated = { seedPassphrase = it })
                         Text(
                             "Una passphrase crea una cartera distinta. Guárdala en un sitio distinto de la frase: quien tenga solo la frase no accede a esos fondos. Si la pierdes, tú tampoco.",
                             style = MaterialTheme.typography.bodySmall,
@@ -615,56 +699,7 @@ fun VaultEntryEditScreen(
                 error?.let { Text(it, color = NegativeColor) }
                 info?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                 Button(
-                    onClick = {
-                        if (saving) return@Button // A second tap before the button redraws as disabled.
-                        val now = System.currentTimeMillis()
-                        error = when {
-                            title.isBlank() -> "Ponle un nombre"
-                            type == EntryType.TOTP && !isUsableTotpKey(totp.secret) -> "La clave secreta no es válida (Base32: letras A-Z y números 2-7, al menos 16)"
-                            type == EntryType.SEED && seedWordCount(seed).first == 0 -> "Escribe las palabras"
-                            else -> null
-                        }
-                        if (error != null) return@Button
-                        val fields = when (val f = fieldsToSave(type, form.templateValues.value, form.customFields.value)) {
-                            is FormFields.Ok -> f.fields
-                            is FormFields.Problem -> {
-                                error = f.text
-                                return@Button
-                            }
-                        }
-                        // Re-review N-2: «Caduca el» only where it is on screen.
-                        val expiresAt = entryExpiresAt(type, form.expiresText.value).getOrElse {
-                            error = it.message
-                            return@Button
-                        }
-                        val e = VaultEntry(
-                            id = form.entryId,
-                            type = type,
-                            title = title.trim(),
-                            username = if (type == EntryType.LOGIN) username.trim() else "",
-                            password = passwordToSave(type, loginPassword, seedPassphrase),
-                            url = if (type == EntryType.LOGIN) url.trim() else "",
-                            notes = notes,
-                            seedWords = if (type == EntryType.SEED) seed.trim().split(Regex("\\s+")).joinToString(" ") { it.lowercase() } else "",
-                            totp = if (type == EntryType.TOTP) totp.copy(secret = totp.secret.uppercase().filter { it.isLetterOrDigit() }) else null,
-                            createdAt = existing?.createdAt ?: now,
-                            updatedAt = now,
-                            favorite = favorite,
-                            tags = normalizeTags(tagsText),
-                            fields = fields,
-                            notesFormat = form.notesFormat.value,
-                            // Review M-4: a template with its own date of expiry has that one only.
-                            expiresAt = expiresAt,
-                            rotateMonths = if (rotates(type)) form.rotateMonths.value else null,
-                        )
-                        // The limits of one entry, with their own text, before the store refuses it (an old entry that
-                        // only moves keeps its size; one that is edited must fit).
-                        e.entryLimitProblem()?.let {
-                            error = it
-                            return@Button
-                        }
-                        vm.save(e)
-                    },
+                    onClick = vm::trySave,
                     enabled = !saving,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Guardar") }
@@ -707,6 +742,41 @@ fun VaultEntryEditScreen(
                 }
             },
             dismissButton = { if (entries.isNotEmpty()) TextButton(enabled = !saving, onClick = { form.migration.value = null }) { Text("Cancelar") } },
+        )
+    }
+    // 2.0, task 7: a paste that looks like a 2FA link or a seed phrase: the question, never the pasted text.
+    form.pasteOffer.value?.let { offer ->
+        AlertDialog(
+            onDismissRequest = form::declinePaste,
+            text = {
+                FilterObscuredTouches()
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(if (offer.kind == PastedKind.OTPAUTH) PASTE_OTPAUTH_QUESTION else PASTE_SEED_QUESTION)
+                    Text(PASTE_MOVES, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = { TextButton(onClick = vm::acceptPaste) { Text(PASTE_YES) } },
+            dismissButton = { TextButton(onClick = form::declinePaste) { Text(PASTE_NO) } },
+        )
+    }
+    // 2.0, task 7: «Atrás» with changes. Closing the dialog any other way is «Seguir editando».
+    if (form.askingToLeave.value) {
+        AlertDialog(
+            onDismissRequest = form::keepEditing,
+            title = { Text(UNSAVED_TITLE) },
+            text = { FilterObscuredTouches() },
+            confirmButton = {
+                TextButton(enabled = !saving, onClick = {
+                    form.keepEditing()
+                    vm.trySave()
+                }) { Text(UNSAVED_SAVE) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = form::finish) { Text(UNSAVED_DISCARD, color = NegativeColor) }
+                    TextButton(onClick = form::keepEditing) { Text(UNSAVED_KEEP) }
+                }
+            },
         )
     }
 }

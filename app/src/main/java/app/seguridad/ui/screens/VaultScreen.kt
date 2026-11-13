@@ -151,6 +151,9 @@ fun VaultScreen(
     val selection by list.selection.ids.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
+    // 2.0, task 7 (design «Entradas»): the «+» asks what to keep; in «Códigos» it is a 2FA code, as before.
+    var choosing by remember { mutableStateOf(false) }
+    val newEntry: () -> Unit = { if (totpOnly) onNew(EntryType.TOTP) else choosing = true }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val actions = vaultActions(store, snackbar)
@@ -260,7 +263,7 @@ fun VaultScreen(
             // 2.0, task 6: while selecting, the selection bar is at the bottom instead.
             if (state is VaultState.Unlocked && selection.isEmpty()) {
                 ExtendedFloatingActionButton(
-                    onClick = { onNew(if (totpOnly) EntryType.TOTP else EntryType.LOGIN) },
+                    onClick = newEntry,
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
                     text = { Text(if (totpOnly) "Código" else "Añadir") },
                 )
@@ -273,11 +276,17 @@ fun VaultScreen(
             val vaultScope = rememberCoroutineScope()
             val message: (String) -> Unit = { text -> vaultScope.launch { snackbar.showSnackbar(text) } }
             EntryList(
-                store, undo, twoStep, totpOnly, list, onOpen, onEdit, onNew,
+                store, undo, twoStep, totpOnly, list, onOpen, onEdit, newEntry,
                 onImport = actions.import, onImportOther = onImportOther, onMessage = message,
             )
             // 2.0, task 6: back in the app after «Copiar usuario», «Copiar contraseña» for what is left of its 30 s.
             PasswordOfferOnReturn(store, twoStep, snackbar) { e -> copyOfferedPassword(context, vaultScope, store, twoStep, e, message) }
+        }
+    }
+    if (choosing && state is VaultState.Unlocked) {
+        NewEntryChooser(onDismiss = { choosing = false }) { type ->
+            choosing = false
+            onNew(type)
         }
     }
 }

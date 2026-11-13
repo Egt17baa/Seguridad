@@ -335,7 +335,7 @@ internal fun EntryList(
     list: EntryListViewModel,
     onOpen: (String) -> Unit,
     onEdit: (String) -> Unit,
-    onNew: (EntryType) -> Unit,
+    onNew: () -> Unit,
     onImport: () -> Unit,
     onImportOther: () -> Unit,
     onMessage: (String) -> Unit,
@@ -584,7 +584,7 @@ internal fun EntryList(
                             TextButton(onClick = { list.query = ""; list.filter = list.initialFilter().copy(sort = f.sort) }) { Text(CLEAR_FILTERS) }
                         }
                         // 2.0, task 6 (design «Lista vacía útil»): the first entry, or an import.
-                        if (result.total == 0) EmptyVaultActions(totpOnly, onNew, onImport, onImportOther)
+                        if (result.total == 0) EmptyVaultActions(onNew, onImport, onImportOther)
                     }
                 }
             }
@@ -697,12 +697,15 @@ private fun TrashConfirm(title: String, onDismiss: () -> Unit, text: String = MO
     )
 }
 
-/** The empty vault's way on: «Crear la primera» and «Importar» (a copy of Clavero, or another app's export). */
+/**
+ * The empty vault's way on: «Crear la primera» and «Importar» (a copy of Clavero, or another app's export). 2.0, task 7:
+ * «Crear la primera» does what the «+» does ([onNew]: the chooser in «Bóveda», a 2FA code in «Códigos»).
+ */
 @Composable
-private fun EmptyVaultActions(totpOnly: Boolean, onNew: (EntryType) -> Unit, onImport: () -> Unit, onImportOther: () -> Unit) {
+private fun EmptyVaultActions(onNew: () -> Unit, onImport: () -> Unit, onImportOther: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { onNew(if (totpOnly) EntryType.TOTP else EntryType.LOGIN) }) { Text(EMPTY_CREATE_FIRST) }
+        Button(onClick = onNew) { Text(EMPTY_CREATE_FIRST) }
         Box {
             OutlinedButton(onClick = { open = true }) { Text(EMPTY_IMPORT) }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
