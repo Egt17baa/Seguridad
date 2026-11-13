@@ -767,10 +767,12 @@ fun VaultEntryEditScreen(
                 FilterObscuredTouches()
                 Text(UNSAVED_TITLE)
             },
+            // What stops the save (a missing name…) is said here, where the user is looking, not at the end of the form.
+            text = error?.let { e -> { Text(e, color = NegativeColor) } },
             confirmButton = {
                 TextButton(enabled = !saving, onClick = {
-                    form.keepEditing()
                     vm.trySave()
+                    if (form.error.value == null) form.keepEditing()
                 }) { Text(UNSAVED_SAVE) }
             },
             dismissButton = {

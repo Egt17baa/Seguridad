@@ -179,6 +179,8 @@ fun VaultScreen(
     val unlocked = state is VaultState.Unlocked
     // Review I-1 of task 6: what is on screen goes at the lock (a message may name an entry, a tag or a folder).
     LaunchedEffect(unlocked) { if (!unlocked) snackbar.currentSnackbarData?.dismiss() }
+    // 2.0, task 7: a lock closes the «+» chooser, so it does not come back by itself at the next unlock.
+    LaunchedEffect(unlocked) { if (!unlocked) choosing = false }
     LaunchedEffect(undoCount, undoMove, unlocked) {
         if (undoCount == 0) return@LaunchedEffect
         if (!unlocked) return@LaunchedEffect undo.forget()

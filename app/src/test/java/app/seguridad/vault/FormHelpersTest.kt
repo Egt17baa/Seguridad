@@ -271,6 +271,9 @@ class FormHelpersTest {
         val vault = source("ui/screens/VaultScreen.kt")
         assertTrue("onClick = newEntry," in vault)
         assertTrue("NewEntryChooser(onDismiss = { choosing = false })" in vault)
+        assertTrue("LaunchedEffect(unlocked) { if (!unlocked) choosing = false }" in vault)
+        // What stops «Guardar» of the dialog is said in the dialog, which stays.
+        assertTrue("if (form.error.value == null) form.keepEditing()" in screen)
         assertTrue("val newEntry: () -> Unit = { if (totpOnly) onNew(EntryType.TOTP) else choosing = true }" in vault)
         // «Crear la primera» of the empty vault does what the «+» does.
         assertTrue("Button(onClick = onNew) { Text(EMPTY_CREATE_FIRST) }" in source("ui/screens/VaultList.kt"))
