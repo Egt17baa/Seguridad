@@ -143,4 +143,41 @@ class BackupCheckSessionTest {
         assertNull(s.error)
         assertFalse(s.busy)
     }
+
+    /**
+     * 2.0, task 8: a report without problems goes to the record with the lock epoch of the start of the run, and whether it
+     * counted is shown; one with problems is never recorded; a lock meanwhile records nothing and shows nothing.
+     */
+    @Test fun onlyAGoodReportIsRecordedWithTheEpochOfItsStart() = runTest {
+        var epoch = 4
+        val recorded = mutableListOf<Pair<String, Int>>()
+        val session = BackupCheckSession()
+        val runs = BackupCheckRuns(session, this, { epoch }) { r, since ->
+            recorded += r.vaultTag to since
+            r.vaultTag == "propia"
+        }
+        runs.start(master()) { report.copy(vaultTag = "propia") }
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("propia" to 4), recorded)
+        assertEquals(true, session.counted)
+        runs.start(master()) { report.copy(vaultTag = "de-otra") }
+        testScheduler.advanceUntilIdle()
+        assertEquals(false, session.counted)
+        // With problems: not recorded, whatever its tag.
+        runs.start(master()) { report.copy(vaultTag = "propia", problems = listOf(backupCheckMissing(1))) }
+        testScheduler.advanceUntilIdle()
+        assertEquals(2, recorded.size)
+        assertEquals(false, session.counted)
+        // A lock while it runs: nothing recorded, nothing shown.
+        runs.start(master()) { epoch++; report.copy(vaultTag = "propia") }
+        testScheduler.advanceUntilIdle()
+        assertEquals(2, recorded.size)
+        assertNull(session.report)
+        assertNull(session.counted)
+        // A wipe forgets it.
+        runs.start(master()) { report.copy(vaultTag = "propia") }
+        testScheduler.advanceUntilIdle()
+        session.wipe()
+        assertNull(session.counted)
+    }
 }

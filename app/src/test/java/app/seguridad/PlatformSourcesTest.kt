@@ -56,7 +56,7 @@ class PlatformSourcesTest {
         for ((file, args) in calls) assertTrue("$file: $args", Regex("""place = (PickerPlace\.[A-Z_]+|null)""").containsMatchIn(args))
         assertTrue("place = PickerPlace.IMPORT_OTHER" in code("ui/screens/ImportScreen.kt"))
         val settings = code("ui/screens/SettingsScreen.kt")
-        assertTrue("OpenDocumentTree(), place = null" in settings && "picker.launchOrError(folderStart(folder))" in settings)
+        assertTrue("OpenDocumentTree(), place = null" in settings && "picker.launchOrError(folderStart(from ?: settings.targets.lastOrNull()?.uri))" in settings)
         val vault = code("ui/screens/VaultScreen.kt")
         assertTrue(vault.indexOf("pickerPlaces(context)?.forgetAll()") in 0 until vault.indexOf("store.destroy()"))
         // The places kept only in memory go at every lock and unlock (code review of 1.4.2).
@@ -393,7 +393,11 @@ class PlatformSourcesTest {
         assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
         assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
         assertTrue("val session: BackupCheckSession = BackupCheckSession(ComposeCells, SystemClock.elapsedRealtime()) { stopAll() }" in src)
-        assertTrue("private val runs: BackupCheckRuns = BackupCheckRuns(session, viewModelScope) { store.lockEpoch }" in src)
+        assertTrue("private val runs: BackupCheckRuns = BackupCheckRuns(session, viewModelScope, lockEpoch = { store.lockEpoch }) { report, since ->" in src)
+        // 2.0, task 8: the one thing it keeps in the vault, the date of the check of a copy of it (compared in the store with
+        // the vault's own tag, refused after a lock since the run started): a bookkeeping save, no copy, no setting.
+        assertTrue("store.recordBackupChecked(report.vaultTag, since)" in src)
+        assertEquals(1, Regex("""store\.recordBackupChecked""").findAll(src).count())
         // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
         assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
         assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(BACKUP_CHECK_TITLE, onBack, s.guard)" in src)
@@ -410,7 +414,7 @@ class PlatformSourcesTest {
         assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }" in src)
         // The screen reads the vault's state and its lock count and, for the picker, touches it (the idle count and the
         // A11 clock mark, as «Importar copia»); none of its files changes the vault, a setting, the fingerprint or a copy.
-        assertEquals(setOf("state", "lockEpoch", "touch"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
+        assertEquals(setOf("state", "lockEpoch", "touch", "recordBackupChecked"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
         // m3: the picker as «Importar copia»'s (VaultBackup.kt): the vault stays open while it is on top, the time away
         // counts from the tap, and the flag goes back if the picker never opened (MainActivity.onStart takes it back).
         // The four steps in this order, whatever the spacing and line breaks.
