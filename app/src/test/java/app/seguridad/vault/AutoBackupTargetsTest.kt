@@ -321,8 +321,9 @@ class AutoBackupTargetsTest {
         assertTrue(folderB.copies().all { titlesIn(folderB.files.getValue(it), masterB).all { t -> t.endsWith("de-B") } })
         assertEquals(scheduledCopiesText(2), autoA.scheduledNotice.value)
 
-        // The next day, A locks (a switch to B locks it) while its first copy is being written: no copy of A lands
-        // anywhere, the second target is not written, and nothing is said after the lock.
+        // The next day, A locks (a switch to B locks it) while its first copy is being written: that copy, of A, ends in
+        // A's own folder (its snapshot was taken before the lock), but nothing else of A is written, nothing lands in B's
+        // folder, and nothing is said after the lock.
         clock = at(14)
         val inA = folderA.files.keys.toSet()
         val inA2 = folderA2.files.keys.toSet()
@@ -330,12 +331,13 @@ class AutoBackupTargetsTest {
         folderA.onWrite = { a.lock() }
         autoA.runDue(clock)
         runCurrent()
-        assertEquals(inA, folderA.files.keys.toSet())
+        assertEquals(1, (folderA.files.keys - inA).size)
+        assertTrue((folderA.files.keys - inA).all { titlesIn(folderA.files.getValue(it), masterA) == setOf("Nota de-A") })
         assertEquals(inA2, folderA2.files.keys.toSet())
         assertEquals(inB, folderB.files.keys.toSet())
         assertNull(autoA.scheduledNotice.value)
-        assertEquals(at(13), target("a", "content://a").lastAt)
-        // Unlocked again: both of A's targets get their copy, of A.
+        assertEquals(at(13), target("a", "content://a2").lastAt)
+        // Unlocked again: the target that waited gets its copy, of A.
         a.unlock(masterA.toCharArray())
         runCurrent()
         assertEquals(2, folderA.copies().size)
@@ -375,6 +377,7 @@ class AutoBackupTargetsTest {
         clock = at(27, 9)
         s.lock()
         a.runDue(clock)
+        runCurrent()
         assertEquals(2, f.copies().size)
         s.unlock(masterA.toCharArray())
         runCurrent()
