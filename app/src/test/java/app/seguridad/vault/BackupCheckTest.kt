@@ -650,7 +650,33 @@ class BackupCheckTest {
         assertEquals(null, backupCheckNotice(now - 30 * day + 1, now))
         assertEquals("Comprobaste una copia por última vez hace 30 días.", backupCheckNotice(now - 30 * day, now))
         assertEquals("Comprobaste una copia por última vez hace 45 días.", backupCheckNotice(now - 45 * day - 5, now))
-        // A clock set back behind the check: no reminder (it is not 30 days old).
-        assertEquals(null, backupCheckNotice(now + 3 * day, now))
+        // A clock set back a little behind the check: no reminder (it is not 30 days old).
+        assertEquals(null, backupCheckNotice(now + day / 2, now))
+        // Review M-6: a check dated more than a day ahead (made with the clock set forward) does not silence it for years.
+        assertEquals(BACKUP_CHECK_DATE_AHEAD, backupCheckNotice(now + 3 * day, now))
+        assertEquals(BACKUP_CHECK_DATE_AHEAD, backupCheckNotice(now + 4 * 365 * day, now))
+    }
+
+    /**
+     * D-12 (task 8 review): «Importar como bóveda nueva» gives the new vault a tag of its own, so checking a copy of the vault
+     * it came from (A) records nothing in it (B), and a copy of B is B's own.
+     */
+    @Test fun importAsNewVaultGetsItsOwnTag() = runTest {
+        val a = phoneA()
+        val copyOfA = a.backup()
+        val b = store(phone("nueva")).apply { load() }
+        b.importReplace(ByteArrayInputStream(copyOfA), master.toCharArray(), newTag = true)
+        if (b.state.value !is VaultState.Unlocked) b.unlock(master.toCharArray())
+        assertTrue(b.data().vaultTag.isNotEmpty())
+        assertTrue(b.data().vaultTag != a.data().vaultTag)
+        val checkedA = check(copyOfA, temp())
+        assertEquals(false, b.recordBackupChecked(checkedA.vaultTag))
+        assertEquals(0L, b.data().lastCheckedBackupAt)
+        assertEquals(true, b.recordBackupChecked(check(b.backup(), temp()).vaultTag))
+        // «Importar copia» (replacing the vault) keeps the copy's tag, as before: it is the same vault, restored.
+        val c = store(phone("restaurada")).apply { load() }
+        c.importReplace(ByteArrayInputStream(copyOfA), master.toCharArray())
+        if (c.state.value !is VaultState.Unlocked) c.unlock(master.toCharArray())
+        assertEquals(a.data().vaultTag, c.data().vaultTag)
     }
 }

@@ -88,4 +88,22 @@ class BackupScheduleTest {
         assertFalse(weekly.due(at(2026, 11, 7, 13), zone))
         assertEquals(false, target(BackupSchedule.DAILY, at(2026, 11, 13, 12)).due(at(2026, 11, 12, 13), zone))
     }
+
+    /** Review M-8 (f): the days of the change of time in Madrid (28-03-2027 and 31-10-2027) are calendar days as any other. */
+    @Test fun daysOfTheChangeOfTime() {
+        // 02:30 does not exist on 28 March (it is 03:30); a day before, at 02:30, is the day before.
+        val beforeSpring = target(BackupSchedule.DAILY, at(2027, 3, 27, 2, 30))
+        assertTrue(beforeSpring.due(at(2027, 3, 28, 2, 30), zone))
+        val springDay = target(BackupSchedule.DAILY, at(2027, 3, 28, 0, 10))
+        assertFalse(springDay.due(at(2027, 3, 28, 23, 59), zone))
+        assertTrue(springDay.due(at(2027, 3, 29, 0, 1), zone))
+        assertTrue(target(BackupSchedule.WEEKLY, at(2027, 3, 25, 2, 30)).due(at(2027, 4, 1, 2, 30), zone))
+        assertFalse(target(BackupSchedule.WEEKLY, at(2027, 3, 25, 2, 30)).due(at(2027, 3, 31, 23, 59), zone))
+        // 02:30 happens twice on 31 October: the second one, an hour later, is the same day.
+        val first = at(2027, 10, 31, 2, 30)
+        val autumn = target(BackupSchedule.DAILY, first)
+        assertFalse(autumn.due(first + 60 * 60 * 1000L, zone))
+        assertFalse(autumn.due(at(2027, 10, 31, 23, 59), zone))
+        assertTrue(autumn.due(at(2027, 11, 1, 0, 1), zone))
+    }
 }

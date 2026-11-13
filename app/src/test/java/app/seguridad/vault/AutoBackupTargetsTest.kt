@@ -6,6 +6,9 @@ import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.TargetRefusal
 import app.seguridad.settings.VaultSettings
 import app.seguridad.settings.canAddTarget
+import app.seguridad.settings.firstBackupError
+import app.seguridad.settings.oldestBackupAt
+import app.seguridad.settings.replaceToldAny
 import app.seguridad.settings.listedCopies
 import app.seguridad.settings.vault
 import app.seguridad.settings.withAutoBackupResult
@@ -48,8 +51,15 @@ class AutoBackupTargetsTest {
 
     private var clock = at(13)
 
-    private fun store(name: String) =
-        VaultStore(File(tmp.newFolder(name), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+    private fun store(name: String, beforeReplace: (suspend () -> ReplacePrepared)? = null) =
+        if (beforeReplace == null) {
+            VaultStore(File(tmp.newFolder(name), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+        } else {
+            VaultStore(
+                File(tmp.newFolder(name), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock },
+                kdf = { KdfParams(1024, 1, 1) }, beforeReplace = beforeReplace,
+            )
+        }
 
     private fun note(id: String) = VaultEntry(id, EntryType.NOTE, "Nota $id", notes = "secreto $id", createdAt = 0, updatedAt = 0)
 
@@ -65,8 +75,13 @@ class AutoBackupTargetsTest {
         val created = mutableListOf<String>()
         /** Called at the first byte written (to cut the copy in the middle). */
         var onWrite: (() -> Unit)? = null
+        /** Thrown by [create] (a folder that cannot be written); [tries] counts the attempts. */
+        var failCreate: Exception? = null
+        var tries = 0
 
         override suspend fun create(name: String): BackupFile {
+            tries++
+            failCreate?.let { throw it }
             check(name !in files)
             files[name] = ByteArray(0)
             created += name
@@ -146,15 +161,18 @@ class AutoBackupTargetsTest {
         assertNull(v.withTargetRemoved("content://c3").canAddTarget("content://c4"))
         // A settings file with more (or one folder twice) is read as at most 3, never one folder twice.
         File(tmp.root, "settings.json").writeText(
-            """{"perVault":{"v":{"targets":[{"uri":"content://c1","keep":3,"schedule":"DAILY"},{"uri":"content://c1","keep":5,"schedule":"WEEKLY"},""" +
+            """{"perVault":{"v":{"targets":[{"uri":"content://c1","keep":3,"schedule":"DAILY"},{"uri":"content://c1","keep":5,"schedule":"WEEKLY","copies":["dup"]},""" +
                 """{"uri":"content://c2","keep":7,"schedule":"ON_CHANGE"},{"uri":"content://c3","keep":10,"schedule":"MONTHLY"},""" +
-                """{"uri":"content://c4","keep":5,"schedule":"ON_CHANGE"}]}}}""",
+                """{"uri":"content://c4","keep":5,"schedule":"ON_CHANGE","copies":["d4"]}]}}}""",
         )
         settings.load()
         val read = settings.settings.value.vault("v").targets
         assertEquals(listOf("content://c1", "content://c2", "content://c3"), read.map { it.uri })
         assertEquals(listOf(3, 5, 10), read.map { it.keep }) // 7 is not a choice: 5.
         assertEquals(listOf(BackupSchedule.DAILY, BackupSchedule.ON_CHANGE, BackupSchedule.MONTHLY), read.map { it.schedule })
+        // Review M-7: the lists of the targets left out are kept as past ones, never lost.
+        val past = settings.settings.value.vault("v").pastTargets
+        assertEquals(listOf(listOf("dup"), listOf("d4")), past.map { it.copies })
 
         // Three targets: one change, one copy in each, one at a time and in their order.
         val s = opened("a", masterA)
@@ -389,5 +407,333 @@ class AutoBackupTargetsTest {
         settle()
         assertEquals(4, f.copies().size)
         assertEquals(4, target("a", "content://a").copies.size)
+    }
+
+    // ---- Round 1 of fixes (review of task 8) ----
+
+    /** Files in [f] with a copy's name, as a phone of 1.4.3 left them: their ids are "doc:<name>". */
+    private fun oldCopies(f: Folder, n: Int): List<String> = (1..n).map { i ->
+        val name = "seguridad-auto-202001%02d-000000.sgbak".format(i)
+        f.files[name] = byteArrayOf(i.toByte())
+        "doc:$name"
+    }
+
+    /**
+     * Review I-1: a folder chosen again keeps its «Conservar las N últimas» (and its calendar): its first copy never deletes
+     * copies the user wanted to keep. Removed and added again in 2.0, and from 1.4.3 with the copies off.
+     */
+    @Test fun aFolderChosenAgainKeepsItsNumberOfCopies() = runTest {
+        val s = opened("a", masterA)
+        val f = Folder()
+        val a = auto(s, "a", mapOf("content://f" to f))
+        settings.updateVault("a") { it.withTargetAdded("content://f", BackupSchedule.WEEKLY, keep = 10) }
+        settings.updateVault("a") { it.withTarget("content://f") { t -> t.copy(schedule = BackupSchedule.ON_CHANGE) } }
+        repeat(10) { i ->
+            clock += 60_000
+            s.upsert(note("n$i"))
+            settle()
+        }
+        assertEquals(10, f.copies().size)
+        settings.updateVault("a") { it.withTargetRemoved("content://f") }
+        // As Ajustes adds it: «con cada cambio» and the default number; what the folder had comes back.
+        settings.updateVault("a") { it.withTargetAdded("content://f", BackupSchedule.ON_CHANGE) }
+        assertEquals(10, target("a", "content://f").keep)
+        clock += 60_000
+        a.request("content://f")
+        settle()
+        assertEquals(10, f.copies().size)
+        assertEquals(10, target("a", "content://f").copies.size)
+
+        // From 1.4.3 with the copies off and «Conservar las 10»: chosen again, the 10 listed stay (9 and the new one).
+        val g = Folder()
+        val ids = oldCopies(g, 10)
+        File(tmp.root, "settings.json").writeText(
+            """{"perVault":{"b":{"autoBackupKeep":10,"autoBackupCopies":[${ids.joinToString(",") { "\"$it\"" }}],""" +
+                """"autoBackupCopiesFolder":"content://g"}}}""",
+        )
+        settings.load()
+        val b = opened("b", masterB)
+        val autoB = auto(b, "b", mapOf("content://g" to g))
+        settings.updateVault("b") { it.withTargetAdded("content://g", BackupSchedule.ON_CHANGE) }
+        assertEquals(10, target("b", "content://g").keep)
+        autoB.request("content://g")
+        settle()
+        assertEquals(10, g.files.size)
+        // A folder changed to one that had its own number keeps the larger.
+        val v = VaultSettings().withTargetAdded("content://x", BackupSchedule.DAILY, keep = 3).withTargetAdded("content://y", BackupSchedule.DAILY, keep = 10)
+            .withTarget("content://y") { it.copy(copies = listOf("y1")) }.withTargetRemoved("content://y")
+        assertEquals(10, v.withTargetFolderChanged("content://x", "content://y").targets.single().keep)
+    }
+
+    private suspend fun TestScope.a6Asked(s: VaultStore, a: AutoBackup) {
+        val old = settings.settings.value.vault("a").listedCopies
+        s.lock()
+        runCurrent()
+        assertEquals(AUTO_BACKUP_REPLACE_WAITS, a.replaceOldCopies(old).error)
+    }
+
+    /** Review I-2: with two folders that fail differently, both failures are told, in one outcome, each once in all. */
+    @Test fun a6FailuresAreToldOnceInAll() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a6Asked(s, a)
+        one.failCreate = java.io.IOException("lleno")
+        two.failCreate = SecurityException("sin permiso")
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        val told = a.replaceOutcome.value!!
+        assertFalse(told.replaced)
+        assertEquals(listOf(AUTO_BACKUP_WRITE_FAILED, AUTO_BACKUP_NO_PERMISSION), told.error!!.lines())
+        assertEquals(listOf(AUTO_BACKUP_WRITE_FAILED), target("a", "content://uno").replaceTold)
+        assertEquals(listOf(AUTO_BACKUP_NO_PERMISSION), target("a", "content://dos").replaceTold)
+        a.replaceOutcomeShown(told)
+        // The same failures at the next unlock: nothing told again.
+        s.lock()
+        runCurrent()
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertNull(a.replaceOutcome.value)
+        // «uno» now fails as «dos» did: already told for this request, so not told again either.
+        one.failCreate = SecurityException("sin permiso")
+        s.lock()
+        runCurrent()
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertNull(a.replaceOutcome.value)
+        // Both work: the success, once.
+        one.failCreate = null
+        two.failCreate = null
+        s.lock()
+        runCurrent()
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertTrue(a.replaceOutcome.value!!.replaced)
+    }
+
+    /** Review I-2: two folders that fail the same way: the failure is told once, not once per folder. */
+    @Test fun a6SameFailureInTwoFoldersIsToldOnce() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a6Asked(s, a)
+        one.failCreate = java.io.IOException("lleno")
+        two.failCreate = java.io.IOException("lleno")
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        val told = a.replaceOutcome.value!!
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, told.error)
+        a.replaceOutcomeShown(told)
+        s.lock()
+        runCurrent()
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertNull(a.replaceOutcome.value)
+    }
+
+    /**
+     * Review I-3: an «Importar copia» while the first of two folders is written, during A6: the second folder is read again
+     * and its request is gone, so nothing says the old copies were deleted (they are still there), at the unlock and when
+     * asked with the vault open.
+     */
+    @Test fun anImportDuringA6NeverSaysTheOldCopiesWereDeleted() = runTest {
+        val s = opened("a", masterA)
+        val imported = store("i", beforeReplace = { settings.forgetAutoBackupCopiesForImport("a") })
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        val oldInTwo = two.copies().toSet()
+        val copy = one.files.getValue(one.copies().single())
+        // The import runs on a store of its own that shares the settings, as the import of the app forgets the lists.
+        a6Asked(s, a)
+        one.onWrite = { kotlinx.coroutines.runBlocking { imported.load(); imported.importReplace(ByteArrayInputStream(copy), masterA.toCharArray()) } }
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertTrue(oldInTwo.all { it in two.files })
+        assertTrue(a.replaceOutcome.value?.replaced != true)
+        assertFalse(target("a", "content://dos").replacePending)
+
+        // Asked again with the vault open, and an import (here, a new vault: the generation changes) during the first copy.
+        a.replaceOutcome.value?.let(a::replaceOutcomeShown)
+        clock += 60_000
+        s.upsert(note("2"))
+        settle()
+        val listed = settings.settings.value.vault("a").listedCopies
+        val inTwo = two.copies().toSet()
+        one.onWrite = { kotlinx.coroutines.runBlocking { settings.forgetAutoBackupCopiesForImport("a"); s.destroy(); s.create(masterA.toCharArray()) } }
+        val r = a.replaceOldCopies(listed)
+        assertTrue("never «done» after the vault changed", r.error != null)
+        assertTrue(inTwo.all { it in two.files })
+    }
+
+    /** Review M-8 (a): A6 in one folder shared by two targets: each deletes only its own, never another's nor a stranger's. */
+    @Test fun a6InASharedFolderDeletesOnlyEachOnesOwn() = runTest {
+        val s = opened("a", masterA)
+        val shared = Folder()
+        val stranger = "seguridad-auto-20200101-000000.sgbak"
+        shared.files[stranger] = byteArrayOf(1)
+        val a = auto(s, "a", mapOf("content://uno" to shared, "content://dos" to shared))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.DAILY) }
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("n$i"))
+            settle()
+        }
+        a.request("content://dos")
+        settle()
+        val uno = target("a", "content://uno").copies
+        val dos = target("a", "content://dos").copies
+        assertEquals(3, uno.size)
+        assertEquals(1, dos.size)
+        // «dos» is asked to delete everything in the folder, the stranger and «uno»'s too: it deletes only its own.
+        settings.updateVault("a") { it.withTarget("content://dos") { t -> t.copy(replacePending = true, replaceTargets = uno + dos + "doc:$stranger") } }
+        clock += 60_000
+        s.lock()
+        runCurrent()
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertTrue(stranger in shared.files)
+        assertTrue(uno.all { it.removePrefix("doc:") in shared.files })
+        assertTrue(dos.none { it.removePrefix("doc:") in shared.files })
+        assertFalse(target("a", "content://dos").replacePending)
+    }
+
+    /** Review M-8 (b): after «Cambiar de carpeta» or «Quitar», the folder left is never touched, by the rotation nor by A6. */
+    @Test fun aFolderLeftIsNeverTouched() = runTest {
+        val s = opened("a", masterA)
+        val x = Folder()
+        val y = Folder()
+        val a = auto(s, "a", mapOf("content://x" to x, "content://y" to y))
+        settings.updateVault("a") { it.withTargetAdded("content://x", BackupSchedule.ON_CHANGE, keep = 3) }
+        repeat(3) { i ->
+            clock += 60_000
+            s.upsert(note("n$i"))
+            settle()
+        }
+        val inX = x.files.toMap()
+        settings.updateVault("a") { it.withTargetFolderChanged("content://x", "content://y") }
+        repeat(5) { i ->
+            clock += 60_000
+            s.upsert(note("m$i"))
+            settle()
+        }
+        a6Asked(s, a)
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertEquals(inX.keys, x.files.keys)
+        assertEquals(1, y.copies().size)
+        // Removed with copies listed: none is deleted, and its list is kept for the same folder chosen again.
+        settings.updateVault("a") { it.withTargetRemoved("content://y") }
+        val inY = y.files.keys.toSet()
+        repeat(4) { i ->
+            clock += 60_000
+            s.upsert(note("k$i"))
+            settle()
+        }
+        assertEquals(inY, y.files.keys)
+        assertEquals(1, settings.settings.value.vault("a").pastTargets.single { it.uri == "content://y" }.copies.size)
+    }
+
+    /** Review M-1: the calendar's notice is never shown after a lock, also one too quick for the collector to see. */
+    @Test fun theCalendarNoticeNeverOutlivesALock() = runTest {
+        val s = opened("a", masterA)
+        val f = Folder()
+        val a = auto(s, "a", mapOf("content://f" to f))
+        settings.updateVault("a") { it.withTargetAdded("content://f", BackupSchedule.DAILY) }
+        a.runDue(clock)
+        val text = a.scheduledNotice.value!!
+        s.lock()
+        s.unlock(masterA.toCharArray()) // No yield: the collector never sees the lock.
+        assertFalse(a.takeScheduled(text))
+        assertNull(a.scheduledNotice.value)
+        // A lock during the copy: nothing posted.
+        clock = at(14)
+        f.onWrite = { s.lock() }
+        a.runDue(clock)
+        runCurrent()
+        assertNull(a.scheduledNotice.value)
+    }
+
+    /** Review M-3: a folder that fails is not tried again each time the app comes back, only later or at the unlock. */
+    @Test fun aFailingFolderIsNotRetriedAtEveryOpening() = runTest {
+        val s = opened("a", masterA)
+        val f = Folder()
+        val a = auto(s, "a", mapOf("content://f" to f))
+        settings.updateVault("a") { it.withTargetAdded("content://f", BackupSchedule.DAILY) }
+        f.failCreate = java.io.IOException("lleno")
+        a.runDue(clock)
+        assertEquals(1, f.tries)
+        a.runDue(clock + 60_000)
+        a.runDue(clock + 4 * 60_000)
+        assertEquals(1, f.tries)
+        a.runDue(clock + RETRY_AFTER_FAILURE_MS + 60_000)
+        assertEquals(2, f.tries)
+        s.lock()
+        runCurrent()
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertEquals(3, f.tries)
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, target("a", "content://f").lastError)
+    }
+
+    /** Review M-4: a change copied when the app was opened is not copied again by the debounce that follows. */
+    @Test fun aChangeIsCopiedOnce() = runTest {
+        val s = opened("a", masterA)
+        val f = Folder()
+        val a = auto(s, "a", mapOf("content://f" to f))
+        settings.updateVault("a") { it.withTargetAdded("content://f", BackupSchedule.ON_CHANGE) }
+        s.upsert(note("1"))
+        a.runDue(clock) // The app comes back before the debounce: the change is missed, and copied now.
+        assertEquals(1, f.copies().size)
+        settle()
+        assertEquals(1, f.copies().size)
+        clock += 60_000
+        s.upsert(note("2"))
+        settle()
+        assertEquals(2, f.copies().size)
+    }
+
+    /** Review M-5: the dialog of A6 reads the folders that still have the request, not a later failure of another. */
+    @Test fun theA6DialogReadsOnlyTheFoldersWithTheRequest() {
+        val v = VaultSettings(
+            targets = listOf(
+                BackupTargetSettings("content://uno", 5, BackupSchedule.ON_CHANGE, lastAt = 9L, lastError = AUTO_BACKUP_WRITE_FAILED),
+                BackupTargetSettings("content://dos", 5, BackupSchedule.ON_CHANGE, lastAt = 7L, replacePending = true, replaceTold = emptyList()),
+            ),
+        )
+        assertNull(v.firstBackupError)
+        assertEquals(7L, v.oldestBackupAt)
+        assertFalse(v.replaceToldAny)
+        val done = v.copy(targets = v.targets.map { it.copy(replacePending = false) })
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, done.firstBackupError)
+    }
+
+    /** Review M-8 (g): a vault's settings of 1.4.3 with a value of the wrong type lose nothing else. */
+    @Test fun aBadOldVaultLosesNothingElse() = runTest {
+        File(tmp.root, "settings.json").writeText(
+            """{"lockAfter":"MIN_1","perVault":{"mala":{"autoBackupUri":"content://m","autoBackupCopies":"x"},""" +
+                """"buena":{"targets":[{"uri":"content://b","keep":10,"schedule":"WEEKLY","copies":["b1"]}]},""" +
+                """"vieja":{"autoBackupUri":"content://v","autoBackupKeep":3}}}""",
+        )
+        settings.load()
+        val all = settings.settings.value
+        assertEquals(app.seguridad.settings.LockAfter.MIN_1, all.lockAfter)
+        assertEquals(listOf(BackupTargetSettings("content://b", 10, BackupSchedule.WEEKLY, copies = listOf("b1"))), all.vault("buena").targets)
+        assertEquals(listOf(BackupTargetSettings("content://v", 3, BackupSchedule.ON_CHANGE)), all.vault("vieja").targets)
+        assertEquals(emptyList<BackupTargetSettings>(), all.vault("mala").targets)
     }
 }
