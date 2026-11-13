@@ -17,6 +17,7 @@ Cada aplazado del registro (`progress.md`), con su destino y su estado. La revis
 | 11 | Móvil: difuminado desde Android 12, aspecto en 8 a 11, desplazamiento, foco bajo las barras, menús, «Colores del fondo de pantalla» | T5 bis | Tarea 11 (Maestro) y dueño | Abierto |
 | 12 | Móvil: fila elegida opaca, marca quieta sin animaciones, deslizar y vibración, oferta al volver de otra app | T6 | Tarea 11 y dueño | Abierto |
 | 13 | Móvil: diálogo al cambiar de pestaña, pestaña durante un guardado (Info-3), botones al 200 %, propuesta al pegar | T7 | Tarea 11 y dueño | Abierto |
+| 13 bis | i-1 de T8: precisión de `lastModified`/`setLastModified` (la marca de D-3) | T8 | Móvil (tarea 11) | Pendiente |
 | 14 | Textos para el Abogado de cada tarea (secciones de los informes `task-*-report.md`) | T1 a T8 | Abogado final | Abierto |
 | 15 | O-C1: buscar anterioridades del logo y de la marca antes de publicar el icono | Abogado Cristal | Dueño | Pendiente del dueño |
 | 16 | El icono cambiable (`activity-alias`) | Dueño | Fuera hasta que lo apruebe | Pendiente del dueño |
