@@ -111,6 +111,38 @@ val ROTATE_CHOICES = listOf(3, 6, 12)
 /** Whether «cambiar la contraseña cada N meses» applies to [type]: the types with a password that «Salud» reads. */
 fun rotates(type: EntryType) = type == EntryType.LOGIN || type == EntryType.WIFI
 
+/** The fields of the form a paste is looked at in. */
+enum class FormSlot { TITLE, USERNAME, PASSWORD, URL, NOTES, SEED }
+
+/**
+ * A paste waiting for the user's answer: what it looks like ([kind]), the block pasted ([text], a secret), the field it
+ * went into and what that field held before and after. Its [toString] never shows any of the texts.
+ */
+class PasteOffer(val kind: PastedKind, val text: String, val slot: FormSlot, val before: String, val after: String) {
+    override fun toString() = "PasteOffer($kind, $slot)"
+}
+
+/** What [EntryEditSession.hasUnsavedChanges] compares; its [toString] shows none of the values (they hold secrets). */
+private data class FormSnapshot(
+    val title: String,
+    val username: String,
+    val loginPassword: String,
+    val seedPassphrase: String,
+    val url: String,
+    val notes: String,
+    val seed: String,
+    val totp: TotpSecret,
+    val favorite: Boolean,
+    val tags: List<String>,
+    val notesFormat: NotesFormat,
+    val templateValues: Map<String, String>,
+    val customFields: List<CustomField>,
+    val expiresText: String,
+    val rotateMonths: Int?,
+) {
+    override fun toString() = "FormSnapshot"
+}
+
 /** A Google Authenticator export waiting for the user's confirmation: the [entries] it would add and what it leaves out. */
 data class PendingMigration(val result: MigrationResult, val entries: List<VaultEntry>, val leftOut: List<String>)
 
@@ -207,6 +239,8 @@ class EntryEditSession(
         loadFields(e)
         expiresText.value = e?.expiresAt?.let(::expiryDay)?.let { displayDate(it.toString()) }.orEmpty()
         rotateMonths.value = e?.rotateMonths?.takeIf { it in 1..ROTATE_MONTHS_MAX }
+        autoTitle.value = null
+        baseline.value = snapshot()
         loaded = true
     }
 
@@ -319,6 +353,133 @@ class EntryEditSession(
         }
     }
 
+    // 2.0, task 7 (design «Formulario»): the title from the URL, the question after a paste, and «¿Guardar los cambios?».
+
+    /**
+     * A paste that looks like a 2FA link or a seed phrase, waiting for the user's answer ([acceptPaste], [declinePaste]).
+     * It holds what was pasted (a secret): only here, in memory, and gone with [clear].
+     */
+    val pasteOffer = cells.cell<PasteOffer?>(null)
+
+    /** «Atrás» with changes: the dialog «¿Guardar los cambios?» is up. */
+    val askingToLeave = cells.cell(false)
+
+    /** The BIP-39 lists a paste is read with; null until the ViewModel has them (then no phrase is recognised). */
+    @Volatile var seedLists: SeedLists? = null
+
+    /** The title [titleFromUrl] filled; while the title is still it, it follows the URL. */
+    private val autoTitle = cells.cell<String?>(null)
+
+    /** What the form held right after [load]: [hasUnsavedChanges] compares with it. Null when nothing is loaded. */
+    private val baseline = cells.cell<FormSnapshot?>(null)
+
+    /**
+     * What the form would save, as compared by [hasUnsavedChanges]: the texts that are trimmed on save, trimmed; the
+     * template values that are not empty (an empty one is no value); not the type (a new entry that only changes its
+     * type loses nothing) and not what is on screen only (errors, notices, dialogs).
+     */
+    private fun snapshot() = FormSnapshot(
+        title.value.trim(), username.value.trim(), loginPassword.value, seedPassphrase.value, url.value.trim(), notes.value,
+        seed.value.trim(), totp.value, favorite.value, normalizeTags(tagsText.value), notesFormat.value,
+        templateValues.value.filterValues { it.isNotEmpty() }, customFields.value, expiresText.value.trim(), rotateMonths.value,
+    )
+
+    /**
+     * Whether something changed since the form was loaded (from the vault, or a new entry's defaults): the dialog of
+     * «Atrás» asks only then. Compared with the form as loaded, never with the vault's entry, so what the load tidies (the
+     * dates shown as DD/MM/AAAA, a repeated field id, a copy's expiry in the template) is never a change.
+     */
+    val hasUnsavedChanges: Boolean get() = loaded && baseline.value.let { it != null && it != snapshot() }
+
+    /** The cell of [slot]. */
+    private fun slotCell(slot: FormSlot) = when (slot) {
+        FormSlot.TITLE -> title
+        FormSlot.USERNAME -> username
+        FormSlot.PASSWORD -> loginPassword
+        FormSlot.URL -> url
+        FormSlot.NOTES -> notes
+        FormSlot.SEED -> seed
+    }
+
+    /**
+     * The field [slot] changed to [value] (its own change callback, the only caller). The URL fills an empty title
+     * ([titleFromUrl]), and keeps it in step while the title is the one it filled. A block pasted at once ([pastedBlock])
+     * that looks like a 2FA link or a seed phrase ([detectPasted]) is offered as that type ([pasteOffer]): only for a new
+     * entry (an existing one keeps its type), and only when it is not that type already. The paste stays in the field as
+     * pasted until the user answers.
+     */
+    fun typed(slot: FormSlot, value: String) {
+        val cell = slotCell(slot)
+        val before = cell.value
+        cell.value = value
+        if (slot == FormSlot.URL) followUrl(value)
+        if (!loaded || existing.value != null) return
+        val block = pastedBlock(before, value) ?: return
+        val kind = detectPasted(block, seedLists) ?: return
+        if ((kind == PastedKind.OTPAUTH && type.value == EntryType.TOTP) || (kind == PastedKind.SEED && type.value == EntryType.SEED)) return
+        pasteOffer.value = PasteOffer(kind, block, slot, before, value)
+    }
+
+    private fun followUrl(value: String) {
+        val current = title.value
+        val auto = autoTitle.value
+        if (current.isNotBlank() && current != auto) return
+        val t = titleFromUrl(value)
+        when {
+            t != null -> {
+                title.value = t
+                autoTitle.value = t
+            }
+            auto != null && current == auto -> {
+                title.value = ""
+                autoTitle.value = null
+            }
+        }
+    }
+
+    /**
+     * «Sí» to [pasteOffer]: the paste goes out of the field it was pasted in (back to what it held before, if the field
+     * still holds the paste), and the type changes. A seed phrase goes to the phrase's field; a 2FA link is returned, for
+     * the ViewModel to read as a scan (`applyOtpAuth`, where CRY-B02 is). Null, and nothing done, once the form was
+     * cleared (a lock while the question was up).
+     */
+    fun acceptPaste(): String? {
+        val offer = pasteOffer.value ?: return null
+        pasteOffer.value = null
+        if (!loaded) return null
+        val cell = slotCell(offer.slot)
+        if (cell.value == offer.after) {
+            cell.value = offer.before
+            if (offer.slot == FormSlot.URL) followUrl(offer.before)
+        }
+        return when (offer.kind) {
+            PastedKind.SEED -> {
+                changeType(EntryType.SEED)
+                seed.value = offer.text.trim()
+                null
+            }
+            PastedKind.OTPAUTH -> {
+                changeType(EntryType.TOTP)
+                offer.text.trim()
+            }
+        }
+    }
+
+    /** «No» to [pasteOffer]: everything stays as pasted. */
+    fun declinePaste() {
+        pasteOffer.value = null
+    }
+
+    /** «Atrás» (the bar's arrow and the system's back): with changes, the dialog; without, the form ends ([finish]). */
+    fun back() {
+        if (hasUnsavedChanges) askingToLeave.value = true else finish()
+    }
+
+    /** «Seguir editando», or the dialog dismissed: back to the form, as it was. */
+    fun keepEditing() {
+        askingToLeave.value = false
+    }
+
     /** The vault's state: open loads the form (if it was cleared), any other state after it was loaded clears it. */
     fun vaultStateIs(unlocked: Boolean, entries: List<VaultEntry>) {
         if (unlocked) load(entries) else if (loaded) clear()
@@ -355,6 +516,10 @@ class EntryEditSession(
         info.value = null
         saving.value = false
         migration.value = null
+        pasteOffer.value = null
+        askingToLeave.value = false
+        autoTitle.value = null
+        baseline.value = null
         loaded = false
     }
 

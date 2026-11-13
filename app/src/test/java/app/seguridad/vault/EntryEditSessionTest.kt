@@ -57,6 +57,9 @@ class EntryEditSessionTest {
         assertNull(migration.value)
         assertNull(existing.value)
         assertFalse(saving.value)
+        // 2.0, task 7: a pending question about a paste (it holds what was pasted) and the dialog of «Atrás».
+        assertNull(pasteOffer.value)
+        assertFalse(askingToLeave.value)
     }
 
     @Test fun anExistingEntryIsLoadedOnceAndWhatIsTypedSurvives() {
@@ -174,5 +177,244 @@ class EntryEditSessionTest {
         s.typeEverything()
         s.cleared() // The ViewModel's onCleared.
         s.assertEmpty()
+    }
+
+    // 2.0, task 7: «¿Guardar los cambios?» only when something changed since the form was loaded.
+
+    private fun seeds(): SeedLists {
+        fun asset(name: String) = listOf("src/main/assets", "../app/src/main/assets").map { java.io.File(it, name) }.first { it.exists() }
+            .readLines(Charsets.UTF_8).filter { it.isNotBlank() }
+        return SeedLists(asset("bip39_english.txt"), asset("bip39_spanish.txt"))
+    }
+
+    private fun seedPhrase(): String {
+        fun asset(name: String) = listOf("src/main/assets", "../app/src/main/assets").map { java.io.File(it, name) }.first { it.exists() }
+            .readLines(Charsets.UTF_8).filter { it.isNotBlank() }
+        return app.seguridad.crypto.Bip39(asset("bip39_english.txt")).phraseOf(ByteArray(16) { (it * 5 + 3).toByte() }).joinToString(" ")
+    }
+
+    private val otpauth = "otpauth://totp/Ejemplo:ana?secret=JBSWY3DPEHPK3PXP&issuer=Ejemplo"
+
+    @Test fun unsavedChangesDetected() {
+        val s = session(id = "e1")
+        s.load(listOf(saved))
+        s.title.value = "Banco nuevo"
+        assertTrue(s.hasUnsavedChanges)
+        s.back()
+        assertTrue(s.askingToLeave.value)
+        assertFalse(s.finished.value)
+        // «Seguir editando»: the dialog goes, the typed text stays.
+        s.keepEditing()
+        assertFalse(s.askingToLeave.value)
+        assertEquals("Banco nuevo", s.title.value)
+        // Back to what was loaded: nothing to save.
+        s.title.value = "Banco"
+        assertFalse(s.hasUnsavedChanges)
+
+        val changes: List<Pair<String, EntryEditSession.() -> Unit>> = listOf(
+            "usuario" to { username.value = "otra" },
+            "contraseña" to { loginPassword.value = "otra-clave" },
+            "web" to { url.value = "https://otro.example" },
+            "notas" to { notes.value = "otra nota" },
+            "favorito" to { favorite.value = false },
+            "etiquetas" to { tagsText.value = "a, b, c" },
+            "formato" to { notesFormat.value = NotesFormat.LIMITED },
+            "caducidad" to { expiresText.value = "01/01/2030" },
+            "recordatorio" to { rotateMonths.value = 6 },
+            "campo" to { assertNull(addField("Pregunta", FieldKind.HIDDEN, false)) },
+        )
+        for ((what, change) in changes) {
+            val t = session(id = "e1").apply { load(listOf(saved)) }
+            t.change()
+            assertTrue(what, t.hasUnsavedChanges)
+        }
+        // A new entry: anything typed counts.
+        val n = session()
+        n.load(emptyList())
+        n.typed(FormSlot.TITLE, "Correo")
+        assertTrue(n.hasUnsavedChanges)
+        val c = session(type = EntryType.CARD)
+        c.load(emptyList())
+        c.setTemplateValue(EntryType.CARD, "number", "4000 0000 0000 0002")
+        assertTrue(c.hasUnsavedChanges)
+        // A field of the user's: its value, and its place.
+        val withFields = saved.copy(fields = listOf(CustomField("f1", "Uno", FieldKind.TEXT, "1"), CustomField("f2", "Dos", FieldKind.TEXT, "2")))
+        val f = session(id = "e1").apply { load(listOf(withFields)) }
+        f.moveField(0, 1)
+        assertTrue(f.hasUnsavedChanges)
+        f.moveField(1, -1)
+        assertFalse(f.hasUnsavedChanges)
+        f.setFieldValue(1, "dos")
+        assertTrue(f.hasUnsavedChanges)
+        f.removeField(1)
+        assertTrue(f.hasUnsavedChanges)
+    }
+
+    @Test fun noChangesNoDialog() {
+        // Opening never counts as a change, whatever the load had to tidy up.
+        val day = expiresAtOf(java.time.LocalDate.parse("2027-05-31"))
+        val loads: List<Pair<String, EntryEditSession>> = listOf(
+            "acceso" to session(id = "e1").apply { load(listOf(saved)) },
+            "nueva" to session().apply { load(emptyList()) },
+            // A new wifi starts as WPA, not hidden.
+            "wifi nueva" to session(type = EntryType.WIFI).apply { load(emptyList()) },
+            // A card with the expiresAt of a copy, moved into the template's expiry.
+            "tarjeta de una copia" to session(id = "c").apply { load(listOf(VaultEntry("c", EntryType.CARD, "Tarjeta", createdAt = 1, updatedAt = 1, expiresAt = day))) },
+            // A field id seen twice (a copy made elsewhere) gets a new one, and a date is shown as DD/MM/AAAA.
+            "campos repetidos" to session(id = "e1").apply {
+                load(listOf(saved.copy(fields = listOf(CustomField("x", "Uno", FieldKind.TEXT, "1"), CustomField("x", "Dos", FieldKind.DATE, "2027-01-31", expires = true)))))
+            },
+            "nota con formato" to session(id = "n").apply { load(listOf(VaultEntry("n", EntryType.NOTE, "Nota", notes = "**a**", notesFormat = NotesFormat.LIMITED, createdAt = 1, updatedAt = 1))) },
+            "2FA" to session(id = "t").apply { load(listOf(VaultEntry("t", EntryType.TOTP, "X", totp = TotpSecret("JBSWY3DPEHPK3PXP", "X", "y"), createdAt = 1, updatedAt = 1))) },
+        )
+        for ((what, s) in loads) {
+            assertTrue(what, s.loaded)
+            assertFalse(what, s.hasUnsavedChanges)
+            // A rotation composes the form again over the same session.
+            s.load(listOf(saved))
+            assertFalse(what, s.hasUnsavedChanges)
+            s.back()
+            assertFalse(what, s.askingToLeave.value)
+            assertTrue(what, s.finished.value)
+        }
+        // Changing the type of a new entry, with nothing typed, loses nothing.
+        val n = session()
+        n.load(emptyList())
+        n.changeType(EntryType.CARD)
+        n.changeType(EntryType.NOTE)
+        assertFalse(n.hasUnsavedChanges)
+        // Typed and taken back: an empty template value is no value; spaces around the title are not saved.
+        n.changeType(EntryType.CARD)
+        n.setTemplateValue(EntryType.CARD, "holder", "Ana")
+        n.setTemplateValue(EntryType.CARD, "holder", "")
+        n.typed(FormSlot.TITLE, "  ")
+        assertFalse(n.hasUnsavedChanges)
+        // An error or a notice on screen is not a change.
+        n.error.value = "un error"
+        n.info.value = "un aviso"
+        assertFalse(n.hasUnsavedChanges)
+        // A lock clears the form: nothing loaded, nothing to ask about.
+        val e = session(id = "e1").apply { load(listOf(saved)) }
+        e.title.value = "otro"
+        e.vaultStateIs(unlocked = false, emptyList())
+        assertFalse(e.hasUnsavedChanges)
+        e.vaultStateIs(unlocked = true, listOf(saved))
+        assertFalse(e.hasUnsavedChanges)
+    }
+
+    // 2.0, task 7: the title from the URL fills only an empty title.
+
+    @Test fun theUrlFillsAnEmptyTitleOnly() {
+        val n = session()
+        n.load(emptyList())
+        for (part in listOf("h", "ht", "https://c", "https://co", "https://usuario:clave@correo.ejemplo.es")) n.typed(FormSlot.URL, part)
+        assertEquals("https://usuario:clave@correo.ejemplo.es", n.url.value)
+        // While the title is the one it filled, it follows the URL; never with the user info.
+        assertEquals("Correo.ejemplo.es", n.title.value)
+        n.typed(FormSlot.URL, "texto")
+        assertEquals("", n.title.value)
+        n.typed(FormSlot.URL, "https://banco.example")
+        assertEquals("Banco.example", n.title.value)
+        // Once the user writes a title, it is theirs.
+        n.typed(FormSlot.TITLE, "Mi banco")
+        n.typed(FormSlot.URL, "https://otro.example")
+        assertEquals("Mi banco", n.title.value)
+        // A loaded title is never touched.
+        val e = session(id = "e1").apply { load(listOf(saved)) }
+        e.typed(FormSlot.URL, "https://otro.example")
+        assertEquals("Banco", e.title.value)
+        // After a clear, the next load starts again.
+        n.clear()
+        n.load(emptyList())
+        n.typed(FormSlot.TITLE, "Correo")
+        n.typed(FormSlot.URL, "https://otro.example")
+        assertEquals("Correo", n.title.value)
+    }
+
+    // 2.0, task 7: a paste that looks like a 2FA link or a seed phrase asks; it never changes the type on its own.
+
+    @Test fun aPastedSeedIsOfferedAndTakenOutOfTheField() {
+        val s = session()
+        s.load(emptyList())
+        s.seedLists = seeds()
+        val phrase = seedPhrase()
+        s.typed(FormSlot.TITLE, "Car")
+        s.typed(FormSlot.TITLE, "Car$phrase")
+        // The paste is in the field as pasted until the user answers; the type has not changed.
+        assertEquals("Car$phrase", s.title.value)
+        assertEquals(EntryType.LOGIN, s.type.value)
+        val offer = s.pasteOffer.value!!
+        assertEquals(PastedKind.SEED, offer.kind)
+        assertFalse("never in its text", phrase in offer.toString())
+        assertNull(s.acceptPaste())
+        assertNull(s.pasteOffer.value)
+        assertEquals(EntryType.SEED, s.type.value)
+        assertEquals(phrase, s.seed.value)
+        // Out of the title (titles are shown in lists): what was there before the paste.
+        assertEquals("Car", s.title.value)
+    }
+
+    @Test fun aPastedOtpauthIsHandedToTheReaderOfTheLinks() {
+        val s = session()
+        s.load(emptyList())
+        s.typed(FormSlot.PASSWORD, otpauth)
+        assertEquals(PastedKind.OTPAUTH, s.pasteOffer.value?.kind)
+        assertEquals(otpauth, s.acceptPaste())
+        assertEquals(EntryType.TOTP, s.type.value)
+        assertEquals("", s.loginPassword.value)
+        // «No»: everything stays as pasted.
+        val t = session()
+        t.load(emptyList())
+        t.typed(FormSlot.NOTES, "nota $otpauth".removePrefix("nota "))
+        assertTrue(t.pasteOffer.value != null)
+        t.declinePaste()
+        assertNull(t.pasteOffer.value)
+        assertEquals(otpauth, t.notes.value)
+        assertEquals(EntryType.LOGIN, t.type.value)
+    }
+
+    @Test fun aPasteIsOnlyOfferedWhereItChangesSomething() {
+        val phrase = seedPhrase()
+        // Typing, one character at a time, is never a paste.
+        val typing = session().apply { load(emptyList()); seedLists = seeds() }
+        var text = ""
+        for (c in otpauth) {
+            text += c
+            typing.typed(FormSlot.NOTES, text)
+        }
+        assertNull(typing.pasteOffer.value)
+        // An existing entry does not change its type.
+        val e = session(id = "e1").apply { load(listOf(saved)); seedLists = seeds() }
+        e.typed(FormSlot.NOTES, otpauth)
+        e.typed(FormSlot.PASSWORD, phrase)
+        assertNull(e.pasteOffer.value)
+        // Already of that type.
+        val seed = session(type = EntryType.SEED).apply { load(emptyList()); seedLists = seeds() }
+        seed.typed(FormSlot.SEED, phrase)
+        assertNull(seed.pasteOffer.value)
+        // Ordinary text.
+        val n = session().apply { load(emptyList()); seedLists = seeds() }
+        n.typed(FormSlot.NOTES, "una nota pegada de muchas palabras normales")
+        assertNull(n.pasteOffer.value)
+        // Not loaded (locked): nothing.
+        val locked = session().apply { seedLists = seeds() }
+        locked.typed(FormSlot.NOTES, otpauth)
+        assertNull(locked.pasteOffer.value)
+    }
+
+    @Test fun aLockWhileAskingDropsThePasteAndALateAnswerDoesNothing() {
+        val s = session()
+        s.load(emptyList())
+        s.seedLists = seeds()
+        s.typed(FormSlot.PASSWORD, seedPhrase())
+        assertTrue(s.pasteOffer.value != null)
+        s.vaultStateIs(unlocked = false, emptyList())
+        s.assertEmpty()
+        // The «Sí» of a dialog that was on screen comes too late.
+        assertNull(s.acceptPaste())
+        s.vaultStateIs(unlocked = true, emptyList())
+        assertEquals(EntryType.LOGIN, s.type.value)
+        assertEquals("", s.seed.value)
+        assertNull(s.pasteOffer.value)
     }
 }
