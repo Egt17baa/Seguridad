@@ -19,7 +19,7 @@ class MasterChanged(
     private val scope: CoroutineScope,
     replace: suspend (List<String>?) -> AutoBackupResult,
     private val now: () -> Long,
-    /** The copies listed now (Settings.currentAutoBackupCopies): read once, when the password has changed ([changed]). */
+    /** The copies listed now (VaultSettings.listedCopies, of every target): read once, when the password has changed ([changed]). */
     private val oldCopies: () -> List<String>? = { null },
 ) {
     data class State(

@@ -55,10 +55,25 @@ import app.seguridad.settings.availableOn
 import app.seguridad.settings.settingsEditable
 import app.seguridad.settings.vault
 import app.seguridad.settings.withVault
-import app.seguridad.settings.withFolderChosen
+import app.seguridad.settings.TargetRefusal
+import app.seguridad.settings.VaultSettings
+import app.seguridad.settings.canAddTarget
+import app.seguridad.settings.target
+import app.seguridad.settings.withTarget
+import app.seguridad.settings.withTargetAdded
+import app.seguridad.settings.withTargetFolderChanged
 import app.seguridad.tools.ABOUT_SUMMARY
 import app.seguridad.tools.ABOUT_WARNINGS_SHORT
+import app.seguridad.tools.AUTO_BACKUP_ADD_FOLDER
+import app.seguridad.tools.AUTO_BACKUP_ALREADY_TARGET
 import app.seguridad.tools.AUTO_BACKUP_DELETES_SHORT
+import app.seguridad.tools.AUTO_BACKUP_MORE
+import app.seguridad.tools.AUTO_BACKUP_REMOVED
+import app.seguridad.tools.AUTO_BACKUP_SCHEDULE_ON_OPEN
+import app.seguridad.tools.AUTO_BACKUP_TOO_MANY
+import app.seguridad.tools.autoBackupTargetTitle
+import app.seguridad.tools.scheduleAfter
+import app.seguridad.tools.scheduleLabel
 import app.seguridad.tools.AUTO_BACKUP_OUTCOME_TITLE
 import app.seguridad.tools.AUTO_BACKUP_REPLACE_DROPPED
 import app.seguridad.tools.AUTO_BACKUP_SHORT
@@ -90,6 +105,8 @@ import app.seguridad.ui.theme.SectionCard
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.BACKUP_CHECK_TITLE
+import app.seguridad.vault.BackupSchedule
+import app.seguridad.vault.VaultLimits
 import app.seguridad.vault.MasterChanged
 import app.seguridad.vault.ReplaceStatus
 import app.seguridad.vault.VaultLock
@@ -150,8 +167,10 @@ internal fun <T> Choices(options: List<T>, selected: T, label: (T) -> String, en
 private val backupDate: DateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withLocale(Locale.forLanguageTag("es-ES"))
 
 /**
- * «Copia automática»: the folder (chosen with OpenDocumentTree, its access kept with a persistable permission and
- * given back when turned off or replaced), how many copies to keep, and how the last one went.
+ * «Copia automática» (2.0, task 8): up to [VaultLimits.BACKUP_TARGETS_MAX] folders, each chosen with OpenDocumentTree (its
+ * access kept with a persistable permission, given back when removed or replaced unless another target uses it), with its
+ * calendar, how many copies it keeps and how its last copy went; and the line that the copies with a calendar are only
+ * made when the app is opened (Abogado Digital, O-4: in plain view).
  */
 @Composable
 private fun AutoBackupSection(
@@ -168,143 +187,167 @@ private fun AutoBackupSection(
     val id = vault.id
     val settings = all.vault(id)
     val vaultState by vault.state.collectAsStateWithLifecycle()
-    val folder = settings.autoBackupUri
     // Copies are only made from the open vault (each attachment is checked): while locked, one waits for it.
     val locked = vaultState is VaultState.Locked
     val noVault = vaultState is VaultState.NoVault
     // COV2-1: where the copies go and how many are kept change only with the vault open, or with none.
     val editable = settingsEditable(vaultState)
+    // The target whose folder the picker changes; null when it adds one. Only a folder's URI, never a secret.
+    var changing by remember { mutableStateOf<String?>(null) }
 
     val picker = rememberDocumentPicker(ActivityResultContracts.OpenDocumentTree(), place = null) { uri ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
+        val from = changing
+        changing = null
         if (uri != null) scope.launch {
             // Checked again on return: the vault may have locked while the picker was open (COV2-1). No permission taken.
             if (!settingsEditable(vault.state.value)) {
                 snackbar.showSnackbar(SETTINGS_NEED_OPEN_VAULT)
                 return@launch
             }
+            val chosen = uri.toString()
+            val now = store.settings.value.vault(id)
+            // Refused before taking a permission: the same folder twice, or a fourth one.
+            if (from == null || from != chosen) {
+                when (now.canAddTarget(chosen)) {
+                    TargetRefusal.ALREADY_A_TARGET -> {
+                        snackbar.showSnackbar(AUTO_BACKUP_ALREADY_TARGET)
+                        return@launch
+                    }
+                    TargetRefusal.TOO_MANY -> if (from == null) {
+                        snackbar.showSnackbar(AUTO_BACKUP_TOO_MANY)
+                        return@launch
+                    }
+                    null -> Unit
+                }
+            }
             val resolver = context.contentResolver
             if (!withContext(Dispatchers.IO) { SafBackupTarget.takeFolder(resolver, uri) }) {
                 snackbar.showSnackbar("No se pudo obtener permiso para usar esa carpeta. Elige otra.")
                 return@launch
             }
-            val chosen = uri.toString()
-            val previous = store.settings.value.vault(id).autoBackupUri
-            val hadRequest = store.settings.value.vault(id).autoBackupReplacePending
+            val hadRequest = from?.let { now.target(it)?.replacePending } == true
             try {
-                // The copies listed stay with the folder they are in ([VaultSettings.currentAutoBackupCopies]): the same
-                // one chosen again goes on rotating them (and keeps a request to replace them), another one starts with none.
-                store.updateVault(id) { it.withFolderChosen(chosen) }
+                // The lists of a folder go with it ([VaultSettings.pastTargets]): the same one chosen again goes on rotating
+                // them (and keeps a request to replace them), another one starts with what that folder had.
+                store.updateVault(id) { if (from == null) it.withTargetAdded(chosen, BackupSchedule.ON_CHANGE) else it.withTargetFolderChanged(from, chosen) }
             } catch (e: Exception) {
-                // Given back unless another vault has its copies there (2.0).
-                if (chosen != previous) releaseIfUnused(chosen)
+                if (chosen != from) releaseIfUnused(chosen)
                 snackbar.showSnackbar(SETTING_SAVE_FAILED)
                 return@launch
             }
-            if (previous != null && previous != chosen) releaseIfUnused(previous)
-            autoBackup.request()
+            if (from != null && from != chosen) releaseIfUnused(from)
+            autoBackup.request(chosen)
             // A request to replace the old copies that the new folder dropped is said, not lost in silence.
-            val dropped = if (hadRequest && !store.settings.value.vault(id).autoBackupReplacePending) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
+            val dropped = if (hadRequest && store.settings.value.vault(id).target(chosen)?.replacePending != true) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
+            val schedule = store.settings.value.vault(id).target(chosen)?.schedule ?: BackupSchedule.ON_CHANGE
             snackbar.showSnackbar(
                 when (vault.state.value) {
                     // Locked only if it locked in the instant since the check above: the copy still waits for it.
-                    VaultState.Locked -> "Copia automática activada: se hará una en cuanto abras la bóveda y después tras cada cambio."
-                    VaultState.NoVault -> "Copia automática activada: se hará una cuando crees la bóveda y después tras cada cambio."
-                    else -> "Copia automática activada: se hará una ahora y tras cada cambio en la bóveda."
+                    VaultState.Locked -> "Copia automática activada: se hará una en cuanto abras la bóveda y después ${scheduleAfter(schedule)}."
+                    VaultState.NoVault -> "Copia automática activada: se hará una cuando crees la bóveda y después ${scheduleAfter(schedule)}."
+                    else -> "Copia automática activada: se hará una ahora y después ${scheduleAfter(schedule)}."
                 } + dropped,
             )
         }
     }
-    val choose = choose@{
+    val choose: (String?) -> Unit = choose@{ from ->
         if (!settingsEditable(vault.state.value)) return@choose
+        changing = from
         VaultLock.keepOpenOnce = true
         vault.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
-        picker.launchOrError(folderStart(folder))?.let { failure ->
+        picker.launchOrError(folderStart(from ?: settings.targets.lastOrNull()?.uri))?.let { failure ->
             VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
+            changing = null
             scope.launch { snackbar.showSnackbar(failure) }
         }
-        Unit
+    }
+    val save: ((VaultSettings) -> VaultSettings) -> Unit = { change ->
+        if (settingsEditable(vault.state.value)) scope.launch {
+            try {
+                store.updateVault(id, change)
+            } catch (e: Exception) {
+                snackbar.showSnackbar(SETTING_SAVE_FAILED)
+            }
+        }
     }
 
     Section("Copia automática") {
-        if (folder == null) {
-            Hint(AUTO_BACKUP_SHORT)
-            Hint(AUTO_BACKUP_DELETES_SHORT)
-            MoreInfo {
-                Hint(
-                    "Guarda una copia cifrada (.sgbak, con los adjuntos) en una carpeta que elijas, unos segundos después de cada " +
-                        "cambio en la bóveda. Elige una carpeta que se sincronice o que copies fuera del móvil.",
-                )
-            }
-            if (settings.autoBackupOffForNewVault) {
-                Text(AUTO_BACKUP_OFF_NEW_VAULT, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
-            }
-            OutlinedButton(onClick = choose, enabled = editable, modifier = Modifier.fillMaxWidth()) { Text("Elegir carpeta") }
-            if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
-            return@Section
-        }
-        Text("Carpeta: ${SafBackupTarget.label(folder)}", style = MaterialTheme.typography.bodyMedium)
-        Choices(AUTO_BACKUP_KEEP_CHOICES, settings.autoBackupKeep, { "Conservar las $it últimas" }, enabled = { editable }) { k ->
-            if (settingsEditable(vault.state.value)) scope.launch {
-                try {
-                    store.updateVault(id) { it.copy(autoBackupKeep = k) }
-                } catch (e: Exception) {
-                    snackbar.showSnackbar(SETTING_SAVE_FAILED)
-                }
-            }
-        }
-        val last = settings.lastAutoBackupAt
-        Hint(
-            if (last == null) {
-                "Aún no se ha hecho ninguna copia: se hará " + when {
-                    noVault -> "cuando crees la bóveda."
-                    locked -> "en cuanto abras la bóveda."
-                    else -> "en unos segundos y tras cada cambio."
-                }
-            } else {
-                "Última copia: " + backupDate.format(Instant.ofEpochMilli(last).atZone(ZoneId.systemDefault()))
-            },
-        )
-        settings.lastAutoBackupError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = NegativeColor) }
-        OutlinedButton(
-            onClick = {
-                autoBackup.request() // While locked it waits, and is made as soon as the vault is opened.
-                when (vault.state.value) {
-                    VaultState.Locked -> "Abre la bóveda (pestaña Bóveda) para hacer la copia: se hará en cuanto la abras."
-                    VaultState.NoVault -> "Aún no tienes bóveda: no hay nada que copiar."
-                    else -> null
-                }?.let { scope.launch { snackbar.showSnackbar(it) } }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Hacer una copia ahora") }
-        OutlinedButton(onClick = choose, enabled = editable, modifier = Modifier.fillMaxWidth()) { Text("Cambiar de carpeta") }
-        OutlinedButton(
-            enabled = editable,
-            onClick = {
-                if (settingsEditable(vault.state.value)) scope.launch {
-                    try {
-                        // From the write itself (T11-c): a replacement that finished just before is not «dropped».
-                        val hadRequest = store.turnOffAutoBackup(id)
-                        releaseIfUnused(folder)
-                        snackbar.showSnackbar(
-                            "Copia automática desactivada. Las copias ya hechas siguen en la carpeta." +
-                                if (hadRequest) " $AUTO_BACKUP_REPLACE_DROPPED" else "",
-                        )
-                    } catch (e: Exception) {
-                        snackbar.showSnackbar(SETTING_SAVE_FAILED)
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Desactivar") }
-        if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+        Hint(AUTO_BACKUP_SHORT)
+        Hint(AUTO_BACKUP_DELETES_SHORT)
+        // O-4 of the Abogado Digital: in plain view, not under «Más información».
+        Hint(AUTO_BACKUP_SCHEDULE_ON_OPEN)
         MoreInfo {
+            Hint(AUTO_BACKUP_MORE)
             Hint(
                 "Cada copia va cifrada con la contraseña maestra que tenía la bóveda al hacerla: si la cambias, las copias anteriores " +
                     "se siguen abriendo con la antigua. Solo se borran las copias automáticas más antiguas (seguridad-auto-…) y, si " +
-                    "lo pides tras cambiar la contraseña maestra, las de antes de importar (seguridad-antes-de-importar-…); nunca " +
-                    "otros archivos de la carpeta.",
+                    "lo pides tras cambiar la contraseña maestra, las de antes de importar (seguridad-antes-de-importar-…) y la de " +
+                    "antes de la 2.0 (seguridad-antes-de-2-0-…); nunca otros archivos de la carpeta. Cada carpeta solo borra las " +
+                    "copias que la app hizo en ella.",
             )
+        }
+        if (settings.autoBackupOffForNewVault && settings.targets.isEmpty()) {
+            Text(AUTO_BACKUP_OFF_NEW_VAULT, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+        }
+        if (settings.targets.size < VaultLimits.BACKUP_TARGETS_MAX) {
+            OutlinedButton(onClick = { choose(null) }, enabled = editable, modifier = Modifier.fillMaxWidth()) {
+                Text(if (settings.targets.isEmpty()) "Elegir carpeta" else AUTO_BACKUP_ADD_FOLDER)
+            }
+        }
+        if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+    }
+    settings.targets.forEachIndexed { index, t ->
+        Section(autoBackupTargetTitle(index + 1)) {
+            Text("Carpeta: ${SafBackupTarget.label(t.uri)}", style = MaterialTheme.typography.bodyMedium)
+            Choices(BackupSchedule.entries, t.schedule, ::scheduleLabel, enabled = { editable }) { chosen ->
+                save { it.withTarget(t.uri) { target -> target.copy(schedule = chosen) } }
+            }
+            Choices(AUTO_BACKUP_KEEP_CHOICES, t.keep, { "Conservar las $it últimas" }, enabled = { editable }) { k ->
+                save { it.withTarget(t.uri) { target -> target.copy(keep = k) } }
+            }
+            val last = t.lastAt
+            Hint(
+                if (last == null) {
+                    "Aún no se ha hecho ninguna copia: se hará " + when {
+                        noVault -> "cuando crees la bóveda."
+                        locked -> "en cuanto abras la bóveda."
+                        t.schedule == BackupSchedule.ON_CHANGE -> "en unos segundos y tras cada cambio."
+                        else -> "en unos segundos."
+                    }
+                } else {
+                    "Última copia: " + backupDate.format(Instant.ofEpochMilli(last).atZone(ZoneId.systemDefault()))
+                },
+            )
+            t.lastError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = NegativeColor) }
+            OutlinedButton(
+                onClick = {
+                    autoBackup.request(t.uri) // While locked it waits, and is made as soon as the vault is opened.
+                    when (vault.state.value) {
+                        VaultState.Locked -> "Abre la bóveda (pestaña Bóveda) para hacer la copia: se hará en cuanto la abras."
+                        VaultState.NoVault -> "Aún no tienes bóveda: no hay nada que copiar."
+                        else -> null
+                    }?.let { scope.launch { snackbar.showSnackbar(it) } }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Hacer una copia ahora") }
+            OutlinedButton(onClick = { choose(t.uri) }, enabled = editable, modifier = Modifier.fillMaxWidth()) { Text("Cambiar de carpeta") }
+            OutlinedButton(
+                enabled = editable,
+                onClick = {
+                    if (settingsEditable(vault.state.value)) scope.launch {
+                        try {
+                            // From the write itself (T11-c): a replacement that finished just before is not «dropped».
+                            val hadRequest = store.removeTarget(id, t.uri)
+                            releaseIfUnused(t.uri)
+                            snackbar.showSnackbar(AUTO_BACKUP_REMOVED + if (hadRequest) " $AUTO_BACKUP_REPLACE_DROPPED" else "")
+                        } catch (e: Exception) {
+                            snackbar.showSnackbar(SETTING_SAVE_FAILED)
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (settings.targets.size == 1) "Desactivar" else "Quitar esta carpeta") }
         }
     }
 }
@@ -322,11 +365,13 @@ private fun AutoBackupSection(
 fun MasterChangedDialog(
     state: MasterChanged.State,
     autoBackupOn: Boolean,
+    /** 2.0, task 8: how many folders the copies go to (the text of the replacement says «en cada carpeta» with several). */
+    folders: Int = 1,
     replacing: Boolean,
     pending: Boolean,
     lastError: String?,
     lastBackupAt: Long?,
-    /** m3: a failure of this request was already told (Settings.autoBackupReplaceTold is not empty). */
+    /** m3: a failure of this request was already told (the targets' replaceTold is not empty). */
     toldSinceRequest: Boolean,
     onReplace: () -> Unit,
     onRenew: () -> Unit,
@@ -354,7 +399,7 @@ fun MasterChangedDialog(
                     when {
                         working -> Hint(PASSWORD_CHANGE_WORKING)
                         // 0 unknown (the answer was lost to a re-creation): the base text, true whatever the folder holds.
-                        status is ReplaceStatus.Done -> Hint(replacedText(state.answerUnlisted))
+                        status is ReplaceStatus.Done -> Hint(replacedText(state.answerUnlisted, folders))
                         status is ReplaceStatus.Waits -> Hint(AUTO_BACKUP_REPLACE_WAITS)
                         status is ReplaceStatus.Failed -> Text(status.message, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
                         else -> Unit
@@ -506,6 +551,8 @@ fun SettingsScreen(
                 OutlinedButton(onClick = actions.changeMaster, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Cambiar contraseña maestra") }
                 // Reads a copy and changes neither the vault nor a copy: open, locked or with no vault.
                 OutlinedButton(onClick = onCheckBackup, modifier = Modifier.fillMaxWidth()) { Text(BACKUP_CHECK_TITLE) }
+                // 2.0, task 8: one line once 30 days have passed since a copy of this vault was checked (O-5: more below).
+                (vaultState as? VaultState.Unlocked)?.data?.let { data -> BackupCheckNoticeLine(data.lastCheckedBackupAt) }
                 Hint(
                     when (vaultState) {
                         VaultState.Locked -> "Desbloquea la bóveda (pestaña Bóveda) para exportarla, importar una copia o cambiar la contraseña maestra."

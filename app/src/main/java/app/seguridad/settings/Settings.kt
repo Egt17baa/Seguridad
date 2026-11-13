@@ -2,6 +2,9 @@ package app.seguridad.settings
 
 import app.seguridad.crypto.KdfParams
 import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.BackupSchedule
+import app.seguridad.vault.BackupTargetSettings
+import app.seguridad.vault.VaultLimits
 import app.seguridad.vault.VaultState
 import kotlinx.serialization.Serializable
 
@@ -74,9 +77,10 @@ data class Settings(
 
 /**
  * 2.0, task 2: what each vault has of its own (design «Varias bóvedas»): its automatic copies, A6, its copies of before
- * importing and its Argon2id cost; the fields of 1.4.3's [Settings], as they were (ruling 2 ↔ 8 of the plan; task 8 turns
- * the copies into a list of targets). Their names are the ones 1.4.3 wrote, so the fields of an older file read as they
- * are.
+ * importing and its Argon2id cost. 2.0, task 8 (ruling 2 ↔ 8 of the plan): the copies are a list of [targets], at most
+ * [VaultLimits.BACKUP_TARGETS_MAX], each with its folder, schedule, number of copies kept, lists and A6 request. A
+ * settings.json of 1.4.3 (or of tasks 2 to 7) had one folder: [decodeSettings] turns it into one [BackupSchedule.ON_CHANGE]
+ * target, with everything it had ([LegacyVaultSettings]).
  */
 @Serializable
 data class VaultSettings(
@@ -88,53 +92,21 @@ data class VaultSettings(
      * where [SettingsStore.load] reads it as the first vault's.
      */
     val clockHighWaterMs: Long = 0,
-    /** The folder (a SAF tree URI, with a persistable permission) for the automatic copies; null when off. */
-    val autoBackupUri: String? = null,
-    /** How many automatic copies to keep: one of [AUTO_BACKUP_KEEP_CHOICES]. */
-    val autoBackupKeep: Int = AUTO_BACKUP_KEEP_DEFAULT,
-    /** Why the last automatic copy failed (a fixed Spanish message, never a path or file contents); null if it went well. */
-    val lastAutoBackupError: String? = null,
-    /** When the last automatic copy was written (epoch ms); null if none yet. */
-    val lastAutoBackupAt: Long? = null,
+    /** The folders the automatic copies go to, in the order they are made; none when the copies are off. */
+    val targets: List<BackupTargetSettings> = emptyList(),
     /** The automatic copies were turned off by creating a new vault: Ajustes says so until a folder is chosen again. */
     val autoBackupOffForNewVault: Boolean = false,
     /**
-     * The document ids of the automatic copies made in [autoBackupCopiesFolder], oldest first: the only ones rotation
-     * deletes ([app.seguridad.vault.AutoBackupResult.copies]), and only while that is still [autoBackupUri]. Kept
-     * when the copies are turned off, so choosing the same folder again goes on rotating them; forgotten with a new
-     * or an imported vault (they are the previous vault's).
+     * The lists of copies ([BackupTargetSettings.copies], [BackupTargetSettings.importCopies]) of folders that are no longer
+     * a target (removed, or changed for another), as 1.4.3 kept its list when the copies were turned off: the same folder
+     * chosen again goes on rotating them (and A6 can delete them). Only [BackupTargetSettings.uri] and those two lists are
+     * kept; at most [PAST_TARGETS_MAX], the newest. Forgotten with a new or an imported vault, as the targets' lists.
      */
-    val autoBackupCopies: List<String> = emptyList(),
-    val autoBackupCopiesFolder: String? = null,
-    /**
-     * «Borrar las copias automáticas anteriores y hacer una nueva» was asked for while the vault was locked (it always is
-     * right after a change of master password): the copies made after the next unlock replace the old ones, and this is
-     * cleared once a copy has deleted every target ([autoBackupReplaceTargets]) and every leftover temporary copy; until
-     * then each copy tries again. Saved, so a restart in between does not lose the request.
-     */
-    val autoBackupReplacePending: Boolean = false,
-    /**
-     * M4: the ids of the copies that request still has to delete, those listed when it was asked (made before the change
-     * of master password); copies made after it follow [autoBackupKeep]. Null for a request saved before 1.3.0 (a default,
-     * so an older settings.json still reads): its first attempt deletes every listed copy but the new one, as before, and
-     * what it could not delete becomes this list. Cleared with the request.
-     */
-    val autoBackupReplaceTargets: List<String>? = null,
-    /**
-     * M2: the failures already told to the user for that request (fixed texts, as [lastAutoBackupError]), so each is told
-     * once per request, also after a restart. Cleared with the request, and when it is asked again.
-     */
-    val autoBackupReplaceTold: List<String> = emptyList(),
-    /**
-     * 1.4.0: the document ids of the copies made just before «Importar de otra app» in [importCopiesFolder], oldest
-     * first ([app.seguridad.vault.AutoBackup.copyBeforeImport]). Never rotated and not in [autoBackupCopies]; they are
-     * encrypted with the master password of their moment, so a request to replace the old copies after a change of it
-     * (A6) takes those of the chosen folder among its targets ([withAutoBackupResult]). Forgotten with a new or an
-     * imported vault, as [autoBackupCopies]. With defaults, so an older settings.json still reads.
-     */
-    val importCopies: List<String> = emptyList(),
-    val importCopiesFolder: String? = null,
+    val pastTargets: List<BackupTargetSettings> = emptyList(),
 )
+
+/** How many lists of folders no longer chosen [VaultSettings.pastTargets] keeps. */
+const val PAST_TARGETS_MAX = 6
 
 /** The settings of the vault [id]; the defaults (no copies, the standard cost) for a vault that has none yet. */
 fun Settings.vault(id: String): VaultSettings = perVault[id] ?: VaultSettings()
@@ -149,105 +121,150 @@ fun Settings.withVault(id: String, change: (VaultSettings) -> VaultSettings): Se
 /** These settings without those of the vault [id] (a vault deleted: its copies stay where they are, unlisted). */
 fun Settings.withoutVault(id: String): Settings = if (id in perVault) copy(perVault = perVault - id) else this
 
-/** [VaultSettings.autoBackupCopies] if they are in the folder chosen now; none otherwise. */
-val VaultSettings.currentAutoBackupCopies: List<String>
-    get() = if (autoBackupUri != null && autoBackupCopiesFolder == autoBackupUri) autoBackupCopies else emptyList()
+/** The target whose folder is [uri]; null if it is not one. */
+fun VaultSettings.target(uri: String): BackupTargetSettings? = targets.firstOrNull { it.uri == uri }
 
-/** [VaultSettings.importCopies] if they are in the folder chosen now; none otherwise. */
-val VaultSettings.currentImportCopies: List<String>
-    get() = if (autoBackupUri != null && importCopiesFolder == autoBackupUri) importCopies else emptyList()
+/** The folders of the targets, in their order. */
+val VaultSettings.backupFolders: List<String> get() = targets.map { it.uri }
 
-/** Settings with no automatic copy, nor import copy, listed as this app's (see [VaultSettings.autoBackupCopies]). */
-fun VaultSettings.forgettingAutoBackupCopies(): VaultSettings =
-    copy(autoBackupCopies = emptyList(), autoBackupCopiesFolder = null, importCopies = emptyList(), importCopiesFolder = null)
-        .withoutReplaceRequest()
+/** These settings with the target of [uri] changed by [change]; as they are if it is not a target. */
+fun VaultSettings.withTarget(uri: String, change: (BackupTargetSettings) -> BackupTargetSettings): VaultSettings =
+    if (targets.none { it.uri == uri }) this else copy(targets = targets.map { if (it.uri == uri) change(it) else it })
 
 /**
- * These settings with the import copy [id] just written to [folder] added to [VaultSettings.importCopies]: only if [folder] is
- * still the chosen one, and (as [withAutoBackupResult]) only if the copy's vault, [generation], is still [current]. A list
- * of another folder is replaced.
+ * Every copy, automatic or of before importing (and of before 2.0), listed in any target: what A6 replaces after a change
+ * of master password ([app.seguridad.vault.MasterChanged]). Each target only ever deletes the ids of its own lists.
  */
-fun VaultSettings.withImportCopy(folder: String, id: String, generation: Long? = null, current: Long? = null): VaultSettings {
-    if (autoBackupUri != folder || (generation != null && current != null && generation != current)) return this
-    val kept = if (importCopiesFolder == folder) importCopies else emptyList()
-    return copy(importCopies = (kept + id).distinct(), importCopiesFolder = folder)
+val VaultSettings.listedCopies: List<String> get() = targets.flatMap { it.copies + it.importCopies }
+
+/** Whether any target waits to replace its old copies (A6). */
+val VaultSettings.replacePending: Boolean get() = targets.any { it.replacePending }
+
+/** Whether a failure of the A6 request was already told in any target. */
+val VaultSettings.replaceToldAny: Boolean get() = targets.any { it.replaceTold.isNotEmpty() }
+
+/** The first target's failure, in their order; null when none failed. */
+val VaultSettings.firstBackupError: String? get() = targets.firstNotNullOfOrNull { it.lastError }
+
+/** When the target that copied least recently last did; null if any has none yet (or there is no target). */
+val VaultSettings.oldestBackupAt: Long? get() = if (targets.isEmpty() || targets.any { it.lastAt == null }) null else targets.minOf { it.lastAt!! }
+
+/** Why a target cannot be added ([withTargetAdded]); null when it can. */
+enum class TargetRefusal { TOO_MANY, ALREADY_A_TARGET }
+
+/** Whether [uri] can be added as a new target. */
+fun VaultSettings.canAddTarget(uri: String): TargetRefusal? = when {
+    targets.any { it.uri == uri } -> TargetRefusal.ALREADY_A_TARGET
+    targets.size >= VaultLimits.BACKUP_TARGETS_MAX -> TargetRefusal.TOO_MANY
+    else -> null
 }
 
-/** These settings with no request to replace the old copies: its targets and what it told go with it. */
-fun VaultSettings.withoutReplaceRequest(): VaultSettings =
-    copy(autoBackupReplacePending = false, autoBackupReplaceTargets = null, autoBackupReplaceTold = emptyList())
+/**
+ * These settings with [uri] added as the last target, with [schedule] and [keep]: as they are if [canAddTarget] refuses.
+ * The lists of that folder kept from before ([pastTargets]) come back with it, so its copies go on rotating, as 1.4.3 did
+ * with the same folder chosen again.
+ */
+fun VaultSettings.withTargetAdded(uri: String, schedule: BackupSchedule, keep: Int = AUTO_BACKUP_KEEP_DEFAULT): VaultSettings {
+    if (canAddTarget(uri) != null) return this
+    val past = pastTargets.firstOrNull { it.uri == uri }
+    val added = BackupTargetSettings(uri, keep, schedule, copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty())
+    return copy(targets = targets + added, pastTargets = pastTargets.filter { it.uri != uri }, autoBackupOffForNewVault = false)
+}
 
 /**
- * These settings with [chosen] as the folder for the copies. The request to replace the old copies ([VaultSettings.autoBackupReplacePending])
- * goes only if the folder is another one: the same folder chosen again still has the copies it was asked about.
+ * These settings with the target of [from] going to the folder [to] instead (Ajustes, «Cambiar de carpeta»), with its
+ * schedule and number of copies. The same folder chosen again keeps its lists and its A6 request, and starts its date and
+ * error again (as 1.4.3); another folder starts with the lists that folder had ([pastTargets]) and no request, and the
+ * lists of [from] are kept there. As they are if [from] is not a target or [to] is another target.
  */
-fun VaultSettings.withFolderChosen(chosen: String): VaultSettings = copy(
-    autoBackupUri = chosen,
-    lastAutoBackupError = null,
-    lastAutoBackupAt = null,
-    autoBackupOffForNewVault = false,
-).let { if (chosen == autoBackupUri) it else it.withoutReplaceRequest() }
+fun VaultSettings.withTargetFolderChanged(from: String, to: String): VaultSettings {
+    val old = target(from) ?: return this
+    if (from == to) return withTarget(from) { it.copy(lastAt = null, lastError = null) }.copy(autoBackupOffForNewVault = false)
+    if (targets.any { it.uri == to }) return this
+    val past = pastTargets.firstOrNull { it.uri == to }
+    val fresh = BackupTargetSettings(to, old.keep, old.schedule, copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty())
+    return copy(
+        targets = targets.map { if (it.uri == from) fresh else it },
+        pastTargets = keptPast(pastTargets.filter { it.uri != to && it.uri != from }, old),
+        autoBackupOffForNewVault = false,
+    )
+}
 
-/** These settings with the automatic copies turned off by the user: a request to replace the old ones goes with them. */
-fun VaultSettings.withAutoBackupTurnedOff(): VaultSettings =
-    copy(autoBackupUri = null, lastAutoBackupError = null, lastAutoBackupAt = null).withoutReplaceRequest()
+/** These settings without the target of [uri] (Ajustes, «Quitar»): its lists are kept in [pastTargets], its A6 request goes. */
+fun VaultSettings.withTargetRemoved(uri: String): VaultSettings {
+    val old = target(uri) ?: return this
+    return copy(targets = targets.filter { it.uri != uri }, pastTargets = keptPast(pastTargets.filter { it.uri != uri }, old))
+}
+
+/** [past] with the lists of [gone] added as the newest, at most [PAST_TARGETS_MAX]; nothing added when it has none. */
+private fun keptPast(past: List<BackupTargetSettings>, gone: BackupTargetSettings): List<BackupTargetSettings> {
+    if (gone.copies.isEmpty() && gone.importCopies.isEmpty()) return past
+    val kept = BackupTargetSettings(gone.uri, gone.keep, BackupSchedule.ON_CHANGE, copies = gone.copies, importCopies = gone.importCopies)
+    return (past + kept).takeLast(PAST_TARGETS_MAX)
+}
+
+/** Settings with no automatic copy, nor import copy, listed as this app's in any target or past target, and no A6 request. */
+fun VaultSettings.forgettingAutoBackupCopies(): VaultSettings =
+    copy(targets = targets.map { it.copy(copies = emptyList(), importCopies = emptyList()).withoutReplaceRequest() }, pastTargets = emptyList())
+
+/**
+ * These settings with the import copy [id] just written to [folder] added to that target's [BackupTargetSettings.importCopies]:
+ * only if [folder] is still a target, and only if the copy's vault, [generation], is still [current].
+ */
+fun VaultSettings.withImportCopy(folder: String, id: String, generation: Long? = null, current: Long? = null): VaultSettings {
+    if (generation != null && current != null && generation != current) return this
+    return withTarget(folder) { it.copy(importCopies = (it.importCopies + id).distinct()) }
+}
+
+/** This target with no request to replace the old copies: its targets and what it told go with it. */
+fun BackupTargetSettings.withoutReplaceRequest(): BackupTargetSettings = copy(replacePending = false, replaceTargets = null, replaceTold = emptyList())
 
 /** Shown in Ajustes while [VaultSettings.autoBackupOffForNewVault]. */
 const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
     "Elige la carpeta otra vez para activarla."
 
 /**
- * How the last automatic copy went, for Ajustes: only when [r] went to the folder still chosen (turned off or another
- * folder chosen meanwhile, that copy says nothing about the current one). A written copy updates the date even if its
- * old copies could not be deleted. [generation] is the vault's ([app.seguridad.vault.VaultStore.generation]) when this
- * is recorded: a result of a vault that was replaced since ([AutoBackupResult.generation] differs) keeps neither its
- * list nor its «replaced», so the forgotten list of the replaced vault is never written back (CADENAS-3).
+ * How the last copy to the target of [r]'s folder went, for Ajustes: only when [r] went to a folder that is still a
+ * target (removed or changed meanwhile, that copy says nothing about the current one). [generation] is the vault's
+ * ([app.seguridad.vault.VaultStore.generation]) when this is recorded: a result of a vault that was replaced since
+ * ([AutoBackupResult.generation] differs) keeps neither its list nor its «replaced», so the forgotten list of the replaced
+ * vault is never written back (CADENAS-3).
  */
-fun VaultSettings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null): VaultSettings {
+fun VaultSettings.withAutoBackupResult(r: AutoBackupResult, generation: Long? = null): VaultSettings = withTarget(r.folder) { it.withResult(r, generation) }
+
+/** [VaultSettings.withAutoBackupResult] for this target, whatever [AutoBackupResult.folder] says (the caller routed it). */
+fun BackupTargetSettings.withResult(r: AutoBackupResult, generation: Long? = null): BackupTargetSettings {
     val stale = r.generation != null && generation != null && r.generation != generation
     return recording(if (stale) r.copy(copies = null, replaced = false, replaceTargets = null, importCopies = null) else r)
 }
 
-private fun VaultSettings.recording(r: AutoBackupResult): VaultSettings = when {
-    autoBackupUri != r.folder -> this
+private fun BackupTargetSettings.recording(r: AutoBackupResult): BackupTargetSettings = when {
     // Asked while the vault was locked: the request, its targets (M4) and nothing told yet; what Ajustes shows about the
-    // last copy does not change.
-    // 1.4.0: the import copies of this folder were made under the master password of before too, so they are targets.
+    // last copy does not change. 1.4.0: the import copies of this folder were made under the master password of before
+    // too, so they are targets.
     r.replaceRequested ->
-        copy(
-            autoBackupReplacePending = true,
-            autoBackupReplaceTargets = r.replaceTargets?.let { (it + importCopiesIn(r.folder)).distinct() },
-            autoBackupReplaceTold = emptyList(),
-        )
+        copy(replacePending = true, replaceTargets = r.replaceTargets?.let { (it + importCopies).distinct() }, replaceTold = emptyList())
     r.writtenAt != null && r.copies != null ->
-        copy(
-            lastAutoBackupError = r.error,
-            lastAutoBackupAt = r.writtenAt,
-            autoBackupCopies = r.copies,
-            autoBackupCopiesFolder = r.folder,
-        ).withImportCopiesLeft(r).replaceAfter(r)
-    r.writtenAt != null -> copy(lastAutoBackupError = r.error, lastAutoBackupAt = r.writtenAt).replaceAfter(r)
-    else -> copy(lastAutoBackupError = r.error).replaceAfter(r)
+        copy(lastError = r.error, lastAt = r.writtenAt, copies = r.copies).withImportCopiesLeft(r).replaceAfter(r)
+    r.writtenAt != null -> copy(lastError = r.error, lastAt = r.writtenAt).replaceAfter(r)
+    else -> copy(lastError = r.error).replaceAfter(r)
 }
 
-/** [VaultSettings.importCopies] in [folder]; none if the list is of another folder. */
-private fun VaultSettings.importCopiesIn(folder: String): List<String> = if (importCopiesFolder == folder) importCopies else emptyList()
-
 /** The import copies [r] found still listed and in its folder (a replacement deleted the others, or they are gone). */
-private fun VaultSettings.withImportCopiesLeft(r: AutoBackupResult): VaultSettings =
-    if (r.importCopies != null && importCopiesFolder == r.folder) copy(importCopies = r.importCopies) else this
+private fun BackupTargetSettings.withImportCopiesLeft(r: AutoBackupResult): BackupTargetSettings =
+    if (r.importCopies != null) copy(importCopies = r.importCopies) else this
 
 /**
  * The pending request after [r]: done when [r] replaced the old copies (CR-1: AutoBackup says so only when every target
  * and leftover temporary copy went); otherwise kept, with the targets left (M4) and the failure it told added (M2).
  */
-private fun VaultSettings.replaceAfter(r: AutoBackupResult): VaultSettings {
-    if (!autoBackupReplacePending) return this
+private fun BackupTargetSettings.replaceAfter(r: AutoBackupResult): BackupTargetSettings {
+    if (!replacePending) return this
     if (r.replaced) return withoutReplaceRequest()
-    val told = if (r.newRequest) emptyList() else autoBackupReplaceTold
+    val told = if (r.newRequest) emptyList() else replaceTold
     return copy(
-        autoBackupReplaceTargets = r.replaceTargets ?: autoBackupReplaceTargets,
-        autoBackupReplaceTold = if (r.toldKey != null && r.toldKey !in told) told + r.toldKey else told,
+        replaceTargets = r.replaceTargets ?: replaceTargets,
+        replaceTold = if (r.toldKey != null && r.toldKey !in told) told + r.toldKey else told,
     )
 }
 

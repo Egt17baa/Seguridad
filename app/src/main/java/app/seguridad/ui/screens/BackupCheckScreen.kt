@@ -47,6 +47,7 @@ import app.seguridad.vault.BACKUP_CHECK_CANCEL
 import app.seguridad.vault.BACKUP_CHECK_DIR
 import app.seguridad.vault.BACKUP_CHECK_HAS_PROBLEMS
 import app.seguridad.vault.BACKUP_CHECK_INTRO
+import app.seguridad.vault.BACKUP_CHECK_NOT_COUNTED
 import app.seguridad.vault.BACKUP_CHECK_NOT_PROVEN
 import app.seguridad.vault.BACKUP_CHECK_NOT_PROVEN_TITLE
 import app.seguridad.vault.BACKUP_CHECK_NOT_SGBAK
@@ -96,7 +97,9 @@ import kotlinx.coroutines.withContext
  * It changes neither the vault nor a copy, nor any setting the user chose. Choosing the file is as in «Importar copia»:
  * the picker keeps the vault open ([VaultLock.keepOpenOnce]) and `store.touch()` restarts its idle count in memory and
  * may raise the A11 clock mark (`VaultSettings.clockHighWaterMs`, of each vault, saved to disk only when it rises far enough, never
- * lowered), as every use of the app does. That is all the screen does to the store.
+ * lowered), as every use of the app does. 2.0, task 8: a copy of the open vault checked without problems also keeps the
+ * date of the check in the vault ([VaultStore.recordBackupChecked], a bookkeeping save: no version, no automatic copy).
+ * That is all the screen does to the store.
  */
 private class BackupCheckViewModel(
     private val appContext: Context,
@@ -107,7 +110,10 @@ private class BackupCheckViewModel(
     val session: BackupCheckSession = BackupCheckSession(ComposeCells, SystemClock.elapsedRealtime()) { stopAll() }
 
     /** Declared after [session], whose wipe calls it: a wipe only comes once both exist. */
-    private val runs: BackupCheckRuns = BackupCheckRuns(session, viewModelScope) { store.lockEpoch }
+    private val runs: BackupCheckRuns = BackupCheckRuns(session, viewModelScope, lockEpoch = { store.lockEpoch }) { report, since ->
+        // 2.0, task 8: the date of the check, in the open vault, only for a copy of it (compared in the store, under its lock).
+        store.recordBackupChecked(report.vaultTag, since)
+    }
 
     /** Reading the chosen file's name and first bytes. */
     private var pickJob: Job? = null
@@ -242,6 +248,8 @@ fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
         }
         s.error?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         s.report?.let { Report(it) }
+        // O-5 of the Abogado Digital: a copy that does not count for «Tu última copia comprobada» says why.
+        if (s.report?.problems?.isEmpty() == true && s.counted == false) Text(BACKUP_CHECK_NOT_COUNTED, color = MaterialTheme.colorScheme.onSurfaceVariant)
         // What it does not protect stays on view (O-4 of the Abogado, 1.4.2).
         Text(BACKUP_CHECK_NOT_PROVEN_SHORT, color = CautionColor)
         // 1.4.2 (texto mínimo): the short line, and the explanations and every case of the note folded.

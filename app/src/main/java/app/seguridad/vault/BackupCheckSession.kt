@@ -38,6 +38,14 @@ class BackupCheckSession(
     private val busyCell = cells.cell(false)
     var busy: Boolean by busyCell
 
+    /**
+     * 2.0, task 8: whether the last report counted as this vault's last copy checked ([BackupCheckRuns]'s record: a copy of
+     * the open vault, without problems); false for one of another vault or made before 2.0, which the screen says (O-5 of
+     * the Abogado Digital); null with no report.
+     */
+    private val countedCell = cells.cell<Boolean?>(null)
+    var counted: Boolean? by countedCell
+
     override fun forget() {
         onWipe() // the screen stops the check going on, so its result is not shown
         password = ""
@@ -45,6 +53,7 @@ class BackupCheckSession(
         fileName = null
         report = null
         error = null
+        counted = null
         busy = false
     }
 }
@@ -58,11 +67,16 @@ class BackupCheckSession(
  * arrives later is dropped. A run stopped during its Argon2id still ends that derivation (it cannot be cut), and the
  * next run's derivation waits for it ([checkBackup] takes one derivation at a time in the process, whatever this class
  * does). The run's temporary folder is [checkBackup]'s own, deleted however it ends.
+ *
+ * 2.0, task 8: a report without problems is handed to [record] with the [lockEpoch] read when the run started, and what it
+ * says goes to [BackupCheckSession.counted]: the app keeps the date of the check in the open vault only for a copy of that
+ * vault (its tag, read from the very data checked), and never after a lock since the run started.
  */
 class BackupCheckRuns(
     private val session: BackupCheckSession,
     private val scope: CoroutineScope,
     private val lockEpoch: () -> Int = { 0 },
+    private val record: suspend (report: BackupCheckReport, sinceLock: Int) -> Boolean = { _, _ -> false },
 ) {
     private var job: Job? = null
     private var runId = 0L
@@ -88,11 +102,23 @@ class BackupCheckRuns(
         master = password
         session.report = null
         session.error = null
+        session.counted = null
         session.busy = true
         job = scope.launch {
             try {
                 val report = op(password)
-                if (current(mine, epoch)) session.report = report
+                // Only a copy without problems counts as checked; a failure to save it only means it does not count.
+                val counted = report.problems.isEmpty() && current(mine, epoch) && try {
+                    record(report, epoch)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    false
+                }
+                if (current(mine, epoch)) {
+                    session.report = report
+                    session.counted = counted
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: CryptoFailure) {

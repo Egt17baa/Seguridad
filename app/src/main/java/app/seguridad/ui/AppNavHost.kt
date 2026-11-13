@@ -86,6 +86,10 @@ import app.seguridad.ui.screens.VaultIdleTicker
 import app.seguridad.ui.screens.LocalVaultSwitcher
 import app.seguridad.ui.screens.VaultPickerScreen
 import app.seguridad.ui.screens.VaultSwitcher
+import app.seguridad.settings.firstBackupError
+import app.seguridad.settings.oldestBackupAt
+import app.seguridad.settings.replacePending
+import app.seguridad.settings.replaceToldAny
 import app.seguridad.settings.vault
 import app.seguridad.vault.VaultStore
 import androidx.compose.runtime.key
@@ -213,7 +217,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     // the outcome that was on screen (T11-d): one that arrived meanwhile is shown next.
     val replaceOutcome by container.autoBackup.replaceOutcome.collectAsStateWithLifecycle()
     replaceOutcome?.let { shown ->
-        ReplaceOutcomeDialog(shown.error ?: replacedText(shown.unlistedLeft), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
+        ReplaceOutcomeDialog(shown.error ?: replacedText(shown.unlistedLeft, vaultSettings.targets.size), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
     }
     // The notice of the new name, once, to those who updated (owner's decision, 31-10-2026). Never at the vault's gate,
     // where it would cover the password field or sit under the fingerprint prompt: only while the vault is open, or when
@@ -248,12 +252,14 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     if (masterState.open) {
         MasterChangedDialog(
             state = masterState,
-            autoBackupOn = vaultSettings.autoBackupUri != null,
+            // 2.0, task 8: of every target (the replacement is done when it is done in all).
+            autoBackupOn = vaultSettings.targets.isNotEmpty(),
+            folders = vaultSettings.targets.size,
             replacing = replacing,
-            pending = vaultSettings.autoBackupReplacePending,
-            lastError = vaultSettings.lastAutoBackupError,
-            lastBackupAt = vaultSettings.lastAutoBackupAt,
-            toldSinceRequest = vaultSettings.autoBackupReplaceTold.isNotEmpty(),
+            pending = vaultSettings.replacePending,
+            lastError = vaultSettings.firstBackupError,
+            lastBackupAt = vaultSettings.oldestBackupAt,
+            toldSinceRequest = vaultSettings.replaceToldAny,
             onReplace = { masterChanged.replace() },
             onRenew = {
                 masterChanged.close()
@@ -289,7 +295,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
             },
         ) { padding ->
             NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
-                composable("vault") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = false, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
+                composable("vault") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = false, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash, autoBackup = container.autoBackup) }
                 composable("codes") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = true, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
                 // 2.0, task 3: the trash and the versions of an entry (the id encoded, LIBRE-1).
                 composable("vault/trash") { TrashScreen(vault, onBack = backOnce(nav)) }

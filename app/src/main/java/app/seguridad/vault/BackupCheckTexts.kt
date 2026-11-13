@@ -81,3 +81,15 @@ const val BACKUP_CHECK_NEVER = "Aún no has comprobado ninguna copia."
 
 /** 2.0, task 8: [backupCheckNotice] once [days] (30 or more) have passed since the last check. */
 fun backupCheckDaysAgo(days: Long) = "Tu última copia comprobada es de hace $days días."
+
+/**
+ * 2.0, task 8 (O-5 of the Abogado Digital): after a check without problems of a copy that does not count as this vault's
+ * last copy checked.
+ */
+const val BACKUP_CHECK_NOT_COUNTED =
+    "Esta comprobación no cuenta como la última copia comprobada: la copia es de otra bóveda o de antes de la 2.0."
+
+/** 2.0, task 8 (O-5): under «Más información», next to [backupCheckNotice] in Ajustes. */
+const val BACKUP_CHECK_NOTICE_MORE =
+    "Cuenta desde el día en que comprobaste con «Comprobar una copia» una copia de esta bóveda, no desde el día en que se " +
+        "hizo la copia. Las copias de antes de la 2.0 y las de otra bóveda no cuentan."

@@ -16,8 +16,8 @@ import app.seguridad.settings.AppearanceNotice
 import app.seguridad.settings.RenameNotice
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.clockMarkWorthWriting
-import app.seguridad.settings.currentAutoBackupCopies
-import app.seguridad.settings.currentImportCopies
+import app.seguridad.settings.backupFolders
+import app.seguridad.settings.listedCopies
 import app.seguridad.settings.resettingClock
 import app.seguridad.settings.seeingClock
 import app.seguridad.settings.vault
@@ -393,7 +393,7 @@ class AppContainer(
             inForeground = { foreground },
             // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
             // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
-            beforeCreate = { settings.turnOffAutoBackupForNewVault(id)?.let { releaseIfUnused(it) } },
+            beforeCreate = { settings.turnOffAutoBackupForNewVault(id).forEach { releaseIfUnused(it) } },
             // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted. Written
             // before the vault is saved, and put back if that fails (COPIAS-3); a copy still being written of the replaced
             // vault is told apart by the vault's generation (CADENAS-3, see [recordAutoBackup]).
@@ -413,21 +413,17 @@ class AppContainer(
             active = { activeId == id },
         )
 
-        /** Encrypted copies of this vault to the folder chosen for it in Ajustes, a few seconds after each change. */
+        /**
+         * Encrypted copies of this vault to the folders chosen for it in Ajustes (2.0, task 8: up to 3 targets, each with
+         * its calendar), a few seconds after each change or when the calendar says so.
+         */
         val autoBackup: AutoBackup = AutoBackup(
             store,
-            folder = { settings.settings.value.vault(id).autoBackupUri },
+            targets = { settings.settings.value.vault(id).targets },
             open = backupFolder,
             scope,
             now = System::currentTimeMillis,
-            keep = { settings.settings.value.vault(id).autoBackupKeep },
-            lastCopyAt = { settings.settings.value.vault(id).lastAutoBackupAt },
-            copies = { settings.settings.value.vault(id).currentAutoBackupCopies },
-            replacePending = { settings.settings.value.vault(id).autoBackupReplacePending },
-            replaceTargets = { settings.settings.value.vault(id).autoBackupReplaceTargets },
-            replaceTold = { settings.settings.value.vault(id).autoBackupReplaceTold },
             onResult = { recordAutoBackup(id, store, it) },
-            importCopies = { settings.settings.value.vault(id).currentImportCopies },
             onImportCopy = { folder, copy, generation -> recordImportCopy(id, store, folder, copy, generation) },
         )
 
@@ -465,6 +461,16 @@ class AppContainer(
 
     /** The automatic copies of [vault]. */
     val autoBackup: AutoBackup get() = slot(_activeVault.value.id).autoBackup // Review M-3: always [vault]'s.
+
+    /**
+     * 2.0, task 8: the app came to the foreground (MainActivity.onStart): the active vault's copies that are due by their
+     * calendar ([AutoBackup.runDue]), off the main thread; with the vault locked they wait for its unlock, which runs
+     * them too. No background work: if the app is not opened, there is no copy (Ajustes says so).
+     */
+    fun appOpened() {
+        val backup = autoBackup
+        appScope.launch { backup.runDue(System.currentTimeMillis()) }
+    }
 
     /** 2.0, task 3: «Deshacer» of the active vault's trash; another vault's (after a switch) has nothing to undo. */
     val undoTrash: UndoTrash get() = slot(_activeVault.value.id).undoTrash
@@ -654,13 +660,13 @@ class AppContainer(
             } catch (e: Exception) {
                 // A key left in the Keystore wraps the data key of a vault that is gone: it opens nothing.
             }
-            val folder = settings.settings.value.vault(id).autoBackupUri
+            val folders = settings.settings.value.vault(id).backupFolders
             try {
                 settings.update { it.withoutVault(id) }
             } catch (e: Exception) {
                 // Settings of a vault that is gone: never read again (a new vault never gets the same id).
             }
-            folder?.let { releaseIfUnused(it) }
+            folders.forEach { releaseIfUnused(it) }
         }
         VaultDeletion.DELETED
     }
@@ -728,11 +734,11 @@ class AppContainer(
     }
 
     /**
-     * Gives back the permission of the copies' folder [uri] (it was turned off for a vault, or the vault was deleted),
-     * unless another vault still has its copies there.
+     * Gives back the permission of the copies' folder [uri] (a target was removed or changed, or the vault was deleted),
+     * unless a target of any vault still has its copies there.
      */
     fun releaseIfUnused(uri: String) {
-        if (settings.settings.value.perVault.values.none { it.autoBackupUri == uri }) releaseFolder(uri)
+        if (settings.settings.value.perVault.values.none { v -> v.targets.any { it.uri == uri } }) releaseFolder(uri)
     }
 
     /** The vault whose master password changed last ([onMasterChanged]): its dialog replaces its copies, never another's. */
@@ -748,7 +754,8 @@ class AppContainer(
         replace = { targets -> (masterChangedSlot ?: slot(activeId)).autoBackup.replaceOldCopies(targets) },
         now = System::currentTimeMillis,
         // 1.4.0: the import copies too, as they are under the password of before (AutoBackup.copyBeforeImport).
-        oldCopies = { settings.settings.value.vault((masterChangedSlot ?: slot(activeId)).id).let { it.currentAutoBackupCopies + it.currentImportCopies } },
+        // 2.0, task 8: those of every target; each target only deletes the ids on its own lists.
+        oldCopies = { settings.settings.value.vault((masterChangedSlot ?: slot(activeId)).id).listedCopies },
     )
 
     /** The screen that changed the master password of the active vault says so ([MasterChanged.changed]). */

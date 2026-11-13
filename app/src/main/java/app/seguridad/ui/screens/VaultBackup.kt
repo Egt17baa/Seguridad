@@ -1,5 +1,9 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.backupCheckNotice
+import app.seguridad.vault.BACKUP_CHECK_NOTICE_MORE
+import app.seguridad.ui.theme.CautionColor
+import androidx.compose.material3.MaterialTheme
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -253,4 +257,18 @@ internal fun PasswordDialog(
         confirmButton = { TextButton(enabled = ok, onClick = { onConfirm(a.toCharArray()) }) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
+}
+
+/**
+ * 2.0, task 8 (design «Copias»): the line «Tu última copia comprobada es de hace N días.», or that none was checked yet, once
+ * 30 days have passed since «Comprobar una copia» checked a copy of this vault ([backupCheckNotice]); nothing before. In
+ * Ajustes with [explain] (what the date counts, O-5 of the Abogado Digital, under «Más información»); one line in the vault.
+ */
+@Composable
+fun BackupCheckNoticeLine(lastCheckedBackupAt: Long, explain: Boolean = true, modifier: Modifier = Modifier) {
+    val text = remember(lastCheckedBackupAt) { backupCheckNotice(lastCheckedBackupAt, System.currentTimeMillis()) } ?: return
+    Column(modifier) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = CautionColor)
+        if (explain) MoreInfo { Hint(BACKUP_CHECK_NOTICE_MORE) }
+    }
 }

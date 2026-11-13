@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.AutoBackup
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -143,6 +144,8 @@ fun VaultScreen(
     onHealth: () -> Unit,
     onImportOther: () -> Unit,
     onTrash: () -> Unit,
+    /** 2.0, task 8: the vault's automatic copies, to say what the calendar copied ([AutoBackup.scheduledNotice]); none in «Códigos». */
+    autoBackup: AutoBackup? = null,
 ) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
@@ -277,10 +280,25 @@ fun VaultScreen(
             // content, which a lock cancels with it, so none still waiting comes up over «Bóveda bloqueada».
             val vaultScope = rememberCoroutineScope()
             val message: (String) -> Unit = { text -> vaultScope.launch { snackbar.showSnackbar(text) } }
-            EntryList(
-                store, undo, twoStep, totpOnly, list, onOpen, onEdit, newEntry,
-                onImport = actions.import, onImportOther = onImportOther, onMessage = message,
-            )
+            // 2.0, task 8: one line once 30 days have passed since a copy of this vault was checked (not in «Códigos»).
+            val checkedAt = (state as? VaultState.Unlocked)?.data?.lastCheckedBackupAt
+            Column(Modifier.fillMaxSize()) {
+                if (!totpOnly && checkedAt != null) BackupCheckNoticeLine(checkedAt, explain = false, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                Box(Modifier.weight(1f)) {
+                    EntryList(
+                        store, undo, twoStep, totpOnly, list, onOpen, onEdit, newEntry,
+                        onImport = actions.import, onImportOther = onImportOther, onMessage = message,
+                    )
+                }
+            }
+            // 2.0, task 8: what the calendar copied, said once; AutoBackup drops it at every lock, and this scope dies with one.
+            val scheduled = autoBackup?.scheduledNotice?.collectAsStateWithLifecycle()?.value
+            if (scheduled != null) {
+                LaunchedEffect(scheduled) {
+                    autoBackup.scheduledShown(scheduled)
+                    snackbar.showSnackbar(scheduled)
+                }
+            }
             // 2.0, task 6: back in the app after «Copiar usuario», «Copiar contraseña» for what is left of its 30 s.
             PasswordOfferOnReturn(store, twoStep, snackbar) { e -> copyOfferedPassword(context, vaultScope, store, twoStep, e, message) }
         }

@@ -58,6 +58,8 @@ class MainActivity : FragmentActivity() {
         // After lockIfIdle: a lock for the time spent away is left to each screen's own rule for time away, as leaving is.
         container.foreground = true
         VaultLock.keepOpenOnce = false
+        // 2.0, task 8: «Las copias con calendario se hacen al abrir la app».
+        container.appOpened()
         // Back from sharing an image: the copy goes once 10 minutes have passed. Off the main thread, so a share being
         // prepared at the same time (a write of up to 50 MB, under the same lock) never holds up the activity.
         container.appScope.launch(Dispatchers.IO) { container.shareTemp.onReturn() }

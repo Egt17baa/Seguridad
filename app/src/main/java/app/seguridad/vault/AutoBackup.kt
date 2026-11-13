@@ -36,6 +36,8 @@ import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.OutputStream
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -152,24 +154,48 @@ const val AUTO_BACKUP_REPLACED =
         "contraseña: las que la app tenía apuntadas en esta carpeta. " +
         "Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
 
-/** COPIAS-2: added to [AUTO_BACKUP_REPLACED] when [n] files with a copy's name, not on the app's list, are left in the folder. */
-fun autoBackupUnlistedText(n: Int): String = if (n == 1) {
-    "En la carpeta queda 1 copia con nombre de copia de la app (automática o de antes de importar) que la app no tenía " +
-        "apuntada (por ejemplo, de antes de " +
-        "la versión 1.2.1 o de otra bóveda): no se ha borrado y puede que se abra con una contraseña anterior. Si no la " +
-        "necesitas, bórrala a mano."
-} else {
-    "En la carpeta quedan $n copias con nombre de copia de la app (automática o de antes de importar) que la app no " +
-        "tenía apuntadas (por ejemplo, de antes " +
-        "de la versión 1.2.1 o de otra bóveda): no se han borrado y puede que se abran con una contraseña anterior. Si no " +
-        "las necesitas, bórralas a mano."
+/**
+ * 2.0, task 8: [AUTO_BACKUP_REPLACED] when the vault has several folders for its copies: each one deleted only the copies
+ * it had listed.
+ */
+const val AUTO_BACKUP_REPLACED_SEVERAL =
+    "Se hizo una copia nueva en cada carpeta y se borraron las copias automáticas y las de antes de importar hechas antes " +
+        "del cambio de contraseña: las que la app tenía apuntadas en cada carpeta. " +
+        "Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
+
+/**
+ * COPIAS-2: added to [AUTO_BACKUP_REPLACED] when [n] files with a copy's name, not on the app's list, are left in the folder
+ * ([severalFolders]: in the folders, 2.0, task 8).
+ */
+fun autoBackupUnlistedText(n: Int, severalFolders: Boolean = false): String {
+    val where = if (severalFolders) "En las carpetas" else "En la carpeta"
+    return if (n == 1) {
+        "$where queda 1 copia con nombre de copia de la app (automática o de antes de importar) que la app no tenía " +
+            "apuntada (por ejemplo, de antes de " +
+            "la versión 1.2.1 o de otra bóveda): no se ha borrado y puede que se abra con una contraseña anterior. Si no la " +
+            "necesitas, bórrala a mano."
+    } else {
+        "$where quedan $n copias con nombre de copia de la app (automática o de antes de importar) que la app no " +
+            "tenía apuntadas (por ejemplo, de antes " +
+            "de la versión 1.2.1 o de otra bóveda): no se han borrado y puede que se abran con una contraseña anterior. Si no " +
+            "las necesitas, bórralas a mano."
+    }
 }
 
-/** What a replacement that went well says ([AutoBackupResult.unlistedLeft]: 0 when unknown, as after a re-creation). */
-fun replacedText(unlistedLeft: Int): String =
-    if (unlistedLeft > 0) AUTO_BACKUP_REPLACED + " " + autoBackupUnlistedText(unlistedLeft) else AUTO_BACKUP_REPLACED
+/**
+ * What a replacement that went well says ([AutoBackupResult.unlistedLeft]: 0 when unknown, as after a re-creation), for a
+ * vault whose copies go to [folders] folders (2.0, task 8).
+ */
+fun replacedText(unlistedLeft: Int, folders: Int = 1): String {
+    val several = folders > 1
+    val done = if (several) AUTO_BACKUP_REPLACED_SEVERAL else AUTO_BACKUP_REPLACED
+    return if (unlistedLeft > 0) done + " " + autoBackupUnlistedText(unlistedLeft, several) else done
+}
 
 const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda con la contraseña nueva."
+
+/** 2.0, task 8: what [AutoBackup.runDue] says after [n] copies made by the calendar. */
+fun scheduledCopiesText(n: Int): String = if (n == 1) "Se hizo la copia con calendario." else "Se hicieron $n copias con calendario."
 
 /**
  * How a copy went: [folder] is the one it was made for (as [AutoBackup]'s folder gave it), [writtenAt] when the copy
@@ -228,91 +254,73 @@ sealed interface CopyResult {
 }
 
 /**
- * Writes a `seguridad-backup` copy ([VaultStore.exportBackup], still encrypted with the master password) to the
- * folder [target] gives, [AUTO_BACKUP_DEBOUNCE_MS] after the last change saved ([VaultStore.revision]) or after
- * [request], as `seguridad-auto-AAAAMMDD-HHMMSS.sgbak`, keeping the newest [keep] copies (3, 5 or 10; anything
- * else counts as 5). It is first written under a `.tmp` name and only renamed once complete, so the folder never
- * holds a cut copy with the real name. A provider that cannot rename gets it written straight under the real name
- * (deleted if that fails), the only way to have a copy there at all. A name already in the folder is never reused (the next free second is), so
- * no complete copy is deleted to make room. It only ever deletes the copies it made itself ([copies], by id, never by
- * name alone) and temporary files with exactly its names, never the copy just written, and only after a copy was
- * written and checked.
+ * Writes `seguridad-backup` copies ([VaultStore.exportBackup], still encrypted with the master password) of one vault to
+ * its targets (2.0, task 8: up to [VaultLimits.BACKUP_TARGETS_MAX] folders, [targets], read again before each copy), as
+ * `seguridad-auto-AAAAMMDD-HHMMSS.sgbak`, each keeping its newest [BackupTargetSettings.keep] copies (3, 5 or 10;
+ * anything else counts as 5). Copies are made one at a time ([lock]), in the order of the targets, in [scope] (off the
+ * main thread), never two at once:
+ * - a [BackupSchedule.ON_CHANGE] target gets one [AUTO_BACKUP_DEBOUNCE_MS] after the last change saved
+ *   ([VaultStore.revision]), and at the unlock when one was missed ([VaultStore.lastChangeSavedAt] newer than its
+ *   [BackupTargetSettings.lastAt]), as 1.x did;
+ * - a target with a calendar gets one only from [runDue], when [due] says so: at the unlock and when the app is opened
+ *   (no background work, no WorkManager, no permission);
+ * - any target gets one after [request] (a folder just chosen, «Hacer una copia ahora»), and at the unlock if one waited
+ *   for it, or for its A6 request.
  *
- * Copies are only made from an open vault, where [VaultStore.exportBackup] checks every attachment against its
- * SHA-256: a copy due while the vault is locked waits, and is made as soon as the vault is opened again. So that
- * this survives the app being closed meanwhile, opening the vault also makes a copy when the last change saved
- * ([VaultStore.lastChangeSavedAt]) is newer than the last copy ([lastCopyAt]), or there is none yet.
+ * Each copy is first written under a `.tmp` name and only renamed once complete, so a folder never holds a cut copy with
+ * the real name. A provider that cannot rename gets it written straight under the real name (deleted if that fails), the
+ * only way to have a copy there at all. A name already in the folder is never reused (the next free second is), so no
+ * complete copy is deleted to make room. A target only ever deletes the copies it made itself (its own
+ * [BackupTargetSettings.copies], by id, never by name alone) and temporary files with exactly this class's names, never
+ * the copy just written, and only after a copy was written and checked.
  *
- * [replaceOldCopies] makes a copy now and then deletes the old copies (after a change of master password, whose old
- * copies still open with the old one): the new copy first, so that a failure never leaves the folder with none. Like
- * the others it only deletes by id, from the [copies] list. It runs in this class's [scope], so the caller leaving (a
- * rotation) cannot cut it between the deletions and [onResult]. Asked while the vault is locked, the request is handed
- * to [onResult] ([AutoBackupResult.replaceRequested]) to be saved ([replacePending]) with the ids of the copies listed
- * at that moment, its targets ([AutoBackupResult.replaceTargets], M4): the copies made before the change. The first
- * copy after the next unlock, even after a restart, deletes those targets, and the copies made after the request (under
- * the new password) follow the normal rotation of [keep]. A settings file saved before 1.3.0 has a request without
- * targets: that first attempt deletes every listed copy but the new one, as before, and what it could not delete
- * becomes the targets.
+ * Copies are only made from an open vault, where [VaultStore.exportBackup] checks every attachment against its SHA-256:
+ * a copy due while the vault is locked waits, and is made as soon as the vault is opened again. A lock in the middle
+ * stops the copies that follow (they wait for the unlock). This object is of one vault (AppContainer keeps one per
+ * vault, with its own store): it never writes another vault's copy, and a copy whose vault was replaced while it was
+ * written (an import, a new vault, [VaultStore.generation]) is left in its folder unlisted.
  *
- * The request is done ([AutoBackupResult.replaced], which clears it) only when every target and every leftover
- * temporary copy is gone (CR-1, M3): a temporary copy whose rename and discard failed may be a complete copy under the
- * old password. Any failure keeps it (no copy written, the rotation failing, a target or a temporary copy that could not
- * be deleted), so the next copy tries again, still only by id from the list and only while the vault is the one of the
- * list ([VaultStore.generation]); an import or a new vault forgets the list and the request with it.
- *
- * How it went is kept in [replaceOutcome] until the user has been told ([replaceOutcomeShown]). Each different failure
- * is told once per request, and the ones already told are saved with the request ([replaceTold],
- * [AutoBackupResult.toldKey]), so neither failures that alternate nor a restart open the dialog again (M2); the success
- * is told once, and ends the request.
- *
- * A copy whose vault was replaced while it was written (an import, a new vault, [VaultStore.generation]) is left in the
- * folder unlisted: never rotated, never deleted by A6, and the list the import forgot is never written back.
+ * [replaceOldCopies] makes a copy now in each target and then deletes the old copies (after a change of master password,
+ * whose old copies still open with the old one, A6): the new copy first, so that a failure never leaves the folder with
+ * none, by id from the target's own lists only. Asked while the vault is locked, each target's request is handed to
+ * [onResult] ([AutoBackupResult.replaceRequested]) to be saved with the ids listed at that moment, its targets (M4); the
+ * first copy of that target after the next unlock, even after a restart, whatever its calendar, deletes them. The request
+ * is done ([AutoBackupResult.replaced], which clears it) only when every target and every leftover temporary copy is gone
+ * (CR-1, M3). How a replacement that ran by itself went is kept in [replaceOutcome] until the user has been told
+ * ([replaceOutcomeShown]); each different failure is told once per request (M2).
  *
  * Nothing here can close the app or touch the vault: every outcome goes to [onResult], failures as a fixed Spanish
- * message. With no folder ([folder] null, or [open] null) or no vault nothing happens.
+ * message (never a path, a URI or what an exception said), with [AutoBackupResult.folder] the target it was for. With no
+ * target, none usable, or no vault, nothing happens.
  */
 @OptIn(FlowPreview::class)
 class AutoBackup(
     private val store: VaultStore,
-    /** The folder chosen for the copies (on Android, a SAF tree URI); null when they are off. */
-    private val folder: () -> String?,
-    /** That folder, to write to; null if it cannot be used. */
+    /** The vault's targets as they are saved now, in their order; read again before each copy. */
+    private val targets: () -> List<BackupTargetSettings>,
+    /** A target's folder, to write to; null if it cannot be used. */
     private val open: (String) -> BackupTarget?,
     private val scope: CoroutineScope,
     private val now: () -> Long,
-    private val keep: () -> Int,
-    /** When the last copy to the chosen folder was taken (epoch ms); null if none yet. */
-    private val lastCopyAt: () -> Long?,
-    /** The ids of the copies this class made in the chosen folder, oldest first, as [AutoBackupResult.copies] last gave them. */
-    private val copies: () -> List<String>,
-    /** Whether the replacement of the old copies was asked for and is not done yet (saved with the settings). */
-    private val replacePending: () -> Boolean,
-    /**
-     * The ids that replacement still has to delete ([AutoBackupResult.replaceTargets], saved with the settings); null for
-     * a request saved before 1.3.0, which then deletes every listed copy but the new one, once.
-     */
-    private val replaceTargets: () -> List<String>?,
-    /** The failures already told for the request now pending ([AutoBackupResult.toldKey], saved with the settings). */
-    private val replaceTold: () -> List<String>,
     /** Keeps the result before the next copy starts (it holds [AutoBackupResult.copies]); must not throw. */
     private val onResult: suspend (AutoBackupResult) -> Unit,
     private val zone: ZoneId = ZoneId.systemDefault(),
     /**
-     * 1.4.0: the ids of the import copies made in the chosen folder ([copyBeforeImport]; Settings.currentImportCopies),
-     * oldest first. Never rotated: only a replacement after a change of master password (A6) deletes them, by id, when
-     * they are among its targets.
-     */
-    private val importCopies: () -> List<String> = { emptyList() },
-    /**
-     * Keeps the id of an import copy just written to [folder], made from the vault of [generation] (VaultStore.generation
-     * when it started); must not throw. Waited for before the next copy, as [onResult].
+     * Keeps the id of an import copy (or of before 2.0) just written to the target [folder], made from the vault of
+     * [generation] (VaultStore.generation when it started); must not throw. Waited for before the next copy, as [onResult].
      */
     private val onImportCopy: suspend (folder: String, id: String, generation: Long) -> Unit = { _, _, _ -> },
 ) {
     private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
-    /** A copy was due while the vault was locked: it is made when the vault is next open. */
-    @Volatile private var pending = false
+    /** A change was saved since the last debounced run: the [BackupSchedule.ON_CHANGE] targets get a copy. */
+    private val changed = AtomicBoolean(false)
+
+    /** The targets [request] asked a copy for, made at the next debounced run. */
+    private val asked: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** The targets whose copy was due while the vault was locked: made when the vault is next open. */
+    private val pending: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private val _replacing = MutableStateFlow(false)
 
@@ -323,7 +331,8 @@ class AutoBackup(
 
     /**
      * How a replacement that ran by itself (it was asked for while locked) went, until [replaceOutcomeShown]: it lives with
-     * this object, not with a screen, so an activity re-created meanwhile still shows it, and once shown it is gone.
+     * this object, not with a screen, so an activity re-created meanwhile still shows it, and once shown it is gone. With
+     * several targets, one outcome for all: «replaced» only when every target that tried replaced its old copies.
      */
     val replaceOutcome: StateFlow<AutoBackupResult?> = outcome.value
 
@@ -335,104 +344,211 @@ class AutoBackup(
         outcome.shown(shown)
     }
 
-    /** One copy at a time: the collector's and [replaceOldCopies]'s never overlap. */
+    private val scheduled = Notice<String>()
+
+    /**
+     * 2.0, task 8 (design «Copias»: «se hace la copia y se dice»): what [runDue] did by the calendar
+     * ([scheduledCopiesText]), until shown ([scheduledShown]). Dropped at every lock, so it is never shown after one.
+     */
+    val scheduledNotice: StateFlow<String?> = scheduled.value
+
+    fun scheduledShown(shown: String) = scheduled.shown(shown)
+
+    /** One copy at a time: the collector's, [runDue]'s, [replaceOldCopies]'s and the copies before importing never overlap. */
     private val lock = Mutex()
 
     init {
         scope.launch {
             // drop(1): the revision the store starts with is not a change.
-            val due = merge(store.revision.drop(1).map { }, requests).debounce(AUTO_BACKUP_DEBOUNCE_MS).map { true }
+            val changes = store.revision.drop(1).map { changed.set(true) }
+            val due = merge(changes, requests).debounce(AUTO_BACKUP_DEBOUNCE_MS).map { true }
             // Each time the vault is opened (not each change saved while it is open: those wait for the debounce).
             val opened = store.state.map { it is VaultState.Unlocked }.distinctUntilChanged().filter { it }.map { false }
-            // One collector: copies never overlap. An opened vault only copies if one is waiting or was missed.
-            merge(due, opened).collect { isDue -> if (isDue || pending || replacePending() || missed()) runOnce() }
+            // One collector: copies never overlap.
+            merge(due, opened).collect { isDue -> if (isDue) runChanged() else runDue(now()) }
+        }
+        scope.launch {
+            // A lock drops what the calendar's copies said: never shown after it.
+            store.state.map { it is VaultState.Unlocked }.distinctUntilChanged().filter { !it }.collect {
+                scheduled.value.value?.let(scheduled::shown)
+            }
         }
     }
 
-    /** Makes a copy soon (after [AUTO_BACKUP_DEBOUNCE_MS]) even without a change: a folder was just chosen. */
-    fun request() {
+    /**
+     * Makes a copy soon (after [AUTO_BACKUP_DEBOUNCE_MS]) even without a change, to the target of [folder] (a folder just
+     * chosen, «Hacer una copia ahora»), whatever its calendar; with the vault locked it waits for the unlock.
+     */
+    fun request(folder: String) {
+        asked += folder
         requests.tryEmit(Unit)
     }
 
+    /** The debounced run: the [BackupSchedule.ON_CHANGE] targets after a change, and the targets [request] asked for. */
+    private suspend fun runChanged() = lock.withLock {
+        val change = changed.getAndSet(false)
+        for (t in targets()) {
+            val wanted = asked.remove(t.uri)
+            if (wanted || (change && t.schedule == BackupSchedule.ON_CHANGE)) attempt(t.uri, null)
+        }
+    }
+
     /**
-     * Makes a copy now and, once it is written and checked, deletes this class's other copies (the ids on [copies], never
-     * a file by its name) and the leftover temporary ones. Returns the same [AutoBackupResult] it gave [onResult]:
-     * [AutoBackupResult.error] null when all went well. If the new copy fails nothing is deleted. With the vault locked
-     * (as it is right after a change of master password) nothing can be copied yet: the request is given to [onResult]
-     * to be saved, and it returns [AUTO_BACKUP_REPLACE_WAITS] ([AUTO_BACKUP_FAILED] if it could not be saved). With no
-     * folder or no vault it returns [AUTO_BACKUP_FAILED]. The work is not cancelled with the caller.
+     * 2.0, task 8: called when the vault is unlocked (here) and when the app is opened (AppContainer): makes, one at a
+     * time and in the order of the targets, the copies that are due at [now]: a target with a calendar when [due] says so,
+     * an [BackupSchedule.ON_CHANGE] one when a change was missed, any one that waited for the unlock or has an A6 request.
+     * With the vault locked, nothing is written: those copies wait for the unlock. A lock in the middle stops the copies
+     * that follow. Returns once they are done; cancelled with this object's scope.
+     */
+    suspend fun runDue(now: Long) {
+        val notices = ArrayList<AutoBackupResult>()
+        var byCalendar = 0
+        lock.withLock {
+            for (t in targets()) {
+                val replace = t.replacePending
+                val calendar = t.schedule != BackupSchedule.ON_CHANGE && t.due(now, zone)
+                val run = replace || t.uri in pending || calendar || (t.schedule == BackupSchedule.ON_CHANGE && missed(t))
+                if (!run) continue
+                if (store.state.value !is VaultState.Unlocked) {
+                    defer(t.uri)
+                    continue
+                }
+                // Read inside the lock, from what is saved: a request made before a restart is done too.
+                val result = attempt(t.uri, if (replace) Replace(t.replaceTargets, announce = true) else null) ?: continue
+                if (replace) notices += result
+                if (calendar && result.writtenAt != null && result.copies != null) byCalendar++
+            }
+        }
+        // M2: told when every target that tried replaced (the success, which ends the requests) or a failure not yet told.
+        if (notices.isNotEmpty()) {
+            val told = notices.firstNotNullOfOrNull { it.toldKey }
+            when {
+                notices.all { it.replaced } -> outcome.post(combined(notices, null, replaced = true))
+                told != null -> outcome.post(combined(notices, told, replaced = false))
+            }
+        }
+        if (byCalendar > 0 && store.state.value is VaultState.Unlocked) scheduled.post(scheduledCopiesText(byCalendar))
+    }
+
+    /** One result for the dialog out of each target's: [error] its text, the copies left unlisted added up. */
+    private fun combined(results: List<AutoBackupResult>, error: String?, replaced: Boolean) = AutoBackupResult(
+        folder = results.first().folder,
+        writtenAt = results.mapNotNull { it.writtenAt }.maxOrNull(),
+        error = error,
+        replaced = replaced,
+        toldKey = error,
+        unlistedLeft = results.sumOf { it.unlistedLeft },
+    )
+
+    /**
+     * Makes a copy now in every target and, once each is written and checked, deletes that target's other copies (the
+     * ids on its own lists, never a file by its name) and the leftover temporary ones. Returns one [AutoBackupResult] for
+     * all ([AutoBackupResult.error] the first target's failure, null when all went well; [AutoBackupResult.unlistedLeft]
+     * added up). If a target's new copy fails nothing is deleted there. With the vault locked (as it is right after a
+     * change of master password) nothing can be copied yet: each target's request is given to [onResult] to be saved, and
+     * it returns [AUTO_BACKUP_REPLACE_WAITS] ([AUTO_BACKUP_FAILED] if one could not be saved). With no target or no vault
+     * it returns [AUTO_BACKUP_FAILED]. The work is not cancelled with the caller.
      *
      * [targets] are the copies to replace: the app passes those listed when the password changed ([MasterChanged]), so
      * neither the first request nor a «Volver a intentarlo» ever deletes a copy made after the change (m2 of the CR
-     * re-review); a pending request uses what it still has to delete. Null (tests, and a request with no snapshot) means
-     * every copy listed now.
+     * re-review); each target only deletes those on its own lists. A pending request uses what it still has to delete.
+     * Null (tests, and a request with no snapshot) means every copy listed now.
      */
     suspend fun replaceOldCopies(targets: List<String>? = null): AutoBackupResult = scope.async { replaceNow(targets) }.await()
 
-    private suspend fun replaceNow(targets: List<String>?): AutoBackupResult = lock.withLock {
+    private suspend fun replaceNow(asked: List<String>?): AutoBackupResult = lock.withLock {
         _replacing.value = true
         try {
-            val uri = folder() ?: return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
-            when (store.state.value) {
-                is VaultState.Unlocked -> Unit
-                is VaultState.Locked -> return@withLock waitForUnlock(uri, targets)
-                else -> return@withLock AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
+            val all = targets()
+            if (all.isEmpty()) return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
+            val results = ArrayList<AutoBackupResult>()
+            for (t in all) {
+                results += when (store.state.value) {
+                    is VaultState.Unlocked -> {
+                        // A failure here is reported: asked while open, it is not retried behind the user's back (unless a
+                        // request saved while locked is still pending: it goes on, with its own targets, and what it told
+                        // starts again).
+                        val ids = if (t.replacePending) t.replaceTargets ?: asked else asked
+                        attempt(t.uri, Replace(ids, announce = false, newRequest = true))
+                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(t.uri, asked) else AutoBackupResult(t.uri, null, AUTO_BACKUP_FAILED)
+                    }
+                    is VaultState.Locked -> waitForUnlock(t.uri, asked)
+                    else -> AutoBackupResult(t.uri, null, AUTO_BACKUP_FAILED)
+                }
             }
-            // A failure here is reported: asked while open, it is not retried behind the user's back (unless a request
-            // saved while locked is still pending: it goes on, with its own targets, and what it told starts again).
-            val asked = if (replacePending()) replaceTargets() ?: targets else targets
-            attempt(Replace(asked, announce = false, newRequest = true))
-                ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, targets) else AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
+            val error = results.firstNotNullOfOrNull { it.error }
+            AutoBackupResult(
+                folder = all.first().uri,
+                writtenAt = results.mapNotNull { it.writtenAt }.maxOrNull(),
+                // «Se hará en cuanto abras la bóveda» only when every target waits; a real failure wins over it.
+                error = results.firstNotNullOfOrNull { r -> r.error?.takeIf { it != AUTO_BACKUP_REPLACE_WAITS } } ?: error,
+                unlistedLeft = results.sumOf { it.unlistedLeft },
+            )
         } finally {
             _replacing.value = false
         }
     }
 
     /** The vault is locked: the request is saved (through [onResult]) and the first copy after the next unlock does it. */
-    private suspend fun waitForUnlock(uri: String, targets: List<String>?): AutoBackupResult {
-        defer()
-        // M4: the copies listed when the password changed ([targets]; or, without them, those listed now, which are the
-        // same while the vault has stayed locked since) are the ones to replace; later ones follow [keep].
-        onResult(AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = targets ?: copies()))
+    private suspend fun waitForUnlock(uri: String, asked: List<String>?): AutoBackupResult {
+        defer(uri)
+        // M4: the copies listed when the password changed ([asked]; or, without them, those listed now, which are the
+        // same while the vault has stayed locked since) are the ones to replace; later ones follow the target's keep.
+        onResult(AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = asked ?: target(uri)?.copies.orEmpty()))
         // Not saved (a full disk): do not say it will be done.
-        return AutoBackupResult(uri, null, if (replacePending()) AUTO_BACKUP_REPLACE_WAITS else AUTO_BACKUP_FAILED)
+        return AutoBackupResult(uri, null, if (target(uri)?.replacePending == true) AUTO_BACKUP_REPLACE_WAITS else AUTO_BACKUP_FAILED)
     }
+
+    /** The target of [uri] as it is saved now; null once it is no longer one. */
+    private fun target(uri: String): BackupTargetSettings? = targets().firstOrNull { it.uri == uri }
 
     /**
      * The copy before «Importar de otra app» (spec «Confirmar: la copia y el guardado»), with the vault as it is: the
      * same `seguridad-backup` copy, with the same master password, as the automatic ones ([VaultStore.exportBackup]),
-     * named `seguridad-antes-de-importar-AAAAMMDD-HHMMSS.sgbak` in the automatic copies' folder. Written like them: under
-     * a `.tmp` name and renamed once complete, or straight under its name when the provider cannot rename (deleted if
-     * that fails), so the folder never holds a cut copy with the real name. Its id goes to [onImportCopy] (the settings'
-     * list of import copies, which A6 replaces after a change of master password); it is never rotated.
+     * named `seguridad-antes-de-importar-AAAAMMDD-HHMMSS.sgbak`, in the first target that takes it (2.0, task 8: in the
+     * order of the targets; one that fails is skipped, a lock or a vault replaced stops). Written like them: under a
+     * `.tmp` name and renamed once complete, or straight under its name when the provider cannot rename (deleted if that
+     * fails), so the folder never holds a cut copy with the real name. Its id goes to [onImportCopy] (that target's list
+     * of import copies, which A6 replaces after a change of master password); it is never rotated.
      *
-     * Null when the automatic copies have no folder (the caller asks where to save it). Otherwise [CopyResult.Saved]
-     * with its name, or [CopyResult.Failed] with a fixed text: the folder unusable, the vault locked or replaced while
+     * Null when there is no target (the caller asks where to save it). Otherwise [CopyResult.Saved] with its name, or
+     * [CopyResult.Failed] with a fixed text (the first target's): the folder unusable, the vault locked or replaced while
      * it was written (that copy is left unlisted), or the write failing. It runs in this class's scope and under its
      * lock, so it never overlaps an automatic copy or its rotation, and the caller leaving cannot cut it between the
      * rename and the list.
      */
-    suspend fun copyBeforeImport(): CopyResult? = scope.async { lock.withLock { copyBeforeNow(IMPORT_COPY_PREFIX, store::exportBackup) } }.await()
+    suspend fun copyBeforeImport(): CopyResult? = scope.async { lock.withLock { copyBeforeAny(IMPORT_COPY_PREFIX, store::exportBackup) } }.await()
 
     /**
      * 2.0: the copy before the vault passes to format v4 ([VaultStore.pendingUpgrade]), written as [copyBeforeImport]
      * and listed with the import copies, named `seguridad-antes-de-2-0-AAAAMMDD-HHMMSS.sgbak`. It is the file still on
      * disk ([VaultStore.exportBeforeUpgrade]), of version 2 or 3, with the marker 2: what earlier versions open. Once no
      * upgrade waits (review I-1) nothing is written: [CopyResult.Failed], and its temporary document is deleted. Null with
-     * no folder, so the store asks the user. The [CopyResult.Failed] texts are the import's: the store only tells a copy
+     * no target, so the store asks the user. The [CopyResult.Failed] texts are the import's: the store only tells a copy
      * made from one not made, and then the user chooses.
      */
-    suspend fun copyBeforeUpgrade(): CopyResult? = scope.async { lock.withLock { copyBeforeNow(UPGRADE_COPY_PREFIX, store::exportBeforeUpgrade) } }.await()
+    suspend fun copyBeforeUpgrade(): CopyResult? = scope.async { lock.withLock { copyBeforeAny(UPGRADE_COPY_PREFIX, store::exportBeforeUpgrade) } }.await()
 
-    private suspend fun copyBeforeNow(prefix: String, export: suspend (OutputStream) -> Boolean): CopyResult? {
-        val uri = folder() ?: return null
+    /** [copyBeforeNow] in each target in order until one is saved; a lock or a vault replaced ends it at once. */
+    private suspend fun copyBeforeAny(prefix: String, export: suspend (OutputStream) -> Boolean): CopyResult? {
+        var first: CopyResult? = null
+        for (t in targets()) {
+            val r = copyBeforeNow(t.uri, prefix, export)
+            if (r is CopyResult.Saved) return r
+            if (r is CopyResult.Failed && (r.message == IMPORT_COPY_LOCKED || r.message == IMPORT_COPY_VAULT_CHANGED)) return r
+            if (first == null) first = r
+        }
+        return first
+    }
+
+    private suspend fun copyBeforeNow(uri: String, prefix: String, export: suspend (OutputStream) -> Boolean): CopyResult {
         return try {
             val target = open(uri) ?: return CopyResult.Failed(IMPORT_COPY_NO_FOLDER)
             if (store.state.value !is VaultState.Unlocked) return CopyResult.Failed(IMPORT_COPY_LOCKED)
             // As [attempt]: a copy whose vault was replaced while it was written is never listed as this vault's.
             val generation = store.generation
             // A lock meanwhile refuses the copy, and schedules no automatic one (nothing changed in the vault).
-            val written = copyTo(target, now(), prefix, defer = false, export = export) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
+            val written = copyTo(uri, target, now(), prefix, defer = false, export = export) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
             if (store.generation != generation) return CopyResult.Failed(IMPORT_COPY_VAULT_CHANGED)
             try {
                 onImportCopy(uri, written.id, generation)
@@ -458,23 +574,13 @@ class AutoBackup(
         }
     }
 
-    /** A change saved after the last copy (or no copy yet): one was due when the app was closed. */
-    private fun missed(): Boolean = try {
+    /** A change saved after [t]'s last copy (or no copy yet): one was due when the app was closed. */
+    private fun missed(t: BackupTargetSettings): Boolean = try {
         val changed = store.lastChangeSavedAt()
-        val last = lastCopyAt()
+        val last = t.lastAt
         changed != null && (last == null || changed > last)
     } catch (e: Exception) {
         false
-    }
-
-    private suspend fun runOnce() {
-        lock.withLock {
-            // Read inside the lock, from what is saved: a request made before a restart is done too.
-            val replace = replacePending()
-            val result = attempt(if (replace) Replace(replaceTargets(), announce = true) else null)
-            // M2: told when it is the success (which ends the request) or a failure not yet told for this request.
-            if (replace && result != null && (result.replaced || result.toldKey != null)) outcome.post(result)
-        }
     }
 
     /**
@@ -485,18 +591,18 @@ class AutoBackup(
     private class Replace(val targets: List<String>?, val announce: Boolean, val newRequest: Boolean = false)
 
     /**
-     * One copy to the chosen folder, then its rotation ([replace]: its targets go too, see [rotate]). The result it gave
-     * [onResult], or null if nothing was done (no folder, none usable, no vault, or the vault locked, which defers it).
-     * Call with [lock] held.
+     * One copy to the target of [uri], then its rotation ([replace]: its targets go too, see [rotate]). The result it gave
+     * [onResult], or null if nothing was done (no longer a target, its folder not usable, no vault, or the vault locked,
+     * which defers it). Call with [lock] held.
      */
-    private suspend fun attempt(replace: Replace?): AutoBackupResult? {
+    private suspend fun attempt(uri: String, replace: Replace?): AutoBackupResult? {
         val replaceAll = replace != null
-        pending = false
-        val uri = folder() ?: return null
+        pending -= uri
+        if (target(uri) == null) return null
         val result = try {
-            val target = open(uri) ?: return null
+            val folder = open(uri) ?: return null
             if (store.state.value !is VaultState.Unlocked) {
-                defer()
+                defer(uri)
                 return null
             }
             val at = now()
@@ -504,18 +610,18 @@ class AutoBackup(
             // so the copy is of the vault the list belongs to. The vault's mutex only covers the snapshot, not the write
             // (a slow provider must not hold the vault), so an import can run while the copy is written (CADENAS-3).
             val generation = store.generation
-            val written = copyTo(target, at) ?: return null
+            val written = copyTo(uri, folder, at) ?: return null
             if (store.generation != generation) {
                 stale(uri, at, generation, replaceAll)
             } else {
-                val owned = copies()
+                val owned = target(uri)?.copies.orEmpty()
                 // A request without targets (saved before 1.3.0): every listed copy but the new one, as before (M4).
                 // No import copy there: a request without targets was saved before 1.3.0, and every import copy (1.4.0)
                 // was made after it, under the current password. So none from before the change exists, and
                 // AUTO_BACKUP_REPLACED («y las de antes de importar hechas antes del cambio») stays true.
                 val targets = replace?.let { it.targets ?: owned.filter { id -> id != written.id } }
                 val rotation = try {
-                    rotate(target, owned, written, targets, generation)
+                    rotate(uri, folder, owned, written, targets, generation)
                 } catch (e: Exception) {
                     // The copy is there all the same; nothing was deleted for sure, so every target is still one.
                     Rotation(AUTO_BACKUP_OLD_NOT_DELETED, owned + written.id, 0, targets, replaceDone = false, importsLeft = null)
@@ -544,12 +650,12 @@ class AutoBackup(
         }
         // R-6: a replacement promises the retry only while its request is saved (read now, after an import that may have
         // dropped it; one that failed puts it back, and then it is tried again).
-        val said = if (replace != null && result.error == AUTO_BACKUP_OLD_NOT_DELETED && !replacePending()) {
+        val said = if (replace != null && result.error == AUTO_BACKUP_OLD_NOT_DELETED && target(uri)?.replacePending != true) {
             result.copy(error = AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY)
         } else {
             result
         }
-        val told = said.error?.takeIf { replace != null && replace.announce && !said.replaced && it !in replaceTold() }
+        val told = said.error?.takeIf { replace != null && replace.announce && !said.replaced && it !in target(uri)?.replaceTold.orEmpty() }
         val recorded = if (told != null) said.copy(toldKey = told) else said
         onResult(recorded)
         return recorded
@@ -577,9 +683,9 @@ class AutoBackup(
         val importsLeft: List<String>? = null,
     )
 
-    /** No vault: nothing to copy. A locked one: the copy waits for it to be opened. */
-    private fun defer() {
-        pending = store.state.value !is VaultState.NoVault
+    /** No vault: nothing to copy. A locked one: the copy of [uri] waits for it to be opened. */
+    private fun defer(uri: String) {
+        if (store.state.value !is VaultState.NoVault) pending += uri
     }
 
     /**
@@ -587,6 +693,7 @@ class AutoBackup(
      * If the provider cannot rename, the copy is written again straight under its name.
      */
     private suspend fun copyTo(
+        uri: String,
         folder: BackupTarget,
         now: Long,
         prefix: String = AUTO_BACKUP_PREFIX,
@@ -596,7 +703,7 @@ class AutoBackup(
         val name = freeName(folder.list(prefix).mapTo(HashSet()) { it.name }, now, prefix)
         val temp = folder.create(name + TEMP_SUFFIX)
         if (temp.canRename) {
-            if (!fill(temp, defer, export)) return null
+            if (!fill(uri, temp, defer, export)) return null
             val renamed = try {
                 temp.rename(name)
                 true
@@ -610,20 +717,20 @@ class AutoBackup(
             discard(temp)
         }
         val direct = folder.create(name)
-        return if (fill(direct, defer, export)) BackupEntry(direct.id, name) else null
+        return if (fill(uri, direct, defer, export)) BackupEntry(direct.id, name) else null
     }
 
     /**
      * Writes the copy to [file]; false if there was nothing to copy. On false or a failure, [file] is deleted. With
      * [defer], a vault locked meanwhile has an automatic copy made at the next unlock ([defer]).
      */
-    private suspend fun fill(file: BackupFile, defer: Boolean = true, export: suspend (OutputStream) -> Boolean = store::exportBackup): Boolean {
+    private suspend fun fill(uri: String, file: BackupFile, defer: Boolean = true, export: suspend (OutputStream) -> Boolean = store::exportBackup): Boolean {
         try {
             var exported = false
             file.write { out -> exported = export(out) }
             if (!exported) {
                 file.delete() // Locked or deleted meanwhile: no empty file left.
-                if (defer) defer()
+                if (defer) defer(uri)
             }
             return exported
         } catch (e: Throwable) {
@@ -652,8 +759,8 @@ class AutoBackup(
     }
 
     /**
-     * Deletes the oldest of this class's own copies beyond [keep], and leftover temporary ones; with [targets] (a
-     * replacement), every copy among them too, and [keep] applies to the others only (M4). Returns the error (null if
+     * Deletes the oldest of the target [uri]'s own copies beyond its keep, and leftover temporary ones; with [targets] (a
+     * replacement), every copy among them too, and its keep applies to the others only (M4). Returns the error (null if
      * all went well) and the ids of its copies still in the folder, oldest first, [newest] last.
      *
      * Its own copies are only those in [owned], the documents it created, by id: never a file by its name alone, as
@@ -664,10 +771,10 @@ class AutoBackup(
      * checks that the vault is still the one of [generation]: if an import replaced it meanwhile, it stops and lists
      * nothing (CADENAS-3).
      */
-    private fun rotate(folder: BackupTarget, owned: List<String>, newest: BackupEntry, targets: List<String>?, generation: Long): Rotation {
+    private fun rotate(uri: String, folder: BackupTarget, owned: List<String>, newest: BackupEntry, targets: List<String>?, generation: Long): Rotation {
         val present = folder.list(COPIES_PREFIX)
         val ids = present.mapTo(HashSet()) { it.id }
-        val keepN = keep().takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: AUTO_BACKUP_KEEP_DEFAULT
+        val keepN = target(uri)?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: AUTO_BACKUP_KEEP_DEFAULT
         // The one just written always stays; a copy already gone is forgotten.
         val others = owned.filter { it in ids && it != newest.id }.distinct()
         val doomed = targets?.toHashSet() ?: emptySet()
@@ -676,7 +783,7 @@ class AutoBackup(
         val surplus = rest.dropLast(keepN - 1)
         val leftovers = present.filter { TEMP_NAME.matches(it.name) || IMPORT_TEMP_NAME.matches(it.name) || UPGRADE_TEMP_NAME.matches(it.name) }.map { it.id }
         // Import copies: never rotated, only deleted as targets of a replacement (A6), by id from their own list.
-        val listedImports = importCopies()
+        val listedImports = target(uri)?.importCopies.orEmpty()
         val imports = listedImports.filter { it in ids && it != newest.id }.distinct()
         val oldImports = imports.filter { it in doomed }
         val notDeleted = HashSet<String>()
@@ -761,7 +868,7 @@ fun replaceStatus(
     // still waits to be retried, and the dialog says what happened (with «Volver a intentarlo») instead of «se hará en
     // cuanto abras la bóveda».
     // m3 (CR re-review): an attempt that wrote nothing (offline) leaves the date as it was; that a failure was told for
-    // this request ([toldSinceRequest]: Settings.autoBackupReplaceTold, emptied at each request) shows it ran too.
+    // this request ([toldSinceRequest]: each target's replaceTold, emptied at each request) shows it ran too.
     pending && lastError != null && (toldSinceRequest || (lastBackupAt != null && lastBackupAt >= requestedAt)) -> ReplaceStatus.Failed(lastError)
     answered -> when (answerError) {
         null -> ReplaceStatus.Done

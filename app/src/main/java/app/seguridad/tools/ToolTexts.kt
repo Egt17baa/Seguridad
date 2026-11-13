@@ -9,6 +9,13 @@ import app.seguridad.tools.share.PHOTO_FILE_BASE
 import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED
 import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY
 import app.seguridad.vault.AUTO_BACKUP_REPLACED
+import app.seguridad.vault.AUTO_BACKUP_REPLACED_SEVERAL
+import app.seguridad.vault.BACKUP_CHECK_NEVER
+import app.seguridad.vault.BACKUP_CHECK_NOTICE_MORE
+import app.seguridad.vault.BACKUP_CHECK_NOT_COUNTED
+import app.seguridad.vault.BackupSchedule
+import app.seguridad.vault.backupCheckDaysAgo
+import app.seguridad.vault.scheduledCopiesText
 import app.seguridad.vault.AUTO_BACKUP_REPLACE_WAITS
 import app.seguridad.vault.IMPORT_SETTINGS_FAILED
 import app.seguridad.vault.autoBackupUnlistedText
@@ -668,7 +675,48 @@ const val IMPORT_REMOVE_SHORT =
 const val VAULT_CREATE_SHORT =
     "Guarda contraseñas, frases semilla, notas y códigos 2FA, cifrados en este móvil con tu contraseña maestra."
 const val IDENTITY_SHORT = "Para que tus contactos te cifren mensajes y para firmar."
-const val AUTO_BACKUP_SHORT = "Guarda una copia cifrada en la carpeta que elijas después de cada cambio."
+const val AUTO_BACKUP_SHORT = "Guarda una copia cifrada en las carpetas que elijas, tras cada cambio o con calendario."
+
+/** 2.0, task 8 (O-4 of the Abogado Digital): on view in «Copia automática». */
+const val AUTO_BACKUP_SCHEDULE_ON_OPEN = "Las copias con calendario se hacen al abrir la app."
+
+/** 2.0, task 8: under «Más información» of «Copia automática». */
+const val AUTO_BACKUP_MORE =
+    "Guarda una copia cifrada (.sgbak, con los adjuntos) en hasta 3 carpetas que elijas, cada una con su calendario: unos " +
+        "segundos después de cada cambio en la bóveda, o cada día, cada semana o cada mes. Clavero no funciona en segundo " +
+        "plano: las copias con calendario se hacen cuando abres la app o la bóveda, y si no la abres no hay copia. Elige " +
+        "carpetas que se sincronicen o que copies fuera del móvil."
+
+/** 2.0, task 8: the button that adds a second or third folder. */
+const val AUTO_BACKUP_ADD_FOLDER = "Añadir otra carpeta"
+
+/** 2.0, task 8: a folder that is already a target of this vault. */
+const val AUTO_BACKUP_ALREADY_TARGET = "Esa carpeta ya recibe las copias de esta bóveda. Elige otra."
+
+/** 2.0, task 8: a fourth folder. */
+const val AUTO_BACKUP_TOO_MANY = "Ya hay 3 carpetas. Quita una para añadir otra."
+
+/** 2.0, task 8: a folder removed (or the copies turned off, with the last one). */
+const val AUTO_BACKUP_REMOVED = "Ya no se harán copias en esa carpeta. Las copias ya hechas siguen en ella."
+
+/** 2.0, task 8: the title of the card of the [n]-th folder. */
+fun autoBackupTargetTitle(n: Int) = "Carpeta $n de la copia automática"
+
+/** 2.0, task 8: how each calendar is called in Ajustes. */
+fun scheduleLabel(s: BackupSchedule) = when (s) {
+    BackupSchedule.ON_CHANGE -> "Tras cada cambio"
+    BackupSchedule.DAILY -> "Cada día"
+    BackupSchedule.WEEKLY -> "Cada semana"
+    BackupSchedule.MONTHLY -> "Cada mes"
+}
+
+/** 2.0, task 8: the end of «Copia automática activada: se hará una ahora y después …». */
+fun scheduleAfter(s: BackupSchedule) = when (s) {
+    BackupSchedule.ON_CHANGE -> "tras cada cambio en la bóveda"
+    BackupSchedule.DAILY -> "cada día, al abrir la app"
+    BackupSchedule.WEEKLY -> "cada semana, al abrir la app"
+    BackupSchedule.MONTHLY -> "cada mes, al abrir la app"
+}
 
 /** On view (R-9 of the Abogado, 1.4.2): what the rotation deletes, and what it never does. */
 const val AUTO_BACKUP_DELETES_SHORT = "Borra solo sus copias automáticas más antiguas, nunca otros archivos de la carpeta."
@@ -799,4 +847,9 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     APP_RENAMED_TITLE, APP_RENAMED_TEXT,
     // Final review of the Abogado Digital (R-6), and R-2 and R-5 of the earlier dictamen.
     AUTO_BACKUP_OLD_NOT_DELETED, AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY, PHOTO_LOCATION_MAYBE_HIDDEN, PASSWORD_CHANGE_SECRETS_HINT,
-) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) } + ClipboardClear.entries.map { clipboardAboutText(it.seconds) }
+    // 2.0, task 8.
+    AUTO_BACKUP_SCHEDULE_ON_OPEN, AUTO_BACKUP_MORE, AUTO_BACKUP_ADD_FOLDER, AUTO_BACKUP_ALREADY_TARGET, AUTO_BACKUP_TOO_MANY,
+    AUTO_BACKUP_REMOVED, autoBackupTargetTitle(2), AUTO_BACKUP_REPLACED_SEVERAL, autoBackupUnlistedText(2, severalFolders = true),
+    scheduledCopiesText(1), scheduledCopiesText(2), BACKUP_CHECK_NEVER, backupCheckDaysAgo(30), BACKUP_CHECK_NOT_COUNTED,
+    BACKUP_CHECK_NOTICE_MORE,
+) + BackupSchedule.entries.map(::scheduleLabel) + BackupSchedule.entries.map(::scheduleAfter) + ClipboardClear.entries.map { clipboardHistoryNoticeText(it.seconds) } + ClipboardClear.entries.map { clipboardAboutText(it.seconds) }
