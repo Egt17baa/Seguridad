@@ -1410,9 +1410,10 @@ class VaultStore(
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
             // 2.0, task 8 (D-12): «Importar como bóveda nueva» gives the new vault a tag of its own, so a copy of the vault
-            // it came from never counts as checked for it (nor the other way round).
+            // it came from never counts as checked for it (nor the other way round), and no date of a check of the other
+            // (re-review 1, N-1): its reminder starts from none.
             val checked = derive {
-                VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf(), prepare = { if (newTag) it.copy(vaultTag = VaultCrypto.newTag()) else it })
+                VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf(), prepare = { if (newTag) it.copy(vaultTag = VaultCrypto.newTag(), lastCheckedBackupAt = 0L) else it })
             }
             val incomingData = withContext(compute) { VaultCrypto.read(checked, key) }
             val incomingEntries = incomingData.entries

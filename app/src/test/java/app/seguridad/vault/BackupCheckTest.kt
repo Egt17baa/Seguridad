@@ -663,12 +663,16 @@ class BackupCheckTest {
      */
     @Test fun importAsNewVaultGetsItsOwnTag() = runTest {
         val a = phoneA()
+        // A has a date of a check of its own (re-review 1, N-1): the new vault does not take it.
+        assertEquals(true, a.recordBackupChecked(check(a.backup(), temp()).vaultTag))
+        assertEquals(7_000L, a.data().lastCheckedBackupAt)
         val copyOfA = a.backup()
         val b = store(phone("nueva")).apply { load() }
         b.importReplace(ByteArrayInputStream(copyOfA), master.toCharArray(), newTag = true)
         if (b.state.value !is VaultState.Unlocked) b.unlock(master.toCharArray())
         assertTrue(b.data().vaultTag.isNotEmpty())
         assertTrue(b.data().vaultTag != a.data().vaultTag)
+        assertEquals(0L, b.data().lastCheckedBackupAt)
         val checkedA = check(copyOfA, temp())
         assertEquals(false, b.recordBackupChecked(checkedA.vaultTag))
         assertEquals(0L, b.data().lastCheckedBackupAt)
@@ -678,5 +682,6 @@ class BackupCheckTest {
         c.importReplace(ByteArrayInputStream(copyOfA), master.toCharArray())
         if (c.state.value !is VaultState.Unlocked) c.unlock(master.toCharArray())
         assertEquals(a.data().vaultTag, c.data().vaultTag)
+        assertEquals(7_000L, c.data().lastCheckedBackupAt)
     }
 }

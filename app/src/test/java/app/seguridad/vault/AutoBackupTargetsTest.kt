@@ -736,4 +736,70 @@ class AutoBackupTargetsTest {
         assertEquals(listOf(BackupTargetSettings("content://v", 3, BackupSchedule.ON_CHANGE)), all.vault("vieja").targets)
         assertEquals(emptyList<BackupTargetSettings>(), all.vault("mala").targets)
     }
+
+    /**
+     * Re-review 1, I-3 (a): a change copies «uno» (con cada cambio), which replaces its old copies, while «dos» (daily, its
+     * request still waiting) does not try: nothing says the old copies were deleted «en cada carpeta» until «dos» did too.
+     */
+    @Test fun noSuccessWhileAFolderThatDidNotTryStillHasTheRequest() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.DAILY) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a.request("content://dos")
+        settle()
+        val oldInTwo = two.copies().toSet()
+        a6Asked(s, a)
+        one.failCreate = java.io.IOException("lleno")
+        two.failCreate = SecurityException("sin permiso")
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
+        // «uno» works again and a change is saved: «uno» replaces, «dos» (daily) does not try.
+        one.failCreate = null
+        clock += 60_000
+        s.upsert(note("2"))
+        settle()
+        assertFalse(target("a", "content://uno").replacePending)
+        assertTrue(target("a", "content://dos").replacePending)
+        assertNull("no «se borraron … en cada carpeta» while «dos» still has its old copies", a.replaceOutcome.value)
+        assertTrue(oldInTwo.all { it in two.files })
+        // «dos» works at the next unlock: now the success, once, with every folder done.
+        two.failCreate = null
+        s.lock()
+        runCurrent()
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertTrue(a.replaceOutcome.value!!.replaced)
+        assertTrue(oldInTwo.none { it in two.files })
+    }
+
+    /** Re-review 1, I-3 (b): a lock after the first of two folders replaced: no success until the second one has too. */
+    @Test fun noSuccessWhenALockLeavesAFolderOut() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        val oldInTwo = two.copies().toSet()
+        a6Asked(s, a)
+        one.onWrite = { s.lock() }
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertFalse(target("a", "content://uno").replacePending)
+        assertTrue(target("a", "content://dos").replacePending)
+        assertNull(a.replaceOutcome.value)
+        assertTrue(oldInTwo.all { it in two.files })
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertTrue(a.replaceOutcome.value!!.replaced)
+        assertTrue(oldInTwo.none { it in two.files })
+    }
 }

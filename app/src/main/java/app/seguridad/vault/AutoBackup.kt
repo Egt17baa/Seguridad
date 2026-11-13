@@ -496,22 +496,22 @@ class AutoBackup(
     private fun toldInRequests(): Set<String> = targets().filter { it.replacePending }.flatMapTo(HashSet()) { it.replaceTold }
 
     /**
-     * M2: how the A6 requests that ran by themselves went ([notices], one per target that tried), told once: the success
-     * when every one replaced its old copies (which ends the requests), or the failures not yet told. With several
-     * targets, every failure a target records as told ([AutoBackupResult.toldKey]) is in the one outcome shown (review I-2),
-     * each once, one per line.
+     * M2: how the A6 requests that ran by themselves went ([notices], one per target that tried), told once: the failures
+     * not yet told, or else the success. With several targets, every failure a target records as told
+     * ([AutoBackupResult.toldKey]) is in the one outcome shown (review I-2), each once, one per line. The success only once
+     * no target has the request any more, read now, after every result was recorded (re-review 1 of task 8, I-3): a target
+     * that did not try in this run (a calendar's skipped by a change, one left out by a lock) still has it, and nothing says
+     * its old copies were deleted until they are.
      */
     private fun tell(notices: List<AutoBackupResult>) {
-        if (notices.size == 1) {
+        if (notices.isEmpty()) return
+        val told = notices.mapNotNull { it.toldKey }.distinct()
+        val done = notices.any { it.replaced } && targets().none { it.replacePending }
+        when {
             // One target: its own result, as 1.x told it.
-            val only = notices.single()
-            if (only.replaced || only.toldKey != null) outcome.post(only)
-        } else if (notices.isNotEmpty()) {
-            val told = notices.mapNotNull { it.toldKey }.distinct()
-            when {
-                notices.all { it.replaced } -> outcome.post(combined(notices, null, replaced = true))
-                told.isNotEmpty() -> outcome.post(combined(notices, told.joinToString("\n"), replaced = false))
-            }
+            notices.size == 1 && (told.isNotEmpty() || done) -> outcome.post(notices.single())
+            told.isNotEmpty() -> outcome.post(combined(notices, told.joinToString("\n"), replaced = false))
+            done -> outcome.post(combined(notices, null, replaced = true))
         }
     }
 
