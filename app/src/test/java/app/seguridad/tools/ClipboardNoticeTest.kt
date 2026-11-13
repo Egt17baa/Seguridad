@@ -63,6 +63,30 @@ class ClipboardNoticeTest {
         assertFalse(notice.asking.value)
     }
 
+    /**
+     * Review m-4 of task 6: a copy whose text depends on the time (a 2FA code) is worked out when it is written: on
+     * «Entendido, copiar», never at the tap; and nothing is written if by then there is nothing to copy.
+     */
+    @Test fun aCopyWorkedOutAtWriteTime() {
+        var now = 0
+        var copied = 0
+        assertFalse(copyOrAskNoticeFor({ "código-$now" }, notice, accepted = false, sdk = 30, write = write, onCopied = { copied++ }))
+        now = 31
+        assertTrue(notice.accept())
+        assertEquals(listOf("código-31"), written)
+        assertEquals(1, copied)
+        // Without the notice: at once, as it is now.
+        assertTrue(copyOrAskNoticeFor({ "código-$now" }, notice, accepted = true, sdk = 30, write = write))
+        assertEquals(listOf("código-31", "código-31"), written)
+        // Nothing to copy (the entry is gone): nothing written, no callback.
+        assertFalse(copyOrAskNoticeFor({ null }, notice, accepted = true, sdk = 33, write = write, onCopied = { copied++ }))
+        val other = ClipboardNoticeRequest(lockEpoch = { epoch })
+        assertFalse(copyOrAskNoticeFor({ null }, other, accepted = false, sdk = 30, write = write, onCopied = { copied++ }))
+        assertEquals(AcceptOutcome.NOTHING_WAITING, other.acceptOutcome())
+        assertEquals(1, copied)
+        assertEquals(2, written.size)
+    }
+
     @Test fun aDroppedCopyAndItsCallbackAreForgotten() {
         var copied = false
         notice.ask("dos", write) { copied = true }

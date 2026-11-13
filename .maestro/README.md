@@ -133,7 +133,7 @@ Sin Maestro en la nube, los flujos se ensayaron con un intérprete propio de est
 
 1. Las semiautomáticas de la fila de arriba enteras, y las dos que se cortaron.
 2. `p16`, `p17`, `giro-conserva-estado`, `p19-recorrer-herramientas` y `borra-datos/p15-p16-p17-bloquear-borra` (el cambio de «Bloquear»).
-3. `borra-datos/p05-ayuda-codigos-qr` toca «Añadir» por debajo del texto «Tu bóveda está vacía…»: si Maestro toca otra cosa, apúntalo.
+3. `borra-datos/p05-ayuda-codigos-qr` pulsa «Crear la primera» de la bóveda vacía (2.0): comprobar que Maestro la encuentra por su texto.
 4. Con TalkBack, que el botón «Añadir» de la bóveda se lea como «Añadir».
 5. Si la bóveda se bloquea sola antes de tiempo con una herramienta abierta, y si «Repartir un secreto» conserva entonces sus partes (en el emulador pasó una vez; puede ser por su lentitud).
 

@@ -174,6 +174,8 @@ fun VaultScreen(
     // 2.0, task 6: each move its own 5 s, also two of one entry each in a row (swipes), which give the same count.
     val undoMove by undo.moves.collectAsStateWithLifecycle()
     val unlocked = state is VaultState.Unlocked
+    // Review I-1 of task 6: what is on screen goes at the lock (a message may name an entry, a tag or a folder).
+    LaunchedEffect(unlocked) { if (!unlocked) snackbar.currentSnackbarData?.dismiss() }
     LaunchedEffect(undoCount, undoMove, unlocked) {
         if (undoCount == 0) return@LaunchedEffect
         if (!unlocked) return@LaunchedEffect undo.forget()
@@ -266,13 +268,16 @@ fun VaultScreen(
         },
     ) { padding ->
         VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) {
-            val message: (String) -> Unit = { text -> scope.launch { snackbar.showSnackbar(text) } }
+            // Review I-1 of task 6: a message can name an entry, a tag or a folder; it lives in a scope of the open vault's
+            // content, which a lock cancels with it, so none still waiting comes up over «Bóveda bloqueada».
+            val vaultScope = rememberCoroutineScope()
+            val message: (String) -> Unit = { text -> vaultScope.launch { snackbar.showSnackbar(text) } }
             EntryList(
                 store, undo, twoStep, totpOnly, list, onOpen, onEdit, onNew,
                 onImport = actions.import, onImportOther = onImportOther, onMessage = message,
             )
             // 2.0, task 6: back in the app after «Copiar usuario», «Copiar contraseña» for what is left of its 30 s.
-            PasswordOfferOnReturn(store, twoStep, snackbar) { e -> copyOfferedPassword(context, scope, store, twoStep, e, message) }
+            PasswordOfferOnReturn(store, twoStep, snackbar) { e -> copyOfferedPassword(context, vaultScope, store, twoStep, e, message) }
         }
     }
 }

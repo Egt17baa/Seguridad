@@ -7,7 +7,6 @@ package app.seguridad.vault
  */
 
 // The row: its «⋮» menu, its swipes (also TalkBack's actions of the row) and its 2FA.
-const val ROW_MENU = "Más opciones"
 fun rowMenuLabel(title: String): String = "Más opciones de «$title»"
 const val COPY_USERNAME = "Copiar usuario"
 const val COPY_PASSWORD = "Copiar contraseña"

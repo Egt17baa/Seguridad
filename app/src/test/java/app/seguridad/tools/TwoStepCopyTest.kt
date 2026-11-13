@@ -54,11 +54,16 @@ class TwoStepCopyTest {
         val password = "contraseña-que-nunca-se-guarda"
         val t = TwoStepCopy(clock = { clock }, lockEpoch = { epoch })
         t.offerPassword("entrada-1")
-        val allowed = setOf(String::class.java, Long::class.javaPrimitiveType, Int::class.javaPrimitiveType, Function0::class.java, Any::class.java)
+        val allowed = setOf(String::class.java, Long::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, Function0::class.java, Any::class.java, kotlinx.coroutines.flow.MutableStateFlow::class.java, kotlinx.coroutines.flow.StateFlow::class.java)
         var offer: Any? = null
         for (f in TwoStepCopy::class.java.declaredFields) {
             f.isAccessible = true
             val v = f.get(t)
+            if (f.type.name.startsWith("kotlinx.coroutines.flow.")) {
+                // The counter of changes: a number, never the entry nor its password.
+                assertTrue(f.name, (v as kotlinx.coroutines.flow.StateFlow<*>).value is Long)
+                continue
+            }
             if (f.name == "offer") {
                 offer = v
                 continue
@@ -87,6 +92,50 @@ class TwoStepCopyTest {
         assertEquals("entrada-1", t.pending())
         t.clear() // What the app does at every lock, too.
         assertNull(t.pending())
+    }
+
+    /**
+     * Review m-1 of task 6: «al volver a la app» is coming back from outside it. The offer shows once, on the first
+     * return after the app was left within its 30 s; never on a screen composed or reached inside the app.
+     */
+    @Test fun offeredOnlyOnReturnFromOutside() {
+        val t = TwoStepCopy(clock = { clock }, lockEpoch = { epoch })
+        t.offerPassword("entrada-1")
+        assertNull("not left: no offer on screen", t.takeReturnOffer())
+        assertEquals("but it is still valid for «Copiar contraseña»", "entrada-1", t.pending())
+        t.markLeft()
+        clock += 10_000
+        assertEquals("entrada-1", t.takeReturnOffer())
+        // Once per return: the next screen of the app does not offer it again.
+        assertNull(t.takeReturnOffer())
+        assertEquals("entrada-1", t.pending())
+        // Another return within the 30 s offers it again.
+        t.markLeft()
+        assertEquals("entrada-1", t.takeReturnOffer())
+        // Left after the 30 s: nothing.
+        t.markLeft()
+        clock += 20_000
+        assertNull(t.takeReturnOffer())
+        // Left with no offer: a later offer is not one «after leaving».
+        t.markLeft()
+        t.offerPassword("entrada-2")
+        assertNull(t.takeReturnOffer())
+    }
+
+    /** Review m-2 of task 6: every start, end or return of the offer is told, so the screen takes it off when it ends. */
+    @Test fun changesTellTheScreen() {
+        val t = TwoStepCopy(clock = { clock }, lockEpoch = { epoch })
+        val start = t.changes.value
+        t.offerPassword("e")
+        val offered = t.changes.value
+        t.markLeft()
+        val left = t.changes.value
+        t.clear()
+        val cleared = t.changes.value
+        assertTrue(start != offered && offered != left && left != cleared)
+        // Clearing nothing is no change.
+        t.clear()
+        assertEquals(cleared, t.changes.value)
     }
 
     // 2FA in the row: tapping the code copies it; with less than 5 s left, the next one, and it says so.

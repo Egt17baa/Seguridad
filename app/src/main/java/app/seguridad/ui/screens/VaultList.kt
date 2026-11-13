@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import app.seguridad.android.copySensitive
+import app.seguridad.android.copySensitiveFor
+import app.seguridad.tools.RowCode
 import app.seguridad.imports.IMPORT_TITLE
 import app.seguridad.tools.TwoStepCopy
 import app.seguridad.tools.rowCodeToCopy
@@ -434,13 +436,13 @@ internal fun EntryList(
                 }
             },
             copyCode = { e ->
-                val live = liveEntry(store, e.id)
-                live?.totp?.let { rowCodeToCopy(it, System.currentTimeMillis()) }?.let { c ->
-                    copySensitive(context, c.code) {
-                        twoStep.clear()
-                        used(live.id)
-                        message(if (c.next) NEXT_CODE_COPIED else CODE_COPIED)
-                    }
+                // Review m-4: the code is worked out when it is written (after the A14 notice, if it is asked), from the
+                // entry as the open vault holds it then; never one worked out at the tap and expired meanwhile.
+                var made: RowCode? = null
+                copySensitiveFor(context, { liveEntry(store, e.id)?.totp?.let { rowCodeToCopy(it, System.currentTimeMillis()) }?.also { made = it }?.code }) {
+                    twoStep.clear()
+                    used(e.id)
+                    message(if (made?.next == true) NEXT_CODE_COPIED else CODE_COPIED)
                 }
             },
             duplicate = { e ->
@@ -476,7 +478,7 @@ internal fun EntryList(
             selecting = selecting,
             selected = e.id in selected,
             dragEnabled = showFolders,
-            canMove = !totpOnly && (folders.isNotEmpty() || e.folderId != null),
+            canMove = folders.isNotEmpty() || e.folderId != null, // Also in «Códigos» (review ⚠️ 1).
             actions = actions,
         )
     }
@@ -614,7 +616,7 @@ internal fun EntryList(
             SelectionBar(
                 count = selected.size,
                 allFavorite = result.shown.filter { it.id in selected }.let { s -> s.isNotEmpty() && s.all { it.favorite } },
-                canMove = !totpOnly && folders.isNotEmpty(),
+                canMove = folders.isNotEmpty(),
                 onSelectAll = { list.selection.selectAll(result.shown) },
                 onMove = { dialog = OrganizeDialog.MoveSelected(selected) },
                 onTag = { dialog = OrganizeDialog.TagSelected(selected) },

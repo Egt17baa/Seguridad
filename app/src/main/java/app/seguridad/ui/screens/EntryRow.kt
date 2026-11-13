@@ -59,8 +59,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.crypto.TOTP_UNSUPPORTED_ROW
 import app.seguridad.crypto.isSupported
@@ -355,19 +354,24 @@ private fun DragHandle(e: VaultEntry, actions: RowActions) {
 }
 
 /**
- * The copy in two steps (design «Copiar usuario y luego contraseña»): back in the app ([Lifecycle.Event.ON_RESUME]) after
- * «Copiar usuario», while [TwoStepCopy] still offers it, a message offers «Copiar contraseña» of that entry for what is
- * left of its 30 s. Only the id comes from [twoStep]: the password is read from the open vault at the tap ([liveEntry]).
+ * The copy in two steps (design «Copiar usuario y luego contraseña»): back in the app from outside it after «Copiar
+ * usuario» (MainActivity.onStop marks the leaving, [TwoStepCopy.markLeft]), within its 30 s, the screen on top offers
+ * «Copiar contraseña» of that entry for what is left of them, once (review m-1 of task 6). Never when a screen is
+ * composed or reached inside the app: what was already there when this screen came is not a return. The message goes as
+ * soon as the offer ends (another copy, a lock: [TwoStepCopy.changes], review m-2). Only the id comes from [twoStep]:
+ * the password is read from the open vault at the tap ([liveEntry]).
  */
 @Composable
 internal fun PasswordOfferOnReturn(store: VaultStore, twoStep: TwoStepCopy, snackbar: SnackbarHostState, copyPassword: (VaultEntry) -> Unit) {
-    var returns by remember { mutableIntStateOf(0) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { returns++ }
-    LaunchedEffect(returns) {
-        if (returns == 0) return@LaunchedEffect
-        val id = twoStep.pending() ?: return@LaunchedEffect
+    // Collected only while the screen is started: the leaving, marked while the app is away, arrives on the return.
+    val changes by twoStep.changes.collectAsStateWithLifecycle()
+    val atStart = remember { twoStep.changes.value }
+    LaunchedEffect(changes) {
+        if (changes == atStart) return@LaunchedEffect
+        val id = twoStep.takeReturnOffer() ?: return@LaunchedEffect
         val entry = liveEntry(store, id)?.takeIf { it.passwordForHealth().isNotEmpty() } ?: return@LaunchedEffect twoStep.clear()
         snackbar.currentSnackbarData?.dismiss()
+        // A new change (the offer ended, or a new one) restarts this effect, which takes this message off at once.
         val answer = withTimeoutOrNull(twoStep.leftMs()) {
             snackbar.showSnackbar(copyPasswordOffer(plainReportText(entry.title)), actionLabel = COPY_PASSWORD, duration = SnackbarDuration.Indefinite)
         }

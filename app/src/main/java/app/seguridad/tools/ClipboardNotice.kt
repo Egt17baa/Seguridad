@@ -33,6 +33,29 @@ fun copyOrAskNotice(
 }
 
 /**
+ * [copyOrAskNotice] for a text worked out when it is written (review m-4 of task 6: a 2FA code, which changes with
+ * time): [produce] runs at once when no notice is needed, or on [ClipboardNoticeRequest.accept]; when it gives null
+ * (the entry is gone) nothing is written and [onCopied] does not run.
+ */
+fun copyOrAskNoticeFor(
+    produce: () -> String?,
+    notice: ClipboardNoticeRequest,
+    accepted: Boolean,
+    sdk: Int,
+    write: (String) -> Unit,
+    onCopied: (() -> Unit)? = null,
+): Boolean {
+    if (needsClipboardHistoryNotice(sdk, accepted || notice.acceptedNow)) {
+        notice.askFor(produce, write, onCopied)
+        return false
+    }
+    val text = produce() ?: return false
+    write(text)
+    onCopied?.invoke()
+    return true
+}
+
+/**
  * The copy waiting for the A14 notice to be accepted. One per process (in AppContainer), so the dialog at the root of
  * the app shows it whatever screen asked, and a rotation does not lose it. The text stays only here, in memory: never
  * in a Bundle or a saved state, never in the UI's state ([asking] says only whether there is one). It goes on
@@ -40,7 +63,7 @@ fun copyOrAskNotice(
  * lock counter: a lock after [ask], even one followed by an unlock, makes [accept] write nothing.
  */
 class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
-    private class Pending(val text: String, val write: (String) -> Unit, val onCopied: (() -> Unit)?, val epoch: Int)
+    private class Pending(val produce: () -> String?, val write: (String) -> Unit, val onCopied: (() -> Unit)?, val epoch: Int)
 
     private var pending: Pending? = null
     private val _asking = MutableStateFlow(false)
@@ -56,8 +79,11 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
         private set
 
     /** Waits for the notice with [text], to be copied by [write]; a newer copy replaces an older one still waiting. */
-    @Synchronized fun ask(text: String, write: (String) -> Unit, onCopied: (() -> Unit)? = null) {
-        pending = Pending(text, write, onCopied, lockEpoch())
+    @Synchronized fun ask(text: String, write: (String) -> Unit, onCopied: (() -> Unit)? = null) = askFor({ text }, write, onCopied)
+
+    /** [ask] with a text worked out on [accept] ([copyOrAskNoticeFor]); null then copies nothing. */
+    @Synchronized fun askFor(produce: () -> String?, write: (String) -> Unit, onCopied: (() -> Unit)? = null) {
+        pending = Pending(produce, write, onCopied, lockEpoch())
         _asking.value = true
     }
 
@@ -80,8 +106,9 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
             if (p.epoch != lockEpoch()) return AcceptOutcome.LOCKED
             p
         }
+        val text = p.produce() ?: return AcceptOutcome.NOTHING_WAITING
         try {
-            p.write(p.text)
+            p.write(text)
         } catch (e: Exception) {
             return AcceptOutcome.WRITE_FAILED
         }

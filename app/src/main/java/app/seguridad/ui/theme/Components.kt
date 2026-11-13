@@ -118,7 +118,7 @@ val RowShape = RoundedCornerShape(12.dp)
  * smoothly), in «Sólido» the surface colour with a thin outline, as [SectionCard]. Pressed, it gives the same signs as
  * [SectionCard]: Material's brief glow while Android has animations on, and the still mark of [pressSignal] when it asks
  * to remove them. [onLongClick] is «mantener pulsado» (the selection). [selected] is null while the list is not selecting;
- * a selected row has an outline in the accent (3:1 on every surface, the same as the still mark) and says so to TalkBack.
+ * a selected row is filled with the secondary container (never the press's outline) and says so to TalkBack.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -139,12 +139,16 @@ fun RowPanel(
         else -> modifier.background(MaterialTheme.colorScheme.surfaceContainer, RowShape)
             .border(if (look.highContrast) look.colors.borderWidth.dp else 1.dp, if (look.highContrast) look.colors.border else MaterialTheme.colorScheme.outlineVariant, RowShape)
     }
-    val marked = if (selected == true) surface.border(2.dp, MaterialTheme.colorScheme.primary, RowShape) else surface
+    // Review m-3: a selected row is filled (secondaryContainer, opaque, where every text colour is measured), so it never
+    // looks like the still mark of a press, which is an outline in the accent.
+    val marked = if (selected == true) surface.background(MaterialTheme.colorScheme.secondaryContainer, RowShape) else surface
     CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn), LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
+            // The still mark outside the clip, as SectionCard's (on the Card, which clips inside): its 2 dp show whole.
             modifier = marked
+                .pressSignal(interaction, RowShape, animationsOn)
                 .clip(RowShape)
                 .combinedClickable(
                     interactionSource = interaction,
@@ -154,7 +158,6 @@ fun RowPanel(
                     onLongClick = onLongClick,
                     onClick = onClick,
                 )
-                .pressSignal(interaction, RowShape, animationsOn)
                 .then(if (selected != null) Modifier.semantics { this.selected = selected } else Modifier)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             content = content,

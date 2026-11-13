@@ -2,6 +2,9 @@ package app.seguridad.tools
 
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.totpCode
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** How long «Copiar contraseña» is offered after «Copiar usuario» (design «Copiar usuario y luego contraseña»). */
 const val TWO_STEP_COPY_MS = 30_000L
@@ -19,9 +22,40 @@ class TwoStepCopy(private val clock: () -> Long, private val lockEpoch: () -> In
 
     @Volatile private var offer: Offer? = null
 
+    /** Whether the app was left since the offer ([markLeft]) and the return has not offered it yet ([takeReturnOffer]). */
+    @Volatile private var left = false
+
+    private val _changes = MutableStateFlow(0L)
+
+    /**
+     * Goes up when an offer starts, when the app is left with one, and when it ends ([clear]): the screen that shows it
+     * looks again ([takeReturnOffer]) and takes it off if it ended (review m-2 of task 6). It holds a count, nothing else.
+     */
+    val changes: StateFlow<Long> = _changes.asStateFlow()
+
     /** «Copiar usuario» of entry [entryId] went into the clipboard: «Copiar contraseña» is offered for 30 s. */
     fun offerPassword(entryId: String) {
         offer = Offer(entryId, clock(), lockEpoch())
+        left = false
+        _changes.value += 1
+    }
+
+    /** The app went to the background (MainActivity.onStop): the next return offers the password, once. */
+    fun markLeft() {
+        if (live() == null) return
+        left = true
+        _changes.value += 1
+    }
+
+    /**
+     * What a screen offers when the app comes back (review m-1 of task 6: «al volver a la app» is from outside it): the
+     * entry, once per return, if the app was left within its 30 s; null otherwise (also on a screen opened inside the app).
+     */
+    fun takeReturnOffer(): String? {
+        val o = live() ?: return null
+        if (!left) return null
+        left = false
+        return o.id
     }
 
     /** The entry whose password is offered now, or null (none, its 30 s are over, the clock went back, or a lock). */
@@ -35,7 +69,10 @@ class TwoStepCopy(private val clock: () -> Long, private val lockEpoch: () -> In
 
     /** Ends the offer: «Copiar contraseña» was used, another copy was made, or the vault locked. */
     fun clear() {
+        if (offer == null) return
         offer = null
+        left = false
+        _changes.value += 1
     }
 
     private fun live(): Offer? {
@@ -43,6 +80,7 @@ class TwoStepCopy(private val clock: () -> Long, private val lockEpoch: () -> In
         val age = clock() - o.at
         if (age < 0 || age >= TWO_STEP_COPY_MS || o.epoch != lockEpoch()) {
             offer = null
+            left = false
             return null
         }
         return o

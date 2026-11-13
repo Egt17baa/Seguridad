@@ -136,7 +136,11 @@ class PlatformSourcesTest {
         assertFalse("not only while the list is on screen", "list.reset()" in src)
         // The search and the filters run off the main thread, each run cancelling the one before; a lock drops the result.
         assertTrue("withContext(Dispatchers.Default) { compute(data, qf.first, qf.second) }" in src && ".collectLatest {" in src)
-        assertTrue(Regex("""if \(store\.state\.value is VaultState\.Unlocked\) \{\s*_result\.value = r""").containsMatchIn(src))
+        // 2.0, review m-5 of task 6 (focus 4): the selection is pruned to what is shown after each result, and
+        // «Seleccionar todo» takes what is shown, nothing else.
+        assertTrue(Regex("""if \(store\.state\.value is VaultState\.Unlocked\) \{\s*_result\.value = r(?:\s*//[^\n]*)*\s*selection\.retainVisible\(r\.shown\)""").containsMatchIn(src))
+        assertTrue("onSelectAll = { list.selection.selectAll(result.shown) }" in src)
+        assertEquals(1, Regex("""\.selectAll\(""").findAll(src).count())
         assertTrue(Regex("""fun reset\(\) \{[^}]*cache = null\s+_result.value = ListResult.EMPTY""").containsMatchIn(src))
         // Review M-4: the place goes back to the ViewModel only while the vault is open (a lock already reset it).
         assertTrue(Regex("""onDispose \{\s*if \(store\.state\.value is VaultState\.Unlocked\) \{\s*list\.firstIndex""").containsMatchIn(src))
@@ -951,11 +955,43 @@ class PlatformSourcesTest {
         assertTrue(row, ".pressSignal(interaction, RowShape, animationsOn)" in row)
         assertTrue(row, "interactionSource = interaction" in row && "indication = ripple()" in row)
         assertTrue(row, ".glass(PanelLevel.CARD, RowShape)" in row)
+        // Review m-3: the still mark outside the clip, as SectionCard's, and a selected row is not marked like a press.
+        assertTrue(row, row.indexOf(".pressSignal(interaction, RowShape, animationsOn)") in 0 until row.indexOf(".clip(RowShape)"))
+        assertFalse(row, Regex("""border\(\s*2\.dp,\s*MaterialTheme\.colorScheme\.primary""").containsMatchIn(row))
+        assertTrue(row, "background(MaterialTheme.colorScheme.secondaryContainer, RowShape)" in row)
         assertTrue("fun RowPanel(" in components)
         val entryRow = code("ui/screens/EntryRow.kt")
         assertTrue(Regex("""\bRowPanel\(""").containsMatchIn(entryRow))
         // The row's presses are RowPanel's only: no clickable of its own around it (the 2FA code inside has its own).
         assertFalse(Regex("""\.combinedClickable\b""").containsMatchIn(blank(main("ui/screens/EntryRow.kt"))))
+    }
+
+    /**
+     * 2.0, review I-1 of task 6: a message of the list can name an entry, a tag or a folder. At the lock the one on screen
+     * goes, and those still waiting die with the open vault's content (their scope is inside VaultGate's), so none comes
+     * up over «Bóveda bloqueada».
+     */
+    @Test fun `the list's messages go at the lock`() {
+        val src = main("ui/screens/VaultScreen.kt")
+        val c = code("ui/screens/VaultScreen.kt")
+        assertTrue("LaunchedEffect(unlocked) { if (!unlocked) snackbar.currentSnackbarData?.dismiss() }" in c)
+        assertTrue(insideCall(src, "VaultGate", src.indexOf("val vaultScope = rememberCoroutineScope()")))
+        assertTrue("val message: (String) -> Unit = { text -> vaultScope.launch { snackbar.showSnackbar(text) } }" in c)
+        assertTrue(insideCall(src, "VaultGate", src.indexOf("EntryList(\n")))
+        assertFalse("no message of the list from the screen's own scope", Regex("""\bscope\.launch \{ snackbar\.showSnackbar\(text\) \}""").containsMatchIn(c))
+    }
+
+    /**
+     * 2.0, review m-1 of task 6: «Copiar contraseña» is offered on the return from outside the app (MainActivity marks the
+     * leaving), never on a screen's own resume (composed, or reached inside the app).
+     */
+    @Test fun `the copy in two steps offers on the return from outside the app`() {
+        assertTrue("if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.twoStepCopy.markLeft()" in code("MainActivity.kt"))
+        val row = code("ui/screens/EntryRow.kt")
+        val offer = row.substring(row.indexOf("fun PasswordOfferOnReturn("))
+        assertFalse(offer, "ON_RESUME" in offer || "LifecycleEventEffect" in offer)
+        assertTrue(offer, "twoStep.takeReturnOffer()" in offer && "twoStep.changes.collectAsStateWithLifecycle()" in offer)
+        assertTrue(offer, "if (changes == atStart) return@LaunchedEffect" in offer)
     }
 
     /** The calls to a card, a surface or a glass panel in blanked code [b] that can be pressed: where each starts. */
