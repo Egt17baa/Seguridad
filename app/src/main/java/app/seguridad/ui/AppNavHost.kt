@@ -86,6 +86,7 @@ import app.seguridad.ui.screens.VaultIdleTicker
 import app.seguridad.ui.screens.LocalVaultSwitcher
 import app.seguridad.ui.screens.VaultPickerScreen
 import app.seguridad.ui.screens.VaultSwitcher
+import app.seguridad.settings.a6Summary
 import app.seguridad.settings.firstBackupError
 import app.seguridad.settings.oldestBackupAt
 import app.seguridad.settings.replacePending
@@ -99,7 +100,6 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.ui.screens.VaultScreen
-import app.seguridad.vault.replaceOutcomeText
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.LeaveGuard
@@ -217,7 +217,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     // the outcome that was on screen (T11-d): one that arrived meanwhile is shown next.
     val replaceOutcome by container.autoBackup.replaceOutcome.collectAsStateWithLifecycle()
     replaceOutcome?.let { shown ->
-        ReplaceOutcomeDialog(replaceOutcomeText(shown, vaultSettings.targets.size), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
+        ReplaceOutcomeDialog(shown.text ?: shown.error.orEmpty(), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
     }
     // The notice of the new name, once, to those who updated (owner's decision, 31-10-2026). Never at the vault's gate,
     // where it would cover the password field or sit under the fingerprint prompt: only while the vault is open, or when
@@ -254,7 +254,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
             state = masterState,
             // 2.0, task 8: of every target (the replacement is done when it is done in all).
             autoBackupOn = vaultSettings.targets.isNotEmpty(),
-            folders = vaultSettings.targets.size,
+            summary = vaultSettings.a6Summary,
             replacing = replacing,
             pending = vaultSettings.replacePending,
             lastError = vaultSettings.firstBackupError,

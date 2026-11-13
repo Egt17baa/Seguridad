@@ -425,6 +425,9 @@ class AppContainer(
             now = System::currentTimeMillis,
             onResult = { recordAutoBackup(id, store, it) },
             onImportCopy = { folder, copy, generation -> recordImportCopy(id, store, folder, copy, generation) },
+            // Task 8, round 4: the A6 request of this vault and what was last told of it.
+            a6 = { settings.settings.value.vault(id).a6 },
+            onA6 = { state -> recordA6(id, state) },
         )
 
         /** 2.0, task 3: «Deshacer» after a move to this vault's trash; a lock of this vault (a switch locks it) forgets it. */
@@ -825,6 +828,17 @@ class AppContainer(
             throw e
         } catch (e: Exception) {
             // A full disk: the copy is there, only not listed (A6 counts it as unlisted by its name); never closes the app.
+        }
+    }
+
+    /** Task 8, round 4: saves the A6 request of the vault [id] ([A6State]); a vault deleted meanwhile is left alone. */
+    internal suspend fun recordA6(id: String, state: app.seguridad.vault.A6State) {
+        try {
+            settings.update { s -> if (!listed(id)) s else s.withVault(id) { v -> v.copy(a6 = state) } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A full disk: the same summary may be told again; never closes the app.
         }
     }
 

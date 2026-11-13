@@ -1,7 +1,12 @@
 package app.seguridad.settings
 
 import app.seguridad.crypto.KdfParams
+import app.seguridad.vault.A6State
+import app.seguridad.vault.A6Summary
 import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.ReplaceDone
+import app.seguridad.vault.a6Summary
+import app.seguridad.vault.requestId
 import app.seguridad.vault.BackupSchedule
 import app.seguridad.vault.BackupTargetSettings
 import app.seguridad.vault.VaultLimits
@@ -103,6 +108,8 @@ data class VaultSettings(
      * kept; at most [PAST_TARGETS_MAX], the newest. Forgotten with a new or an imported vault, as the targets' lists.
      */
     val pastTargets: List<BackupTargetSettings> = emptyList(),
+    /** Task 8, round 4: the A6 request of now and what was last told of it; null when none was asked (or for 1.4.3's). */
+    val a6: A6State? = null,
 )
 
 /** How many lists of folders no longer chosen [VaultSettings.pastTargets] keeps. */
@@ -156,6 +163,9 @@ val VaultSettings.firstBackupError: String? get() = a6Targets.firstNotNullOfOrNu
 val VaultSettings.oldestBackupAt: Long?
     get() = a6Targets.let { t -> if (t.isEmpty() || t.any { it.lastAt == null }) null else t.minOf { it.lastAt!! } }
 
+/** Task 8, round 4: [a6Summary] of these settings: the request of now over the targets of now. */
+val VaultSettings.a6Summary: A6Summary get() = a6Summary(targets, a6)
+
 /** Why a target cannot be added ([withTargetAdded]); null when it can. */
 enum class TargetRefusal { TOO_MANY, ALREADY_A_TARGET }
 
@@ -182,6 +192,8 @@ fun VaultSettings.withTargetAdded(uri: String, schedule: BackupSchedule, keep: I
         uri, past?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: keep, past?.schedule ?: schedule,
         copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty(),
         replacePending = past?.replacePending == true, replaceTargets = past?.replaceTargets, replaceTold = past?.replaceTold.orEmpty(),
+        // Round 4 (m-2): its result for the request and its change mark come back with it too.
+        replaceRequest = past?.replaceRequest, replaceDone = past?.replaceDone, copiedMark = past?.copiedMark,
     )
     return copy(targets = targets + added, pastTargets = pastTargets.filter { it.uri != uri }, autoBackupOffForNewVault = false)
 }
@@ -223,6 +235,7 @@ internal fun keptPast(past: List<BackupTargetSettings>, gone: BackupTargetSettin
     val kept = BackupTargetSettings(
         gone.uri, gone.keep, gone.schedule, copies = gone.copies, importCopies = gone.importCopies,
         replacePending = gone.replacePending, replaceTargets = gone.replaceTargets, replaceTold = gone.replaceTold,
+        replaceRequest = gone.replaceRequest, replaceDone = gone.replaceDone, copiedMark = gone.copiedMark,
     )
     return (past + kept).takeLast(PAST_TARGETS_MAX)
 }
@@ -232,6 +245,7 @@ fun VaultSettings.forgettingAutoBackupCopies(): VaultSettings =
     copy(
         targets = targets.map { it.copy(copies = emptyList(), importCopies = emptyList(), copiedMark = null).withoutReplaceRequest() },
         pastTargets = emptyList(),
+        a6 = null,
     )
 
 /**
@@ -245,7 +259,7 @@ fun VaultSettings.withImportCopy(folder: String, id: String, generation: Long? =
 
 /** This target with no request to replace the old copies: its targets and what it told go with it. */
 fun BackupTargetSettings.withoutReplaceRequest(): BackupTargetSettings =
-    copy(replacePending = false, replaceTargets = null, replaceTold = emptyList(), replaceUnlisted = null)
+    copy(replacePending = false, replaceTargets = null, replaceTold = emptyList(), replaceRequest = null, replaceDone = null)
 
 /** Shown in Ajustes while [VaultSettings.autoBackupOffForNewVault]. */
 const val AUTO_BACKUP_OFF_NEW_VAULT = "La copia automática se ha desactivado al crear una bóveda nueva, para no borrar las copias de la anterior. " +
@@ -272,7 +286,7 @@ private fun BackupTargetSettings.recording(r: AutoBackupResult): BackupTargetSet
     // too, so they are targets.
     r.replaceRequested -> copy(
         replacePending = true, replaceTargets = r.replaceTargets?.let { (it + importCopies).distinct() }, replaceTold = emptyList(),
-        replaceUnlisted = null,
+        replaceRequest = r.request, replaceDone = null,
     )
     // D-3: the change mark of the copy written (null when unknown keeps none, so the next copy by the calendar is made).
     r.writtenAt != null && r.copies != null ->
@@ -290,17 +304,19 @@ private fun BackupTargetSettings.withImportCopiesLeft(r: AutoBackupResult): Back
  * and leftover temporary copy went); otherwise kept, with the targets left (M4) and the failure it told added (M2).
  */
 private fun BackupTargetSettings.replaceAfter(r: AutoBackupResult): BackupTargetSettings {
-    // Round 3 (option A): a replacement keeps how many copies it left unlisted in its folder, whether its request was
-    // saved (asked while locked) or not (asked with the vault open, then cut by a lock before the other folders); a new
-    // request asked with the vault open forgets the count of before.
-    if (r.replaced) return withoutReplaceRequest().copy(replaceUnlisted = r.unlistedLeft)
-    val counted = if (r.newRequest) null else replaceUnlisted
-    if (!replacePending) return if (counted == replaceUnlisted) this else copy(replaceUnlisted = counted)
+    // Round 4: a replacement saves its result for its request, whether the request was saved (asked while locked) or not
+    // (asked with the vault open, then maybe cut by a lock before the other folders).
+    if (r.replaced) {
+        val request = r.request ?: requestId
+        return withoutReplaceRequest().copy(replaceRequest = request, replaceDone = ReplaceDone(request, r.deleted, r.unlistedLeft))
+    }
+    // Asked again with the vault open and not replaced (it failed): it is in the new request, with no result for it.
+    val joined = if (r.newRequest && r.request != null) copy(replaceRequest = r.request, replaceDone = null) else this
+    if (!replacePending) return joined
     val told = if (r.newRequest) emptyList() else replaceTold
-    return copy(
+    return joined.copy(
         replaceTargets = r.replaceTargets ?: replaceTargets,
         replaceTold = if (r.toldKey != null && r.toldKey !in told) told + r.toldKey else told,
-        replaceUnlisted = counted,
     )
 }
 

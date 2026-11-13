@@ -35,8 +35,6 @@ class MasterChanged(
         val requestedAt: Long = 0L,
         val answered: Boolean = false,
         val answerError: String? = null,
-        /** What the answer said of the copies with a copy's name left unlisted ([AutoBackupResult.unlistedLeft], COPIAS-2). */
-        val answerUnlisted: Int = 0,
         val busy: Boolean = false,
         /**
          * m2 (CR re-review): the copies listed when the password changed, the only ones «Borrar…» and «Volver a intentarlo»
@@ -67,7 +65,7 @@ class MasterChanged(
                 started = null
                 s
             } else {
-                s.copy(requestedAt = now(), answered = false, answerError = null, answerUnlisted = 0, busy = true).also { started = it }
+                s.copy(requestedAt = now(), answered = false, answerError = null, busy = true).also { started = it }
             }
         }
         val asked = started ?: return false
@@ -80,7 +78,7 @@ class MasterChanged(
                 AutoBackupResult("", null, AUTO_BACKUP_FAILED) // replace() reports its own failures; never closes the app.
             }
             // Only into the dialog that asked: closed (or opened again for another change) meanwhile, it is not reopened.
-            _state.update { s -> if (s.open && s.requestedAt == asked.requestedAt && s.busy) s.copy(answered = true, answerError = r.error, answerUnlisted = r.unlistedLeft, busy = false) else s }
+            _state.update { s -> if (s.open && s.requestedAt == asked.requestedAt && s.busy) s.copy(answered = true, answerError = r.error, busy = false) else s }
         }
         return true
     }

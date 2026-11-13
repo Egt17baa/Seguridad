@@ -194,42 +194,6 @@ fun autoBackupUnlistedText(n: Int, severalFolders: Boolean = false): String {
     }
 }
 
-/**
- * Task 8, round 3: added to the outcome of A6 for [n] folders with no count of copies left unlisted (no replacement was
- * made there for this request, so its folder was not looked at).
- */
-fun autoBackupUncheckedText(n: Int): String = if (n == 1) {
-    "En 1 carpeta no se ha comprobado si quedan copias con nombre de copia de la app que la app no tenía apuntadas: puede " +
-        "que alguna se abra con una contraseña anterior. Míralo a mano."
-} else {
-    "En $n carpetas no se ha comprobado si quedan copias con nombre de copia de la app que la app no tenía apuntadas: puede " +
-        "que alguna se abra con una contraseña anterior. Míralo a mano."
-}
-
-/**
- * Task 8, round 3: what the dialog of A6 says about [r] for a vault whose copies go to [folders] folders: its failure
- * ([AutoBackupResult.error]) or the success, and after either the copies left unlisted counted in the folders that
- * replaced ([AutoBackupResult.unlistedLeft]: a failure in one folder never hides the count of the others) and the folders
- * not looked at ([AutoBackupResult.unchecked]).
- */
-fun replaceOutcomeText(r: AutoBackupResult, folders: Int): String {
-    val several = folders > 1
-    val base = r.error ?: if (several) AUTO_BACKUP_REPLACED_SEVERAL else AUTO_BACKUP_REPLACED
-    val unlisted = if (r.unlistedLeft > 0) " " + autoBackupUnlistedText(r.unlistedLeft, several) else ""
-    val unchecked = if (r.unchecked > 0) " " + autoBackupUncheckedText(r.unchecked) else ""
-    return base + unlisted + unchecked
-}
-
-/**
- * What a replacement that went well says ([AutoBackupResult.unlistedLeft]: 0 when unknown, as after a re-creation), for a
- * vault whose copies go to [folders] folders (2.0, task 8).
- */
-fun replacedText(unlistedLeft: Int, folders: Int = 1): String {
-    val several = folders > 1
-    val done = if (several) AUTO_BACKUP_REPLACED_SEVERAL else AUTO_BACKUP_REPLACED
-    return if (unlistedLeft > 0) done + " " + autoBackupUnlistedText(unlistedLeft, several) else done
-}
-
 const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda con la contraseña nueva."
 
 /**
@@ -237,6 +201,9 @@ const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda con l
  * a change saved or its A6 request still do).
  */
 const val RETRY_AFTER_FAILURE_MS = 5 * 60_000L
+
+/** Task 8, round 4: a new id for an A6 request (16 random bytes in hex). */
+internal fun newA6RequestId(): String = java.util.UUID.randomUUID().toString()
 
 /** 2.0, task 8: what [AutoBackup.runDue] says after [n] copies made by the calendar. */
 fun scheduledCopiesText(n: Int): String = if (n == 1) "Se hizo la copia con calendario." else "Se hicieron $n copias con calendario."
@@ -291,11 +258,15 @@ data class AutoBackupResult(
      * ([BackupTargetSettings.copiedMark]) once the copy is written and listed; null when unknown or nothing was written.
      */
     val mark: String? = null,
+    /** Task 8, round 4: the A6 request this result is of ([A6State.id], or [LEGACY_A6_REQUEST]); null when it is of none. */
+    val request: String? = null,
+    /** Task 8, round 4: with [replaced], how many of the copies asked to be deleted were deleted. */
+    val deleted: Int = 0,
     /**
-     * Task 8, round 3: in the outcome of A6 told to the user, how many folders have no count of copies left unlisted
-     * ([BackupTargetSettings.replaceUnlisted] null: none was taken there for this request); 0 otherwise.
+     * Task 8, round 4: in an outcome told to the user ([AutoBackup.replaceOutcome]), its text, written by [a6Text] when it
+     * was posted (frozen: the dialog never writes its own).
      */
-    val unchecked: Int = 0,
+    val text: String? = null,
 )
 
 /** How [AutoBackup.copyBeforeImport] went. */
@@ -365,7 +336,18 @@ class AutoBackup(
      * [generation] (VaultStore.generation when it started); must not throw. Waited for before the next copy, as [onResult].
      */
     private val onImportCopy: suspend (folder: String, id: String, generation: Long) -> Unit = { _, _, _ -> },
+    /**
+     * Task 8, round 4: the vault's A6 request as saved ([A6State], with what was last told of it); null when none. Kept in
+     * memory when not given (tests of one folder).
+     */
+    a6: (() -> A6State?)? = null,
+    /** Saves the A6 request ([A6State]); must not throw. Kept in memory when not given. */
+    onA6: (suspend (A6State) -> Unit)? = null,
 ) {
+    @Volatile private var a6InMemory: A6State? = null
+    private val a6: () -> A6State? = a6 ?: { a6InMemory }
+    private val onA6: suspend (A6State) -> Unit = onA6 ?: { a6InMemory = it }
+
     private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /** A change was saved since the last debounced run: the [BackupSchedule.ON_CHANGE] targets get a copy. */
@@ -487,7 +469,7 @@ class AutoBackup(
                 if (!wanted && !(change && t.schedule == BackupSchedule.ON_CHANGE)) continue
                 // Review M-4: the state of now was already copied there (the app was opened meanwhile): no second copy.
                 if (!wanted && !t.replacePending && copiedRevision[uri] == revision) continue
-                val result = attempt(uri, if (t.replacePending) Replace(t.replaceTargets, announce = true, told = told) else null) ?: continue
+                val result = attempt(uri, if (t.replacePending) Replace(t.replaceTargets, announce = true, told = told, request = t.requestId) else null) ?: continue
                 if (t.replacePending) notices += result
             }
             // Round 3 (N-4): decided inside the lock, from one read of the targets, and only while the vault is still the
@@ -534,7 +516,7 @@ class AutoBackup(
                 // target's last copy. Never an A6 request, a copy that waited (it may be one asked by hand), the first copy
                 // to a target, nor one «con cada cambio». A skip does nothing: no write, no rotation, no new date (it stays due).
                 if (calendar && !replace && !waited && t.lastAt != null && t.copiedMark != null && t.copiedMark == store.changeMark()) continue
-                val result = attempt(uri, if (replace) Replace(t.replaceTargets, announce = true, told = told) else null) ?: continue
+                val result = attempt(uri, if (replace) Replace(t.replaceTargets, announce = true, told = told, request = t.requestId) else null) ?: continue
                 if (replace) notices += result
                 if (calendar && result.writtenAt != null && result.copies != null) byCalendar++
             }
@@ -553,35 +535,48 @@ class AutoBackup(
     private fun toldInRequests(): Set<String> = targets().filter { it.replacePending }.flatMapTo(HashSet()) { it.replaceTold }
 
     /**
-     * M2: how the A6 requests that ran by themselves went ([notices], one per target that tried), told once: the failures
-     * not yet told, or else the success. Called with [lock] held, at the end of the run that began with the vault's
-     * generation [since] (round 3, N-4: an import since makes no success). With several targets, every failure a target
-     * records as told ([AutoBackupResult.toldKey]) is in the one outcome shown (review I-2), each once, one per line.
-     *
-     * The success only once no target has the request any more (re-review 1, I-3: a target that did not try in this run
-     * still has it), and its count of copies left unlisted is the sum over every target of what each counted when it
-     * replaced ([BackupTargetSettings.replaceUnlisted], round 3, option A), read in the same snapshot that says none is
-     * waiting: a folder that finished in an earlier pass still tells its count. A failure carries the count of the folders
-     * that did finish, so the warning is never lost behind it.
+     * M2 and round 4: what a pass that A6 targets tried ([notices], one per target that tried) tells, under [lock], at the end
+     * of the pass that began with the vault's generation [since]. Nothing with no notices.
      */
-    private fun tell(notices: List<AutoBackupResult>, since: Long) {
+    private suspend fun tell(notices: List<AutoBackupResult>, since: Long) {
         if (notices.isEmpty()) return
-        val snapshot = targets()
-        val counted = snapshot.sumOf { it.replaceUnlisted ?: 0 }
-        val told = notices.mapNotNull { it.toldKey }.distinct()
-        val done = store.generation == since && notices.any { it.replaced } && snapshot.none { it.replacePending }
-        when {
-            told.isNotEmpty() -> {
-                val base = if (notices.size == 1) notices.single() else combined(notices, told.joinToString("\n"), replaced = false)
-                outcome.post(base.copy(unlistedLeft = counted, unchecked = 0))
-            }
-            done -> {
-                // One target: its own result, as 1.x told it, with the count kept.
-                val base = if (notices.size == 1) notices.single() else combined(notices, null, replaced = true)
-                outcome.post(base.copy(unlistedLeft = counted, unchecked = snapshot.count { it.replaceUnlisted == null }))
-            }
-        }
+        publish(notices, since)
     }
+
+    /**
+     * Round 4 (ruling «T8 ronda 4»): tells, under [lock], the failures of [notices] not told yet for the request (review
+     * I-2 of round 1: once in all) and the summary of the request of now ([a6Summary], from what each target saved, read
+     * once now) when it changed since it was last told ([A6State.said]) and at least one folder replaced. The text is
+     * [a6Text]'s, frozen in the outcome. An import since [since] (round 3, N-4) tells no summary: the request is gone.
+     */
+    private suspend fun publish(notices: List<AutoBackupResult>, since: Long) {
+        val told = notices.mapNotNull { it.toldKey }.distinct()
+        val state = a6()
+        val summary = a6Summary(targets(), state).takeIf { store.generation == since && it.replaced > 0 }
+        val changed = summary != null && summary.key != state?.said
+        if (told.isEmpty() && !changed) return
+        val base = when {
+            notices.size == 1 -> notices.single()
+            notices.isEmpty() -> AutoBackupResult("", null, null)
+            else -> combined(notices, null, replaced = false)
+        }
+        outcome.post(
+            base.copy(
+                error = told.joinToString("\n").ifEmpty { null },
+                replaced = summary != null && summary.notReplaced == 0,
+                unlistedLeft = summary?.unlisted ?: 0,
+                toldKey = told.firstOrNull(),
+                text = a6Text(told, summary),
+            ),
+        )
+        if (summary != null) onA6((state ?: A6State(summary.request)).copy(said = summary.key))
+    }
+
+    /**
+     * Round 4: a target that had the A6 request waiting was removed, or its folder changed (Ajustes): the summary of the
+     * request is told if it changed (it may be the end of the request: every folder left replaced).
+     */
+    suspend fun retell() = scope.async { lock.withLock { publish(emptyList(), store.generation) } }.await()
 
     /** One result for the dialog out of each target's: [error] its text, the copies left unlisted added up. */
     private fun combined(results: List<AutoBackupResult>, error: String?, replaced: Boolean) = AutoBackupResult(
@@ -617,6 +612,9 @@ class AutoBackup(
             // Review I-3 of task 8: an import during the copies replaces the vault; the targets after it never say they
             // deleted copies of the vault of before (see [attempt]).
             val since = store.generation
+            // Round 4: a new A6 request, with an id of its own: what the targets saved for an earlier one never counts.
+            val request = newA6RequestId()
+            onA6(A6State(request))
             val results = ArrayList<AutoBackupResult>()
             for (uri in all.map { it.uri }) {
                 val t = target(uri) ?: continue // Read again: removed meanwhile.
@@ -626,10 +624,10 @@ class AutoBackup(
                         // request saved while locked is still pending: it goes on, with its own targets, and what it told
                         // starts again).
                         val ids = if (t.replacePending) t.replaceTargets ?: asked else asked
-                        attempt(uri, Replace(ids, announce = false, newRequest = true, since = since))
-                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, asked) else AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
+                        attempt(uri, Replace(ids, announce = false, newRequest = true, since = since, request = request))
+                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, asked, request) else AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
                     }
-                    is VaultState.Locked -> waitForUnlock(uri, asked)
+                    is VaultState.Locked -> waitForUnlock(uri, asked, request)
                     else -> AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
                 }
             }
@@ -650,11 +648,16 @@ class AutoBackup(
     }
 
     /** The vault is locked: the request is saved (through [onResult]) and the first copy after the next unlock does it. */
-    private suspend fun waitForUnlock(uri: String, asked: List<String>?): AutoBackupResult {
+    private suspend fun waitForUnlock(uri: String, asked: List<String>?, request: String): AutoBackupResult {
         defer(uri)
         // M4: the copies listed when the password changed ([asked]; or, without them, those listed now, which are the
         // same while the vault has stayed locked since) are the ones to replace; later ones follow the target's keep.
-        onResult(AutoBackupResult(uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = asked ?: target(uri)?.copies.orEmpty()))
+        onResult(
+            AutoBackupResult(
+                uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = asked ?: target(uri)?.copies.orEmpty(),
+                request = request,
+            ),
+        )
         // Not saved (a full disk): do not say it will be done.
         return AutoBackupResult(uri, null, if (target(uri)?.replacePending == true) AUTO_BACKUP_REPLACE_WAITS else AUTO_BACKUP_FAILED)
     }
@@ -758,6 +761,8 @@ class AutoBackup(
         val told: Set<String> = emptySet(),
         /** [VaultStore.generation] when [replaceOldCopies] was asked: an import since makes it say it deleted nothing. */
         val since: Long? = null,
+        /** Round 4: the id of the A6 request this replacement is for ([A6State.id], or [LEGACY_A6_REQUEST]). */
+        val request: String = LEGACY_A6_REQUEST,
     )
 
     /**
@@ -817,17 +822,17 @@ class AutoBackup(
                         uri, at, error, rotation.mine, replaced = replaceAll && done,
                         generation = generation, unlistedLeft = rotation.unlistedLeft,
                         replaceTargets = if (replaceAll) rotation.targetsLeft else null, newRequest = replace?.newRequest == true,
-                        importCopies = rotation.importsLeft, mark = mark,
+                        importCopies = rotation.importsLeft, mark = mark, request = replace?.request, deleted = rotation.deleted,
                     )
                 }
             }
         } catch (e: CancellationException) {
             // Only this class's scope being cancelled ends the copies; one thrown by the folder is just a failure.
             currentCoroutineContext().ensureActive()
-            AutoBackupResult(uri, null, AUTO_BACKUP_FAILED, newRequest = replace?.newRequest == true)
+            AutoBackupResult(uri, null, AUTO_BACKUP_FAILED, newRequest = replace?.newRequest == true, request = replace?.request)
         } catch (e: Throwable) {
             // Never closes the app: even an Error here only means there is no copy this time.
-            AutoBackupResult(uri, null, messageFor(e), newRequest = replace?.newRequest == true)
+            AutoBackupResult(uri, null, messageFor(e), newRequest = replace?.newRequest == true, request = replace?.request)
         }
         // R-6: a replacement promises the retry only while its request is saved (read now, after an import that may have
         // dropped it; one that failed puts it back, and then it is tried again).
@@ -867,6 +872,8 @@ class AutoBackup(
         val replaceDone: Boolean = false,
         /** The import copies still listed and in the folder; null when unknown. */
         val importsLeft: List<String>? = null,
+        /** Round 4: how many of the targets of a replacement were deleted. */
+        val deleted: Int = 0,
     )
 
     /** No vault: nothing to copy. A locked one: the copy of [uri] waits for it to be opened. */
@@ -1000,7 +1007,10 @@ class AutoBackup(
         // m2 (CR re-review): a replacement is said by its targets and leftovers only. Once they are all gone it is a
         // success, even if a copy beyond [keep] (made after the change, under the new password) could not be deleted:
         // that one stays listed ([mine]) and the next rotation tries it again, as any normal copy.
-        return Rotation(if (done) null else AUTO_BACKUP_OLD_NOT_DELETED, mine, unlisted, targetsLeft, replaceDone = done, importsLeft = importsLeft)
+        return Rotation(
+            if (done) null else AUTO_BACKUP_OLD_NOT_DELETED, mine, unlisted, targetsLeft, replaceDone = done, importsLeft = importsLeft,
+            deleted = (old + oldImports).count { it !in notDeleted },
+        )
     }
 
     private fun messageFor(e: Throwable): String = when (e) {

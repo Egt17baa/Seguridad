@@ -85,7 +85,7 @@ class SettingsStore(
         val all = _settings.value
         val s = all.vault(id)
         val folders = s.backupFolders
-        val next = s.copy(targets = emptyList(), pastTargets = emptyList(), autoBackupOffForNewVault = s.autoBackupOffForNewVault || folders.isNotEmpty())
+        val next = s.copy(targets = emptyList(), pastTargets = emptyList(), a6 = null, autoBackupOffForNewVault = s.autoBackupOffForNewVault || folders.isNotEmpty())
         if (next != s) write(all.withVault(id) { next })
         folders
     }
@@ -120,9 +120,12 @@ class SettingsStore(
                         t.copy(
                             copies = was.copies, importCopies = was.importCopies, replacePending = was.replacePending,
                             replaceTargets = was.replaceTargets, replaceTold = was.replaceTold,
+                            // Round 4 (m-2): the A6 result and the change mark come back too.
+                            replaceRequest = was.replaceRequest, replaceDone = was.replaceDone, copiedMark = was.copiedMark,
                         )
                     },
                     pastTargets = before.pastTargets,
+                    a6 = before.a6,
                 )
             }
         }

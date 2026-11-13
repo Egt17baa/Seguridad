@@ -69,6 +69,7 @@ import app.seguridad.vault.AUTO_BACKUP_ADD_FOLDER
 import app.seguridad.vault.AUTO_BACKUP_ALREADY_TARGET
 import app.seguridad.tools.AUTO_BACKUP_DELETES_SHORT
 import app.seguridad.vault.AUTO_BACKUP_MORE
+import app.seguridad.vault.AUTO_BACKUP_NOW_NEEDS_OPEN
 import app.seguridad.vault.AUTO_BACKUP_REMOVED
 import app.seguridad.vault.AUTO_BACKUP_SCHEDULE_ON_OPEN
 import app.seguridad.vault.AUTO_BACKUP_TOO_MANY
@@ -114,8 +115,8 @@ import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.replaceStatus
-import app.seguridad.vault.autoBackupUnlistedText
-import app.seguridad.vault.replacedText
+import app.seguridad.vault.A6Summary
+import app.seguridad.vault.a6Text
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -241,6 +242,8 @@ private fun AutoBackupSection(
             }
             if (from != null && from != chosen) releaseIfUnused(from)
             autoBackup.request(chosen)
+            // Round 4: a folder changed while its A6 request waited: the summary of the request is told if it changed.
+            if (hadRequest) autoBackup.retell()
             // A request to replace the old copies that the new folder dropped is said, not lost in silence.
             val dropped = if (hadRequest && store.settings.value.vault(id).target(chosen)?.replacePending != true) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
             val schedule = store.settings.value.vault(id).target(chosen)?.schedule ?: BackupSchedule.ON_CHANGE
@@ -325,12 +328,14 @@ private fun AutoBackupSection(
             t.lastError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = NegativeColor) }
             OutlinedButton(
                 onClick = {
-                    autoBackup.request(t.uri) // While locked it waits, and is made as soon as the vault is opened.
+                    // Round 4 (i-3): only with the vault open. A request made while locked would live in memory only, so
+                    // nothing promises it: the text asks to open the vault and press again.
                     when (vault.state.value) {
-                        VaultState.Locked -> "Abre la bóveda (pestaña Bóveda) para hacer la copia: se hará en cuanto la abras."
-                        VaultState.NoVault -> "Aún no tienes bóveda: no hay nada que copiar."
-                        else -> null
-                    }?.let { scope.launch { snackbar.showSnackbar(it) } }
+                        is VaultState.Unlocked -> autoBackup.request(t.uri)
+                        VaultState.Locked -> scope.launch { snackbar.showSnackbar(AUTO_BACKUP_NOW_NEEDS_OPEN) }
+                        VaultState.NoVault -> scope.launch { snackbar.showSnackbar("Aún no tienes bóveda: no hay nada que copiar.") }
+                        else -> Unit
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Hacer una copia ahora") }
@@ -342,6 +347,8 @@ private fun AutoBackupSection(
                         try {
                             // From the write itself (T11-c): a replacement that finished just before is not «dropped».
                             val hadRequest = store.removeTarget(id, t.uri)
+                            // Round 4: removing a folder whose A6 request was waiting may end the request: its summary is told.
+                            if (hadRequest) autoBackup.retell()
                             releaseIfUnused(t.uri)
                             snackbar.showSnackbar(AUTO_BACKUP_REMOVED + if (hadRequest) " $AUTO_BACKUP_REPLACE_DROPPED" else "")
                         } catch (e: Exception) {
@@ -368,8 +375,11 @@ private fun AutoBackupSection(
 fun MasterChangedDialog(
     state: MasterChanged.State,
     autoBackupOn: Boolean,
-    /** 2.0, task 8: how many folders the copies go to (the text of the replacement says «en cada carpeta» with several). */
-    folders: Int = 1,
+    /**
+     * Task 8, round 4: the A6 request of now as the targets saved it ([a6Summary]); its text is [a6Text]'s, the same as the
+     * dialog after an unlock, never one written here.
+     */
+    summary: A6Summary? = null,
     replacing: Boolean,
     pending: Boolean,
     lastError: String?,
@@ -382,7 +392,10 @@ fun MasterChangedDialog(
 ) {
     val working = state.busy || replacing
     val status = replaceStatus(state.requestedAt, state.answered, state.answerError, pending, lastError, lastBackupAt, toldSinceRequest)
-    val canReplace = !working && (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed)
+    // Round 4: «Done» from the answer or the settings, but only some folders replaced for this request: said as it is, and
+    // «Borrar…» can be asked again.
+    val partial = status is ReplaceStatus.Done && summary != null && summary.notReplaced > 0
+    val canReplace = !working && (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed || partial)
     AlertDialog(
         onDismissRequest = { if (!working) onClose() },
         title = { Text(PASSWORD_CHANGED_TITLE) },
@@ -401,14 +414,16 @@ fun MasterChangedDialog(
                     ) { Text(PASSWORD_CHANGE_REPLACE_COPIES) }
                     when {
                         working -> Hint(PASSWORD_CHANGE_WORKING)
-                        // 0 unknown (the answer was lost to a re-creation): the base text, true whatever the folder holds.
-                        status is ReplaceStatus.Done -> Hint(replacedText(state.answerUnlisted, folders))
+                        // Round 4: the success only from what the folders saved for this request (a6Text): never «en cada
+                        // carpeta» unless every folder of now replaced for it.
+                        status is ReplaceStatus.Done && !partial -> a6Text(emptyList(), summary).takeIf { it.isNotEmpty() }?.let { Hint(it) }
+                        partial -> Text(a6Text(emptyList(), summary), style = MaterialTheme.typography.bodySmall, color = NegativeColor)
                         status is ReplaceStatus.Waits -> Hint(AUTO_BACKUP_REPLACE_WAITS)
-                        status is ReplaceStatus.Failed -> {
-                            Text(status.message, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
-                            // Round 3: the folders that did replace still tell their copies left unlisted.
-                            if (state.answerUnlisted > 0) Hint(autoBackupUnlistedText(state.answerUnlisted, folders > 1))
-                        }
+                        status is ReplaceStatus.Failed -> Text(
+                            a6Text(listOf(status.message), summary),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NegativeColor,
+                        )
                         else -> Unit
                     }
                 }

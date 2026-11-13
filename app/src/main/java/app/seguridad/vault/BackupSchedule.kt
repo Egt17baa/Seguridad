@@ -39,13 +39,18 @@ data class BackupTargetSettings(
     val replaceTold: List<String> = emptyList(),
     val importCopies: List<String> = emptyList(),
     /**
-     * Task 8, round 3 (ruling «T8 ronda 3», option A): how many files with exactly a copy's name, not on this target's
-     * lists, were in its folder when it replaced its old copies for the A6 request (COPIAS-2); null when it has not
-     * replaced them for the request of now (or never could list its folder). Set only by a replacement, whose listing
-     * succeeded; cleared by a new request, an import, a new or deleted vault. The success of A6 adds them up over every
-     * target, so a folder that finished in an earlier pass still tells its count.
+     * Task 8, round 4 (ruling «T8 ronda 4»): the A6 request this target is in (its id, [A6State.id]), set when it gets the
+     * request (asked while locked, or asked with the vault open); null for a request saved by 1.4.3 or before, which counts
+     * as [LEGACY_A6_REQUEST].
      */
-    val replaceUnlisted: Int? = null,
+    val replaceRequest: String? = null,
+    /**
+     * Task 8, round 4: what this target did for the request [ReplaceDone.request] when it replaced its old copies: how many
+     * of the copies it was asked to delete it deleted, and how many files with a copy's name, not on its lists, were left
+     * in its folder (COPIAS-2). Only a result of the current request is ever counted ([a6Summary]); null when it has not
+     * replaced for the request it is in.
+     */
+    val replaceDone: ReplaceDone? = null,
     /**
      * Task 8, round 3 (owner's decision D-3): the vault's change mark ([VaultStore.changeMark]) when this target's last copy
      * was written: a copy by the calendar is skipped while the mark is still this one (the vault did not change). Null
@@ -89,3 +94,18 @@ fun BackupTargetSettings.due(now: Long, zone: ZoneId = ZoneId.systemDefault()): 
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     return !today.isBefore(schedule.nextAfter(Instant.ofEpochMilli(last).atZone(zone).toLocalDate()))
 }
+
+/** Task 8, round 4: a target's replacement for the A6 request [request] ([BackupTargetSettings.replaceDone]). */
+@Serializable
+data class ReplaceDone(val request: String, val deleted: Int, val unlisted: Int)
+
+/**
+ * Task 8, round 4: the A6 request of a vault (after a change of master password, «Borrar las copias anteriores»): [id],
+ * new at each request, and [said], the key of the last summary told for it ([A6Summary.key]), so the same is never told
+ * twice and a change is always told.
+ */
+@Serializable
+data class A6State(val id: String, val said: String? = null)
+
+/** The id of an A6 request saved by 1.4.3 or before (or a target's, with none): one request, as 1.x had only one. */
+const val LEGACY_A6_REQUEST = "1.x"

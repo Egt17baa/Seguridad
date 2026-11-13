@@ -44,3 +44,9 @@ fun scheduleAfter(s: BackupSchedule) = when (s) {
     BackupSchedule.WEEKLY -> "cada semana, si hubo cambios, al abrir la app"
     BackupSchedule.MONTHLY -> "cada mes, si hubo cambios, al abrir la app"
 }
+
+/**
+ * Task 8, round 4 (i-3): «Hacer una copia ahora» with the vault locked. The copy is not asked (it would live in memory only),
+ * so nothing is promised.
+ */
+const val AUTO_BACKUP_NOW_NEEDS_OPEN = "La copia se hace con la bóveda abierta: ábrela (pestaña Bóveda) y vuelve a pulsar «Hacer una copia ahora»."
