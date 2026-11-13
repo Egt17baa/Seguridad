@@ -142,3 +142,8 @@ Task 7: dispatched (base de la tarea: el commit de este registro, model opus).
 Owner decision (13-11-2026): se cambia el orden de las dos últimas tareas — primero la 12 (versión 2.0, documentos y revisión final con `code-review`, `security-review`, la auditoría, el ataque y el Abogado final) y después la 11 (los flujos de Maestro), con la 2.0 ya hecha.
 Task 7: se paró por el límite de uso y se reanudó. Implementer DONE_WITH_CONCERNS (162f395..7dde42e; app 2175, jvm-check 2138). Dudas a la revisión: «pegar» se reconoce como un bloque de 10 o más caracteres de golpe; sin generador para el número de tarjeta, la clave de licencia y el del pasaporte; cambiar de pestaña con cambios los descarta sin preguntar.
 Task 7 review: dispatched (1651eec..7dde42e, model opus).
+Task 7 review (7dde42e): spec ✅ con 2 desviaciones, quality Needs fixes; 0 Critical, 1 Important, 4 Minor (`task-7-review.md`).
+Ruling (T7, D-1): «pegar» es un bloque de 10 o más caracteres que entra de golpe (también el autocompletado o el dictado) — se acepta: solo pregunta, nunca lee el portapapeles ni cambia nada solo, y el generador no lo dispara — si molesta, se engancha a la acción de pegar del campo.
+Ruling (T7, D-2): sin generador junto al número de la tarjeta, la clave de la licencia y el número del pasaporte — se acepta: los emite otro y el diseño lo pide en los campos de contraseña; sí en la contraseña del wifi y en los campos ocultos propios.
+Ruling (T7, I-1): cambiar de pestaña con cambios sin guardar abre el mismo «¿Guardar los cambios?»; las pestañas consultan un guardián (un Boolean y una llamada) y nada de lo escrito sobrevive a salir; el bloqueo lo sigue borrando todo — test.
+Ruling (T7, menores): m-1 a m-4 a la ronda 1 (`CLAUDE.md`).
