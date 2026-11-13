@@ -99,7 +99,7 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.seguridad.ui.screens.VaultScreen
-import app.seguridad.vault.replacedText
+import app.seguridad.vault.replaceOutcomeText
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
 import app.seguridad.vault.LeaveGuard
@@ -217,7 +217,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     // the outcome that was on screen (T11-d): one that arrived meanwhile is shown next.
     val replaceOutcome by container.autoBackup.replaceOutcome.collectAsStateWithLifecycle()
     replaceOutcome?.let { shown ->
-        ReplaceOutcomeDialog(shown.error ?: replacedText(shown.unlistedLeft, vaultSettings.targets.size), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
+        ReplaceOutcomeDialog(replaceOutcomeText(shown, vaultSettings.targets.size), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
     }
     // The notice of the new name, once, to those who updated (owner's decision, 31-10-2026). Never at the vault's gate,
     // where it would cover the password field or sit under the fingerprint prompt: only while the vault is open, or when

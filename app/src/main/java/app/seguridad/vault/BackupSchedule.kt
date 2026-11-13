@@ -38,6 +38,20 @@ data class BackupTargetSettings(
     val replaceTargets: List<String>? = null,
     val replaceTold: List<String> = emptyList(),
     val importCopies: List<String> = emptyList(),
+    /**
+     * Task 8, round 3 (ruling «T8 ronda 3», option A): how many files with exactly a copy's name, not on this target's
+     * lists, were in its folder when it replaced its old copies for the A6 request (COPIAS-2); null when it has not
+     * replaced them for the request of now (or never could list its folder). Set only by a replacement, whose listing
+     * succeeded; cleared by a new request, an import, a new or deleted vault. The success of A6 adds them up over every
+     * target, so a folder that finished in an earlier pass still tells its count.
+     */
+    val replaceUnlisted: Int? = null,
+    /**
+     * Task 8, round 3 (owner's decision D-3): the vault's change mark ([VaultStore.changeMark]) when this target's last copy
+     * was written: a copy by the calendar is skipped while the mark is still this one (the vault did not change). Null
+     * until a copy is written (the first copy is never skipped).
+     */
+    val copiedMark: String? = null,
 )
 
 private const val DAY_MS = 24L * 60 * 60 * 1000

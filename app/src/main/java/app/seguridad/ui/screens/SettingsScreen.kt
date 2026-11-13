@@ -114,6 +114,7 @@ import app.seguridad.vault.VaultLock
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.replaceStatus
+import app.seguridad.vault.autoBackupUnlistedText
 import app.seguridad.vault.replacedText
 import java.time.Instant
 import java.time.ZoneId
@@ -403,7 +404,11 @@ fun MasterChangedDialog(
                         // 0 unknown (the answer was lost to a re-creation): the base text, true whatever the folder holds.
                         status is ReplaceStatus.Done -> Hint(replacedText(state.answerUnlisted, folders))
                         status is ReplaceStatus.Waits -> Hint(AUTO_BACKUP_REPLACE_WAITS)
-                        status is ReplaceStatus.Failed -> Text(status.message, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+                        status is ReplaceStatus.Failed -> {
+                            Text(status.message, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+                            // Round 3: the folders that did replace still tell their copies left unlisted.
+                            if (state.answerUnlisted > 0) Hint(autoBackupUnlistedText(state.answerUnlisted, folders > 1))
+                        }
                         else -> Unit
                     }
                 }

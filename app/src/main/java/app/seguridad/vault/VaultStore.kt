@@ -416,6 +416,23 @@ class VaultStore(
     fun lastChangeSavedAt(): Long? = file.lastModified().takeIf { it > 0 }
 
     /**
+     * Task 8, round 3 (owner's decision D-3): a mark of the vault as the copies would hold it, kept by each target of the
+     * automatic copies when one is written ([BackupTargetSettings.copiedMark]); a copy by the calendar is skipped while
+     * the mark has not changed. Saved on disk, so it outlives the process: it is a SHA-256 (opaque: nothing of the vault
+     * can be read from it) of the time of the last change saved ([lastChangeSavedAt]: entries, attachments, the vault's
+     * own settings as its folders, views or name, a new master password, an import; never bookkeeping such as an unlock or
+     * «Recientes»), of the Argon2id cost of the file (a wrap again with a higher cost, A8, at an unlock, keeps that time)
+     * and of the vault's [VaultData.vaultTag] (a new tag starts it again). Null with the vault not open, or no file.
+     */
+    fun changeMark(): String? {
+        val v = vault ?: return null
+        val tag = (_state.value as? VaultState.Unlocked)?.data?.vaultTag ?: return null
+        val changedAt = lastChangeSavedAt() ?: return null
+        val raw = "$changedAt|${v.kdf.memoryKiB},${v.kdf.iterations},${v.kdf.parallelism}|$tag"
+        return java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    }
+
+    /**
      * Shows [v] unlocked with [key], which the store now owns; if a [lock] happened since [since], it stays locked
      * and [key] is wiped instead. The entries are read before the key is kept, so a wrong key is never held.
      */
