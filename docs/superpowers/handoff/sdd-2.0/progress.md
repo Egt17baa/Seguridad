@@ -128,3 +128,8 @@ Task 6: dispatched (base 3024c95, model opus). Lleva: «Mover a…» y «Duplica
 Task 6: se paró por el límite de uso (sin cambios) y se reanudó tras el reinicio del proceso.
 Task 6: implementer DONE_WITH_CONCERNS (d111ab8..0f5be65; app 2146, jvm-check 2109). Ruling (T6, dudas): se aceptan — la oferta de «Copiar contraseña» se borra al bloquear (el brief lo pide, así que con «Al salir» no sale al volver); sale también al volver a la lista o a la ficha; «Favorita» y «Etiquetar» en bloque guardan versión como el editor y «Mover a…» no; «Deshacer» y la oferta se cortan entre sí (raro); P-5 de Maestro al día sin ejecutar (tarea 11) — la revisión los mira.
 Task 6 review: dispatched (f8d1d54..0f5be65, model opus).
+Task 6 review (0f5be65): spec ✅ con 2 ⚠️, quality Needs fixes; 0 Critical, 1 Important, 7 Minor (`task-6-review.md`).
+Ruling (T6, ⚠️ 1): «Mover a…» también en el «⋮» de «Códigos» cuando la fila es una entrada de la bóveda (todas pueden ir a una carpeta) — el diseño pone «mover» en el menú de cada fila — a la ronda 1.
+Ruling (T6, ⚠️ 2 y m-1): la oferta de «Copiar contraseña» sale solo al volver a la app desde fuera (el proceso pasó por `ON_STOP`), dentro de los 30 s, como dice el diseño («al volver a la app»); con el bloqueo «Al salir» no sale nunca, porque el bloqueo la borra — se acepta: al volver, la bóveda está cerrada y abrirla manda — si molesta, se dice en «Más información».
+Ruling (T6, I-1, seguridad): los avisos con datos de la bóveda (título, etiqueta, carpeta) se descartan al bloquear y se lanzan en un ámbito que muere con `VaultGate`, también los de la tarea 4 — test.
+Ruling (T6, menores): m-2 a m-7 a la ronda 1 (`CLAUDE.md`); m-4: el código 2FA se calcula después de aceptar el aviso A14.
