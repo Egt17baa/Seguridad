@@ -124,3 +124,4 @@ Task 5 bis: fix round 1/5 (8 addressed, 0 open; e53c4a5..43aa2c4). Re-review 1: 
 Task 5 bis: fix round 2/5 (3 addressed, 0 open; 43aa2c4..ff8580e; app 2121, jvm-check 2090). Re-review 2: aprobado.
 Ruling (T5 bis, menores de la re-review 2): el test de N-3 solo ve `Card(…clickable)` en una línea, y las filas de la lista con `clickable` no tienen marca estática sin animaciones — los dos a la tarea 6, que hace las filas como paneles y amplía ese test a varias líneas — nada queda sin arreglar.
 Task 5 bis: complete (commits 51ac870..ff8580e, review clean). Informes: `task-5bis-report.md`, `task-5bis-review.md`, `task-5bis-rereview-1.md`, `task-5bis-rereview-2.md`.
+Task 6: dispatched (base 3024c95, model opus). Lleva: «Mover a…» y «Duplicar» en «⋮» (T4, T5), las filas como paneles de cristal y su marca estática sin animaciones, y el test de N-3 a varias líneas (T5 bis).
