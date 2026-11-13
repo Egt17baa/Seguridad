@@ -155,3 +155,4 @@ Task 7: fix round 3/5 (M-A, Info-1 addressed, 0 open; 27e817a..bb74e6d; app 2184
 Task 7: complete (commits 1651eec..bb74e6d, review clean). Informes: `task-7-report.md`, `task-7-review.md`, `task-7-rereview-1.md` a `-3.md`.
 Deferred (al móvil, tarea 11): el diálogo al cambiar de pestaña, tocar una pestaña durante un guardado (sin señal, Info-3), los botones apilados con la letra al 200 %, la propuesta al pegar un 2FA o una frase.
 Task 8: dispatched (model opus).
+Task 8: el primer intento se perdió con un reinicio del contenedor (sin commits); se lanzó de nuevo desde 65f89fa (model opus), con commits a menudo.
