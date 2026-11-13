@@ -135,3 +135,7 @@ Ruling (T6, I-1, seguridad): los avisos con datos de la bóveda (título, etique
 Ruling (T6, menores): m-2 a m-7 a la ronda 1 (`CLAUDE.md`); m-4: el código 2FA se calcula después de aceptar el aviso A14.
 Task 6: fix round 1/5 (10 addressed, 0 open; 0f5be65..0f6051d; app 2151, jvm-check 2114). Re-review 1: aprobado, con 2 menores nuevos.
 Ruling (T6, re-review 1): N-1 (`ClipboardNotice`: si `produce()` da null al aceptar el aviso A14, no se apunta `acceptedNow` y el aviso puede repetirse) a la ronda 2; N-2 (al volver con una pantalla sin la oferta arriba, la oferta no sale) se acepta — una oferta por vuelta y solo donde se copió, coherente con el diseño.
+Task 6: fix round 2/5 (1 addressed, 0 open; 0f6051d..04b9865; app 2152, jvm-check 2115). Re-review 2: aprobado.
+Task 6: complete (commits f8d1d54..04b9865, review clean). Informes: `task-6-report.md`, `task-6-review.md`, `task-6-rereview-1.md`, `task-6-rereview-2.md`.
+Deferred (al móvil, tarea 11): la fila elegida opaca en «Cristal», la marca quieta sin animaciones en las filas, deslizar con su vibración, la oferta al volver de otra app.
+Task 7: dispatched (base de la tarea: el commit de este registro, model opus).
