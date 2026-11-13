@@ -147,3 +147,5 @@ Ruling (T7, D-1): «pegar» es un bloque de 10 o más caracteres que entra de go
 Ruling (T7, D-2): sin generador junto al número de la tarjeta, la clave de la licencia y el número del pasaporte — se acepta: los emite otro y el diseño lo pide en los campos de contraseña; sí en la contraseña del wifi y en los campos ocultos propios.
 Ruling (T7, I-1): cambiar de pestaña con cambios sin guardar abre el mismo «¿Guardar los cambios?»; las pestañas consultan un guardián (un Boolean y una llamada) y nada de lo escrito sobrevive a salir; el bloqueo lo sigue borrando todo — test.
 Ruling (T7, menores): m-1 a m-4 a la ronda 1 (`CLAUDE.md`).
+Task 7: fix round 1/5 (5 addressed, 0 open; 7dde42e..e7cd9ae; app 2182, jvm-check 2145). Re-review 1: aprobado, 1 menor nuevo (N-1: con un guardado en marcha la pestaña se abre ya y, si el guardado falla, el error no sale en ningún sitio y se pierde lo escrito) — a la ronda 2.
+Ruling (T7, observación fuera de alcance, seguridad): «un `upsert` en cola detrás de una derivación larga podría escribir en otra bóveda» (`VaultStore.kt:768`) — se comprueba en la ronda 2 con un test (foco 2 de la tarea 2); si es real, se arregla ahí.
