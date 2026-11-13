@@ -12,7 +12,7 @@ Cada aplazado del registro (`progress.md`), con su destino y su estado. La revis
 | 6 | R-C10: una línea en la política sobre los ajustes de aspecto | T5 bis | Tarea 12 (documentos) | Abierto |
 | 7 | O-3: el paso a v4 en «Novedades», notas y README | T1 | Tarea 12 (documentos) | Abierto |
 | 8 | Política: el número y el color de las bóvedas sin cifrar en el móvil (opción A), las copias `seguridad-antes-de-2-0-` en A6, varias carpetas con calendario | T1, T2, T8 | Tarea 12 (documentos) y Abogado final | Abierto |
-| 9 | D-3: una copia con calendario se hace aunque nada haya cambiado | T8 | Dueño (recomendación: saltarla si no hubo cambios) | Pendiente del dueño |
+| 9 | D-3: una copia con calendario se hace aunque nada haya cambiado | T8 | Dueño: saltarla si no hubo cambios (13-11) | A la ronda 3 de la tarea 8 |
 | 10 | Margen del contraste (4,5:1 sin margen; el redondeo de la GPU) | T5 bis | Móvil; si se queda corto, objetivo 4,6 | Abierto |
 | 11 | Móvil: difuminado desde Android 12, aspecto en 8 a 11, desplazamiento, foco bajo las barras, menús, «Colores del fondo de pantalla» | T5 bis | Tarea 11 (Maestro) y dueño | Abierto |
 | 12 | Móvil: fila elegida opaca, marca quieta sin animaciones, deslizar y vibración, oferta al volver de otra app | T6 | Tarea 11 y dueño | Abierto |
