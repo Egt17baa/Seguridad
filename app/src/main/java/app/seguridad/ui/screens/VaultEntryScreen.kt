@@ -422,9 +422,12 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
     fun save(entry: VaultEntry) {
         if (form.saving.value) return
         form.saving.value = true
+        // Re-review 1: the lock epoch of this «Guardar»: a lock before the store takes the save refuses it, also if the
+        // vault was opened again meanwhile (never a late write after a lock).
+        val sinceLock = store.lockEpoch
         viewModelScope.launch {
             try {
-                if (store.upsert(entry)) {
+                if (store.upsert(entry, sinceLock = sinceLock)) {
                     // Review I-1: saved from the dialog of a tab, the tab opens once the entry is saved.
                     val go = form.takeLeave()
                     form.finish()

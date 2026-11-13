@@ -509,10 +509,15 @@ class EntryEditSessionTest {
         s.back()
         assertFalse(s.askingToLeave.value)
         assertFalse(s.finished.value)
-        // A tab goes at once; the save goes on.
+        // Re-review N-1: a tab waits for the save, with no dialog: it opens once the entry is saved, and a failed save
+        // keeps the form with its error (the ViewModel takes it with takeLeave, as for «Guardar» of the dialog).
         s.askToLeave { went++ }
-        assertEquals(1, went)
+        assertEquals(0, went)
         assertFalse(s.askingToLeave.value)
+        assertEquals("Banco nuevo", s.title.value)
+        s.takeLeave()!!.invoke()
+        assertEquals(1, went)
+        assertNull(s.takeLeave())
         // «Descartar» of a dialog opened before the save does nothing while it runs.
         s.saving.value = false
         s.back()

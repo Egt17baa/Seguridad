@@ -483,11 +483,12 @@ class EntryEditSession(
      * Leaving the form towards [go] (another tab, review I-1 of task 7), or with «Atrás» when null. With changes, the
      * dialog opens, without an old error on it (m-1), and [go] waits for its answer; without changes, [go] runs (or the
      * form ends). While a save is under way nothing is asked (m-2): «Atrás» waits, since the screen goes by itself when
-     * the save ends, and a tab goes at once (the save goes on in the ViewModel, and what was typed is cleared on leaving).
+     * the save ends, and a tab waits for the save too (re-review N-1): it opens once the entry is saved ([takeLeave]),
+     * and a save that fails keeps the form, with its error on screen, instead of losing it silently.
      */
     fun askToLeave(go: (() -> Unit)?) {
         when {
-            saving.value -> go?.invoke()
+            saving.value -> if (go != null) pendingLeave = go
             hasUnsavedChanges -> {
                 error.value = null
                 pendingLeave = go

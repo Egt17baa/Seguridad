@@ -180,6 +180,69 @@ class AppContainerVaultsTest {
         }
     }
 
+    /**
+     * 2.0, re-review 1 of task 7: a save of the editor that waits while the vault locks (behind another save, or a
+     * derivation) never lands after the lock: not in the other vault after a switch, and not in its own vault opened
+     * again. The editor gives the lock epoch of its «Guardar» ([VaultStore.upsert] with `sinceLock`).
+     */
+    @Test fun aSaveWaitingAcrossALockOrASwitchLandsNowhere() = runBlocking {
+        val pool = Executors.newSingleThreadExecutor()
+        val armed = java.util.concurrent.atomic.AtomicReference<CountDownLatch?>(null)
+        val compute = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                pool.execute(block)
+                armed.getAndSet(null)?.countDown()
+            }
+        }
+        val gate = CountDownLatch(1)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+        try {
+            val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = scope, vaultCompute = compute)
+            val (_, idB) = twoVaults(c)
+            c.switchTo(PRIMARY_VAULT_ID)
+            c.vault.unlock(masterA.toCharArray())
+            val a = c.vault
+
+            // 1. Requested before a lock, reaching the store after the same vault was opened again: refused.
+            val before = a.lockEpoch
+            a.lock()
+            a.unlock(masterA.toCharArray())
+            assertTrue(a.unlocked())
+            assertFalse("a save of before the lock is not written after it", a.upsert(note("de-antes"), sinceLock = before))
+            assertTrue(a.data().entries.none { it.id == "de-antes" })
+            // The same save, with the epoch of now, is written.
+            assertTrue(a.upsert(note("de-ahora"), sinceLock = a.lockEpoch))
+
+            // 2. Waiting for the mutex behind another save while the vault switches: lands nowhere.
+            val fileB = File(c.registry.dirOf(idB), "vault.bin")
+            val beforeB = fileB.readText()
+            pool.execute { gate.await() }
+            val handed = CountDownLatch(1)
+            armed.set(handed)
+            val first = scope.async { a.upsert(note("primera")) }
+            assertTrue(handed.await(30, java.util.concurrent.TimeUnit.SECONDS))
+            val epoch = a.lockEpoch
+            val waiting = scope.async { a.upsert(note("en-cola"), sinceLock = epoch) }
+            val switch = scope.async { c.switchTo(idB) }
+            withTimeout(30_000) { a.state.first { it is VaultState.Locked } }
+            gate.countDown()
+            withTimeout(60_000) { switch.await() }
+            assertTrue("a save already started lands in A", withTimeout(60_000) { first.await() })
+            assertFalse("a save that waited across the switch lands nowhere", withTimeout(60_000) { waiting.await() })
+            assertEquals(beforeB, fileB.readText())
+            c.vault.unlock(masterB.toCharArray())
+            assertTrue(c.vault.data().entries.none { it.id == "en-cola" || it.id == "primera" })
+            c.switchTo(PRIMARY_VAULT_ID)
+            c.vault.unlock(masterA.toCharArray())
+            assertTrue(c.vault.data().entries.any { it.id == "primera" })
+            assertTrue(c.vault.data().entries.none { it.id == "en-cola" || it.id == "de-antes" })
+        } finally {
+            gate.countDown()
+            scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
+            pool.shutdown()
+        }
+    }
+
     @Test fun deleteNeedsMasterAndName() = runTest {
         val released = mutableListOf<String>()
         val forgotten = mutableListOf<String>()

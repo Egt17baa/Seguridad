@@ -759,6 +759,7 @@ class VaultStore(
     private suspend fun modifyData(
         accept: suspend (VaultFile) -> Boolean = { true },
         bookkeeping: Boolean = false,
+        sinceLock: Int? = null,
         change: suspend (VaultData) -> VaultData?,
     ): Boolean = mutex.withLock {
         // 2.0, task 4: bookkeeping ([markUsed]) is no change the user made: while the upgrade waits it is only skipped.
@@ -766,6 +767,9 @@ class VaultStore(
         check(upgrade == null) { UPGRADE_PENDING }
         val v = vault ?: return@withLock false
         val since = epoch
+        // 2.0, re-review 1 of task 7: a change asked for before a lock (the caller's [lockEpoch]) is not written after it,
+        // even if the vault was opened again while it waited for the mutex (decision (b) of 1.4.0).
+        if (sinceLock != null && since != sinceLock) return@withLock false
         val key = dek?.copyOf() ?: return@withLock false
         val current = (_state.value as? VaultState.Unlocked)?.data ?: return@withLock false.also { key.fill(0) }
         // 2.0, review I-2 of task 4: what is written is what opens (as the fingerprint's unlock, review M-5 of task 1): the
@@ -799,9 +803,11 @@ class VaultStore(
      * the entry as it was in its history ([withVersion]), and a new LOGIN password puts the old one in the list of the 5
      * newest ([withNewPassword], ruling T3 I-2); the history, that list and the attachments are the store's to keep,
      * whatever the caller sends. False, with nothing saved, for an id that is in the trash (a screen left open on it): it
-     * is restored with [restore], never overwritten ([saveRefusedText] tells the editor why).
+     * is restored with [restore], never overwritten ([saveRefusedText] tells the editor why). With [sinceLock] (the
+     * [lockEpoch] of the editor's «Guardar»), false with nothing saved when the vault locked since, also if it was
+     * opened again meanwhile.
      */
-    suspend fun upsert(entry: VaultEntry) = modifyData { data ->
+    suspend fun upsert(entry: VaultEntry, sinceLock: Int? = null) = modifyData(sinceLock = sinceLock) { data ->
         if (data.entries.any { it.id == entry.id && it.deletedAt != null }) return@modifyData null
         val list = data.live
         checkCanHold(list, listOf(entry))
