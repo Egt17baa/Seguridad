@@ -1044,4 +1044,26 @@ class PlatformSourcesTest {
         }
         assertTrue("data class CustomPalette(val accentHue: Int, val backgroundHue: Int, val glass: GlassLevel)" in code("settings/Appearance.kt"))
     }
+
+    /**
+     * Task 8, round 4: the texts of an A6 outcome come only from a6Text (vault/A6Text.kt): no other main source picks the
+     * success sentence; and «Hacer una copia ahora» with the vault locked asks for no copy (it would live in memory only)
+     * and promises none (i-3).
+     */
+    @Test fun `the A6 texts come from one function, and a copy by hand needs the vault open`() {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/java/app/seguridad").isDirectory) dir = dir.parentFile
+        val users = File(dir, "app/src/main/java/app/seguridad").walk().filter { it.isFile && it.name.endsWith(".kt") }
+            .filter { f -> Regex("""\bAUTO_BACKUP_REPLACED(_SEVERAL)?\b""").containsMatchIn(f.readText().lines().filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("//") }.joinToString("\n")) }
+            .map { it.name }.toSet()
+        assertEquals(setOf("A6Text.kt", "AutoBackup.kt", "ToolTexts.kt"), users)
+        val auto = code("vault/AutoBackup.kt")
+        assertFalse("AUTO_BACKUP_REPLACED_SEVERAL else AUTO_BACKUP_REPLACED" in auto)
+        val settings = code("ui/screens/SettingsScreen.kt")
+        assertTrue("is VaultState.Unlocked -> autoBackup.request(t.uri)" in settings)
+        assertTrue("VaultState.Locked -> scope.launch { snackbar.showSnackbar(AUTO_BACKUP_NOW_NEEDS_OPEN) }" in settings)
+        assertEquals(1, Regex("""autoBackup\.request\(t\.uri\)""").findAll(settings).count())
+        assertFalse("se hará en cuanto la abras" in settings)
+    }
 }
+

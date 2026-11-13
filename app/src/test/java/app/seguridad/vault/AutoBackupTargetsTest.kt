@@ -9,6 +9,7 @@ import app.seguridad.settings.canAddTarget
 import app.seguridad.settings.firstBackupError
 import app.seguridad.settings.oldestBackupAt
 import app.seguridad.settings.replaceToldAny
+import app.seguridad.settings.a6Summary
 import app.seguridad.settings.listedCopies
 import app.seguridad.settings.vault
 import app.seguridad.settings.withAutoBackupResult
@@ -157,6 +158,9 @@ class AutoBackupTargetsTest {
             afterResult(r)
         },
         zone = ZoneOffset.UTC,
+        // Round 4: the A6 request in the settings, as AppContainer keeps it.
+        a6 = { settings.settings.value.vault(id).a6 },
+        onA6 = { state -> settings.updateVault(id) { it.copy(a6 = state) } },
     ).also { runCurrent() }
 
     private fun TestScope.settle() {
@@ -1144,5 +1148,247 @@ class AutoBackupTargetsTest {
         assertTrue(base != changeMarkOf(1_000L, VaultKdf(2048, 1, 1), "tag"))
         assertTrue(base != changeMarkOf(1_000L, VaultKdf(1024, 2, 1), "tag"))
         assertTrue(base != changeMarkOf(1_000L, VaultKdf(1024, 1, 1), "otra"))
+    }
+
+    // ---- Round 4 (re-review 3; ruling «T8 ronda 4»): one stored result per target, one text function ----
+
+    /**
+     * Re-review 3, I-1, camino A: «uno» removed before the change of password (so not in the request) and added back while
+     * «dos» still has it: when «dos» replaces, the text says 1 of 2 folders, never «en cada carpeta», and uno's old copies
+     * are still there.
+     */
+    @Test fun aFolderRemovedBeforeTheChangeAndAddedBackIsNotSaidDeleted() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        val oldInOne = one.copies().toSet()
+        settings.removeTarget("a", "content://uno")
+        a6Asked(s, a)
+        two.failCreate = java.io.IOException("lleno")
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE) }
+        a.request("content://uno")
+        settle()
+        two.failCreate = null
+        clock += 60_000
+        s.upsert(note("2"))
+        settle()
+        val told = a.replaceOutcome.value!!
+        assertFalse(told.replaced)
+        assertEquals(a6PartialText(1, 2), told.text)
+        assertFalse("cada carpeta" in told.text!!)
+        assertTrue(oldInOne.all { it in one.files })
+        assertEquals(1, settings.settings.value.vault("a").a6Summary.notReplaced)
+    }
+
+    /**
+     * Re-review 3, I-1, camino B: «Borrar…» with the vault open; «uno» fails while the vault locks; «dos» saves the request
+     * and replaces at the unlock: 1 of 2 folders, never «en cada carpeta»; uno's old copies are still there.
+     */
+    @Test fun aFailureThenALockInReplaceNowIsNotSaidDeleted() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        val oldInOne = one.copies().toSet()
+        val old = settings.settings.value.vault("a").listedCopies
+        one.onWrite = {
+            s.lock()
+            throw java.io.IOException("lleno")
+        }
+        val answer = a.replaceOldCopies(old)
+        assertEquals(AUTO_BACKUP_WRITE_FAILED, answer.error)
+        assertNull(target("a", "content://uno").replaceDone)
+        assertTrue(target("a", "content://dos").replacePending)
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        val told = a.replaceOutcome.value!!
+        assertFalse(told.replaced)
+        assertEquals(a6PartialText(1, 2), told.text)
+        assertTrue(oldInOne.all { it in one.files })
+        // The dialog of the change of password reads the same: partial, from the same function.
+        assertEquals(a6PartialText(1, 2), a6Text(emptyList(), settings.settings.value.vault("a").a6Summary))
+    }
+
+    /**
+     * Re-review 3, I-2: «uno» fails with the same error again (told already) while «dos» replaces leaving 1 copy unlisted:
+     * the change is told, with the count; and told once.
+     */
+    @Test fun aFolderThatKeepsFailingNeverHidesTheCountOfTheOthers() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        two.files[stranger] = byteArrayOf(1)
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a6Asked(s, a)
+        one.failCreate = java.io.IOException("lleno")
+        two.failCreate = SecurityException("sin permiso")
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
+        two.failCreate = null
+        cycle(s)
+        val told = a.replaceOutcome.value!!
+        assertNull(told.error)
+        assertEquals(1, told.unlistedLeft)
+        assertEquals(a6PartialText(1, 2) + " " + a6UnlistedInDoneText(1, 1), told.text)
+        a.replaceOutcomeShown(told)
+        cycle(s) // Nothing changed: nothing told again.
+        assertNull(a.replaceOutcome.value)
+        // Removing «uno», the last folder waiting, ends the request: the summary of the folders left is told.
+        assertTrue(settings.removeTarget("a", "content://uno"))
+        a.retell()
+        val end = a.replaceOutcome.value!!
+        assertTrue(end.replaced)
+        assertEquals(AUTO_BACKUP_REPLACED + " " + autoBackupUnlistedText(1), end.text)
+    }
+
+    private enum class Fate { REPLACED, FAILED, ADDED_AFTER, READDED_WAITING, READDED_DONE, REMOVED_BEFORE }
+
+    /**
+     * Round 4: every combination of 2 and 3 folders in each state, reached through the real transitions (adding, removing,
+     * the results [attempt] and [waitForUnlock] give, recorded by [withAutoBackupResult]): «en cada carpeta» only when every
+     * folder of now replaced for this request; the count shown is the sum saved for it; replaced and not replaced add up to
+     * the folders; never «1 de 1»; nothing about the request when no folder replaced.
+     */
+    @Test fun everyCombinationOfFolders() {
+        val request = "R"
+        var checked = 0
+        for (n in 2..3) {
+            val all = Fate.entries
+            fun combos(k: Int): List<List<Fate>> = if (k == 0) listOf(emptyList()) else combos(k - 1).flatMap { c -> all.map { c + it } }
+            for (fates in combos(n)) {
+                val uris = fates.indices.map { "content://c$it" }
+                var v = VaultSettings()
+                // Before the change: the folders there, each with one old copy listed.
+                for ((i, f) in fates.withIndex()) {
+                    if (f == Fate.ADDED_AFTER) continue
+                    v = v.withTargetAdded(uris[i], BackupSchedule.ON_CHANGE)
+                    v = v.withAutoBackupResult(AutoBackupResult(uris[i], 1L, null, copies = listOf("old$i")))
+                }
+                // A result of an earlier request, then removed before the change.
+                for ((i, f) in fates.withIndex()) {
+                    if (f != Fate.REMOVED_BEFORE) continue
+                    v = v.withAutoBackupResult(AutoBackupResult(uris[i], null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = listOf("old$i"), request = "R0"))
+                    v = v.withAutoBackupResult(AutoBackupResult(uris[i], 2L, null, copies = listOf("new$i"), replaced = true, replaceTargets = emptyList(), request = "R0", deleted = 1, unlistedLeft = 5))
+                    v = v.withTargetRemoved(uris[i])
+                }
+                // The request, asked while locked: each folder of now saves it.
+                v = v.copy(a6 = A6State(request))
+                for (t in v.targets) {
+                    v = v.withAutoBackupResult(AutoBackupResult(t.uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = t.copies, request = request))
+                }
+                var expectedUnlisted = 0
+                for ((i, f) in fates.withIndex()) {
+                    val uri = uris[i]
+                    val done = AutoBackupResult(uri, 3L, null, copies = listOf("n$i"), replaced = true, replaceTargets = emptyList(), request = request, deleted = 1, unlistedLeft = i + 1)
+                    when (f) {
+                        Fate.REPLACED -> {
+                            v = v.withAutoBackupResult(done)
+                            expectedUnlisted += i + 1
+                        }
+                        Fate.FAILED -> v = v.withAutoBackupResult(AutoBackupResult(uri, null, AUTO_BACKUP_WRITE_FAILED, request = request, toldKey = AUTO_BACKUP_WRITE_FAILED))
+                        Fate.ADDED_AFTER -> v = v.withTargetAdded(uri, BackupSchedule.DAILY)
+                        Fate.READDED_WAITING -> v = v.withTargetRemoved(uri).withTargetAdded(uri, BackupSchedule.ON_CHANGE)
+                        Fate.READDED_DONE -> {
+                            v = v.withAutoBackupResult(done).withTargetRemoved(uri).withTargetAdded(uri, BackupSchedule.ON_CHANGE)
+                            expectedUnlisted += i + 1
+                        }
+                        Fate.REMOVED_BEFORE -> v = v.withTargetAdded(uri, BackupSchedule.ON_CHANGE)
+                    }
+                }
+                val summary = v.a6Summary
+                val text = a6Text(emptyList(), summary)
+                val all2 = fates.all { it == Fate.REPLACED || it == Fate.READDED_DONE }
+                val anyDone = fates.any { it == Fate.REPLACED || it == Fate.READDED_DONE }
+                val label = fates.toString()
+                assertEquals(label, n, summary.folders)
+                assertEquals(label, fates.count { it == Fate.REPLACED || it == Fate.READDED_DONE }, summary.replaced)
+                assertEquals(label, n, summary.replaced + summary.notReplaced)
+                assertEquals(label, expectedUnlisted, summary.unlisted)
+                assertEquals(label, all2, text.startsWith(AUTO_BACKUP_REPLACED_SEVERAL))
+                assertEquals(label, all2, "cada carpeta" in text)
+                assertFalse(label, "1 de 1" in text)
+                assertEquals(label, !anyDone, text.isEmpty())
+                if (anyDone && !all2) assertTrue(label, text.startsWith(a6PartialText(summary.replaced, n)))
+                if (expectedUnlisted > 0) assertTrue(label, "$expectedUnlisted cop" in text)
+                checked++
+            }
+        }
+        assertEquals(6 * 6 + 6 * 6 * 6, checked)
+    }
+
+    /** Round 4 (m-2): forgetting the copies for an import and undoing it gives back the A6 state as it was. */
+    @Test fun anImportUndoneGivesBackTheA6StateExactly() = runTest {
+        settings.load()
+        settings.updateVault("a") {
+            it.withTargetAdded("content://uno", BackupSchedule.DAILY).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE).copy(a6 = A6State("R", said = "k"))
+                .withAutoBackupResult(AutoBackupResult("content://uno", 1L, null, copies = listOf("u1"), mark = "m"))
+                .withAutoBackupResult(AutoBackupResult("content://uno", null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = listOf("u1"), request = "R"))
+                .withAutoBackupResult(AutoBackupResult("content://dos", 2L, null, copies = listOf("d1"), replaced = true, request = "R", deleted = 2, unlistedLeft = 1))
+        }
+        val before = settings.settings.value.vault("a")
+        val prepared = settings.forgetAutoBackupCopiesForImport("a")
+        assertNull(settings.settings.value.vault("a").a6)
+        prepared.undo()
+        assertEquals(before, settings.settings.value.vault("a"))
+    }
+
+    /** Round 4: a request saved by 1.4.3 (no id) is the request of now while none newer was asked, and its result counts. */
+    @Test fun aRequestOf143IsTheRequestOfNow() {
+        val v = LegacyVaultSettings(autoBackupUri = "content://x", autoBackupCopies = listOf("c1"), autoBackupCopiesFolder = "content://x", autoBackupReplacePending = true)
+            .converted()
+        val t = v.targets.single()
+        assertEquals(LEGACY_A6_REQUEST, t.requestId)
+        val done = v.withAutoBackupResult(AutoBackupResult("content://x", 1L, null, copies = listOf("n"), replaced = true, request = t.requestId, deleted = 1))
+        assertEquals(AUTO_BACKUP_REPLACED, a6Text(emptyList(), done.a6Summary))
+    }
+
+    /** m-4: a check of a copy and the purge of the trash at an unlock are no change for D-3; «Importar copia» is. */
+    @Test fun whatIsAndIsNotAChangeForTheCalendar() = runTest {
+        val s = store("a", beforeReplace = { settings.forgetAutoBackupCopiesForImport("a") }).apply {
+            load()
+            create(masterA.toCharArray())
+            upsert(note("1"))
+        }
+        assertTrue(s.delete("1")) // In the trash.
+        val f = Folder()
+        val a = auto(s, "a", mapOf("content://f" to f))
+        settings.updateVault("a") { it.withTargetAdded("content://f", BackupSchedule.DAILY) }
+        a.runDue(clock)
+        assertEquals(1, f.copies().size)
+        val copy = f.files.getValue(f.copies().single())
+        // A check of a copy of this vault (it keeps its date in the vault): no copy the next day.
+        assertEquals(true, s.recordBackupChecked(s.data().vaultTag))
+        clock = at(14)
+        a.runDue(clock)
+        assertEquals(1, f.copies().size)
+        // 31 days later the trash empties at an unlock (the first one skips it, the clock jumped): still no copy.
+        clock = at(14) + 31L * 24 * 60 * 60 * 1000
+        cycle(s)
+        cycle(s)
+        assertTrue(s.data().trash.isEmpty())
+        a.runDue(clock)
+        assertEquals(1, f.copies().size)
+        // «Importar copia» (here, of the copy itself): the vault is another one for the copies, the next opening copies.
+        s.importReplace(ByteArrayInputStream(copy), masterA.toCharArray())
+        assertNull(target("a", "content://f").copiedMark)
+        a.runDue(clock + 1_000)
+        assertEquals(2, f.copies().size)
     }
 }
