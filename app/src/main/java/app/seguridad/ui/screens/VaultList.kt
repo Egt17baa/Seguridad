@@ -1,7 +1,51 @@
 package app.seguridad.ui.screens
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import app.seguridad.android.copySensitive
+import app.seguridad.imports.IMPORT_TITLE
+import app.seguridad.tools.TwoStepCopy
+import app.seguridad.tools.rowCodeToCopy
+import app.seguridad.ui.theme.AlertDialog
+import app.seguridad.ui.theme.GlassPanel
+import app.seguridad.ui.theme.PanelLevel
+import app.seguridad.vault.CANCEL
+import app.seguridad.vault.CODE_COPIED
+import app.seguridad.vault.EMPTY_CREATE_FIRST
+import app.seguridad.vault.EMPTY_IMPORT
+import app.seguridad.vault.MOVE_TO_TRASH
+import app.seguridad.vault.MOVE_TO_TRASH_TEXT
+import app.seguridad.vault.NEXT_CODE_COPIED
+import app.seguridad.vault.PASSWORD_COPIED
+import app.seguridad.vault.SELECTION_END
+import app.seguridad.vault.SELECTION_FAVORITE
+import app.seguridad.vault.SELECTION_MOVE
+import app.seguridad.vault.SELECTION_TAG
+import app.seguridad.vault.SELECTION_TRASH
+import app.seguridad.vault.SELECTION_UNFAVORITE
+import app.seguridad.vault.SELECT_ALL
+import app.seguridad.vault.Selection
+import app.seguridad.vault.USERNAME_COPIED
+import app.seguridad.vault.UndoTrash
+import app.seguridad.vault.duplicatedText
+import app.seguridad.vault.favoriteSelected
+import app.seguridad.vault.moveSelectedToTrashTitle
+import app.seguridad.vault.moveToTrashTitle
+import app.seguridad.vault.passwordForHealth
+import app.seguridad.vault.selectedCount
+import app.seguridad.vault.selectionFilterKey
+import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +71,6 @@ import androidx.compose.material3.Checkbox
 import app.seguridad.ui.theme.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -49,16 +92,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -66,9 +104,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.seguridad.android.FilterObscuredTouches
-import app.seguridad.crypto.TOTP_UNSUPPORTED_ROW
-import app.seguridad.crypto.isSupported
-import app.seguridad.crypto.totpCode
 import app.seguridad.health.Issue
 import app.seguridad.health.loginsWithout2fa
 import app.seguridad.health.vaultHealth
@@ -77,7 +112,6 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.vault.ALL_ENTRIES
 import app.seguridad.vault.ALL_TITLE
 import app.seguridad.vault.CLEAR_FILTERS
-import app.seguridad.vault.DRAG_HANDLE
 import app.seguridad.vault.DROP_HERE
 import app.seguridad.vault.DROP_MORE
 import app.seguridad.vault.EMPTY_VAULT
@@ -96,7 +130,6 @@ import app.seguridad.vault.FOLDER_FILTER_OFF
 import app.seguridad.vault.FOLDER_NONE
 import app.seguridad.vault.FOLDER_WITH_SUBFOLDERS
 import app.seguridad.vault.Folder
-import app.seguridad.vault.MOVE_TO
 import app.seguridad.vault.NO_RESULTS
 import app.seguridad.vault.RECENT_TITLE
 import app.seguridad.vault.SEARCH_LABEL
@@ -124,7 +157,6 @@ import app.seguridad.vault.movedTo
 import app.seguridad.vault.query
 import app.seguridad.vault.searchText
 import app.seguridad.vault.recentEntries
-import app.seguridad.vault.seedWordCount
 import app.seguridad.vault.sortName
 import app.seguridad.vault.storeSaveErrorText
 import kotlinx.coroutines.Dispatchers
@@ -184,6 +216,15 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
     private val _result = MutableStateFlow(ListResult.EMPTY)
     val result: StateFlow<ListResult> = _result.asStateFlow()
 
+    /**
+     * 2.0, task 6: the entries selected (ids only), always a part of what the list shows ([Selection]): emptied at every
+     * lock (also with another tab on screen) and at every change of the search or the filter.
+     */
+    val selection = Selection()
+
+    /** The lock counter of the opening whose search box already got the focus (2.0, task 6: once per opening). */
+    var focusedOpening = -1
+
     /** [dueSoon] counted on [day]: review M-7, the next day counts again (as «Caducan pronto», with its own `now`). */
     private class Cache(val data: VaultData, val index: SearchIndex, val weak: Set<String>, val no2fa: Set<String>, val day: java.time.LocalDate, val dueSoon: Int)
 
@@ -213,8 +254,10 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
 
     init {
         viewModelScope.launch { store.state.collect { if (it !is VaultState.Unlocked) reset() } }
+        selection.followVault(store.state, viewModelScope)
         viewModelScope.launch {
             combine(store.state, snapshotFlow { query to filter }) { s, qf -> s to qf }.collectLatest { (s, qf) ->
+                selection.onFilter(selectionFilterKey(qf.first, qf.second))
                 val data = (s as? VaultState.Unlocked)?.data
                 if (data == null) {
                     cache = null
@@ -223,7 +266,11 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
                 }
                 val r = withContext(Dispatchers.Default) { compute(data, qf.first, qf.second) }
                 // A lock while it ran: nothing of the vault stays here.
-                if (store.state.value is VaultState.Unlocked) _result.value = r
+                if (store.state.value is VaultState.Unlocked) {
+                    _result.value = r
+                    // What is no longer shown (moved to the trash, out of the filter after an edit) is no longer selected.
+                    selection.retainVisible(r.shown)
+                }
             }
         }
     }
@@ -259,6 +306,7 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
         firstOffset = 0
         cache = null
         _result.value = ListResult.EMPTY
+        selection.clear()
     }
 }
 
@@ -276,18 +324,26 @@ private class Dragging(val entry: VaultEntry, val at: Offset)
 @Composable
 internal fun EntryList(
     store: VaultStore,
+    undo: UndoTrash,
+    twoStep: TwoStepCopy,
     totpOnly: Boolean,
     list: EntryListViewModel,
     onOpen: (String) -> Unit,
+    onEdit: (String) -> Unit,
+    onNew: (EntryType) -> Unit,
+    onImport: () -> Unit,
+    onImportOther: () -> Unit,
     onMessage: (String) -> Unit,
 ) {
     val result by list.result.collectAsStateWithLifecycle()
     val data = result.data
     val scope = rememberCoroutineScope()
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val context = LocalContext.current
+    // Read only by the 2FA of the rows (EntryRow), so the other rows are not drawn again every second.
+    val now = remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
-            now = System.currentTimeMillis()
+            now.longValue = System.currentTimeMillis()
             delay(1_000)
         }
     }
@@ -318,6 +374,13 @@ internal fun EntryList(
     var dragging by remember { mutableStateOf<Dragging?>(null) }
     val targets = remember { mutableStateMapOf<String, Rect>() }
     var hovered by remember { mutableStateOf<String?>(null) }
+    // 2.0, task 6: the move to the trash asked by a swipe or the menu (an id), or by the selection bar (ids).
+    var trashAsk by remember { mutableStateOf<String?>(null) }
+    var trashSelected by remember { mutableStateOf<Set<String>?>(null) }
+    val selected by list.selection.ids.collectAsStateWithLifecycle()
+    val selecting = selected.isNotEmpty()
+    // Back ends the selection first.
+    BackHandler(enabled = selecting) { list.selection.clear() }
     val f = list.filter
     val showFolders = !totpOnly && folders.isNotEmpty()
 
@@ -331,11 +394,59 @@ internal fun EntryList(
         }
     }
 
-    val row: @Composable (VaultEntry) -> Unit = { e ->
-        EntryRow(
-            e, now, folders, tagColors, onOpen,
-            dragEnabled = showFolders,
-            onMoveTo = { dialog = OrganizeDialog.MoveEntry(e.id) },
+    // Copying counts as a use («Recientes», the order «por uso»): a bookkeeping save that never blocks nor closes anything.
+    fun used(id: String) {
+        scope.launch { runCatching { store.markUsed(id) } }
+    }
+
+    // Each copy reads what it copies from the open vault at the tap, and goes with the clipboard's rules (sensitive, cleared
+    // after the time of Ajustes, the A14 notice on Android 8 to 12): what follows a copy waits until it is really made.
+    val actions = remember(store, twoStep, list) {
+        RowActions(
+            open = { e -> onOpen(e.id) },
+            edit = { e -> onEdit(e.id) },
+            askTrash = { e -> trashAsk = e.id },
+            toggleSelect = { e -> list.selection.toggle(e.id) },
+            copyUsername = { e ->
+                liveEntry(store, e.id)?.let { live ->
+                    copySensitive(context, live.username) {
+                        used(live.id)
+                        onMessage(USERNAME_COPIED)
+                        if (live.passwordForHealth().isNotEmpty()) twoStep.offerPassword(live.id)
+                    }
+                }
+            },
+            copyPassword = { e ->
+                liveEntry(store, e.id)?.takeIf { it.passwordForHealth().isNotEmpty() }?.let { live ->
+                    copySensitive(context, live.passwordForHealth()) {
+                        twoStep.clear()
+                        used(live.id)
+                        onMessage(PASSWORD_COPIED)
+                    }
+                }
+            },
+            copyCode = { e ->
+                val live = liveEntry(store, e.id)
+                live?.totp?.let { rowCodeToCopy(it, System.currentTimeMillis()) }?.let { c ->
+                    copySensitive(context, c.code) {
+                        twoStep.clear()
+                        used(live.id)
+                        onMessage(if (c.next) NEXT_CODE_COPIED else CODE_COPIED)
+                    }
+                }
+            },
+            duplicate = { e ->
+                scope.launch {
+                    try {
+                        store.duplicate(e.id)?.let { onMessage(duplicatedText(plainReportText(it.title))) }
+                    } catch (x: CancellationException) {
+                        throw x
+                    } catch (x: Exception) {
+                        onMessage(storeSaveErrorText(x))
+                    }
+                }
+            },
+            moveTo = { e -> dialog = OrganizeDialog.MoveEntry(e.id) },
             onDrag = { entry, at ->
                 // A new drag measures the folders again: none is left from the last one (a folder since deleted).
                 if (dragging == null) targets.clear()
@@ -351,15 +462,36 @@ internal fun EntryList(
         )
     }
 
+    val row: @Composable (VaultEntry) -> Unit = { e ->
+        EntryRow(
+            e, now, folders, tagColors,
+            selecting = selecting,
+            selected = e.id in selected,
+            dragEnabled = showFolders,
+            canMove = !totpOnly && (folders.isNotEmpty() || e.folderId != null),
+            actions = actions,
+        )
+    }
+
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(state = listState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(state = listState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = if (selecting) 176.dp else 96.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             item(key = "search") {
                 Column {
+                    val focus = remember { FocusRequester() }
                     OutlinedTextField(value = list.query, onValueChange = { list.query = searchText(it) }, label = { Text(SEARCH_LABEL) }, singleLine = true,
                         // No corrections or suggestions. autoCorrectEnabled = false does not stop the keyboard from learning: that
-                        // is NoLearningInput (IME_FLAG_NO_PERSONALIZED_LEARNING, for every field of the app).
-                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                        modifier = Modifier.fillMaxWidth())
+                        // is NoLearningInput (IME_FLAG_NO_PERSONALIZED_LEARNING, for every field of the app). 2.0, task 6: the
+                        // focus comes here when the vault opens, without the keyboard; a tap opens it.
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, showKeyboardOnFocus = false),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus))
+                    // Once per opening of the vault (its lock counter), from inside this item: it is composed by then.
+                    LaunchedEffect(Unit) {
+                        val opening = store.lockEpoch
+                        if (list.focusedOpening != opening) {
+                            list.focusedOpening = opening
+                            runCatching { focus.requestFocus() }
+                        }
+                    }
                     // What the search reads, folded, while there is text (M-3): not a row more over every list.
                     if (!totpOnly && list.query.isNotBlank()) MoreInfo { Text(SEARCH_MORE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
@@ -436,11 +568,13 @@ internal fun EntryList(
             }
             if (result.shown.isEmpty() && data != null) {
                 item(key = "empty") {
-                    Column(Modifier.padding(24.dp)) {
+                    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(if (result.total == 0) EMPTY_VAULT else NO_RESULTS, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (result.total > 0 && !list.unfiltered()) {
                             TextButton(onClick = { list.query = ""; list.filter = list.initialFilter().copy(sort = f.sort) }) { Text(CLEAR_FILTERS) }
                         }
+                        // 2.0, task 6 (design «Lista vacía útil»): the first entry, or an import.
+                        if (result.total == 0) EmptyVaultActions(totpOnly, onNew, onImport, onImportOther)
                     }
                 }
             }
@@ -468,8 +602,147 @@ internal fun EntryList(
                 }
             }
         }
+        if (selecting) {
+            SelectionBar(
+                count = selected.size,
+                allFavorite = result.shown.filter { it.id in selected }.let { s -> s.isNotEmpty() && s.all { it.favorite } },
+                canMove = !totpOnly && folders.isNotEmpty(),
+                onSelectAll = { list.selection.selectAll(result.shown) },
+                onMove = { dialog = OrganizeDialog.MoveSelected(selected) },
+                onTag = { dialog = OrganizeDialog.TagSelected(selected) },
+                onFavorite = { favorite ->
+                    val ids = selected
+                    scope.launch {
+                        try {
+                            onMessage(favoriteSelected(store.setFavorite(ids, favorite), favorite))
+                            list.selection.clear()
+                        } catch (x: CancellationException) {
+                            throw x
+                        } catch (x: Exception) {
+                            onMessage(storeSaveErrorText(x))
+                        }
+                    }
+                },
+                onTrash = { trashSelected = selected },
+                onEnd = { list.selection.clear() },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
     }
     dialog?.let { d -> OrganizeDialogs(store, d, list, result, onDone = { dialog = null }, onNext = { dialog = it }, onMessage = onMessage) }
+    trashAsk?.let { id ->
+        val e = result.data?.live?.firstOrNull { it.id == id }
+        if (e == null) {
+            LaunchedEffect(id) { trashAsk = null }
+        } else {
+            TrashConfirm(moveToTrashTitle(plainReportText(e.title)), onDismiss = { trashAsk = null }) {
+                trashAsk = null
+                scope.launch {
+                    try {
+                        undo.moveToTrash(setOf(id)) // «Deshacer» for 5 s on the list (VaultScreen).
+                    } catch (x: CancellationException) {
+                        throw x
+                    } catch (x: Exception) {
+                        onMessage(storeSaveErrorText(x))
+                    }
+                }
+            }
+        }
+    }
+    trashSelected?.let { ids ->
+        val shown = result.shown.filter { it.id in ids }
+        if (shown.isEmpty()) {
+            LaunchedEffect(ids) { trashSelected = null }
+        } else {
+            TrashConfirm(moveSelectedToTrashTitle(shown.size, plainReportText(shown.first().title)), onDismiss = { trashSelected = null }) {
+                trashSelected = null
+                val move = shown.mapTo(HashSet()) { it.id }
+                scope.launch {
+                    try {
+                        undo.moveToTrash(move)
+                        list.selection.clear()
+                    } catch (x: CancellationException) {
+                        throw x
+                    } catch (x: Exception) {
+                        onMessage(storeSaveErrorText(x))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** «¿Mover … a la papelera?», with what it means (it can be restored for 30 days). */
+@Composable
+private fun TrashConfirm(title: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            FilterObscuredTouches()
+            Text(MOVE_TO_TRASH_TEXT)
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(MOVE_TO_TRASH, color = NegativeColor) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(CANCEL) } },
+    )
+}
+
+/** The empty vault's way on: «Crear la primera» and «Importar» (a copy of Clavero, or another app's export). */
+@Composable
+private fun EmptyVaultActions(totpOnly: Boolean, onNew: (EntryType) -> Unit, onImport: () -> Unit, onImportOther: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { onNew(if (totpOnly) EntryType.TOTP else EntryType.LOGIN) }) { Text(EMPTY_CREATE_FIRST) }
+        Box {
+            OutlinedButton(onClick = { open = true }) { Text(EMPTY_IMPORT) }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                FilterObscuredTouches() // The menu is its own window: no taps through an overlay on top of it.
+                DropdownMenuItem(text = { Text("Importar copia") }, onClick = {
+                    open = false
+                    onImport()
+                })
+                DropdownMenuItem(text = { Text(IMPORT_TITLE) }, onClick = {
+                    open = false
+                    onImportOther()
+                })
+            }
+        }
+    }
+}
+
+/**
+ * 2.0, task 6: the bar of the selection, at the bottom of the list (a glass panel, blurred from Android 12): how many,
+ * «Seleccionar todo» (what the list shows), «Mover a carpeta», «Etiquetar», «Favorita» and «Papelera» (asked first).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SelectionBar(
+    count: Int,
+    allFavorite: Boolean,
+    canMove: Boolean,
+    onSelectAll: () -> Unit,
+    onMove: () -> Unit,
+    onTag: () -> Unit,
+    onFavorite: (Boolean) -> Unit,
+    onTrash: () -> Unit,
+    onEnd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    GlassPanel(modifier.fillMaxWidth().padding(8.dp), level = PanelLevel.OVERLAY) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(selectedCount(count), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite })
+                IconButton(onClick = onEnd) { Icon(Icons.Default.Close, contentDescription = SELECTION_END) }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onSelectAll) { Text(SELECT_ALL) }
+                if (canMove) TextButton(onClick = onMove) { Text(SELECTION_MOVE) }
+                TextButton(onClick = onTag) { Text(SELECTION_TAG) }
+                TextButton(onClick = { onFavorite(!allFavorite) }) { Text(if (allFavorite) SELECTION_UNFAVORITE else SELECTION_FAVORITE) }
+                TextButton(onClick = onTrash) { Text(SELECTION_TRASH, color = NegativeColor) }
+            }
+        }
+    }
 }
 
 /**
@@ -532,97 +805,4 @@ private fun QuickFilters(list: EntryListViewModel, result: ListResult) {
         FilterChip(selected = f.noTotp, onClick = { list.filter = f.copy(noTotp = !f.noTotp) }, label = { Text(FILTER_NO_2FA) })
         FilterChip(selected = f.expiringSoon, onClick = { list.filter = f.copy(expiringSoon = !f.expiringSoon) }, label = { Text(FILTER_EXPIRING) })
     }
-}
-
-/**
- * One entry of the list. With [dragEnabled], a handle at its end drags it to a folder ([onDrag] with where it is in the
- * window, null when the drag is cut; [onDrop] when it is let go); TalkBack and anyone who cannot drag have «Mover a…»
- * as an action of the row and in the entry's card.
- */
-@Composable
-private fun EntryRow(
-    e: VaultEntry,
-    now: Long,
-    folders: List<Folder>,
-    tagColors: Map<String, TagColor>,
-    onOpen: (String) -> Unit,
-    dragEnabled: Boolean,
-    onMoveTo: () -> Unit,
-    onDrag: (VaultEntry, Offset?) -> Unit,
-    onDrop: (VaultEntry) -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable { onOpen(e.id) }.padding(vertical = 10.dp)
-            .then(if (dragEnabled) Modifier.semantics { customActions = listOf(CustomAccessibilityAction(MOVE_TO) { onMoveTo(); true }) } else Modifier),
-    ) {
-        Text(typeIcon(e.type), style = MaterialTheme.typography.titleLarge)
-        Column(Modifier.weight(1f)) {
-            Text(plainReportText(e.title), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val sub = when (e.type) {
-                EntryType.LOGIN -> e.username.ifBlank { e.url }
-                EntryType.SEED -> "${seedWordCount(e.seedWords).first} palabras"
-                EntryType.NOTE -> "Nota"
-                EntryType.TOTP -> listOf(e.totp?.issuer, e.totp?.account).filter { !it.isNullOrBlank() }.joinToString(" · ")
-                EntryType.IDENTITY, EntryType.CONTACT -> "" // Never listed here.
-                EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> e.type.label // 2.0, task 5.
-            }
-            if (sub.isNotBlank()) Text(plainReportText(sub), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-            val folder = e.folderId?.let { id -> folders.firstOrNull { it.id == id } }
-            if (folder != null || e.tags.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    folder?.let { Text("📁 " + plainReportText(it.name, 30), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
-                    e.tags.take(3).forEach { t -> Text("#${plainReportText(t)}", style = MaterialTheme.typography.labelSmall, color = tagTextColor(tagColors[t]), maxLines = 1) }
-                }
-            }
-        }
-        if (e.favorite) Text("★", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-        e.totp?.let { t ->
-            // A setting this app does not calculate: why there is no code, as small as the seconds of one (F4).
-            // totpCode below gives null for it; any other null (a key that is not usable) still shows nothing.
-            if (!t.isSupported()) {
-                Text(
-                    TOTP_UNSUPPORTED_ROW,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-            totpCode(t, now)?.let { (code, left) ->
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(code.chunked(3).joinToString(" "), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
-                    Text("${left}s", style = MaterialTheme.typography.labelSmall, color = if (left <= 5) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-        if (dragEnabled) {
-            var origin by remember { mutableStateOf(Offset.Zero) }
-            var at by remember { mutableStateOf(Offset.Zero) }
-            Text(
-                "⠿",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(32.dp)
-                    .onGloballyPositioned { origin = it.positionInRoot() }
-                    .semantics { contentDescription = DRAG_HANDLE }
-                    .pointerInput(e.id) {
-                        detectDragGestures(
-                            onDragStart = { p ->
-                                at = origin + p
-                                onDrag(e, at)
-                            },
-                            onDrag = { change, amount ->
-                                change.consume()
-                                at += amount
-                                onDrag(e, at)
-                            },
-                            onDragEnd = { onDrop(e) },
-                            onDragCancel = { onDrag(e, null) },
-                        )
-                    },
-            )
-        }
-    }
-    HorizontalDivider()
 }

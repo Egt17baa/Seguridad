@@ -18,6 +18,7 @@ const val PASSWORD_COPIED = "Contraseña copiada"
 const val CODE_COPIED = "Código copiado"
 const val NEXT_CODE_COPIED = "Copiado el código siguiente"
 const val CODE_TAP_TO_COPY = "Toca para copiar"
+const val ROW_SELECT = "Seleccionar"
 fun codeSecondsLeft(seconds: Int): String = "Quedan $seconds s"
 
 /** The copy in two steps: back in the app after «Copiar usuario», for 30 s. */

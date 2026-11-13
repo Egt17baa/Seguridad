@@ -1,5 +1,13 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.OrganizeRefused
+import app.seguridad.vault.SELECTION_MOVE
+import app.seguridad.vault.SELECTION_TAG_LABEL
+import app.seguridad.vault.TAG_NOT_VALID
+import app.seguridad.vault.movedSelected
+import app.seguridad.vault.normalizedTag
+import app.seguridad.vault.tagSelectedTitle
+import app.seguridad.vault.taggedSelected
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -106,6 +114,10 @@ internal sealed interface OrganizeDialog {
     data class MoveFolder(val id: String) : OrganizeDialog
     data class DeleteFolder(val id: String) : OrganizeDialog
     data class MoveEntry(val id: String) : OrganizeDialog
+
+    /** 2.0, task 6: «Mover a carpeta» and «Etiquetar» of the selection bar (ids only). */
+    data class MoveSelected(val ids: Set<String>) : OrganizeDialog
+    data class TagSelected(val ids: Set<String>) : OrganizeDialog
     data class SaveView(val id: String?) : OrganizeDialog
     data object Views : OrganizeDialog
     data object TagColors : OrganizeDialog
@@ -154,6 +166,24 @@ internal fun OrganizeDialogs(
             FolderPicker(moveToTitle(plainReportText(e.title)), folders, emptySet(), FOLDER_NONE, maxDepth = Int.MAX_VALUE, onDone) { target ->
                 val moved = store.moveEntries(setOf(e.id), target) > 0
                 if (moved) onMessage(movedTo(target?.let { id -> folders.firstOrNull { it.id == id }?.name }?.let { plainReportText(it) }))
+                true
+            }
+        }
+        is OrganizeDialog.MoveSelected -> {
+            if (d.ids.isEmpty()) return Gone(onDone)
+            FolderPicker(SELECTION_MOVE, folders, emptySet(), FOLDER_NONE, maxDepth = Int.MAX_VALUE, onDone) { target ->
+                val moved = store.moveEntries(d.ids, target)
+                onMessage(movedSelected(moved, target?.let { id -> folders.firstOrNull { it.id == id }?.name }?.let { plainReportText(it) }))
+                list.selection.clear()
+                true
+            }
+        }
+        is OrganizeDialog.TagSelected -> {
+            if (d.ids.isEmpty()) return Gone(onDone)
+            NameDialog(tagSelectedTitle(d.ids.size), SELECTION_TAG_LABEL, "", onDone) { name ->
+                val tag = normalizedTag(name) ?: throw OrganizeRefused(TAG_NOT_VALID)
+                onMessage(taggedSelected(store.addTag(d.ids, tag), plainReportText(tag)))
+                list.selection.clear()
                 true
             }
         }

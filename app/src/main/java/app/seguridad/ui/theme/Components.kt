@@ -1,6 +1,18 @@
 package app.seguridad.ui.theme
 
 import android.view.KeyEvent
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.ripple
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -97,6 +109,71 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
         Card(modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
     }
 }
+
+/** The shape of a row of the vault list ([RowPanel]). */
+val RowShape = RoundedCornerShape(12.dp)
+
+/**
+ * 2.0, task 6: a row of the vault list. In «Cristal» a glass panel that never blurs ([PanelLevel.CARD]: the list scrolls
+ * smoothly), in «Sólido» the surface colour with a thin outline, as [SectionCard]. Pressed, it gives the same signs as
+ * [SectionCard]: Material's brief glow while Android has animations on, and the still mark of [pressSignal] when it asks
+ * to remove them. [onLongClick] is «mantener pulsado» (the selection). [selected] is null while the list is not selecting;
+ * a selected row has an outline in the accent (3:1 on every surface, the same as the still mark) and says so to TalkBack.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun RowPanel(
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean? = null,
+    onClickLabel: String? = null,
+    onLongClickLabel: String? = null,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val look = LocalLook.current
+    val animationsOn = LocalAnimationsOn.current
+    val interaction = remember { MutableInteractionSource() }
+    val surface = when {
+        look.glass -> modifier.glass(PanelLevel.CARD, RowShape)
+        else -> modifier.background(MaterialTheme.colorScheme.surfaceContainer, RowShape)
+            .border(if (look.highContrast) look.colors.borderWidth.dp else 1.dp, if (look.highContrast) look.colors.border else MaterialTheme.colorScheme.outlineVariant, RowShape)
+    }
+    val marked = if (selected == true) surface.border(2.dp, MaterialTheme.colorScheme.primary, RowShape) else surface
+    CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn), LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = marked
+                .clip(RowShape)
+                .combinedClickable(
+                    interactionSource = interaction,
+                    indication = ripple(),
+                    onClickLabel = onClickLabel,
+                    onLongClickLabel = onLongClickLabel,
+                    onLongClick = onLongClick,
+                    onClick = onClick,
+                )
+                .pressSignal(interaction, RowShape, animationsOn)
+                .then(if (selected != null) Modifier.semantics { this.selected = selected } else Modifier)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            content = content,
+        )
+    }
+}
+
+/**
+ * The colours of what a swipe of a row uncovers ([content] on [container]): «Editar» on the accent's container, «Mover a
+ * la papelera» on the error's. Both pairs are measured by the contrast tests ([edit] true for «Editar»). They are drawn only
+ * in the strip the row leaves, never under the translucent row.
+ */
+@Composable
+@ReadOnlyComposable
+fun rowRevealColors(edit: Boolean): Pair<Color, Color> = rowRevealColors(MaterialTheme.colorScheme, edit)
+
+/** [rowRevealColors] of [scheme]. */
+fun rowRevealColors(scheme: androidx.compose.material3.ColorScheme, edit: Boolean): Pair<Color, Color> =
+    if (edit) scheme.onPrimaryContainer to scheme.primaryContainer else scheme.onErrorContainer to scheme.errorContainer
 
 /** Screen with a title and a back arrow. */
 @Composable

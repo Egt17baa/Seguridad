@@ -27,6 +27,7 @@ import app.seguridad.settings.withVault
 import app.seguridad.settings.withoutVault
 import app.seguridad.imports.compareKey
 import app.seguridad.tools.ClipboardNoticeRequest
+import app.seguridad.tools.TwoStepCopy
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
@@ -765,6 +766,16 @@ class AppContainer(
     val clipboardNotice = ClipboardNoticeRequest(lockEpoch = { lockEpoch }).also { notice ->
         appScope.launch {
             vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) notice.drop() }
+        }
+    }
+
+    /**
+     * 2.0, task 6: «Copiar contraseña» offered for 30 s after «Copiar usuario» ([TwoStepCopy]): only the entry's id. A
+     * lock or a switch of vault ends it ([lockEpoch]), and it is also cleared here, as [clipboardNotice] is.
+     */
+    val twoStepCopy = TwoStepCopy(elapsedRealtime, lockEpoch = { lockEpoch }).also { offer ->
+        appScope.launch {
+            vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) offer.clear() }
         }
     }
 

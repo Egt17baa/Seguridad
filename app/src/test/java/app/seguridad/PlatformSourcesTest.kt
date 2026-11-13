@@ -134,7 +134,7 @@ class PlatformSourcesTest {
         assertFalse("not only while the list is on screen", "list.reset()" in src)
         // The search and the filters run off the main thread, each run cancelling the one before; a lock drops the result.
         assertTrue("withContext(Dispatchers.Default) { compute(data, qf.first, qf.second) }" in src && ".collectLatest {" in src)
-        assertTrue("if (store.state.value is VaultState.Unlocked) _result.value = r" in src)
+        assertTrue(Regex("""if \(store\.state\.value is VaultState\.Unlocked\) \{\s*_result\.value = r""").containsMatchIn(src))
         assertTrue(Regex("""fun reset\(\) \{[^}]*cache = null\s+_result.value = ListResult.EMPTY""").containsMatchIn(src))
         // Review M-4: the place goes back to the ViewModel only while the vault is open (a lock already reset it).
         assertTrue(Regex("""onDispose \{\s*if \(store\.state\.value is VaultState\.Unlocked\) \{\s*list\.firstIndex""").containsMatchIn(src))
@@ -726,15 +726,25 @@ class PlatformSourcesTest {
     @Test fun `R9 every title, user, URL, service, account and tag shown goes through plainReportText`() {
         val pins = mapOf(
             "ui/screens/VaultList.kt" to listOf(
-                "Text(plainReportText(e.title), maxLines = 1",
-                "if (sub.isNotBlank()) Text(plainReportText(sub)",
                 "label = { Text(\"#\${plainReportText(t)}\", color = tagTextColor(tagColors[t])) }",
-                // 2.0, task 4: the folder and the tags of each row, the views, the folders' crumb and the dragged entry.
-                "Text(\"📁 \" + plainReportText(it.name, 30)",
-                "e.tags.take(3).forEach { t -> Text(\"#\${plainReportText(t)}\"",
+                // 2.0, task 4: the views, the folders' crumb and the dragged entry.
                 "label = { Text(\"👁 \${plainReportText(v.name)}\") }",
                 "folderCrumb(folderPath(folders, id).map { plainReportText(it.name) })",
                 "Text(plainReportText(d.entry.title, 40)",
+                // 2.0, task 6: the confirmations of the trash and the messages that name an entry.
+                "TrashConfirm(moveToTrashTitle(plainReportText(e.title))",
+                "moveSelectedToTrashTitle(shown.size, plainReportText(shown.first().title))",
+                "onMessage(duplicatedText(plainReportText(it.title)))",
+            ),
+            // 2.0, task 6: the row of the list (its title, line, folder and tags; the menu names it).
+            "ui/screens/EntryRow.kt" to listOf(
+                "val title = plainReportText(e.title)",
+                "Text(title, maxLines = 1",
+                "if (sub.isNotBlank()) Text(plainReportText(sub)",
+                "Text(\"📁 \" + plainReportText(it.name, 30)",
+                "e.tags.take(3).forEach { t -> Text(\"#\${plainReportText(t)}\"",
+                "contentDescription = rowMenuLabel(title)",
+                "copyPasswordOffer(plainReportText(entry.title))",
             ),
             "ui/screens/VaultOrganize.kt" to listOf(
                 "\"📁 \${plainReportText(f.name)} (\${counts[f.id] ?: 0})\"",
@@ -914,11 +924,57 @@ class PlatformSourcesTest {
         assertFalse("areAnimatorsEnabled" in components)
         assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { on = ValueAnimator.areAnimatorsEnabled() }" in code("ui/theme/Glass.kt"))
         assertTrue("LocalAnimationsOn provides animationsOnSetting()" in code("ui/theme/Theme.kt"))
-        // Re-review N-3: no other pressable card or surface than SectionCard's, so every pressable panel follows the rule.
-        val pressable = Regex("""\b(Card|ElevatedCard|OutlinedCard|Surface)\((\s*onClick|[^\n]*\.clickable)""")
+        // Re-review N-3 (2.0, task 6: on any number of lines): no other pressable card, surface or glass panel than those of
+        // Components.kt (SectionCard and RowPanel), so every pressable panel follows the rule.
         val found = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" }
-            .flatMap { f -> pressable.findAll(blank(f.readText())).map { f.name } }.toList()
+            .flatMap { f -> pressablePanels(blank(f.readText())).map { f.name } }.toList()
         assertEquals(listOf("Components.kt"), found.distinct())
+        // The glass is drawn only by the theme's own panels: a screen never paints one of its own around a click.
+        val glassOutside = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" && it.parentFile.name != "theme" }
+            .filter { Regex("""\.glass\(""").containsMatchIn(blank(it.readText())) }.map { it.name }.toList()
+        assertEquals(emptyList<String>(), glassOutside)
+    }
+
+    /**
+     * 2.0, task 6: the rows of the vault list are glass panels that never blur ([PanelLevel.CARD][app.seguridad.ui.theme.PanelLevel]),
+     * with the same press glow and the same still mark without animations as SectionCard; EntryRow uses that panel.
+     */
+    @Test fun `the rows of the list are panels with the press rule of SectionCard`() {
+        val components = code("ui/theme/Components.kt")
+        val b = blank(main("ui/theme/Components.kt"))
+        val row = b.substring(b.indexOf("fun RowPanel("), b.indexOf("fun RowPanel(").let { b.indexOf("\n}\n", it) })
+        assertTrue(row, "LocalRippleConfiguration provides panelRipple(animationsOn)" in row)
+        assertTrue(row, ".pressSignal(interaction, RowShape, animationsOn)" in row)
+        assertTrue(row, "interactionSource = interaction" in row && "indication = ripple()" in row)
+        assertTrue(row, ".glass(PanelLevel.CARD, RowShape)" in row)
+        assertTrue("fun RowPanel(" in components)
+        val entryRow = code("ui/screens/EntryRow.kt")
+        assertTrue(Regex("""\bRowPanel\(""").containsMatchIn(entryRow))
+        // The row's presses are RowPanel's only: no clickable of its own around it (the 2FA code inside has its own).
+        assertFalse(Regex("""\.combinedClickable\b""").containsMatchIn(blank(main("ui/screens/EntryRow.kt"))))
+    }
+
+    /** The calls to a card, a surface or a glass panel in blanked code [b] that can be pressed: where each starts. */
+    private fun pressablePanels(b: String): List<Int> {
+        val panel = Regex("""\b(Card|ElevatedCard|OutlinedCard|Surface|GlassPanel)\(""")
+        val press = Regex("""\bonClick\s*=|\.(clickable|combinedClickable|selectable|toggleable)\b""")
+        return panel.findAll(b).filter { m ->
+            val open = m.range.last
+            press.containsMatchIn(b.substring(open, closing(b, open)))
+        }.map { it.range.first }.toList()
+    }
+
+    /** Review N-3 of task 5 bis: the check above sees a press on any line of the call, which the one-line one did not. */
+    @Test fun `the pressable panel check reads calls on several lines`() {
+        val multi = "Card(\n    modifier = Modifier\n        .fillMaxWidth()\n        .clickable { open() },\n) { Text(\"x\") }"
+        assertEquals(listOf(0), pressablePanels(blank(multi)))
+        val named = "Surface(\n    color = Color.Red,\n    onClick = { open() },\n) { }"
+        assertEquals(listOf(0), pressablePanels(blank(named)))
+        val glass = "GlassPanel(\n  Modifier\n    .combinedClickable(onClick = {}, onLongClick = {}),\n) { }"
+        assertEquals(listOf(0), pressablePanels(blank(glass)))
+        // Not a press: a click inside the content (a button in the card) or in a text.
+        val inside = "Card(Modifier.fillMaxWidth()) { TextButton(onClick = {}) { Text(\".clickable onClick =\") } }"
+        assertEquals(emptyList<Int>(), pressablePanels(blank(inside)))
     }
 
     /** 2.0, review M-2 of task 5 bis: the highlight is white fading out, as ThemeSurfaces.kt measures it (not black at 0). */

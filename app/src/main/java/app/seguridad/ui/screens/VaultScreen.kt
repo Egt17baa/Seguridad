@@ -86,7 +86,12 @@ import app.seguridad.vault.UNDO
 import app.seguridad.vault.UNDO_TRASH_MS
 import app.seguridad.vault.UndoTrash
 import app.seguridad.vault.movedToTrash
+import app.seguridad.tools.TwoStepCopy
+import app.seguridad.android.copySensitive
+import app.seguridad.vault.PASSWORD_COPIED
+import app.seguridad.vault.passwordForHealth
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
 
 internal tailrec fun Context.fragmentActivity(): FragmentActivity? = when (this) {
     is FragmentActivity -> this
@@ -130,8 +135,10 @@ fun VaultIdleTicker(store: VaultStore) {
 fun VaultScreen(
     store: VaultStore,
     undo: UndoTrash,
+    twoStep: TwoStepCopy,
     totpOnly: Boolean,
     onOpen: (String) -> Unit,
+    onEdit: (String) -> Unit,
     onNew: (EntryType) -> Unit,
     onHealth: () -> Unit,
     onImportOther: () -> Unit,
@@ -141,6 +148,7 @@ fun VaultScreen(
     val state by store.state.collectAsStateWithLifecycle()
     LaunchedEffect(store) { store.load() }
     val list = viewModel { EntryListViewModel(store, totpOnly) }
+    val selection by list.selection.ids.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -167,6 +175,8 @@ fun VaultScreen(
     LaunchedEffect(undoCount, unlocked) {
         if (undoCount == 0) return@LaunchedEffect
         if (!unlocked) return@LaunchedEffect undo.forget()
+        // 2.0, task 6: its 5 s are its own: a message on screen («Usuario copiado»…) gives way at once.
+        snackbar.currentSnackbarData?.dismiss()
         val answer = withTimeoutOrNull(UNDO_TRASH_MS) {
             snackbar.showSnackbar(movedToTrash(undoCount), actionLabel = UNDO, duration = SnackbarDuration.Indefinite)
         }
@@ -243,7 +253,8 @@ fun VaultScreen(
             )
         },
         floatingActionButton = {
-            if (state is VaultState.Unlocked) {
+            // 2.0, task 6: while selecting, the selection bar is at the bottom instead.
+            if (state is VaultState.Unlocked && selection.isEmpty()) {
                 ExtendedFloatingActionButton(
                     onClick = { onNew(if (totpOnly) EntryType.TOTP else EntryType.LOGIN) },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -253,7 +264,13 @@ fun VaultScreen(
         },
     ) { padding ->
         VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) {
-            EntryList(store, totpOnly, list, onOpen, onMessage = { text -> scope.launch { snackbar.showSnackbar(text) } })
+            val message: (String) -> Unit = { text -> scope.launch { snackbar.showSnackbar(text) } }
+            EntryList(
+                store, undo, twoStep, totpOnly, list, onOpen, onEdit, onNew,
+                onImport = actions.import, onImportOther = onImportOther, onMessage = message,
+            )
+            // 2.0, task 6: back in the app after «Copiar usuario», «Copiar contraseña» for what is left of its 30 s.
+            PasswordOfferOnReturn(store, twoStep, snackbar) { e -> copyOfferedPassword(context, scope, store, twoStep, e, message) }
         }
     }
 }
@@ -448,6 +465,16 @@ private fun UnlockVault(store: VaultStore) {
             },
             dismissButton = { TextButton(onClick = { confirmDestroy = false }) { Text("Cancelar") } },
         )
+    }
+}
+
+/** «Copiar contraseña» of the copy in two steps: the password of [e] as the open vault holds it now, then the offer ends. */
+internal fun copyOfferedPassword(context: Context, scope: CoroutineScope, store: VaultStore, twoStep: TwoStepCopy, e: VaultEntry, onMessage: (String) -> Unit) {
+    val live = liveEntry(store, e.id)?.takeIf { it.passwordForHealth().isNotEmpty() } ?: return twoStep.clear()
+    copySensitive(context, live.passwordForHealth()) {
+        twoStep.clear()
+        scope.launch { runCatching { store.markUsed(live.id) } }
+        onMessage(PASSWORD_COPIED)
     }
 }
 

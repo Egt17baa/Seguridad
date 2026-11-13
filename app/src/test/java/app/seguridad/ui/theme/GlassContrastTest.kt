@@ -125,4 +125,23 @@ class GlassContrastTest {
             }
         }
     }
+    /**
+     * 2.0, task 6: the rows of the list are glass panels of the cards' level, so they never blur and their texts are the
+     * ones [failures] measures on that panel over the darkest and the lightest point of the background; what a swipe
+     * uncovers ([rowRevealColors], drawn only in the strip the row leaves) reads at 4.5:1 (7:1 in «Alto contraste»).
+     */
+    @Test fun theRowsOfTheListRead() {
+        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (style in ThemeStyle.entries) for (high in listOf(false, true)) {
+            val l = look(p, custom, style = style, dark = dark, high = high)
+            assertFalse(l.blurs(PanelLevel.CARD))
+            val text = if (l.highContrast) 7.0 else 4.5
+            for (edit in listOf(true, false)) {
+                val (fg, bg) = rowRevealColors(l.scheme, edit)
+                val r = app.seguridad.vault.TagPalette.contrast(argb(fg), argb(bg))
+                assertTrue("$p $style dark=$dark high=$high edit=$edit: $r", r >= text)
+            }
+            assertTrue("$p $style dark=$dark high=$high", failures(l.colors, l.opaque).isEmpty())
+        }
+    }
 }
+

@@ -196,6 +196,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     val onOpen: (String) -> Unit = { id -> nav.navigate("vault/entry/${Uri.encode(id)}") }
     val onHealth: () -> Unit = { nav.navigate("vault/health") }
     val onNew: (EntryType) -> Unit = { type -> nav.navigate("vault/edit?type=${type.name}") }
+    val onEdit: (String) -> Unit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }
     val onImportOther: () -> Unit = { nav.navigate("vault/import") }
     val onTrash: () -> Unit = { nav.navigate("vault/trash") }
 
@@ -281,8 +282,8 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
             },
         ) { padding ->
             NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
-                composable("vault") { VaultScreen(vault, container.undoTrash, totpOnly = false, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
-                composable("codes") { VaultScreen(vault, container.undoTrash, totpOnly = true, onOpen = onOpen, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
+                composable("vault") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = false, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
+                composable("codes") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = true, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
                 // 2.0, task 3: the trash and the versions of an entry (the id encoded, LIBRE-1).
                 composable("vault/trash") { TrashScreen(vault, onBack = backOnce(nav)) }
                 composable("vault/entry/{id}/history") { entry ->
