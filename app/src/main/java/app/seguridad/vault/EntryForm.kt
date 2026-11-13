@@ -470,14 +470,71 @@ class EntryEditSession(
         pasteOffer.value = null
     }
 
-    /** «Atrás» (the bar's arrow and the system's back): with changes, the dialog; without, the form ends ([finish]). */
-    fun back() {
-        if (hasUnsavedChanges) askingToLeave.value = true else finish()
+    /**
+     * Where the form was going when «¿Guardar los cambios?» opened ([askToLeave]): a tab, or null for «Atrás» (the form
+     * ends). Only a call, never text; gone with [clear], «Seguir editando» and a failed save.
+     */
+    @Volatile private var pendingLeave: (() -> Unit)? = null
+
+    /** «Atrás» (the bar's arrow and the system's back): [askToLeave] with no other place to go. */
+    fun back() = askToLeave(null)
+
+    /**
+     * Leaving the form towards [go] (another tab, review I-1 of task 7), or with «Atrás» when null. With changes, the
+     * dialog opens, without an old error on it (m-1), and [go] waits for its answer; without changes, [go] runs (or the
+     * form ends). While a save is under way nothing is asked (m-2): «Atrás» waits, since the screen goes by itself when
+     * the save ends, and a tab goes at once (the save goes on in the ViewModel, and what was typed is cleared on leaving).
+     */
+    fun askToLeave(go: (() -> Unit)?) {
+        when {
+            saving.value -> go?.invoke()
+            hasUnsavedChanges -> {
+                error.value = null
+                pendingLeave = go
+                askingToLeave.value = true
+            }
+            go != null -> go()
+            else -> finish()
+        }
     }
 
-    /** «Seguir editando», or the dialog dismissed: back to the form, as it was. */
+    /** «Seguir editando», or the dialog dismissed: back to the form, as it was, and nowhere to go. */
     fun keepEditing() {
         askingToLeave.value = false
+        pendingLeave = null
+    }
+
+    /**
+     * «Descartar»: nothing is saved. With «Atrás» the form ends ([finish]); towards a tab, what was typed goes first
+     * ([clear]) and then the tab opens. Nothing while a save is under way (m-2: the save would happen all the same).
+     */
+    fun discard() {
+        if (saving.value) return
+        val go = pendingLeave
+        pendingLeave = null
+        askingToLeave.value = false
+        if (go == null) {
+            finish()
+        } else {
+            clear()
+            go()
+        }
+    }
+
+    /** «Guardar» of the dialog passed the checks: the dialog goes, and the place to go waits for the save ([takeLeave]). */
+    fun savingToLeave() {
+        askingToLeave.value = false
+    }
+
+    /** Where to go once the save of the dialog ended (or null); taken once. A failed save drops it the same way. */
+    fun takeLeave(): (() -> Unit)? = pendingLeave.also { pendingLeave = null }
+
+    /** A re-created activity: a place to go of the old one is not followed (its dialog goes, the form stays). */
+    internal fun dropLeave() {
+        if (pendingLeave != null) {
+            pendingLeave = null
+            askingToLeave.value = false
+        }
     }
 
     /** The vault's state: open loads the form (if it was cleared), any other state after it was loaded clears it. */
@@ -518,6 +575,7 @@ class EntryEditSession(
         migration.value = null
         pasteOffer.value = null
         askingToLeave.value = false
+        pendingLeave = null
         autoTitle.value = null
         baseline.value = null
         loaded = false
@@ -541,8 +599,35 @@ fun EntryEditSession.followVault(state: Flow<VaultState>, scope: CoroutineScope)
 
 /** The screen left the composition: a rotation ([changingConfigurations]) keeps what was typed, any other way out clears it. */
 fun EntryEditSession.left(changingConfigurations: Boolean) {
-    if (!changingConfigurations) clear()
+    if (!changingConfigurations) clear() else dropLeave()
 }
+
+/**
+ * Review I-1 of task 7: the tabs of the app ask the open editor before they leave it. Only a Boolean ([hasChanges]) and
+ * a call ([ask], with where to go) pass through it, never anything typed. The editor registers while it is on screen;
+ * with none, or none with changes, [leave] goes at once.
+ */
+class LeaveGuard {
+    private class Holder(val hasChanges: () -> Boolean, val ask: (go: () -> Unit) -> Unit)
+
+    @Volatile private var holder: Holder? = null
+
+    /** The editor on screen; the returned call takes it out again (only if it is still the one registered). */
+    fun register(hasChanges: () -> Boolean, ask: (go: () -> Unit) -> Unit): () -> Unit {
+        val h = Holder(hasChanges, ask)
+        holder = h
+        return { if (holder === h) holder = null }
+    }
+
+    /** Towards [go] (a tab): the editor's dialog first when it has changes. */
+    fun leave(go: () -> Unit) {
+        val h = holder
+        if (h != null && h.hasChanges()) h.ask(go) else go()
+    }
+}
+
+/** The editor's registration with [guard] ([LeaveGuard]): its changes, and its dialog ([EntryEditSession.askToLeave]). */
+fun EntryEditSession.guardedBy(guard: LeaveGuard): () -> Unit = guard.register({ hasUnsavedChanges }) { go -> askToLeave(go) }
 
 /** The ViewModel's onCleared: the navigation entry is gone for good. */
 fun EntryEditSession.cleared() = clear()

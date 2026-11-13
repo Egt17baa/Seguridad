@@ -74,7 +74,7 @@ import app.seguridad.vault.isSecretField
 import app.seguridad.vault.rotates
 import app.seguridad.crypto.Strength
 import app.seguridad.vault.strengthOf
-import app.seguridad.vault.strengthText
+import app.seguridad.vault.strengthLine
 import app.seguridad.vault.templateSecretIsPassword
 import app.seguridad.vault.wifiHiddenLabel
 import app.seguridad.vault.wifiSecurityLabel
@@ -239,13 +239,15 @@ private fun SecretNumberField(value: String, onChange: (String) -> Unit, label: 
 @Composable
 internal fun PasswordWithTools(value: String, onChange: (String) -> Unit, label: String, onGenerated: (String) -> Unit) {
     PasswordField(value, onChange, label = label)
-    strengthText(value)?.let { line ->
-        val color = when (strengthOf(value)) {
+    // Review m-4: one estimate per change of the text, not one per recomposition.
+    val estimate = remember(value) { strengthOf(value) }
+    estimate?.let { st ->
+        val color = when (st) {
             Strength.WEAK -> NegativeColor
             Strength.FAIR -> CautionColor
             else -> PositiveColor
         }
-        Text(line, style = MaterialTheme.typography.bodySmall, color = color)
+        Text(strengthLine(st), style = MaterialTheme.typography.bodySmall, color = color)
     }
     TextButton(onClick = { generatePassword(PasswordOptions(length = 20))?.let(onGenerated) }) { DecoratedLabel("🎲", GENERATE_PASSWORD) }
 }

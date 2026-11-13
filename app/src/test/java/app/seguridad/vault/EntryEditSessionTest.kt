@@ -417,4 +417,136 @@ class EntryEditSessionTest {
         assertEquals("", s.seed.value)
         assertNull(s.pasteOffer.value)
     }
+
+    // Review round 1 of task 7: I-1 (a tab asks too), m-1 (no old error in the dialog), m-2 (nothing during a save).
+
+    @Test fun aTabWithChangesAsksAndDiscardGoesWithNothingTyped() {
+        val s = session(id = "e1").apply { load(listOf(saved)) }
+        var went = 0
+        s.loginPassword.value = "contraseña-nueva-recien-generada"
+        s.askToLeave { went++ }
+        assertTrue(s.askingToLeave.value)
+        assertEquals(0, went)
+        // «Descartar»: what was typed goes first, then the tab opens; the form is not «finished» (the tab keeps it).
+        s.discard()
+        assertEquals(1, went)
+        s.assertEmpty()
+        assertFalse(s.finished.value)
+        // Back on the tab: from the vault again.
+        s.load(listOf(saved))
+        assertEquals("clave-guardada", s.loginPassword.value)
+        // Without changes a tab goes at once.
+        s.askToLeave { went++ }
+        assertEquals(2, went)
+        assertFalse(s.askingToLeave.value)
+    }
+
+    @Test fun keepEditingStaysAndForgetsTheTab() {
+        val s = session(id = "e1").apply { load(listOf(saved)) }
+        var went = 0
+        s.title.value = "Banco nuevo"
+        s.askToLeave { went++ }
+        s.keepEditing()
+        assertFalse(s.askingToLeave.value)
+        assertEquals("Banco nuevo", s.title.value)
+        // The next «Atrás» and «Descartar» end the form; the tab of before is never opened.
+        s.back()
+        s.discard()
+        assertEquals(0, went)
+        assertTrue(s.finished.value)
+    }
+
+    @Test fun saveFromATabsDialogGoesOnceSaved() {
+        val s = session(id = "e1").apply { load(listOf(saved)) }
+        var went = 0
+        s.title.value = "Banco nuevo"
+        s.askToLeave { went++ }
+        // «Guardar» passed the checks: the dialog goes, and the tab waits for the save.
+        s.savingToLeave()
+        assertFalse(s.askingToLeave.value)
+        val go = s.takeLeave()
+        assertTrue(go != null)
+        assertNull(s.takeLeave()) // Taken once: a failed save, or a second one, goes nowhere.
+        go!!.invoke()
+        assertEquals(1, went)
+    }
+
+    @Test fun aLockWhileAskingForATabGoesNowhere() {
+        val s = session(id = "e1").apply { load(listOf(saved)) }
+        var went = 0
+        s.title.value = "Banco nuevo"
+        s.askToLeave { went++ }
+        s.vaultStateIs(unlocked = false, emptyList())
+        s.assertEmpty()
+        assertNull(s.takeLeave())
+        s.discard() // A late tap of the dialog that was on screen.
+        assertEquals(0, went)
+        // A re-created activity: the place to go of the old one is dropped, with its dialog; the form stays.
+        val r = session(id = "e1").apply { load(listOf(saved)) }
+        r.title.value = "Banco nuevo"
+        r.askToLeave { went++ }
+        r.left(changingConfigurations = true)
+        assertFalse(r.askingToLeave.value)
+        assertNull(r.takeLeave())
+        assertEquals("Banco nuevo", r.title.value)
+    }
+
+    @Test fun theDialogOpensWithoutAnOldError() {
+        val s = session(id = "e1").apply { load(listOf(saved)) }
+        s.error.value = "Ponle un nombre"
+        s.title.value = "Banco nuevo"
+        s.back()
+        assertTrue(s.askingToLeave.value)
+        assertNull(s.error.value)
+    }
+
+    @Test fun duringASaveNothingIsAsked() {
+        val s = session(id = "e1").apply { load(listOf(saved)) }
+        var went = 0
+        s.title.value = "Banco nuevo"
+        s.saving.value = true
+        // «Atrás» waits: the screen goes by itself when the save ends.
+        s.back()
+        assertFalse(s.askingToLeave.value)
+        assertFalse(s.finished.value)
+        // A tab goes at once; the save goes on.
+        s.askToLeave { went++ }
+        assertEquals(1, went)
+        assertFalse(s.askingToLeave.value)
+        // «Descartar» of a dialog opened before the save does nothing while it runs.
+        s.saving.value = false
+        s.back()
+        s.saving.value = true
+        s.discard()
+        assertTrue(s.askingToLeave.value)
+        assertFalse(s.finished.value)
+        assertEquals("Banco nuevo", s.title.value)
+    }
+
+    @Test fun theGuardPassesOnlyAQuestionAndACall() {
+        val guard = LeaveGuard()
+        var went = 0
+        guard.leave { went++ } // No editor: at once.
+        assertEquals(1, went)
+        val s = session(id = "e1").apply { load(listOf(saved)) }
+        val off = s.guardedBy(guard)
+        guard.leave { went++ } // An editor without changes: at once.
+        assertEquals(2, went)
+        s.title.value = "Banco nuevo"
+        guard.leave { went++ }
+        assertEquals(2, went)
+        assertTrue(s.askingToLeave.value)
+        s.discard()
+        assertEquals(3, went)
+        // A second editor registered; the first one's removal leaves it in place.
+        val t = session(id = "e1").apply { load(listOf(saved)) }
+        val offT = t.guardedBy(guard)
+        off()
+        t.title.value = "otro"
+        guard.leave { went++ }
+        assertTrue(t.askingToLeave.value)
+        offT()
+        guard.leave { went++ }
+        assertEquals(4, went)
+    }
 }

@@ -78,6 +78,9 @@ import app.seguridad.vault.UNSAVED_KEEP
 import app.seguridad.vault.UNSAVED_SAVE
 import app.seguridad.vault.UNSAVED_TITLE
 import app.seguridad.vault.WordLists
+import app.seguridad.vault.LeaveGuard
+import app.seguridad.vault.guardedBy
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.activity.compose.BackHandler
 import app.seguridad.vault.cleared
 import app.seguridad.vault.followVault
@@ -124,6 +127,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.util.UUID
+
+/**
+ * Review I-1 of task 7: the guard the tabs of the app ask before leaving the entry editor (AppNavHost provides it).
+ * Null outside the app's navigation (previews, tests), where nothing asks.
+ */
+val LocalLeaveGuard = staticCompositionLocalOf<LeaveGuard?> { null }
 
 /** Shown when the vault locks while one of its screens is open. */
 @Composable
@@ -416,7 +425,10 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
         viewModelScope.launch {
             try {
                 if (store.upsert(entry)) {
+                    // Review I-1: saved from the dialog of a tab, the tab opens once the entry is saved.
+                    val go = form.takeLeave()
                     form.finish()
+                    go?.invoke()
                 } else if (form.loaded) {
                     // Review M-3: an entry that went to the trash meanwhile is said so, not «se bloqueó».
                     form.error.value = saveRefusedText(store.state.value, entry.id)
@@ -428,6 +440,7 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
                 if (form.loaded) form.error.value = storeSaveErrorText(x)
             } finally {
                 form.saving.value = false
+                form.takeLeave() // A save that failed goes nowhere: the form stays, with its error.
             }
         }
     }
@@ -532,6 +545,15 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
         save(e)
     }
 
+    /**
+     * «Guardar» of «¿Guardar los cambios?»: [trySave]; if the form does not pass its checks, the dialog stays and says why;
+     * otherwise it goes, and where it was going ([EntryEditSession.takeLeave]) follows the save.
+     */
+    fun saveFromDialog() {
+        trySave()
+        if (form.error.value == null) form.savingToLeave()
+    }
+
     override fun onCleared() {
         form.cleared()
     }
@@ -562,6 +584,12 @@ fun VaultEntryEditScreen(
     // Only a rotation (or another configuration change) keeps what was typed: leaving otherwise lets it go now.
     DisposableEffect(vm) {
         onDispose { form.left(changingConfigurations = activity?.isChangingConfigurations == true) }
+    }
+    // Review I-1 of task 7: the tabs ask this form before they leave it (only whether it has changes, and its dialog).
+    val leaveGuard = LocalLeaveGuard.current
+    DisposableEffect(form, leaveGuard) {
+        val off = leaveGuard?.let(form::guardedBy)
+        onDispose { off?.invoke() }
     }
     if (form.finished.value) {
         LaunchedEffect(Unit) { onDone() }
@@ -769,15 +797,12 @@ fun VaultEntryEditScreen(
             },
             // What stops the save (a missing name…) is said here, where the user is looking, not at the end of the form.
             text = error?.let { e -> { Text(e, color = NegativeColor) } },
+            // Review m-3: one button per line, so none is cut with the letter at 200 % (R-1).
             confirmButton = {
-                TextButton(enabled = !saving, onClick = {
-                    vm.trySave()
-                    if (form.error.value == null) form.keepEditing()
-                }) { Text(UNSAVED_SAVE) }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = form::finish) { Text(UNSAVED_DISCARD, color = NegativeColor) }
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(enabled = !saving, onClick = vm::saveFromDialog) { Text(UNSAVED_SAVE) }
+                    // Review m-2: not while a save is under way (it would save all the same).
+                    TextButton(enabled = !saving, onClick = form::discard) { Text(UNSAVED_DISCARD, color = NegativeColor) }
                     TextButton(onClick = form::keepEditing) { Text(UNSAVED_KEEP) }
                 }
             },

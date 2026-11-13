@@ -98,6 +98,8 @@ import app.seguridad.ui.screens.VaultScreen
 import app.seguridad.vault.replacedText
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VAULT_ENTRY_TYPES
+import app.seguridad.vault.LeaveGuard
+import app.seguridad.ui.screens.LocalLeaveGuard
 import app.seguridad.vault.VaultState
 import kotlinx.coroutines.launch
 
@@ -261,18 +263,22 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
         )
     }
     val switcher: @Composable () -> Unit = { VaultSwitcher(container, onOpen = { nav.navigate("vaults") }) }
-    CompositionLocalProvider(LocalOnMasterChanged provides container::onMasterChanged, LocalVaultSwitcher provides switcher) {
+    val leaveGuard = remember { LeaveGuard() }
+    CompositionLocalProvider(LocalOnMasterChanged provides container::onMasterChanged, LocalVaultSwitcher provides switcher, LocalLeaveGuard provides leaveGuard) {
         Scaffold(
             bottomBar = {
                 NavigationBar {
                     tabs.forEach { tab ->
                         NavigationBarItem(
                             selected = currentTab == tab.route,
+                            // Review I-1 of task 7: an entry being edited with changes asks first («¿Guardar los cambios?»).
                             onClick = {
-                                nav.navigate(tab.route) {
-                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                leaveGuard.leave {
+                                    nav.navigate(tab.route) {
+                                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = null) },

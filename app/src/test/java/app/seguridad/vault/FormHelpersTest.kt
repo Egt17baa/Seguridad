@@ -198,6 +198,9 @@ class FormHelpersTest {
         assertEquals("Fuerza estimada: Débil", strengthText("password"))
         assertEquals("Fuerza estimada: Muy fuerte", strengthText("k#9Lw!q2Zr@7Vt\$4Pm&x8"))
         assertNotNull(strengthText("x".repeat(20_000)))
+        // m-4: the screen makes one estimate per change and words it with strengthLine.
+        assertEquals(strengthText("1234"), strengthOf("1234")?.let(::strengthLine))
+        assertTrue("val estimate = remember(value) { strengthOf(value) }" in source("ui/screens/EntryFields.kt"))
     }
 
     @Test fun onlyPasswordsTheUserChoosesGetTheGenerator() {
@@ -266,14 +269,20 @@ class FormHelpersTest {
         val screen = source("ui/screens/VaultEntryScreen.kt")
         assertTrue("BackHandler(enabled = form.hasUnsavedChanges) { form.back() }" in screen)
         assertTrue("BackScaffold(if (existing == null) \"Nueva entrada\" else \"Editar\", form::back)" in screen)
-        // «Guardar» of the dialog is the button's.
-        assertEquals(2, Regex("""vm(::|\.)trySave""").findAll(screen).count())
+        // «Guardar» of the dialog is the button's (saveFromDialog calls trySave), and the tabs ask the same dialog.
+        assertTrue("onClick = vm::trySave," in screen && "TextButton(enabled = !saving, onClick = vm::saveFromDialog)" in screen)
+        assertTrue("fun saveFromDialog() {\n        trySave()" in screen)
+        assertTrue("TextButton(enabled = !saving, onClick = form::discard)" in screen)
+        assertTrue("val off = leaveGuard?.let(form::guardedBy)" in screen)
+        val nav = source("ui/AppNavHost.kt")
+        assertTrue("leaveGuard.leave {\n                                    nav.navigate(tab.route) {" in nav)
+        assertTrue("LocalLeaveGuard provides leaveGuard" in nav)
         val vault = source("ui/screens/VaultScreen.kt")
         assertTrue("onClick = newEntry," in vault)
         assertTrue("NewEntryChooser(onDismiss = { choosing = false })" in vault)
         assertTrue("LaunchedEffect(unlocked) { if (!unlocked) choosing = false }" in vault)
         // What stops «Guardar» of the dialog is said in the dialog, which stays.
-        assertTrue("if (form.error.value == null) form.keepEditing()" in screen)
+        assertTrue("if (form.error.value == null) form.savingToLeave()" in screen)
         assertTrue("val newEntry: () -> Unit = { if (totpOnly) onNew(EntryType.TOTP) else choosing = true }" in vault)
         // «Crear la primera» of the empty vault does what the «+» does.
         assertTrue("Button(onClick = onNew) { Text(EMPTY_CREATE_FIRST) }" in source("ui/screens/VaultList.kt"))

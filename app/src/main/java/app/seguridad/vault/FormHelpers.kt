@@ -158,10 +158,10 @@ private const val STRENGTH_MAX_CHARS = 10_000
  * The line under a password while it is typed: the estimate of «Salud» ([estimateBits]) in words ([Strength.label]); null
  * for an empty one. The words carry the meaning, never the colour alone (R-1). It is an estimate.
  */
-fun strengthText(password: String): String? {
-    if (password.isEmpty()) return null
-    return STRENGTH_LINE + strength(estimateBits(password.take(STRENGTH_MAX_CHARS))).label
-}
+fun strengthText(password: String): String? = strengthOf(password)?.let(::strengthLine)
+
+/** The line of [strengthText] for an estimate already made (m-4: one estimate per change of the text). */
+fun strengthLine(strength: Strength): String = STRENGTH_LINE + strength.label
 
 /** The strength of [password] for the colour of its line ([strengthText]); null for an empty one. */
 fun strengthOf(password: String): Strength? = if (password.isEmpty()) null else strength(estimateBits(password.take(STRENGTH_MAX_CHARS)))
