@@ -905,9 +905,20 @@ class PlatformSourcesTest {
      * animations on; which glow is GlassContrastTest's, that the card asks the system is checked here.
      */
     @Test fun `the press glow of a panel follows Android's animations setting`() {
-        val src = code("ui/theme/Components.kt")
-        assertTrue("LocalRippleConfiguration provides panelRipple(ValueAnimator.areAnimatorsEnabled())" in src)
-        assertTrue(insideCall(main("ui/theme/Components.kt"), "CompositionLocalProvider", main("ui/theme/Components.kt").indexOf("Card(onClick = onClick")))
+        val components = code("ui/theme/Components.kt")
+        assertTrue("LocalRippleConfiguration provides panelRipple(animationsOn)" in components)
+        assertTrue(insideCall(main("ui/theme/Components.kt"), "CompositionLocalProvider", main("ui/theme/Components.kt").indexOf("Card(\n                onClick = onClick")))
+        // Re-review N-2: a still mark while pressed, with the card's own presses.
+        assertTrue("modifier = m.pressSignal(interaction, SectionShape, animationsOn)" in components && "interactionSource = interaction," in components)
+        // Re-review N-1: the system is read as state, on start and on every return to the app, never on a recomposition.
+        assertFalse("areAnimatorsEnabled" in components)
+        assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { on = ValueAnimator.areAnimatorsEnabled() }" in code("ui/theme/Glass.kt"))
+        assertTrue("LocalAnimationsOn provides animationsOnSetting()" in code("ui/theme/Theme.kt"))
+        // Re-review N-3: no other pressable card or surface than SectionCard's, so every pressable panel follows the rule.
+        val pressable = Regex("""\b(Card|ElevatedCard|OutlinedCard|Surface)\((\s*onClick|[^\n]*\.clickable)""")
+        val found = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .flatMap { f -> pressable.findAll(blank(f.readText())).map { f.name } }.toList()
+        assertEquals(listOf("Components.kt"), found.distinct())
     }
 
     /** 2.0, review M-2 of task 5 bis: the highlight is white fading out, as ThemeSurfaces.kt measures it (not black at 0). */

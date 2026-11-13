@@ -1,6 +1,5 @@
 package app.seguridad.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,7 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import app.seguridad.ui.theme.SectionCard
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -100,7 +99,7 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
         val byId = entries.associateBy { it.id }
         LazyColumn(Modifier.padding(padding).fillMaxSize().touchesVault(store), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Card(Modifier.fillMaxWidth()) {
+                SectionCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (items.isEmpty()) Text("Sin problemas detectados.")
                         Issue.entries.forEach { issue ->
@@ -192,7 +191,8 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
 
 @Composable
 private fun HealthRow(item: HealthItem, title: String, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    // Re-review N-3: a pressable panel, so it glows or marks itself by the same rule as the others (SectionCard).
+    SectionCard(Modifier.fillMaxWidth(), onClick = onClick) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(plainReportText(title).ifEmpty { "(sin título)" }, style = MaterialTheme.typography.titleMedium)
             Text(item.issues.sortedBy { it.ordinal }.joinToString(" · ") { it.label() }, color = MaterialTheme.colorScheme.onSurfaceVariant)

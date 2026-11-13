@@ -1,8 +1,8 @@
 package app.seguridad.ui.theme
 
-import android.animation.ValueAnimator
 import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -78,9 +78,20 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
     }
     val m = if (glass) modifier.glass(PanelLevel.CARD, SectionShape) else modifier
     if (onClick != null) {
-        // Review M-8: the brief glow of a pressed panel (Material's ripple), and none when Android removes animations.
-        CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(ValueAnimator.areAnimatorsEnabled())) {
-            Card(onClick = onClick, modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
+        // Review M-8: the brief glow of a pressed panel (Material's ripple), and none when Android removes animations;
+        // then a still mark while it is pressed (re-review N-2), in «Cristal» and in «Sólido».
+        val animationsOn = LocalAnimationsOn.current
+        val interaction = remember { MutableInteractionSource() }
+        CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn)) {
+            Card(
+                onClick = onClick,
+                modifier = m.pressSignal(interaction, SectionShape, animationsOn),
+                shape = SectionShape,
+                colors = colors,
+                border = border,
+                interactionSource = interaction,
+                content = content,
+            )
         }
     } else {
         Card(modifier = m, shape = SectionShape, colors = colors, border = border, content = content)

@@ -110,4 +110,19 @@ class GlassContrastTest {
         assertEquals(null, panelRipple(animationsOn = false))
         assertTrue(panelRipple(animationsOn = true) != null)
     }
+
+    /** Re-review N-2: without animations a pressed panel still marks itself, without motion; with them, the ripple does. */
+    @Test fun aPressedPanelMarksItselfWithoutAnimations() {
+        assertTrue(staticPressMark(pressed = true, animationsOn = false))
+        assertFalse(staticPressMark(pressed = false, animationsOn = false))
+        assertFalse(staticPressMark(pressed = true, animationsOn = true))
+        // The mark is the accent, which reads as a non-text element (3:1) on every surface of every palette.
+        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (style in ThemeStyle.entries) {
+            val l = look(p, custom, style = style, dark = dark)
+            for (s in surfacesOf(l.colors, l.opaque)) {
+                val r = app.seguridad.vault.TagPalette.contrast(argb(l.colors.scheme.primary), s.argb)
+                assertTrue("$p $style dark=$dark ${s.name}: $r", r >= 3.0)
+            }
+        }
+    }
 }

@@ -4,6 +4,8 @@ import android.animation.ValueAnimator
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.CacheDrawScope
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
@@ -47,6 +50,8 @@ import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import app.seguridad.settings.CustomPalette
 import app.seguridad.settings.PaletteId
 import app.seguridad.settings.ThemeStyle
@@ -170,6 +175,42 @@ internal fun DrawScope.drawAppBackground(look: Look, area: Size) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun panelRipple(animationsOn: Boolean): RippleConfiguration? = if (animationsOn) RippleConfiguration() else null
+
+/**
+ * Whether Android has animations on, for the whole app ([SeguridadTheme] provides it). Re-review N-1: the setting
+ * changes only in Android's Settings, so it is read when the app starts and again each time it comes back
+ * ([Lifecycle.Event.ON_RESUME]); a recomposition alone never reads the system.
+ */
+internal val LocalAnimationsOn = staticCompositionLocalOf { true }
+
+/** The system's setting, kept as state and read again on every return to the app ([LocalAnimationsOn]). */
+@Composable
+internal fun animationsOnSetting(): Boolean {
+    var on by remember { mutableStateOf(ValueAnimator.areAnimatorsEnabled()) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { on = ValueAnimator.areAnimatorsEnabled() }
+    return on
+}
+
+/**
+ * Re-review N-2: with animations removed the ripple goes, so a pressed panel marks itself without any motion: its edge
+ * in the accent colour, 2 dp, for as long as it is pressed (the accent has 3:1 or more on every surface, PalettesTest).
+ * It is not drawn while animations are on: the ripple is the sign then.
+ */
+internal fun staticPressMark(pressed: Boolean, animationsOn: Boolean): Boolean = pressed && !animationsOn
+
+/** Draws [staticPressMark] over a pressable panel of [shape] that reports its presses to [interaction]. */
+@Composable
+internal fun Modifier.pressSignal(interaction: InteractionSource, shape: Shape, animationsOn: Boolean): Modifier {
+    if (animationsOn) return this
+    val pressed by interaction.collectIsPressedAsState()
+    val accent = LocalLook.current.colors.scheme.primary
+    return drawWithContent {
+        drawContent()
+        if (staticPressMark(pressed, animationsOn)) {
+            drawOutline(shape.createOutline(size, layoutDirection, this), accent, style = Stroke(2.dp.toPx()))
+        }
+    }
+}
 
 /** The shape of each kind of panel. */
 fun panelShape(level: PanelLevel): Shape = when (level) {

@@ -62,7 +62,8 @@ fun SeguridadTheme(settings: Settings, content: @Composable () -> Unit) {
             sdk = Build.VERSION.SDK_INT, wallpaper = wallpaper,
         )
     }
-    ProvideLook(look, content)
+    // Re-review N-1: Android's animations setting, read on start and on every return to the app.
+    CompositionLocalProvider(LocalAnimationsOn provides animationsOnSetting()) { ProvideLook(look, content) }
 }
 
 /** [look] for [content]: the Material colours, the status colours, the glass and the background drawn behind. */
