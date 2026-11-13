@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -192,8 +193,9 @@ private fun AutoBackupSection(
     val noVault = vaultState is VaultState.NoVault
     // COV2-1: where the copies go and how many are kept change only with the vault open, or with none.
     val editable = settingsEditable(vaultState)
-    // The target whose folder the picker changes; null when it adds one. Only a folder's URI, never a secret.
-    var changing by remember { mutableStateOf<String?>(null) }
+    // The target whose folder the picker changes; null when it adds one. Only a folder's URI (saved in plain text in the
+    // settings anyway), never a secret: kept across a re-creation of the activity while the picker is open.
+    var changing by rememberSaveable { mutableStateOf<String?>(null) }
 
     val picker = rememberDocumentPicker(ActivityResultContracts.OpenDocumentTree(), place = null) { uri ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
