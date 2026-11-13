@@ -280,7 +280,7 @@ class AttachmentsTest {
         }
         val adding = async(Dispatchers.Default) { s.addAttachment("n", slow, "lento.txt") }
         assertTrue(started.await(5, TimeUnit.SECONDS))
-        // While the read hangs, saving, locking and unlocking all go through.
+        // While the read hangs, saving, locking and unlocking all go through (the read never holds the mutex).
         try {
             withTimeout(10_000) {
                 s.upsert(note("m"))
@@ -291,9 +291,43 @@ class AttachmentsTest {
             release.countDown() // Also on failure, or the hung read would keep the test from ending.
         }
         assertEquals(2, (s.state.value as VaultState.Unlocked).entries.size)
+        // 2.0, re-review 2 of task 7 (M-A): asked for before the lock, it is not saved after it, although the vault was
+        // opened again before the read ended (decision (b) of 1.4.0): false, no reference and no file.
+        assertFalse(adding.await())
+        assertTrue(s.entry("n").attachments.isEmpty())
+        assertTrue(attDir.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun anAttachmentReadWhileOnlyOtherSavesHappenIsSaved() = runBlocking {
+        // Re-review 2 of task 7: only a lock refuses it; other saves while the document is read do not.
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.IO, Dispatchers.Unconfined, now = { 5_000L }, kdf = { KdfParams(1024, 1, 1) })
+        s.load()
+        s.create("maestra-larga".toCharArray())
+        s.upsert(note("n"))
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val slow = object : InputStream() {
+            private var sent = false
+            override fun read(): Int = throw UnsupportedOperationException()
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                started.countDown()
+                release.await()
+                if (sent) return -1
+                sent = true
+                b[off] = 7
+                return 1
+            }
+        }
+        val adding = async(Dispatchers.Default) { s.addAttachment("n", slow, "lento.txt") }
+        assertTrue(started.await(5, TimeUnit.SECONDS))
+        try {
+            withTimeout(10_000) { s.upsert(note("m")) }
+        } finally {
+            release.countDown()
+        }
         assertTrue(adding.await())
         val ref = s.entry("n").attachments.single()
-        assertTrue(fileOf(ref).exists()) // Written and saved after the unlock: never collected.
+        assertTrue(fileOf(ref).exists())
         assertArrayEquals(byteArrayOf(7), s.openAttachment("n", ref.id))
     }
 

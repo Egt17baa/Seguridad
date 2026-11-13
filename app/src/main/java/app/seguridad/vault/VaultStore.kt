@@ -315,7 +315,10 @@ class VaultStore(
     /**
      * Bumped by every [lock]. [lock] runs on the main thread without the mutex (leaving the app must lock at once),
      * so operations work on their own copy of the key and only reopen the vault if no lock happened meanwhile.
-     * Each one reads it when called, before waiting for the mutex: a lock while it waits counts too.
+     * Every save through [modifyData] reads it when it is asked for (its default `sinceLock`), before waiting for the
+     * mutex, and is refused if a lock happened since, even if the vault was opened again meanwhile (2.0, task 7, re-review
+     * 2, Info-1); the editor's «Guardar» gives the epoch of its tap ([upsert]) and [addAttachment] the one before it reads
+     * its document. [create], [unlock] and [unlockWithKey] also read it before waiting for the mutex.
      */
     @Volatile private var epoch = 0
 
@@ -741,8 +744,9 @@ class VaultStore(
      */
     private suspend fun modify(
         accept: suspend (VaultFile) -> Boolean = { true },
+        sinceLock: Int = epoch,
         change: suspend (List<VaultEntry>) -> List<VaultEntry>?,
-    ): Boolean = modifyData(accept) { data -> change(data.live)?.let { data.copy(entries = it + data.trash) } }
+    ): Boolean = modifyData(accept, sinceLock = sinceLock) { data -> change(data.live)?.let { data.copy(entries = it + data.trash) } }
 
     /**
      * Saves the change even if the vault locks meanwhile (with a copy of the key), then reopens only if it did not.
@@ -759,7 +763,7 @@ class VaultStore(
     private suspend fun modifyData(
         accept: suspend (VaultFile) -> Boolean = { true },
         bookkeeping: Boolean = false,
-        sinceLock: Int? = null,
+        sinceLock: Int = epoch,
         change: suspend (VaultData) -> VaultData?,
     ): Boolean = mutex.withLock {
         // 2.0, task 4: bookkeeping ([markUsed]) is no change the user made: while the upgrade waits it is only skipped.
@@ -767,9 +771,9 @@ class VaultStore(
         check(upgrade == null) { UPGRADE_PENDING }
         val v = vault ?: return@withLock false
         val since = epoch
-        // 2.0, re-review 1 of task 7: a change asked for before a lock (the caller's [lockEpoch]) is not written after it,
-        // even if the vault was opened again while it waited for the mutex (decision (b) of 1.4.0).
-        if (sinceLock != null && since != sinceLock) return@withLock false
+        // 2.0, re-reviews 1 and 2 of task 7: a change asked for before a lock ([sinceLock], read when it was asked for) is
+        // not written after it, even if the vault was opened again while it waited for the mutex (decision (b) of 1.4.0).
+        if (since != sinceLock) return@withLock false
         val key = dek?.copyOf() ?: return@withLock false
         val current = (_state.value as? VaultState.Unlocked)?.data ?: return@withLock false.also { key.fill(0) }
         // 2.0, review I-2 of task 4: what is written is what opens (as the fingerprint's unlock, review M-5 of task 1): the
@@ -807,7 +811,7 @@ class VaultStore(
      * [lockEpoch] of the editor's «Guardar»), false with nothing saved when the vault locked since, also if it was
      * opened again meanwhile.
      */
-    suspend fun upsert(entry: VaultEntry, sinceLock: Int? = null) = modifyData(sinceLock = sinceLock) { data ->
+    suspend fun upsert(entry: VaultEntry, sinceLock: Int? = null) = modifyData(sinceLock = sinceLock ?: epoch) { data ->
         if (data.entries.any { it.id == entry.id && it.deletedAt != null }) return@modifyData null
         val list = data.live
         checkCanHold(list, listOf(entry))
@@ -1196,15 +1200,19 @@ class VaultStore(
      * before encrypting or writing anything, with the mutex held, so no other attachment can be added meanwhile).
      * False if the vault was locked, the entry no longer exists or it is an identity or a contact (they keep no
      * attachments), so nothing was saved.
+     * False too, with nothing saved, if the vault locked while [input] was read (even if it was opened again).
      * [input] (maybe a slow or stuck document provider) is read before taking the mutex, so it can never block
      * unlocking or saving. Only encrypting, writing the file and saving the vault run with the mutex held, so no
      * collection can run between writing the file and saving its reference; if the save fails, the next collection
      * deletes it.
      */
     suspend fun addAttachment(entryId: String, input: java.io.InputStream, name: String): Boolean {
+        // Re-review 2 of task 7 (M-A): the epoch before the document is read (it may take long): a lock meanwhile refuses
+        // the save, also if the vault was opened again before the read ended.
+        val sinceLock = epoch
         val plain = withContext(io) { attachments.read(input) }
         try {
-            return modify { list ->
+            return modify(sinceLock = sinceLock) { list ->
                 val entry = list.firstOrNull { it.id == entryId && !it.type.isPersonal } ?: return@modify null
                 if (attachments.totalBytes(list.flatMap { it.attachments }) + plain.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
                     throw AttachmentLimit(ATTACHMENTS_TOTAL_TOO_BIG)
