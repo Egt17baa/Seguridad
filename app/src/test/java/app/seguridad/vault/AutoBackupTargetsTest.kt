@@ -1058,6 +1058,15 @@ class AutoBackupTargetsTest {
         a.request("content://f")
         settle()
         assertEquals(2, f.copies().size)
+        // By hand while locked: it waits for the unlock, where it is made though nothing changed.
+        clock = at(14, 12)
+        s.lock()
+        runCurrent()
+        a.request("content://f")
+        settle()
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertEquals(3, f.copies().size)
         // A6, with nothing changed since.
         clock = at(15)
         a6Asked(s, a)
