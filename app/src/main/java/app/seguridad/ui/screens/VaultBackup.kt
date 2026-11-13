@@ -265,7 +265,7 @@ internal fun PasswordDialog(
  * Ajustes with [explain] (what the date counts, O-5 of the Abogado Digital, under «Más información»); one line in the vault.
  */
 @Composable
-fun BackupCheckNoticeLine(lastCheckedBackupAt: Long, explain: Boolean = true, modifier: Modifier = Modifier) {
+fun BackupCheckNoticeLine(lastCheckedBackupAt: Long, modifier: Modifier = Modifier, explain: Boolean = true) {
     val text = remember(lastCheckedBackupAt) { backupCheckNotice(lastCheckedBackupAt, System.currentTimeMillis()) } ?: return
     Column(modifier) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = CautionColor)
