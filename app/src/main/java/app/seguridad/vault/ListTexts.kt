@@ -35,8 +35,11 @@ const val SELECTION_UNFAVORITE = "Quitar favorita"
 const val SELECTION_TRASH = "Papelera"
 const val SELECTION_TAG_LABEL = "Etiqueta"
 fun tagSelectedTitle(count: Int): String = if (count == 1) "Etiquetar 1 entrada" else "Etiquetar $count entradas"
-fun movedSelected(count: Int, folder: String?): String =
-    (if (count == 1) "1 entrada movida" else "$count entradas movidas") + (folder?.let { " a «$it»" } ?: " fuera de las carpetas")
+fun movedSelected(count: Int, folder: String?): String = when (count) {
+    0 -> "Ya estaban ahí"
+    1 -> "1 entrada movida"
+    else -> "$count entradas movidas"
+} + if (count == 0) "" else (folder?.let { " a «$it»" } ?: " fuera de las carpetas")
 fun taggedSelected(count: Int, tag: String): String =
     if (count == 0) "Ya la tenían (o no caben más de 10 etiquetas)." else "«$tag» puesta en ${if (count == 1) "1 entrada" else "$count entradas"}"
 fun favoriteSelected(count: Int, favorite: Boolean): String = when {

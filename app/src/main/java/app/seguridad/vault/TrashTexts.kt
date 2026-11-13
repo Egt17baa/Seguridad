@@ -60,6 +60,9 @@ fun moveToTrashCountTitle(count: Int): String = "¿Mover $count entradas a la pa
 /** On view in the confirmation of a move to the trash. */
 const val MOVE_TO_TRASH_TEXT = "Puedes restaurarla desde la papelera durante 30 días."
 
+/** [MOVE_TO_TRASH_TEXT] for [count] entries (2.0, task 6: the selection bar). */
+fun moveToTrashText(count: Int): String = if (count == 1) MOVE_TO_TRASH_TEXT else "Puedes restaurarlas desde la papelera durante 30 días."
+
 fun movedToTrash(count: Int): String = if (count == 1) "Movida a la papelera" else "$count entradas movidas a la papelera"
 const val UNDO = "Deshacer"
 

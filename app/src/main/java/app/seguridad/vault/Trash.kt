@@ -62,6 +62,14 @@ class UndoTrash(private val store: VaultStore, private val elapsed: () -> Long, 
     /** How many entries the last move sent to the trash, while «Deshacer» may still be offered; 0 when none. */
     val offer: StateFlow<Int> = _offer.asStateFlow()
 
+    private val _moves = MutableStateFlow(0L)
+
+    /**
+     * 2.0, task 6: goes up with every move that sent something to the trash, so two moves of one entry each (the same
+     * [offer]) are two: the list starts the 5 s of «Deshacer» again for the second one.
+     */
+    val moves: StateFlow<Long> = _moves.asStateFlow()
+
     init {
         scope?.launch { store.state.collect { if (it !is VaultState.Unlocked) forget() } }
     }
@@ -82,6 +90,7 @@ class UndoTrash(private val store: VaultStore, private val elapsed: () -> Long, 
         if (moved.isNotEmpty()) {
             last = Last(moved, elapsed(), epoch)
             _offer.value = moved.size
+            _moves.value += 1
         }
         return moved.size
     }

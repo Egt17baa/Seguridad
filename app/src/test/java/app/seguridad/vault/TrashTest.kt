@@ -256,6 +256,29 @@ class TrashTest {
         assertEquals(listOf("a"), s.open().trash.map { it.id })
     }
 
+    /**
+     * 2.0, task 6: two moves of one entry each within 5 s give the same count (1 and 1); each move still has its own
+     * mark ([UndoTrash.moves]), so the list starts the 5 s of «Deshacer» again for the second one.
+     */
+    @Test fun eachMoveHasItsOwnMark() = runTest {
+        val s = withTwo()
+        val undo = UndoTrash(s, elapsed = { clock })
+        val before = undo.moves.value
+        undo.moveToTrash(setOf("a"))
+        val first = undo.moves.value
+        clock += 1_000
+        undo.moveToTrash(setOf("b"))
+        assertEquals(1, undo.offer.value)
+        assertTrue(before != first && first != undo.moves.value)
+        // Nothing moved: no new mark.
+        val last = undo.moves.value
+        assertEquals(0, undo.moveToTrash(setOf("no-existe")))
+        assertEquals(last, undo.moves.value)
+        // The second has its own 5 s.
+        clock += UNDO_TRASH_MS - 1
+        assertTrue(undo.canUndo())
+    }
+
     @Test fun undoForgottenOnLock() = runTest {
         val s = withTwo()
         val undo = UndoTrash(s, elapsed = { clock })

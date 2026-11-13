@@ -171,8 +171,10 @@ fun VaultScreen(
 
     // 2.0, task 3: «Deshacer» for 5 s after a move to the trash; a lock (or leaving the list) ends it, and a lock forgets it.
     val undoCount by undo.offer.collectAsStateWithLifecycle()
+    // 2.0, task 6: each move its own 5 s, also two of one entry each in a row (swipes), which give the same count.
+    val undoMove by undo.moves.collectAsStateWithLifecycle()
     val unlocked = state is VaultState.Unlocked
-    LaunchedEffect(undoCount, unlocked) {
+    LaunchedEffect(undoCount, undoMove, unlocked) {
         if (undoCount == 0) return@LaunchedEffect
         if (!unlocked) return@LaunchedEffect undo.forget()
         // 2.0, task 6: its 5 s are its own: a message on screen («Usuario copiado»…) gives way at once.

@@ -128,7 +128,9 @@ class PlatformSourcesTest {
         assertTrue("and a gone folder", "val folder = f.folderId?.takeIf { id -> folders.any { it.id == id } }" in src)
         for (v in listOf("query", "filter")) assertTrue(v, "var $v by mutableStateOf(" in src)
         assertFalse("no search in local state", Regex("""var query by remember""").containsMatchIn(src))
-        assertFalse("nothing of the list in saved state", Regex("""rememberSaveable""").containsMatchIn(src + code("ui/screens/VaultOrganize.kt")))
+        // 2.0, task 6: nor of its rows, nor of «Ver en grande».
+        val saved = src + code("ui/screens/VaultOrganize.kt") + code("ui/screens/EntryRow.kt") + code("ui/screens/BigPasswordScreen.kt")
+        assertFalse("nothing of the list in saved state", Regex("""rememberSaveable|SavedStateHandle""").containsMatchIn(saved))
         // From the vault's own state, in the ViewModel: a lock while another tab is shown drops them too.
         assertTrue("a lock drops them", "store.state.collect { if (it !is VaultState.Unlocked) reset() }" in src)
         assertFalse("not only while the list is on screen", "list.reset()" in src)

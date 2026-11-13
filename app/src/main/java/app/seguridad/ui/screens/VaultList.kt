@@ -41,6 +41,8 @@ import app.seguridad.vault.duplicatedText
 import app.seguridad.vault.favoriteSelected
 import app.seguridad.vault.moveSelectedToTrashTitle
 import app.seguridad.vault.moveToTrashTitle
+import app.seguridad.vault.moveToTrashText
+import androidx.compose.ui.input.pointer.pointerInput
 import app.seguridad.vault.passwordForHealth
 import app.seguridad.vault.selectedCount
 import app.seguridad.vault.selectionFilterKey
@@ -660,7 +662,7 @@ internal fun EntryList(
         if (shown.isEmpty()) {
             LaunchedEffect(ids) { trashSelected = null }
         } else {
-            TrashConfirm(moveSelectedToTrashTitle(shown.size, plainReportText(shown.first().title)), onDismiss = { trashSelected = null }) {
+            TrashConfirm(moveSelectedToTrashTitle(shown.size, plainReportText(shown.first().title)), onDismiss = { trashSelected = null }, text = moveToTrashText(shown.size)) {
                 trashSelected = null
                 val move = shown.mapTo(HashSet()) { it.id }
                 scope.launch {
@@ -680,13 +682,13 @@ internal fun EntryList(
 
 /** «¿Mover … a la papelera?», with what it means (it can be restored for 30 days). */
 @Composable
-private fun TrashConfirm(title: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun TrashConfirm(title: String, onDismiss: () -> Unit, text: String = MOVE_TO_TRASH_TEXT, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             FilterObscuredTouches()
-            Text(MOVE_TO_TRASH_TEXT)
+            Text(text)
         },
         confirmButton = { TextButton(onClick = onConfirm) { Text(MOVE_TO_TRASH, color = NegativeColor) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(CANCEL) } },
@@ -734,7 +736,8 @@ private fun SelectionBar(
     onEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    GlassPanel(modifier.fillMaxWidth().padding(8.dp), level = PanelLevel.OVERLAY) {
+    // The bar takes the touches on it, also on its blank parts: none reaches the row under it.
+    GlassPanel(modifier.fillMaxWidth().padding(8.dp).pointerInput(Unit) {}, level = PanelLevel.OVERLAY) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(selectedCount(count), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite })

@@ -160,5 +160,10 @@ class SelectionTest {
     @Test fun theConfirmationOfOneEntryNamesIt() {
         assertEquals(moveToTrashTitle("Correo"), moveSelectedToTrashTitle(1, "Correo"))
         assertEquals("¿Mover 3 entradas a la papelera?", moveSelectedToTrashTitle(3, "Correo"))
+        assertEquals(MOVE_TO_TRASH_TEXT, moveToTrashText(1))
+        assertEquals("Puedes restaurarlas desde la papelera durante 30 días.", moveToTrashText(3))
+        assertEquals("Ya estaban ahí", movedSelected(0, "Casa"))
+        assertEquals("1 entrada movida a «Casa»", movedSelected(1, "Casa"))
+        assertEquals("2 entradas movidas fuera de las carpetas", movedSelected(2, null))
     }
 }
