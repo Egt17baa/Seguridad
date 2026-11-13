@@ -1,5 +1,7 @@
 package app.seguridad.settings
 
+import app.seguridad.vault.BackupSchedule
+import app.seguridad.vault.BackupTargetSettings
 import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED
@@ -178,7 +180,7 @@ class SettingsTest {
         assertEquals(null, s.autoBackupReplaceTargets)
         assertEquals(emptyList<String>(), s.autoBackupReplaceTold)
         // And what 1.3.0 saves reads back.
-        store().apply { load(); updatePrincipal { it.copy(autoBackupReplaceTargets = listOf("doc:1"), autoBackupReplaceTold = listOf("x")) } }
+        store().apply { load(); updatePrincipal { it.oneTarget(autoBackupReplaceTargets = listOf("doc:1"), autoBackupReplaceTold = listOf("x")) } }
         val back = store().apply { load() }.settings.value.principal
         assertEquals(listOf("doc:1"), back.autoBackupReplaceTargets)
         assertEquals(listOf("x"), back.autoBackupReplaceTold)
@@ -289,7 +291,7 @@ class SettingsTest {
     @Test fun autoBackupPersists() = runTest {
         store().apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = "content://x/tree/primary%3ACopias", autoBackupKeep = 10, lastAutoBackupError = "Falló", lastAutoBackupAt = 5L) }
+            updatePrincipal { it.oneTarget(autoBackupUri = "content://x/tree/primary%3ACopias", autoBackupKeep = 10, lastAutoBackupError = "Falló", lastAutoBackupAt = 5L) }
         }
         val again = store().apply { load() }.settings.value.principal
         assertEquals("content://x/tree/primary%3ACopias", again.autoBackupUri)
@@ -300,12 +302,14 @@ class SettingsTest {
 
     @Test fun autoBackupKeepOnlyThreeFiveOrTen() = runTest {
         val s = store().apply { load() }
+        // 2.0, task 8: each target's own number of copies.
+        s.updatePrincipal { it.withTargetAdded("content://x/tree/primary%3ACopias", BackupSchedule.ON_CHANGE) }
         for (k in listOf(3, 5, 10)) {
-            s.updatePrincipal { it.copy(autoBackupKeep = k) }
+            s.updatePrincipal { it.oneTarget(autoBackupKeep = k) }
             assertEquals(k, s.settings.value.principal.autoBackupKeep)
         }
         for (k in listOf(0, -1, 1, 4, 11, 1000, Int.MAX_VALUE)) {
-            s.updatePrincipal { it.copy(autoBackupKeep = k) }
+            s.updatePrincipal { it.oneTarget(autoBackupKeep = k) }
             assertEquals(5, s.settings.value.principal.autoBackupKeep)
         }
         file().writeText("""{"autoBackupKeep":7}""")
@@ -315,36 +319,36 @@ class SettingsTest {
     private val folder = "content://x/tree/primary%3ACopias"
 
     @Test fun autoBackupResultOnlyForTheFolderItWentTo() {
-        val on = VaultSettings(autoBackupUri = folder, lastAutoBackupAt = 1L, lastAutoBackupError = "antes")
+        val on = oldVaultSettings(autoBackupUri = folder, lastAutoBackupAt = 1L, lastAutoBackupError = "antes")
         // Written: date and no error.
-        assertEquals(on.copy(lastAutoBackupAt = 9L, lastAutoBackupError = null), on.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
+        assertEquals(on.oneTarget(lastAutoBackupAt = 9L, lastAutoBackupError = null), on.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
         // Written, but old copies not deleted: the date too, and the error.
         assertEquals(
-            on.copy(lastAutoBackupAt = 9L, lastAutoBackupError = AUTO_BACKUP_OLD_NOT_DELETED),
+            on.oneTarget(lastAutoBackupAt = 9L, lastAutoBackupError = AUTO_BACKUP_OLD_NOT_DELETED),
             on.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED)),
         )
         // Not written: only the error; the last copy is still the one before.
-        assertEquals(on.copy(lastAutoBackupError = AUTO_BACKUP_FAILED), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)))
+        assertEquals(on.oneTarget(lastAutoBackupError = AUTO_BACKUP_FAILED), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)))
         // Another folder chosen, or turned off, meanwhile: that copy says nothing about the current state.
-        val other = on.copy(autoBackupUri = "content://y/tree/otra")
+        val other = on.oneTarget(autoBackupUri = "content://y/tree/otra")
         assertEquals(other, other.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
-        val off = on.copy(autoBackupUri = null)
+        val off = on.oneTarget(autoBackupUri = null)
         assertEquals(off, off.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
     }
 
     @Test fun autoBackupCopiesAreKeptOnlyForTheFolderTheyAreIn() {
-        val on = VaultSettings(autoBackupUri = folder, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder)
+        val on = oldVaultSettings(autoBackupUri = folder, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder)
         val written = on.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a", "b")))
         assertEquals(listOf("a", "b"), written.currentAutoBackupCopies)
         // Nothing written: the list stays.
         assertEquals(listOf("a"), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)).currentAutoBackupCopies)
         // Another folder chosen: none of these is in it. Back to the first: they are again, and go on rotating.
-        val other = written.copy(autoBackupUri = "content://y/tree/otra")
+        val other = written.oneTarget(autoBackupUri = "content://y/tree/otra")
         assertEquals(emptyList<String>(), other.currentAutoBackupCopies)
         assertEquals(other, other.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("x"))))
-        assertEquals(listOf("a", "b"), other.copy(autoBackupUri = folder).currentAutoBackupCopies)
+        assertEquals(listOf("a", "b"), other.oneTarget(autoBackupUri = folder).currentAutoBackupCopies)
         // Turned off: none in use, but kept for the same folder chosen again.
-        assertEquals(emptyList<String>(), written.copy(autoBackupUri = null).currentAutoBackupCopies)
+        assertEquals(emptyList<String>(), written.oneTarget(autoBackupUri = null).currentAutoBackupCopies)
         // An imported vault: forgotten for good.
         assertEquals(emptyList<String>(), written.forgettingAutoBackupCopies().currentAutoBackupCopies)
     }
@@ -354,15 +358,15 @@ class SettingsTest {
         file().writeText("""{"autoBackupKeep":10}""")
         assertFalse(store().apply { load() }.settings.value.principal.autoBackupReplacePending)
         val s = store().apply { load() }
-        s.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        s.updatePrincipal { it.oneTarget(autoBackupUri = folder, autoBackupReplacePending = true) }
         assertTrue(store().apply { load() }.settings.value.principal.autoBackupReplacePending)
     }
 
     @Test fun theReplacementRequestIsSetByTheWaitingResultAndClearedByTheCopyThatReplaced() {
-        val on = VaultSettings(autoBackupUri = folder, lastAutoBackupError = "antes")
+        val on = oldVaultSettings(autoBackupUri = folder, lastAutoBackupError = "antes")
         // Asked while locked: only the flag; the error shown in Ajustes and the last copy do not change.
         val asked = on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true))
-        assertEquals(on.copy(autoBackupReplacePending = true), asked)
+        assertEquals(on.oneTarget(autoBackupReplacePending = true), asked)
         // A normal copy meanwhile does not clear it.
         assertTrue(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a"))).autoBackupReplacePending)
         // A failed replacement keeps it, with the error.
@@ -398,13 +402,13 @@ class SettingsTest {
         assertEquals(listOf("a", "b"), again.autoBackupReplaceTargets)
         assertEquals(emptyList<String>(), again.autoBackupReplaceTold)
         // For another folder, or with the copies off, it says nothing.
-        assertEquals(on.copy(autoBackupUri = null), on.copy(autoBackupUri = null).withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true)))
+        assertEquals(on.oneTarget(autoBackupUri = null), on.oneTarget(autoBackupUri = null).withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true)))
         // Forgotten with the copies (new or imported vault) or when they are turned off.
         assertFalse(asked.forgettingAutoBackupCopies().autoBackupReplacePending)
     }
 
     @Test fun theSameFolderChosenAgainKeepsTheRequestAndAnotherOrOffDropsIt() {
-        val asked = VaultSettings(autoBackupUri = folder, autoBackupReplacePending = true, autoBackupOffForNewVault = true)
+        val asked = oldVaultSettings(autoBackupUri = folder, autoBackupReplacePending = true, autoBackupOffForNewVault = true)
         val same = asked.withFolderChosen(folder)
         assertTrue(same.autoBackupReplacePending)
         assertFalse(same.autoBackupOffForNewVault)
@@ -412,7 +416,7 @@ class SettingsTest {
         assertFalse(asked.withFolderChosen("content://y/tree/otra").autoBackupReplacePending)
         assertEquals("content://y/tree/otra", asked.withFolderChosen("content://y/tree/otra").autoBackupUri)
         // From none (copies off): there is nothing to replace.
-        assertFalse(VaultSettings(autoBackupReplacePending = true).withFolderChosen(folder).autoBackupReplacePending)
+        assertFalse(oldVaultSettings(autoBackupReplacePending = true).withFolderChosen(folder).autoBackupReplacePending)
         val off = asked.withAutoBackupTurnedOff()
         assertEquals(null, off.autoBackupUri)
         assertFalse(off.autoBackupReplacePending)
@@ -420,15 +424,15 @@ class SettingsTest {
 
     @Test fun newVaultClearsTheReplacementRequest() = runTest {
         val s = store().apply { load() }
-        s.updatePrincipal { it.copy(autoBackupUri = folder, autoBackupReplacePending = true) }
+        s.updatePrincipal { it.oneTarget(autoBackupUri = folder, autoBackupReplacePending = true) }
         s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID)
         assertFalse(s.settings.value.principal.autoBackupReplacePending)
     }
 
     @Test fun newVaultTurnsAutoBackupOff() = runTest {
         val s = store().apply { load() }
-        s.updatePrincipal { it.copy(autoBackupUri = folder, autoBackupKeep = 10, lastAutoBackupAt = 5L, lastAutoBackupError = "Falló", autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder) }
-        assertEquals(folder, s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
+        s.updatePrincipal { it.oneTarget(autoBackupUri = folder, autoBackupKeep = 10, lastAutoBackupAt = 5L, lastAutoBackupError = "Falló", autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder) }
+        assertEquals(listOf(folder), s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
         val off = s.settings.value.principal
         assertEquals(null, off.autoBackupUri)
         // The old vault's copies are never rotated away, even if the same folder is chosen again.
@@ -436,11 +440,13 @@ class SettingsTest {
         assertEquals(null, off.lastAutoBackupAt)
         assertEquals(null, off.lastAutoBackupError)
         assertTrue(off.autoBackupOffForNewVault)
-        assertEquals(10, off.autoBackupKeep)
+        // 2.0, task 8: with no target there is no «Conservar las N últimas» to keep; a folder chosen again starts at 5.
+        assertEquals(emptyList<BackupTargetSettings>(), off.targets)
+        assertEquals(emptyList<BackupTargetSettings>(), off.pastTargets)
         // Saved: Ajustes still says why after a restart.
         assertTrue(store().apply { load() }.settings.value.principal.autoBackupOffForNewVault)
         // Already off: nothing to do, nothing to give back.
-        assertEquals(null, s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
+        assertEquals(emptyList<String>(), s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
         assertEquals(off, s.settings.value.principal)
     }
 
@@ -449,14 +455,14 @@ class SettingsTest {
     @Test fun newVaultWithTheCopiesOffStillForgetsTheOldList() = runTest {
         val s = store().apply { load() }
         s.updatePrincipal {
-            it.copy(
+            it.oneTarget(
                 autoBackupUri = folder, autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder,
                 autoBackupReplacePending = true, autoBackupReplaceTargets = listOf("v1-a"), autoBackupReplaceTold = listOf("x"),
             )
         }
         s.turnOffAutoBackup(PRIMARY_VAULT_ID) // «Desactivar»: the list stays on purpose (the same folder chosen again goes on rotating it).
-        s.updatePrincipal { it.copy(autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder) }
-        assertEquals(null, s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID)) // The new vault.
+        s.updatePrincipal { it.oneTarget(autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder) }
+        assertEquals(emptyList<String>(), s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID)) // The new vault.
         val after = s.settings.value.principal
         assertEquals(emptyList<String>(), after.autoBackupCopies)
         assertEquals(null, after.autoBackupCopiesFolder)
@@ -470,18 +476,18 @@ class SettingsTest {
 
     @Test fun newVaultWithAutoBackupOffChangesNothing() = runTest {
         val s = store().apply { load() }
-        assertEquals(null, s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
+        assertEquals(emptyList<String>(), s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
         assertFalse(s.settings.value.principal.autoBackupOffForNewVault)
         assertFalse(file().exists())
     }
 
     @Test fun turningTheCopiesOffSaysIfItDroppedAWaitingReplacement() = runTest {
         val s = store().apply { load() }
-        s.updatePrincipal { it.copy(autoBackupUri = "content://carpeta", autoBackupReplacePending = true) }
+        s.updatePrincipal { it.oneTarget(autoBackupUri = "content://carpeta", autoBackupReplacePending = true) }
         assertTrue("Decided from the very write that turned them off (T11-c)", s.turnOffAutoBackup(PRIMARY_VAULT_ID))
         assertEquals(null, s.settings.value.principal.autoBackupUri)
         assertFalse(s.settings.value.principal.autoBackupReplacePending)
-        s.updatePrincipal { it.copy(autoBackupUri = "content://carpeta") }
+        s.updatePrincipal { it.oneTarget(autoBackupUri = "content://carpeta") }
         assertFalse(s.turnOffAutoBackup(PRIMARY_VAULT_ID))
         assertFalse("Already off: nothing dropped", s.turnOffAutoBackup(PRIMARY_VAULT_ID))
     }

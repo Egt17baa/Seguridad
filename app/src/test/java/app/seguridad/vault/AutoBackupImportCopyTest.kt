@@ -1,5 +1,13 @@
 package app.seguridad.vault
 
+import app.seguridad.settings.oneTarget
+import app.seguridad.settings.autoBackupUri
+import app.seguridad.settings.autoBackupCopies
+import app.seguridad.settings.autoBackupReplacePending
+import app.seguridad.settings.autoBackupReplaceTargets
+import app.seguridad.settings.autoBackupReplaceTold
+import app.seguridad.settings.importCopies
+import app.seguridad.settings.importCopiesFolder
 import app.seguridad.settings.principal
 import app.seguridad.settings.updatePrincipal
 import app.seguridad.crypto.KdfParams
@@ -120,14 +128,14 @@ class AutoBackupImportCopyTest {
     private suspend fun setup(): VaultStore {
         settings = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = folder) }
+            updatePrincipal { it.oneTarget(autoBackupUri = folder) }
         }
         return VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
             .apply { load(); create("maestra".toCharArray()) }
     }
 
     /** Wired as AppContainer wires it. */
-    private fun TestScope.auto(s: VaultStore, target: BackupTarget?, keep: Int = 5) = AutoBackup(
+    private fun TestScope.auto(s: VaultStore, target: BackupTarget?, keep: Int = 5) = oneTargetBackup(
         s, folder = { settings.settings.value.principal.autoBackupUri }, open = { target }, backgroundScope, now = { clock },
         keep = { keep }, lastCopyAt = { Long.MAX_VALUE }, copies = { settings.settings.value.principal.currentAutoBackupCopies },
         replacePending = { settings.settings.value.principal.autoBackupReplacePending },
@@ -166,7 +174,7 @@ class AutoBackupImportCopyTest {
         File(tmp.root, "vault.bin").writeBytes(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() })
         settings = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = folder) }
+            updatePrincipal { it.oneTarget(autoBackupUri = folder) }
         }
         return VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
             .apply { load(); unlock("maestra-de-prueba-143".toCharArray()) }
@@ -188,9 +196,9 @@ class AutoBackupImportCopyTest {
         }
         assertEquals(listOf(t.idOfName(t.files.keys.single())), settings.settings.value.principal.importCopies)
         // No folder: null, so the store waits for the user's choice.
-        settings.updatePrincipal { it.copy(autoBackupUri = null) }
+        settings.updatePrincipal { it.oneTarget(autoBackupUri = null) }
         assertNull(auto(s, t).copyBeforeUpgrade())
-        settings.updatePrincipal { it.copy(autoBackupUri = folder) }
+        settings.updatePrincipal { it.oneTarget(autoBackupUri = folder) }
         // Review I-1: once the upgrade is saved there is no copy «de antes» to make: refused, and no file left behind.
         assertTrue(s.completeUpgrade())
         val before = t.files.keys.toList()
@@ -283,7 +291,7 @@ class AutoBackupImportCopyTest {
         val a = auto(s, t)
         a.copyBeforeImport()
         // The import copy was made in another folder than the one chosen now.
-        settings.updatePrincipal { it.copy(importCopiesFolder = "content://x/tree/primary%3AOtra") }
+        settings.updatePrincipal { it.oneTarget(importCopiesFolder = "content://x/tree/primary%3AOtra") }
         s.lock()
         runCurrent()
         a.replaceOldCopies(emptyList())
@@ -327,7 +335,7 @@ class AutoBackupImportCopyTest {
         val imported = settings.settings.value.principal.importCopies.single()
         s.lock()
         runCurrent()
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = null) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true, autoBackupReplaceTargets = null) }
         clock += 60_000
         s.unlock("maestra".toCharArray())
         runCurrent()
@@ -394,7 +402,7 @@ class AutoBackupImportCopyTest {
 
     @Test fun noFolderGivesNull() = runTest {
         val s = setup()
-        settings.updatePrincipal { it.copy(autoBackupUri = null) }
+        settings.updatePrincipal { it.oneTarget(autoBackupUri = null) }
         assertNull(auto(s, ImportCopyTarget()).copyBeforeImport())
     }
 

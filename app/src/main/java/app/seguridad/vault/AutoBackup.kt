@@ -384,13 +384,24 @@ class AutoBackup(
         requests.tryEmit(Unit)
     }
 
-    /** The debounced run: the [BackupSchedule.ON_CHANGE] targets after a change, and the targets [request] asked for. */
-    private suspend fun runChanged() = lock.withLock {
-        val change = changed.getAndSet(false)
-        for (t in targets()) {
-            val wanted = asked.remove(t.uri)
-            if (wanted || (change && t.schedule == BackupSchedule.ON_CHANGE)) attempt(t.uri, null)
+    /**
+     * The debounced run: the [BackupSchedule.ON_CHANGE] targets after a change, and the targets [request] asked for. A
+     * target with an A6 request does it with this copy, as 1.x did.
+     */
+    private suspend fun runChanged() {
+        val notices = ArrayList<AutoBackupResult>()
+        lock.withLock {
+            val change = changed.getAndSet(false)
+            for (t in targets()) {
+                val wanted = asked.remove(t.uri)
+                if (!wanted && !(change && t.schedule == BackupSchedule.ON_CHANGE)) continue
+                // Read inside the lock, from what is saved: a request made before a restart is done too.
+                val replace = t.replacePending
+                val result = attempt(t.uri, if (replace) Replace(t.replaceTargets, announce = true) else null) ?: continue
+                if (replace) notices += result
+            }
         }
+        tell(notices)
     }
 
     /**
@@ -419,15 +430,26 @@ class AutoBackup(
                 if (calendar && result.writtenAt != null && result.copies != null) byCalendar++
             }
         }
-        // M2: told when every target that tried replaced (the success, which ends the requests) or a failure not yet told.
-        if (notices.isNotEmpty()) {
+        tell(notices)
+        if (byCalendar > 0 && store.state.value is VaultState.Unlocked) scheduled.post(scheduledCopiesText(byCalendar))
+    }
+
+    /**
+     * M2: how the A6 requests that ran by themselves went ([notices], one per target that tried), told once: the success
+     * when every one replaced its old copies (which ends the requests), or a failure not yet told.
+     */
+    private fun tell(notices: List<AutoBackupResult>) {
+        if (notices.size == 1) {
+            // One target: its own result, as 1.x told it.
+            val only = notices.single()
+            if (only.replaced || only.toldKey != null) outcome.post(only)
+        } else if (notices.isNotEmpty()) {
             val told = notices.firstNotNullOfOrNull { it.toldKey }
             when {
                 notices.all { it.replaced } -> outcome.post(combined(notices, null, replaced = true))
                 told != null -> outcome.post(combined(notices, told, replaced = false))
             }
         }
-        if (byCalendar > 0 && store.state.value is VaultState.Unlocked) scheduled.post(scheduledCopiesText(byCalendar))
     }
 
     /** One result for the dialog out of each target's: [error] its text, the copies left unlisted added up. */
@@ -476,6 +498,8 @@ class AutoBackup(
                     else -> AutoBackupResult(t.uri, null, AUTO_BACKUP_FAILED)
                 }
             }
+            // One target: its own result, as 1.x gave it.
+            if (results.size == 1) return@withLock results.single()
             val error = results.firstNotNullOfOrNull { it.error }
             AutoBackupResult(
                 folder = all.first().uri,

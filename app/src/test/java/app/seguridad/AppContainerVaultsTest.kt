@@ -1,5 +1,7 @@
 package app.seguridad
 
+import app.seguridad.settings.oneTarget
+import app.seguridad.settings.autoBackupUri
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.vault.BiometricRefusal
 import app.seguridad.vault.EntryType
@@ -251,8 +253,8 @@ class AppContainerVaultsTest {
             releaseFolder = { released += it }, forgetBiometric = { forgotten += it },
         )
         val (_, idB) = twoVaults(c)
-        c.settings.updateVault(PRIMARY_VAULT_ID) { it.copy(autoBackupUri = "content://uno") }
-        c.settings.updateVault(idB) { it.copy(autoBackupUri = "content://dos") }
+        c.settings.updateVault(PRIMARY_VAULT_ID) { it.oneTarget(autoBackupUri = "content://uno") }
+        c.settings.updateVault(idB) { it.oneTarget(autoBackupUri = "content://dos") }
         val dirB = c.registry.dirOf(idB)
         assertFails<CryptoFailure> { c.deleteVault(idB, masterA.toCharArray(), "Dos") }
         assertTrue(dirB.exists())
@@ -407,7 +409,7 @@ class AppContainerVaultsTest {
         val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
         val (_, idB) = twoVaults(c)
         val storeB = c.vault
-        c.settings.updateVault(idB) { it.copy(autoBackupUri = "content://dos") }
+        c.settings.updateVault(idB) { it.oneTarget(autoBackupUri = "content://dos") }
         assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
         c.recordAutoBackup(idB, storeB, app.seguridad.vault.AutoBackupResult("content://dos", 1L, null, listOf("x")))
         c.recordImportCopy(idB, storeB, "content://dos", "y", storeB.generation)

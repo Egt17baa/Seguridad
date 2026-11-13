@@ -92,7 +92,7 @@ class PerVaultSettingsTest {
         assertEquals(folder, s.settings.value.vault(PRIMARY_VAULT_ID).autoBackupUri)
         assertEquals(listOf("c1", "c2"), s.settings.value.vault(PRIMARY_VAULT_ID).autoBackupCopies)
         // A new vault turns off only its own copies.
-        assertEquals("content://otra", s.turnOffAutoBackupForNewVault(other))
+        assertEquals(listOf("content://otra"), s.turnOffAutoBackupForNewVault(other))
         assertNull(s.settings.value.vault(other).autoBackupUri)
         assertEquals(folder, s.settings.value.vault(PRIMARY_VAULT_ID).autoBackupUri)
     }

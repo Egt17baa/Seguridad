@@ -1,5 +1,12 @@
 package app.seguridad.vault
 
+import app.seguridad.settings.oneTarget
+import app.seguridad.settings.autoBackupUri
+import app.seguridad.settings.autoBackupKeep
+import app.seguridad.settings.lastAutoBackupError
+import app.seguridad.settings.autoBackupReplacePending
+import app.seguridad.settings.autoBackupReplaceTargets
+import app.seguridad.settings.autoBackupReplaceTold
 import app.seguridad.settings.principal
 import app.seguridad.settings.updatePrincipal
 import app.seguridad.crypto.KdfParams
@@ -7,6 +14,7 @@ import app.seguridad.settings.Settings
 import app.seguridad.settings.VaultSettings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.currentAutoBackupCopies
+import app.seguridad.settings.withResult
 import app.seguridad.settings.withAutoBackupResult
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -148,17 +156,17 @@ class AutoBackupTest {
     private var copies: List<String> = emptyList()
 
     /** The request to replace the old copies (pending, targets, told), as Ajustes keeps it from each result. */
-    private var request = VaultSettings()
+    private var request = BackupTargetSettings(FOLDER, 5, BackupSchedule.ON_CHANGE)
 
-    /** Settings.autoBackupReplacePending, as Ajustes keeps it from each result. */
+    /** The target's replacePending, as Ajustes keeps it from each result. */
     private var replaceFlag: Boolean
-        get() = request.autoBackupReplacePending
+        get() = request.replacePending
         set(v) {
-            request = request.copy(autoBackupReplacePending = v)
+            request = request.copy(replacePending = v)
         }
 
     private fun TestScope.auto(store: VaultStore, target: BackupTarget?, keep: () -> Int = { 5 }): AutoBackup =
-        AutoBackup(
+        oneTargetBackup(
             store,
             folder = { folder },
             open = { target },
@@ -168,13 +176,13 @@ class AutoBackupTest {
             lastCopyAt = { lastCopy },
             copies = { copies },
             replacePending = { replaceFlag },
-            replaceTargets = { request.autoBackupReplaceTargets },
-            replaceTold = { request.autoBackupReplaceTold },
+            replaceTargets = { request.replaceTargets },
+            replaceTold = { request.replaceTold },
             onResult = { r ->
                 results += r
                 errors += r.error
                 if (r.folder == folder) r.copies?.let { copies = it }
-                request = request.copy(autoBackupUri = folder).withAutoBackupResult(r)
+                if (r.folder == folder) request = request.withResult(r)
             },
             zone = ZoneOffset.UTC,
         ).also { runCurrent() }
@@ -225,7 +233,7 @@ class AutoBackupTest {
         val s = opened()
         val target = MemoryTarget()
         val a = auto(s, target)
-        a.request()
+        a.requestOne(folder)
         settle()
         assertEquals(1, target.files.size)
     }
@@ -379,7 +387,7 @@ class AutoBackupTest {
         val vaultBytes = File(tmp.root, "vault.bin").readBytes()
         target.failWrite = IOException("disco lleno")
         clock += 60_000
-        a.request()
+        a.requestOne(folder)
         settle()
         assertEquals(AUTO_BACKUP_WRITE_FAILED, errors.last())
         assertArrayEquals(vaultBytes, File(tmp.root, "vault.bin").readBytes())
@@ -411,7 +419,7 @@ class AutoBackupTest {
         val s = store().apply { load() }
         val target = MemoryTarget()
         val a = auto(s, target)
-        a.request()
+        a.requestOne(folder)
         settle()
         assertTrue(target.files.isEmpty())
         assertTrue(errors.isEmpty())
@@ -466,7 +474,7 @@ class AutoBackupTest {
         assertEquals(0, target.writes)
         assertTrue(errors.isEmpty())
         // «Hacer una copia ahora» while locked waits too.
-        a.request()
+        a.requestOne(folder)
         settle()
         assertTrue(target.files.isEmpty())
 
@@ -525,7 +533,7 @@ class AutoBackupTest {
             }
             // Locked and opened again: still checked, still refused.
             s.lock()
-            a.request()
+            a.requestOne(folder)
             settle()
             s.unlock(master.toCharArray())
             runCurrent()
@@ -855,7 +863,7 @@ class AutoBackupTest {
 
     /** An AutoBackup over [s] that keeps its results in [settings] (the real ones, on disk), as the app does. */
     private fun TestScope.persistent(s: VaultStore, settings: SettingsStore, target: MemoryTarget): AutoBackup {
-        val a = AutoBackup(
+        val a = oneTargetBackup(
             s,
             folder = { settings.settings.value.principal.autoBackupUri },
             open = { target },
@@ -878,7 +886,7 @@ class AutoBackupTest {
         val target = MemoryTarget()
         val settings1 = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = FOLDER) }
+            updatePrincipal { it.oneTarget(autoBackupUri = FOLDER) }
         }
         val a = persistent(s, settings1, target)
         val own = threeCopiesInto(s, settings1, target)
@@ -911,7 +919,7 @@ class AutoBackupTest {
         val target = MemoryTarget()
         val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = FOLDER) }
+            updatePrincipal { it.oneTarget(autoBackupUri = FOLDER) }
         }
         val a = persistent(s, settings, target)
         val own = threeCopiesInto(s, settings, target)
@@ -951,7 +959,7 @@ class AutoBackupTest {
         val target = MemoryTarget()
         val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = FOLDER) }
+            updatePrincipal { it.oneTarget(autoBackupUri = FOLDER) }
         }
         val a = persistent(s, settings, target)
         val own = threeCopiesInto(s, settings, target)
@@ -1003,7 +1011,7 @@ class AutoBackupTest {
         val target = MemoryTarget()
         val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = FOLDER) }
+            updatePrincipal { it.oneTarget(autoBackupUri = FOLDER) }
         }
         val a = persistent(s, settings, target)
         val own = threeCopiesInto(s, settings, target)
@@ -1034,7 +1042,7 @@ class AutoBackupTest {
         val target = MemoryTarget()
         val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = FOLDER) }
+            updatePrincipal { it.oneTarget(autoBackupUri = FOLDER) }
         }
         val a = persistent(s, settings, target)
         threeCopiesInto(s, settings, target)
@@ -1075,7 +1083,7 @@ class AutoBackupTest {
         val target = MemoryTarget()
         val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = FOLDER, autoBackupKeep = keep) }
+            updatePrincipal { it.oneTarget(autoBackupUri = FOLDER, autoBackupKeep = keep) }
         }
         val a = persistent(s, settings, target)
         threeCopiesInto(s, settings, target)
@@ -1275,7 +1283,7 @@ class AutoBackupTest {
         target.undeletable = { it == stuck }
         s.lock()
         runCurrent()
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = null) } // As 1.2.x saved it.
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true, autoBackupReplaceTargets = null) } // As 1.2.x saved it.
         clock += 60_000
         s.unlock(master.toCharArray())
         runCurrent()
@@ -1297,7 +1305,7 @@ class AutoBackupTest {
         val target = MemoryTarget()
         val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = FOLDER) }
+            updatePrincipal { it.oneTarget(autoBackupUri = FOLDER) }
         }
         val a = persistent(s, settings, target)
         threeCopiesInto(s, settings, target)
@@ -1318,7 +1326,7 @@ class AutoBackupTest {
         val target = MemoryTarget()
         val settings = SettingsStore(settingsFile(), Dispatchers.Unconfined).apply {
             load()
-            updatePrincipal { it.copy(autoBackupUri = FOLDER) }
+            updatePrincipal { it.oneTarget(autoBackupUri = FOLDER) }
         }
         val a = persistent(s, settings, target)
         threeCopiesInto(s, settings, target)

@@ -1,5 +1,16 @@
 package app.seguridad.vault
 
+import app.seguridad.settings.oneTarget
+import app.seguridad.settings.oldVaultSettings
+import app.seguridad.settings.autoBackupUri
+import app.seguridad.settings.lastAutoBackupError
+import app.seguridad.settings.lastAutoBackupAt
+import app.seguridad.settings.autoBackupCopies
+import app.seguridad.settings.autoBackupCopiesFolder
+import app.seguridad.settings.autoBackupReplacePending
+import app.seguridad.settings.autoBackupReplaceTargets
+import app.seguridad.settings.autoBackupReplaceTold
+import app.seguridad.settings.turnOffAutoBackup
 import app.seguridad.settings.VaultSettings
 import app.seguridad.settings.principal
 import app.seguridad.settings.updatePrincipal
@@ -99,7 +110,7 @@ class AutoBackupF3Test {
     private var newVaultWired = false
 
     private suspend fun newSettings() = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined).apply {
-        load(); updatePrincipal { it.copy(autoBackupUri = folderUri) }
+        load(); updatePrincipal { it.oneTarget(autoBackupUri = folderUri) }
     }
 
     private fun vaultStore(dir: File) = VaultStore(
@@ -109,7 +120,7 @@ class AutoBackupF3Test {
         beforeReplace = { settings.forgetAutoBackupCopiesForImport(PRIMARY_VAULT_ID) }, // as AppContainer
     )
 
-    private fun TestScope.auto(s: VaultStore, target: BackupTarget) = AutoBackup(
+    private fun TestScope.auto(s: VaultStore, target: BackupTarget) = oneTargetBackup(
         s, folder = { settings.settings.value.principal.autoBackupUri }, open = { target }, backgroundScope, now = { clock },
         keep = { 5 }, lastCopyAt = { Long.MAX_VALUE }, copies = { settings.settings.value.principal.currentAutoBackupCopies },
         replacePending = { settings.settings.value.principal.autoBackupReplacePending },
@@ -151,7 +162,7 @@ class AutoBackupF3Test {
         s.destroy()
         s.create("maestra-nueva".toCharArray())
         settings.updatePrincipal { it.withFolderChosen(folderUri) }
-        a.request()
+        a.requestOne(folderUri)
         settle()
         repeat(6) { i -> clock += 60_000; s.upsert(note("nueva$i")); settle() } // More than «Copias que guardar» (5).
         assertTrue("No copy of the old vault deleted: ${t.deleted}", t.deleted.none { it in old })
@@ -177,7 +188,7 @@ class AutoBackupF3Test {
         val (s, t, _) = setup()
         auto(s, t)
         val old = threeCopies(s, t).toList()
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
         t.failDelete = setOf(old.first())
         clock += 60_000; s.upsert(note("x")); settle()
         assertEquals(AUTO_BACKUP_OLD_NOT_DELETED, settings.settings.value.principal.lastAutoBackupError)
@@ -194,7 +205,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         val a = auto(s, t)
         val old = threeCopies(s, t).toList()
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
         val gate = CompletableDeferred<Unit>()
         t.gate = gate
         clock += 60_000
@@ -214,7 +225,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         val a = auto(s, t)
         val old = threeCopies(s, t).toList()
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true, autoBackupReplaceTargets = old) }
         val gate = CompletableDeferred<Unit>()
         t.gate = gate
         clock += 60_000
@@ -323,7 +334,7 @@ class AutoBackupF3Test {
     }
 
     @Test fun `CADENAS-3 a stale result recorded after the import keeps neither its list nor clears a request`() {
-        val listed = VaultSettings(autoBackupUri = folderUri, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folderUri, autoBackupReplacePending = true)
+        val listed = oldVaultSettings(autoBackupUri = folderUri, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folderUri, autoBackupReplacePending = true)
         val stale = AutoBackupResult(folderUri, 9L, null, listOf("a", "b"), replaced = true, generation = 1)
         val after = listed.withAutoBackupResult(stale, 2)
         assertEquals(listOf("a"), after.currentAutoBackupCopies)
@@ -370,7 +381,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         auto(s, t)
         threeCopies(s, t)
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true) }
         val listBefore = settings.settings.value.principal.currentAutoBackupCopies
         // Make the save fail: vault.bin.tmp is a non-empty directory (works as root too).
         File(tmp.root, "a/vault.bin.tmp").apply { mkdirs(); File(this, "x").writeText("x") }
@@ -383,7 +394,7 @@ class AutoBackupF3Test {
 
     @Test fun `COPIAS-3 a successful import says when it dropped a pending A6 request`() = runTest {
         val (s, _, text) = setup()
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true) }
         assertTrue(s.importReplace(text, "maestra-b".toCharArray()))
         assertFalse(settings.settings.value.principal.autoBackupReplacePending)
         assertFalse("nothing pending: nothing dropped", s.importReplace(text, "maestra-b".toCharArray()))
@@ -398,7 +409,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         auto(s, t)
         threeCopies(s, t)
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true) }
         val listBefore = settings.settings.value.principal.currentAutoBackupCopies
         File(tmp.root, "a/vault.bin.tmp").apply { mkdirs(); File(this, "x").writeText("x") }
         assertTrue(runCatching { s.importReplace(text, "maestra-b".toCharArray()) }.isFailure)
@@ -411,7 +422,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         auto(s, t)
         threeCopies(s, t)
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true) }
         val listBefore = settings.settings.value.principal.currentAutoBackupCopies
         fillSettingsDisk()
         val e = runCatching { s.importReplace(text, "maestra-b".toCharArray()) }.exceptionOrNull()
@@ -468,7 +479,7 @@ class AutoBackupF3Test {
         val (s, t, text) = setup()
         auto(s, t)
         val old = threeCopies(s, t)
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true) }
         var sawOldVaultOnDisk = false
         val importing = VaultStore(
             File(tmp.root, "a/vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
@@ -500,7 +511,7 @@ class AutoBackupF3Test {
         val (s, t, _) = setup()
         auto(s, t)
         threeCopies(s, t)
-        settings.updatePrincipal { it.copy(autoBackupReplacePending = true) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true) }
         val listBefore = settings.settings.value.principal.currentAutoBackupCopies
         // A copy of another vault with an attachment, so moveIn has something to move and putBack something to undo.
         val other = VaultStore(File(tmp.newFolder("c"), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, kdf = { KdfParams(1024, 1, 1) })
