@@ -151,3 +151,7 @@ Task 7: fix round 1/5 (5 addressed, 0 open; 7dde42e..e7cd9ae; app 2182, jvm-chec
 Ruling (T7, observación fuera de alcance, seguridad): «un `upsert` en cola detrás de una derivación larga podría escribir en otra bóveda» (`VaultStore.kt:768`) — se comprueba en la ronda 2 con un test (foco 2 de la tarea 2); si es real, se arregla ahí.
 Task 7: fix round 2/5 (N-1 y la comprobación de seguridad addressed; e7cd9ae..27e817a; app 2183, jvm-check 2146). Otra bóveda: no pasaba. Después de un bloqueo en la misma bóveda: arreglado con `sinceLock` (defensa en profundidad; en la app real el `Mutex` justo ya lo ordena). Re-review 2: aprobado.
 Ruling (T7, re-review 2): M-A (`addAttachment` lee el documento antes del mutex, sin época) y Info-1 (el KDoc de `epoch` y el valor por defecto de `modifyData`) a la ronda 3 (`CLAUDE.md`); Info-2 se acepta (la parte 1 del test prueba la comprobación); Info-3 (sin señal al tocar una pestaña durante un guardado) a la prueba en el móvil.
+Task 7: fix round 3/5 (M-A, Info-1 addressed, 0 open; 27e817a..bb74e6d; app 2184, jvm-check 2147). Re-review 3: aprobado.
+Task 7: complete (commits 1651eec..bb74e6d, review clean). Informes: `task-7-report.md`, `task-7-review.md`, `task-7-rereview-1.md` a `-3.md`.
+Deferred (al móvil, tarea 11): el diálogo al cambiar de pestaña, tocar una pestaña durante un guardado (sin señal, Info-3), los botones apilados con la letra al 200 %, la propuesta al pegar un 2FA o una frase.
+Task 8: dispatched (model opus).
