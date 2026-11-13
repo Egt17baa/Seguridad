@@ -140,3 +140,5 @@ Task 6: complete (commits f8d1d54..04b9865, review clean). Informes: `task-6-rep
 Deferred (al móvil, tarea 11): la fila elegida opaca en «Cristal», la marca quieta sin animaciones en las filas, deslizar con su vibración, la oferta al volver de otra app.
 Task 7: dispatched (base de la tarea: el commit de este registro, model opus).
 Owner decision (13-11-2026): se cambia el orden de las dos últimas tareas — primero la 12 (versión 2.0, documentos y revisión final con `code-review`, `security-review`, la auditoría, el ataque y el Abogado final) y después la 11 (los flujos de Maestro), con la 2.0 ya hecha.
+Task 7: se paró por el límite de uso y se reanudó. Implementer DONE_WITH_CONCERNS (162f395..7dde42e; app 2175, jvm-check 2138). Dudas a la revisión: «pegar» se reconoce como un bloque de 10 o más caracteres de golpe; sin generador para el número de tarjeta, la clave de licencia y el del pasaporte; cambiar de pestaña con cambios los descarta sin preguntar.
+Task 7 review: dispatched (1651eec..7dde42e, model opus).
