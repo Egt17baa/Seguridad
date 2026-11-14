@@ -44,8 +44,8 @@ class WifiQrDrawingTest {
     @Test fun tooLargeForAQrCodeIsATextWhereZxingThrows() {
         // Over the reader's bound: refused before ZXing (a field of the vault may hold 10 000 code points).
         assertEquals(WifiQrDrawing.Problem(WIFI_QR_TOO_BIG), wifiQrDrawing(wpa("Casa", "😀".repeat(10_000))))
-        // Under that bound but over what a QR code holds at level M (2 331 bytes in byte mode, less the UTF-8 marker):
-        // ZXing throws WriterException, caught here.
+        // Under that bound but over what a QR code holds at level M (2 330 bytes with the UTF-8 marker, below): ZXing
+        // throws WriterException, caught here.
         assertTrue(WifiQr.problem(wpa("Casa", "x".repeat(3_000))) == null)
         assertEquals(WifiQrDrawing.Problem(WIFI_QR_TOO_BIG), wifiQrDrawing(wpa("Casa", "x".repeat(3_000))))
         // The limit, found once: the largest password that still fits with this name, and one more character does not.
@@ -64,9 +64,10 @@ class WifiQrDrawingTest {
 
     private companion object {
         /**
-         * With the name «Casa» and WPA: `WIFI:T:WPA;S:Casa;P:` (20) + the password + `;H:false;;` (10). ZXing at level M
-         * with the UTF-8 marker (ECI) holds 2 329 bytes, so 2 299 characters of «x».
+         * With the name «Casa» and WPA: `WIFI:T:WPA;S:Casa;P:` (20) + the password + `;H:false;;` (10). ZXing 3.4.1 at
+         * level M with the UTF-8 marker (ECI, 12 bits) holds 2 330 bytes (version 40), so 2 300 characters of «x»; one
+         * more and the encoder throws `WriterException` («Data too big»). Found by this test, not assumed.
          */
-        const val WIFI_QR_LARGEST_TEST_PASSWORD = 2_299
+        const val WIFI_QR_LARGEST_TEST_PASSWORD = 2_300
     }
 }

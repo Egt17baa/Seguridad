@@ -57,6 +57,7 @@ import app.seguridad.crypto.parseOtpMigration
 import app.seguridad.crypto.readOtpAuth
 import app.seguridad.crypto.totpCode
 import app.seguridad.imports.plainReportText
+import app.seguridad.tools.qr.WIFI_QR_OPEN
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.NoCopy
@@ -200,6 +201,7 @@ fun VaultEntryDetailScreen(
     onHistory: () -> Unit,
     onBack: () -> Unit,
     onOpenEntry: (String) -> Unit = {},
+    onShowWifiQr: () -> Unit = {},
 ) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
@@ -294,6 +296,8 @@ fun VaultEntryDetailScreen(
             }
             // 2.0, task 5: the template's fields and the user's own, then the notes (with their format, if they have it).
             EntryFieldsCard(entry, onCopied = copied, onBig = { fieldId -> onBig(fieldId) })
+            // 2.0, task 9: the code to join this network from another phone, on its own screen (only the id goes there).
+            if (entry.type == EntryType.WIFI) OutlinedButton(onClick = onShowWifiQr) { Text(WIFI_QR_OPEN) }
             NotesCard(entry, onCopied = copied)
             entry.totp?.let {
                 Field("Clave secreta 2FA", it.secret, secret = true, mono = true, onCopied = copied)
@@ -565,7 +569,9 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
 /**
  * A new entry ([id] null) or an existing one. Its state lives in [EntryEditViewModel] (a rotation keeps it). [otpAuthText]
  * is a 2FA text the QR inspector read (`otpauth://` or a Google Authenticator export): applied once per session, exactly
- * as a scan here would be; [onOtpAuthTaken] then lets the caller drop its own copy.
+ * as a scan here would be; [onOtpAuthTaken] then lets the caller drop its own copy. [wifiQrText] (2.0, task 9) is a wifi
+ * code the inspector read: it fills a new wifi's fields once per session ([EntryEditSession.applyWifiQr]), never saves;
+ * [onWifiQrTaken] the same. Only one of the two is ever given.
  */
 @Composable
 fun VaultEntryEditScreen(
@@ -575,6 +581,8 @@ fun VaultEntryEditScreen(
     onDone: () -> Unit,
     otpAuthText: String? = null,
     onOtpAuthTaken: () -> Unit = {},
+    wifiQrText: String? = null,
+    onWifiQrTaken: () -> Unit = {},
 ) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
@@ -622,6 +630,8 @@ fun VaultEntryEditScreen(
     LaunchedEffect(Unit) {
         form.takeHandOver(otpAuthText)?.let(vm::applyOtpAuth)
         onOtpAuthTaken()
+        form.takeHandOver(wifiQrText)?.let(form::applyWifiQr)
+        onWifiQrTaken()
     }
 
     // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.

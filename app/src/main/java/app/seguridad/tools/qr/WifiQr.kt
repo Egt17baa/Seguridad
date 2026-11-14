@@ -22,7 +22,10 @@ import java.util.Locale
  *   that are part of the value are escaped (`S:\"foo\;bar\\baz\";;` is the name `"foo;bar\baz"`).
  */
 
-/** The longest text read or written, in UTF-16 units and in UTF-8 bytes; a QR code holds less (2 331 bytes at level M). */
+/**
+ * The longest text read or written, in UTF-16 units and in UTF-8 bytes (the inspector's bound too). A QR code holds less:
+ * 2 330 bytes as the screen draws it (level M, UTF-8), where ZXing refuses the rest.
+ */
 const val WIFI_QR_MAX_CHARS = 4096
 
 /**
@@ -86,7 +89,7 @@ object WifiQr {
         val supported = security != null && !(security == "nopass" && password.isNotEmpty()) &&
             (h.isEmpty() || hidden || h.equals("false", ignoreCase = true))
         if (!supported) return WifiRead.Unsupported(ssid, security ?: type.uppercase(Locale.ROOT), password, hidden)
-        return WifiRead.Usable(WifiConfig(ssid, if (security == "nopass") "" else password, security!!, hidden))
+        return WifiRead.Usable(WifiConfig(ssid, if (security == "nopass") "" else password, security, hidden))
     }
 
     /** The network in [text] if the vault's form can hold it ([WifiRead.Usable]); null otherwise. Never throws. */

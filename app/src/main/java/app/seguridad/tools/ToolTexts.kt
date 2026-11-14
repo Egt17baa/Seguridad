@@ -277,11 +277,11 @@ const val IMAGE_NO_MEMORY = "No hay memoria suficiente para trabajar con esta im
 
 // ---- Inspector de QR ----
 
-/** Anexo: «Explicación». */
+/** Anexo: «Explicación». 2.0, task 9: «wifi» in lower case (R-4), and a wifi is passed on too (to the vault's form). */
 const val QR_EXPLANATION =
-    "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes Wi-Fi, ni pagos. Puedes copiarlo y, si es una " +
-        "tarjeta o un mensaje de Clavero o un código 2FA, pasarlo a su pantalla. La imagen se analiza en tu móvil y " +
-        "no se guarda."
+    "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes wifi, ni pagos. Puedes copiarlo y, si es una " +
+        "tarjeta o un mensaje de Clavero, un código 2FA o un wifi, pasarlo a su pantalla. La imagen se analiza en tu " +
+        "móvil y no se guarda."
 
 /** Anexo: «Sin avisos», shown in a neutral colour, without ✓. */
 const val QR_NO_ALERTS =
@@ -374,7 +374,8 @@ const val QR_COPIED_WITH_HIDDEN = "Copiado tal cual, con los caracteres ocultos 
 
 /** Not in the annex: what each kind of QR is called, and the names of the fields shown for it. */
 const val QR_KIND_LINK = "Enlace"
-const val QR_KIND_WIFI = "Red Wi-Fi"
+// 2.0, task 9: «wifi» in lower case, the word of the RAE, not the brand (Abogado Digital, R-4).
+const val QR_KIND_WIFI = "Red wifi"
 const val QR_KIND_SEPA = "Pago SEPA"
 const val QR_KIND_CRYPTO = "Pago en criptomonedas"
 const val QR_KIND_CONTACT = "Contacto"

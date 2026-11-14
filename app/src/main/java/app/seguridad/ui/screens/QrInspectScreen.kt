@@ -77,8 +77,6 @@ import app.seguridad.tools.QR_PICK_IMAGE
 import app.seguridad.tools.QR_READING_IMAGE
 import app.seguridad.tools.QR_SHORT
 import app.seguridad.tools.QR_SHOW
-import app.seguridad.tools.QR_TEXT_HIDDEN_OTP
-import app.seguridad.tools.QR_TEXT_HIDDEN_PASSWORD
 import app.seguridad.tools.QR_TOOL_TITLE
 import app.seguridad.tools.QR_TOO_BIG
 import app.seguridad.tools.codes.ScreenAway
@@ -117,7 +115,8 @@ import kotlinx.coroutines.withContext
  * «Inspector de QR» (`tools/qr`): reads a QR with the camera or from a picked image and shows what it holds, with the
  * signals of the usual tricks. It only shows and copies: there is no way here to open a link, join a network, pay or
  * call, and no intent is ever started with the QR's text. The only ways on are the app's own screens for its own texts
- * (a contact card, something received, a 2FA code), which get the text through [QrHandoff], never in the route.
+ * (a contact card, something received, a 2FA code, a wifi for the vault's form), which get the text through
+ * [QrHandoff], never in the route.
  *
  * What is read lives only in `remember`, never in saved state (a Wi-Fi password or a 2FA key may be in it): turning the
  * phone or coming back from another screen empties it. Nothing is saved and nothing is logged. A result with a secret
@@ -133,6 +132,7 @@ fun QrInspectScreen(
     onAddContact: () -> Unit,
     onOpenReceived: () -> Unit,
     onAddTotp: () -> Unit,
+    onAddWifi: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -276,6 +276,7 @@ fun QrInspectScreen(
                             QrAction.ADD_CONTACT -> { QrHandoff.put(QrTarget.CARD, v.text); onAddContact() }
                             QrAction.OPEN_RECEIVED -> { QrHandoff.put(QrTarget.RECEIVED, v.text); onOpenReceived() }
                             QrAction.ADD_TOTP -> { QrHandoff.put(QrTarget.OTP, v.text); onAddTotp() }
+                            QrAction.ADD_WIFI -> { QrHandoff.put(QrTarget.WIFI, v.text); onAddWifi() }
                             QrAction.NONE -> Unit
                         }
                     })
@@ -350,7 +351,8 @@ private fun QrResult(v: QrView, onCopied: (String) -> Unit, onAction: () -> Unit
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(QR_FULL_TEXT, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (v.textHidden && !revealed) {
-                Text(if (v.secret != null) QR_TEXT_HIDDEN_PASSWORD else QR_TEXT_HIDDEN_OTP, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // What it hides, by the kind of QR (2.0, task 9: a wifi code that cannot be read has its own line).
+                Text(v.hiddenLine.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Text(v.shownText, fontFamily = FontFamily.Monospace)
             }
@@ -368,6 +370,8 @@ private fun QrResult(v: QrView, onCopied: (String) -> Unit, onAction: () -> Unit
         QrAction.ADD_CONTACT -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_CONTACT) }
         QrAction.OPEN_RECEIVED -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_OPEN_RECEIVED) }
         QrAction.ADD_TOTP -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TOTP) }
+        // The same «Añadir a la bóveda»: to the vault's own form for a wifi, filled, saved only with its «Guardar».
+        QrAction.ADD_WIFI -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TOTP) }
         QrAction.NONE -> Unit
     }
 }
@@ -420,6 +424,75 @@ fun QrTotpImportScreen(store: VaultStore, onDone: () -> Unit) {
             store, id = null, initialType = EntryType.TOTP, onDone = done, otpAuthText = vm.pending.text,
             // Handed over once to the form's own ViewModel, which keeps it from here (a rotation included).
             onOtpAuthTaken = vm.pending::clear,
+        )
+        return
+    }
+    if (vm.pending.wasOpen) {
+        LaunchedEffect(Unit) { done() }
+        return
+    }
+    val snackbar = remember { SnackbarHostState() }
+    val actions = vaultActions(store, snackbar)
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = {
+            TopAppBar(
+                title = { Text(QR_ADD_TOTP) },
+                navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás") } },
+            )
+        },
+    ) { padding ->
+        VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) { }
+    }
+}
+
+/**
+ * 2.0, task 9: holds the wifi code the inspector handed over ([QrPendingText]) for the navigation entry of
+ * `tools/qr/wifi`, as [QrTotpImportViewModel] does for a 2FA one: never in saved state, gone when the vault locks after
+ * having been open, on save or back, when the screen is left without a configuration change, and when the entry goes.
+ */
+private class QrWifiImportViewModel(store: VaultStore) : ViewModel() {
+    val pending = QrPendingText(QrTarget.WIFI)
+
+    init {
+        viewModelScope.launch { store.state.collect { pending.vaultStateIs(it is VaultState.Unlocked) } }
+    }
+
+    override fun onCleared() {
+        pending.clear()
+    }
+}
+
+/**
+ * 2.0, task 9: «Añadir a la bóveda» of a wifi code from the inspector (`tools/qr/wifi`): the vault's own form
+ * ([VaultEntryEditScreen]) for a new wifi, filled from the code, behind the vault gate. Nothing is saved here: the form's
+ * «Guardar» saves it, with its checks and its lock epoch, and «Atrás» asks first. If the vault locks afterwards, back to
+ * the inspector, as the form does on its own.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun QrWifiImportScreen(store: VaultStore, onDone: () -> Unit) {
+    val state by store.state.collectAsStateWithLifecycle()
+    // The Bóveda tab loads it too; this screen can be reached first.
+    LaunchedEffect(store) { store.load() }
+    val vm = viewModel { QrWifiImportViewModel(store) }
+    val activity = LocalContext.current.fragmentActivity()
+    // Only a rotation (or another configuration change) keeps the text: leaving otherwise lets the password go now.
+    DisposableEffect(vm) {
+        onDispose { if (activity?.isChangingConfigurations != true) vm.pending.clear() }
+    }
+    val done = {
+        vm.pending.clear() // Saved or abandoned: the text is not needed any more.
+        onDone()
+    }
+    if (state is VaultState.Unlocked) {
+        // Also here, once composed: a lock that comes before the ViewModel's collector has seen the unlock still ends the flow.
+        SideEffect { vm.pending.vaultStateIs(unlocked = true) }
+        VaultEntryEditScreen(
+            store, id = null, initialType = EntryType.WIFI, onDone = done, wifiQrText = vm.pending.text,
+            // Handed over once to the form's own ViewModel, which keeps it from here (a rotation included).
+            onWifiQrTaken = vm.pending::clear,
         )
         return
     }

@@ -63,6 +63,8 @@ import app.seguridad.ui.screens.OtpQrScreen
 import app.seguridad.ui.screens.PhotoCleanScreen
 import app.seguridad.ui.screens.QrInspectScreen
 import app.seguridad.ui.screens.QrTotpImportScreen
+import app.seguridad.ui.screens.QrWifiImportScreen
+import app.seguridad.ui.screens.WifiQrScreen
 import app.seguridad.ui.screens.RedactScreen
 import app.seguridad.ui.screens.HashLabScreen
 import app.seguridad.ui.screens.BackupCheckScreen
@@ -313,6 +315,8 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                         onHistory = { nav.navigate("vault/entry/${Uri.encode(id)}/history") },
                         onBack = backOnce(nav),
                         onOpenEntry = { copy -> nav.navigate("vault/entry/${Uri.encode(copy)}") },
+                        // 2.0, task 9: only the id in the route; the network is read from the open vault (WifiQrScreen).
+                        onShowWifiQr = { nav.navigate("vault/entry/${Uri.encode(id)}/wifi-qr") },
                     )
                 }
                 composable(
@@ -323,6 +327,9 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                 }
                 composable("vault/entry/{id}/qr") { entry ->
                     OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
+                }
+                composable("vault/entry/{id}/wifi-qr") { entry ->
+                    WifiQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
                 }
                 composable(
                     "vault/edit?id={id}&type={type}",
@@ -395,11 +402,13 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                         onAddContact = { nav.navigate("contacts/add") },
                         onOpenReceived = { nav.navigate("contacts/open") },
                         onAddTotp = { nav.navigate("tools/qr/totp") },
+                        onAddWifi = { nav.navigate("tools/qr/wifi") },
                         onBack = backOnce(nav),
                     )
                 }
                 composable("tools/codes") { CodesScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
                 composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = backOnce(nav)) }
+                composable("tools/qr/wifi") { QrWifiImportScreen(vault, onDone = backOnce(nav)) }
                 composable("settings") {
                     SettingsScreen(
                         settingsStore, vault, container.autoBackup, container::releaseIfUnused,
