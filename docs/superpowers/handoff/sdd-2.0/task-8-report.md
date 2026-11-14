@@ -596,3 +596,140 @@ m-6 y m-8 no tienen test propio. El I-2 de la ronda 4 se adaptó con un `runCurr
 - **Un resumen no cerrado se vuelve a decir en cada desbloqueo hasta que se cierre.** Es lo que pide m-7 («sin pérdida»). Si el diálogo se cierra sin leerlo, cuenta como dicho.
 - **`closed` solo se pone con un resumen de todas las carpetas hechas.** Un parcial cerrado deja la petición abierta: si después cambia el resumen (otra carpeta termina, o se quita la que faltaba), se dice otra vez.
 - **i-3 (TalkBack bajo el diálogo de la maestra) e i-1 (la precisión de `lastModified`)** van a `pendientes.md`. Los apunta el controlador.
+
+## Ronda 6 de arreglos (re-revisión `task-8-rereview-5.md`; «Ruling (advisor, T8 tras la ronda 5)»; «Owner decision (14-11-2026)»)
+
+Base `a883dbd`. Commits sin push:
+- d01c0c0: código;
+- c3cc279: pines y la marca desconocida;
+- 57ff445 y 2c5a40e: tests;
+- ca30249: anexo;
+- el de cierre, «2.0, tarea 8: ronda 6 de arreglos».
+
+Solo lo que pedía el encargo.
+
+### 1. «Cuándo hablar», en una sola función pura (I-1)
+- **La función:** `a6Decide(targets, a6, failures, sameVault, masterMark)` (`vault/A6Text.kt:81`) decide si se publica o se calla. Es el único sitio que lo decide, y solo la llama `publish` (`vault/AutoBackup.kt:579`), según el test de fuentes.
+  - Habla si hay fallos nuevos, o si al menos una carpeta reemplazó para la petición y las carpetas de la petición tienen algo que el último resumen cerrado no tenía (`A6Text.kt:84`).
+- **La foto:** `a6Snapshot` (`A6Text.kt:55`) es una línea por carpeta **de esta petición** (su `requestId` es el de ahora), con su estado: pendiente, hecha (con lo que borró y lo que quedó sin apuntar) o «sin» (está en la petición, pero sin resultado).
+  - Una carpeta añadida después no lleva el id, así que no entra en la foto ni reabre nada.
+  - Una que vuelve de `pastTargets` trae el id (O-5), así que entra en la foto y la reabre.
+- **`A6State.closed` ya no existe: es derivado.** `A6State.said` (`vault/BackupSchedule.kt:113`) guarda la foto que el usuario cerró (`replaceOutcomeShown`, `AutoBackup.kt:392`). Ningún dato calla una petición para siempre.
+- **El invariante:** la app no se calla mientras una carpeta de la petición tenga algo que la foto cerrada no tenía: una carpeta pendiente que no lo estaba, un resultado que no estaba, o una carpeta que se fue o volvió.
+  - Cerrada una foto, no se repite lo mismo.
+  - Una carpeta pendiente que ya estaba pendiente en lo cerrado no vuelve a hablar hasta que cambie (ver «Dudas»).
+
+### 2. I-2 y m-1: una petición de un cambio de maestra anterior
+- **La marca:** cada petición guarda `A6State.masterMark` (`BackupSchedule.kt:118`) al pedirla, en la misma escritura que su id (`AutoBackup.kt:651`): si esa escritura falla, no hay petición (m-2 de la ronda 5).
+  - La marca es `VaultStore.masterMark()` (`vault/VaultStore.kt:433`), un SHA-256 de la sal del archivo. La sal no es secreta, porque está en el disco con el archivo.
+  - Un cambio de maestra siempre renueva la sal. Es una señal derivada: no hay que escribir nada al cambiar la maestra.
+- **Cuándo es «anterior»:** si la marca guardada no es la de ahora, el resumen es `stale` (`A6Text.kt:44`).
+  - `a6Text` dice entonces `a6StaleText` (`A6Text.kt:110`, `:124`): «Se terminaron de borrar las copias que la app tenía apuntadas de antes de un cambio de contraseña anterior, en todas las carpetas. Las copias hechas después de ese cambio no se han borrado: si cambiaste la contraseña otra vez, puede que alguna se abra con una contraseña anterior. Míralo a mano.»
+  - Nunca dice «en cada carpeta» como éxito del cambio de ahora, y la cuenta de copias sin apuntar se sigue diciendo.
+- **El texto es verdad también cuando cambia la sal sin cambiar la maestra.** La sal también cambia al volver a cifrar la clave con un coste mayor (A8) y en el paso a v4. Por eso el texto dice «si cambiaste la contraseña otra vez».
+- **Sin marca guardada,** como las peticiones de la 1.4.3 o una marca de ahora que no se conoce, no es `stale`. La de la 1.4.3 siempre era de su último cambio.
+- **m-1:** el diálogo de la maestra solo enseña el resumen de la petición que pidió él.
+  - `MasterChanged.State.answerRequest` (`vault/MasterChanged.kt:42`) guarda el id de la respuesta. Todas las respuestas de `replaceOldCopies` nombran su petición (`AutoBackup.kt:673` y la combinada); la de «id sin guardar» no nombra ninguna.
+  - El diálogo hace `summary?.takeIf { it.request == state.answerRequest }` (`ui/screens/SettingsScreen.kt:402`) y nunca añade el resumen de una petición anterior.
+
+### 3. Menores
+- **m-2:** lista corregida abajo.
+- **m-3:** `SettingsStore.changeTargetFolder(id, from, to)` (`settings/SettingsStore.kt:111`) decide `hadRequest` dentro de la misma escritura, como `removeTarget`. Ajustes la usa, y el aviso «…no se borraron» ya no sale de una foto anterior.
+- **m-4:** la aserción que se cumplía siempre se sustituye por una que compara el texto entero: el fallo, `\n` y el resumen.
+  - `partial`, `unknown` y `canReplace` del diálogo pasan a una función pura, `a6DialogView` (`A6Text.kt:142`), con su test (`theDialogOfTheChangeInEachState`).
+  - El test de fuentes fija que `a6Decide` solo se usa en `AutoBackup.kt` y `a6DialogView` en `SettingsScreen.kt`.
+- **m-5:** al día los KDoc de:
+  - `pastTargets` y `withTargetRemoved` (`settings/Settings.kt`);
+  - `publish` y `replaceOldCopies` (`AutoBackup.kt`), este con la salida del id sin guardar y la petición en la respuesta;
+  - `A6State`.
+
+### Tests nuevos y su rojo sin el arreglo
+Tests nuevos, todos en `AutoBackupTargetsTest` (45 + 1):
+- `aFolderThatComesBackReopensTheRequest`: I-1 tal cual, variante a, también tras reiniciar sin cerrar;
+- `aFolderThatComesBackAndFailsIsToldOnce`: variante b;
+- `aRequestOfAnEarlierChangeSaysSo`: I-2;
+- `theDialogShowsOnlyItsOwnRequest`: m-1;
+- `theDialogOfTheChangeInEachState`: m-4, la rama `unknown`;
+- `changingAFolderSaysFromTheWriteWhetherARequestMoved`: m-3.
+
+**El exhaustivo, ampliado:** en cada una de las 576 combinaciones de 2 y 3 carpetas comprueba también:
+- sin nada cerrado, habla si y solo si hay alguna carpeta hecha;
+- cerrado tal cual, calla, y una carpeta añadida después no lo reabre;
+- cada carpeta de la petición que se va, se cierra sin ella y vuelve hace hablar si hay alguna hecha.
+
+Cada mutación se aplicó sola (`scratchpad/mut6.py`), con `./gradlew :app:testDebugUnitTest --tests 'app.seguridad.vault.AutoBackupTargetsTest' --tests 'app.seguridad.PlatformSourcesTest'`. Después de cada una se volvió con `git checkout -- app/src/main`.
+
+| Mutación | Salida | Tests en rojo |
+|---|---|---|
+| M6a: vuelve el cierre de la ronda 5 (con todo hecho al cerrar, se calla para siempre) | 88 tests, 3 en rojo | `everyCombinationOfFolders` («[REPLACED, REPLACED], REPLACED vuelve expected true but was false»), `aFolderThatComesBackReopensTheRequest`, `aFolderThatComesBackAndFailsIsToldOnce` |
+| M6b: la foto con todas las carpetas, también las añadidas después | 2 en rojo | `everyCombinationOfFolders` (la carpeta nueva reabría), `aSummaryClosedIsNotToldAgain` |
+| M6c: nunca `stale` | 1 en rojo | `aRequestOfAnEarlierChangeSaysSo` |
+| M6d: la respuesta del id sin guardar nombra la petición anterior | 1 en rojo | `theDialogShowsOnlyItsOwnRequest` |
+| M6e: el diálogo trata «Done» sin ninguna hecha como hecho | 1 en rojo | `theDialogOfTheChangeInEachState` («expected null but was ""») |
+| M6f: `changeTargetFolder` sin mirar la petición | 1 en rojo | `changingAFolderSaysFromTheWriteWhetherARequestMoved` |
+
+### Tabla de los textos de A6, con «cuándo hablar»
+**Cuándo se habla:** `publish` (`AutoBackup.kt:577-596`), el único `outcome.post`, solo publica si `a6Decide` (`A6Text.kt:81`) no da `null`. Eso pasa si hay fallos nuevos o si la foto de la petición (`a6Snapshot`) cambió respecto a lo cerrado, con al menos una carpeta hecha y la misma generación.
+
+**Qué se dice:** sale de `a6Text` (`A6Text.kt:98`). El diálogo de la maestra usa `a6DialogView` (`:142`), solo con su propia petición.
+
+| Texto | Condición exacta | `archivo:línea` | Test |
+|---|---|---|---|
+| Fallos, uno por línea, delante | Un `toldKey` nuevo de la pasada, o el `Failed` del diálogo | `A6Text.kt:100`; `AutoBackup.kt:578` | `a6FailuresAreToldOnceInAll`, `a6SameFailureInTwoFoldersIsToldOnce`, exhaustivo (fallo y `\n` resumen) |
+| `AUTO_BACKUP_FAILED` (sin reintento) | El id de la petición nueva no se guardó, o una carpeta no se pudo ni abrir en «Borrar…» | `AutoBackup.kt:651`, `:693` | `aRequestWhoseIdIsNotSavedTouchesNothing`, `aFolderThatCannotBeOpenedRecordsItsFailure`, `theDialogShowsOnlyItsOwnRequest` |
+| `AUTO_BACKUP_REPLACED` / `_SEVERAL` | Al menos una hecha, todas las carpetas de ahora hechas para R, y R no `stale` | `A6Text.kt:111` | Exhaustivo, `a6PerTarget`, `aFolderThatComesBackReopensTheRequest` |
+| `a6StaleText` («…de antes de un cambio de contraseña anterior…») | Al menos una hecha y R `stale`: la marca de la maestra cambió desde que se pidió | `A6Text.kt:110`, `:124` | `aRequestOfAnEarlierChangeSaysSo` |
+| `a6PartialText` («…en R de las N carpetas. En la otra carpeta puede quedar…») | Al menos una hecha y alguna no, con R no `stale` | `A6Text.kt:112`, `:158` | Caminos A y B, `aFolderThatComesBackAndFailsIsToldOnce`, exhaustivo |
+| Copias sin apuntar: «En la carpeta queda(n)…», «Al borrar las copias anteriores, en las carpetas quedaba(n)…», «En la carpeta / En las carpetas en que se borraron…» | `unlisted > 0` (la suma de R): las dos primeras con todas hechas (una o varias carpetas), la tercera con un parcial | `A6Text.kt:103-107` | `theSuccessCountsTheUnlistedCopiesOfEveryPass`, `aFolderThatComesBackReopensTheRequest`, `aRequestOfAnEarlierChangeSaysSo` |
+| (nada) | `a6Decide` da `null`: sin fallos nuevos y con la foto igual a lo cerrado, o sin ninguna hecha, o con otra generación | `A6Text.kt:84-85` | `aSummaryClosedIsNotToldAgain`, exhaustivo («cerrado», «añadida después») |
+| (otra vez) | Lo publicado y no cerrado vuelve en el siguiente desbloqueo; una carpeta que vuelve a la petición hace hablar | `AutoBackup.kt:546`; `A6Text.kt:84` | `aSummaryNotClosedIsToldAgainAfterARestart`, `aFolderThatComesBackReopensTheRequest`, exhaustivo («vuelve») |
+| `AUTO_BACKUP_OLD_NOT_DELETED` / `_NO_RETRY` | Son fallos de una carpeta | `AutoBackup.kt:140`, `:147` | `AutoBackupF3Test` «R-6…» |
+| `AUTO_BACKUP_REPLACE_WAITS` | «Borrar…» con la bóveda bloqueada (diálogo, `Waits`) | `A6Text.kt:150` | `theDialogOfTheChangeInEachState`, `a6PerTarget` |
+| Diálogo de la maestra: desconocido | `Done` sin ninguna hecha de su petición, o sin resumen de su petición: sin texto y «Borrar…» activo | `A6Text.kt:142-155`; `SettingsScreen.kt:402` | `theDialogOfTheChangeInEachState`, `theDialogShowsOnlyItsOwnRequest` |
+
+### Punto 2 de la ronda 5, corregido (m-2)
+Las filas de la ronda 5 siguen valiendo, con estos cambios:
+- **«Lo dicho al cerrar»** (`AutoBackup.kt:392`): si falla, el mismo resumen se vuelve a decir. Con m-1 ya no puede salir bajo un cambio de maestra posterior como si fuera de ese cambio: un resumen de R0 tras otro cambio sale como `stale`, y el diálogo solo enseña su propia petición.
+- **«Un reemplazo hecho»:** si falla su escritura, el resumen se queda corto, y además la pasada siguiente puede contar como «sin apuntar» la copia nueva de esa pasada (no está en la lista). Eso avisa de más, que es la dirección prudente, y se corrige cuando se apunta.
+- **Nueva fila, el deshacer del olvido de una importación** (`vault/VaultStore.kt:1513-1519`, `undo`): si una importación no se guarda y falla también el deshacer, la petición pendiente se pierde sin `AUTO_BACKUP_REPLACE_DROPPED`.
+  - Ningún texto de resultado de A6 nuevo es falso.
+  - El «Se hará en cuanto abras la bóveda…» que el diálogo dijo antes deja de cumplirse sin aviso. Hacen falta dos fallos seguidos.
+  - No se cambia en esta ronda («solo lo que sigue»). Va a «Dudas» para `pendientes.md`.
+
+### Verificación (por separado)
+- `export ANDROID_HOME=/home/user/android-sdk; ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon --max-workers=1`: salida 0, **2238** tests sin fallos. Lint: 0 errores y los mismos 20 avisos.
+- `./gradlew -p jvm-check test --no-daemon --max-workers=1`: salida 0, **2201** tests sin fallos.
+
+### Revisión experto-seguridad-cripto (ronda 6)
+- **I-1:** ya no hay ningún dato que calle una petición para siempre. Hablar depende de la foto de las carpetas de la petición frente a lo cerrado (`A6Text.kt:55-85`). El aviso de COPIAS-2 de una carpeta que vuelve sale siempre: lo fijan el test del escenario y el exhaustivo.
+- **I-2:**
+  - La marca es un SHA-256 de la sal pública del archivo (`VaultStore.kt:433`), con una etiqueta propia («a6|»). No dice nada de la contraseña ni de la clave, que solo se derivarían con Argon2id y la contraseña.
+  - El texto `stale` es verdad cuando cambió la maestra y también cuando cambió solo la sal (A8, el paso a v4).
+- **m-1:** el diálogo nunca mezcla peticiones.
+- **Sin cambios en:** el borrado (solo ids de la lista propia), la red, los permisos, los registros y las dependencias. SHA-256 de `java.security`.
+
+### Revisión Ingeniero Móvil Senior (ronda 6)
+- **Concurrencia:**
+  - `publish` y `replaceOutcomeShown` siguen bajo el `Mutex` del motor, que lee una sola vez los destinos y `a6`.
+  - `changeTargetFolder` decide dentro del cerrojo de los ajustes.
+  - El orden de los cerrojos no cambia.
+- **Persistencia:**
+  - `A6State.closed` desaparece (los ajustes con ese campo se siguen leyendo: se ignora).
+  - `masterMark` es opcional.
+  - `MasterChanged.State.answerRequest` solo vive en memoria, como el resto del diálogo.
+- **UI:** el diálogo de la maestra pinta lo que da `a6DialogView` (`SettingsScreen.kt:402`), una función pura con su test. No hay estado nuevo.
+
+### Textos para el Abogado Digital (ronda 6; también en el anexo)
+- **Nuevo (I-2):** «Se terminaron de borrar las copias que la app tenía apuntadas de antes de un cambio de contraseña anterior, en todas las carpetas. Las copias hechas después de ese cambio no se han borrado: si cambiaste la contraseña otra vez, puede que alguna se abra con una contraseña anterior. Míralo a mano.»
+  - Con una carpeta: «…, en la carpeta.».
+  - Si no terminaron todas: «…, en N de las M carpetas; en las demás puede quedar alguna copia de antes de ese cambio.».
+- **Sin más cambios de texto.**
+
+### Dudas (ronda 6)
+- **Cómo se lee el invariante.** Se ha leído como «nunca se calla mientras una carpeta de la petición tenga algo que lo cerrado no tenía».
+  - Una carpeta que ya estaba pendiente en el resumen que el usuario cerró no repite ese mismo parcial en cada desbloqueo. Habla en cuanto cambia: cuando reemplaza, se va o vuelve.
+  - Repetirlo en cada desbloqueo iría contra lo de «no repetir» de las rondas 1 y 4.
+- **La marca de la maestra es la sal.**
+  - Tras un A8 o el paso a v4, sin cambiar la maestra, una petición de antes sale como «de un cambio anterior», con un texto que sigue siendo verdad.
+  - Una marca exacta exigiría un dato derivado de la clave de datos (un HMAC) o un campo nuevo en la bóveda. Lo primero exige la bóveda abierta, que no lo está al pedir «Borrar…»; lo segundo cambia el formato. Las dos cosas quedan fuera del alcance de esta ronda.
+- **Para `pendientes.md`:** el deshacer del olvido de una importación que falla (m-2, fila nueva) e i-1 de la re-revisión 5 (un resultado que solo trae fallos se pierde con la muerte del proceso).
