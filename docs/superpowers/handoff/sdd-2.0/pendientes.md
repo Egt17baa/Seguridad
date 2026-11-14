@@ -27,3 +27,7 @@ Cada aplazado del registro (`progress.md`), con su destino y su estado. La revis
 | 19 | m-4 de la re-revisión 6: «Las copias hechas después de ese cambio no se han borrado» peca por prudencia (la rotación puede borrar alguna); redacción propuesta en `task-8-rereview-6.md` | T8 | Abogado final | Abierto |
 | 20 | Si una importación no se guarda y también falla su deshacer, una petición de A6 pendiente se pierde sin aviso (`VaultStore.kt:1500-1506`; dos fallos seguidos) | T8 | Revisión de la rama (parte «copias y ajustes») | Abierto |
 | 21 | i-1 de la re-revisión 5: un resultado de A6 que solo trae fallos se apunta como dicho al intentarlo y se pierde si el proceso muere antes de leerlo (`AutoBackup.kt:880-886`); lo atenúa el `lastError` de la carpeta en Ajustes | T8 | Revisión de la rama (parte «copias y ajustes») | Abierto |
+| 22 | T9: el texto de QR pendiente (wifi y 2FA) se borra al salir de la app ante la puerta de la bóveda (cambio de comportamiento del 2FA) | T9 | Tarea 12 (notas de la versión) | Abierto |
+| 23 | Móvil: la huella ante la puerta de la bóveda sigue entregando el QR pendiente; otro móvil se conecta con el QR de Clavero (también clave en bruto); Clavero lee QR de wifi de otros móviles; TalkBack en la pantalla del QR | T9 | Tarea 11 y dueño | Abierto |
+| 24 | Ataque de la revisión final: el lector de wifi, «lo que enseña Clavero frente a lo que lee otro lector» | T9 | Revisión final (ataque) | Abierto |
+| 25 | Duda 2 de T9: `T:WPA2`, `T:WPA3` y `T:SAE` (hoy se rechazan para la bóveda) | T9 | Dueño | Pendiente del dueño |
