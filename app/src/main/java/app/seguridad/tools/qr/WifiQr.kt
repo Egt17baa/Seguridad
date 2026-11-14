@@ -54,8 +54,12 @@ enum class WifiNotKept {
 
 /** What reading a text that starts like a wifi code gives. */
 sealed interface WifiRead {
-    /** A code the vault's form can hold and Clavero can write again the same: [WifiQr.parse] gives it. */
-    data class Usable(val config: WifiConfig) : WifiRead {
+    /**
+     * A code the vault's form can hold and Clavero can write again the same: [WifiQr.parse] gives it. [written] is the
+     * type as the code says it, in capitals, when it is not [WifiConfig.security] (ronda 2, n-2: «WPA2», kept as WPA, is
+     * shown as «WPA2»); null otherwise.
+     */
+    data class Usable(val config: WifiConfig, val written: String? = null) : WifiRead {
         override fun toString() = "Usable($config)"
     }
 
@@ -128,7 +132,10 @@ object WifiQr {
             else -> null
         }
         if (security == null || why != null) return WifiRead.Unsupported(ssid, security ?: type.uppercase(Locale.ROOT), password, hidden, why!!)
-        return WifiRead.Usable(WifiConfig(ssid, if (security == "nopass") "" else password, security, hidden))
+        return WifiRead.Usable(
+            WifiConfig(ssid, if (security == "nopass") "" else password, security, hidden),
+            written = type.uppercase(Locale.ROOT).takeIf { security != "nopass" && it != security },
+        )
     }
 
     /** The network in [text] if the vault's form can hold it ([WifiRead.Usable]); null otherwise. Never throws. */
@@ -381,7 +388,7 @@ const val QR_WIFI_PASSWORD_WITHOUT_TYPE =
     "Este código lleva una contraseña, pero no dice que la red use una (le falta el tipo de seguridad o dice que es abierta), así que no se añade a la bóveda."
 
 /** The inspector: a name the form would not keep the same ([WifiNotKept.NAME_SPACES], m-3). */
-const val QR_WIFI_NAME_SPACES = "El nombre de esta red empieza o termina con un espacio, y la bóveda no lo guardaría igual, así que no se añade."
+const val QR_WIFI_NAME_SPACES = "El nombre de esta red empieza o termina con un espacio en blanco, y la bóveda no lo guardaría igual, así que no se añade."
 
 /**
  * The inspector: a text that starts like a wifi code and cannot be read safely ([WifiRead.Malformed]): it says Clavero

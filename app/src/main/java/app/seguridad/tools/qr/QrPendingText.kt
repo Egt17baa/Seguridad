@@ -1,5 +1,9 @@
 package app.seguridad.tools.qr
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /**
  * The QR text a screen took from [QrHandoff] for [target], held for the life of that screen's flow (CR-4): it lives in
  * the screen's ViewModel, so a rotation before saving still has it, and never in saved state (a Bundle can go to disk,
@@ -17,9 +21,15 @@ class QrPendingText(target: QrTarget) {
     @Volatile var text: String? = QrHandoff.take(target)
         private set
 
-    /** The text went because the app was left while it waited: the flow ends, back to the inspector. */
-    @Volatile var left: Boolean = false
-        private set
+    private val _left = MutableStateFlow(false)
+
+    /**
+     * The text went because the app was left while it waited: the flow ends, back to the inspector. A state the screen
+     * collects (ronda 2, n-1), so it goes back as soon as the app is on screen again, not at the next unlock.
+     */
+    val leftState: StateFlow<Boolean> = _left.asStateFlow()
+
+    val left: Boolean get() = _left.value
 
     init {
         if (text != null) QrHandoff.hold(this)
@@ -29,7 +39,7 @@ class QrPendingText(target: QrTarget) {
     internal fun leftApp() {
         if (text != null) {
             text = null
-            left = true
+            _left.value = true
         }
     }
 

@@ -1155,8 +1155,11 @@ class PlatformSourcesTest {
         val src = code("ui/screens/QrInspectScreen.kt")
         for (screen in listOf("fun QrTotpImportScreen(", "fun QrWifiImportScreen(")) {
             val body = src.substringAfter(screen).substringBefore("\n}\n")
-            val left = body.indexOf("if (vm.pending.left) {\n        LaunchedEffect(Unit) { done() }")
+            // Ronda 2 (n-1): read as a state, so a return to the app recomposes the screen and it goes back at once.
+            assertTrue(screen, "val left by vm.pending.leftState.collectAsStateWithLifecycle()" in body)
+            val left = body.indexOf("if (left) {\n        LaunchedEffect(Unit) { done() }")
             assertTrue(screen, left >= 0 && left < body.indexOf("if (state is VaultState.Unlocked)"))
+            assertFalse(screen, "vm.pending.left" in body.replace("vm.pending.leftState", ""))
         }
     }
 

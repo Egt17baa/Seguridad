@@ -35,7 +35,11 @@ class WifiQrInspectTest {
         val wpa2 = qrView("WIFI:T:WPA2;S:Casa;P:clave;;")
         assertEquals(QrAction.ADD_WIFI, wpa2.action)
         assertTrue(wpa2.notes.isEmpty())
-        assertEquals("WPA", wpa2.field("Cifrado"))
+        // Ronda 2 (n-2): shown as the code says it; kept, and written again, as WPA.
+        assertEquals("WPA2", wpa2.field("Cifrado"))
+        assertEquals("WPA", (classifyQr("WIFI:T:WPA2;S:Casa;P:clave;;") as QrKind.Wifi).security)
+        assertEquals("WPA2", qrView("WIFI:T:wpa2;S:Casa;P:clave;;").field("Cifrado"))
+        assertEquals("WPA", qrView("WIFI:T:wpa;S:Casa;P:clave;;").field("Cifrado"))
     }
 
     @Test fun aWifiTheVaultCannotHoldIsShownButNotOfferedAndSaysWhy() {

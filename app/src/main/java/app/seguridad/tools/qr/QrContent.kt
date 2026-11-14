@@ -30,7 +30,15 @@ sealed interface QrKind {
      * [security] is «nopass» (open) or the type in capitals («WPA», «WEP»…). [notKept] null: the vault's form can hold it
      * ([WifiRead.Usable]); otherwise it is only shown, for that reason ([WifiRead.Unsupported]). 2.0, task 9: read by [WifiQr].
      */
-    data class Wifi(val ssid: String, val security: String, val password: String?, val hidden: Boolean, val notKept: WifiNotKept? = null) : QrKind {
+    data class Wifi(
+        val ssid: String,
+        val security: String,
+        val password: String?,
+        val hidden: Boolean,
+        val notKept: WifiNotKept? = null,
+        /** The type as the code says it when it is not [security] (ronda 2, n-2: «WPA2», kept as WPA). */
+        val written: String? = null,
+    ) : QrKind {
         val addable: Boolean get() = notKept == null
         override fun toString() = "Wifi(security=$security, hidden=$hidden, notKept=$notKept)"
     }
@@ -120,7 +128,7 @@ private fun seguridadInside(t: String): QrKind? {
  */
 private fun wifi(text: String): QrKind? = when (val read = WifiQr.read(text)) {
     null -> null
-    is WifiRead.Usable -> read.config.let { QrKind.Wifi(it.ssid, it.security, it.password.ifEmpty { null }, it.hidden) }
+    is WifiRead.Usable -> read.config.let { QrKind.Wifi(it.ssid, it.security, it.password.ifEmpty { null }, it.hidden, written = read.written) }
     is WifiRead.Unsupported -> QrKind.Wifi(read.ssid, read.security, read.password.ifEmpty { null }, read.hidden, read.why)
     WifiRead.Malformed -> QrKind.WifiUnreadable(text)
 }

@@ -1,5 +1,6 @@
 package app.seguridad.tools.qr
 
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -92,7 +93,10 @@ class QrHandoffTest {
         val otp = QrPendingText(QrTarget.OTP)
         QrHandoff.put(QrTarget.CARD, "SGK1:abc") // Not taken yet: it goes too.
         assertFalse(wifi.left || otp.left)
+        val seen = wifi.leftState
         QrHandoff.appLeft()
+        // Ronda 2 (n-1): a state the screen collects, so it goes back as soon as it is on screen again.
+        assertTrue(seen.value)
         assertNull(wifi.text)
         assertNull(otp.text)
         assertTrue(wifi.left && otp.left)
@@ -111,5 +115,19 @@ class QrHandoffTest {
         QrHandoff.appLeft()
         assertFalse(handed.left)
         assertFalse(never.left)
+    }
+
+    // Ronda 2 (n-1): the import screens collect [QrPendingText.leftState]; a collector hears the change at once, so the
+    // screen goes back to the inspector on the return to the app, with no other change of state (the vault was locked).
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun aCollectorHearsThatTheAppWasLeft() = kotlinx.coroutines.test.runTest {
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:Casa;P:clave;;")
+        val pending = QrPendingText(QrTarget.WIFI)
+        val seen = mutableListOf<Boolean>()
+        val job = launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) { pending.leftState.collect { seen += it } }
+        QrHandoff.appLeft()
+        assertEquals(listOf(false, true), seen)
+        job.cancel()
     }
 }

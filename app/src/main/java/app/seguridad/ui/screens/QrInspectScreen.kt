@@ -417,8 +417,10 @@ fun QrTotpImportScreen(store: VaultStore, onDone: () -> Unit) {
         vm.pending.clear() // Saved or abandoned: the text is not needed any more.
         onDone()
     }
+    // Ronda 2 (n-1): a state, so the screen goes back as soon as the app is on screen again after leaving it.
+    val left by vm.pending.leftState.collectAsStateWithLifecycle()
     // 2.0, task 9, ronda 1 (I-1): the app was left while the text waited at the gate: it is gone, back to the inspector.
-    if (vm.pending.left) {
+    if (left) {
         LaunchedEffect(Unit) { done() }
         return
     }
@@ -491,8 +493,10 @@ fun QrWifiImportScreen(store: VaultStore, onDone: () -> Unit) {
         vm.pending.clear() // Saved or abandoned: the text is not needed any more.
         onDone()
     }
+    // Ronda 2 (n-1): a state, so the screen goes back as soon as the app is on screen again after leaving it.
+    val left by vm.pending.leftState.collectAsStateWithLifecycle()
     // 2.0, task 9, ronda 1 (I-1): the app was left while the text waited at the gate: it is gone, back to the inspector.
-    if (vm.pending.left) {
+    if (left) {
         LaunchedEffect(Unit) { done() }
         return
     }

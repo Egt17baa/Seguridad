@@ -128,7 +128,8 @@ fun qrView(text: String): QrView {
             val cipher = when {
                 open -> QR_CIPHER_NONE
                 kind.security == "nopass" -> QR_CIPHER_UNKNOWN
-                else -> kind.security
+                // Ronda 2 (n-2): what the code says («WPA2»), though the vault keeps it as WPA.
+                else -> kind.written ?: kind.security
             }
             val alerts = listOfNotNull(QR_WIFI_OPEN.takeIf { open }, QR_WIFI_WEP.takeIf { kind.security == "WEP" })
             base.copy(
