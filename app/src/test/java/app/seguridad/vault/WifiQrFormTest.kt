@@ -57,7 +57,7 @@ class WifiQrFormTest {
 
     @Test fun aCodeTheFormCannotHoldFillsNothing() {
         // The inspector does not offer these; if one ever came, the form says so and keeps what it had.
-        for (t in listOf("WIFI:T:WPA2;S:Casa;P:clave;;", "WIFI:S:a;S:b;;", "hola", "WIFI:T:WPA;S:Casa;P:clave\\")) {
+        for (t in listOf("WIFI:T:WPA3;S:Casa;P:clave;;", "WIFI:S:a;S:b;;", "hola", "WIFI:T:WPA;S:Casa;P:clave\\")) {
             val s = session()
             s.applyWifiQr(t)
             assertEquals(t, WIFI_QR_NOT_ADDED, s.error.value)

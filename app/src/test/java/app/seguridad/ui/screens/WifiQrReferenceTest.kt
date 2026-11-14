@@ -74,7 +74,8 @@ class WifiQrReferenceTest {
 
     /**
      * Every body of length 0 to 5 over `\ ; , : " a`, a space, `S`, `P`, `T` and `H` after «WIFI:» (177 156 texts), and
-     * 200 000 longer ones at random from the same alphabet and from whole pieces («S:», «T:WPA», «;;»…).
+     * 300 000 longer ones at random: from the same alphabet, from whole pieces («S:», «T:WPA», «;;»…), and as fields
+     * («KEY:value;», in any order, with values from the alphabet), so that many of them read as wifi.
      */
     @Test fun wheneverClaveroSaysWifiZxingReadsTheSame() {
         val alphabet = listOf('\\', ';', ',', ':', '"', 'a', ' ', 'S', 'P', 'T', 'H')
@@ -93,16 +94,31 @@ class WifiQrReferenceTest {
         assertEquals(177_156, checked)
         val pieces = listOf("S:", "P:", "T:", "H:", "T:WPA", "T:WEP", "T:nopass", "T:WPA2", "T:SAE", "H:true", "H:false", "E:TTLS", "PH2:x", ";", ";;", ":", "\\", "\"", ",", "a", " ", "S", "P", "T", "H", "X")
         val rnd = Random(20261114L)
-        repeat(200_000) {
+        val keys = listOf("S", "P", "T", "H", "S", "P", "E", "PH2", "X")
+        val types = listOf("WPA", "WEP", "nopass", "WPA2", "wpa", "SAE", "WPA3", "", "x")
+        repeat(300_000) { k ->
             val sb = StringBuilder("WIFI:")
-            val whole = rnd.nextBoolean()
-            repeat(6 + rnd.nextInt(11)) { if (whole) sb.append(pieces[rnd.nextInt(pieces.size)]) else sb.append(alphabet[rnd.nextInt(alphabet.size)]) }
+            when (k % 3) {
+                0 -> repeat(6 + rnd.nextInt(11)) { sb.append(alphabet[rnd.nextInt(alphabet.size)]) }
+                1 -> repeat(6 + rnd.nextInt(11)) { sb.append(pieces[rnd.nextInt(pieces.size)]) }
+                else -> repeat(1 + rnd.nextInt(5)) {
+                    val key = keys[rnd.nextInt(keys.size)]
+                    sb.append(key).append(':')
+                    when (key) {
+                        "T" -> sb.append(types[rnd.nextInt(types.size)])
+                        "H" -> sb.append(listOf("true", "false", "TRUE", "", "x")[rnd.nextInt(5)])
+                        else -> repeat(rnd.nextInt(5)) { sb.append(alphabet[rnd.nextInt(alphabet.size)]) }
+                    }
+                    sb.append(';')
+                    if (rnd.nextInt(4) == 0) sb.append(';')
+                }
+            }
             val t = sb.toString()
             assertAgrees(t)
             if (clavero(t) != null) wifi++
         }
         // Not empty by accident: many of them are read as wifi.
-        assertTrue("only $wifi read as wifi", wifi > 5_000)
+        assertTrue("only $wifi read as wifi", wifi > 8_000)
     }
 
     /** Everything Clavero writes, ZXing reads the same (quotes aside). Over the alphabet of the round trip of [WifiQr]. */

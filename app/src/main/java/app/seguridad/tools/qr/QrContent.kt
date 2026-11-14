@@ -27,11 +27,12 @@ sealed interface QrKind {
     ) : QrKind
 
     /**
-     * [security] is «nopass» (open) or the type in capitals («WPA», «WEP»…). [addable]: the vault's form can hold it
-     * ([WifiRead.Usable]); otherwise it is only shown ([WifiRead.Unsupported]). 2.0, task 9: read by [WifiQr].
+     * [security] is «nopass» (open) or the type in capitals («WPA», «WEP»…). [notKept] null: the vault's form can hold it
+     * ([WifiRead.Usable]); otherwise it is only shown, for that reason ([WifiRead.Unsupported]). 2.0, task 9: read by [WifiQr].
      */
-    data class Wifi(val ssid: String, val security: String, val password: String?, val hidden: Boolean, val addable: Boolean = true) : QrKind {
-        override fun toString() = "Wifi(security=$security, hidden=$hidden, addable=$addable)"
+    data class Wifi(val ssid: String, val security: String, val password: String?, val hidden: Boolean, val notKept: WifiNotKept? = null) : QrKind {
+        val addable: Boolean get() = notKept == null
+        override fun toString() = "Wifi(security=$security, hidden=$hidden, notKept=$notKept)"
     }
 
     /**
@@ -56,8 +57,9 @@ sealed interface QrKind {
 
 /**
  * Decides what [text] is. Throws [IllegalArgumentException] ([QR_TOO_BIG]) if it is over [MAX_QR_TEXT_BYTES] in UTF-8,
- * and nothing else: a malformed Wi-Fi, payment, contact or link falls back to [QrKind.PlainText] (or a [QrKind.Link]
- * with the fields that could be read).
+ * and nothing else: a malformed payment, contact or link falls back to [QrKind.PlainText] (or a [QrKind.Link] with the
+ * fields that could be read); a text that starts like a wifi code is a [QrKind.Wifi] or a [QrKind.WifiUnreadable],
+ * never plain text (2.0, task 9: it may carry a password), also if a reader ever threw ([qrKindAfterAFailure]).
  */
 fun classifyQr(text: String): QrKind {
     // A char is at least one byte, so a longer string is too big without encoding it.
@@ -68,14 +70,20 @@ fun classifyQr(text: String): QrKind {
         classifyQrUnguarded(text)
     } catch (e: Exception) {
         // Second line of defence: the parsers below are written not to throw (a fuzz test checks it).
-        QrKind.PlainText(text)
+        qrKindAfterAFailure(text)
     }
 }
+
+/**
+ * What [classifyQr] gives when a reader threw: plain text, except a text that starts like a wifi code, which stays a
+ * secret ([QrKind.WifiUnreadable], 2.0, task 9, ronda 1, m-4).
+ */
+internal fun qrKindAfterAFailure(text: String): QrKind = if (WifiQr.startsLikeWifi(text)) QrKind.WifiUnreadable(text) else QrKind.PlainText(text)
 
 /** [classifyQr] without the guard, for the tests that check the parsers themselves never throw. */
 internal fun classifyQrUnguarded(text: String): QrKind {
     val t = text.trim()
-    return otpAuth(t) ?: seguridadAtStart(t) ?: wifi(t, text) ?: sepa(t) ?: vcard(t) ?: mecard(t) ?: matmsg(t) ?: sms(t) ?: phone(t) ?:
+    return otpAuth(t) ?: seguridadAtStart(t) ?: wifi(text) ?: sepa(t) ?: vcard(t) ?: mecard(t) ?: matmsg(t) ?: sms(t) ?: phone(t) ?:
         email(t) ?: geo(t) ?: crypto(t, text) ?: link(t) ?: seguridadInside(t) ?: QrKind.PlainText(text)
 }
 
@@ -106,13 +114,14 @@ private fun seguridadInside(t: String): QrKind? {
 // ---- Wifi ----
 
 /**
- * 2.0, task 9: one reader of wifi codes for what the inspector shows and what the vault keeps ([WifiQr]). A text that
- * starts with `WIFI:` is a wifi code or [QrKind.WifiUnreadable], never anything else (not a link, not plain text).
+ * 2.0, task 9: one reader of wifi codes for what the inspector shows and what the vault keeps ([WifiQr]), on the text as
+ * it came (not trimmed: ZXing does not trim it either). A text that starts like a wifi code ([WifiQr.startsLikeWifi]) is
+ * a wifi code or [QrKind.WifiUnreadable], never anything else (not a link, not plain text).
  */
-private fun wifi(t: String, text: String): QrKind? = when (val read = WifiQr.read(t)) {
+private fun wifi(text: String): QrKind? = when (val read = WifiQr.read(text)) {
     null -> null
     is WifiRead.Usable -> read.config.let { QrKind.Wifi(it.ssid, it.security, it.password.ifEmpty { null }, it.hidden) }
-    is WifiRead.Unsupported -> QrKind.Wifi(read.ssid, read.security, read.password.ifEmpty { null }, read.hidden, addable = false)
+    is WifiRead.Unsupported -> QrKind.Wifi(read.ssid, read.security, read.password.ifEmpty { null }, read.hidden, read.why)
     WifiRead.Malformed -> QrKind.WifiUnreadable(text)
 }
 

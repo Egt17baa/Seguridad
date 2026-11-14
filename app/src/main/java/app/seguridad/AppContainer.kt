@@ -28,6 +28,7 @@ import app.seguridad.settings.withoutVault
 import app.seguridad.imports.compareKey
 import app.seguridad.tools.ClipboardNoticeRequest
 import app.seguridad.tools.TwoStepCopy
+import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.tools.share.ShareTemp
 import app.seguridad.vault.AutoBackup
 import app.seguridad.vault.AutoBackupResult
@@ -206,6 +207,15 @@ class AppContainer(
         if (_awayInOtherApp.value) return
         vault.leftForAnotherWindow()
         _awayInOtherApp.value = true
+    }
+
+    /**
+     * 2.0, task 9, ronda 1 (I-1): the app was left (MainActivity.onStop, not a rotation). Unless a picker or the scanner
+     * the app opened is on top ([keepOpenOnce], the rule of the lock on leaving), every QR text waiting for a vault screen
+     * goes, a wifi password or a 2FA key at the locked gate included ([QrHandoff.appLeft]), and those screens go back.
+     */
+    fun leftApp(keepOpenOnce: Boolean) {
+        if (!keepOpenOnce) QrHandoff.appLeft()
     }
 
     /** Back on top: the time away is checked first (it may lock, as on onStart), then the flag goes. */

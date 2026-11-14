@@ -140,11 +140,20 @@ fun qrView(text: String): QrView {
                 ),
                 alerts = alerts + hidden,
                 // 2.0, task 9: only what the vault's form can hold is offered; the rest says why not.
-                notes = listOfNotNull(QR_WIFI_NOT_ADDABLE.takeUnless { kind.addable }),
+                notes = listOfNotNull(
+                    when (kind.notKept) {
+                        null -> null
+                        WifiNotKept.SECURITY -> qrWifiOtherSecurity(visibleText(kind.security))
+                        WifiNotKept.PASSWORD_WITHOUT_TYPE -> QR_WIFI_PASSWORD_WITHOUT_TYPE
+                        WifiNotKept.SETTING -> QR_WIFI_NOT_ADDABLE
+                        WifiNotKept.NAME_SPACES -> QR_WIFI_NAME_SPACES
+                    },
+                ),
                 action = if (kind.addable) QrAction.ADD_WIFI else QrAction.NONE,
                 secret = kind.password,
-                textHidden = kind.password != null,
-                hiddenLine = QR_TEXT_HIDDEN_PASSWORD.takeIf { kind.password != null },
+                // Ronda 1 (I-2): any wifi code is hidden and dropped on leaving, whatever password was read in it.
+                textHidden = true,
+                hiddenLine = if (kind.password != null) QR_TEXT_HIDDEN_PASSWORD else QR_TEXT_HIDDEN_WIFI,
             )
         }
         // 2.0, task 9: it may carry a password that could not be read apart: all of it hidden, and dropped on leaving.

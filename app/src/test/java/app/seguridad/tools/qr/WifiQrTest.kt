@@ -137,8 +137,8 @@ class WifiQrTest {
             assertNull(t, WifiQr.parse(t))
             assertEquals(t, WifiRead.Malformed, WifiQr.read(t))
         }
-        // An even run is escaped backslashes: «clave\», and the missing «;;» is tolerated.
-        assertEquals(wpa("Casa", "clave\\"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave\\\\"))
+        // An even run is escaped backslashes: «clave\».
+        assertEquals(wpa("Casa", "clave\\"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave\\\\;"))
     }
 
     @Test fun aRepeatedFieldIsRefused() {
@@ -193,13 +193,18 @@ class WifiQrTest {
         assertEquals(WifiRead.Unsupported(" ", "nopass", "", false, WifiNotKept.NAME_SPACES), WifiQr.read("WIFI:S: ;;"))
     }
 
-    @Test fun aMissingTerminatorIsTolerated() {
-        assertEquals(wpa("Casa", "clave"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave"))
+    @Test fun aMissingTerminatorIsToleratedButEveryFieldEndsWithASemicolon() {
+        // The closing «;;» may be a single «;».
         assertEquals(wpa("Casa", "clave"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave;"))
+        // Ronda 1: ZXing does not read a last field with no «;» after it (WifiQrReferenceTest), so another reader would
+        // see no password where Clavero would see one: not read safely.
+        assertEquals(WifiRead.Malformed, WifiQr.read("WIFI:T:WPA;S:Casa;P:clave"))
+        assertEquals(WifiRead.Malformed, WifiQr.read("WIFI:T:WPA;S:Casa"))
+        assertEquals(WifiRead.Malformed, WifiQr.read("WIFI:S:Casa\n"))
         // Spaces and line breaks after the closing «;;» are not part of it.
         assertEquals(wpa("Casa", "clave"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave;;\n "))
-        // Without «;;», what follows is the last value's, as for ZXing: a name ending in a line break is not kept (m-3).
-        assertEquals(WifiRead.Unsupported("Casa\n", "nopass", "", false, WifiNotKept.NAME_SPACES), WifiQr.read("WIFI:S:Casa\n"))
+        // A line break inside the last value is the value's, as for ZXing: a name ending in one is not kept (m-3).
+        assertEquals(WifiRead.Unsupported("Casa\n", "nopass", "", false, WifiNotKept.NAME_SPACES), WifiQr.read("WIFI:S:Casa\n;;"))
     }
 
     @Test fun whatDoesNotReadAsFieldsIsRefused() {
@@ -253,8 +258,8 @@ class WifiQrTest {
         assertEquals("WIFI:T:WPA;S:\"a\";P:\"0\";H:false;;", WifiQr.encode(wpa("a", "0")))
         // Not only hexadecimal: as it is.
         assertEquals("WIFI:T:WPA;S:Café;P:abcdeg;H:false;;", WifiQr.encode(wpa("Café", "abcdeg")))
-        // m-2: a length that can only be a raw key is not quoted. WPA: 64 hexadecimal digits (Android's documentation of
-        // WifiConfiguration.preSharedKey: «a string of 64 hex digits for raw PSK»; a passphrase is 8 to 63 characters).
+        // m-2: a length that can only be a raw key is not quoted. WPA: 64 hexadecimal digits (Android's public documentation
+        // of the pre-shared key: «a string of 64 hex digits for raw PSK»; a passphrase is 8 to 63 characters).
         // WEP: 10, 26, 32 or 58 (the keys of 40, 104, 128 and 232 bits, whose text forms are 5, 13, 16 and 29 characters).
         val raw = "0123456789abcdef".repeat(4)
         assertEquals("WIFI:T:WPA;S:Casa;P:$raw;H:false;;", WifiQr.encode(wpa("Casa", raw)))

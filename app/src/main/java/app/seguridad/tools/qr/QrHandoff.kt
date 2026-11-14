@@ -33,4 +33,30 @@ object QrHandoff {
         target = null
         text = null
     }
+
+    /** The texts screens took from here and still hold for a vault screen ([QrPendingText]); weak, so none is kept alive. */
+    private val pending: MutableSet<QrPendingText> = java.util.Collections.newSetFromMap(java.util.WeakHashMap())
+
+    @Synchronized
+    internal fun hold(p: QrPendingText) {
+        pending += p
+    }
+
+    @Synchronized
+    internal fun release(p: QrPendingText) {
+        pending -= p
+    }
+
+    /**
+     * 2.0, task 9, ronda 1 (I-1): the app was left (AppContainer.leftApp, from MainActivity.onStop, under the rule of the
+     * lock on leaving): the text here and every text a screen still holds for a vault screen go, a wifi password or a 2FA
+     * key waiting at the locked gate included, and those screens go back ([QrPendingText.left]).
+     */
+    @Synchronized
+    fun appLeft() {
+        clear()
+        val held = pending.toList()
+        pending.clear()
+        held.forEach { it.leftApp() }
+    }
 }

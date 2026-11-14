@@ -1129,7 +1129,7 @@ class PlatformSourcesTest {
     @Test fun `task 9 the inspector hands a wifi code to the form, never saves it`() {
         val src = code("ui/screens/QrInspectScreen.kt")
         assertTrue("QrAction.ADD_WIFI -> { QrHandoff.put(QrTarget.WIFI, v.text); onAddWifi() }" in src)
-        assertTrue("QrAction.ADD_WIFI -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TOTP) }" in src)
+        assertTrue("QrAction.ADD_WIFI -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TO_VAULT) }" in src)
         val vm = src.substringAfter("private class QrWifiImportViewModel(").substringBefore("\n}\n")
         assertTrue("val pending = QrPendingText(QrTarget.WIFI)" in vm && "pending.clear()" in vm)
         val screen = src.substringAfter("fun QrWifiImportScreen(")

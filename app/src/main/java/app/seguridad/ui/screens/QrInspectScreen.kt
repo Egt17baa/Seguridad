@@ -57,7 +57,7 @@ import app.seguridad.android.scanQrOptions
 import app.seguridad.core.PickerPlace
 import app.seguridad.tools.LatestOnly
 import app.seguridad.tools.QR_ADD_CONTACT
-import app.seguridad.tools.QR_ADD_TOTP
+import app.seguridad.tools.QR_ADD_TO_VAULT
 import app.seguridad.tools.QR_CAMERA_FAILED
 import app.seguridad.tools.QR_COPY
 import app.seguridad.tools.QR_COPY_PASSWORD
@@ -118,7 +118,7 @@ import kotlinx.coroutines.withContext
  * (a contact card, something received, a 2FA code, a wifi for the vault's form), which get the text through
  * [QrHandoff], never in the route.
  *
- * What is read lives only in `remember`, never in saved state (a Wi-Fi password or a 2FA key may be in it): turning the
+ * What is read lives only in `remember`, never in saved state (a wifi password or a 2FA key may be in it): turning the
  * phone or coming back from another screen empties it. Nothing is saved and nothing is logged. A result with a secret
  * also goes when the app stops, when the vault locks, and back from another app in multi-window after
  * `max(lock time, 60 s)` there ([lockAfterMs], [awayInOtherApp]).
@@ -148,7 +148,7 @@ fun QrInspectScreen(
     // Back here, a text handed to a screen that never took it (its vault gate was left locked) does not stay around.
     LaunchedEffect(Unit) { QrHandoff.clear() }
 
-    // A result with a secret in it (a Wi-Fi password, a 2FA key, a link with user info) does not wait on screen for
+    // A result with a secret in it (a wifi password, a 2FA key, a link with user info) does not wait on screen for
     // whoever picks the phone up next: it goes when the app stops (Home, screen off, another app; the scanner and the picker too, which is harmless:
     // the result they bring is shown after) and when the vault locks, as the vault's own screens do.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (view?.carriesSecret == true) view = null }
@@ -369,9 +369,9 @@ private fun QrResult(v: QrView, onCopied: (String) -> Unit, onAction: () -> Unit
     when (v.action) {
         QrAction.ADD_CONTACT -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_CONTACT) }
         QrAction.OPEN_RECEIVED -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_OPEN_RECEIVED) }
-        QrAction.ADD_TOTP -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TOTP) }
+        QrAction.ADD_TOTP -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TO_VAULT) }
         // The same «Añadir a la bóveda»: to the vault's own form for a wifi, filled, saved only with its «Guardar».
-        QrAction.ADD_WIFI -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TOTP) }
+        QrAction.ADD_WIFI -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TO_VAULT) }
         QrAction.NONE -> Unit
     }
 }
@@ -417,6 +417,11 @@ fun QrTotpImportScreen(store: VaultStore, onDone: () -> Unit) {
         vm.pending.clear() // Saved or abandoned: the text is not needed any more.
         onDone()
     }
+    // 2.0, task 9, ronda 1 (I-1): the app was left while the text waited at the gate: it is gone, back to the inspector.
+    if (vm.pending.left) {
+        LaunchedEffect(Unit) { done() }
+        return
+    }
     if (state is VaultState.Unlocked) {
         // Also here, once composed: a lock that comes before the ViewModel's collector has seen the unlock still ends the flow.
         SideEffect { vm.pending.vaultStateIs(unlocked = true) }
@@ -438,7 +443,7 @@ fun QrTotpImportScreen(store: VaultStore, onDone: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(QR_ADD_TOTP) },
+                title = { Text(QR_ADD_TO_VAULT) },
                 navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás") } },
             )
         },
@@ -486,6 +491,11 @@ fun QrWifiImportScreen(store: VaultStore, onDone: () -> Unit) {
         vm.pending.clear() // Saved or abandoned: the text is not needed any more.
         onDone()
     }
+    // 2.0, task 9, ronda 1 (I-1): the app was left while the text waited at the gate: it is gone, back to the inspector.
+    if (vm.pending.left) {
+        LaunchedEffect(Unit) { done() }
+        return
+    }
     if (state is VaultState.Unlocked) {
         // Also here, once composed: a lock that comes before the ViewModel's collector has seen the unlock still ends the flow.
         SideEffect { vm.pending.vaultStateIs(unlocked = true) }
@@ -507,7 +517,7 @@ fun QrWifiImportScreen(store: VaultStore, onDone: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(QR_ADD_TOTP) },
+                title = { Text(QR_ADD_TO_VAULT) },
                 navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás") } },
             )
         },
