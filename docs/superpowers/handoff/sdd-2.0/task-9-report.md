@@ -240,3 +240,143 @@ Todos están en el anexo `docs/superpowers/specs/2026-10-27-seguridad-1.3.0-text
    - Un nombre de solo espacios (`WIFI:S: ;;`) es `Usable` y se ofrece para la bóveda, pero el formulario lo recorta a vacío. La pantalla del QR de esa entrada dirá entonces «Esta red no tiene nombre…».
 6. **«Pegado».** Ni el formulario ni el Inspector reconocen un código `WIFI:` pegado (la tarea 7 solo reconoce 2FA y frase semilla). No lo he añadido. «Pegado» queda cubierto en el Inspector, que es por donde entra un código.
 7. **La contraseña ante la bóveda bloqueada** (ver «Revisión experto-seguridad-cripto», 6). Es el mismo hueco que ya tiene el flujo del 2FA (`QrTotpImportScreen`), del que es copia. No lo he cambiado. Borrar el texto con ON_STOP ante la puerta también lo borraría cuando el selector de «Importar» o el diálogo de la huella paran la actividad, y se perdería la entrega. Para el revisor o el dueño: aceptarlo como en el 2FA, o arreglar los dos flujos a la vez.
+
+---
+
+# Ronda 1 de arreglos (base `2085b29`)
+
+**Estado: DONE.** Arreglados I-1, I-2 y m-1 a m-7, más la decisión del dueño sobre la Duda 2. Las dos suites pasan.
+
+## Commits
+
+| Commit | Qué |
+|---|---|
+| `23ecfcb` | Tests que fallan. La prueba de I-2 se corrió sobre el código anterior; ver «Red» |
+| `39d0e94` | I-2 (el lector lee como ZXing o no lee), I-1 (salir de la app suelta los textos de QR pendientes), m-1, m-2, m-4, m-5, m-6 y WPA2 como WPA |
+| `05f7197` | Anexo de textos |
+| (cierre) | «2.0, tarea 9: ronda 1 de arreglos», un commit vacío: el informe vive en `.superpowers/`, que git ignora |
+
+## Tests
+
+Las dos suites se ejecutaron por separado sobre `05f7197`:
+- **App** (tests, assemble, lint, licencias, Fragment y assets): BUILD SUCCESSFUL, **2292 tests, 0 fallos** (antes 2280). Lint da 20 avisos, todos de versiones nuevas en línea (`GradleDependency`, `AndroidGradlePluginVersion`, `NewerVersionAvailable`) y ninguno del código.
+- **jvm-check:** BUILD SUCCESSFUL, **2248 tests, 0 fallos** (antes 2240).
+
+### Red: cada test nuevo, fallando sin su arreglo
+
+**1. La prueba de I-2, primero y sobre el código anterior.** Solo con `WifiQrReferenceTest`, en `23ecfcb`:
+- ZXing 3.4.1 (`WifiResultParser`, el de la dependencia) lee «secreta», «otra» y «mala» en las cadenas del revisor. Esas aserciones pasaron.
+- `WifiQr.read` las daba por buenas: «expected:<Malformed> but was:<Usable(…)>». Se reproduce.
+- De paso apareció un hallazgo nuevo: «ZXing does not read «WIFI:S:,» as wifi, Clavero does». ZXing descarta un último campo sin `;` detrás (`matchPrefixedField` no añade el valor cuando no encuentra el `;`). Así, en `WIFI:T:WPA;S:Casa;P:clave` otro lector no ve la contraseña y Clavero sí. Ahora es `Malformed` (`WifiQr.kt:240`). Cambia lo que se aceptaba en la ronda 0 («falta `;;` tolerada»): se sigue aceptando un solo `;` final, pero cada campo tiene que terminar en `;`.
+
+**2. Los arreglos deshechos.** Deshice los arreglos en el código y ejecuté los tests (luego `git checkout`):
+- **Primera tanda:**
+  - deshechos: la regla `SPTH`, el `;` final, `NO_PASSWORD`, las claves en bruto, `NAME_SPACES`, WPA2, la rama `catch`, la ocultación de todo wifi y `leftApp`;
+  - fallan 19 tests: `AppContainerTest` (I-1); `QrViewTest.wifi` y `onlyTheKinds…`; cuatro de `WifiQrInspectTest`; nueve de `WifiQrTest`; `WifiQrDrawingTest.anEmptyName…`; los dos de `WifiQrReferenceTest` y `WifiQrFormTest.readAddSaveAndShow…`.
+- **Segunda tanda:**
+  - deshechos: `appLeft` sin efecto, las claves en minúscula, el recorte del prefijo, el prefijo sin recortar en `startsLikeWifi` y la línea de `onStop`;
+  - fallan 7 tests: `QrHandoffTest.leavingTheApp…`, `PlatformSourcesTest` «leaving the app drops…», `WifiQrTest.whatStartsLikeAWifiCode…`, `WifiQrTest.whatDoesNotRead…`, `WifiQrInspectTest.aWifiText…`, `WifiQrReferenceTest.theCaseIsRead…` y `QrContentTest.wifiOpenAndWep`.
+
+## Qué cambia
+
+### I-2: lo que enseña Clavero frente a lo que lee otro lector
+
+**Regla de texto mal formado, sobre el texto en bruto** (`WifiQr.kt:105` y `fields`). Es `Malformed`:
+- cualquier `S:`, `P:`, `T:` o `H:` del cuerpo que no empiece un campo (`:244`);
+- un último campo sin `;` (`:240`);
+- una clave conocida que no está en mayúsculas (`:254`);
+- algo delante de `WIFI:` o el prefijo en otra caja.
+
+En el Inspector, `Malformed` dice que Clavero no puede leer el código con seguridad (`QR_WIFI_UNREADABLE`, `WifiQr.kt:390`) y no se ofrece para la bóveda.
+
+**El secreto no depende del análisis:**
+- `startsLikeWifi` (`:87`) reconoce `WIFI:` sin distinguir mayúsculas, aunque vaya detrás de espacios, controles o invisibles (BOM, U+200B).
+- Todo texto así se oculta y se borra al salir y al bloquear. Pasa con un wifi usable sin contraseña (`QrView.kt:155`), con `WifiUnreadable` (`:160`) y en la rama `catch` (`QrContent.kt:81`, m-4, con su KDoc al día).
+- Un texto de más de 4 096 bytes ya no llega a enseñarse: el Inspector da `QR_TOO_BIG` y no se guarda nada.
+
+**Mayúsculas y minúsculas, cada una con su resultado y su test:**
+- `wifi:` y las claves en minúscula dan `Malformed`, porque ZXing no los lee;
+- en `T:wpa` el tipo vale en cualquier caja (WPA);
+- `H:TRUE` es «oculta», como en ZXing (`Boolean.parseBoolean`).
+
+**Test diferencial** (`WifiQrReferenceTest.wheneverClaveroSaysWifiZxingReadsTheSame`):
+- las 177 156 cadenas de longitud 0 a 5 sobre `\ ; , : " a`, el espacio, `S`, `P`, `T` y `H`, más 300 000 al azar;
+- siempre que Clavero dice «wifi» (8 418 veces), ZXing da el mismo nombre, contraseña, tipo y «oculta», salvo las comillas documentadas;
+- `whatClaveroWritesZxingReadsTheSame`: todo lo que escribe `encode` (más de 40 000 configuraciones) lo lee ZXing igual.
+
+Las comillas solo se quitan en `S` y `P`, que es donde la documentación las pone. `T` y `H` se leen tal cual y sin recortar, como en ZXing.
+
+### Duda 2, decisión del dueño
+
+- `T:WPA2`, en cualquier caja, se lee como WPA, se ofrece y se vuelve a escribir `T:WPA` (`WifiQr.kt:118`).
+- `T:WPA3`, `T:SAE` y los demás tipos no se ofrecen. El texto, verdadero en los tres casos, es «Clavero no guarda el tipo de seguridad «[tipo]» de este código…».
+- Tests: `WifiQrTest.anUnknownTypeIsShownButNotKept` y `WifiQrInspectTest` (WPA2 se ofrece; WPA3 y SAE se enseñan con su texto).
+
+### I-1: la contraseña al salir de la app
+
+- **Ningún Ruling pide conservar al salir el texto pendiente.** He buscado en `sdd-*/progress.md` y `CLAUDE.md`. Lo más cercano es el 1.3.0 T7, que acepta perderlo al girar ante la puerta («fails closed»).
+- **Una sola regla**, en `MainActivity.onStop` (`:119`), antes del bloqueo y con la misma condición: `container.leftApp(VaultLock.keepOpenOnce)` (`AppContainer.kt:217`). Llama a `QrHandoff.appLeft()` (`QrHandoff.kt:56`), que vacía el traspaso y suelta todo `QrPendingText` que aún espera, sea wifi o 2FA (`QrPendingText.kt:29`, `left = true`).
+- **Al volver**, las dos pantallas de importar vuelven al Inspector (`QrInspectScreen.kt:421` y `:495`), antes de mirar el estado de la bóveda.
+- **Con el selector o el escáner de la app** (`keepOpenOnce`), no se suelta.
+- **Tests de comportamiento del contenedor, en los dos sentidos:** `AppContainerTest` «leaving the app drops…» y `QrHandoffTest` (dos tests). El cableado se fija con `PlatformSourcesTest`.
+
+### Menores
+
+- **m-1:** con WPA o WEP y la contraseña vacía no se dibuja el QR y se dice «Esta red no tiene contraseña guardada…» (`WifiQr.kt:144` y `:366`). Tests en `WifiQrTest` y `WifiQrDrawingTest`.
+- **m-2:** una clave en bruto va sin comillas: 64 cifras hexadecimales en WPA; 10, 26, 32 o 58 en WEP (`WifiQr.kt:178`). Fuentes:
+  - la documentación pública de Android sobre la clave precompartida: «a string of 64 hex digits for raw PSK»;
+  - la descripción pública de WEP (Wikipedia, «Wired Equivalent Privacy»): las claves de 40, 104, 128 y 232 bits se escriben con 10, 26, 32 y 58 cifras hexadecimales, o con 5, 13, 16 y 29 caracteres de texto, así que no se pueden confundir.
+
+  Fijado en `hexOnlyIsWrittenInQuotesAndReadAsText` (de 1 a 64 cifras). **Va a las pruebas en el móvil:** que otro móvil se conecte con una PSK de 64 cifras y con una clave WEP de 26.
+- **m-3:**
+  - un nombre que el formulario cambiaría al guardarlo (espacio, salto de línea u otro carácter que recorta `trim` al principio o al final) no se ofrece, y se dice por qué (`QR_WIFI_NAME_SPACES`, `WifiQr.kt:127` y `:384`). Es el cambio más pequeño: no toca lo que hace la tarea 5 con lo escrito a mano;
+  - el test de punta a punta `WifiQrFormTest.readAddSaveAndShowGiveTheSameNetwork`: leer, `applyWifiQr`, `fieldsToSave`, `wifiConfigOf` y «Enseñar QR» dan la misma configuración en 420 casos y en las redes abiertas.
+- **m-4:** hecho (arriba); «Wi-Fi» pasa a «wifi» en los comentarios del Inspector.
+- **m-5:** el alfabeto de la ida y vuelta lleva el espacio y `P` (585 cadenas, 681 952 casos). Con nombres con espacio en los bordes, la ida y vuelta compara los cuatro valores de `read`, que da `Unsupported`.
+- **m-6:** `QR_ADD_TOTP` pasa a llamarse `QR_ADD_TO_VAULT` (`ToolTexts.kt:361`).
+- **m-7:** el Inspector se queda con `visibleText`, como dice el Ruling.
+
+## Tabla de textos (ronda 1: solo lo que cambia o es nuevo; lo demás sigue como en la tabla de arriba)
+
+| Texto | Condición exacta | Definido / usado | Test |
+|---|---|---|---|
+| «Clavero no guarda el tipo de seguridad «[tipo]» de este código, así que no lo añade a la bóveda.» | `T:` que no es WPA, WPA2, WEP ni nopass (WPA3, SAE, WPA2-EAP…); el tipo, con `visibleText` | `WifiQr.kt:377` / `QrView.kt:146` | `WifiQrInspectTest.aWifiTheVaultCannotHold…SaysWhy` |
+| «Este código lleva una contraseña, pero no dice que la red use una (le falta el tipo de seguridad o dice que es abierta), así que no se añade a la bóveda.» | Contraseña sin `T:` o con `T:nopass` | `WifiQr.kt:380` / `QrView.kt:147` | ídem |
+| «Clavero no reconoce todo lo que trae este código de wifi, así que no lo añade a la bóveda. Puedes crear la entrada a mano.» | Solo `H:` que no es true ni false | `WifiQr.kt:374` / `QrView.kt:148` | ídem |
+| «El nombre de esta red empieza o termina con un espacio, y la bóveda no lo guardaría igual, así que no se añade.» | Nombre con algo que `trim` recorta al principio o al final | `WifiQr.kt:384` / `QrView.kt:149` | ídem y `WifiQrFormTest` |
+| «Clavero no puede leer este código de wifi con seguridad: otro lector podría ver en él otra red u otra contraseña. No se añade a la bóveda.» (sustituye a «Parece un código de wifi, pero está mal escrito…») | `Malformed` | `WifiQr.kt:390` / `QrView.kt:160` | `WifiQrInspectTest.aWifiTextThatCannotBeRead…` |
+| «El texto completo puede llevar una contraseña: toca «Mostrar» para verlo.» | Ahora en todo wifi sin contraseña leída (también el abierto) y en `WifiUnreadable` | `WifiQr.kt:394` / `QrView.kt:156` y `:160` | `WifiQrInspectTest` (cinco tests) |
+| «Esta red no tiene contraseña guardada: escríbela en «Editar», o márcala como abierta, para poder enseñar el QR.» | Pantalla del QR con WPA o WEP y la contraseña vacía; sale solo | `WifiQr.kt:366` / `wifiQrLines`; `WifiQrScreen.kt:211` | `WifiQrTest.aNetworkWithAPasswordTypeButNoPassword…` y `WifiQrDrawingTest` |
+| «Añadir a la bóveda» | Igual que antes; la constante pasa a ser `QR_ADD_TO_VAULT` | `ToolTexts.kt:361` | `PlatformSourcesTest` |
+
+## Revisión experto-seguridad-cripto
+
+- **I-2, cerrado con evidencia.** El lector de referencia es el de la dependencia. La prueba diferencial demuestra el invariante «si Clavero dice wifi, ZXing lee lo mismo» sobre 477 000 textos, y el escritor lo cumple sobre más de 40 000.
+  - **El hueco que no cubre:** otros lectores (la cámara de Android, iOS) pueden leer distinto de ZXing. Va a la lista del atacante de la revisión final, como pide el Ruling.
+  - El secreto ya no depende del análisis: todo texto que empieza como un wifi es secreto (`QrView.kt:155`, `:160`; `QrContent.kt:81`).
+- **I-1, cerrado.** Ya ningún texto de QR pendiente sobrevive a salir de la app (`MainActivity.kt:119`). El registro es débil (`WeakHashMap`), así que no retiene ninguna pantalla.
+- **Entrada hostil.** Sigue lineal y acotada. El recorrido nuevo de `SPTH` es una sola pasada (`WifiQr.kt:244`). Sin excepciones: lo prueban 30 000 textos al azar y los 477 000 del diferencial.
+- **Sin cambios:** permisos, dependencias, componentes, red y `Intent`. `PlatformSourcesTest` lo sigue comprobando; ajusté un comentario que nombraba una clase de wifi de Android, que el test, con razón, rechaza.
+
+## Revisión Ingeniero Móvil Senior
+
+- **I-1** reutiliza el único camino de ciclo de vida que ya existía (`onStop` y `keepOpenOnce`), sin un `LifecycleEventEffect` más. Las dos pantallas de importar salen con `done()` antes de componer el formulario o la puerta (`QrInspectScreen.kt:421`, `:495`).
+- **jvm-check.** `WifiQrReferenceTest` va en `ui/screens` porque usa ZXing, como `WifiQrDrawingTest`. El resto es Kotlin puro.
+- **Rendimiento.** El diferencial tarda unos segundos en la suite de la app.
+
+## Textos para el Abogado Digital (revisión final)
+
+Todos están en el anexo, en «Clavero 2.0, tarea 9», al día:
+- los cuatro textos de por qué no se añade;
+- «Clavero no puede leer este código de wifi con seguridad…»;
+- «Esta red no tiene contraseña guardada…»;
+- **desviación de O-4 por veracidad (Duda 1, aceptada):** con contraseña, «Quien vea este código ve la contraseña y puede conectarse a tu wifi.»; con la red abierta, donde la frase de O-4 sería falsa, «Quien vea este código puede conectarse a tu wifi.»;
+- i-1 del revisor: la plantilla enseña «WPA/WPA2/WPA3», pero un código con `T:WPA3` o `T:SAE` no se guarda.
+
+## Dudas (ronda 1)
+
+1. **i-1, la etiqueta de la tarea 5.** El valor «WPA» de la plantilla se enseña como «WPA/WPA2/WPA3», pero por la decisión del dueño un código WPA3 o SAE no se guarda, y el QR escribe `T:WPA`. No he cambiado la etiqueta, que es de la tarea 5 y del Abogado. Va al Abogado y a las pruebas en el móvil.
+2. **El último campo sin `;`.** Ahora es `Malformed` porque ZXing no lo lee. Se descubrió con la prueba de I-2 y cambia lo que la ronda 0 aceptaba. La cámara de Android podría leerlo: va a las pruebas en el móvil.
+3. **La clave WEP de 32 cifras** (128 bits) está en la lista de claves en bruto, porque la descripción pública la da como forma de proveedor. Si se prefiere solo lo de IEEE (10 y 26), basta con quitarla del conjunto.
+
+Las Dudas 1 y 4 de la ronda 0 están aceptadas; la 6, rechazada; la 2, decidida por el dueño (arriba); la 3, resuelta por m-2; la 5, por m-3 y m-7; la 7, por I-1.
