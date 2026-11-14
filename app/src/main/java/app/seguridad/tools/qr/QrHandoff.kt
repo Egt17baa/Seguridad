@@ -1,5 +1,9 @@
 package app.seguridad.tools.qr
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /** The screen a QR text is handed to from the inspector (2.0, task 9: [WIFI], the vault's form for a wifi). */
 enum class QrTarget { CARD, RECEIVED, OTP, WIFI }
 
@@ -18,6 +22,7 @@ object QrHandoff {
     fun put(target: QrTarget, text: String) {
         this.target = target
         this.text = text
+        updatePending()
     }
 
     /** The text if it was meant for [target], or null; either way, nothing is left. */
@@ -32,6 +37,7 @@ object QrHandoff {
     fun clear() {
         target = null
         text = null
+        updatePending()
     }
 
     /** The texts screens took from here and still hold for a vault screen ([QrPendingText]); weak, so none is kept alive. */
@@ -41,17 +47,33 @@ object QrHandoff {
      * 2.0, task 10 (phase B): whether a QR's text is on its way to a vault screen (handed over, or held by a screen for
      * one): the guide waits ([app.seguridad.settings.openingItem]).
      */
+    private val _pendingState = MutableStateFlow(false)
+
+    /**
+     * Ronda 1 of phase B (m-8): [hasPending] as a state the screens observe, set again by every way in and out ([put],
+     * [take] and [clear], a screen holding a text and letting it go, [appLeft]); what those do is as before. Every holder
+     * lets its text go by hand ([QrPendingText.clear]: saved, back, the screen leaving, its ViewModel cleared, a lock after
+     * the vault was open; [appLeft] lets every one go), never only by the garbage collector.
+     */
+    val pendingState: StateFlow<Boolean> = _pendingState.asStateFlow()
+
+    private fun updatePending() {
+        _pendingState.value = text != null || pending.isNotEmpty()
+    }
+
     @Synchronized
     fun hasPending(): Boolean = text != null || pending.isNotEmpty()
 
     @Synchronized
     internal fun hold(p: QrPendingText) {
         pending += p
+        updatePending()
     }
 
     @Synchronized
     internal fun release(p: QrPendingText) {
         pending -= p
+        updatePending()
     }
 
     /**
@@ -65,5 +87,6 @@ object QrHandoff {
         val held = pending.toList()
         pending.clear()
         held.forEach { it.leftApp() }
+        updatePending()
     }
 }

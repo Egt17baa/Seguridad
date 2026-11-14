@@ -49,6 +49,14 @@ data class OpeningState(
  * look only with the vault open or with none (never over the gate, where they would cover the password field or sit
  * under the fingerprint); the guide last, only then too, on a tab and with nothing of the app on its way.
  */
+/**
+ * Ronda 1 (m-1): a guide asked for from Ajustes is kept only while it can be shown there: on the tab of Ajustes
+ * ([onTab], the route of the tab on screen; null on a screen that is not a tab), with the vault open or with none.
+ * Anywhere else it is forgotten, so it never comes up later by itself, over the gate or out of a tab.
+ */
+fun guideRequestKept(onTab: String?, vault: VaultPhase): Boolean =
+    onTab == "settings" && (vault == VaultPhase.OPEN || vault == VaultPhase.NONE)
+
 fun openingItem(s: OpeningState): OpeningItem? {
     if (!s.noticeAccepted) return OpeningItem.NOTICE
     val open = s.vault == VaultPhase.OPEN

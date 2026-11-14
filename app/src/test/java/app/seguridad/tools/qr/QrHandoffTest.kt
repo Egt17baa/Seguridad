@@ -130,4 +130,37 @@ class QrHandoffTest {
         assertEquals(listOf(false, true), seen)
         job.cancel()
     }
+
+    /**
+     * 2.0, tarea 10 (fase B, ronda 1, m-8): whether something is on its way is a state the screen observes, kept right by
+     * every way in and out: [QrHandoff.put], [QrHandoff.take], [QrHandoff.clear], a screen holding a text
+     * ([QrPendingText]), its [QrPendingText.clear] and [QrHandoff.appLeft]. Nothing depends on the garbage collector.
+     */
+    @Test
+    fun pendingIsObservable() {
+        QrHandoff.clear()
+        assertFalse(QrHandoff.pendingState.value)
+        QrHandoff.put(QrTarget.OTP, "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP")
+        assertTrue(QrHandoff.pendingState.value)
+        QrHandoff.clear()
+        assertFalse(QrHandoff.pendingState.value)
+        QrHandoff.put(QrTarget.OTP, "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP")
+        val held = QrPendingText(QrTarget.OTP) // takes it from the handoff and holds it
+        assertTrue("Held by a screen", QrHandoff.pendingState.value)
+        held.clear()
+        assertFalse(QrHandoff.pendingState.value)
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:red;P:clave-de-prueba;;")
+        assertEquals(null, QrHandoff.take(QrTarget.OTP))
+        assertFalse("A take for another target empties it too", QrHandoff.pendingState.value)
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:red;P:clave-de-prueba;;")
+        QrPendingText(QrTarget.WIFI)
+        assertTrue(QrHandoff.pendingState.value)
+        QrHandoff.appLeft()
+        assertFalse(QrHandoff.pendingState.value)
+        // The picker's mark, observable too, and set as before.
+        app.seguridad.vault.VaultLock.keepOpenOnce = true
+        assertTrue(app.seguridad.vault.VaultLock.keepOpenOnceState.value)
+        app.seguridad.vault.VaultLock.keepOpenOnce = false
+        assertFalse(app.seguridad.vault.VaultLock.keepOpenOnceState.value)
+    }
 }

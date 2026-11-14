@@ -45,11 +45,11 @@ class MissionsTest {
         assertEquals("Cambia 2 contraseñas débiles", list[1].title)
         assertEquals("Activa el 2FA en «Correo»", list[2].title)
         assertEquals("Cambia 1 contraseña antigua", list[3].title)
-        assertEquals("Haz y comprueba una copia", list[4].title)
+        assertEquals("Comprueba una copia", list[4].title)
         // One on screen: the first one not put off.
-        assertEquals(MISSION_REUSED, nextMission(list, emptySet())?.id)
-        assertEquals(MISSION_NO_2FA, nextMission(list, setOf(MISSION_REUSED, MISSION_WEAK))?.id)
-        assertNull(nextMission(list, list.map { it.id }.toSet()))
+        assertEquals(MISSION_REUSED, nextMission(list, emptySet(), off = false)?.id)
+        assertEquals(MISSION_NO_2FA, nextMission(list, setOf(MISSION_REUSED, MISSION_WEAK), off = false)?.id)
+        assertNull(nextMission(list, list.map { it.id }.toSet(), off = false))
         // Each one only navigates: to the entry to change, or to «Comprobar una copia».
         assertEquals(MissionAction.EditEntry("a"), list[0].action)
         assertEquals(MissionAction.EditEntry("a"), list[2].action)
@@ -88,7 +88,7 @@ class MissionsTest {
             of(login("a", "Correo", strong)),
         )
         val texts = many.flatMap { d -> all(d).map { it.title } }.filter { "«" !in it } +
-            listOf(MISSION_GO, MISSION_LATER, MISSIONS_SHORT, MISSIONS_SWITCH)
+            listOf(MISSION_GO, MISSION_LATER, MISSIONS_SHORT, MISSIONS_SWITCH, MISSIONS_LABEL)
         assertTrue(texts.isNotEmpty())
         for (t in texts) assertEquals(t, emptyList<String>(), pressureWords(t))
         // The check itself: whole words, and the marks anywhere.
@@ -157,5 +157,51 @@ class MissionsTest {
         val holder = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
             .map { java.io.File(it, "app/src/main/java/app/seguridad/health/Missions.kt") }.first { it.isFile }.readText()
         assertTrue("Only ids are kept", "HashMap<String, Pair<Int, Set<String>>>" in holder)
+    }
+
+    /** Ronda 1 (m-6, R-2): with the switch off, no mission is shown, whatever there is to do. */
+    @Test fun theSwitchTurnsThemAllOff() {
+        val list = all(of(login("a", "Correo", "123456"), login("b", "Banco", "123456"), checked = 0L))
+        assertTrue(list.isNotEmpty())
+        assertEquals(MISSION_REUSED, nextMission(list, emptySet(), off = false)?.id)
+        assertNull(nextMission(list, emptySet(), off = true))
+        assertNull(nextMission(list, setOf(MISSION_WEAK), off = true))
+    }
+
+    /**
+     * Ronda 1 (m-5): every fixed text and every template of the missions, with a neutral title, singular and plural, and
+     * the texts of «Salud» and Ajustes: no pressure.
+     */
+    @Test fun everyTextOfTheMissionsHasNoPressure() {
+        val titles = listOf(1, 2, 7).flatMap { n ->
+            listOf("repetida" to "repetidas", "débil" to "débiles", "antigua" to "antiguas").map { (one, many) -> if (n == 1) "Cambia 1 contraseña $one" else "Cambia $n contraseñas $many" }
+        }
+        val produced = listOf(1, 2).flatMap { n ->
+            val weakOld = (1..n).map { login("w$it", "X", "abc$it", changed = now - 900 * day) }
+            all(of(*weakOld.toTypedArray(), login("r1", "X", "mismo-1234"), login("r2", "X", "mismo-1234"), checked = 0L)).map { it.title }
+        }
+        val untitled = all(of(login("a", "", "caballo-grapa-bateria-correcto-77"))).map { it.title }
+        val texts = titles + produced + untitled + listOf(
+            "Activa el 2FA en «X»", "Activa el 2FA en un acceso", "Comprueba una copia",
+            MISSION_GO, MISSION_LATER, MISSIONS_SWITCH, MISSIONS_LABEL, MISSIONS_SHORT, app.seguridad.tools.HEALTH_NO_VAULT,
+        )
+        assertTrue(produced.any { it.startsWith("Cambia 1 contraseña") } && produced.any { it.startsWith("Cambia 2 contraseñas") })
+        assertTrue("Activa el 2FA en «X»" in produced)
+        assertTrue("Activa el 2FA en un acceso" in untitled)
+        for (t in texts) {
+            assertEquals(t, emptyList<String>(), pressureWords(t))
+            assertEquals(t, emptyList<String>(), app.seguridad.tools.ForbiddenWords.problems(t))
+        }
+    }
+
+    /**
+     * Ronda 1 (i-1, truth): «Ir» takes to «Comprobar una copia», which checks a copy and makes none; the title says that,
+     * as the notice of the same date does ([backupCheckNotice]), and not the design's example «Haz y comprueba…».
+     */
+    @Test fun theCopysTitleSaysWhatItsScreenDoes() {
+        val m = all(of(login("a", "Correo", strong, totp = true), checked = 0L)).single()
+        assertEquals("Comprueba una copia", m.title)
+        assertEquals(MissionAction.CheckBackup, m.action)
+        assertFalse("Haz" in m.title)
     }
 }

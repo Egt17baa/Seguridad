@@ -28,7 +28,7 @@ class GuideTest {
         val s = store().apply { load(); decideRenameNotice(vaultExists = false) }
         val g = GuideHolder(s, this)
         assertEquals(GuideKind.FULL, g.current(s.settings.value))
-        g.done()
+        g.done(GuideKind.FULL)
         testScheduler.advanceUntilIdle()
         assertNull("Not again in this run", g.current(s.settings.value))
         assertEquals(GUIDE_CURRENT, store().apply { load() }.settings.value.guideSeen)
@@ -47,7 +47,7 @@ class GuideTest {
         val s = store(File(notADir, "settings.json")).apply { load() }
         val g = GuideHolder(s, this)
         assertEquals(GuideKind.FULL, g.current(s.settings.value))
-        g.done()
+        g.done(GuideKind.FULL)
         testScheduler.advanceUntilIdle()
         assertNull(g.current(s.settings.value))
         assertEquals("Nothing saved", GUIDE_NONE, s.settings.value.guideSeen)
@@ -62,7 +62,7 @@ class GuideTest {
         assertNull(g.current(s.settings.value))
         g.request(GuideKind.WHATS_NEW)
         assertEquals(GuideKind.WHATS_NEW, g.current(s.settings.value))
-        g.done()
+        g.done(GuideKind.WHATS_NEW)
         assertNull(g.current(s.settings.value))
         g.request(GuideKind.FULL)
         assertEquals(GuideKind.FULL, g.current(s.settings.value))
@@ -100,5 +100,62 @@ class GuideTest {
         for (t in listOf(GUIDE_SKIP, GUIDE_NEXT, GUIDE_DONE, GUIDE_SECTION_TITLE, GUIDE_OPEN_FULL, GUIDE_OPEN_NEW)) {
             assertEquals(t, emptyList<String>(), ForbiddenWords.problems(t))
         }
+    }
+
+    /**
+     * Ronda 1 (duda 6): a guide seen from Ajustes saves «seen» only if it is the one that was due: whoever updated does
+     * not lose what is new by looking at the whole guide.
+     */
+    @Test fun onlyTheDueGuideIsSavedAsSeen() = runTest {
+        file().writeText(javaClass.getResourceAsStream("/seguridad/settings-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        val s = store().apply { load(); decideRenameNotice(vaultExists = true) }
+        val g = GuideHolder(s, this)
+        assertEquals(GuideKind.WHATS_NEW, g.current(s.settings.value))
+        // Ajustes, the whole one first: closed, it saves nothing and what is new is still due.
+        g.request(GuideKind.FULL)
+        assertEquals(GuideKind.FULL, g.current(s.settings.value))
+        g.done(GuideKind.FULL)
+        testScheduler.advanceUntilIdle()
+        assertEquals(GUIDE_BEFORE_2_0, store().apply { load() }.settings.value.guideSeen)
+        assertEquals(GuideKind.WHATS_NEW, g.current(s.settings.value))
+        // What is new, seen: saved.
+        g.done(GuideKind.WHATS_NEW)
+        testScheduler.advanceUntilIdle()
+        assertEquals(GUIDE_CURRENT, store().apply { load() }.settings.value.guideSeen)
+        assertNull(g.current(s.settings.value))
+    }
+
+    /** Ronda 1 (m-1): the buttons of Ajustes open a guide only with the vault open or with none. */
+    @Test fun ajustesOpensItOnlyWithTheVaultOpenOrNone() {
+        assertTrue(canOpenGuide(app.seguridad.vault.VaultState.NoVault))
+        assertTrue(canOpenGuide(app.seguridad.vault.VaultState.Unlocked(app.seguridad.vault.VaultData())))
+        assertFalse(canOpenGuide(app.seguridad.vault.VaultState.Locked))
+        assertFalse(canOpenGuide(app.seguridad.vault.VaultState.Loading))
+        assertEquals("Desbloquea la bóveda para ver la guía.", GUIDE_NEEDS_OPEN)
+        val src = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/ui/screens/SettingsScreen.kt") }.first { it.isFile }.readText()
+        assertEquals(2, Regex("""enabled = guideOpenable""").findAll(src).count())
+        assertTrue("if (!guideOpenable) Hint(GUIDE_NEEDS_OPEN)" in src)
+    }
+
+    /** Ronda 1: m-3, m-4 (what the code does), m-2 (a tap outside never skips it) and m-5 (no pressure in the guides). */
+    @Test fun theRoundsTexts() {
+        assertEquals(
+            "En Ajustes puedes exportar una copia o elegir hasta 3 carpetas para la copia automática. Las copias con calendario solo se hacen al abrir Clavero.",
+            FULL_GUIDE[1].text,
+        )
+        assertEquals(
+            "Si tienes una huella registrada en el móvil, puedes activarla en el menú de la bóveda abierta. Por seguridad, cada 7 días pide la contraseña maestra.",
+            FULL_GUIDE[2].text,
+        )
+        for (p in FULL_GUIDE + WHATS_NEW_GUIDE) for (t in listOf(p.title, p.text)) {
+            assertEquals(t, emptyList<String>(), app.seguridad.health.pressureWords(t))
+        }
+        for (t in listOf(GUIDE_SKIP, GUIDE_NEXT, GUIDE_DONE, GUIDE_SECTION_TITLE, GUIDE_OPEN_FULL, GUIDE_OPEN_NEW, GUIDE_NEEDS_OPEN, guideStep(1, 4))) {
+            assertEquals(t, emptyList<String>(), app.seguridad.health.pressureWords(t))
+        }
+        val src = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/ui/screens/OnboardingScreen.kt") }.first { it.isFile }.readText()
+        assertTrue("properties = DialogProperties(dismissOnClickOutside = false)" in src)
     }
 }

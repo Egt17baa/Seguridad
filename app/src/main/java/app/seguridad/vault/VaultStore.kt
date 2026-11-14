@@ -1709,7 +1709,17 @@ internal fun backstopFromLeaving(chosen: Long): Boolean = chosen <= 0L
 
 object VaultLock {
     /** Set just before the vault opens a system screen (file picker, QR scanner) so leaving the app for it does not lock. */
-    @Volatile var keepOpenOnce = false
+    private val _keepOpenOnce = MutableStateFlow(false)
+
+    /** Set and read as before; a StateFlow underneath (thread-safe as the @Volatile it replaces). */
+    var keepOpenOnce: Boolean
+        get() = _keepOpenOnce.value
+        set(value) {
+            _keepOpenOnce.value = value
+        }
+
+    /** Ronda 1 of phase B (m-8): [keepOpenOnce] as a state the screens observe (the guide waits while it is set). */
+    val keepOpenOnceState: StateFlow<Boolean> = _keepOpenOnce.asStateFlow()
 }
 
 /** [VaultStore.changeMark] of a vault last changed at [changedAt], with the cost [kdf] and the tag [tag]: SHA-256, in hex. */

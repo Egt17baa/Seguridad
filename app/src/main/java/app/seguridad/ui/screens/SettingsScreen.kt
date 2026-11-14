@@ -25,6 +25,8 @@ import app.seguridad.settings.simpleOn
 import app.seguridad.settings.GUIDE_OPEN_FULL
 import app.seguridad.settings.GUIDE_OPEN_NEW
 import app.seguridad.settings.GuideKind
+import app.seguridad.settings.GUIDE_NEEDS_OPEN
+import app.seguridad.settings.canOpenGuide
 import app.seguridad.health.MISSIONS_LABEL
 import app.seguridad.health.MISSIONS_SHORT
 import app.seguridad.tools.SIMPLE_MODE_SHORT
@@ -677,8 +679,11 @@ fun SettingsScreen(
             }
             // 2.0, task 10 (phase B): both guides, whenever (they never skip «Antes de empezar»).
             Section(SettingItem.GUIDE.title, anchor(SettingItem.GUIDE)) {
-                OutlinedButton(onClick = { onGuide(GuideKind.FULL) }, modifier = Modifier.fillMaxWidth()) { Text(GUIDE_OPEN_FULL) }
-                OutlinedButton(onClick = { onGuide(GuideKind.WHATS_NEW) }, modifier = Modifier.fillMaxWidth()) { Text(GUIDE_OPEN_NEW) }
+                // Ronda 1 (m-1): only when a guide can come up now (the vault open, or none); never a request that waits.
+                val guideOpenable = canOpenGuide(vaultState)
+                OutlinedButton(onClick = { onGuide(GuideKind.FULL) }, enabled = guideOpenable, modifier = Modifier.fillMaxWidth()) { Text(GUIDE_OPEN_FULL) }
+                OutlinedButton(onClick = { onGuide(GuideKind.WHATS_NEW) }, enabled = guideOpenable, modifier = Modifier.fillMaxWidth()) { Text(GUIDE_OPEN_NEW) }
+                if (!guideOpenable) Hint(GUIDE_NEEDS_OPEN)
             }
             Section(SettingItem.VAULT_COPY.title, anchor(SettingItem.VAULT_COPY)) {
                 val unlocked = vaultState is VaultState.Unlocked

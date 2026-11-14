@@ -39,6 +39,9 @@ data class Mission(val id: String, val title: String, val action: MissionAction)
 
 /** «Ir» and «Ahora no»: the same weight on screen (R-2). */
 const val MISSION_GO = "Ir"
+
+/** The copy's mission ([backupCheckNotice] says it is due). */
+const val MISSION_BACKUP_TITLE = "Comprueba una copia"
 const val MISSION_LATER = "Ahora no"
 
 /** The switch of Ajustes that turns them all off (R-2), and its line. */
@@ -64,15 +67,17 @@ fun missions(items: List<HealthItem>, data: VaultData, now: Long): List<Mission>
         out += Mission(MISSION_NO_2FA, if (title.isEmpty()) "Activa el 2FA en un acceso" else "Activa el 2FA en «$title»", MissionAction.EditEntry(item.entryId))
     }
     with(Issue.OLD).let { if (it.isNotEmpty()) out += Mission(MISSION_OLD, countTitle(it.size, "antigua", "antiguas"), MissionAction.EditEntry(it.first().entryId)) }
-    if (backupCheckNotice(data.lastCheckedBackupAt, now) != null) out += Mission(MISSION_BACKUP, "Haz y comprueba una copia", MissionAction.CheckBackup)
+    // Ronda 1 (i-1, truth): «Ir» opens «Comprobar una copia», which checks a copy and makes none, so the title asks for
+    // that, as the notice of the same date does; not the design's example «Haz y comprueba una copia».
+    if (backupCheckNotice(data.lastCheckedBackupAt, now) != null) out += Mission(MISSION_BACKUP, MISSION_BACKUP_TITLE, MissionAction.CheckBackup)
     return out
 }
 
 private fun countTitle(n: Int, one: String, many: String): String =
     if (n == 1) "Cambia 1 contraseña $one" else "Cambia $n contraseñas $many"
 
-/** The one on screen: the first of [all] not put off. */
-fun nextMission(all: List<Mission>, postponed: Set<String>): Mission? = all.firstOrNull { it.id !in postponed }
+/** The one on screen: the first of [all] not put off; none when the switch of Ajustes turned them all [off] (R-2). */
+fun nextMission(all: List<Mission>, postponed: Set<String>, off: Boolean): Mission? = if (off) null else all.firstOrNull { it.id !in postponed }
 
 /**
  * «Ahora no» (design: hidden until the next unlock, in memory), per vault: what was put off at the vault's

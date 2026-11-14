@@ -1,5 +1,8 @@
 package app.seguridad.ui.screens
 
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import app.seguridad.vault.AutoBackup
 import android.app.Activity
 import android.content.Context
@@ -162,8 +165,11 @@ fun VaultScreen(
     val actions = vaultActions(store, snackbar)
     // M-4: «Activar huella» cut short by a re-creation of the activity is said here, by the new one, once.
     val interrupted by BiometricVault.interrupted.collectAsStateWithLifecycle()
+    // Ronda 1 of phase B (m-9): nothing of the queue on screen first (taking it counts it as seen).
+    val openingBusy = rememberUpdatedState(LocalOpeningBusy.current)
     interrupted?.let { message ->
         LaunchedEffect(message) {
+            snapshotFlow { openingBusy.value }.first { !it }
             // Seen once shown (F-5): another re-creation while it is on screen cancels this, and the next one shows it.
             // Leaving the list or locking while it is on screen also cancels it: that counts as seen (code review of 1.4.2).
             try {
@@ -295,6 +301,8 @@ fun VaultScreen(
             val scheduled = autoBackup?.scheduledNotice?.collectAsStateWithLifecycle()?.value
             if (scheduled != null) {
                 LaunchedEffect(scheduled) {
+                    // Ronda 1 of phase B (m-9): taken only once nothing of the queue is on screen.
+                    snapshotFlow { openingBusy.value }.first { !it }
                     // Review M-1: taken once, and shown only if no lock came since it was posted.
                     if (autoBackup.takeScheduled(scheduled)) snackbar.showSnackbar(scheduled)
                 }
@@ -313,31 +321,21 @@ fun VaultScreen(
 
 /**
  * What every screen that needs the open vault shows until it is: a spinner while loading, «Crea tu bóveda» with no vault
- * and «Bóveda bloqueada» when locked. Only with the vault open does it draw [content], with the entries (and, 2.0, the
- * dialog of the upgrade to format v4 while [VaultStore.pendingUpgrade]); when the vault
- * locks, [content] leaves the composition at once, so no data stays on screen. Any touch counts as use for the idle lock.
+ * and «Bóveda bloqueada» when locked. Only with the vault open does it draw [content], with the entries (the dialog of
+ * the upgrade to format v4 is the navigation's, ronda 1 of task 10 phase B, I-1); when the vault locks, [content] leaves the composition at once, so no data stays on screen. Any touch counts as use for the idle lock.
  * [onImport] is the «Importar una copia exportada» button of the creation screen (see [vaultActions]).
  */
 @Composable
 fun VaultGate(store: VaultStore, onImport: () -> Unit, modifier: Modifier = Modifier, content: @Composable (List<VaultEntry>) -> Unit) {
     val state by store.state.collectAsStateWithLifecycle()
-    val upgradePending by store.pendingUpgrade.collectAsStateWithLifecycle()
-    val upgradeDone by store.upgradeDone.collectAsStateWithLifecycle()
     Box(modifier.fillMaxSize().touchesVault(store)) {
         when (val s = state) {
             VaultState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             VaultState.NoVault -> CreateVault(store, onImport = onImport)
             VaultState.Locked -> UnlockVault(store)
-            is VaultState.Unlocked -> {
-                content(s.entries)
-                // 2.0: the choice before passing to format v4, over whatever vault screen is open.
-                if (upgradePending) {
-                    VaultUpgradeDialog(store)
-                } else {
-                    // O-3 with a folder: once, after the upgrade saved with its automatic copy.
-                    upgradeDone?.let { VaultUpgradeDoneNotice(store, it) }
-                }
-            }
+            // Ronda 1 of phase B (I-1): the choice before passing to format v4 and its line after are drawn by the navigation
+            // (AppNavHost, openingItem), over every screen with the vault open, «Salud» included.
+            is VaultState.Unlocked -> content(s.entries)
         }
     }
 }

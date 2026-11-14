@@ -241,6 +241,23 @@ class SettingsTest {
         assertEquals(true, s.settings.value.simpleMode)
     }
 
+    /**
+     * Ronda 1 de la fase B (m-6): «Sugerencias de «Salud»» (R-2). The settings.json of 1.4.3 and one of phase A have no
+     * such field: on. Off goes and comes back; on (the default) is never written.
+     */
+    @Test fun missionsOffReadsAndWrites() = runTest {
+        file().writeText(javaClass.getResourceAsStream("/seguridad/settings-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        assertFalse(store().apply { load() }.settings.value.missionsOff)
+        file().writeText("""{"noticeAccepted":true,"renameNoticePending":false,"appearanceNoticePending":false,"simpleMode":true,"guideSeen":2}""")
+        assertFalse(store().apply { load() }.settings.value.missionsOff)
+        store().apply { load(); update { it.copy(missionsOff = true) } }
+        assertTrue(file().readText(), "\"missionsOff\":true" in file().readText())
+        assertTrue(store().apply { load() }.settings.value.missionsOff)
+        store().apply { load(); update { it.copy(missionsOff = false) } }
+        assertTrue(file().readText(), "missionsOff" !in file().readText())
+        assertFalse(store().apply { load() }.settings.value.missionsOff)
+    }
+
     @Test fun clipboardHistoryNoticeIsNotAcceptedByDefault() {
         assertFalse(Settings().clipboardHistoryNoticeAccepted)
     }

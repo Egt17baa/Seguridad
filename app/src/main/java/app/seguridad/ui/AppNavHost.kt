@@ -77,6 +77,10 @@ import app.seguridad.settings.OpeningItem
 import app.seguridad.settings.OpeningState
 import app.seguridad.settings.VaultPhase
 import app.seguridad.settings.openingItem
+import app.seguridad.settings.guideRequestKept
+import app.seguridad.ui.screens.LocalOpeningBusy
+import app.seguridad.ui.screens.VaultUpgradeDialog
+import app.seguridad.ui.screens.VaultUpgradeDoneNotice
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.vault.VaultLock
 import app.seguridad.ui.screens.HealthScreen
@@ -248,17 +252,24 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     val guideRequested by container.guide.requested.collectAsStateWithLifecycle()
     val guideDismissed by container.guide.dismissed.collectAsStateWithLifecycle()
     val guideKind = remember(settings, guideRequested, guideDismissed) { container.guide.current(settings) }
+    // Ronda 1 of phase B (m-8): what is on its way, observed, so the guide comes as soon as it has arrived.
+    val qrPending by QrHandoff.pendingState.collectAsStateWithLifecycle()
+    val pickerOpen by VaultLock.keepOpenOnceState.collectAsStateWithLifecycle()
+    val phase = when (vaultState) {
+        VaultState.Loading -> VaultPhase.LOADING
+        VaultState.NoVault -> VaultPhase.NONE
+        VaultState.Locked -> VaultPhase.LOCKED
+        is VaultState.Unlocked -> VaultPhase.OPEN
+    }
+    // Ronda 1 of phase B (m-1): a guide asked for from Ajustes is forgotten as soon as it cannot be shown there.
+    val requestKept = guideRequestKept(onTab, phase)
+    LaunchedEffect(requestKept, guideRequested) { if (guideRequested != null && !requestKept) container.guide.forgetRequest() }
     // 2.0, task 10 (phase B): one thing at a time, in the order openingItem gives («Antes de empezar» is before all of
     // this, in AppNavHost; the upgrade's choice is drawn by VaultGate, and nothing else here while it waits).
     val showing = openingItem(
         OpeningState(
             noticeAccepted = true,
-            vault = when (vaultState) {
-                VaultState.Loading -> VaultPhase.LOADING
-                VaultState.NoVault -> VaultPhase.NONE
-                VaultState.Locked -> VaultPhase.LOCKED
-                is VaultState.Unlocked -> VaultPhase.OPEN
-            },
+            vault = phase,
             upgradePending = upgradePending,
             upgradeDone = upgradeDone != null,
             masterChangedOpen = masterState.open,
@@ -268,15 +279,20 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
             appearanceDue = appearanceVisible && appearanceReady,
             guide = guideKind,
             onTabRoot = onTab != null,
-            deliveryPending = QrHandoff.hasPending() || VaultLock.keepOpenOnce,
+            deliveryPending = qrPending || pickerOpen,
         ),
     )
+    // Ronda 1 of phase B (I-1): the upgrade's choice and its line, drawn here (over every screen with the vault open,
+    // «Salud» from Herramientas included), never over the gate: a lock takes the vault out of OPEN and the dialog away.
+    // «Exportar una copia antes» opens its picker from here, with keepOpenOnce, as before.
+    if (showing == OpeningItem.UPGRADE) VaultUpgradeDialog(vault)
+    if (showing == OpeningItem.UPGRADE_DONE) upgradeDone?.let { name -> VaultUpgradeDoneNotice(vault, name) }
     if (showing == OpeningItem.A6_OUTCOME) replaceOutcome?.let { shown ->
         ReplaceOutcomeDialog(shown.text ?: shown.error.orEmpty(), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
     }
     if (showing == OpeningItem.RENAME) RenameNoticeDialog(onClose = container.renameNotice::closed)
     if (showing == OpeningItem.APPEARANCE) AppearanceNoticeDialog(onClose = container.appearanceNotice::closed)
-    if (showing == OpeningItem.GUIDE) guideKind?.let { kind -> GuideDialog(kind, onDone = container.guide::done) }
+    if (showing == OpeningItem.GUIDE) guideKind?.let { kind -> GuideDialog(kind, onDone = { container.guide.done(kind) }) }
     if (showing == OpeningItem.VAULTS_NOTICE) vaultsNotice?.let { shown ->
         AlertDialog(
             onDismissRequest = { container.vaultsNoticeShown(shown) },
@@ -309,7 +325,12 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     }
     val switcher: @Composable () -> Unit = { VaultSwitcher(container, onOpen = { nav.navigate("vaults") }) }
     val leaveGuard = remember { LeaveGuard() }
-    CompositionLocalProvider(LocalOnMasterChanged provides container::onMasterChanged, LocalVaultSwitcher provides switcher, LocalLeaveGuard provides leaveGuard) {
+    CompositionLocalProvider(
+        LocalOnMasterChanged provides container::onMasterChanged,
+        LocalVaultSwitcher provides switcher,
+        LocalLeaveGuard provides leaveGuard,
+        LocalOpeningBusy provides (showing != null),
+    ) {
         Scaffold(
             bottomBar = {
                 NavigationBar {

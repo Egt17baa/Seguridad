@@ -8,6 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -17,6 +18,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import app.seguridad.android.FilterObscuredTouches
 import app.seguridad.settings.GUIDE_DONE
 import app.seguridad.settings.GUIDE_NEXT
@@ -25,6 +27,13 @@ import app.seguridad.settings.GuideKind
 import app.seguridad.settings.guidePages
 import app.seguridad.settings.guideStep
 import app.seguridad.ui.theme.AlertDialog
+
+/**
+ * Ronda 1 of phase B (m-9): whether something of the queue ([app.seguridad.settings.openingItem]) is on screen. The
+ * snackbars that come by themselves (what the calendar copied, «Activar huella» cut short) wait for it to be false
+ * before they are taken: taking one counts it as seen, and under a dialog it would go unseen.
+ */
+val LocalOpeningBusy = compositionLocalOf { false }
 
 /**
  * 2.0, task 10 (phase B): one of the guides ([guidePages]), a screen at a time, with «Saltar» (also the back gesture) on
@@ -40,6 +49,8 @@ fun GuideDialog(kind: GuideKind, onDone: () -> Unit) {
     val last = index >= pages.lastIndex
     AlertDialog(
         onDismissRequest = onDone,
+        // Ronda 1 (m-2): a tap outside never skips the whole guide; «Atrás» and «Saltar» do.
+        properties = DialogProperties(dismissOnClickOutside = false),
         title = { Text(page.title) },
         text = {
             FilterObscuredTouches()

@@ -1,6 +1,7 @@
 package app.seguridad.settings
 
 import app.seguridad.vault.VaultLimits
+import app.seguridad.vault.VaultState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -38,11 +39,12 @@ val FULL_GUIDE = listOf(
     GuidePage(
         "La copia",
         "En Ajustes puedes exportar una copia o elegir hasta ${VaultLimits.BACKUP_TARGETS_MAX} carpetas para la copia automática. " +
-            "Las que tienen calendario solo se hacen al abrir Clavero.",
+            "Las copias con calendario solo se hacen al abrir Clavero.",
     ),
     GuidePage(
         "La huella",
-        "Si el móvil tiene huella, puedes activarla en el menú de la bóveda abierta. Por seguridad, cada 7 días pide la contraseña maestra.",
+        // Ronda 1 (m-4): the menu offers it only with a fingerprint enrolled (BIOMETRIC_STRONG), not for a sensor alone.
+        "Si tienes una huella registrada en el móvil, puedes activarla en el menú de la bóveda abierta. Por seguridad, cada 7 días pide la contraseña maestra.",
     ),
     GuidePage(
         "Varias bóvedas",
@@ -76,6 +78,15 @@ const val GUIDE_SECTION_TITLE = "Guía"
 const val GUIDE_OPEN_FULL = "Ver la guía"
 const val GUIDE_OPEN_NEW = "Ver las novedades de la 2.0"
 
+/** Ronda 1 (m-1): under the two buttons while the vault is locked or still being read (they are off then). */
+const val GUIDE_NEEDS_OPEN = "Desbloquea la bóveda para ver la guía."
+
+/**
+ * Ronda 1 (m-1): whether Ajustes can open a guide now: with the vault open or with none, as [openingItem] shows one.
+ * Otherwise the request would wait and come up later by itself.
+ */
+fun canOpenGuide(state: VaultState): Boolean = state is VaultState.Unlocked || state is VaultState.NoVault
+
 /**
  * The guide on screen, for the whole app (in AppContainer, so a rotation keeps it): the one [Settings.guideDue] asks for
  * at the start, once in this run, or the one asked for from Ajustes ([request]). [done] (finished or skipped) saves it
@@ -99,9 +110,19 @@ class GuideHolder(private val settings: SettingsStore, private val scope: Corout
         _requested.value = kind
     }
 
-    /** Finished or skipped: it goes, and it is saved as seen. */
-    fun done() {
+    /** Ronda 1 (m-1): a request that can no longer be shown where it was asked ([guideRequestKept]) is forgotten. */
+    fun forgetRequest() {
         _requested.value = null
+    }
+
+    /**
+     * [kind] was finished or skipped: it goes. Ronda 1 (duda 6): it is saved as seen, and the one due is done for this
+     * run, only if [kind] is the one that was due; another one seen from Ajustes (the whole one by whoever updated)
+     * saves nothing, so what was due still comes.
+     */
+    fun done(kind: GuideKind) {
+        _requested.value = null
+        if (settings.settings.value.guideDue.kind != kind) return
         _dismissed.value = true
         scope.launch {
             withContext(NonCancellable) {

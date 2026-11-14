@@ -84,4 +84,66 @@ class OpeningTest {
         // «Antes de empezar» returns before any of them; the upgrade's choice is VaultGate's.
         assertTrue(main.indexOf("NoticeScreen(") < main.indexOf("openingItem("))
     }
+
+    /**
+     * Ronda 1 (m-7, I-1): every dialog of the queue is drawn once in ui/, and that one call is behind its own
+     * `showing == OpeningItem.X` (on its line or the one before): none can be drawn on its own again. The upgrade's two
+     * are drawn by the navigation too, so they show over every screen with the vault open, never over the gate.
+     */
+    @Test fun eachDialogIsDrawnOnceBehindItsCondition() {
+        val ui = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
+            .map { java.io.File(it, "app/src/main/java/app/seguridad/ui") }.first { it.isDirectory }
+        val calls = mapOf(
+            "VaultUpgradeDialog(" to OpeningItem.UPGRADE,
+            "VaultUpgradeDoneNotice(" to OpeningItem.UPGRADE_DONE,
+            "MasterChangedDialog(" to OpeningItem.MASTER_CHANGED,
+            "vaultsNotice?.let" to OpeningItem.VAULTS_NOTICE,
+            "ReplaceOutcomeDialog(" to OpeningItem.A6_OUTCOME,
+            "RenameNoticeDialog(" to OpeningItem.RENAME,
+            "AppearanceNoticeDialog(" to OpeningItem.APPEARANCE,
+            "GuideDialog(" to OpeningItem.GUIDE,
+        )
+        val files = ui.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        for ((call, item) in calls) {
+            val found = files.flatMap { f ->
+                val lines = f.readLines()
+                lines.withIndex().filter { (_, l) ->
+                    val t = l.trimStart()
+                    call in l && !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*") && "fun ${call.removeSuffix("(")}(" !in l
+                }.map { (i, l) -> Triple(f.name, l, if (i > 0) lines[i - 1] else "") }
+            }
+            assertEquals("$call: ${found.map { it.first }}", 1, found.size)
+            val (file, line, before) = found.single()
+            assertEquals(call, "AppNavHost.kt", file)
+            assertTrue("$call is not behind its condition", "showing == OpeningItem.${item.name}" in line || "showing == OpeningItem.${item.name}" in before)
+        }
+    }
+
+    /**
+     * Ronda 1 (m-1): a guide asked for from Ajustes is kept only while it can be shown there (on the tab of Ajustes, with
+     * the vault open or with none); anywhere else it is forgotten, so it never comes up later by itself (over the gate,
+     * or out of a tab).
+     */
+    @Test fun aRequestIsKeptOnlyWhereItWasAsked() {
+        for (phase in VaultPhase.entries) for (tab in listOf(null, "vault", "codes", "contacts", "tools", "settings")) {
+            val kept = guideRequestKept(tab, phase)
+            assertEquals("$tab $phase", tab == "settings" && (phase == VaultPhase.OPEN || phase == VaultPhase.NONE), kept)
+        }
+    }
+
+    /**
+     * Ronda 1 (m-9): the two snackbars that come by themselves (what the calendar copied, and «Activar huella» cut short)
+     * are taken only once nothing of the queue is on screen: the navigation says so, and the vault's screen waits for it
+     * before taking them (taking one marks it as seen).
+     */
+    @Test fun theSnackbarsWaitForTheQueue() {
+        fun src(path: String) = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
+            .map { java.io.File(it, "app/src/main/java/app/seguridad/$path") }.first { it.isFile }.readText()
+        assertTrue("LocalOpeningBusy provides (showing != null)" in src("ui/AppNavHost.kt"))
+        val vault = src("ui/screens/VaultScreen.kt")
+        val wait = "snapshotFlow { openingBusy.value }.first { !it }"
+        assertEquals(2, Regex(Regex.escape(wait)).findAll(vault).count())
+        assertTrue(vault.indexOf(wait) < vault.indexOf("BiometricVault.interruptionShown(message)"))
+        assertTrue(vault.lastIndexOf(wait) < vault.indexOf("autoBackup.takeScheduled(scheduled)"))
+    }
 }

@@ -123,14 +123,14 @@ fun HealthScreen(
         // leak check, O-6). Their titles may hold an entry's title: they live only here, and a lock takes this branch
         // away, which cancels the work and drops them. «Ahora no» per vault and until its next unlock.
         val missionList by produceState<List<Mission>?>(null, data, missionsOff) {
-            value = if (missionsOff) emptyList() else withContext(Dispatchers.Default) {
+            value = if (missionsOff) null else withContext(Dispatchers.Default) {
                 val now = System.currentTimeMillis()
                 missions(vaultHealth(data.live, now), data, now)
             }
         }
         val epoch = store.lockEpoch
         var postponed by remember(epoch) { mutableStateOf(postponements?.postponed(store.id, epoch).orEmpty()) }
-        val mission = missionList?.let { nextMission(it, postponed) }
+        val mission = missionList?.let { nextMission(it, postponed, off = missionsOff) }
         // Not on every recomposition (scrolling, the check's progress): only when its inputs change, or the day.
         val day = System.currentTimeMillis() / DAY_MS
         val items = remember(entries, breached, day) { vaultHealth(entries, System.currentTimeMillis(), breached) }
