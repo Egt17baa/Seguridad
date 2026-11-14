@@ -25,6 +25,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -1492,7 +1493,7 @@ class AutoBackupTargetsTest {
         runCurrent()
         a.replaceOutcomeShown(a.replaceOutcome.value!!)
         runCurrent()
-        assertTrue(settings.settings.value.vault("a").a6!!.closed)
+        assertNotNull(settings.settings.value.vault("a").a6!!.said)
         val two = Folder()
         val again = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
         cycle(s)

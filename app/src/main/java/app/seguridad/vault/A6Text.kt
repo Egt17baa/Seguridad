@@ -13,8 +13,7 @@ package app.seguridad.vault
  * very request ([BackupTargetSettings.replaceDone] of [request]; one of an earlier request never counts), which deleted
  * [deleted] copies in all and left [unlisted] files with a copy's name unlisted in their folders. Every other target
  * (waiting, failed, added after the request, or with a request of before) did not replace for it. [stale] (round 6, I-2):
- * the request was asked before a later change of the master password ([A6State.masterMark] is not the vault's now), or
- * the vault's mark of now cannot be compared.
+ * the request was asked before a later change of the master password ([A6State.masterMark] is not the vault's now).
  */
 data class A6Summary(
     val request: String,
@@ -35,13 +34,14 @@ val BackupTargetSettings.requestId: String get() = replaceRequest ?: LEGACY_A6_R
 
 /**
  * [A6Summary] of the request of [a6] over [targets], as saved; pure. [masterMark] is the vault's mark of now
- * ([VaultStore.masterMark]); a request saved with another one is [A6Summary.stale]. One saved with none (by 1.4.3, whose
- * request was always of its last change) is not.
+ * ([VaultStore.masterMark]; null where it is not known, as in the dialog of the change, whose own request is of now); a
+ * request saved with another one is [A6Summary.stale]. One saved with none (by 1.4.3, whose request was always of its last
+ * change) is not.
  */
 fun a6Summary(targets: List<BackupTargetSettings>, a6: A6State?, masterMark: String? = null): A6Summary {
     val request = currentA6Request(a6)
     val done = targets.mapNotNull { t -> t.replaceDone?.takeIf { it.request == request } }
-    val stale = a6?.masterMark != null && a6.masterMark != masterMark
+    val stale = a6?.masterMark != null && masterMark != null && a6.masterMark != masterMark
     return A6Summary(request, targets.size, done.size, done.sumOf { it.deleted }, done.sumOf { it.unlisted }, stale)
 }
 

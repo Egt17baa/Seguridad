@@ -1064,7 +1064,11 @@ class PlatformSourcesTest {
         assertEquals(setOf("A6Text.kt"), usersOf("a6PartialText"))
         assertEquals(setOf("A6Text.kt"), usersOf("a6UnlistedInDoneText"))
         assertEquals(setOf("A6Text.kt", "AutoBackup.kt", "ToolTexts.kt"), usersOf("autoBackupUnlistedText"))
-        assertEquals(setOf("AutoBackup.kt", "SettingsScreen.kt"), usersOf("a6Text") - "A6Text.kt")
+        assertEquals(setOf("AutoBackup.kt"), usersOf("a6Text") - "A6Text.kt")
+        // Round 6: whether to speak, and what the dialog of the change shows of its own request, in one place each.
+        assertEquals(setOf("AutoBackup.kt"), usersOf("a6Decide") - "A6Text.kt")
+        assertEquals(setOf("SettingsScreen.kt"), usersOf("a6DialogView") - "A6Text.kt")
+        assertTrue("summary?.takeIf { it.request == state.answerRequest }" in code("ui/screens/SettingsScreen.kt"))
         assertEquals(1, Regex("""\boutcome\.post\(""").findAll(code("vault/AutoBackup.kt")).count())
         assertTrue("ReplaceOutcomeDialog(shown.text ?: shown.error.orEmpty()" in code("ui/AppNavHost.kt"))
         val auto = code("vault/AutoBackup.kt")
