@@ -1347,9 +1347,27 @@ class AutoBackupTargetsTest {
                 assertEquals(label, all2, "cada carpeta" in text)
                 assertFalse(label, "1 de 1" in text)
                 assertEquals(label, !anyDone, text.isEmpty())
-                // Round 5 (m-3): a state that shows a dialog (a failure to tell, or a folder done) never has an empty text.
-                assertTrue(label, a6Text(listOf(AUTO_BACKUP_WRITE_FAILED), summary).isNotEmpty())
-                if (anyDone) assertTrue(label, text.isNotBlank())
+                // Rounds 5 and 6 (m-3, m-4): a failure comes first, on its own line, and the summary after it, never empty.
+                assertEquals(label, if (anyDone) AUTO_BACKUP_WRITE_FAILED + "\n" + text else AUTO_BACKUP_WRITE_FAILED, a6Text(listOf(AUTO_BACKUP_WRITE_FAILED), summary))
+                // Round 6: when to speak. Nothing closed: it speaks iff a folder is done.
+                assertEquals(label, anyDone, a6Decide(v.targets, v.a6, emptyList(), true, null) != null)
+                // Closed as it is now: silent, and a folder added after the request does not open it again.
+                val closed = v.copy(a6 = v.a6!!.copy(said = a6Snapshot(v.targets, v.a6)))
+                assertNull(label, a6Decide(closed.targets, closed.a6, emptyList(), true, null))
+                val withNew = closed.withTargetAdded("content://nueva", BackupSchedule.WEEKLY)
+                assertNull(label, a6Decide(withNew.targets, withNew.a6, emptyList(), true, null))
+                // Each folder in the request that was out when the summary was closed, and comes back: it speaks (if one is
+                // done). The invariant: never silent while a folder of the request holds something the closed one did not.
+                for ((i, f) in fates.withIndex()) {
+                    val inRequest = v.targets.firstOrNull { it.uri == uris[i] }?.let { it.requestId == request } == true
+                    if (!inRequest) continue
+                    val out = v.withTargetRemoved(uris[i])
+                    if (out.pastTargets.none { it.uri == uris[i] }) continue // Nothing listed: nothing comes back.
+                    val closedOut = out.copy(a6 = out.a6!!.copy(said = a6Snapshot(out.targets, out.a6)))
+                    val back = closedOut.withTargetAdded(uris[i], BackupSchedule.ON_CHANGE)
+                    val speaks = a6Decide(back.targets, back.a6, emptyList(), true, null) != null
+                    assertEquals("$label, $f vuelve", back.a6Summary.replaced > 0, speaks)
+                }
                 if (anyDone && !all2) assertTrue(label, text.startsWith(a6PartialText(summary.replaced, n)))
                 if (expectedUnlisted > 0) assertTrue(label, "$expectedUnlisted cop" in text)
                 checked++
@@ -1503,5 +1521,165 @@ class AutoBackupTargetsTest {
         settings.updateVault("a") { it.withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
         cycle(s)
         assertNull(again.replaceOutcome.value)
+    }
+
+    // ---- Round 6 (re-review 5; ruling «T8 tras la ronda 5»; owner, 14-11-2026) ----
+
+    private suspend fun TestScope.closeOutcome(a: AutoBackup): AutoBackupResult {
+        val told = a.replaceOutcome.value!!
+        a.replaceOutcomeShown(told)
+        runCurrent()
+        return told
+    }
+
+    /**
+     * Re-review 5, I-1, as it is: «dos» fails, is removed with its request waiting, the summary is closed, «dos» comes back
+     * and replaces: the summary (with its copies left unlisted) is told, also after a restart while not closed.
+     */
+    @Test fun aFolderThatComesBackReopensTheRequest() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        two.files[stranger] = byteArrayOf(1)
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a6Asked(s, a)
+        two.failCreate = SecurityException("sin permiso")
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertEquals(AUTO_BACKUP_NO_PERMISSION + "\n" + a6PartialText(1, 2), closeOutcome(a).text)
+        assertTrue(settings.removeTarget("a", "content://dos"))
+        a.retell()
+        runCurrent()
+        assertEquals(AUTO_BACKUP_REPLACED, closeOutcome(a).text)
+        // Back, with its request; it replaces now.
+        settings.updateVault("a") { it.withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        assertTrue(target("a", "content://dos").replacePending)
+        two.failCreate = null
+        a.request("content://dos")
+        settle()
+        val told = a.replaceOutcome.value!!
+        assertTrue(told.replaced)
+        assertEquals(AUTO_BACKUP_REPLACED_SEVERAL + " " + autoBackupUnlistedText(1, severalFolders = true), told.text)
+        // Not closed (the process died): told again at the unlock of a new engine.
+        val again = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        cycle(s)
+        assertEquals(told.text, again.replaceOutcome.value!!.text)
+    }
+
+    /** Re-review 5, I-1, variant b: it comes back and fails again with a failure told already: the partial is told, once. */
+    @Test fun aFolderThatComesBackAndFailsIsToldOnce() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a6Asked(s, a)
+        two.failCreate = SecurityException("sin permiso")
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        closeOutcome(a)
+        settings.removeTarget("a", "content://dos")
+        a.retell()
+        runCurrent()
+        closeOutcome(a)
+        settings.updateVault("a") { it.withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        a.request("content://dos")
+        settle()
+        assertEquals(a6PartialText(1, 2), closeOutcome(a).text)
+        cycle(s)
+        assertNull(a.replaceOutcome.value)
+    }
+
+    /**
+     * Re-review 5, I-2: a request asked at the change 1 finishes after a change 2 for which «Borrar…» was not pressed: it says
+     * it is of an earlier change and that the copies made after it were not deleted, never «en cada carpeta»; the copy left
+     * unlisted is still told.
+     */
+    @Test fun aRequestOfAnEarlierChangeSaysSo() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        two.files[stranger] = byteArrayOf(1)
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        val old = settings.settings.value.vault("a").listedCopies
+        // Change 1, and «Borrar…» (the vault is locked by the change).
+        assertTrue(s.changeMaster("maestra-de-prueba-b".toCharArray()))
+        runCurrent()
+        assertEquals(AUTO_BACKUP_REPLACE_WAITS, a.replaceOldCopies(old).error)
+        two.failCreate = SecurityException("sin permiso")
+        s.unlock("maestra-de-prueba-b".toCharArray())
+        runCurrent()
+        closeOutcome(a)
+        // Copies with the password of the change 1, then change 2, with no «Borrar…».
+        clock += 60_000
+        s.upsert(note("2"))
+        settle()
+        assertTrue(s.changeMaster("maestra-de-prueba-c".toCharArray()))
+        runCurrent()
+        two.failCreate = null
+        s.unlock("maestra-de-prueba-c".toCharArray())
+        runCurrent()
+        val told = a.replaceOutcome.value!!
+        assertFalse("cada carpeta" in told.text!!)
+        assertEquals(a6StaleText(2, 2) + " " + autoBackupUnlistedText(1, severalFolders = true), told.text)
+    }
+
+    /**
+     * Re-review 5, m-1: R0 done in every folder; another change; «Borrar…» whose id cannot be saved: the dialog shows only
+     * the failure, never R0's summary (it is not the request it asked).
+     */
+    @Test fun theDialogShowsOnlyItsOwnRequest() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        var writes = true
+        val a = auto(s, "a", mapOf("content://uno" to one), a6Writes = { writes || it.said != null })
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a6Asked(s, a)
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        assertTrue(a.replaceOutcome.value!!.replaced)
+        writes = false
+        val answer = a.replaceOldCopies(settings.settings.value.vault("a").listedCopies)
+        assertEquals(AUTO_BACKUP_FAILED, answer.error)
+        assertNull(answer.request)
+        val summary = settings.settings.value.vault("a").a6Summary
+        assertEquals(1, summary.replaced) // R0's, still there.
+        val view = a6DialogView(ReplaceStatus.Failed(AUTO_BACKUP_FAILED), working = false, summary = summary.takeIf { it.request == answer.request })
+        assertEquals(AUTO_BACKUP_FAILED, view.text)
+        assertTrue(view.canReplace)
+    }
+
+    /** Round 6, m-4: what the dialog of the change shows, in each state, from one pure function. */
+    @Test fun theDialogOfTheChangeInEachState() {
+        val none = A6Summary("R", 2, 0, 0, 0)
+        val part = A6Summary("R", 2, 1, 1, 0)
+        val all = A6Summary("R", 2, 2, 2, 1)
+        // «Done» with no folder done for this request (or no summary of it): not known as done.
+        for (s in listOf(none, null)) {
+            val v = a6DialogView(ReplaceStatus.Done, working = false, summary = s)
+            assertNull(v.text)
+            assertTrue(v.canReplace)
+        }
+        assertEquals(A6DialogView(true, a6PartialText(1, 2), negative = true), a6DialogView(ReplaceStatus.Done, false, part))
+        assertEquals(A6DialogView(false, AUTO_BACKUP_REPLACED_SEVERAL + " " + autoBackupUnlistedText(1, true), negative = false), a6DialogView(ReplaceStatus.Done, false, all))
+        assertEquals(A6DialogView(false, AUTO_BACKUP_REPLACE_WAITS, negative = false), a6DialogView(ReplaceStatus.Waits, false, null))
+        assertEquals(A6DialogView(true, AUTO_BACKUP_WRITE_FAILED + "\n" + a6PartialText(1, 2), negative = true), a6DialogView(ReplaceStatus.Failed(AUTO_BACKUP_WRITE_FAILED), false, part))
+        assertEquals(A6DialogView(true, null, negative = false), a6DialogView(ReplaceStatus.NotAsked, false, null))
+        // Working: nothing can be pressed, and no result is shown.
+        assertEquals(A6DialogView(false, null, negative = false), a6DialogView(ReplaceStatus.Done, true, all))
     }
 }
