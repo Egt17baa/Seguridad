@@ -135,4 +135,27 @@ class MissionsTest {
             assertEquals(t, emptyList<String>(), app.seguridad.tools.ForbiddenWords.problems(t))
         }
     }
+
+    @Test fun anUntitledLoginHasNoEmptyQuotes() {
+        val data = of(login("a", "  ", "123456"))
+        assertEquals("Activa el 2FA en un acceso", all(data).single { it.id == MISSION_NO_2FA }.title)
+    }
+
+    /**
+     * Ruling T10: a mission's title may hold an entry's title (data of the vault). It lives only in the open vault's
+     * branch of «Salud», computed off the main thread there, so a lock (which takes the branch away) cancels it and drops
+     * it; what outlives the vault keeps ids only ([MissionPostponements]).
+     */
+    @Test fun titlesLiveOnlyWithTheOpenVault() {
+        val src = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
+            .map { java.io.File(it, "app/src/main/java/app/seguridad/ui/screens/HealthScreen.kt") }.first { it.isFile }.readText()
+        val gate = src.indexOf("return@BackScaffold")
+        val computed = src.indexOf("missions(vaultHealth(")
+        assertTrue(gate in 0 until computed)
+        assertTrue("Off the main thread", Regex("""withContext\(Dispatchers\.Default\) \{\s*val now = System\.currentTimeMillis\(\)\s*missions\(""").containsMatchIn(src))
+        assertFalse("Never in saved state", "rememberSaveable" in src)
+        val holder = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
+            .map { java.io.File(it, "app/src/main/java/app/seguridad/health/Missions.kt") }.first { it.isFile }.readText()
+        assertTrue("Only ids are kept", "HashMap<String, Pair<Int, Set<String>>>" in holder)
+    }
 }

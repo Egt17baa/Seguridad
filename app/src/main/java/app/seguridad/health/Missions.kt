@@ -60,8 +60,8 @@ fun missions(items: List<HealthItem>, data: VaultData, now: Long): List<Mission>
     with(Issue.WEAK).let { if (it.isNotEmpty()) out += Mission(MISSION_WEAK, countTitle(it.size, "débil", "débiles"), MissionAction.EditEntry(it.first().entryId)) }
     with(Issue.NO_2FA).firstOrNull()?.let { item ->
         // O-6: only the entry's own title, as plain text (no controls nor direction marks from the vault).
-        val title = plainReportText(live.getValue(item.entryId).title, 60).trim().ifEmpty { "un acceso" }
-        out += Mission(MISSION_NO_2FA, "Activa el 2FA en «$title»", MissionAction.EditEntry(item.entryId))
+        val title = plainReportText(live.getValue(item.entryId).title, 60).trim()
+        out += Mission(MISSION_NO_2FA, if (title.isEmpty()) "Activa el 2FA en un acceso" else "Activa el 2FA en «$title»", MissionAction.EditEntry(item.entryId))
     }
     with(Issue.OLD).let { if (it.isNotEmpty()) out += Mission(MISSION_OLD, countTitle(it.size, "antigua", "antiguas"), MissionAction.EditEntry(it.first().entryId)) }
     if (backupCheckNotice(data.lastCheckedBackupAt, now) != null) out += Mission(MISSION_BACKUP, "Haz y comprueba una copia", MissionAction.CheckBackup)
