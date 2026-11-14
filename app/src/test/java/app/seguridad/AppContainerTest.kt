@@ -209,4 +209,31 @@ class AppContainerTest {
             Thread.setDefaultUncaughtExceptionHandler(previous)
         }
     }
+
+    /**
+     * 2.0, task 9, ronda 1 (I-1): leaving the app (MainActivity.onStop, as the lock on leaving) drops every QR text
+     * waiting for a vault screen, wifi or 2FA; a picker or the scanner the app opened ([VaultLock.keepOpenOnce]) does
+     * not, as it does not lock the vault either.
+     */
+    @Test fun `leaving the app drops the QR texts waiting for the vault, a picker of ours does not`() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        try {
+            app.seguridad.tools.qr.QrHandoff.put(app.seguridad.tools.qr.QrTarget.WIFI, "WIFI:T:WPA;S:Casa;P:clave;;")
+            val wifi = app.seguridad.tools.qr.QrPendingText(app.seguridad.tools.qr.QrTarget.WIFI)
+            app.seguridad.tools.qr.QrHandoff.put(app.seguridad.tools.qr.QrTarget.OTP, "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP")
+            val otp = app.seguridad.tools.qr.QrPendingText(app.seguridad.tools.qr.QrTarget.OTP)
+            // The import picker at the gate, or the scanner: kept.
+            c.leftApp(keepOpenOnce = true)
+            assertEquals("WIFI:T:WPA;S:Casa;P:clave;;", wifi.text)
+            assertEquals("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP", otp.text)
+            assertFalse(wifi.left || otp.left)
+            // Home, another app, the screen off: gone, and the screens go back to the inspector.
+            c.leftApp(keepOpenOnce = false)
+            assertNull(wifi.text)
+            assertNull(otp.text)
+            assertTrue(wifi.left && otp.left)
+        } finally {
+            app.seguridad.tools.qr.QrHandoff.clear()
+        }
+    }
 }

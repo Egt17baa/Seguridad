@@ -101,4 +101,45 @@ class WifiQrFormTest {
         assertEquals(WIFI_QR_NOT_ADDED, s.error.value)
         assertTrue(s.templateValues.value.isEmpty())
     }
+
+    /**
+     * Ronda 1, m-3: read, add, save and «Enseñar QR» give the same network. For every code the inspector offers, the
+     * form filled from it saves fields that give back the same configuration, and the code written from the saved entry
+     * reads as that configuration again. What the form would not keep the same (a name with a space at an end) is not
+     * offered ([WifiQr.parse] is null), so it never reaches here.
+     */
+    @Test fun readAddSaveAndShowGiveTheSameNetwork() {
+        val raw = "0123456789abcdef".repeat(4)
+        val names = listOf("Casa", "a;b", "C:a\\s\"a", "CAFE", "ñandú 😀", "a  b", "\"x\"", "x,y", "Casa\u202E", raw)
+        val passwords = listOf("clave", "12345678", raw, "a;b:c\\d,e\"f", "  espacios  ", "\"q\"", "x")
+        var checked = 0
+        for (ssid in names) for (password in passwords) for (security in listOf("WPA", "WPA2", "WEP")) for (hidden in listOf(false, true)) {
+            val code = "WIFI:T:$security;S:" + escaped(ssid) + ";P:" + escaped(password) + ";H:$hidden;;"
+            val read = app.seguridad.tools.qr.WifiQr.parse(code) ?: error(code)
+            val s = session()
+            s.applyWifiQr(code)
+            val fields = (fieldsToSave(EntryType.WIFI, s.templateValues.value, s.customFields.value) as FormFields.Ok).fields
+            val saved = VaultEntry("w", EntryType.WIFI, s.title.value.trim(), createdAt = 0, updatedAt = 0, fields = fields)
+            val kept = app.seguridad.tools.qr.wifiConfigOf(saved)
+            assertEquals(code, read, kept)
+            assertEquals(code, read, app.seguridad.tools.qr.WifiQr.parse(app.seguridad.tools.qr.WifiQr.encode(kept)))
+            checked++
+        }
+        // And the open networks.
+        for (ssid in names) {
+            val code = "WIFI:T:nopass;S:" + escaped(ssid) + ";;"
+            val s = session()
+            s.applyWifiQr(code)
+            val fields = (fieldsToSave(EntryType.WIFI, s.templateValues.value, s.customFields.value) as FormFields.Ok).fields
+            val kept = app.seguridad.tools.qr.wifiConfigOf(VaultEntry("w", EntryType.WIFI, "t", createdAt = 0, updatedAt = 0, fields = fields))
+            assertEquals(code, app.seguridad.tools.qr.WifiQr.parse(code), kept)
+            assertEquals(code, kept, app.seguridad.tools.qr.WifiQr.parse(app.seguridad.tools.qr.WifiQr.encode(kept)))
+        }
+        assertEquals(names.size * passwords.size * 3 * 2, checked)
+        // A name the form would change is not offered at all.
+        for (name in listOf(" Casa", "Casa ", " ", "Casa\n")) assertNull(name, app.seguridad.tools.qr.WifiQr.parse("WIFI:T:WPA;S:$name;P:clave;;"))
+    }
+
+    /** [s] escaped as the format says (a test helper, not the writer under test). */
+    private fun escaped(s: String) = buildString { for (ch in s) { if (ch in "\\;,:\"") append('\\'); append(ch) } }
 }

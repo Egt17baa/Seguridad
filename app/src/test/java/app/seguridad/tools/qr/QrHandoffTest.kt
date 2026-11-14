@@ -2,6 +2,7 @@ package app.seguridad.tools.qr
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -78,5 +79,37 @@ class QrHandoffTest {
         QrHandoff.put(QrTarget.CARD, "SGK1:abc")
         assertNull(QrPendingText(QrTarget.OTP).text)
         assertNull("Another screen's text goes too, as take() always does", QrHandoff.take(QrTarget.CARD))
+    }
+
+    // 2.0, task 9, ronda 1 (I-1): leaving the app drops every QR text still waiting for a vault screen (a wifi password
+    // or a 2FA key at the locked gate), and the screen goes back to the inspector; a text already handed to the form is
+    // the form's, which its own rules clear.
+    @Test
+    fun leavingTheAppDropsEveryPendingTextAndSaysSo() {
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:Casa;P:clave;;")
+        val wifi = QrPendingText(QrTarget.WIFI)
+        QrHandoff.put(QrTarget.OTP, "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP")
+        val otp = QrPendingText(QrTarget.OTP)
+        QrHandoff.put(QrTarget.CARD, "SGK1:abc") // Not taken yet: it goes too.
+        assertFalse(wifi.left || otp.left)
+        QrHandoff.appLeft()
+        assertNull(wifi.text)
+        assertNull(otp.text)
+        assertTrue(wifi.left && otp.left)
+        assertNull(QrHandoff.take(QrTarget.CARD))
+        // Once gone it never comes back, and a later unlock does not bring it.
+        wifi.vaultStateIs(unlocked = true)
+        assertNull(wifi.text)
+    }
+
+    @Test
+    fun aTextAlreadyHandedOverOrClearedIsNotMarkedAsLeft() {
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:Casa;P:clave;;")
+        val handed = QrPendingText(QrTarget.WIFI)
+        handed.clear() // Handed to the form (onWifiQrTaken), or saved, or back.
+        val never = QrPendingText(QrTarget.WIFI) // Nothing was waiting for it.
+        QrHandoff.appLeft()
+        assertFalse(handed.left)
+        assertFalse(never.left)
     }
 }

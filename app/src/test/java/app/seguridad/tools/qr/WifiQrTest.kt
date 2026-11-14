@@ -56,8 +56,7 @@ class WifiQrTest {
         assertEquals(c, WifiQr.parse("WIFI:S:Casa;H:true;P:clave;T:WPA;;"))
         assertEquals(c, WifiQr.parse("WIFI:H:true;P:clave;S:Casa;T:WPA;;"))
         assertEquals(WifiConfig("Viejo", "12345", "WEP", false), WifiQr.parse("WIFI:P:12345;T:WEP;S:Viejo;;"))
-        // The prefix, the keys and the type in any case.
-        assertEquals(wpa("x", "y"), WifiQr.parse("wifi:t:wpa;s:x;p:y;;"))
+        // The value of «T:» and «H:» in any case (as ZXing reads «H:»); written again as «WPA» and «false».
         assertEquals(wpa("x", "y"), WifiQr.parse("WIFI:T:Wpa;S:x;P:y;H:FALSE;;"))
     }
 
@@ -82,9 +81,13 @@ class WifiQrTest {
 
     // ---- Every short string of the alphabet of the escapes ----
 
-    /** Every string of length 0 to 3 over `\ ; , : " a` (259 of them). «a» is a hexadecimal digit, so quoting is in it too. */
+    /**
+     * Every string of length 0 to 3 over `\ ; , : " a`, a space and `P` (585 of them). «a» is a hexadecimal digit, so
+     * quoting is in it too; the space proves no value is trimmed; `P` proves the writer never leaves a «P:» that the rule
+     * of I-2 would refuse (m-5).
+     */
     private val shortStrings: List<String> = run {
-        val alphabet = listOf("\\", ";", ",", ":", "\"", "a")
+        val alphabet = listOf("\\", ";", ",", ":", "\"", "a", " ", "P")
         var level = listOf("")
         val all = ArrayList<String>(level)
         repeat(3) {
@@ -94,24 +97,36 @@ class WifiQrTest {
         all
     }
 
+    /** The four values [read] gives, Usable or not. */
+    private fun valuesOf(r: WifiRead?): WifiConfig? = when (r) {
+        is WifiRead.Usable -> r.config
+        is WifiRead.Unsupported -> WifiConfig(r.ssid, r.password, r.security, r.hidden)
+        else -> null
+    }
+
     @Test fun roundTripOverEveryShortString() {
-        assertEquals(259, shortStrings.size)
+        assertEquals(585, shortStrings.size)
         var checked = 0
         for (ssid in shortStrings) {
             if (ssid.isEmpty()) continue // An empty name is an error ([emptyNameIsATextNotACrash]).
+            // A name with a space at either end comes back the same, and is not offered for the vault (m-3).
+            val spaces = ssid != ssid.trim()
             for (password in shortStrings) {
+                if (password.isEmpty()) continue // WPA or WEP with no password is an error (m-1).
                 for (security in listOf("WPA", "WEP")) {
                     val c = WifiConfig(ssid, password, security, hidden = checked % 2 == 0)
                     val text = WifiQr.encode(c)
-                    assertEquals("«$ssid» / «$password» → $text", c, WifiQr.parse(text))
+                    val read = WifiQr.read(text)
+                    assertEquals("«$ssid» / «$password» → $text", c, valuesOf(read))
+                    assertEquals(text, spaces, read is WifiRead.Unsupported)
                     checked++
                 }
             }
             // Open: the name alone goes and comes back.
             val open = WifiConfig(ssid, "", "nopass", false)
-            assertEquals(open, WifiQr.parse(WifiQr.encode(open)))
+            assertEquals(open, valuesOf(WifiQr.read(WifiQr.encode(open))))
         }
-        assertEquals(258 * 259 * 2, checked)
+        assertEquals(584 * 584 * 2, checked)
     }
 
     // ---- Hostile input: one defined result each ----
@@ -144,17 +159,26 @@ class WifiQrTest {
     }
 
     @Test fun anUnknownTypeIsShownButNotKept() {
-        // Only WPA, WEP and nopass are kept (the three the form offers); any other type is read for the inspector only.
-        for (type in listOf("WPA2", "WPA3", "SAE", "WPA2-EAP", "xyz")) {
+        // Owner's decision (14-11-2026, Duda 2): WPA2 is read as WPA, kept, and written again as «T:WPA».
+        for (type in listOf("WPA2", "wpa2", "Wpa2")) {
+            val t = "WIFI:T:$type;S:Casa;P:clave;;"
+            assertEquals(t, wpa("Casa", "clave"), WifiQr.parse(t))
+            assertEquals("WIFI:T:WPA;S:Casa;P:clave;H:false;;", WifiQr.encode(WifiQr.parse(t)!!))
+        }
+        // WPA3 and SAE are not (a code with «T:WPA» does not serve a network that is only WPA3), nor any other type: read
+        // for the inspector only, with the type as it came, in capitals.
+        for (type in listOf("WPA3", "SAE", "sae", "WPA2-EAP", "xyz")) {
             val t = "WIFI:T:$type;S:Casa;P:clave;;"
             assertNull(t, WifiQr.parse(t))
-            assertEquals(t, WifiRead.Unsupported("Casa", type.uppercase(), "clave", false), WifiQr.read(t))
+            assertEquals(t, WifiRead.Unsupported("Casa", type.uppercase(), "clave", false, WifiNotKept.SECURITY), WifiQr.read(t))
         }
         // A password with no type, or with «nopass»: contradictory, so not kept (the documentation ignores it).
-        assertEquals(WifiRead.Unsupported("Casa", "nopass", "clave", false), WifiQr.read("WIFI:S:Casa;P:clave;;"))
-        assertEquals(WifiRead.Unsupported("Casa", "nopass", "clave", false), WifiQr.read("WIFI:T:nopass;S:Casa;P:clave;;"))
+        assertEquals(WifiRead.Unsupported("Casa", "nopass", "clave", false, WifiNotKept.PASSWORD_WITHOUT_TYPE), WifiQr.read("WIFI:S:Casa;P:clave;;"))
+        assertEquals(WifiRead.Unsupported("Casa", "nopass", "clave", false, WifiNotKept.PASSWORD_WITHOUT_TYPE), WifiQr.read("WIFI:T:nopass;S:Casa;P:clave;;"))
         // «H:» that is not a boolean (ZXing reads it as an enterprise setting): not kept. An empty one is «false».
-        assertEquals(WifiRead.Unsupported("Casa", "WPA", "clave", false), WifiQr.read("WIFI:T:WPA;S:Casa;P:clave;H:MSCHAPV2;;"))
+        assertEquals(WifiRead.Unsupported("Casa", "WPA", "clave", false, WifiNotKept.SETTING), WifiQr.read("WIFI:T:WPA;S:Casa;P:clave;H:MSCHAPV2;;"))
+        // A space around the value of «T:» is not trimmed (ZXing keeps it): a type Clavero does not keep.
+        assertEquals(WifiRead.Unsupported("Casa", " WPA", "clave", false, WifiNotKept.SECURITY), WifiQr.read("WIFI:T: WPA;S:Casa;P:clave;;"))
         assertEquals(wpa("Casa", "clave"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave;H:;;"))
         // An empty type is no type.
         assertEquals(WifiConfig("Casa", "", "nopass", false), WifiQr.parse("WIFI:T:;S:Casa;;"))
@@ -165,15 +189,17 @@ class WifiQrTest {
             assertNull(t, WifiQr.parse(t))
             assertEquals(t, WifiRead.Malformed, WifiQr.read(t))
         }
-        // A name of spaces is a name (the network's, as it is written).
-        assertEquals(WifiConfig(" ", "", "nopass", false), WifiQr.parse("WIFI:S: ;;"))
+        // A name of spaces is a name, but the form would not keep it as it is (m-3): shown, not kept.
+        assertEquals(WifiRead.Unsupported(" ", "nopass", "", false, WifiNotKept.NAME_SPACES), WifiQr.read("WIFI:S: ;;"))
     }
 
     @Test fun aMissingTerminatorIsTolerated() {
         assertEquals(wpa("Casa", "clave"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave"))
         assertEquals(wpa("Casa", "clave"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave;"))
-        // Spaces and line breaks around the whole text are not part of it.
-        assertEquals(wpa("Casa", "clave"), WifiQr.parse("  WIFI:T:WPA;S:Casa;P:clave;;\n"))
+        // Spaces and line breaks after the closing «;;» are not part of it.
+        assertEquals(wpa("Casa", "clave"), WifiQr.parse("WIFI:T:WPA;S:Casa;P:clave;;\n "))
+        // Without «;;», what follows is the last value's, as for ZXing: a name ending in a line break is not kept (m-3).
+        assertEquals(WifiRead.Unsupported("Casa\n", "nopass", "", false, WifiNotKept.NAME_SPACES), WifiQr.read("WIFI:S:Casa\n"))
     }
 
     @Test fun whatDoesNotReadAsFieldsIsRefused() {
@@ -186,6 +212,14 @@ class WifiQrTest {
             "WIFI:S\\:x:a;;", // A key that is not letters and digits.
             "WIFI:1S:a;;",
             "WIFI://banco.es/",
+            // I-2: ZXing looks for «S:», «P:», «T:» and «H:» anywhere in the text: one that does not start a field means
+            // another reader may see another network or a password where Clavero sees none.
+            "WIFI:T:WPA;S:Casa;XP:secreta;;", "WIFI:T:WPA;PS:otra;S:Casa;P:clave;;", "WIFI:T:WPA;S:xP:mala;P:buena;;",
+            "WIFI:T:WPA;S:Casa;P:a\\;S:otra;;", "WIFI:T:WPA;S:Casa\\T:WEP;;", "WIFI:S:Casa;SH:true;;",
+            // The prefix and the known keys as ZXing reads them: in capitals, at the very start, nothing before.
+            "wifi:T:WPA;S:Casa;P:clave;;", "Wifi:S:Casa;;", "WIFI:t:WPA;S:Casa;;", "WIFI:s:Casa;;", "WIFI:S:Casa;p:clave;;",
+            "WIFI:S:Casa;h:true;;", " WIFI:S:Casa;;", "\uFEFFWIFI:S:Casa;;", "\u200BWIFI:S:Casa;;", "\nWIFI:S:Casa;;",
+            "WIFI:S:a; S:b;;", "WIFI:S:Casa ;;\u200B",
         )) {
             assertNull(t, WifiQr.parse(t))
             assertEquals(t, WifiRead.Malformed, WifiQr.read(t))
@@ -204,7 +238,7 @@ class WifiQrTest {
             // A text read as usable gives back the same thing when written again and read once more.
             if (read is WifiRead.Usable) {
                 assertEquals(read.config, parsed)
-                assertEquals(t, read.config, WifiQr.parse(WifiQr.encode(read.config)))
+                if (WifiQr.problem(read.config) == null) assertEquals(t, read.config, WifiQr.parse(WifiQr.encode(read.config)))
             } else {
                 assertNull(parsed)
             }
@@ -219,10 +253,21 @@ class WifiQrTest {
         assertEquals("WIFI:T:WPA;S:\"a\";P:\"0\";H:false;;", WifiQr.encode(wpa("a", "0")))
         // Not only hexadecimal: as it is.
         assertEquals("WIFI:T:WPA;S:Café;P:abcdeg;H:false;;", WifiQr.encode(wpa("Café", "abcdeg")))
-        // 64 hexadecimal digits (what WPA reads as a raw key when it is not quoted) are written in quotes as well:
-        // Clavero keeps text and does not guess which one the user meant (in «Dudas» of the task's report).
+        // m-2: a length that can only be a raw key is not quoted. WPA: 64 hexadecimal digits (Android's documentation of
+        // WifiConfiguration.preSharedKey: «a string of 64 hex digits for raw PSK»; a passphrase is 8 to 63 characters).
+        // WEP: 10, 26, 32 or 58 (the keys of 40, 104, 128 and 232 bits, whose text forms are 5, 13, 16 and 29 characters).
         val raw = "0123456789abcdef".repeat(4)
-        assertEquals("WIFI:T:WPA;S:Casa;P:\"$raw\";H:false;;", WifiQr.encode(wpa("Casa", raw)))
+        assertEquals("WIFI:T:WPA;S:Casa;P:$raw;H:false;;", WifiQr.encode(wpa("Casa", raw)))
+        assertEquals("WIFI:T:WPA;S:Casa;P:\"${raw.dropLast(1)}\";H:false;;", WifiQr.encode(wpa("Casa", raw.dropLast(1))))
+        assertEquals("WIFI:T:WPA;S:Casa;P:\"${raw}0\";H:false;;", WifiQr.encode(wpa("Casa", raw + "0")))
+        for (n in 1..64) {
+            val key = raw.take(n)
+            val quoted = WifiQr.encode(WifiConfig("Casa", key, "WEP", false)).contains("P:\"$key\";")
+            assertEquals("WEP $n", n !in setOf(10, 26, 32, 58), quoted)
+            assertEquals(WifiConfig("Casa", key, "WEP", false), WifiQr.parse(WifiQr.encode(WifiConfig("Casa", key, "WEP", false))))
+        }
+        // The name is always quoted when it is hexadecimal: an SSID has no raw form here.
+        assertEquals("WIFI:T:WPA;S:\"$raw\";P:x;H:false;;", WifiQr.encode(wpa(raw, "x")))
         // Read: the quotes go, and hexadecimal is never decoded, quoted or not.
         assertEquals(wpa("CAFE", "12345678"), WifiQr.parse("WIFI:T:WPA;S:\"CAFE\";P:\"12345678\";;"))
         assertEquals(wpa("CAFE", "12345678"), WifiQr.parse("WIFI:T:WPA;S:CAFE;P:12345678;;"))
@@ -257,8 +302,26 @@ class WifiQrTest {
         }
     }
 
+    @Test fun aNetworkWithAPasswordTypeButNoPasswordIsATextNotACode() {
+        // m-1: WPA or WEP with nothing to join with: no code, and the screen says what is missing.
+        for (security in listOf("WPA", "WEP")) {
+            val c = WifiConfig("Casa", "", security, false)
+            assertEquals(security, WIFI_QR_NO_PASSWORD, WifiQr.problem(c))
+            assertEquals(listOf(WIFI_QR_NO_PASSWORD), wifiQrLines(c))
+            try {
+                WifiQr.encode(c)
+                fail(security)
+            } catch (e: IllegalArgumentException) {
+                assertEquals(WIFI_QR_NO_PASSWORD, e.message)
+            }
+        }
+        // Read, it is still a network the vault can hold (the password can be written in «Editar»).
+        assertEquals(wpa("Casa", ""), WifiQr.parse("WIFI:T:WPA;S:Casa;;"))
+    }
+
     @Test fun anUnknownSecurityIsNeverWrittenAsItIs() {
-        // A copy made elsewhere can bring any text there: written as it is, «WPA;S:otra» would add a field of its own.
+        // A copy made elsewhere can bring any text there: written as it is, «WPA;S:otra» would add a field of its own. The
+        // form keeps WPA2 as «WPA», so a stored «WPA2» is one of these too.
         for (security in listOf("WPA;S:otra", "", "WPA2", "wpa", "Abierta")) {
             val c = WifiConfig("Casa", "clave", security, false)
             assertEquals(security, WIFI_QR_NO_SECURITY, WifiQr.problem(c))
@@ -303,8 +366,22 @@ class WifiQrTest {
         assertEquals(listOf(WIFI_QR_WARNING_OPEN, WIFI_QR_OPEN_WITH_PASSWORD), wifiQrLines(WifiConfig("Bar", "clave", "nopass", false)))
         // No code: only why, and no warning about a code that is not there.
         assertEquals(listOf(WIFI_QR_NO_NAME), wifiQrLines(wpa("", "clave")))
+        assertEquals(listOf(WIFI_QR_NO_PASSWORD), wifiQrLines(wpa("Casa", "")))
         assertEquals(listOf(WIFI_QR_NO_SECURITY), wifiQrLines(WifiConfig("Casa", "clave", "WPA2", false)))
         assertEquals(listOf(WIFI_QR_TOO_BIG), wifiQrLines(wpa("Casa", "x".repeat(WIFI_QR_MAX_CHARS))))
+    }
+
+    // ---- What starts like a wifi code: a secret, whatever the reader finds in it ----
+
+    @Test fun whatStartsLikeAWifiCodeIsSeenSoWithoutReadingIt() {
+        for (t in listOf("WIFI:", "wifi:x", " WIFI:S:a;;", "\uFEFFWIFI:", "\u200B\u202EWiFi:", "\n\tWIFI:S:" + "x".repeat(10_000))) {
+            assertTrue(t.take(12), WifiQr.startsLikeWifi(t))
+            assertTrue(t.take(12), WifiQr.read(t) != null)
+        }
+        for (t in listOf("", "WIFI", "WIF:S:a;;", "xWIFI:S:a;;", "https://x/WIFI:S:a;;", "Clave WIFI:S:a;;")) {
+            assertFalse(t, WifiQr.startsLikeWifi(t))
+            assertNull(t, WifiQr.read(t))
+        }
     }
 
     // ---- What never shows the password ----
@@ -313,7 +390,7 @@ class WifiQrTest {
         val c = wpa("Casa", "clave-secreta")
         assertFalse("clave-secreta" in c.toString())
         assertFalse("clave-secreta" in WifiRead.Usable(c).toString())
-        assertFalse("clave-secreta" in WifiRead.Unsupported("Casa", "WPA2", "clave-secreta", false).toString())
+        assertFalse("clave-secreta" in WifiRead.Unsupported("Casa", "WPA3", "clave-secreta", false, WifiNotKept.SECURITY).toString())
     }
 
     // ---- From a vault entry ----

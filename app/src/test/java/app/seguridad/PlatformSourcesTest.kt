@@ -1143,6 +1143,23 @@ class PlatformSourcesTest {
         assertTrue("form.takeHandOver(wifiQrText)?.let(form::applyWifiQr)" in form)
     }
 
+    /**
+     * 2.0, task 9, ronda 1 (I-1): leaving the app drops the QR texts waiting at the vault's gate, from the same place
+     * and under the same rule as the lock on leaving (MainActivity.onStop), before it; both import screens go back to
+     * the inspector when that happened.
+     */
+    @Test fun `task 9 leaving the app drops the pending QR texts, from onStop`() {
+        val stop = code("MainActivity.kt").substringAfter("override fun onStop()").substringBefore("\n    }")
+        val drop = stop.indexOf("if (!isChangingConfigurations) container.leftApp(VaultLock.keepOpenOnce)")
+        assertTrue(drop >= 0 && drop < stop.indexOf("container.vault.lock(LockReason.LEFT_APP)"))
+        val src = code("ui/screens/QrInspectScreen.kt")
+        for (screen in listOf("fun QrTotpImportScreen(", "fun QrWifiImportScreen(")) {
+            val body = src.substringAfter(screen).substringBefore("\n}\n")
+            val left = body.indexOf("if (vm.pending.left) {\n        LaunchedEffect(Unit) { done() }")
+            assertTrue(screen, left >= 0 && left < body.indexOf("if (state is VaultState.Unlocked)"))
+        }
+    }
+
     /** 2.0, task 9: nothing joins a network. No wifi API, no intent to the system's settings, no new permission or component. */
     @Test fun `task 9 no way to join a network and no new permission`() {
         val wifiApi = Regex("""WifiManager|WifiNetworkSuggestion|WifiNetworkSpecifier|WifiConfiguration|android\.net\.wifi|ACTION_WIFI|WIFI_ADD_NETWORKS|ACTION_WIRELESS_SETTINGS""")

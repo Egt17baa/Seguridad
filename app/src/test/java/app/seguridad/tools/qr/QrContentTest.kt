@@ -29,7 +29,9 @@ class QrContentTest {
         assertEquals(QrKind.Wifi("Bar", "nopass", null, false), classifyQr("WIFI:T:nopass;S:Bar;;"))
         assertEquals(QrKind.Wifi("Bar", "nopass", null, false), classifyQr("WIFI:S:Bar;;"))
         assertEquals(QrKind.Wifi("Viejo", "WEP", "12345", false), classifyQr("WIFI:T:WEP;S:Viejo;P:12345;;"))
-        assertEquals(QrKind.Wifi("x", "WPA", "y", false), classifyQr("wifi:t:wpa;S:x;P:y;;"))
+        // 2.0, task 9, ronda 1: ZXing reads only «WIFI:» and the keys in capitals, so another case cannot be read safely.
+        assertEquals(QrKind.WifiUnreadable("wifi:t:wpa;S:x;P:y;;"), classifyQr("wifi:t:wpa;S:x;P:y;;"))
+        assertEquals(QrKind.Wifi("x", "WPA", "y", false), classifyQr("WIFI:T:wpa;S:x;P:y;;"))
     }
 
     @Test

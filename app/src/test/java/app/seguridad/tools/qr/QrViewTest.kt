@@ -143,7 +143,8 @@ class QrViewTest {
         assertTrue(qrView("WIFI:T:WPA;S:Casa;P:clave;;").carriesSecret)
         assertTrue(qrView("otpauth://totp/a?secret=JBSWY3DPEHPK3PXP").carriesSecret)
         assertTrue(qrView("otpauth-migration://offline?data=AAAA").carriesSecret)
-        assertFalse(qrView("WIFI:T:nopass;S:Bar;;").carriesSecret)
+        // 2.0, task 9, ronda 1 (I-2): any wifi code, open or not, whatever Clavero read in it.
+        assertTrue(qrView("WIFI:T:nopass;S:Bar;;").carriesSecret)
         assertFalse(qrView("https://banco.es/").carriesSecret)
         assertFalse(qrView("SGK1:ABC").carriesSecret)
     }
@@ -180,7 +181,7 @@ class QrViewTest {
         val open = qrView("WIFI:T:nopass;S:Bar;;")
         assertEquals(listOf(QR_WIFI_OPEN), open.alerts)
         assertNull(open.secret)
-        assertFalse(open.textHidden)
+        assertTrue(open.textHidden) // 2.0, task 9, ronda 1 (I-2): hidden whatever was read.
         assertEquals("Bar", open.field("Red"))
 
         val wep = qrView("WIFI:T:WEP;S:Viejo;P:12345;;")

@@ -1,6 +1,7 @@
 package app.seguridad.ui.screens
 
 import app.seguridad.tools.qr.WIFI_QR_NO_NAME
+import app.seguridad.tools.qr.WIFI_QR_NO_PASSWORD
 import app.seguridad.tools.qr.WIFI_QR_NO_SECURITY
 import app.seguridad.tools.qr.WIFI_QR_TOO_BIG
 import app.seguridad.tools.qr.WifiConfig
@@ -39,6 +40,8 @@ class WifiQrDrawingTest {
     @Test fun anEmptyNameOrAnUnknownSecurityIsAText() {
         assertEquals(WifiQrDrawing.Problem(WIFI_QR_NO_NAME), wifiQrDrawing(wpa("", "clave")))
         assertEquals(WifiQrDrawing.Problem(WIFI_QR_NO_SECURITY), wifiQrDrawing(WifiConfig("Casa", "clave", "WPA;S:otra", false)))
+        // m-1: WPA or WEP with no password: no code that cannot join anything.
+        assertEquals(WifiQrDrawing.Problem(WIFI_QR_NO_PASSWORD), wifiQrDrawing(wpa("Casa", "")))
     }
 
     @Test fun tooLargeForAQrCodeIsATextWhereZxingThrows() {
