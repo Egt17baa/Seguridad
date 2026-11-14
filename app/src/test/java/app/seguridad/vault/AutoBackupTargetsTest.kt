@@ -924,8 +924,9 @@ class AutoBackupTargetsTest {
     }
 
     /**
-     * Round 3: a folder whose listing fails never replaces, so its count is never taken as 0: it stays without one and its
-     * request stays; a folder with no count at the success (here one added after the request) is said not looked at.
+     * Round 3: a folder whose listing fails never replaces, so its count is never taken as 0: it stays without a result and
+     * its request stays. Round 4: a folder added after the request is not in it, so the text says in how many folders the
+     * copies of before were deleted (2 of 3) and that in the other one some may be left.
      */
     @Test fun aFailedListingIsNeverAZeroCount() = runTest {
         val s = opened("a", masterA)
