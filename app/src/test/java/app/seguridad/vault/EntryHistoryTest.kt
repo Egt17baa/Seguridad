@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -309,6 +310,49 @@ class EntryHistoryTest {
         assertEquals("Versiones (2)", historyOpen(versions = 2, oldPasswords = 1))
         assertEquals("Contraseñas anteriores (3)", historyOpen(versions = 0, oldPasswords = 3))
     }
+
+    /**
+     * 2.0, tarea 10 (botón de Ajustes, pendientes fila 1): «Borrar todo el historial» con la época de cuando se abrió la
+     * confirmación: un bloqueo entre medias no borra nada, aunque la bóveda se haya vuelto a abrir; bloqueada, tampoco.
+     */
+    @Test fun clearAllHistoryAfterALockClearsNothing() = runTest {
+        val s = open()
+        s.edit(login("uno"))
+        s.edit(login("dos"))
+        val since = s.lockEpoch
+        s.lock()
+        assertNull("Locked: nothing", s.clearAllHistory())
+        s.unlock(master.toCharArray())
+        assertNull("Opened again since the confirmation: nothing", s.clearAllHistory(sinceLock = since))
+        assertEquals(1, s.entry().history.size)
+        assertEquals(1, s.clearAllHistory(sinceLock = s.lockEpoch))
+        assertTrue(s.entry().history.isEmpty())
+        assertEquals(0, s.clearAllHistory(sinceLock = s.lockEpoch))
+    }
+
+    /**
+     * El texto de la confirmación dice que las copias ya hechas conservan el historial (O-2), y es verdad: una copia es el
+     * archivo entero de la bóveda, con el historial; restaurada después de borrarlo, lo trae otra vez.
+     */
+    @Test fun copiesMadeBeforeKeepTheHistory() = runTest {
+        val s = open()
+        s.edit(login("uno"))
+        s.edit(login("dos"))
+        val copy = java.io.ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
+        assertEquals(1, s.clearAllHistory())
+        assertTrue(s.entry().history.isEmpty())
+        val other = store(tmp.newFolder("otra")).apply { load() }
+        other.importReplace(ByteArrayInputStream(copy), master.toCharArray())
+        assertEquals(listOf("uno"), other.entry().history.map { it.entry.password })
+        assertTrue(COPIES_KEEP_IT in HISTORY_ALL_CONFIRM_TEXT)
+        assertTrue("It says the trash too, as the code does", "papelera" in HISTORY_ALL_CONFIRM_TEXT)
+        assertEquals(HISTORY_ALL_LOCKED, historyAllClearedText(null))
+        assertEquals("Historial borrado de 1 entrada.", historyAllClearedText(1))
+        assertEquals("Historial borrado de 3 entradas.", historyAllClearedText(3))
+        for (t in listOf(HISTORY_ALL_TITLE, HISTORY_ALL_SHORT, HISTORY_ALL_CLEAR, HISTORY_ALL_CONFIRM_TITLE, HISTORY_ALL_CONFIRM_TEXT, historyAllClearedText(0))) {
+            assertEquals(t, emptyList<String>(), app.seguridad.tools.ForbiddenWords.problems(t))
+        }
+    }
 }
 
 /** Re-review N-1 of task 3: the history screen shows only the store's own texts. */
@@ -321,4 +365,5 @@ class StoreSaveErrorTextTest {
         assertEquals(TRASH_SAVE_FAILED, storeSaveErrorText(IllegalStateException()))
         assertEquals(TRASH_SAVE_FAILED, storeSaveErrorText(java.io.IOException("No space left on device")))
     }
+
 }

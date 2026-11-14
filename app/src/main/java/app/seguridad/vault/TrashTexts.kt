@@ -86,6 +86,30 @@ fun historyClearTitle(name: String): String = "¿Borrar el historial de «$name�
 /** On view in the confirmation of «Borrar historial» (O-2). */
 const val HISTORY_CLEAR_TEXT = "Se quitan sus versiones y sus contraseñas anteriores. $COPIES_KEEP_IT"
 const val HISTORY_CLEARED = "Historial borrado"
+
+/*
+ * 2.0, task 10 (pendientes, row 1): «Borrar todo el historial» in Ajustes ([VaultStore.clearAllHistory]). What it takes is
+ * what the code takes ([withoutHistory]): the versions and the old passwords of every entry, those in the trash too. The
+ * copies already made keep them: a copy is the whole vault file ([writeBackup]), history included (O-2).
+ */
+const val HISTORY_ALL_TITLE = "Historial de las entradas"
+const val HISTORY_ALL_SHORT = "Cada entrada guarda sus versiones anteriores. Aquí puedes borrarlas de todas a la vez."
+const val HISTORY_ALL_CLEAR = "Borrar todo el historial"
+const val HISTORY_ALL_CONFIRM_TITLE = "¿Borrar el historial de todas las entradas?"
+
+/** On view in the confirmation (O-2). */
+const val HISTORY_ALL_CONFIRM_TEXT = "Se quitan las versiones y las contraseñas anteriores de todas las entradas, también de las de la papelera. $COPIES_KEEP_IT"
+
+/** The vault locked before the history was cleared: nothing changed. */
+const val HISTORY_ALL_LOCKED = "La bóveda se bloqueó: no se ha borrado nada."
+
+/** What «Borrar todo el historial» did: [cleared] entries had some; null when the vault locked first (nothing changed). */
+fun historyAllClearedText(cleared: Int?): String = when (cleared) {
+    null -> HISTORY_ALL_LOCKED
+    0 -> "Ninguna entrada tenía historial."
+    1 -> "Historial borrado de 1 entrada."
+    else -> "Historial borrado de $cleared entradas."
+}
 /**
  * The card's button to the versions (review M-4): their number; with none, the old passwords the screen shows instead
  * (the list of 1.4.3, or one whose version was trimmed), so «Borrar historial» never deletes what is not shown.

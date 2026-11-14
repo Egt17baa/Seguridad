@@ -1227,15 +1227,26 @@ class VaultStore(
         if (cleared === e) null else data.copy(entries = data.entries.map { if (it === e) cleared else it })
     }
 
-    /** 2.0, task 3: «Borrar historial» of every entry, those in the trash too; how many had any. */
-    suspend fun clearAllHistory(): Int {
+    /**
+     * 2.0, task 3: «Borrar historial» of every entry, those in the trash too; how many had any (0: none had, nothing
+     * saved). 2.0, task 10 (the button of Ajustes): with [sinceLock] (the [lockEpoch] read when its confirmation opened), a
+     * lock since then clears nothing, also if the vault was opened again: null, as when the vault is locked. Throws what
+     * a save throws (UPGRADE_PENDING while the upgrade dialog waits, a write that fails).
+     */
+    suspend fun clearAllHistory(sinceLock: Int = epoch): Int? {
         var count = 0
-        modifyData { data ->
+        var ran = false
+        val saved = modifyData(sinceLock = sinceLock) { data ->
+            ran = true
             count = 0
             val entries = data.entries.map { e -> e.withoutHistory().also { if (it !== e) count++ } }
             if (count == 0) null else data.copy(entries = entries)
-        }.let { saved -> if (!saved) count = 0 }
-        return count
+        }
+        return when {
+            !ran -> null
+            saved -> count
+            else -> 0
+        }
     }
 
     /**

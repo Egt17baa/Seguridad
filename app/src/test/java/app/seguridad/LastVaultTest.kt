@@ -1,0 +1,107 @@
+package app.seguridad
+
+import app.seguridad.vault.PRIMARY_VAULT_ID
+import app.seguridad.vault.StaleBiometricKey
+import app.seguridad.vault.TagColor
+import app.seguridad.vault.VAULTS_FILE
+import app.seguridad.vault.VaultDeletion
+import app.seguridad.vault.VaultRegistry
+import app.seguridad.vault.VaultState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+
+/**
+ * 2.0, tarea 10: recordar la última bóveda (diseño «Recordar la última bóveda»: sale elegida en la pantalla de
+ * desbloqueo). La app arranca en la última abierta; si ya no está (borrada, o el registro la nombra sin tenerla), en la
+ * primera de la lista. La huella siempre es de la bóveda que se enseña: una respuesta tardía de la huella de otra bóveda
+ * no abre nada ni apaga su huella.
+ */
+class LastVaultTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val cache by lazy { tmp.newFolder("cache") }
+    private val masterA = "maestra-de-prueba-a"
+    private val masterB = "maestra-de-prueba-b"
+
+    private fun container(scope: kotlinx.coroutines.CoroutineScope) = AppContainer(tmp.root, cache, appVersion = "test", appScope = scope)
+
+    @Test fun theAppStartsOnTheLastOneOpened() = runTest {
+        val c = container(backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val b = c.createVault("Dos", masterB.toCharArray())
+        // The next start (a new process) shows «Dos», locked.
+        val again = container(backgroundScope)
+        assertEquals(b, again.activeVaultId)
+        again.vault.load()
+        assertEquals(VaultState.Locked, again.vault.state.value)
+        again.switchTo(PRIMARY_VAULT_ID)
+        assertEquals(PRIMARY_VAULT_ID, container(backgroundScope).activeVaultId)
+    }
+
+    @Test fun aDeletedLastVaultFallsBackToTheFirst() = runTest {
+        val c = container(backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val b = c.createVault("Dos", masterB.toCharArray())
+        val d = c.createVault("Tres", "maestra-de-prueba-c".toCharArray())
+        c.registry.reorder(listOf(b, d, PRIMARY_VAULT_ID))
+        assertEquals(d, c.registry.lastOpened)
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(d, "maestra-de-prueba-c".toCharArray(), "Tres"))
+        // The first one left in the list, now and at the next start.
+        assertEquals(b, c.activeVaultId)
+        assertEquals(b, c.registry.lastOpened)
+        assertEquals(b, container(backgroundScope).activeVaultId)
+    }
+
+    @Test fun aRegistryNamingAMissingVaultFallsBackToTheFirst() = runTest {
+        val r = VaultRegistry(tmp.root, Dispatchers.Unconfined)
+        val a = r.create(TagColor.RED)
+        r.setLastOpened(a.id)
+        val text = File(tmp.root, VAULTS_FILE).readText()
+        File(tmp.root, VAULTS_FILE).writeText(text.replace("\"lastOpened\":\"${a.id}\"", "\"lastOpened\":\"${"f".repeat(32)}\""))
+        assertEquals(PRIMARY_VAULT_ID, VaultRegistry(tmp.root, Dispatchers.Unconfined).lastOpened)
+        // A name that is not an id at all, too.
+        File(tmp.root, VAULTS_FILE).writeText(text.replace("\"lastOpened\":\"${a.id}\"", "\"lastOpened\":\"../vault\""))
+        assertEquals(PRIMARY_VAULT_ID, VaultRegistry(tmp.root, Dispatchers.Unconfined).lastOpened)
+        assertEquals(PRIMARY_VAULT_ID, container(backgroundScope).activeVaultId)
+    }
+
+    /**
+     * The fingerprint's prompt answers late, after a switch: the key is of the vault it was asked for, which is no longer
+     * the one shown. It never opens it (only the vault shown can be open), never opens the one shown, and is not taken for
+     * a stale key (which would turn that vault's fingerprint off).
+     */
+    @Test fun aLateFingerprintOfAnotherVaultOpensNothing() = runTest {
+        val c = container(backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val a = c.vault
+        val keyOfA = a.dataKeyCopy()
+        assertNotNull(keyOfA)
+        c.createVault("Dos", masterB.toCharArray())
+        val b = c.vault
+        b.lock()
+        try {
+            a.unlockWithKey(keyOfA!!)
+        } catch (e: StaleBiometricKey) {
+            throw AssertionError("A key of its own vault is never stale", e)
+        } catch (e: Exception) {
+            // MasterRequired and the like are fine: nothing opens.
+        }
+        assertFalse(a.state.value is VaultState.Unlocked)
+        assertFalse(b.state.value is VaultState.Unlocked)
+        assertTrue(c.vault === b)
+    }
+}

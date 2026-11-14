@@ -1,5 +1,11 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.settings.APPEARANCE_TITLE
+import app.seguridad.settings.HIGH_CONTRAST
+import app.seguridad.settings.HIGH_CONTRAST_SHORT
+import app.seguridad.settings.REDUCE_TRANSPARENCY
+import app.seguridad.settings.REDUCE_TRANSPARENCY_SHORT
+import app.seguridad.settings.SettingItem
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -70,11 +76,6 @@ import kotlinx.coroutines.launch
 // 2.0, task 5 bis: the texts of Ajustes → «Aspecto» (minimal text, M-3: a line on view, the rest under «Más información»).
 // «Cristal» is only the name of a style here (O-C4); the blur is said to work from Android 12; nothing promises contrast
 // as a guarantee (O-C6); the wallpaper's colours as O-C5 words them.
-internal const val APPEARANCE_TITLE = "Aspecto"
-internal const val APPEARANCE_CHANGE = "Cambiar el aspecto"
-internal const val APPEARANCE_MODE = "Modo"
-internal const val APPEARANCE_STYLE = "Estilo"
-internal const val APPEARANCE_PALETTE = "Paleta"
 internal const val STYLE_GLASS_SHORT = "Cristal: paneles translúcidos sobre un fondo de color."
 internal const val STYLE_SOLID_SHORT = "Sólido: paneles opacos sobre un fondo liso, sin transparencias."
 internal const val STYLE_MORE = "Desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás. En Android 8 a 11 son más opacos. " +
@@ -95,11 +96,6 @@ internal const val PREVIEW_ENTRY = "Ejemplo"
 internal const val PREVIEW_LINE = "usuario@ejemplo.com"
 internal const val PREVIEW_TAG = "#trabajo"
 internal const val PREVIEW_BUTTON = "Botón"
-internal const val REDUCE_TRANSPARENCY = "Reducir transparencias"
-internal const val REDUCE_TRANSPARENCY_SHORT = "Paneles opacos y sin difuminar."
-internal const val HIGH_CONTRAST = "Alto contraste"
-internal const val HIGH_CONTRAST_SHORT = "Textos con más contraste y bordes marcados. Enciende «Reducir transparencias»."
-internal const val TRANSPARENCY_AND_CONTRAST = "Transparencias y contraste"
 
 /** R-C8: the one line after updating, with «Entendido» ([app.seguridad.settings.AppearanceNotice]). */
 internal const val APPEARANCE_NOTICE = "Aspecto nuevo. Para volver a uno sin transparencias: Ajustes → Aspecto → «Sólido»."
@@ -153,15 +149,15 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Preview(settings, if (customOpen) draft else null)
-            Section(APPEARANCE_MODE) {
+            Section(SettingItem.MODE.title) {
                 Choices(ThemeMode.entries, settings.theme, { it.modeLabel() }) { v -> change { it.copy(theme = v) } }
             }
-            Section(APPEARANCE_STYLE) {
+            Section(SettingItem.STYLE.title) {
                 Choices(ThemeStyle.entries, settings.style, { it.label() }) { v -> change { it.copy(style = v) } }
                 Hint(if (settings.style == ThemeStyle.GLASS) STYLE_GLASS_SHORT else STYLE_SOLID_SHORT)
                 MoreInfo { Hint(STYLE_MORE) }
             }
-            Section(APPEARANCE_PALETTE) {
+            Section(SettingItem.PALETTE.title) {
                 val offered = PaletteId.entries.filter { it != PaletteId.WALLPAPER || wallpaperOffered }
                 // Review M-5: what is drawn is what is marked (the wallpaper's colours before Android 12, or a
                 // «Personalizado» without tones, are drawn as «Noche»).
@@ -200,7 +196,7 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
                 }
             }
             // Review M-4: a title of its own for both switches.
-            Section(TRANSPARENCY_AND_CONTRAST) {
+            Section(SettingItem.TRANSPARENCY.title) {
                 // «Alto contraste» turns it on: the switch shows it on, and it cannot be turned off while that is on.
                 SwitchRow(REDUCE_TRANSPARENCY, settings.reduceTransparency || settings.highContrast, enabled = !settings.highContrast) { v ->
                     change { it.copy(reduceTransparency = v) }

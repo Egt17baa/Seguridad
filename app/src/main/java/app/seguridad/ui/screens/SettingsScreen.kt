@@ -1,6 +1,36 @@
 package app.seguridad.ui.screens
 
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.staticCompositionLocalOf
+import app.seguridad.settings.ABOUT_LICENSES_OPEN
+import app.seguridad.settings.ABOUT_PRIVACY_OPEN
+import app.seguridad.settings.APPEARANCE_CHANGE
+import app.seguridad.settings.APPEARANCE_TITLE
+import app.seguridad.settings.SETTING_INFO_OPEN
+import app.seguridad.settings.SettingItem
+import app.seguridad.settings.SettingPlace
+import app.seguridad.settings.SettingsSearch
+import app.seguridad.settings.VAULT_CHANGE_MASTER
+import app.seguridad.settings.VAULT_EXPORT
+import app.seguridad.settings.VAULT_IMPORT
+import app.seguridad.settings.simpleOn
+import app.seguridad.tools.SIMPLE_MODE_SHORT
+import app.seguridad.tools.SIMPLE_MODE_TITLE
+import app.seguridad.vault.HISTORY_ALL_CLEAR
+import app.seguridad.vault.HISTORY_ALL_CONFIRM_TEXT
+import app.seguridad.vault.HISTORY_ALL_CONFIRM_TITLE
+import app.seguridad.vault.HISTORY_ALL_SHORT
+import app.seguridad.vault.HISTORY_CLEAR
+import app.seguridad.vault.historyAllClearedText
+import app.seguridad.vault.storeSaveErrorText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -83,7 +113,6 @@ import app.seguridad.tools.CLIPBOARD_CLEAR_HINT
 import app.seguridad.tools.CLIPBOARD_CLEAR_SHORT
 import app.seguridad.tools.KDF_HIGH_SHORT
 import app.seguridad.tools.KDF_HIGH_UNAVAILABLE
-import app.seguridad.tools.KEY_LOCATION_TITLE
 import app.seguridad.tools.KeyLevel
 import app.seguridad.tools.LOCK_ON_EXIT_HINT
 import app.seguridad.tools.LOCK_ON_EXIT_SHORT
@@ -130,8 +159,8 @@ import kotlinx.coroutines.withContext
 internal const val SETTING_SAVE_FAILED = "No se pudo guardar el ajuste"
 
 @Composable
-internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
-    SectionCard(Modifier.fillMaxWidth()) {
+internal fun Section(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    SectionCard(modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             content()
@@ -142,6 +171,70 @@ internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit)
 @Composable
 internal fun Hint(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/**
+ * 2.0, task 10: where each section of Ajustes is ([anchor]), for the results of [SettingsSearch]: only the sections drawn
+ * now are there (the fingerprint key's only while the fingerprint is on), so a result is offered only if it can be shown.
+ */
+private class SettingAnchors {
+    val requesters = mutableStateMapOf<SettingItem, BringIntoViewRequester>()
+}
+
+private val LocalSettingAnchors = staticCompositionLocalOf<SettingAnchors?> { null }
+
+/** The anchor of [item]'s section: the search's result scrolls to it. Nothing outside Ajustes. */
+@Composable
+private fun anchor(item: SettingItem): Modifier {
+    val anchors = LocalSettingAnchors.current ?: return Modifier
+    val requester = remember { BringIntoViewRequester() }
+    DisposableEffect(anchors, item, requester) {
+        anchors.requesters[item] = requester
+        onDispose { if (anchors.requesters[item] === requester) anchors.requesters.remove(item) }
+    }
+    return Modifier.bringIntoViewRequester(requester)
+}
+
+/**
+ * «Buscar en Ajustes» (2.0, task 10): the query, cut to [SettingsSearch.QUERY_MAX], kept in memory only (a fixed text
+ * search; nothing of it is saved); each result opens its setting: the section here, or «Aspecto» or «Acerca de».
+ */
+@Composable
+private fun SettingsSearchBox(anchors: SettingAnchors, onAppearance: () -> Unit, onAbout: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf("") }
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = SettingsSearch.cut(it) },
+        label = { Text(SettingsSearch.HINT) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    if (query.isBlank()) return
+    val found = remember(query) { SettingsSearch.find(query) }
+    val shown = found.filter { it.place != SettingPlace.SETTINGS || it in anchors.requesters }
+    if (shown.isEmpty()) Hint(SettingsSearch.NOTHING)
+    shown.forEach { item ->
+        TextButton(
+            onClick = {
+                when (item.place) {
+                    SettingPlace.SETTINGS -> anchors.requesters[item]?.let { r -> scope.launch { r.bringIntoView() } }
+                    SettingPlace.APPEARANCE -> onAppearance()
+                    SettingPlace.ABOUT -> onAbout()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                when (item.place) {
+                    SettingPlace.SETTINGS -> item.title
+                    SettingPlace.APPEARANCE -> "$APPEARANCE_TITLE → ${item.title}"
+                    SettingPlace.ABOUT -> "$SETTING_INFO_OPEN → ${item.title}"
+                },
+                Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
 
 /** One option of a single-choice list; the whole row is the touch target. */
@@ -284,7 +377,7 @@ private fun AutoBackupSection(
         }
     }
 
-    Section("Copia automática") {
+    Section(SettingItem.AUTO_BACKUP.title, anchor(SettingItem.AUTO_BACKUP)) {
         Hint(AUTO_BACKUP_SHORT)
         Hint(AUTO_BACKUP_DELETES_SHORT)
         // O-4 of the Abogado Digital: in plain view, not under «Más información».
@@ -473,7 +566,7 @@ private fun FingerprintKeySection(vaultId: String, vaultState: VaultState) {
         }
     }
     val current = level ?: return
-    Section(KEY_LOCATION_TITLE) {
+    Section(SettingItem.FINGERPRINT_KEY.title, anchor(SettingItem.FINGERPRINT_KEY)) {
         Text(keyLevelLabel(current), style = MaterialTheme.typography.bodyMedium)
         if (offerHint) {
             Hint(STRONGBOX_AVAILABLE_NOTICE)
@@ -515,16 +608,18 @@ fun SettingsScreen(
         }
     }
 
+    val anchors = remember { SettingAnchors() }
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = { TopAppBar(title = { Text("Ajustes") }) },
-    ) { padding ->
+    ) { padding -> CompositionLocalProvider(LocalSettingAnchors provides anchors) {
         Column(
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Section("Bloquear la bóveda tras no usarla") {
+            SettingsSearchBox(anchors, onAppearance, onAbout)
+            Section(SettingItem.LOCK.title, anchor(SettingItem.LOCK)) {
                 Choices(LockAfter.entries, settings.lockAfter, { it.label }, enabled = { editable }) { v ->
                     if (settingsEditable(vault.state.value)) change { it.copy(lockAfter = v) }
                 }
@@ -532,7 +627,7 @@ fun SettingsScreen(
                 Hint(LOCK_ON_EXIT_SHORT)
                 MoreInfo { Hint(LOCK_ON_EXIT_HINT) }
             }
-            Section("Borrar del portapapeles lo copiado") {
+            Section(SettingItem.CLIPBOARD.title, anchor(SettingItem.CLIPBOARD)) {
                 Choices(ClipboardClear.entries, settings.clipboard, { "A los ${it.seconds} s" }, enabled = { editable }) { v ->
                     if (settingsEditable(vault.state.value)) change { it.copy(clipboard = v) }
                 }
@@ -540,7 +635,7 @@ fun SettingsScreen(
                 Hint(CLIPBOARD_CLEAR_SHORT)
                 MoreInfo { Hint(CLIPBOARD_CLEAR_HINT) }
             }
-            Section("Coste de Argon2id para lo nuevo") {
+            Section(SettingItem.KDF.title, anchor(SettingItem.KDF)) {
                 // 2.0, task 2: the cost is each vault's (the one shown).
                 Choices(KdfProfile.entries, settings.vault(vault.id).kdf, { it.label }, enabled = { editable && (it != KdfProfile.HIGH || highAvailable) }) { v ->
                     if (settingsEditable(vault.state.value)) change { s -> s.withVault(vault.id) { it.copy(kdf = v) } }
@@ -558,16 +653,22 @@ fun SettingsScreen(
                 }
             }
             // 2.0, task 5 bis: the mode, the style and the palette have their own screen, with a preview.
-            Section(APPEARANCE_TITLE) {
+            Section(SettingItem.APPEARANCE.title, anchor(SettingItem.APPEARANCE)) {
                 Hint(appearanceSummary(settings))
                 OutlinedButton(onClick = onAppearance, modifier = Modifier.fillMaxWidth()) { Text(APPEARANCE_CHANGE) }
             }
-            Section("Copia de la bóveda") {
+            // 2.0, task 10: «Modo sencillo» only filters Herramientas (O-7: never a notice nor a setting of protection), so
+            // it changes with the vault locked too.
+            Section(SettingItem.SIMPLE_MODE.title, anchor(SettingItem.SIMPLE_MODE)) {
+                SettingSwitch(SIMPLE_MODE_TITLE, settings.simpleOn) { v -> change { it.copy(simpleMode = v) } }
+                Hint(SIMPLE_MODE_SHORT)
+            }
+            Section(SettingItem.VAULT_COPY.title, anchor(SettingItem.VAULT_COPY)) {
                 val unlocked = vaultState is VaultState.Unlocked
                 val canImport = unlocked || vaultState is VaultState.NoVault
-                OutlinedButton(onClick = actions.export, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Exportar bóveda") }
-                OutlinedButton(onClick = actions.import, enabled = canImport, modifier = Modifier.fillMaxWidth()) { Text("Importar copia") }
-                OutlinedButton(onClick = actions.changeMaster, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text("Cambiar contraseña maestra") }
+                OutlinedButton(onClick = actions.export, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text(VAULT_EXPORT) }
+                OutlinedButton(onClick = actions.import, enabled = canImport, modifier = Modifier.fillMaxWidth()) { Text(VAULT_IMPORT) }
+                OutlinedButton(onClick = actions.changeMaster, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text(VAULT_CHANGE_MASTER) }
                 // Reads a copy and changes neither the vault nor a copy: open, locked or with no vault.
                 OutlinedButton(onClick = onCheckBackup, modifier = Modifier.fillMaxWidth()) { Text(BACKUP_CHECK_TITLE) }
                 // 2.0, task 8: one line once 30 days have passed since a copy of this vault was checked (O-5: more below).
@@ -584,11 +685,76 @@ fun SettingsScreen(
             }
             AutoBackupSection(store, vault, autoBackup, releaseIfUnused, snackbar)
             FingerprintKeySection(vault.id, vaultState)
-            Section("Información") {
-                TextButton(onClick = onAbout) { Text("Acerca de, licencias y avisos") }
+            HistorySection(vault, vaultState, snackbar)
+            Section(SettingItem.INFO.title, anchor(SettingItem.INFO)) {
+                TextButton(onClick = onAbout) { Text(SETTING_INFO_OPEN) }
             }
         }
+    } }
+}
+
+/** A switch with its label; the whole row is the touch target (as «Aspecto»'s). */
+@Composable
+private fun SettingSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch, onValueChange = onChange).padding(vertical = 6.dp),
+    ) {
+        Text(label, Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = null)
     }
+}
+
+/**
+ * 2.0, task 10 (pendientes, row 1): «Borrar todo el historial» ([VaultStore.clearAllHistory]), only with the vault open.
+ * The confirmation says on view that the copies already made keep it (O-2); the save takes the [VaultStore.lockEpoch] read
+ * when the confirmation opened, so a lock meanwhile clears nothing, also if the vault was opened again. What it did, or
+ * why not, in the snackbar (fixed texts, never an exception's).
+ */
+@Composable
+private fun HistorySection(vault: VaultStore, vaultState: VaultState, snackbar: SnackbarHostState) {
+    val scope = rememberCoroutineScope()
+    // The epoch when the confirmation opened; null while it is closed. A number, never a secret.
+    var confirmSince by remember { mutableStateOf<Int?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val unlocked = vaultState is VaultState.Unlocked
+    // A lock closes the confirmation.
+    LaunchedEffect(unlocked) { if (!unlocked) confirmSince = null }
+    Section(SettingItem.HISTORY.title, anchor(SettingItem.HISTORY)) {
+        Hint(HISTORY_ALL_SHORT)
+        OutlinedButton(onClick = { confirmSince = vault.lockEpoch }, enabled = unlocked && !busy, modifier = Modifier.fillMaxWidth()) {
+            Text(HISTORY_ALL_CLEAR)
+        }
+        if (!unlocked) Hint(SETTINGS_NEED_OPEN_VAULT)
+    }
+    val since = confirmSince ?: return
+    AlertDialog(
+        onDismissRequest = { confirmSince = null },
+        title = { Text(HISTORY_ALL_CONFIRM_TITLE) },
+        text = {
+            FilterObscuredTouches()
+            Text(HISTORY_ALL_CONFIRM_TEXT)
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                confirmSince = null
+                busy = true
+                scope.launch {
+                    val text = try {
+                        historyAllClearedText(vault.clearAllHistory(sinceLock = since))
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        storeSaveErrorText(e)
+                    } finally {
+                        busy = false
+                    }
+                    snackbar.showSnackbar(text)
+                }
+            }) { Text(HISTORY_CLEAR, color = NegativeColor) }
+        },
+        dismissButton = { TextButton(onClick = { confirmSince = null }) { Text("Cancelar") } },
+    )
 }
 
 /** Published from docs/privacidad.html with GitHub Pages; Google Play requires the same link in the store listing. */
@@ -617,7 +783,7 @@ fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
         ) {
             Text("Clavero ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.headlineSmall)
             Hint(ABOUT_SUMMARY)
-            Section("Avisos") {
+            Section(SettingItem.WARNINGS.title) {
                 Hint(ABOUT_WARNINGS_SHORT)
                 MoreInfo {
                     Hint("• Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes usa una cartera física de criptomonedas y un gestor de contraseñas auditado.")
@@ -625,13 +791,13 @@ fun AboutScreen(onBack: () -> Unit, onLicenses: () -> Unit) {
                     Hint("• Red: solo se conectan «¿Filtrada?» y «Comprobar filtraciones» de la salud de la bóveda, cuando las pulsas, a api.pwnedpasswords.com, y solo envían los 5 primeros caracteres de la huella SHA-1 de cada contraseña.")
                 }
             }
-            Section("Privacidad") {
+            Section(SettingItem.PRIVACY.title) {
                 Hint("La app no recoge datos: no hay cuentas, analítica ni anuncios. La política completa está en la web.")
-                OpenLinkButton("Ver la política de privacidad", PRIVACY_POLICY_URL)
+                OpenLinkButton(ABOUT_PRIVACY_OPEN, PRIVACY_POLICY_URL)
             }
-            Section("Licencias") {
+            Section(SettingItem.LICENSES.title) {
                 Hint("Solo componentes de código abierto con licencia libre y gratuita. La app es gratuita, sin anuncios ni compras, y su código es abierto: © 2026 Egt17baa, licencia Apache-2.0.")
-                OutlinedButton(onClick = onLicenses, modifier = Modifier.fillMaxWidth()) { Text("Ver licencias") }
+                OutlinedButton(onClick = onLicenses, modifier = Modifier.fillMaxWidth()) { Text(ABOUT_LICENSES_OPEN) }
                 OpenLinkButton("Ver el código fuente", SOURCE_CODE_URL)
             }
         }
