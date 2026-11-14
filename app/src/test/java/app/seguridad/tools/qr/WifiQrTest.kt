@@ -292,6 +292,21 @@ class WifiQrTest {
         assertEquals(WIFI_QR_TOO_BIG, WifiQr.problem(wpa("Casa", "ñ" + "x".repeat(WIFI_QR_MAX_CHARS - 31))))
     }
 
+    // ---- What the screen of the QR says ----
+
+    @Test fun theScreenSaysTheWarningByTheNetworkOrWhyNot() {
+        // O-4, on view: with a password, who sees the code sees it; an open network has none to see.
+        assertEquals(listOf(WIFI_QR_WARNING), wifiQrLines(wpa("Casa", "clave")))
+        assertEquals(listOf(WIFI_QR_WARNING), wifiQrLines(WifiConfig("Casa", "clave", "WEP", false)))
+        assertEquals(listOf(WIFI_QR_WARNING_OPEN), wifiQrLines(WifiConfig("Bar", "", "nopass", false)))
+        // Marked open with a password kept: the code goes without it, and the screen says so.
+        assertEquals(listOf(WIFI_QR_WARNING_OPEN, WIFI_QR_OPEN_WITH_PASSWORD), wifiQrLines(WifiConfig("Bar", "clave", "nopass", false)))
+        // No code: only why, and no warning about a code that is not there.
+        assertEquals(listOf(WIFI_QR_NO_NAME), wifiQrLines(wpa("", "clave")))
+        assertEquals(listOf(WIFI_QR_NO_SECURITY), wifiQrLines(WifiConfig("Casa", "clave", "WPA2", false)))
+        assertEquals(listOf(WIFI_QR_TOO_BIG), wifiQrLines(wpa("Casa", "x".repeat(WIFI_QR_MAX_CHARS))))
+    }
+
     // ---- What never shows the password ----
 
     @Test fun toStringNeverCarriesThePassword() {

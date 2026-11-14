@@ -33,15 +33,13 @@ import app.seguridad.imports.plainReportText
 import app.seguridad.tools.qr.WIFI_QR_FAILED
 import app.seguridad.tools.qr.WIFI_QR_HIDE
 import app.seguridad.tools.qr.WIFI_QR_IMAGE
-import app.seguridad.tools.qr.WIFI_QR_OPEN_WITH_PASSWORD
 import app.seguridad.tools.qr.WIFI_QR_SHOW
 import app.seguridad.tools.qr.WIFI_QR_TITLE
 import app.seguridad.tools.qr.WIFI_QR_TOO_BIG
-import app.seguridad.tools.qr.WIFI_QR_WARNING
-import app.seguridad.tools.qr.WIFI_QR_WARNING_OPEN
 import app.seguridad.tools.qr.WifiConfig
 import app.seguridad.tools.qr.WifiQr
 import app.seguridad.tools.qr.wifiConfigOf
+import app.seguridad.tools.qr.wifiQrLines
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.vault.EntryType
@@ -90,10 +88,10 @@ private fun BitMatrix.toImage(): ImageBitmap {
 }
 
 /**
- * What the screen says about the network: its name (shown through `plainReportText`), whether it is open, whether a
- * password kept with an open network is left out of the code, and why no code can be drawn ([WifiQr.problem]).
+ * What the screen says about the network: its name (shown through `plainReportText`), the lines under it
+ * ([wifiQrLines]) and whether a code can be drawn at all ([WifiQr.problem]).
  */
-private data class WifiQrShown(val ssid: String, val open: Boolean, val passwordLeftOut: Boolean, val problem: String?) {
+private data class WifiQrShown(val ssid: String, val lines: List<String>, val canDraw: Boolean) {
     override fun toString() = "WifiQrShown"
 }
 
@@ -132,8 +130,7 @@ private class WifiQrViewModel(private val store: VaultStore, private val id: Str
         if (c == config) return
         hide()
         config = c
-        val open = c.security == "nopass"
-        shown.value = WifiQrShown(c.ssid, open, open && c.password.isNotEmpty(), WifiQr.problem(c))
+        shown.value = WifiQrShown(c.ssid, wifiQrLines(c), WifiQr.problem(c) == null)
     }
 
     /** «Mostrar QR»: drawn off the main thread, and shown only if nothing dropped it meanwhile. */
@@ -210,15 +207,11 @@ fun WifiQrScreen(store: VaultStore, id: String, onBack: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(plainReportText(shown.ssid), style = MaterialTheme.typography.titleMedium)
-            val cannot = shown.problem
-            if (cannot != null) {
-                Text(cannot, color = NegativeColor)
-                return@Column
-            }
-            // O-4: on view, never folded; an open network has no password to see.
-            Text(if (shown.open) WIFI_QR_WARNING_OPEN else WIFI_QR_WARNING, color = NegativeColor)
-            if (shown.passwordLeftOut) {
-                Text(WIFI_QR_OPEN_WITH_PASSWORD, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Why no code can be drawn, alone; or the warning (O-4: on view, never folded) and what the code leaves out.
+            Text(shown.lines.first(), color = NegativeColor)
+            if (!shown.canDraw) return@Column
+            shown.lines.drop(1).forEach {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val image = vm.drawn.value
             val failed = vm.problem.value

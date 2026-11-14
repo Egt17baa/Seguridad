@@ -251,6 +251,17 @@ fun wifiConfigOf(entry: VaultEntry): WifiConfig {
     return WifiConfig(field(WIFI_SSID_KEY), field(WIFI_PASSWORD_KEY), field(WIFI_SECURITY_KEY), field(WIFI_HIDDEN_KEY) == "true")
 }
 
+/**
+ * What the screen of the QR says under the network's name about [c], in order: why no code can be drawn
+ * ([WifiQr.problem]), alone; or the warning on view (O-4: with a password, who sees the code sees it; an open network has
+ * none to see) and, for a network marked open that keeps a password, that the code goes without it.
+ */
+fun wifiQrLines(c: WifiConfig): List<String> {
+    WifiQr.problem(c)?.let { return listOf(it) }
+    val open = c.security == "nopass"
+    return listOfNotNull(if (open) WIFI_QR_WARNING_OPEN else WIFI_QR_WARNING, WIFI_QR_OPEN_WITH_PASSWORD.takeIf { open && c.password.isNotEmpty() })
+}
+
 // Texts (also in «Textos para el Abogado Digital (revisión final)» of the task's report and in the annex of texts).
 
 /** «Enseñar QR» on a wifi entry's card. */

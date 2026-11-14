@@ -1099,6 +1099,15 @@ class PlatformSourcesTest {
         assertTrue("if (vm.closed.value) {\n        LaunchedEffect(Unit) { onBack() }" in screen)
         assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.hide() }" in screen)
         assertTrue("contentDescription = WIFI_QR_IMAGE" in screen)
+        // The texts on screen: the title, the lines of wifiQrLines (the first in the colour of a warning, and alone when
+        // no code can be drawn), and the two buttons; ZXing's refusal in place of the image.
+        assertTrue("BackScaffold(WIFI_QR_TITLE, onBack)" in screen)
+        assertTrue("Text(shown.lines.first(), color = NegativeColor)\n            if (!shown.canDraw) return@Column" in screen)
+        assertTrue("failed != null -> Text(failed, color = NegativeColor)" in screen)
+        assertTrue("OutlinedButton(onClick = vm::hide) { Text(WIFI_QR_HIDE) }" in screen && "else -> Button(onClick = vm::show) { Text(WIFI_QR_SHOW) }" in screen)
+        val drawing = src.substringAfter("internal fun wifiQrDrawing(").substringBefore("\n}\n")
+        assertTrue("catch (e: WriterException) {\n        WifiQrDrawing.Problem(WIFI_QR_TOO_BIG)" in drawing)
+        assertTrue("catch (e: Exception) {\n        WifiQrDrawing.Problem(WIFI_QR_FAILED)" in drawing)
         assertEquals(1, Regex("""contentDescription = """).findAll(screen).count())
         val nav = code("ui/AppNavHost.kt")
         assertTrue("composable(\"vault/entry/{id}/wifi-qr\")" in nav)
@@ -1115,6 +1124,7 @@ class PlatformSourcesTest {
     @Test fun `task 9 the inspector hands a wifi code to the form, never saves it`() {
         val src = code("ui/screens/QrInspectScreen.kt")
         assertTrue("QrAction.ADD_WIFI -> { QrHandoff.put(QrTarget.WIFI, v.text); onAddWifi() }" in src)
+        assertTrue("QrAction.ADD_WIFI -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TOTP) }" in src)
         val vm = src.substringAfter("private class QrWifiImportViewModel(").substringBefore("\n}\n")
         assertTrue("val pending = QrPendingText(QrTarget.WIFI)" in vm && "pending.clear()" in vm)
         val screen = src.substringAfter("fun QrWifiImportScreen(")
