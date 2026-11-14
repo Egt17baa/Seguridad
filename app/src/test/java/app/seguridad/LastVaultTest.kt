@@ -1,7 +1,6 @@
 package app.seguridad
 
 import app.seguridad.vault.PRIMARY_VAULT_ID
-import app.seguridad.vault.StaleBiometricKey
 import app.seguridad.vault.TagColor
 import app.seguridad.vault.VAULTS_FILE
 import app.seguridad.vault.VaultDeletion
@@ -68,6 +67,24 @@ class LastVaultTest {
         assertEquals(b, container(backgroundScope).activeVaultId)
     }
 
+    /**
+     * The last one is still listed but its file is gone (deleted outside the app, say): the app starts on it, as an empty
+     * slot («Crea tu bóveda» there, with the way to the others), never on another vault without saying so.
+     */
+    @Test fun aListedLastVaultWithoutItsFileIsShownEmpty() = runTest {
+        val c = container(backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val b = c.createVault("Dos", masterB.toCharArray())
+        File(c.registry.dirOf(b), "vault.bin").delete()
+        val again = container(backgroundScope)
+        assertEquals(b, again.activeVaultId)
+        again.vault.load()
+        assertEquals(VaultState.NoVault, again.vault.state.value)
+        assertTrue("The other vault is untouched", File(again.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").exists())
+    }
+
     @Test fun aRegistryNamingAMissingVaultFallsBackToTheFirst() = runTest {
         val r = VaultRegistry(tmp.root, Dispatchers.Unconfined)
         val a = r.create(TagColor.RED)
@@ -97,13 +114,9 @@ class LastVaultTest {
         c.createVault("Dos", masterB.toCharArray())
         val b = c.vault
         b.lock()
-        try {
-            a.unlockWithKey(keyOfA!!)
-        } catch (e: StaleBiometricKey) {
-            throw AssertionError("A key of its own vault is never stale", e)
-        } catch (e: Exception) {
-            // MasterRequired and the like are fine: nothing opens.
-        }
+        // It goes through every check (the key is A's own, the master was typed just now) and reaches the gate: no
+        // exception at all, StaleBiometricKey (which would turn A's fingerprint off) nor MasterRequired.
+        a.unlockWithKey(keyOfA!!)
         assertFalse(a.state.value is VaultState.Unlocked)
         assertFalse(b.state.value is VaultState.Unlocked)
         assertTrue(c.vault === b)

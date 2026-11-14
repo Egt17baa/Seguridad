@@ -85,6 +85,49 @@ class SettingsSearchTest {
         }
     }
 
+    /**
+     * The reverse for the lines: every constant an entry indexes under its title is drawn by Ajustes or «Aspecto» (a line
+     * the screen no longer shows makes this fail). Limit: a control added inside an existing section, with a text that is
+     * not in the index, is not caught here; [everySectionIsIndexed] only sees the sections.
+     */
+    @Test fun everyIndexedLineIsDrawn() {
+        val index = code("settings/SettingsSearch.kt")
+        val screens = code("ui/screens/SettingsScreen.kt") + "\n" + code("ui/screens/AppearanceScreen.kt")
+        val entries = Regex("""^\s*([A-Z_]+)\(([A-Z_0-9]+), (?:listOf\(([^)]*)\)|emptyList\(\)), SettingPlace""", RegexOption.MULTILINE).findAll(index).toList()
+        assertEquals("Every entry read", SettingItem.entries.size, entries.size)
+        for (m in entries) {
+            val lines = m.groupValues[3].split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            for (id in lines) assertTrue("${m.groupValues[1]}: $id is not drawn", Regex("""\b$id\b""").containsMatchIn(screens))
+        }
+    }
+
+    /** The new texts of Ajustes, word for word (what the Abogado Digital reviews is what is shown). */
+    @Test fun theNewTextsWordForWord() {
+        assertEquals("Buscar en Ajustes", SettingsSearch.HINT)
+        assertEquals("Ningún ajuste coincide.", SettingsSearch.NOTHING)
+        assertEquals("Salud de la bóveda", app.seguridad.tools.HEALTH_TOOL_TITLE)
+        assertEquals("Contraseñas repetidas, débiles o antiguas, y accesos sin 2FA", app.seguridad.tools.HEALTH_TOOL_SUBTITLE)
+        assertEquals("Modo sencillo", app.seguridad.tools.SIMPLE_MODE_TITLE)
+        assertEquals(
+            "Herramientas enseña solo cifrar texto, cifrar archivo, el generador y la salud de la bóveda. No oculta avisos ni ajustes.",
+            app.seguridad.tools.SIMPLE_MODE_SHORT,
+        )
+        assertEquals("Hay más herramientas. Para verlas, apaga «Modo sencillo» en Ajustes.", app.seguridad.tools.SIMPLE_MODE_MORE_TOOLS)
+        assertEquals("Historial de las entradas", app.seguridad.vault.HISTORY_ALL_TITLE)
+        assertEquals("Cada entrada guarda sus versiones anteriores. Aquí puedes borrarlas de todas a la vez.", app.seguridad.vault.HISTORY_ALL_SHORT)
+        assertEquals("Borrar todo el historial", app.seguridad.vault.HISTORY_ALL_CLEAR)
+        assertEquals("¿Borrar el historial de todas las entradas?", app.seguridad.vault.HISTORY_ALL_CONFIRM_TITLE)
+        assertEquals(
+            "Se quitan las versiones y las contraseñas anteriores de todas las entradas, también de las de la papelera. " +
+                "Las copias ya hechas (automáticas o exportadas) lo conservan.",
+            app.seguridad.vault.HISTORY_ALL_CONFIRM_TEXT,
+        )
+        assertEquals("La bóveda se bloqueó: no se ha borrado nada.", app.seguridad.vault.historyAllClearedText(null))
+        assertEquals("Ninguna entrada tenía historial.", app.seguridad.vault.historyAllClearedText(0))
+        assertEquals("Historial borrado de 1 entrada.", app.seguridad.vault.historyAllClearedText(1))
+        assertEquals("Historial borrado de 2 entradas.", app.seguridad.vault.historyAllClearedText(2))
+    }
+
     /** Only fixed texts: no template, nothing of a folder, a vault or an entry. */
     @Test fun indexesFixedTextsOnly() {
         val src = File(main, "settings/SettingsSearch.kt").readText()
