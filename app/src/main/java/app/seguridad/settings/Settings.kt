@@ -102,10 +102,12 @@ data class VaultSettings(
     /** The automatic copies were turned off by creating a new vault: Ajustes says so until a folder is chosen again. */
     val autoBackupOffForNewVault: Boolean = false,
     /**
-     * The lists of copies ([BackupTargetSettings.copies], [BackupTargetSettings.importCopies]) of folders that are no longer
-     * a target (removed, or changed for another), as 1.4.3 kept its list when the copies were turned off: the same folder
-     * chosen again goes on rotating them (and A6 can delete them). Only [BackupTargetSettings.uri] and those two lists are
-     * kept; at most [PAST_TARGETS_MAX], the newest. Forgotten with a new or an imported vault, as the targets' lists.
+     * What folders that are no longer a target (removed, or changed for another) had, as 1.4.3 kept its list when the copies
+     * were turned off: their lists of copies ([BackupTargetSettings.copies], [BackupTargetSettings.importCopies]), their
+     * number of copies and calendar, an A6 request still waiting there with what it told (O-5), their result for the
+     * request ([BackupTargetSettings.replaceRequest], [BackupTargetSettings.replaceDone]) and their change mark; the same
+     * folder chosen again (added, or a target changed to it) gets them back and goes on rotating them. Only folders with
+     * some copy listed; at most [PAST_TARGETS_MAX], the newest. Forgotten with a new or an imported vault.
      */
     val pastTargets: List<BackupTargetSettings> = emptyList(),
     /** Task 8, round 4: the A6 request of now and what was last told of it; null when none was asked (or for 1.4.3's). */
@@ -224,7 +226,11 @@ fun VaultSettings.withTargetFolderChanged(from: String, to: String): VaultSettin
     )
 }
 
-/** These settings without the target of [uri] (Ajustes, «Quitar»): its lists are kept in [pastTargets], its A6 request goes. */
+/**
+ * These settings without the target of [uri] (Ajustes, «Quitar»): what it had (its lists, an A6 request still waiting
+ * there, its result) is kept in [pastTargets] and comes back if the folder does (O-5); while it is out, the request does
+ * not delete anything there.
+ */
 fun VaultSettings.withTargetRemoved(uri: String): VaultSettings {
     val old = target(uri) ?: return this
     return copy(targets = targets.filter { it.uri != uri }, pastTargets = keptPast(pastTargets.filter { it.uri != uri }, old))

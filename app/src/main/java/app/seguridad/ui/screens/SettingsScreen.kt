@@ -116,7 +116,7 @@ import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import app.seguridad.vault.replaceStatus
 import app.seguridad.vault.A6Summary
-import app.seguridad.vault.a6Text
+import app.seguridad.vault.a6DialogView
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -230,11 +230,16 @@ private fun AutoBackupSection(
                 snackbar.showSnackbar("No se pudo obtener permiso para usar esa carpeta. Elige otra.")
                 return@launch
             }
-            val hadRequest = from?.let { now.target(it)?.replacePending } == true
-            try {
+            val hadRequest = try {
                 // The lists of a folder go with it ([VaultSettings.pastTargets]): the same one chosen again goes on rotating
-                // them (and keeps a request to replace them), another one starts with what that folder had.
-                store.updateVault(id) { if (from == null) it.withTargetAdded(chosen, BackupSchedule.ON_CHANGE) else it.withTargetFolderChanged(from, chosen) }
+                // them (and keeps a request to replace them), another one starts with what that folder had. Round 6 (m-3):
+                // whether a waiting request moved away is decided by the write itself.
+                if (from == null) {
+                    store.updateVault(id) { it.withTargetAdded(chosen, BackupSchedule.ON_CHANGE) }
+                    false
+                } else {
+                    store.changeTargetFolder(id, from, chosen)
+                }
             } catch (e: Exception) {
                 if (chosen != from) releaseIfUnused(chosen)
                 snackbar.showSnackbar(SETTING_SAVE_FAILED)
@@ -246,7 +251,7 @@ private fun AutoBackupSection(
             if (hadRequest) autoBackup.retell()
             // A request to replace the old copies that the new folder dropped is said, not lost in silence.
             // Round 5: another folder takes the place of one whose request waited (that request stays with its folder's lists).
-            val dropped = if (hadRequest && from != chosen) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
+            val dropped = if (hadRequest) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
             val schedule = store.settings.value.vault(id).target(chosen)?.schedule ?: BackupSchedule.ON_CHANGE
             snackbar.showSnackbar(
                 when (vault.state.value) {
@@ -393,13 +398,9 @@ fun MasterChangedDialog(
 ) {
     val working = state.busy || replacing
     val status = replaceStatus(state.requestedAt, state.answered, state.answerError, pending, lastError, lastBackupAt, toldSinceRequest)
-    // Round 4: «Done» from the answer or the settings, but only some folders replaced for this request: said as it is, and
-    // «Borrar…» can be asked again.
-    val partial = status is ReplaceStatus.Done && summary != null && summary.notReplaced > 0 && summary.replaced > 0
-    // Round 5 (m-3): «Done» with no folder replaced for this request is not known as done: no text, «Borrar…» again.
-    val unknown = status is ReplaceStatus.Done && (summary == null || summary.replaced == 0)
-    val canReplace = !working &&
-        (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed || partial || unknown)
+    // Rounds 4 to 6: what it shows of its own request (m-1: never another's) is decided in one pure function (a6DialogView).
+    val view = a6DialogView(status, working, summary?.takeIf { it.request == state.answerRequest })
+    val canReplace = view.canReplace
     AlertDialog(
         onDismissRequest = { if (!working) onClose() },
         title = { Text(PASSWORD_CHANGED_TITLE) },
@@ -418,18 +419,9 @@ fun MasterChangedDialog(
                     ) { Text(PASSWORD_CHANGE_REPLACE_COPIES) }
                     when {
                         working -> Hint(PASSWORD_CHANGE_WORKING)
-                        // Round 4: the success only from what the folders saved for this request (a6Text): never «en cada
-                        // carpeta» unless every folder of now replaced for it.
-                        unknown -> Unit
-                        status is ReplaceStatus.Done && !partial -> Hint(a6Text(emptyList(), summary))
-                        partial -> Text(a6Text(emptyList(), summary), style = MaterialTheme.typography.bodySmall, color = NegativeColor)
-                        status is ReplaceStatus.Waits -> Hint(AUTO_BACKUP_REPLACE_WAITS)
-                        status is ReplaceStatus.Failed -> Text(
-                            a6Text(listOf(status.message), summary),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NegativeColor,
-                        )
-                        else -> Unit
+                        view.text == null -> Unit
+                        view.negative -> Text(view.text, style = MaterialTheme.typography.bodySmall, color = NegativeColor)
+                        else -> Hint(view.text)
                     }
                 }
                 // R-5 of the earlier dictamen: «Renovar identidad» only when the vault had one; the advice on passwords stays.

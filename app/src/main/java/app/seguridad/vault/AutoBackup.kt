@@ -267,8 +267,10 @@ data class AutoBackupResult(
      * was posted (frozen: the dialog never writes its own).
      */
     val text: String? = null,
-    /** Round 5 (m-7): with [text], the summary it told ([a6Summary]), kept as said once the user closes it. */
+    /** Round 5 (m-7): with [text], the summary it told ([a6Summary]). */
     val summary: A6Summary? = null,
+    /** Round 6: with [summary], the [a6Snapshot] it told, kept as [A6State.said] once the user closes it. */
+    val said: String? = null,
 )
 
 /** How [AutoBackup.copyBeforeImport] went. */
@@ -390,12 +392,14 @@ class AutoBackup(
     fun replaceOutcomeShown(shown: AutoBackupResult) {
         outcome.shown(shown)
         // Round 5 (m-7): what was said is kept once the user closed it, not when it was posted, so a process death before
-        // it was seen tells it again (at the next unlock, [runDue]). A summary of every folder done closes the request.
-        val said = shown.summary ?: return
+        // it was seen tells it again (at the next unlock, [runDue]). Round 6: what is kept is what the targets in the
+        // request held then ([a6Snapshot]); nothing is kept that silences the request for good.
+        val said = shown.said ?: return
+        val request = shown.summary?.request ?: return
         scope.launch {
             lock.withLock {
                 val state = a6()
-                if (currentA6Request(state) == said.request) onA6((state ?: A6State(said.request)).copy(said = said.key, closed = said.notReplaced == 0))
+                if (currentA6Request(state) == request) onA6((state ?: A6State(request)).copy(said = said))
             }
         }
     }
@@ -563,18 +567,17 @@ class AutoBackup(
     }
 
     /**
-     * Round 4 (ruling «T8 ronda 4»): tells, under [lock], the failures of [notices] not told yet for the request (review
-     * I-2 of round 1: once in all) and the summary of the request of now ([a6Summary], from what each target saved, read
-     * once now) when it changed since it was last told ([A6State.said]) and at least one folder replaced. The text is
-     * [a6Text]'s, frozen in the outcome. An import since [since] (round 3, N-4) tells no summary: the request is gone.
+     * Rounds 4 and 6: tells, under [lock], what [a6Decide] says (the one place that decides whether to speak or not): the
+     * failures of [notices] not told yet for the request (review I-2 of round 1: once in all), and the summary of the
+     * request of now ([a6Summary], from what each target saved, read once now) when the targets in the request hold
+     * something the last summary the user closed ([A6State.said]) did not. The text is [a6Text]'s, frozen in the outcome
+     * with what it said ([AutoBackupResult.said], kept when the user closes it, [replaceOutcomeShown]). An import since
+     * [since] (round 3, N-4) tells no summary: the request is gone.
      */
     private suspend fun publish(notices: List<AutoBackupResult>, since: Long) {
         val told = notices.mapNotNull { it.toldKey }.distinct()
-        val state = a6()
-        // Round 5 (m-7): a request whose summary of every folder done was closed by the user is not told again.
-        val summary = a6Summary(targets(), state).takeIf { store.generation == since && it.replaced > 0 && state?.closed != true }
-        val changed = summary != null && summary.key != state?.said
-        if (told.isEmpty() && !changed) return
+        val decision = a6Decide(targets(), a6(), told, store.generation == since, store.masterMark()) ?: return
+        val summary = decision.summary
         val base = when {
             notices.size == 1 -> notices.single()
             notices.isEmpty() -> AutoBackupResult("", null, null)
@@ -588,6 +591,7 @@ class AutoBackup(
                 toldKey = told.firstOrNull(),
                 text = a6Text(told, summary),
                 summary = summary,
+                said = decision.snapshot.takeIf { summary != null },
             ),
         )
     }
@@ -620,6 +624,11 @@ class AutoBackup(
      * it returns [AUTO_BACKUP_REPLACE_WAITS] ([AUTO_BACKUP_FAILED] if one could not be saved). With no target or no vault
      * it returns [AUTO_BACKUP_FAILED]. The work is not cancelled with the caller.
      *
+     * Each call is a new A6 request, with an id of its own and the vault's master mark ([A6State], rounds 4 and 6), saved
+     * first: if it cannot be saved, it returns [AUTO_BACKUP_FAILED] and no target is touched (round 5, m-2). A target it
+     * cannot even try records its failure as every other ([failedFor]). The answer names its request
+     * ([AutoBackupResult.request]): the dialog that asked shows only that request's summary (round 6, m-1).
+     *
      * [targets] are the copies to replace: the app passes those listed when the password changed ([MasterChanged]), so
      * neither the first request nor a «Volver a intentarlo» ever deletes a copy made after the change (m2 of the CR
      * re-review); each target only deletes those on its own lists. A pending request uses what it still has to delete.
@@ -638,7 +647,10 @@ class AutoBackup(
             // Round 4: a new A6 request, with an id of its own: what the targets saved for an earlier one never counts.
             val request = newA6RequestId()
             // Round 5 (m-2): not saved, nothing is touched: otherwise the folders would keep a request the vault does not know.
-            if (!onA6(A6State(request)) || a6()?.id != request) return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
+            // Round 6 (I-2): with the vault's master mark of now, so a later change of the master password is known.
+            if (!onA6(A6State(request, masterMark = store.masterMark())) || a6()?.id != request) {
+                return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
+            }
             val results = ArrayList<AutoBackupResult>()
             for (uri in all.map { it.uri }) {
                 val t = target(uri) ?: continue // Read again: removed meanwhile.
@@ -656,8 +668,9 @@ class AutoBackup(
                 }
             }
             if (results.isEmpty()) return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
-            // One target: its own result, as 1.x gave it.
-            if (results.size == 1) return@withLock results.single()
+            // One target: its own result, as 1.x gave it. Round 6 (m-1): every answer names its request, so the dialog that
+            // asked shows only that request's summary.
+            if (results.size == 1) return@withLock results.single().copy(request = request)
             val error = results.firstNotNullOfOrNull { it.error }
             AutoBackupResult(
                 folder = all.first().uri,
@@ -665,6 +678,7 @@ class AutoBackup(
                 // «Se hará en cuanto abras la bóveda» only when every target waits; a real failure wins over it.
                 error = results.firstNotNullOfOrNull { r -> r.error?.takeIf { it != AUTO_BACKUP_REPLACE_WAITS } } ?: error,
                 unlistedLeft = results.filter { it.replaced }.sumOf { it.unlistedLeft },
+                request = request,
             )
         } finally {
             _replacing.value = false

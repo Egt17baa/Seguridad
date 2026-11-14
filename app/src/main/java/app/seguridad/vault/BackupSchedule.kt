@@ -101,16 +101,21 @@ data class ReplaceDone(val request: String, val deleted: Int, val unlisted: Int)
 
 /**
  * Task 8, round 4: the A6 request of a vault (after a change of master password, «Borrar las copias anteriores»): [id],
- * new at each request, and [said], the key of the last summary the user closed ([A6Summary.key], round 5: kept when the
- * dialog is closed, not when it is posted), so the same is never told twice, a change is always told, and one lost to a
- * process death is told again.
+ * new at each request, and what was last closed of it (round 6: nothing is kept that silences it for good; [a6Decide]).
  */
 @Serializable
 data class A6State(
     val id: String,
+    /**
+     * Round 6: the [a6Snapshot] of the last summary the user closed (kept when the dialog is closed, not when it is posted,
+     * round 5, m-7); null when none was closed. Whether to tell again is decided against it ([a6Decide]).
+     */
     val said: String? = null,
-    /** Round 5 (m-7): the summary of every folder done was closed by the user: nothing more is told of this request. */
-    val closed: Boolean = false,
+    /**
+     * Round 6 (I-2): the vault's master mark when the request was asked ([VaultStore.masterMark]); the summary of a request
+     * whose mark is not the vault's now is said as of an earlier change ([A6Summary.stale]). Null for 1.4.3's.
+     */
+    val masterMark: String? = null,
 )
 
 /** The id of an A6 request saved by 1.4.3 or before (or a target's, with none): one request, as 1.x had only one. */

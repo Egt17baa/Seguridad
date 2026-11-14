@@ -424,6 +424,18 @@ class VaultStore(
      * «Recientes»), of the Argon2id cost of the file (a wrap again with a higher cost, A8, at an unlock, keeps that time)
      * and of the vault's [VaultData.vaultTag] (a new tag starts it again). Null with the vault not open, or no file.
      */
+    /**
+     * Round 6 (I-2): a mark of the master password's wrap of now: a SHA-256 (opaque) of the salt of the file, which a new
+     * master password always renews (and so does a wrap again with a higher cost, A8, or the upgrade to v4: then a request
+     * of before is said as of an earlier change, a text true in both cases). The salt is no secret: it is on disk with the
+     * file. Null with no file.
+     */
+    fun masterMark(): String? {
+        val v = vault ?: return null
+        return java.security.MessageDigest.getInstance("SHA-256").digest(("a6|" + v.salt).toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
+
     fun changeMark(): String? {
         val v = vault ?: return null
         val tag = (_state.value as? VaultState.Unlocked)?.data?.vaultTag ?: return null

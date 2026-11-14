@@ -103,6 +103,19 @@ class SettingsStore(
     }
 
     /**
+     * Task 8, round 6 (m-3): «Cambiar de carpeta» of the target of [from] to [to] ([withTargetFolderChanged]). True when this
+     * very write moved away an A6 request that was still waiting in [from] (it stays with its lists in
+     * [VaultSettings.pastTargets]): decided under the same lock as the write, as [removeTarget], so a replacement that
+     * finishes just before it is never said to be undone. False for the same folder chosen again (its request stays).
+     */
+    suspend fun changeTargetFolder(id: String, from: String, to: String): Boolean = mutex.withLock {
+        val before = _settings.value.vault(id)
+        val after = before.withTargetFolderChanged(from, to)
+        if (after != before) write(_settings.value.withVault(id) { after })
+        from != to && before.target(from)?.replacePending == true && after != before
+    }
+
+    /**
      * An import is about to replace the vault: its automatic copies are no longer listed as ours, so none is ever rotated
      * away by the imported vault, and a request to replace them (A6) goes. Written to disk before the vault is saved:
      * throws if it cannot be (the import is then refused). The result says whether a request was dropped and can put
