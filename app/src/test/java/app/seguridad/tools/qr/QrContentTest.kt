@@ -35,8 +35,10 @@ class QrContentTest {
     @Test
     fun wifiQuotedValuesAndMissingSsid() {
         assertEquals(QrKind.Wifi("1234", "WPA", "5678", false), classifyQr("WIFI:T:WPA;S:\"1234\";P:\"5678\";;"))
-        assertEquals(QrKind.PlainText("WIFI:T:WPA;P:abc;;"), classifyQr("WIFI:T:WPA;P:abc;;"))
-        assertEquals(QrKind.PlainText("WIFI:"), classifyQr("WIFI:"))
+        // 2.0, task 9: a text that starts like a wifi code and cannot be read is kept apart from plain text, because it
+        // may carry a password (WifiQrInspectTest).
+        assertEquals(QrKind.WifiUnreadable("WIFI:T:WPA;P:abc;;"), classifyQr("WIFI:T:WPA;P:abc;;"))
+        assertEquals(QrKind.WifiUnreadable("WIFI:"), classifyQr("WIFI:"))
     }
 
     @Test

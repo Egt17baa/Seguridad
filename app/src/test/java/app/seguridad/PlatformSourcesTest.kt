@@ -796,6 +796,8 @@ class PlatformSourcesTest {
                 "expiryLine(item.copy(what = plainReportText(item.what, 100)), today)",
             ),
             "ui/screens/OtpQrScreen.kt" to listOf("Text(plainReportText(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(\" · \"))"),
+            // 2.0, task 9: the network's name over its QR.
+            "ui/screens/WifiQrScreen.kt" to listOf("Text(plainReportText(shown.ssid)"),
             "ui/screens/HealthScreen.kt" to listOf("Text(plainReportText(title).ifEmpty { \"(sin título)\" }"),
             "ui/screens/ContactsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(e.title)), maxLines = 1"),
             "ui/screens/ContactDetailScreen.kt" to listOf("Text(plainReportText(shownContactTitle(entry.title)), style"),
@@ -1078,6 +1080,71 @@ class PlatformSourcesTest {
         assertTrue("VaultState.Locked -> scope.launch { snackbar.showSnackbar(AUTO_BACKUP_NOW_NEEDS_OPEN) }" in settings)
         assertEquals(1, Regex("""autoBackup\.request\(t\.uri\)""").findAll(settings).count())
         assertFalse("se hará en cuanto la abras" in settings)
+    }
+
+    /**
+     * 2.0, task 9: the wifi QR. What it draws (the code's text and its image) lives in the screen's ViewModel, never in
+     * saved state; the ViewModel follows the vault with no composition, so a lock in the background drops the image, and
+     * the screen closes. The image is drawn only after a tap, hidden again when the app stops, and its description is a
+     * fixed text (never the password). Only the entry's id goes in the route.
+     */
+    @Test fun `task 9 the wifi QR screen keeps its image in a ViewModel and closes on lock`() {
+        val src = code("ui/screens/WifiQrScreen.kt")
+        assertEquals(0, Regex("""rememberSaveable|SavedStateHandle|Bundle""").findAll(src).count())
+        val vm = src.substringAfter("private class WifiQrViewModel(").substringBefore("\n}\n")
+        assertTrue("viewModelScope.launch { store.state.collect { follow(it) } }" in vm)
+        assertTrue("override fun onCleared()" in vm && "drawn.value = null" in vm)
+        val screen = src.substringAfter("fun WifiQrScreen(")
+        assertTrue("VaultIdleLock(store)" in screen && ".touchesVault(store)" in screen)
+        assertTrue("if (vm.closed.value) {\n        LaunchedEffect(Unit) { onBack() }" in screen)
+        assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.hide() }" in screen)
+        assertTrue("contentDescription = WIFI_QR_IMAGE" in screen)
+        assertEquals(1, Regex("""contentDescription = """).findAll(screen).count())
+        val nav = code("ui/AppNavHost.kt")
+        assertTrue("composable(\"vault/entry/{id}/wifi-qr\")" in nav)
+        assertTrue("WifiQrScreen(vault, entry.arguments?.getString(\"id\").orEmpty(), onBack = backOnce(nav))" in nav)
+        // «Enseñar QR» only on a wifi entry.
+        assertTrue("if (entry.type == EntryType.WIFI) OutlinedButton(onClick = onShowWifiQr) { Text(WIFI_QR_OPEN) }" in code("ui/screens/VaultEntryScreen.kt"))
+    }
+
+    /**
+     * 2.0, task 9: «Añadir a la bóveda» of a wifi QR in the inspector hands the text over as the 2FA one does (never in
+     * the route), to the vault's own form behind the vault's gate, which fills it and saves only with «Guardar». The
+     * hidden full text says what it hides by the kind of QR, not by whether a password was read.
+     */
+    @Test fun `task 9 the inspector hands a wifi code to the form, never saves it`() {
+        val src = code("ui/screens/QrInspectScreen.kt")
+        assertTrue("QrAction.ADD_WIFI -> { QrHandoff.put(QrTarget.WIFI, v.text); onAddWifi() }" in src)
+        val vm = src.substringAfter("private class QrWifiImportViewModel(").substringBefore("\n}\n")
+        assertTrue("val pending = QrPendingText(QrTarget.WIFI)" in vm && "pending.clear()" in vm)
+        val screen = src.substringAfter("fun QrWifiImportScreen(")
+        assertTrue("store, id = null, initialType = EntryType.WIFI, onDone = done, wifiQrText = vm.pending.text," in screen)
+        assertTrue("VaultGate(store" in screen)
+        assertFalse("upsert" in screen || "addAll" in screen)
+        assertTrue("Text(v.hiddenLine.orEmpty()" in src)
+        assertFalse("QR_TEXT_HIDDEN_OTP" in src)
+        assertTrue("composable(\"tools/qr/wifi\") { QrWifiImportScreen(vault, onDone = backOnce(nav)) }" in code("ui/AppNavHost.kt"))
+        val form = code("ui/screens/VaultEntryScreen.kt")
+        assertTrue("form.takeHandOver(wifiQrText)?.let(form::applyWifiQr)" in form)
+    }
+
+    /** 2.0, task 9: nothing joins a network. No wifi API, no intent to the system's settings, no new permission or component. */
+    @Test fun `task 9 no way to join a network and no new permission`() {
+        val wifiApi = Regex("""WifiManager|WifiNetworkSuggestion|WifiNetworkSpecifier|WifiConfiguration|android\.net\.wifi|ACTION_WIFI|WIFI_ADD_NETWORKS|ACTION_WIRELESS_SETTINGS""")
+        val bad = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" }.filter { wifiApi.containsMatchIn(it.readText()) }.map { it.name }.toList()
+        assertEquals(emptyList<String>(), bad)
+        var dir: File? = File(".").absoluteFile
+        var manifest: File? = null
+        while (dir != null && manifest == null) {
+            manifest = File(dir, "app/src/main/AndroidManifest.xml").takeIf { it.isFile }
+            dir = dir.parentFile
+        }
+        val m = manifest!!.readText()
+        assertEquals(
+            listOf("android.permission.INTERNET", "android.permission.CAMERA"),
+            Regex("""<uses-permission android:name="([^"]+)"""").findAll(m).map { it.groupValues[1] }.toList(),
+        )
+        assertEquals(1, Regex("""android:exported="true"""").findAll(m).count())
     }
 }
 
