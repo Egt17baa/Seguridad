@@ -1057,6 +1057,16 @@ class PlatformSourcesTest {
             .filter { f -> Regex("""\bAUTO_BACKUP_REPLACED(_SEVERAL)?\b""").containsMatchIn(f.readText().lines().filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("//") }.joinToString("\n")) }
             .map { it.name }.toSet()
         assertEquals(setOf("A6Text.kt", "AutoBackup.kt", "ToolTexts.kt"), users)
+        // Round 5 (m-4): every sentence of an A6 outcome, and one post of it, and the dialog shows the text posted.
+        fun usersOf(name: String) = File(dir, "app/src/main/java/app/seguridad").walk().filter { it.isFile && it.name.endsWith(".kt") }
+            .filter { f -> Regex("""\b$name\(""").containsMatchIn(f.readText().lines().filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("//") }.joinToString("\n")) }
+            .map { it.name }.toSet()
+        assertEquals(setOf("A6Text.kt"), usersOf("a6PartialText"))
+        assertEquals(setOf("A6Text.kt"), usersOf("a6UnlistedInDoneText"))
+        assertEquals(setOf("A6Text.kt", "AutoBackup.kt", "ToolTexts.kt"), usersOf("autoBackupUnlistedText"))
+        assertEquals(setOf("AutoBackup.kt", "SettingsScreen.kt"), usersOf("a6Text") - "A6Text.kt")
+        assertEquals(1, Regex("""\boutcome\.post\(""").findAll(code("vault/AutoBackup.kt")).count())
+        assertTrue("ReplaceOutcomeDialog(shown.text ?: shown.error.orEmpty()" in code("ui/AppNavHost.kt"))
         val auto = code("vault/AutoBackup.kt")
         assertFalse("AUTO_BACKUP_REPLACED_SEVERAL else AUTO_BACKUP_REPLACED" in auto)
         val settings = code("ui/screens/SettingsScreen.kt")

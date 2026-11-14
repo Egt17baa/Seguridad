@@ -147,6 +147,8 @@ class AutoBackupTargetsTest {
         folders: Map<String, Folder>,
         /** Runs after each result is recorded (round 3: an import right after a folder replaced). */
         afterResult: suspend (AutoBackupResult) -> Unit = {},
+        /** Round 5 (m-2): whether a write of the A6 request goes through (false: a full disk for that write). */
+        a6Writes: (A6State) -> Boolean = { true },
     ) = AutoBackup(
         s,
         targets = { settings.settings.value.vault(id).targets },
@@ -160,7 +162,14 @@ class AutoBackupTargetsTest {
         zone = ZoneOffset.UTC,
         // Round 4: the A6 request in the settings, as AppContainer keeps it.
         a6 = { settings.settings.value.vault(id).a6 },
-        onA6 = { state -> settings.updateVault(id) { it.copy(a6 = state) } },
+        onA6 = { state ->
+            if (a6Writes(state)) {
+                settings.updateVault(id) { it.copy(a6 = state) }
+                true
+            } else {
+                false
+            }
+        },
     ).also { runCurrent() }
 
     private fun TestScope.settle() {
@@ -958,12 +967,12 @@ class AutoBackupTargetsTest {
         val two = Folder()
         var importNow = false
         var copy = ByteArray(0)
-        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two)) { r ->
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two), afterResult = { r ->
             if (importNow && r.replaced) {
                 importNow = false
                 s.importReplace(ByteArrayInputStream(copy), masterA.toCharArray())
             }
-        }
+        })
         settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.DAILY) }
         clock += 60_000
         s.upsert(note("1"))
@@ -1253,12 +1262,13 @@ class AutoBackupTargetsTest {
         // Removing «uno», the last folder waiting, ends the request: the summary of the folders left is told.
         assertTrue(settings.removeTarget("a", "content://uno"))
         a.retell()
+        runCurrent() // Round 5 (m-6): not waited for by the caller.
         val end = a.replaceOutcome.value!!
         assertTrue(end.replaced)
         assertEquals(AUTO_BACKUP_REPLACED + " " + autoBackupUnlistedText(1), end.text)
     }
 
-    private enum class Fate { REPLACED, FAILED, ADDED_AFTER, READDED_WAITING, READDED_DONE, REMOVED_BEFORE }
+    private enum class Fate { REPLACED, FAILED, ADDED_AFTER, READDED_WAITING, READDED_DONE, REMOVED_BEFORE, MOVED_TO_DONE, MOVED_TO_WAITING }
 
     /**
      * Round 4: every combination of 2 and 3 folders in each state, reached through the real transitions (adding, removing,
@@ -1310,27 +1320,40 @@ class AutoBackupTargetsTest {
                             expectedUnlisted += i + 1
                         }
                         Fate.REMOVED_BEFORE -> v = v.withTargetAdded(uri, BackupSchedule.ON_CHANGE)
+                        // Round 5 (m-1): another folder (added after) is changed to this one, which had left with its
+                        // result, or with its request waiting.
+                        Fate.MOVED_TO_DONE -> {
+                            v = v.withAutoBackupResult(done).withTargetRemoved(uri).withTargetAdded("content://tmp$i", BackupSchedule.DAILY)
+                                .withTargetFolderChanged("content://tmp$i", uri)
+                            expectedUnlisted += i + 1
+                        }
+                        Fate.MOVED_TO_WAITING -> v = v.withTargetRemoved(uri).withTargetAdded("content://tmp$i", BackupSchedule.DAILY)
+                            .withTargetFolderChanged("content://tmp$i", uri)
                     }
                 }
                 val summary = v.a6Summary
                 val text = a6Text(emptyList(), summary)
-                val all2 = fates.all { it == Fate.REPLACED || it == Fate.READDED_DONE }
-                val anyDone = fates.any { it == Fate.REPLACED || it == Fate.READDED_DONE }
+                val doneFates = setOf(Fate.REPLACED, Fate.READDED_DONE, Fate.MOVED_TO_DONE)
+                val all2 = fates.all { it in doneFates }
+                val anyDone = fates.any { it in doneFates }
                 val label = fates.toString()
                 assertEquals(label, n, summary.folders)
-                assertEquals(label, fates.count { it == Fate.REPLACED || it == Fate.READDED_DONE }, summary.replaced)
+                assertEquals(label, fates.count { it in doneFates }, summary.replaced)
                 assertEquals(label, n, summary.replaced + summary.notReplaced)
                 assertEquals(label, expectedUnlisted, summary.unlisted)
                 assertEquals(label, all2, text.startsWith(AUTO_BACKUP_REPLACED_SEVERAL))
                 assertEquals(label, all2, "cada carpeta" in text)
                 assertFalse(label, "1 de 1" in text)
                 assertEquals(label, !anyDone, text.isEmpty())
+                // Round 5 (m-3): a state that shows a dialog (a failure to tell, or a folder done) never has an empty text.
+                assertTrue(label, a6Text(listOf(AUTO_BACKUP_WRITE_FAILED), summary).isNotEmpty())
+                if (anyDone) assertTrue(label, text.isNotBlank())
                 if (anyDone && !all2) assertTrue(label, text.startsWith(a6PartialText(summary.replaced, n)))
                 if (expectedUnlisted > 0) assertTrue(label, "$expectedUnlisted cop" in text)
                 checked++
             }
         }
-        assertEquals(6 * 6 + 6 * 6 * 6, checked)
+        assertEquals(8 * 8 + 8 * 8 * 8, checked)
     }
 
     /** Round 4 (m-2): forgetting the copies for an import and undoing it gives back the A6 state as it was. */
@@ -1390,5 +1413,93 @@ class AutoBackupTargetsTest {
         assertNull(target("a", "content://f").copiedMark)
         a.runDue(clock + 1_000)
         assertEquals(2, f.copies().size)
+    }
+
+    // ---- Round 5 (re-review 4; ruling «T8 ronda 5, la última») ----
+
+    /** m-2: a store that only fails to write the id of the new request: no folder is touched and nothing says anything was deleted. */
+    @Test fun aRequestWhoseIdIsNotSavedTouchesNothing() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val two = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two), a6Writes = { it.said != null })
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        val before = settings.settings.value.vault("a")
+        val files = one.files.keys.toSet() to two.files.keys.toSet()
+        val answer = a.replaceOldCopies(before.listedCopies)
+        assertEquals(AUTO_BACKUP_FAILED, answer.error)
+        assertEquals(files, one.files.keys.toSet() to two.files.keys.toSet())
+        assertEquals(before, settings.settings.value.vault("a"))
+        assertNull(a.replaceOutcome.value)
+        assertEquals("", a6Text(emptyList(), settings.settings.value.vault("a").a6Summary))
+    }
+
+    /** m-2: a folder that cannot even be opened in «Borrar…» records its failure, in the request, with no promise of a retry. */
+    @Test fun aFolderThatCannotBeOpenedRecordsItsFailure() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one)) // «dos» is not usable.
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        val answer = a.replaceOldCopies(settings.settings.value.vault("a").listedCopies)
+        assertEquals(AUTO_BACKUP_FAILED, answer.error)
+        assertFalse("Se volverá a intentar" in answer.error!!)
+        val v = settings.settings.value.vault("a")
+        assertEquals(v.a6!!.id, target("a", "content://dos").replaceRequest)
+        assertNull(target("a", "content://dos").replaceDone)
+        assertEquals(AUTO_BACKUP_FAILED, target("a", "content://dos").lastError)
+        assertEquals(a6PartialText(1, 2), a6Text(emptyList(), v.a6Summary))
+    }
+
+    /** m-7: a summary posted but never closed (the process died) is told again after a restart, at the unlock. */
+    @Test fun aSummaryNotClosedIsToldAgainAfterARestart() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a6Asked(s, a)
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        val told = a.replaceOutcome.value!!
+        assertTrue(told.replaced)
+        assertFalse(target("a", "content://uno").replacePending)
+        // A new engine from the saved settings (as after a restart): nothing is waiting, and the summary comes again.
+        val again = auto(s, "a", mapOf("content://uno" to one))
+        cycle(s)
+        assertEquals(told.text, again.replaceOutcome.value!!.text)
+    }
+
+    /** m-7: a summary closed by the user is never told again, also after a restart. */
+    @Test fun aSummaryClosedIsNotToldAgain() = runTest {
+        val s = opened("a", masterA)
+        val one = Folder()
+        val a = auto(s, "a", mapOf("content://uno" to one))
+        settings.updateVault("a") { it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE) }
+        clock += 60_000
+        s.upsert(note("1"))
+        settle()
+        a6Asked(s, a)
+        s.unlock(masterA.toCharArray())
+        runCurrent()
+        a.replaceOutcomeShown(a.replaceOutcome.value!!)
+        runCurrent()
+        assertTrue(settings.settings.value.vault("a").a6!!.closed)
+        val two = Folder()
+        val again = auto(s, "a", mapOf("content://uno" to one, "content://dos" to two))
+        cycle(s)
+        assertNull(again.replaceOutcome.value)
+        assertNull(a.replaceOutcome.value)
+        // Not even when, months later, another folder is added: that request is closed.
+        settings.updateVault("a") { it.withTargetAdded("content://dos", BackupSchedule.ON_CHANGE) }
+        cycle(s)
+        assertNull(again.replaceOutcome.value)
     }
 }
