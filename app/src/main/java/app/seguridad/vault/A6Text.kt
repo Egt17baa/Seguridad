@@ -64,10 +64,12 @@ fun a6PartialText(replaced: Int, folders: Int): String {
     val done = "Se borraron las copias automáticas y las de antes de importar hechas antes del cambio de contraseña (las " +
         "que la app tenía apuntadas) en $replaced de las $folders carpetas."
     val left = folders - replaced
+    // Round 5 (m-8): true whatever those folders hold (one added after the change has nothing of before; one that failed
+    // half-way deleted some).
     val notDone = if (left == 1) {
-        "En la otra carpeta no se han borrado: puede que alguna se abra con una contraseña anterior. Míralo a mano."
+        "En la otra carpeta puede quedar alguna copia de antes del cambio de contraseña: míralo a mano."
     } else {
-        "En las otras $left carpetas no se han borrado: puede que alguna se abra con una contraseña anterior. Míralo a mano."
+        "En las otras $left carpetas puede quedar alguna copia de antes del cambio de contraseña: míralo a mano."
     }
     return "$done $notDone"
 }

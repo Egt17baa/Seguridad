@@ -186,23 +186,28 @@ fun VaultSettings.canAddTarget(uri: String): TargetRefusal? = when {
 fun VaultSettings.withTargetAdded(uri: String, schedule: BackupSchedule, keep: Int = AUTO_BACKUP_KEEP_DEFAULT): VaultSettings {
     if (canAddTarget(uri) != null) return this
     val past = pastTargets.firstOrNull { it.uri == uri }
-    // Round 3 (O-5): an A6 request that was waiting in this folder comes back with its lists, even if the request of the
-    // other folders closed meanwhile: the copies listed here are still under the master password of before.
-    val added = BackupTargetSettings(
-        uri, past?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: keep, past?.schedule ?: schedule,
-        copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty(),
-        replacePending = past?.replacePending == true, replaceTargets = past?.replaceTargets, replaceTold = past?.replaceTold.orEmpty(),
-        // Round 4 (m-2): its result for the request and its change mark come back with it too.
-        replaceRequest = past?.replaceRequest, replaceDone = past?.replaceDone, copiedMark = past?.copiedMark,
-    )
+    val added = restored(uri, past?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: keep, past?.schedule ?: schedule, past)
     return copy(targets = targets + added, pastTargets = pastTargets.filter { it.uri != uri }, autoBackupOffForNewVault = false)
 }
 
 /**
+ * The target of [uri], with [keep] and [schedule], and what the folder had when it stopped being one ([past]): its lists,
+ * and (round 3, O-5) an A6 request that was waiting there, even if the request of the other folders closed meanwhile (the
+ * copies listed there are still under the master password of before), and (round 4, m-2) its result for the request and
+ * its change mark. One code for adding a folder and for changing a folder to it (round 5, m-1).
+ */
+private fun restored(uri: String, keep: Int, schedule: BackupSchedule, past: BackupTargetSettings?) = BackupTargetSettings(
+    uri, keep, schedule,
+    copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty(),
+    replacePending = past?.replacePending == true, replaceTargets = past?.replaceTargets, replaceTold = past?.replaceTold.orEmpty(),
+    replaceRequest = past?.replaceRequest, replaceDone = past?.replaceDone, copiedMark = past?.copiedMark,
+)
+
+/**
  * These settings with the target of [from] going to the folder [to] instead (Ajustes, «Cambiar de carpeta»), with its
  * schedule and number of copies. The same folder chosen again keeps its lists and its A6 request, and starts its date and
- * error again (as 1.4.3); another folder starts with the lists that folder had ([pastTargets]) and no request, and the
- * lists of [from] are kept there. As they are if [from] is not a target or [to] is another target.
+ * error again (as 1.4.3); another folder starts with what that folder had ([pastTargets], as [withTargetAdded], round 5),
+ * and the lists of [from] (with its request) are kept there. As they are if [from] is not a target or [to] is another target.
  */
 fun VaultSettings.withTargetFolderChanged(from: String, to: String): VaultSettings {
     val old = target(from) ?: return this
@@ -211,7 +216,7 @@ fun VaultSettings.withTargetFolderChanged(from: String, to: String): VaultSettin
     val past = pastTargets.firstOrNull { it.uri == to }
     // Review I-1: the folder's lists rotate with the larger of the two numbers of copies, never with fewer than chosen.
     val keep = maxOf(old.keep, past?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: old.keep)
-    val fresh = BackupTargetSettings(to, keep, old.schedule, copies = past?.copies.orEmpty(), importCopies = past?.importCopies.orEmpty())
+    val fresh = restored(to, keep, old.schedule, past)
     return copy(
         targets = targets.map { if (it.uri == from) fresh else it },
         pastTargets = keptPast(pastTargets.filter { it.uri != to && it.uri != from }, old),

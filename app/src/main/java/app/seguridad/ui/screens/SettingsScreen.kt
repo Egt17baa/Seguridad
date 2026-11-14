@@ -245,7 +245,8 @@ private fun AutoBackupSection(
             // Round 4: a folder changed while its A6 request waited: the summary of the request is told if it changed.
             if (hadRequest) autoBackup.retell()
             // A request to replace the old copies that the new folder dropped is said, not lost in silence.
-            val dropped = if (hadRequest && store.settings.value.vault(id).target(chosen)?.replacePending != true) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
+            // Round 5: another folder takes the place of one whose request waited (that request stays with its folder's lists).
+            val dropped = if (hadRequest && from != chosen) " $AUTO_BACKUP_REPLACE_DROPPED" else ""
             val schedule = store.settings.value.vault(id).target(chosen)?.schedule ?: BackupSchedule.ON_CHANGE
             snackbar.showSnackbar(
                 when (vault.state.value) {
@@ -394,8 +395,11 @@ fun MasterChangedDialog(
     val status = replaceStatus(state.requestedAt, state.answered, state.answerError, pending, lastError, lastBackupAt, toldSinceRequest)
     // Round 4: «Done» from the answer or the settings, but only some folders replaced for this request: said as it is, and
     // «Borrar…» can be asked again.
-    val partial = status is ReplaceStatus.Done && summary != null && summary.notReplaced > 0
-    val canReplace = !working && (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed || partial)
+    val partial = status is ReplaceStatus.Done && summary != null && summary.notReplaced > 0 && summary.replaced > 0
+    // Round 5 (m-3): «Done» with no folder replaced for this request is not known as done: no text, «Borrar…» again.
+    val unknown = status is ReplaceStatus.Done && (summary == null || summary.replaced == 0)
+    val canReplace = !working &&
+        (status is ReplaceStatus.NotAsked || status is ReplaceStatus.Unknown || status is ReplaceStatus.Failed || partial || unknown)
     AlertDialog(
         onDismissRequest = { if (!working) onClose() },
         title = { Text(PASSWORD_CHANGED_TITLE) },
@@ -416,7 +420,8 @@ fun MasterChangedDialog(
                         working -> Hint(PASSWORD_CHANGE_WORKING)
                         // Round 4: the success only from what the folders saved for this request (a6Text): never «en cada
                         // carpeta» unless every folder of now replaced for it.
-                        status is ReplaceStatus.Done && !partial -> a6Text(emptyList(), summary).takeIf { it.isNotEmpty() }?.let { Hint(it) }
+                        unknown -> Unit
+                        status is ReplaceStatus.Done && !partial -> Hint(a6Text(emptyList(), summary))
                         partial -> Text(a6Text(emptyList(), summary), style = MaterialTheme.typography.bodySmall, color = NegativeColor)
                         status is ReplaceStatus.Waits -> Hint(AUTO_BACKUP_REPLACE_WAITS)
                         status is ReplaceStatus.Failed -> Text(

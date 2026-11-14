@@ -832,13 +832,22 @@ class AppContainer(
     }
 
     /** Task 8, round 4: saves the A6 request of the vault [id] ([A6State]); a vault deleted meanwhile is left alone. */
-    internal suspend fun recordA6(id: String, state: app.seguridad.vault.A6State) {
-        try {
-            settings.update { s -> if (!listed(id)) s else s.withVault(id) { v -> v.copy(a6 = state) } }
+    internal suspend fun recordA6(id: String, state: app.seguridad.vault.A6State): Boolean {
+        return try {
+            var saved = false
+            settings.update { s ->
+                if (!listed(id)) {
+                    s
+                } else {
+                    saved = true
+                    s.withVault(id) { v -> v.copy(a6 = state) }
+                }
+            }
+            saved
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // A full disk: the same summary may be told again; never closes the app.
+            false // A full disk: a new request is not made (round 5, m-2); a summary may be told again. Never closes the app.
         }
     }
 

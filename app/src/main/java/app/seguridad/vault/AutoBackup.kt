@@ -202,7 +202,7 @@ const val AUTO_BACKUP_REPLACE_WAITS = "Se hará en cuanto abras la bóveda con l
  */
 const val RETRY_AFTER_FAILURE_MS = 5 * 60_000L
 
-/** Task 8, round 4: a new id for an A6 request (16 random bytes in hex). */
+/** Task 8, round 4: a new id for an A6 request (a random UUID, as text). */
 internal fun newA6RequestId(): String = java.util.UUID.randomUUID().toString()
 
 /** 2.0, task 8: what [AutoBackup.runDue] says after [n] copies made by the calendar. */
@@ -267,6 +267,8 @@ data class AutoBackupResult(
      * was posted (frozen: the dialog never writes its own).
      */
     val text: String? = null,
+    /** Round 5 (m-7): with [text], the summary it told ([a6Summary]), kept as said once the user closes it. */
+    val summary: A6Summary? = null,
 )
 
 /** How [AutoBackup.copyBeforeImport] went. */
@@ -344,12 +346,15 @@ class AutoBackup(
      * memory when not given (tests of one folder).
      */
     a6: (() -> A6State?)? = null,
-    /** Saves the A6 request ([A6State]); must not throw. Kept in memory when not given. */
-    onA6: (suspend (A6State) -> Unit)? = null,
+    /**
+     * Saves the A6 request ([A6State]); must not throw. True when it was saved (round 5, m-2: a request whose id is not saved
+     * is not made). Kept in memory when not given.
+     */
+    onA6: (suspend (A6State) -> Boolean)? = null,
 ) {
     @Volatile private var a6InMemory: A6State? = null
     private val a6: () -> A6State? = a6 ?: { a6InMemory }
-    private val onA6: suspend (A6State) -> Unit = onA6 ?: { a6InMemory = it }
+    private val onA6: suspend (A6State) -> Boolean = onA6 ?: { a6InMemory = it; true }
 
     private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
@@ -371,9 +376,10 @@ class AutoBackup(
 
     /**
      * How a replacement that ran by itself (it was asked for while locked) went, until [replaceOutcomeShown]: it lives with
-     * this object, not with a screen, so an activity re-created meanwhile still shows it, and once shown it is gone. With
-     * several targets, one outcome for all: «replaced» only when no target has the request any more ([tell]), with the
-     * copies left unlisted counted over every target; a failure carries the count of the targets that did replace.
+     * this object, not with a screen, so an activity re-created meanwhile still shows it, and once shown it is gone. One
+     * outcome for all the targets ([publish]): its [AutoBackupResult.text] is [a6Text]'s, from what each target saved for the
+     * request of now ([a6Summary]); «replaced» only when every target of now replaced for it. Closing it keeps what it said
+     * ([replaceOutcomeShown]).
      */
     val replaceOutcome: StateFlow<AutoBackupResult?> = outcome.value
 
@@ -383,6 +389,15 @@ class AutoBackup(
      */
     fun replaceOutcomeShown(shown: AutoBackupResult) {
         outcome.shown(shown)
+        // Round 5 (m-7): what was said is kept once the user closed it, not when it was posted, so a process death before
+        // it was seen tells it again (at the next unlock, [runDue]). A summary of every folder done closes the request.
+        val said = shown.summary ?: return
+        scope.launch {
+            lock.withLock {
+                val state = a6()
+                if (currentA6Request(state) == said.request) onA6((state ?: A6State(said.request)).copy(said = said.key, closed = said.notReplaced == 0))
+            }
+        }
     }
 
     private val scheduled = Notice<String>()
@@ -523,7 +538,8 @@ class AutoBackup(
                 if (replace) notices += result
                 if (calendar && result.writtenAt != null && result.copies != null) byCalendar++
             }
-            tell(notices, since)
+            // Round 5 (m-7): at an unlock the summary is told again if it was never closed (a process death lost it).
+            if (afterUnlock) publish(notices, since) else tell(notices, since)
         }
         postScheduled(byCalendar, epoch)
     }
@@ -555,7 +571,8 @@ class AutoBackup(
     private suspend fun publish(notices: List<AutoBackupResult>, since: Long) {
         val told = notices.mapNotNull { it.toldKey }.distinct()
         val state = a6()
-        val summary = a6Summary(targets(), state).takeIf { store.generation == since && it.replaced > 0 }
+        // Round 5 (m-7): a request whose summary of every folder done was closed by the user is not told again.
+        val summary = a6Summary(targets(), state).takeIf { store.generation == since && it.replaced > 0 && state?.closed != true }
         val changed = summary != null && summary.key != state?.said
         if (told.isEmpty() && !changed) return
         val base = when {
@@ -570,16 +587,19 @@ class AutoBackup(
                 unlistedLeft = summary?.unlisted ?: 0,
                 toldKey = told.firstOrNull(),
                 text = a6Text(told, summary),
+                summary = summary,
             ),
         )
-        if (summary != null) onA6((state ?: A6State(summary.request)).copy(said = summary.key))
     }
 
     /**
      * Round 4: a target that had the A6 request waiting was removed, or its folder changed (Ajustes): the summary of the
      * request is told if it changed (it may be the end of the request: every folder left replaced).
      */
-    suspend fun retell() = scope.async { lock.withLock { publish(emptyList(), store.generation) } }.await()
+    fun retell() {
+        // Round 5 (m-6): not waited for: a copy going on (a slow provider) never holds up Ajustes; it comes by [replaceOutcome].
+        scope.launch { lock.withLock { publish(emptyList(), store.generation) } }
+    }
 
     /** One result for the dialog out of each target's: [error] its text, the copies left unlisted added up. */
     private fun combined(results: List<AutoBackupResult>, error: String?, replaced: Boolean) = AutoBackupResult(
@@ -617,7 +637,8 @@ class AutoBackup(
             val since = store.generation
             // Round 4: a new A6 request, with an id of its own: what the targets saved for an earlier one never counts.
             val request = newA6RequestId()
-            onA6(A6State(request))
+            // Round 5 (m-2): not saved, nothing is touched: otherwise the folders would keep a request the vault does not know.
+            if (!onA6(A6State(request)) || a6()?.id != request) return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
             val results = ArrayList<AutoBackupResult>()
             for (uri in all.map { it.uri }) {
                 val t = target(uri) ?: continue // Read again: removed meanwhile.
@@ -628,10 +649,10 @@ class AutoBackup(
                         // starts again).
                         val ids = if (t.replacePending) t.replaceTargets ?: asked else asked
                         attempt(uri, Replace(ids, announce = false, newRequest = true, since = since, request = request))
-                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, asked, request) else AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
+                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, asked, request) else failedFor(uri, request)
                     }
                     is VaultState.Locked -> waitForUnlock(uri, asked, request)
-                    else -> AutoBackupResult(uri, null, AUTO_BACKUP_FAILED)
+                    else -> failedFor(uri, request)
                 }
             }
             if (results.isEmpty()) return@withLock AutoBackupResult("", null, AUTO_BACKUP_FAILED)
@@ -648,6 +669,17 @@ class AutoBackup(
         } finally {
             _replacing.value = false
         }
+    }
+
+    /**
+     * Round 5 (m-2): [replaceOldCopies] could not even try the target [uri] (its folder not usable, the vault gone): the
+     * failure is recorded as every other ([onResult]: the target is in [request], with no result for it), with a text that
+     * promises no retry.
+     */
+    private suspend fun failedFor(uri: String, request: String): AutoBackupResult {
+        val r = AutoBackupResult(uri, null, AUTO_BACKUP_FAILED, newRequest = true, request = request)
+        onResult(r)
+        return r
     }
 
     /** The vault is locked: the request is saved (through [onResult]) and the first copy after the next unlock does it. */
