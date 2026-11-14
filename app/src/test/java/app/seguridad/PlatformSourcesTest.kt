@@ -1094,6 +1094,11 @@ class PlatformSourcesTest {
         val vm = src.substringAfter("private class WifiQrViewModel(").substringBefore("\n}\n")
         assertTrue("viewModelScope.launch { store.state.collect { follow(it) } }" in vm)
         assertTrue("override fun onCleared()" in vm && "drawn.value = null" in vm)
+        // A lock (no open vault) or the entry gone closes, and closing drops the image and the network first.
+        assertTrue("if (entry == null) {\n            close()\n            return\n        }" in vm)
+        assertTrue("private fun close() {\n        hide()\n        config = null\n        shown.value = null\n        closed.value = true" in vm)
+        assertTrue(vm.substringAfter("fun hide() {").substringBefore("\n    }").contains("drawn.value = null"))
+        assertTrue(vm.substringAfter("override fun onCleared() {").substringBefore("\n    }").contains("drawn.value = null"))
         val screen = src.substringAfter("fun WifiQrScreen(")
         assertTrue("VaultIdleLock(store)" in screen && ".touchesVault(store)" in screen)
         assertTrue("if (vm.closed.value) {\n        LaunchedEffect(Unit) { onBack() }" in screen)
