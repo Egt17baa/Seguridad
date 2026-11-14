@@ -1682,4 +1682,26 @@ class AutoBackupTargetsTest {
         // Working: nothing can be pressed, and no result is shown.
         assertEquals(A6DialogView(false, null, negative = false), a6DialogView(ReplaceStatus.Done, true, all))
     }
+
+    /** Round 6, m-3: «Cambiar de carpeta» says whether a waiting request moved away from the write itself. */
+    @Test fun changingAFolderSaysFromTheWriteWhetherARequestMoved() = runTest {
+        settings.load()
+        settings.updateVault("a") {
+            it.withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE)
+                .withAutoBackupResult(AutoBackupResult("content://uno", 1L, null, copies = listOf("u1")))
+                .withAutoBackupResult(AutoBackupResult("content://uno", null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = listOf("u1"), request = "R"))
+        }
+        assertFalse(settings.changeTargetFolder("a", "content://dos", "content://tres")) // No request there.
+        assertFalse(settings.changeTargetFolder("a", "content://uno", "content://uno")) // The same folder keeps it.
+        assertTrue(target("a", "content://uno").replacePending)
+        // Replaced just before the write (as a pass that ends while the picker was open): nothing moved away.
+        settings.updateVault("a") { it.withAutoBackupResult(AutoBackupResult("content://uno", 2L, null, copies = listOf("u2"), replaced = true, request = "R")) }
+        assertFalse(settings.changeTargetFolder("a", "content://uno", "content://cuatro"))
+        settings.updateVault("a") {
+            it.withAutoBackupResult(AutoBackupResult("content://cuatro", 3L, null, copies = listOf("c1")))
+                .withAutoBackupResult(AutoBackupResult("content://cuatro", null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = listOf("c1"), request = "R"))
+        }
+        assertTrue(settings.changeTargetFolder("a", "content://cuatro", "content://cinco"))
+        assertTrue(settings.settings.value.vault("a").pastTargets.single { it.uri == "content://cuatro" }.replacePending)
+    }
 }
