@@ -1,5 +1,6 @@
 package app.seguridad
 
+import app.seguridad.settings.guideDue
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
 import kotlinx.coroutines.test.runTest
@@ -51,7 +52,7 @@ class SimpleModeFirstVaultTest {
         // What it keeps unencrypted (pendientes, row 8): one switch, and the guide only once it is seen (a false is not written).
         val written = File(tmp.root, "app/settings.json").readText()
         assertTrue(written, "\"simpleMode\":true" in written)
-        assertTrue(written, "onboardingDone" !in written)
+        assertTrue(written, "guideSeen" !in written)
         // A second vault, or the first one made again after «He olvidado la contraseña maestra», changes nothing.
         c.settings.update { it.copy(simpleMode = false) }
         c.createVault("Dos", "maestra-de-prueba-dos".toCharArray())
@@ -79,7 +80,7 @@ class SimpleModeFirstVaultTest {
         assertEquals(false, c.settings.settings.value.simpleMode)
     }
 
-    /** An update from 1.4.3 (its settings.json and its vault): off, and the guide as seen, also when it creates a vault. */
+    /** An update from 1.4.3 (its settings.json and its vault): off, and the short guide of what is new (owner, 14-11-2026). */
     @Test fun anUpdateKeepsItOff() = runTest {
         val dir = tmp.newFolder("app")
         File(dir, "settings.json").writeText(javaClass.getResourceAsStream("/seguridad/settings-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
@@ -87,6 +88,7 @@ class SimpleModeFirstVaultTest {
         File(File(dir, "vault"), "vault.bin").writeText(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
         val c = fresh(dir, backgroundScope)
         assertEquals(false, c.settings.settings.value.simpleMode)
-        assertTrue(c.settings.settings.value.onboardingDone)
+        assertEquals(app.seguridad.settings.GuideDue.WHATS_NEW, c.settings.settings.value.guideDue)
+        assertTrue("\"guideSeen\":1" in File(dir, "settings.json").readText())
     }
 }

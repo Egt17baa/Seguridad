@@ -150,8 +150,9 @@ class SettingsTest {
 
     /**
      * 2.0, tarea 10: el settings.json de un usuario de la 1.4.3, escrito por el `SettingsStore` de la etiqueta `v1.4.3`
-     * (`a3ac942`) con datos de prueba (`/seguridad/settings-1.4.3.json`). Quien actualiza no tiene el modo sencillo ni ve
-     * la guía, con bóveda y sin ella, y sigue así al volver a abrir la app.
+     * (`a3ac942`) con datos de prueba (`/seguridad/settings-1.4.3.json`). Quien actualiza no tiene el modo sencillo y le
+     * toca la guía corta de novedades, no la completa (dueño, 14-11-2026), con bóveda y sin ella, también al volver a
+     * abrir la app hasta verla; vista o saltada, ya no le toca ninguna.
      */
     @Test fun oldSettingsKeepSimpleModeOff() = runTest {
         val real = javaClass.getResourceAsStream("/seguridad/settings-1.4.3.json")!!.use { it.readBytes() }.decodeToString()
@@ -163,7 +164,8 @@ class SettingsTest {
             for (v in listOf(s.settings.value, store().apply { load() }.settings.value)) {
                 assertEquals(false, v.simpleMode)
                 assertFalse(v.simpleOn)
-                assertTrue("The guide counts as seen", v.onboardingDone)
+                assertEquals("The short guide of what is new", GuideDue.WHATS_NEW, v.guideDue)
+                assertEquals(GUIDE_BEFORE_2_0, v.guideSeen)
                 assertEquals(LockAfter.MIN_1, v.lockAfter)
             }
             // Their first vault made later (after «He olvidado la contraseña maestra», say) changes nothing.
@@ -172,7 +174,31 @@ class SettingsTest {
             // A later start decides nothing again.
             store().apply { load(); decideRenameNotice(vaultExists = false) }
             assertEquals(false, store().apply { load() }.settings.value.simpleMode)
+            assertEquals(GuideDue.WHATS_NEW, store().apply { load() }.settings.value.guideDue)
+            // Seen or skipped: nothing more, now and at the next start.
+            s.update { it.withGuideSeen() }
+            assertEquals(GuideDue.NONE, s.settings.value.guideDue)
+            assertEquals(GuideDue.NONE, store().apply { load(); decideRenameNotice(vaultExists = true) }.settings.value.guideDue)
         }
+    }
+
+    /**
+     * The guide seen is a number, so a later version that brings a guide of its own only raises [GUIDE_CURRENT]: whoever
+     * saw an older one gets the short one of what is new, a new install the whole one, and whoever saw this one nothing.
+     */
+    @Test fun theGuideDueGoesByTheVersionSeen() {
+        assertEquals(GuideDue.FULL, Settings().guideDue)
+        assertEquals(GuideDue.FULL, Settings(guideSeen = GUIDE_NONE).guideDue)
+        assertEquals(GuideDue.WHATS_NEW, Settings(guideSeen = GUIDE_BEFORE_2_0).guideDue)
+        for (seen in GUIDE_BEFORE_2_0 until GUIDE_CURRENT) assertEquals(GuideDue.WHATS_NEW, Settings(guideSeen = seen).guideDue)
+        assertEquals(GuideDue.NONE, Settings(guideSeen = GUIDE_CURRENT).guideDue)
+        assertEquals("A file of a later version (downgraded app)", GuideDue.NONE, Settings(guideSeen = GUIDE_CURRENT + 5).guideDue)
+        assertEquals(GUIDE_CURRENT, Settings().withGuideSeen().guideSeen)
+        // Seeing it never lowers what a later version had recorded.
+        assertEquals(GUIDE_CURRENT + 5, Settings(guideSeen = GUIDE_CURRENT + 5).withGuideSeen().guideSeen)
+        assertTrue(GUIDE_NONE < GUIDE_BEFORE_2_0 && GUIDE_BEFORE_2_0 < GUIDE_CURRENT)
+        // A negative number (a file edited by hand) is a new install's: the whole guide, never an error.
+        assertEquals(GuideDue.FULL, Settings(guideSeen = -3).guideDue)
     }
 
     /**
@@ -186,7 +212,7 @@ class SettingsTest {
             val s = store().apply { load(); decideRenameNotice(vaultExists = false) }
             assertNull(s.settings.value.simpleMode)
             assertFalse(s.settings.value.simpleOn)
-            assertFalse(s.settings.value.onboardingDone)
+            assertEquals("The whole guide", GuideDue.FULL, s.settings.value.guideDue)
             s.update { it.copy(noticeAccepted = true) }
         }
         val s = store().apply { load(); decideRenameNotice(vaultExists = false) }
@@ -196,7 +222,7 @@ class SettingsTest {
         s.update { it.copy(simpleMode = false) }
         s.firstVault(created = true)
         assertEquals("Only once", false, s.settings.value.simpleMode)
-        assertFalse(store().apply { load(); decideRenameNotice(vaultExists = true) }.settings.value.onboardingDone)
+        assertEquals(GuideDue.FULL, store().apply { load(); decideRenameNotice(vaultExists = true) }.settings.value.guideDue)
 
         file().delete()
         val imported = store().apply { load(); decideRenameNotice(vaultExists = false) }

@@ -61,7 +61,7 @@ class SettingsStore(
         val earlier = fileExistedAtLoad || vaultExists
         // 2.0, task 5 bis (R-C8): the line about the new look is decided the same way, on its own: those who updated from
         // 1.3.x or 1.4.x already have the notice of the name decided, and they are the ones who see the new look. 2.0,
-        // task 10: «Modo sencillo» off and the guide as seen for them, at the same first start ([decidedAtFirstStart]).
+        // task 10: «Modo sencillo» off and the short guide of what is new for them, at the same first start ([decidedAtFirstStart]).
         val next = s.decidedAtFirstStart(earlier)
         if (next == s) return@withLock
         try {

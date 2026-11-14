@@ -88,12 +88,47 @@ data class Settings(
      */
     val simpleMode: Boolean? = null,
     /**
-     * 2.0, task 10: the first guide was seen or skipped. A default value is never written ([app.seguridad.core.appJson]),
-     * so a settings.json of 1.4.3 cannot say it: the first start of 2.0 makes it true when there was data from an earlier
-     * version ([decidedAtFirstStart]), so whoever updates does not see the guide.
+     * 2.0, task 10: the version of the guide last seen or skipped ([GUIDE_CURRENT] once it is), which says which guide is
+     * due ([guideDue]): [GUIDE_NONE] for a new install, the whole guide; [GUIDE_BEFORE_2_0] for whoever updated from 1.x,
+     * the short guide of what is new (owner, 14-11-2026); [GUIDE_CURRENT], none. A settings.json of 1.4.3 has none, and
+     * a default is never written ([app.seguridad.core.appJson]): the first start of 2.0 writes [GUIDE_BEFORE_2_0] when
+     * there was data from an earlier version ([decidedAtFirstStart]). A number and not a yes or no, so a later version
+     * with a guide of its own only raises [GUIDE_CURRENT].
      */
-    val onboardingDone: Boolean = false,
+    val guideSeen: Int = GUIDE_NONE,
 )
+
+/** [Settings.guideSeen] of a new install: no guide seen. */
+const val GUIDE_NONE = 0
+
+/** [Settings.guideSeen] of whoever updated from 1.x (1.4.3 or before): they know Clavero, not what 2.0 brings. */
+const val GUIDE_BEFORE_2_0 = 1
+
+/** The guide of this version (2.0). Raise it only when a version brings a guide of its own. */
+const val GUIDE_CURRENT = 2
+
+/** Which guide is due at the start ([Settings.guideDue]). */
+enum class GuideDue {
+    /** A new install: the whole guide. */
+    FULL,
+
+    /** An update: the short guide with what is new. */
+    WHATS_NEW,
+
+    /** Seen or skipped already. */
+    NONE,
+}
+
+/** Which guide is due: by the version of the guide seen ([Settings.guideSeen]). One of a later version (the app downgraded) is none. */
+val Settings.guideDue: GuideDue
+    get() = when {
+        guideSeen >= GUIDE_CURRENT -> GuideDue.NONE
+        guideSeen <= GUIDE_NONE -> GuideDue.FULL
+        else -> GuideDue.WHATS_NEW
+    }
+
+/** These settings once the guide due was seen or skipped: [GUIDE_CURRENT], never lower than what was recorded. */
+fun Settings.withGuideSeen(): Settings = if (guideSeen >= GUIDE_CURRENT) this else copy(guideSeen = GUIDE_CURRENT)
 
 /** Whether «Modo sencillo» is on: only when decided so ([Settings.simpleMode] null reads as off). */
 val Settings.simpleOn: Boolean get() = simpleMode == true
@@ -102,7 +137,7 @@ val Settings.simpleOn: Boolean get() = simpleMode == true
  * What the first start of 2.0 decides, once: [Settings.appearanceNoticePending] is null only until then (a settings.json
  * of 1.4.3 has [Settings.renameNoticePending] decided already), and [earlier] says whether data from an earlier version
  * was there (the settings file or the vault). Then the line about the new look is due only for those who update, «Modo
- * sencillo» stays off for them and the guide counts as seen. A later start changes nothing: by then the settings file is
+ * sencillo» stays off for them and their guide is the short one of what is new ([GUIDE_BEFORE_2_0]). A later start changes nothing: by then the settings file is
  * there for a new install too, so [earlier] would no longer tell the two apart.
  */
 fun Settings.decidedAtFirstStart(earlier: Boolean): Settings {
@@ -111,7 +146,7 @@ fun Settings.decidedAtFirstStart(earlier: Boolean): Settings {
         renameNoticePending = renameNoticePending ?: earlier,
         appearanceNoticePending = appearanceNoticePending ?: earlier,
         simpleMode = if (first && earlier) simpleMode ?: false else simpleMode,
-        onboardingDone = onboardingDone || (first && earlier),
+        guideSeen = if (first && earlier && guideSeen == GUIDE_NONE) GUIDE_BEFORE_2_0 else guideSeen,
     )
 }
 
