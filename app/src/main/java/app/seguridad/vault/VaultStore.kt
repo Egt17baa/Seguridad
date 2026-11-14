@@ -650,6 +650,10 @@ class VaultStore(
      * 3. [MasterRequired] when the 7-day recheck is due or the clock went back, before the key is used at all;
      * 4. [StaleBiometricKey] when the key does not authenticate the entries;
      * 5. [CryptoFailure] when the entries authenticate but do not decode.
+     *
+     * 2.0, task 10 (i-6, n-1): a vault that is not the active one (a switch came first, or during the work) returns
+     * without throwing and without writing anything, its key wiped and the vault locked; checked at the start and again
+     * right before the save.
      */
     suspend fun unlockWithKey(key: ByteArray) {
         val since = epoch
@@ -692,6 +696,9 @@ class VaultStore(
         // Decrypted once (review M-5): what is written is what opens.
         val data = withContext(compute) { VaultCrypto.read(known, key).purgedTrash(at, mark) }
         val next = withContext(compute) { VaultCrypto.write(known, key, data) }
+        // Task 10, n-1: decrypting and encrypting the whole vault again takes long (up to hundreds of ms near 24 MiB); a
+        // switch meanwhile leaves nothing written either, so the window is as short as the master password's.
+        if (!active()) return key.fill(0)
         commit(next, key, since, mustSave = false, read = data)
     }
 
