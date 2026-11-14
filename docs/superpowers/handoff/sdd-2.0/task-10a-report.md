@@ -290,3 +290,119 @@ Otros cambios para los flujos:
 7. **«Salud» sin bóveda.** En una instalación nueva, antes de la primera bóveda, la tarjeta abre una pantalla que dice «Desbloquea la bóveda para ver su salud.». No hay nada que desbloquear y no enseña nada de ninguna bóveda. Es un texto de error para la fase B: con `NoVault`, algo como «Aún no tienes bóveda».
 8. **La última bóveda sin su archivo.** Si sigue en la lista pero su `vault.bin` desapareció fuera de la app, la app arranca en ella, vacía («Crea tu bóveda», con el selector de bóvedas), y no salta a otra. Así lo hizo la tarea 2, y lo fija `LastVaultTest.aListedLastVaultWithoutItsFileIsShownEmpty`.
 9. **`MissionAction`.** Los destinos de sus misiones no existen aún. `SimpleModeTest.everyToolRouteStaysReachable` se ampliará en la fase B con cada destino.
+
+---
+
+# Ronda 1 de arreglos
+
+**Estado: hecha.** Base `6336099`. Las dos suites están en verde (las cifras, abajo). Commits sin subir y sin PR.
+
+## Commits
+
+| Commit | Qué |
+|---|---|
+| `992b39a` | Los textos de m-1, m-5, m-6 y m-7, el test de m-3 y una bóveda de la 1.x sin `settings.json` |
+| `f418a52` | i-6, en su propio commit: una huella o una maestra que llegan tarde para otra bóveda no escriben nada |
+| `b67d35b` | «2.0, tarea 10 (fase A): ronda 1 de arreglos» (cierre; este informe no entra en git) |
+
+## Qué se hizo
+
+- **m-1:** `SIMPLE_MODE_SHORT` dice ahora «Encendido, Herramientas enseña solo…» (`tools/ToolCatalog.kt:49`). Es verdad con el interruptor encendido y con él apagado.
+- **m-5:** la línea de la sección del historial depende del estado (`historyAllHint`, `vault/TrashTexts.kt:113`; se pinta en `SettingsScreen.kt:729`):
+  - sin bóveda: «Aún no tienes bóveda.»;
+  - con la bóveda bloqueada: «Abre la bóveda (pestaña Bóveda) para borrar el historial.»;
+  - abierta, o mientras se lee: ninguna.
+
+  La sección se sigue pintando sin bóveda, así que el buscador tiene adónde llevar.
+- **m-6:** `HISTORY_ALL_SHORT` dice «Al cambiar una entrada se guarda su versión anterior. Aquí puedes borrar las de todas a la vez.» (`vault/TrashTexts.kt:97`). Las identidades y los contactos no guardan historial.
+- **m-7:** Ajustes no ofrece «Conservar 1»: las opciones son 3, 5 y 10 (`AUTO_BACKUP_KEEP_CHOICES`), y `SettingsStore.sane` cambia cualquier otro número por 5. Lo comprobé con el mínimo, 3 copias, haciendo una copia en cada cambio (`AutoBackupTest.clearingTheHistoryMayRotateAnOlderCopyOut`, `:275`):
+  - antes de borrar, las tres copias tienen el historial;
+  - el borrado es un guardado, así que hace una copia nueva sin historial;
+  - la rotación quita la más antigua, que lo tenía;
+  - las otras dos lo conservan: restauradas, la nota tiene sus versiones;
+  - la copia nueva no lo tiene.
+
+  Por eso «lo conservan» no siempre es verdad, y el texto pasa a decir «pueden»: «Las copias ya hechas (automáticas o exportadas) pueden conservarlas; la copia automática quita las más antiguas.» (`vault/TrashTexts.kt:106`). Lo fijan `theNewTextsWordForWord` y `copiesMadeBeforeKeepTheHistory`, que comprueba además que ya no lleva `COPIES_KEEP_IT`.
+- **m-3:** `SimpleModeFirstVaultTest.aVaultWithAFileMeansItIsNotTheFirst` cubre el caso de un modo sin decidir con una bóveda que ya tiene archivo. Ni crear una segunda bóveda ni «Importar como bóveda nueva» lo deciden. Lo vi fallar con la mutación `if (none || true)` en `AppContainer.kt:463`: falla justo este test, y vuelve a verde al deshacerla.
+- **i-6, en su propio commit:**
+  - `unlockWithKeyLocked` mira `active()` antes de cualquier efecto (`VaultStore.kt:669`). No purga la papelera, no hace el guardado de contabilidad y no toca la marca del reloj; borra la clave y deja la bóveda bloqueada.
+  - **El desbloqueo con la maestra tenía el mismo efecto tardío.** `switchTo` cambia de bóveda activa y espera al mutex, así que una maestra escrita en la pantalla de A acababa después del cambio. Entonces escribía el archivo de A: la última comprobación de la maestra, la purga y quizá una clave vuelta a envolver. Lo arreglé con dos comprobaciones dentro del mutex:
+    - antes de Argon2id (`:573`), para no derivar una clave para una bóveda que ya no se enseña;
+    - después de Argon2id y antes del primer efecto (`:584`); la marca del reloj, `onClockReset`, queda detrás de esa comprobación.
+  - **Tests:** `LastVaultTest.aLateFingerprintOfAnotherVaultOpensNothing` y `aLateMasterUnlockOfAnotherVaultWritesNothing`. En los dos, el `vault.bin` de A y el `settings.json` quedan iguales byte a byte, y después A se abre con su huella o con su maestra como siempre. Los dos fallaron antes del arreglo: el archivo de A pasaba de 389 a 438 bytes.
+  - Ha bastado con una comprobación, así que no hay riesgo con nombre. El resto que queda se apunta en «Dudas».
+- **Cómo detecta la actualización:**
+  - En `a3ac942`, la 1.4.3 escribe siempre `settings.json` en el primer arranque. `SeguridadApp` llama a `decideRenameNotice`, que escribe `renameNoticePending` (en una instalación nueva, `false`) aunque no se haya cambiado ningún ajuste. Solo una escritura que falla, por ejemplo con el disco lleno, deja una bóveda sin `settings.json`.
+  - La 2.0 ya cubría ese caso: cuenta como «datos de antes» el archivo de ajustes o cualquier cosa en `files/vault/` (`SettingsStore.kt:61`, `AppContainer.kt:199`).
+  - El test nuevo es `SimpleModeFirstVaultTest.aVaultOf1xWithoutSettingsIsAnUpdate`, con el `vault-1.4.3.json` real y sin `settings.json`. Comprueba que `guideSeen` = 1, que toca la guía de novedades y que el modo sencillo queda apagado, también en el arranque siguiente. Pasó a la primera; no hizo falta tocar el código.
+- **Sin cambios de código:**
+  - m-4 (las tarjetas al 200 %) y m-9 (TalkBack lee «Modo sencillo» dos veces) van a las filas del móvil, con el arreglo que propone el revisor;
+  - m-2 es de la fase B.
+
+## Tests
+
+- `:app`: **BUILD SUCCESSFUL**: 2325 tests, 0 fallos, 0 omitidos; assemble, lint, licencias, Fragment y assets en verde.
+- jvm-check: **BUILD SUCCESSFUL**: 2281 tests, 0 fallos, 0 omitidos (las dos sobre `f418a52`, por separado).
+
+## Textos visibles nuevos o cambiados en esta ronda
+
+| Texto | Cuándo se ve | `archivo:línea` | Test que lo fija |
+|---|---|---|---|
+| «Encendido, Herramientas enseña solo cifrar texto, cifrar archivo, el generador y la salud de la bóveda. No oculta avisos ni ajustes.» | Bajo el interruptor del modo sencillo, siempre | `tools/ToolCatalog.kt:49` | `SettingsSearchTest.theNewTextsWordForWord`; `SimpleModeTest.theListSaysWhereTheOthersAre` |
+| «Al cambiar una entrada se guarda su versión anterior. Aquí puedes borrar las de todas a la vez.» | Sección «Historial de las entradas» | `vault/TrashTexts.kt:97` | `SettingsSearchTest.theNewTextsWordForWord` |
+| «Aún no tienes bóveda.» | Esa sección, sin bóveda | `vault/TrashTexts.kt:115` | `SettingsSearchTest.theNewTextsWordForWord` |
+| «Abre la bóveda (pestaña Bóveda) para borrar el historial.» | Esa sección, con la bóveda bloqueada | `vault/TrashTexts.kt:116` | `SettingsSearchTest.theNewTextsWordForWord` |
+| «Se quitan las versiones y las contraseñas anteriores de todas las entradas, también de las de la papelera. Las copias ya hechas (automáticas o exportadas) pueden conservarlas; la copia automática quita las más antiguas.» | Confirmación de «Borrar todo el historial» (O-2) | `vault/TrashTexts.kt:106` | `SettingsSearchTest.theNewTextsWordForWord` (literal); su verdad, en `AutoBackupTest.clearingTheHistoryMayRotateAnOlderCopyOut` y `EntryHistoryTest.copiesMadeBeforeKeepTheHistory` |
+
+Los demás textos de la fase A siguen como en la tabla de arriba. `SETTINGS_NEED_OPEN_VAULT` ya no se usa en la sección del historial.
+
+## Revisión experto-seguridad-cripto (ronda 1)
+
+- **Decisión (b), ningún resultado tardío.** La huella y la maestra de una bóveda que ya no se enseña no dejan nada escrito. Lo comprueban dentro del mutex, antes del primer efecto (`VaultStore.kt:573`, `:584`, `:669`). Los tests miran byte a byte el archivo de A y los ajustes, y se vieron fallar antes del arreglo. La puerta de siempre, `opened()` con `!active()` (`:497`), sigue debajo como segunda defensa.
+- **La huella no se apaga.** La comprobación nueva devuelve sin lanzar nada, así que `launchUnlockWithKey` no llama a `onWrongKey` (`VaultStore.kt:126-132`). El test llama a `unlockWithKey` sin `try`.
+- **Veracidad.**
+  - m-1: el texto es verdad con el modo encendido y apagado.
+  - m-6: deja fuera a las identidades y los contactos, que no guardan historial.
+  - m-7: «pueden conservarlas» es verdad en todos los casos, comprobado con la rotación real.
+  - m-5: ya no se pide abrir una bóveda que no existe.
+- **Nada nuevo** en formatos, red, permisos, dependencias ni registros.
+
+## Revisión Ingeniero Móvil Senior (ronda 1)
+
+- **Concurrencia.** Las tres comprobaciones corren dentro del mutex del almacén. La de antes de Argon2id ahorra una derivación de memoria alta para una bóveda que ya no se enseña. Después de la segunda comprobación, el código hace lo mismo que antes. `KdfLock` sigue siendo uno para todo el proceso.
+- **Estado de la interfaz.** `historyAllHint` es una función pura del estado (`vault/TrashTexts.kt:113`). La pantalla solo la pinta, y `Loading` no pinta nada, así que no parpadea un aviso falso mientras se lee la bóveda.
+- **Tests.** Los tests de contenedor esperan a `advanceUntilIdle` antes de comparar bytes, para no confundir con escrituras pendientes de otros trabajos.
+
+## Textos para el Abogado Digital (revisión final): cambios de la ronda 1
+
+1. **m-1:** «Encendido, Herramientas enseña solo cifrar texto, cifrar archivo, el generador y la salud de la bóveda. No oculta avisos ni ajustes.».
+2. **m-5:** «Aún no tienes bóveda.» y «Abre la bóveda (pestaña Bóveda) para borrar el historial.».
+3. **m-6:** «Al cambiar una entrada se guarda su versión anterior. Aquí puedes borrar las de todas a la vez.».
+4. **m-7 (O-2):** «… Las copias ya hechas (automáticas o exportadas) pueden conservarlas; la copia automática quita las más antiguas.». Sustituye, solo en este botón, a `COPIES_KEEP_IT` («… lo conservan.»). Ver la duda R1-1.
+
+## Dudas (ronda 1)
+
+**R1-1. `COPIES_KEEP_IT` de la tarea 3**
+
+«Las copias ya hechas (automáticas o exportadas) lo conservan.» lo usan:
+- «Borrar para siempre», «Vaciar papelera» y «Borrar historial» de una entrada;
+- `TrashTest` lo comprueba en todos ellos.
+
+Cada uno de esos borrados es también un guardado, con la misma rotación. El texto tiene, por tanto, la misma imprecisión que m-7.
+- No lo he cambiado: es texto de la tarea 3, aprobado bajo O-2 y fuera de esta ronda.
+- Propongo la misma solución («pueden conservarlo; la copia automática quita las más antiguas») para la revisión final del Abogado, junto con la fila 19 de `pendientes.md`.
+
+**R1-2. Lo que queda de i-6 sin cubrir**
+
+Tras la segunda comprobación, el desbloqueo hace enseguida `commit`, sin derivar ni esperar nada. Si `switchTo` cambia de bóveda justo en ese instante, se escribe el archivo de A, pero no se abre (`opened()` lo rechaza). La ventana es de microsegundos.
+
+Cerrarla del todo pediría que `switchTo` cambiara de bóveda activa dentro del mutex del almacén. Eso es más que una comprobación y toca el código de la tarea 2. Lo dejo como riesgo con nombre para la revisión de la rama, parte «formato y bóvedas». Aun en ese caso, es el archivo de A con la clave de A y nunca cae en otra bóveda.
+
+**R1-3. La tabla de dudas del revisor**
+
+| # | Decisión |
+|---|---|
+| 1 a 3 | Se quedan como están, según su recomendación |
+| 4 | No es pregunta del dueño (Ruling T10 fase A): solo afecta a móviles con una versión de prueba de la 2.0, y ahora su rama tiene test (m-3) |
+| 5, 6 y 8 | Se aceptan |
+| 7 y 9 | Pasan a la fase B, con m-2 |

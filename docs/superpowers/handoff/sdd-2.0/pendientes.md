@@ -4,7 +4,7 @@ Cada aplazado del registro (`progress.md`), con su destino y su estado. La revis
 
 | # | Aplazado | De | Destino | Estado |
 |---|---|---|---|---|
-| 1 | Botón para `clearAllHistory` | T3 | Tarea 10 (Ajustes) | Abierto |
+| 1 | Botón para `clearAllHistory` | T3 | Tarea 10 (Ajustes) | Hecho en la fase A de la tarea 10 (`7e868de`, ronda 1 `b67d35b`) |
 | 2 | `VaultStore.kt` demasiado grande (sacar la importación a su pieza) | T2 | Revisión final (parte «formato y bóvedas») | Abierto |
 | 3 | Medir un `upsert` cerca de 24 MiB (JVM: ~430 ms) y el recálculo de «Salud» en el móvil | T1 M-6, T4 | Revisión final y móvil | Abierto |
 | 4 | `DELETE_IDENTITY_CONFIRMATION` («no hay forma de recuperarla») frente a O-2 | T3 | Abogado final | Abierto |
@@ -35,3 +35,5 @@ Cada aplazado del registro (`progress.md`), con su destino y su estado. La revis
 | 27 | Maestro: una instalación nueva empieza en modo sencillo (tarea 10); dejan de pasar `p15-laboratorio-hashes`, `p16-laboratorio-clasico`, `p17-repartir-un-secreto`, `p19-recorrer-herramientas`, `giro-conserva-estado`, `borra-datos/p15-p16-p17-bloquear-borra`, `semiautomaticas/p15-laboratorio-hashes-archivo`, `semiautomaticas/p17-recomponer-vector-oficial` y el subflujo `comun/hashes-abc-con-huella` | T10 | Tarea 11 | Abierto |
 | 28 | Móvil: la letra al 200 % (m-4 de T10A: la cuadrícula de dos columnas de Herramientas podría partir palabras largas; arreglo propuesto en `task-10a-review.md`, sin `fontScale` en `ui/`) | T10 | Tarea 11 y dueño | Abierto |
 | 29 | Móvil: TalkBack podría leer «Modo sencillo» dos veces (m-9 de T10A; arreglo propuesto en `task-10a-review.md`) | T10 | Tarea 11 y dueño | Abierto |
+| 30 | R1-1 de T10A: `COPIES_KEEP_IT` (tarea 3) dice que las copias conservan lo borrado en «Borrar para siempre», «Vaciar papelera» y «Borrar historial», pero la rotación puede quitar la más antigua (como m-7) | T10 (de T3) | Ronda de arreglos de la revisión de la rama y Abogado final (con la fila 19) | Abierto |
+| 31 | Riesgo con nombre R1-2 de T10A: tras la última comprobación de bóveda activa de i-6 queda una ventana de microsegundos antes de `commit` (cerrarla pide cambiar `switchTo`, tarea 2); en ella solo se escribe el archivo de A con su clave | T10 (de T2) | Revisión de la rama (parte «formato y bóvedas») | Abierto |
