@@ -35,6 +35,7 @@ fun wifiSecurityLabel(value: String): String = when (value) {
 /** The wifi's «Red oculta» is kept as the text `true` or `false`. */
 fun wifiHiddenLabel(value: String): String = if (value == "true") "Sí" else "No"
 
+const val WIFI_SSID_KEY = "ssid"
 const val WIFI_SECURITY_KEY = "security"
 const val WIFI_HIDDEN_KEY = "hidden"
 const val WIFI_PASSWORD_KEY = "password"
@@ -50,7 +51,7 @@ object Templates {
     )
 
     private val wifi = listOf(
-        TemplateField("ssid", "Nombre de la red", FieldKind.TEXT, secret = false),
+        TemplateField(WIFI_SSID_KEY, "Nombre de la red", FieldKind.TEXT, secret = false),
         TemplateField(WIFI_PASSWORD_KEY, "Contraseña", FieldKind.TEXT, secret = true),
         TemplateField(WIFI_SECURITY_KEY, "Tipo de seguridad", FieldKind.TEXT, secret = false),
         TemplateField(WIFI_HIDDEN_KEY, "Red oculta", FieldKind.TEXT, secret = false),

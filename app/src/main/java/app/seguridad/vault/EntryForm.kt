@@ -3,6 +3,8 @@ package app.seguridad.vault
 import app.seguridad.crypto.MigrationResult
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.tools.codes.CellFactory
+import app.seguridad.tools.qr.WIFI_QR_NOT_ADDED
+import app.seguridad.tools.qr.WifiQr
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -548,6 +550,30 @@ class EntryEditSession(
         if (text == null || handedOver) return null
         handedOver = true
         return text
+    }
+
+    /**
+     * 2.0, task 9: a wifi code the QR inspector handed over ([takeHandOver]) fills a new wifi's fields: the name, the
+     * password, the type of security and whether it is hidden, and the title when it has none (with the name, as it
+     * came: shown through `plainReportText`, editable before saving). Nothing is saved: only the form's «Guardar» does,
+     * with its checks and its `sinceLock`. A code the form cannot hold ([WifiQr.parse] null), or an existing entry of
+     * another type, fills nothing and says so ([WIFI_QR_NOT_ADDED]). Nothing before the form is loaded (a lock cleared it).
+     */
+    fun applyWifiQr(text: String) {
+        if (!loaded) return
+        val c = WifiQr.parse(text)
+        val other = existing.value?.let { it.type != EntryType.WIFI } == true
+        if (c == null || other) {
+            error.value = WIFI_QR_NOT_ADDED
+            return
+        }
+        if (existing.value == null) changeType(EntryType.WIFI)
+        setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, c.ssid)
+        setTemplateValue(EntryType.WIFI, WIFI_PASSWORD_KEY, c.password)
+        setTemplateValue(EntryType.WIFI, WIFI_SECURITY_KEY, c.security)
+        setTemplateValue(EntryType.WIFI, WIFI_HIDDEN_KEY, if (c.hidden) "true" else "false")
+        if (title.value.isBlank()) title.value = c.ssid
+        error.value = null
     }
 
     /** Everything typed, the pending import and the texts go; [load] fills the form again from the vault. */

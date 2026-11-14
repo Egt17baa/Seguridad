@@ -52,6 +52,8 @@ import app.seguridad.tools.QR_SGK1
 import app.seguridad.tools.QR_SHORTENER
 import app.seguridad.tools.QR_SMS
 import app.seguridad.tools.QR_SUBDOMAINS
+import app.seguridad.tools.QR_TEXT_HIDDEN_OTP
+import app.seguridad.tools.QR_TEXT_HIDDEN_PASSWORD
 import app.seguridad.tools.QR_WIFI_OPEN
 import app.seguridad.tools.QR_WIFI_WEP
 import app.seguridad.tools.QR_YES
@@ -62,8 +64,11 @@ import app.seguridad.tools.qrScheme
 import app.seguridad.tools.qrUserInfo
 import java.util.Locale
 
-/** What the inspector offers for a QR, besides copying it. Never opening it: there is no such action. */
-enum class QrAction { NONE, ADD_CONTACT, OPEN_RECEIVED, ADD_TOTP }
+/**
+ * What the inspector offers for a QR, besides copying it. Never opening it: there is no such action (and no way to join
+ * a network: [ADD_WIFI] only fills the vault's form, 2.0, task 9).
+ */
+enum class QrAction { NONE, ADD_CONTACT, OPEN_RECEIVED, ADD_TOTP, ADD_WIFI }
 
 /** One line of the summary: [value] is already as shown, with [visibleText]'s marks. */
 data class QrField(val label: String, val value: String)
@@ -75,8 +80,9 @@ data class QrField(val label: String, val value: String)
  * - [text] is the QR as it came (for «Copiar» only), [shownText] the same with its marks.
  * - [alerts] are «Señales de alerta (N)», one line each; when empty the screen shows «Sin avisos», neutral.
  * - [notes] are said for that kind of QR whatever it holds (a payment, a contact card).
- * - [secret] is the Wi-Fi password, hidden until tapped. [textHidden]: the full text carries a secret (that password,
- *   a 2FA key), so it is hidden until tapped too. [credentialInText]: a link with user info («usuario:contraseña@», or
+ * - [secret] is the wifi password, hidden until tapped. [textHidden]: the full text carries a secret (that password,
+ *   a 2FA key, or a wifi code that cannot be read and may carry one), so it is hidden until tapped too, with
+ *   [hiddenLine] in its place saying what it hides. [credentialInText]: a link with user info («usuario:contraseña@», or
  *   a token where the user name goes), shown as it is (it is what the alert points at) but a secret all the same (MN,
  *   T7 of §2.5). [carriesSecret] says the screen drops the result when the app stops or the vault locks.
  * - [hostLabels] is the highlighted name of a link: the one the browser connects to, in ASCII (punycode, so no
@@ -100,6 +106,7 @@ data class QrView(
     val copyNotice: String? = null,
     val secretCopyNotice: String? = null,
     val credentialInText: Boolean = false,
+    val hiddenLine: String? = null,
 ) {
     val carriesSecret: Boolean get() = textHidden || credentialInText
 }
@@ -132,10 +139,16 @@ fun qrView(text: String): QrView {
                     f(QR_FIELD_HIDDEN_NETWORK, QR_YES.takeIf { kind.hidden }),
                 ),
                 alerts = alerts + hidden,
+                // 2.0, task 9: only what the vault's form can hold is offered; the rest says why not.
+                notes = listOfNotNull(QR_WIFI_NOT_ADDABLE.takeUnless { kind.addable }),
+                action = if (kind.addable) QrAction.ADD_WIFI else QrAction.NONE,
                 secret = kind.password,
                 textHidden = kind.password != null,
+                hiddenLine = QR_TEXT_HIDDEN_PASSWORD.takeIf { kind.password != null },
             )
         }
+        // 2.0, task 9: it may carry a password that could not be read apart: all of it hidden, and dropped on leaving.
+        is QrKind.WifiUnreadable -> base.copy(alerts = hidden, notes = listOf(QR_WIFI_UNREADABLE), textHidden = true, hiddenLine = QR_TEXT_HIDDEN_WIFI)
         is QrKind.Sepa -> base.copy(
             title = QR_KIND_SEPA,
             fields = listOfNotNull(
@@ -195,6 +208,7 @@ fun qrView(text: String): QrView {
                 notes = listOfNotNull(TOTP_UNSUPPORTED_LINK.takeIf { unsupported }),
                 action = if (unsupported) QrAction.NONE else QrAction.ADD_TOTP,
                 textHidden = true,
+                hiddenLine = QR_TEXT_HIDDEN_OTP,
             )
         }
         is QrKind.PlainText -> base.copy(alerts = hidden)
