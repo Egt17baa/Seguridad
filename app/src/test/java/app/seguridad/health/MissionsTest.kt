@@ -123,4 +123,16 @@ class MissionsTest {
         assertEquals("vault/edit", MissionAction.EditEntry("x").routeBase)
         assertEquals("settings/check-backup", MissionAction.CheckBackup.routeBase)
     }
+
+    @Test fun theWordsWordForWord() {
+        assertEquals("Ir", MISSION_GO)
+        assertEquals("Ahora no", MISSION_LATER)
+        assertEquals("Sugerencias de «Salud»", MISSIONS_SWITCH)
+        assertEquals("Enseñar sugerencias", MISSIONS_LABEL)
+        assertEquals("Una sugerencia cada vez en «Salud de la bóveda», con «Ahora no». Ninguna se conecta a internet.", MISSIONS_SHORT)
+        assertEquals("Aún no tienes bóveda. Créala en la pestaña Bóveda.", app.seguridad.tools.HEALTH_NO_VAULT)
+        for (t in listOf(MISSION_GO, MISSION_LATER, MISSIONS_SWITCH, MISSIONS_LABEL, MISSIONS_SHORT, app.seguridad.tools.HEALTH_NO_VAULT)) {
+            assertEquals(t, emptyList<String>(), app.seguridad.tools.ForbiddenWords.problems(t))
+        }
+    }
 }

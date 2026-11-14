@@ -13,6 +13,8 @@ import app.seguridad.net.TrustedChain
 import app.seguridad.net.secureClient
 import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.settings.AppearanceNotice
+import app.seguridad.settings.GuideHolder
+import app.seguridad.health.MissionPostponements
 import app.seguridad.settings.RenameNotice
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.clockMarkWorthWriting
@@ -189,6 +191,12 @@ class AppContainer(
 
     /** 2.0, task 5 bis (R-C8): the line after updating on how to go back to a look without transparencies. */
     val appearanceNotice = AppearanceNotice(settings, appScope)
+
+    /** 2.0, task 10 (phase B): the guide on screen (the one due at the start, or one asked for from Ajustes). */
+    val guide = GuideHolder(settings, appScope)
+
+    /** 2.0, task 10 (phase B): «Ahora no» of the missions, per vault and until its next unlock; in memory only. */
+    val missionPostponements = MissionPostponements()
 
     /**
      * At the start of the app, after the settings are loaded: decides once whether the notice of the new name is due

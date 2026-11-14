@@ -72,4 +72,16 @@ class OpeningTest {
         // The new look's line first, then what is new.
         assertEquals(OpeningItem.APPEARANCE, openingItem(ready.copy(appearanceDue = true)))
     }
+
+    /** The navigation draws each dialog only when [openingItem] picks it (one at a time). */
+    @Test fun theScreenDrawsWhatItPicks() {
+        val main = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
+            .map { java.io.File(it, "app/src/main/java/app/seguridad/ui/AppNavHost.kt") }.first { it.isFile }.readText()
+        for (item in OpeningItem.entries - setOf(OpeningItem.NOTICE, OpeningItem.UPGRADE, OpeningItem.UPGRADE_DONE)) {
+            assertTrue(item.name, "showing == OpeningItem.${item.name}" in main)
+        }
+        assertTrue("openingItem(" in main)
+        // «Antes de empezar» returns before any of them; the upgrade's choice is VaultGate's.
+        assertTrue(main.indexOf("NoticeScreen(") < main.indexOf("openingItem("))
+    }
 }

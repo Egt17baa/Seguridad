@@ -43,6 +43,7 @@ const val MISSION_LATER = "Ahora no"
 
 /** The switch of Ajustes that turns them all off (R-2), and its line. */
 const val MISSIONS_SWITCH = "Sugerencias de «Salud»"
+const val MISSIONS_LABEL = "Enseñar sugerencias"
 const val MISSIONS_SHORT = "Una sugerencia cada vez en «Salud de la bóveda», con «Ahora no». Ninguna se conecta a internet."
 
 /**

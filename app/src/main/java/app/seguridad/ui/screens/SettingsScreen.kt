@@ -22,6 +22,11 @@ import app.seguridad.settings.VAULT_CHANGE_MASTER
 import app.seguridad.settings.VAULT_EXPORT
 import app.seguridad.settings.VAULT_IMPORT
 import app.seguridad.settings.simpleOn
+import app.seguridad.settings.GUIDE_OPEN_FULL
+import app.seguridad.settings.GUIDE_OPEN_NEW
+import app.seguridad.settings.GuideKind
+import app.seguridad.health.MISSIONS_LABEL
+import app.seguridad.health.MISSIONS_SHORT
 import app.seguridad.tools.SIMPLE_MODE_SHORT
 import app.seguridad.tools.SIMPLE_MODE_TITLE
 import app.seguridad.vault.HISTORY_ALL_CLEAR
@@ -588,6 +593,7 @@ fun SettingsScreen(
     onAbout: () -> Unit,
     onCheckBackup: () -> Unit,
     onAppearance: () -> Unit,
+    onGuide: (GuideKind) -> Unit = {},
 ) {
     VaultIdleLock(vault)
     val settings by store.settings.collectAsStateWithLifecycle()
@@ -663,6 +669,16 @@ fun SettingsScreen(
             Section(SettingItem.SIMPLE_MODE.title, anchor(SettingItem.SIMPLE_MODE)) {
                 SettingSwitch(SIMPLE_MODE_TITLE, settings.simpleOn) { v -> change { it.copy(simpleMode = v) } }
                 Hint(SIMPLE_MODE_SHORT)
+            }
+            // 2.0, task 10 (phase B, R-2): every mission off at once; like «Modo sencillo», no setting of protection.
+            Section(SettingItem.MISSIONS.title, anchor(SettingItem.MISSIONS)) {
+                SettingSwitch(MISSIONS_LABEL, !settings.missionsOff) { v -> change { it.copy(missionsOff = !v) } }
+                Hint(MISSIONS_SHORT)
+            }
+            // 2.0, task 10 (phase B): both guides, whenever (they never skip «Antes de empezar»).
+            Section(SettingItem.GUIDE.title, anchor(SettingItem.GUIDE)) {
+                OutlinedButton(onClick = { onGuide(GuideKind.FULL) }, modifier = Modifier.fillMaxWidth()) { Text(GUIDE_OPEN_FULL) }
+                OutlinedButton(onClick = { onGuide(GuideKind.WHATS_NEW) }, modifier = Modifier.fillMaxWidth()) { Text(GUIDE_OPEN_NEW) }
             }
             Section(SettingItem.VAULT_COPY.title, anchor(SettingItem.VAULT_COPY)) {
                 val unlocked = vaultState is VaultState.Unlocked

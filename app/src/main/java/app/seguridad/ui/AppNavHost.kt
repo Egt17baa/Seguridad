@@ -71,6 +71,14 @@ import app.seguridad.ui.screens.BackupCheckScreen
 import app.seguridad.ui.screens.BigPasswordScreen
 import app.seguridad.ui.screens.SecretShareScreen
 import app.seguridad.ui.screens.GeneratorScreen
+import app.seguridad.ui.screens.GuideDialog
+import app.seguridad.health.MissionAction
+import app.seguridad.settings.OpeningItem
+import app.seguridad.settings.OpeningState
+import app.seguridad.settings.VaultPhase
+import app.seguridad.settings.openingItem
+import app.seguridad.tools.qr.QrHandoff
+import app.seguridad.vault.VaultLock
 import app.seguridad.ui.screens.HealthScreen
 import app.seguridad.ui.screens.IdentityScreen
 import app.seguridad.ui.screens.ImportScreen
@@ -218,9 +226,6 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     // It lives in AutoBackup until shown, so an activity re-created meanwhile still shows it; closing it acknowledges only
     // the outcome that was on screen (T11-d): one that arrived meanwhile is shown next.
     val replaceOutcome by container.autoBackup.replaceOutcome.collectAsStateWithLifecycle()
-    replaceOutcome?.let { shown ->
-        ReplaceOutcomeDialog(shown.text ?: shown.error.orEmpty(), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
-    }
     // The notice of the new name, once, to those who updated (owner's decision, 31-10-2026). Never at the vault's gate,
     // where it would cover the password field or sit under the fingerprint prompt: only while the vault is open, or when
     // there is none (m4: a lock while it is up hides it until the next unlock). It lives in AppContainer, so a rotation
@@ -229,7 +234,6 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     val renameReady = vaultState is VaultState.Unlocked || vaultState is VaultState.NoVault
     LaunchedEffect(renameReady) { if (renameReady) container.renameNotice.showIfDue() }
     val renameVisible by container.renameNotice.visible.collectAsStateWithLifecycle()
-    if (renameVisible && renameReady) RenameNoticeDialog(onClose = container.renameNotice::closed)
     // 2.0, task 5 bis (R-C8): the line on how to go back to a look without transparencies, once, to those who updated. As
     // the notice of the name, only with the vault open or with none; never over that notice nor over the one of the
     // upgrade of the vault (O-3): it waits until they are closed.
@@ -237,10 +241,43 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     val appearanceReady = renameReady && !renameVisible && upgradeDone == null
     LaunchedEffect(appearanceReady) { if (appearanceReady) container.appearanceNotice.showIfDue() }
     val appearanceVisible by container.appearanceNotice.visible.collectAsStateWithLifecycle()
-    if (appearanceVisible && appearanceReady) AppearanceNoticeDialog(onClose = container.appearanceNotice::closed)
     // Review I-2: what the last action of «Bóvedas» said, also after the switch it made (it rebuilt every screen).
     val vaultsNotice by container.vaultsNotice.collectAsStateWithLifecycle()
-    vaultsNotice?.let { shown ->
+    val upgradePending by vault.pendingUpgrade.collectAsStateWithLifecycle()
+    // 2.0, task 10 (phase B): the guide (due at the start, or asked for from Ajustes); read again when either changes.
+    val guideRequested by container.guide.requested.collectAsStateWithLifecycle()
+    val guideDismissed by container.guide.dismissed.collectAsStateWithLifecycle()
+    val guideKind = remember(settings, guideRequested, guideDismissed) { container.guide.current(settings) }
+    // 2.0, task 10 (phase B): one thing at a time, in the order openingItem gives («Antes de empezar» is before all of
+    // this, in AppNavHost; the upgrade's choice is drawn by VaultGate, and nothing else here while it waits).
+    val showing = openingItem(
+        OpeningState(
+            noticeAccepted = true,
+            vault = when (vaultState) {
+                VaultState.Loading -> VaultPhase.LOADING
+                VaultState.NoVault -> VaultPhase.NONE
+                VaultState.Locked -> VaultPhase.LOCKED
+                is VaultState.Unlocked -> VaultPhase.OPEN
+            },
+            upgradePending = upgradePending,
+            upgradeDone = upgradeDone != null,
+            masterChangedOpen = masterState.open,
+            vaultsNotice = vaultsNotice != null,
+            a6Outcome = replaceOutcome != null,
+            renameDue = renameVisible && renameReady,
+            appearanceDue = appearanceVisible && appearanceReady,
+            guide = guideKind,
+            onTabRoot = onTab != null,
+            deliveryPending = QrHandoff.hasPending() || VaultLock.keepOpenOnce,
+        ),
+    )
+    if (showing == OpeningItem.A6_OUTCOME) replaceOutcome?.let { shown ->
+        ReplaceOutcomeDialog(shown.text ?: shown.error.orEmpty(), failed = shown.error != null, onClose = { container.autoBackup.replaceOutcomeShown(shown) })
+    }
+    if (showing == OpeningItem.RENAME) RenameNoticeDialog(onClose = container.renameNotice::closed)
+    if (showing == OpeningItem.APPEARANCE) AppearanceNoticeDialog(onClose = container.appearanceNotice::closed)
+    if (showing == OpeningItem.GUIDE) guideKind?.let { kind -> GuideDialog(kind, onDone = container.guide::done) }
+    if (showing == OpeningItem.VAULTS_NOTICE) vaultsNotice?.let { shown ->
         AlertDialog(
             onDismissRequest = { container.vaultsNoticeShown(shown) },
             text = {
@@ -251,7 +288,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
         )
     }
     val replacing by container.autoBackup.replacing.collectAsStateWithLifecycle()
-    if (masterState.open) {
+    if (showing == OpeningItem.MASTER_CHANGED) {
         MasterChangedDialog(
             state = masterState,
             // 2.0, task 8: of every target (the replacement is done when it is done in all).
@@ -346,7 +383,18 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                     )
                 }
                 composable("vault/health") {
-                    HealthScreen(vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = backOnce(nav))
+                    HealthScreen(
+                        vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = backOnce(nav),
+                        missionsOff = settings.missionsOff,
+                        postponements = container.missionPostponements,
+                        // 2.0, task 10 (phase B): a mission only navigates (MissionAction.routeBase).
+                        onMission = { action ->
+                            when (action) {
+                                is MissionAction.EditEntry -> nav.navigate("${action.routeBase}?id=${Uri.encode(action.entryId)}")
+                                MissionAction.CheckBackup -> nav.navigate(action.routeBase)
+                            }
+                        },
+                    )
                 }
                 // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
                 // A contact's own screen is under contacts/c/, so no id (an imported copy brings any) can ever be taken for one
@@ -415,6 +463,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                         onAbout = { nav.navigate("settings/about") },
                         onCheckBackup = { nav.navigate("settings/check-backup") },
                         onAppearance = { nav.navigate("settings/appearance") },
+                        onGuide = container.guide::request,
                     )
                 }
                 // 2.0, task 5 bis: the look (mode, style, palette, «Personalizado», transparencies, contrast).

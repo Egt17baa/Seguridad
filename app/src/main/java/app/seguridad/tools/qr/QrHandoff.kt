@@ -37,6 +37,13 @@ object QrHandoff {
     /** The texts screens took from here and still hold for a vault screen ([QrPendingText]); weak, so none is kept alive. */
     private val pending: MutableSet<QrPendingText> = java.util.Collections.newSetFromMap(java.util.WeakHashMap())
 
+    /**
+     * 2.0, task 10 (phase B): whether a QR's text is on its way to a vault screen (handed over, or held by a screen for
+     * one): the guide waits ([app.seguridad.settings.openingItem]).
+     */
+    @Synchronized
+    fun hasPending(): Boolean = text != null || pending.isNotEmpty()
+
     @Synchronized
     internal fun hold(p: QrPendingText) {
         pending += p

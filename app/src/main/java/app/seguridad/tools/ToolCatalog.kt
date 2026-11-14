@@ -42,6 +42,9 @@ fun visibleTools(simple: Boolean): List<Tool> = if (simple) TOOLS.filter { it.ro
 const val HEALTH_TOOL_TITLE = "Salud de la bóveda"
 const val HEALTH_TOOL_SUBTITLE = "Contraseñas repetidas, débiles o antiguas, y accesos sin 2FA"
 
+/** «Salud de la bóveda» with no vault yet (task 10, m-2 of phase A): nothing to unlock. */
+const val HEALTH_NO_VAULT = "Aún no tienes bóveda. Créala en la pestaña Bóveda."
+
 /** The name of the switch in Ajustes. */
 const val SIMPLE_MODE_TITLE = "Modo sencillo"
 

@@ -27,6 +27,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.seguridad.health.DAY_MS
+import app.seguridad.health.MISSION_GO
+import app.seguridad.health.MISSION_LATER
+import app.seguridad.health.Mission
+import app.seguridad.health.MissionAction
+import app.seguridad.health.MissionPostponements
+import app.seguridad.health.missions
+import app.seguridad.health.nextMission
+import app.seguridad.tools.HEALTH_NO_VAULT
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.seguridad.health.HealthItem
 import app.seguridad.health.Issue
 import app.seguridad.health.uniquePasswords
@@ -58,7 +69,15 @@ private fun Issue.label() = when (this) {
  * Leak results live only in this screen's memory: they are never saved or logged, and are gone when it closes.
  */
 @Composable
-fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> Unit, onBack: () -> Unit) {
+fun HealthScreen(
+    store: VaultStore,
+    pwned: PwnedPasswords,
+    onEdit: (String) -> Unit,
+    onBack: () -> Unit,
+    missionsOff: Boolean = false,
+    postponements: MissionPostponements? = null,
+    onMission: (MissionAction) -> Unit = {},
+) {
     VaultIdleLock(store)
     val state by store.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -90,14 +109,53 @@ fun HealthScreen(store: VaultStore, pwned: PwnedPasswords, onEdit: (String) -> U
     BackScaffold("Salud de la bóveda", onBack) { padding ->
         val entries = (state as? VaultState.Unlocked)?.entries
         if (entries == null) {
-            Text("Desbloquea la bóveda para ver su salud.", Modifier.padding(padding).padding(16.dp))
+            // 2.0, task 10 (m-2 of phase A): reached from Herramientas too. With no vault, its own line; locked (or still
+            // reading), the vault's gate in place, to open it from here (its fingerprint is this vault's).
+            if (state is VaultState.NoVault) {
+                Text(HEALTH_NO_VAULT, Modifier.padding(padding).padding(16.dp))
+            } else {
+                VaultGate(store, onImport = {}, modifier = Modifier.padding(padding)) { }
+            }
             return@BackScaffold
         }
+        val data = (state as VaultState.Unlocked).data
+        // 2.0, task 10 (phase B): the missions, computed off the main thread from what «Salud» computes (never with the
+        // leak check, O-6). Their titles may hold an entry's title: they live only here, and a lock takes this branch
+        // away, which cancels the work and drops them. «Ahora no» per vault and until its next unlock.
+        val missionList by produceState<List<Mission>?>(null, data, missionsOff) {
+            value = if (missionsOff) emptyList() else withContext(Dispatchers.Default) {
+                val now = System.currentTimeMillis()
+                missions(vaultHealth(data.live, now), data, now)
+            }
+        }
+        val epoch = store.lockEpoch
+        var postponed by remember(epoch) { mutableStateOf(postponements?.postponed(store.id, epoch).orEmpty()) }
+        val mission = missionList?.let { nextMission(it, postponed) }
         // Not on every recomposition (scrolling, the check's progress): only when its inputs change, or the day.
         val day = System.currentTimeMillis() / DAY_MS
         val items = remember(entries, breached, day) { vaultHealth(entries, System.currentTimeMillis(), breached) }
         val byId = entries.associateBy { it.id }
         LazyColumn(Modifier.padding(padding).fillMaxSize().touchesVault(store), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (mission != null) {
+                item(key = "mission") {
+                    SectionCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(mission.title, style = MaterialTheme.typography.titleSmall)
+                            // R-2: «Ahora no» weighs the same as «Ir».
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(onClick = { onMission(mission.action) }, modifier = Modifier.weight(1f)) { Text(MISSION_GO) }
+                                OutlinedButton(
+                                    onClick = {
+                                        postponements?.postpone(store.id, epoch, mission.id)
+                                        postponed = postponements?.postponed(store.id, epoch) ?: (postponed + mission.id)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(MISSION_LATER) }
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 SectionCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

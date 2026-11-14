@@ -1,5 +1,8 @@
 package app.seguridad.settings
 
+import app.seguridad.health.MISSIONS_LABEL
+import app.seguridad.health.MISSIONS_SHORT
+import app.seguridad.health.MISSIONS_SWITCH
 import app.seguridad.tools.ABOUT_WARNINGS_SHORT
 import app.seguridad.tools.AUTO_BACKUP_SHORT
 import app.seguridad.tools.CLIPBOARD_CLEAR_SHORT
@@ -60,6 +63,8 @@ enum class SettingItem(val title: String, val lines: List<String>, val place: Se
     KDF(SETTING_KDF_TITLE, listOf(KDF_HIGH_SHORT), SettingPlace.SETTINGS),
     APPEARANCE(APPEARANCE_TITLE, listOf(APPEARANCE_CHANGE), SettingPlace.SETTINGS),
     SIMPLE_MODE(SIMPLE_MODE_TITLE, listOf(SIMPLE_MODE_SHORT), SettingPlace.SETTINGS),
+    MISSIONS(MISSIONS_SWITCH, listOf(MISSIONS_LABEL, MISSIONS_SHORT), SettingPlace.SETTINGS),
+    GUIDE(GUIDE_SECTION_TITLE, listOf(GUIDE_OPEN_FULL, GUIDE_OPEN_NEW), SettingPlace.SETTINGS),
     VAULT_COPY(SETTING_VAULT_COPY_TITLE, listOf(VAULT_EXPORT, VAULT_IMPORT, VAULT_CHANGE_MASTER, BACKUP_CHECK_TITLE), SettingPlace.SETTINGS),
     AUTO_BACKUP(SETTING_AUTO_BACKUP_TITLE, listOf(AUTO_BACKUP_SHORT), SettingPlace.SETTINGS),
     FINGERPRINT_KEY(KEY_LOCATION_TITLE, emptyList(), SettingPlace.SETTINGS),

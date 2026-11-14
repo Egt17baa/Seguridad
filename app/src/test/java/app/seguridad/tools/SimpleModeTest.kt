@@ -33,6 +33,12 @@ class SimpleModeTest {
     @Test fun everyToolRouteStaysReachable() {
         val nav = code("ui/AppNavHost.kt")
         for (t in TOOLS) assertTrue("${t.route} is not a destination", "composable(\"${t.route}\")" in nav)
+        // 2.0, task 10 (phase B): every destination of a mission (MissionAction) too, also with simple mode on (the
+        // navigation never reads it, below).
+        for (action in listOf(app.seguridad.health.MissionAction.EditEntry("x"), app.seguridad.health.MissionAction.CheckBackup)) {
+            assertTrue("${action.routeBase} is not a destination", Regex("""composable\(\s*"${Regex.escape(action.routeBase)}[?"]""").containsMatchIn(nav))
+        }
+        assertTrue("The missions go through their routes", "action.routeBase" in nav)
         for (word in listOf("simpleMode", "simpleOn", "visibleTools", "SIMPLE_TOOL")) {
             assertFalse("The navigation must not read simple mode ($word)", word in nav)
         }
