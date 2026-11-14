@@ -30,4 +30,4 @@ Cada aplazado del registro (`progress.md`), con su destino y su estado. La revis
 | 22 | T9: el texto de QR pendiente (wifi y 2FA) se borra al salir de la app ante la puerta de la bóveda (cambio de comportamiento del 2FA) | T9 | Tarea 12 (notas de la versión) | Abierto |
 | 23 | Móvil: la huella ante la puerta de la bóveda sigue entregando el QR pendiente; otro móvil se conecta con el QR de Clavero (también clave en bruto); Clavero lee QR de wifi de otros móviles; TalkBack en la pantalla del QR | T9 | Tarea 11 y dueño | Abierto |
 | 24 | Ataque de la revisión final: el lector de wifi, «lo que enseña Clavero frente a lo que lee otro lector» | T9 | Revisión final (ataque) | Abierto |
-| 25 | Duda 2 de T9: `T:WPA2`, `T:WPA3` y `T:SAE` (hoy se rechazan para la bóveda) | T9 | Dueño | Pendiente del dueño |
+| 25 | Duda 2 de T9: `T:WPA2`, `T:WPA3` y `T:SAE` | T9 | Dueño (14-11): `WPA2` como WPA; `WPA3` y `SAE` rechazados | A la ronda 1 de la tarea 9 |
