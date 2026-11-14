@@ -266,6 +266,44 @@ class AutoBackupTest {
         assertTrue(errors.all { it == null })
     }
 
+    /**
+     * 2.0, tarea 10, ronda 1 (m-7): «Borrar todo el historial» is a save, so with copies «con cada cambio» it makes a copy
+     * without history, and the rotation takes the oldest out, which had it. With the fewest copies Ajustes offers, some
+     * copy of before still has the history right after (so the confirmation says they *pueden* keep it), but not every one
+     * (so it never says they do).
+     */
+    @Test fun clearingTheHistoryMayRotateAnOlderCopyOut() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val fewest = app.seguridad.settings.AUTO_BACKUP_KEEP_CHOICES.min()
+        auto(s, target, keep = { fewest })
+        fun edit(v: Int) = VaultEntry("n", EntryType.NOTE, "Nota", notes = "versión $v", createdAt = 0, updatedAt = v.toLong())
+        // Copies of before the clear, each with the history of the note (from its second version on).
+        for (v in 1..fewest + 1) {
+            clock += 60_000
+            assertTrue(s.upsert(edit(v)))
+            settle()
+        }
+        val before = target.files.keys.filter { name.matches(it) }.sorted()
+        assertEquals(fewest, before.size)
+        assertEquals(1, s.clearAllHistory())
+        clock += 60_000
+        settle()
+        val after = target.files.keys.filter { name.matches(it) }.sorted()
+        assertEquals(fewest, after.size)
+        assertFalse("The oldest copy with the history is gone", before.first() in after)
+        val kept = before.filter { it in after }
+        assertTrue("Some copy of before is still there", kept.isNotEmpty())
+        // And it does hold the history: restored, the note has its versions.
+        val restored = store(tmp.newFolder("restaurada")).apply { load() }
+        restored.importReplace(ByteArrayInputStream(target.files.getValue(kept.last())), master.toCharArray())
+        assertTrue((restored.state.value as VaultState.Unlocked).entries.single { it.id == "n" }.history.isNotEmpty())
+        // The copy made after the clear has none.
+        val newest = store(tmp.newFolder("nueva")).apply { load() }
+        newest.importReplace(ByteArrayInputStream(target.files.getValue(after.last())), master.toCharArray())
+        assertTrue((newest.state.value as VaultState.Unlocked).entries.single { it.id == "n" }.history.isEmpty())
+    }
+
     @Test fun rotationGoesByWhenCopiesWereMadeEvenWithTheClockBack() = runTest {
         val s = opened()
         val target = MemoryTarget()

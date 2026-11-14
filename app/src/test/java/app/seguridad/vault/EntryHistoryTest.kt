@@ -344,7 +344,9 @@ class EntryHistoryTest {
         val other = store(tmp.newFolder("otra")).apply { load() }
         other.importReplace(ByteArrayInputStream(copy), master.toCharArray())
         assertEquals(listOf("uno"), other.entry().history.map { it.entry.password })
-        assertTrue(COPIES_KEEP_IT in HISTORY_ALL_CONFIRM_TEXT)
+        // Ronda 1, m-7: «pueden»: the copy made after the clear may rotate an older one out (AutoBackupTest.clearingTheHistoryMayRotateAnOlderCopyOut).
+        assertTrue("pueden conservarlas" in HISTORY_ALL_CONFIRM_TEXT)
+        assertFalse(COPIES_KEEP_IT in HISTORY_ALL_CONFIRM_TEXT)
         assertTrue("It says the trash too, as the code does", "papelera" in HISTORY_ALL_CONFIRM_TEXT)
         assertEquals(HISTORY_ALL_LOCKED, historyAllClearedText(null))
         assertEquals("Historial borrado de 1 entrada.", historyAllClearedText(1))

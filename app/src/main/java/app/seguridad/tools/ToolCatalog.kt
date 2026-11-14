@@ -45,8 +45,8 @@ const val HEALTH_TOOL_SUBTITLE = "Contraseñas repetidas, débiles o antiguas, y
 /** The name of the switch in Ajustes. */
 const val SIMPLE_MODE_TITLE = "Modo sencillo"
 
-/** On view under the switch in Ajustes (O-7: it says what it does not hide). */
-const val SIMPLE_MODE_SHORT = "Herramientas enseña solo cifrar texto, cifrar archivo, el generador y la salud de la bóveda. No oculta avisos ni ajustes."
+/** On view under the switch in Ajustes, whether on or off (ronda 1, m-1: «Encendido»; O-7: it says what it does not hide). */
+const val SIMPLE_MODE_SHORT = "Encendido, Herramientas enseña solo cifrar texto, cifrar archivo, el generador y la salud de la bóveda. No oculta avisos ni ajustes."
 
 /** On view at the end of Herramientas while it is on: there are more, and where to show them. */
 const val SIMPLE_MODE_MORE_TOOLS = "Hay más herramientas. Para verlas, apaga «$SIMPLE_MODE_TITLE» en Ajustes."

@@ -30,6 +30,7 @@ import app.seguridad.vault.HISTORY_ALL_CONFIRM_TITLE
 import app.seguridad.vault.HISTORY_ALL_SHORT
 import app.seguridad.vault.HISTORY_CLEAR
 import app.seguridad.vault.historyAllClearedText
+import app.seguridad.vault.historyAllHint
 import app.seguridad.vault.storeSaveErrorText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -725,7 +726,7 @@ private fun HistorySection(vault: VaultStore, vaultState: VaultState, snackbar: 
         OutlinedButton(onClick = { confirmSince = vault.lockEpoch }, enabled = unlocked && !busy, modifier = Modifier.fillMaxWidth()) {
             Text(HISTORY_ALL_CLEAR)
         }
-        if (!unlocked) Hint(SETTINGS_NEED_OPEN_VAULT)
+        historyAllHint(vaultState)?.let { Hint(it) }
     }
     val since = confirmSince ?: return
     AlertDialog(

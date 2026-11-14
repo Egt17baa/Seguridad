@@ -62,6 +62,41 @@ class SimpleModeFirstVaultTest {
         assertEquals(false, c.settings.settings.value.simpleMode)
     }
 
+    /**
+     * Ronda 1, m-3: the branch that looks at the files. Still undecided (a build of 2.0 under development, or a first
+     * vault whose choice could not be saved) while a vault of the phone has a file: a second vault, created or imported,
+     * is not the first, so nothing is decided.
+     */
+    @Test fun aVaultWithAFileMeansItIsNotTheFirst() = runTest {
+        val copy = aCopy(backgroundScope)
+        val c = fresh(tmp.newFolder("app"), backgroundScope)
+        c.vault.create(master.toCharArray())
+        c.settings.update { it.copy(simpleMode = null) }
+        c.createVault("Dos", "maestra-de-prueba-dos".toCharArray())
+        assertNull(c.settings.settings.value.simpleMode)
+        c.importAsNewVault(ByteArrayInputStream(copy), master.toCharArray(), "Copia")
+        assertNull(c.settings.settings.value.simpleMode)
+    }
+
+    /**
+     * Ronda 1: a phone with a vault of 1.x and no settings.json (1.4.3 writes it at its first start, so only a write
+     * that failed leaves none): an update all the same, by its vault: the short guide and «Modo sencillo» off.
+     */
+    @Test fun aVaultOf1xWithoutSettingsIsAnUpdate() = runTest {
+        val dir = tmp.newFolder("app")
+        File(dir, "vault").mkdirs()
+        File(File(dir, "vault"), "vault.bin").writeText(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        assertTrue(!File(dir, "settings.json").exists())
+        val c = fresh(dir, backgroundScope)
+        assertEquals(false, c.settings.settings.value.simpleMode)
+        assertEquals(app.seguridad.settings.GUIDE_BEFORE_2_0, c.settings.settings.value.guideSeen)
+        assertEquals(app.seguridad.settings.GuideDue.WHATS_NEW, c.settings.settings.value.guideDue)
+        // Written, so the next start keeps it.
+        val again = fresh(dir, backgroundScope)
+        assertEquals(app.seguridad.settings.GuideDue.WHATS_NEW, again.settings.settings.value.guideDue)
+        assertEquals(false, again.settings.settings.value.simpleMode)
+    }
+
     @Test fun importingTheFirstVaultLeavesItOff() = runTest {
         val copy = aCopy(backgroundScope)
         val c = fresh(tmp.newFolder("app"), backgroundScope)

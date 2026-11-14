@@ -109,17 +109,22 @@ class SettingsSearchTest {
         assertEquals("Contraseñas repetidas, débiles o antiguas, y accesos sin 2FA", app.seguridad.tools.HEALTH_TOOL_SUBTITLE)
         assertEquals("Modo sencillo", app.seguridad.tools.SIMPLE_MODE_TITLE)
         assertEquals(
-            "Herramientas enseña solo cifrar texto, cifrar archivo, el generador y la salud de la bóveda. No oculta avisos ni ajustes.",
+            "Encendido, Herramientas enseña solo cifrar texto, cifrar archivo, el generador y la salud de la bóveda. No oculta avisos ni ajustes.",
             app.seguridad.tools.SIMPLE_MODE_SHORT,
         )
         assertEquals("Hay más herramientas. Para verlas, apaga «Modo sencillo» en Ajustes.", app.seguridad.tools.SIMPLE_MODE_MORE_TOOLS)
         assertEquals("Historial de las entradas", app.seguridad.vault.HISTORY_ALL_TITLE)
-        assertEquals("Cada entrada guarda sus versiones anteriores. Aquí puedes borrarlas de todas a la vez.", app.seguridad.vault.HISTORY_ALL_SHORT)
+        assertEquals("Al cambiar una entrada se guarda su versión anterior. Aquí puedes borrar las de todas a la vez.", app.seguridad.vault.HISTORY_ALL_SHORT)
+        // Ronda 1, m-5: the line of the section by the state of the vault (a new install has no vault to open).
+        assertEquals("Aún no tienes bóveda.", app.seguridad.vault.historyAllHint(app.seguridad.vault.VaultState.NoVault))
+        assertEquals("Abre la bóveda (pestaña Bóveda) para borrar el historial.", app.seguridad.vault.historyAllHint(app.seguridad.vault.VaultState.Locked))
+        assertEquals(null, app.seguridad.vault.historyAllHint(app.seguridad.vault.VaultState.Unlocked(app.seguridad.vault.VaultData())))
+        assertEquals("Still reading the vault: no line yet", null, app.seguridad.vault.historyAllHint(app.seguridad.vault.VaultState.Loading))
         assertEquals("Borrar todo el historial", app.seguridad.vault.HISTORY_ALL_CLEAR)
         assertEquals("¿Borrar el historial de todas las entradas?", app.seguridad.vault.HISTORY_ALL_CONFIRM_TITLE)
         assertEquals(
             "Se quitan las versiones y las contraseñas anteriores de todas las entradas, también de las de la papelera. " +
-                "Las copias ya hechas (automáticas o exportadas) lo conservan.",
+                "Las copias ya hechas (automáticas o exportadas) pueden conservarlas; la copia automática quita las más antiguas.",
             app.seguridad.vault.HISTORY_ALL_CONFIRM_TEXT,
         )
         assertEquals("La bóveda se bloqueó: no se ha borrado nada.", app.seguridad.vault.historyAllClearedText(null))

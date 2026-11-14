@@ -93,12 +93,28 @@ const val HISTORY_CLEARED = "Historial borrado"
  * copies already made keep them: a copy is the whole vault file ([writeBackup]), history included (O-2).
  */
 const val HISTORY_ALL_TITLE = "Historial de las entradas"
-const val HISTORY_ALL_SHORT = "Cada entrada guarda sus versiones anteriores. Aquí puedes borrarlas de todas a la vez."
+/** Ronda 1, m-6: identities and contacts keep no history ([VaultStore.upsert]), so not «cada entrada guarda». */
+const val HISTORY_ALL_SHORT = "Al cambiar una entrada se guarda su versión anterior. Aquí puedes borrar las de todas a la vez."
 const val HISTORY_ALL_CLEAR = "Borrar todo el historial"
 const val HISTORY_ALL_CONFIRM_TITLE = "¿Borrar el historial de todas las entradas?"
 
-/** On view in the confirmation (O-2). */
-const val HISTORY_ALL_CONFIRM_TEXT = "Se quitan las versiones y las contraseñas anteriores de todas las entradas, también de las de la papelera. $COPIES_KEEP_IT"
+/**
+ * On view in the confirmation (O-2). Ronda 1, m-7: «pueden», never «lo conservan»: the clear is a save, so with copies on
+ * every change the copy it makes (without history) can rotate an older one (with it) out; with the fewest copies Ajustes
+ * offers, some copy of before still has it right after (AutoBackupTest.clearingTheHistoryMayRotateAnOlderCopyOut).
+ */
+const val HISTORY_ALL_CONFIRM_TEXT = "Se quitan las versiones y las contraseñas anteriores de todas las entradas, también de las de la papelera. " +
+    "Las copias ya hechas (automáticas o exportadas) pueden conservarlas; la copia automática quita las más antiguas."
+
+/**
+ * Ronda 1, m-5: the line of the section «Historial de las entradas» by the state of the vault: none with it open; with no
+ * vault, that there is none (nothing to open); locked, how to open it for this action.
+ */
+fun historyAllHint(state: VaultState): String? = when (state) {
+    is VaultState.Unlocked, VaultState.Loading -> null
+    VaultState.NoVault -> "Aún no tienes bóveda."
+    VaultState.Locked -> "Abre la bóveda (pestaña Bóveda) para borrar el historial."
+}
 
 /** The vault locked before the history was cleared: nothing changed. */
 const val HISTORY_ALL_LOCKED = "La bóveda se bloqueó: no se ha borrado nada."
