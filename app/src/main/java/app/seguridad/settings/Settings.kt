@@ -78,7 +78,50 @@ data class Settings(
      * only if data from an earlier version was there, false once shown or for a new install.
      */
     val appearanceNoticePending: Boolean? = null,
+    /**
+     * 2.0, task 10: «Modo sencillo» (design «Ayuda y personalización»): Herramientas shows only [SIMPLE_TOOL_ROUTES];
+     * every other tool is still there, and every route, notice and setting of protection stays as it is (Abogado Digital,
+     * O-7). Null until decided, and null reads as off ([simpleOn]): a settings.json of 1.4.3 has none, and the first start
+     * of 2.0 makes it false when there was data from an earlier version ([decidedAtFirstStart]); a new install keeps
+     * null until its first vault, which turns it on when created and off when it comes from a copy
+     * ([withFirstVault]).
+     */
+    val simpleMode: Boolean? = null,
+    /**
+     * 2.0, task 10: the first guide was seen or skipped. A default value is never written ([app.seguridad.core.appJson]),
+     * so a settings.json of 1.4.3 cannot say it: the first start of 2.0 makes it true when there was data from an earlier
+     * version ([decidedAtFirstStart]), so whoever updates does not see the guide.
+     */
+    val onboardingDone: Boolean = false,
 )
+
+/** Whether «Modo sencillo» is on: only when decided so ([Settings.simpleMode] null reads as off). */
+val Settings.simpleOn: Boolean get() = simpleMode == true
+
+/**
+ * What the first start of 2.0 decides, once: [Settings.appearanceNoticePending] is null only until then (a settings.json
+ * of 1.4.3 has [Settings.renameNoticePending] decided already), and [earlier] says whether data from an earlier version
+ * was there (the settings file or the vault). Then the line about the new look is due only for those who update, «Modo
+ * sencillo» stays off for them and the guide counts as seen. A later start changes nothing: by then the settings file is
+ * there for a new install too, so [earlier] would no longer tell the two apart.
+ */
+fun Settings.decidedAtFirstStart(earlier: Boolean): Settings {
+    val first = appearanceNoticePending == null
+    return copy(
+        renameNoticePending = renameNoticePending ?: earlier,
+        appearanceNoticePending = appearanceNoticePending ?: earlier,
+        simpleMode = if (first && earlier) simpleMode ?: false else simpleMode,
+        onboardingDone = onboardingDone || (first && earlier),
+    )
+}
+
+/**
+ * These settings once the first vault of a new install is made: «Modo sencillo» on when it was [created], off when it
+ * came from a copy («Importar copia», «Importar como bóveda nueva»: the design only turns it on «al crear la primera
+ * bóveda»). Only while still undecided ([Settings.simpleMode] null); the caller checks that no vault of the phone has a
+ * file yet.
+ */
+fun Settings.withFirstVault(created: Boolean): Settings = if (simpleMode != null) this else copy(simpleMode = created)
 
 /**
  * 2.0, task 2: what each vault has of its own (design «Varias bóvedas»): its automatic copies, A6, its copies of before

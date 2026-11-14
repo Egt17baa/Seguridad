@@ -148,6 +148,73 @@ class SettingsTest {
         assertEquals(true, withVault.settings.value.appearanceNoticePending)
     }
 
+    /**
+     * 2.0, tarea 10: el settings.json de un usuario de la 1.4.3, escrito por el `SettingsStore` de la etiqueta `v1.4.3`
+     * (`a3ac942`) con datos de prueba (`/seguridad/settings-1.4.3.json`). Quien actualiza no tiene el modo sencillo ni ve
+     * la guía, con bóveda y sin ella, y sigue así al volver a abrir la app.
+     */
+    @Test fun oldSettingsKeepSimpleModeOff() = runTest {
+        val real = javaClass.getResourceAsStream("/seguridad/settings-1.4.3.json")!!.use { it.readBytes() }.decodeToString()
+        for (vaultExists in listOf(true, false)) {
+            file().writeText(real)
+            val s = store().apply { load() }
+            assertNull("1.4.3 has no simple mode", s.settings.value.simpleMode)
+            s.decideRenameNotice(vaultExists)
+            for (v in listOf(s.settings.value, store().apply { load() }.settings.value)) {
+                assertEquals(false, v.simpleMode)
+                assertFalse(v.simpleOn)
+                assertTrue("The guide counts as seen", v.onboardingDone)
+                assertEquals(LockAfter.MIN_1, v.lockAfter)
+            }
+            // Their first vault made later (after «He olvidado la contraseña maestra», say) changes nothing.
+            s.firstVault(created = true)
+            assertEquals(false, s.settings.value.simpleMode)
+            // A later start decides nothing again.
+            store().apply { load(); decideRenameNotice(vaultExists = false) }
+            assertEquals(false, store().apply { load() }.settings.value.simpleMode)
+        }
+    }
+
+    /**
+     * 2.0, tarea 10: una instalación nueva no ha decidido el modo sencillo (se ve todo) ni ha visto la guía, también tras
+     * reiniciar la app antes de crear la bóveda (el settings.json ya existe entonces); crear la primera lo enciende, y nada
+     * después lo vuelve a cambiar. Si la primera bóveda viene de una copia, se queda apagado.
+     */
+    @Test fun newInstallTurnsSimpleModeOn() = runTest {
+        file().delete()
+        repeat(2) {
+            val s = store().apply { load(); decideRenameNotice(vaultExists = false) }
+            assertNull(s.settings.value.simpleMode)
+            assertFalse(s.settings.value.simpleOn)
+            assertFalse(s.settings.value.onboardingDone)
+            s.update { it.copy(noticeAccepted = true) }
+        }
+        val s = store().apply { load(); decideRenameNotice(vaultExists = false) }
+        s.firstVault(created = true)
+        assertEquals(true, s.settings.value.simpleMode)
+        assertEquals(true, store().apply { load() }.settings.value.simpleMode)
+        s.update { it.copy(simpleMode = false) }
+        s.firstVault(created = true)
+        assertEquals("Only once", false, s.settings.value.simpleMode)
+        assertFalse(store().apply { load(); decideRenameNotice(vaultExists = true) }.settings.value.onboardingDone)
+
+        file().delete()
+        val imported = store().apply { load(); decideRenameNotice(vaultExists = false) }
+        imported.firstVault(created = false)
+        assertEquals(false, imported.settings.value.simpleMode)
+        imported.firstVault(created = true)
+        assertEquals(false, imported.settings.value.simpleMode)
+    }
+
+    /** A save that fails leaves the choice for this run only: the vault is made all the same. */
+    @Test fun firstVaultNeverThrows() = runTest {
+        // A file where its folder should be: every write fails (also as root, where a read-only folder is still written).
+        val notADir = File(tmp.root, "no-es-carpeta").apply { writeText("x") }
+        val s = SettingsStore(File(notADir, "settings.json"), Dispatchers.Unconfined).apply { load() }
+        s.firstVault(created = true)
+        assertEquals(true, s.settings.value.simpleMode)
+    }
+
     @Test fun clipboardHistoryNoticeIsNotAcceptedByDefault() {
         assertFalse(Settings().clipboardHistoryNoticeAccepted)
     }

@@ -403,11 +403,17 @@ class AppContainer(
             inForeground = { foreground },
             // The copies' rotation does not know which vault each copy is of: a new vault (the old one damaged and set
             // aside, or deleted) would have it delete the old vault's copies. Turned off; Ajustes says so.
-            beforeCreate = { settings.turnOffAutoBackupForNewVault(id).forEach { releaseIfUnused(it) } },
+            beforeCreate = {
+                firstVaultMade(created = true) // 2.0, task 10: «Modo sencillo» on for the first vault of a new install.
+                settings.turnOffAutoBackupForNewVault(id).forEach { releaseIfUnused(it) }
+            },
             // Same for an import: the copies stay on, but those made so far (the replaced vault's) are never deleted. Written
             // before the vault is saved, and put back if that fails (COPIAS-3); a copy still being written of the replaced
             // vault is told apart by the vault's generation (CADENAS-3, see [recordAutoBackup]).
-            beforeReplace = { settings.forgetAutoBackupCopiesForImport(id) },
+            beforeReplace = {
+                firstVaultMade(created = false) // 2.0, task 10: a first vault from a copy leaves «Modo sencillo» off.
+                settings.forgetAutoBackupCopiesForImport(id)
+            },
             // A11, each vault's own mark: every time seen raises them all, its master password lowers only its own.
             clockHighWater = { clockMark(id) },
             onClockSeen = ::rememberClock,
@@ -445,6 +451,22 @@ class AppContainer(
     }
 
     private val slots = HashMap<String, Slot>()
+
+    /**
+     * 2.0, task 10: a vault is being made (created, or imported from a copy): if no vault of the phone has a file yet, it
+     * is the first one, and «Modo sencillo» is decided ([SettingsStore.firstVault]: only while undecided, as on a new
+     * install). Never throws, so it never stops the vault being made.
+     */
+    private suspend fun firstVaultMade(created: Boolean) {
+        try {
+            val none = withContext(Dispatchers.IO) { registry.vaults.value.none { File(registry.dirOf(it.id), "vault.bin").exists() } }
+            if (none) settings.firstVault(created)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Undecided, so off: the vault is made all the same.
+        }
+    }
 
     /** The vault [id] of the list ([IllegalArgumentException] for any other), built once. */
     private fun slot(id: String): Slot = synchronized(slots) {
