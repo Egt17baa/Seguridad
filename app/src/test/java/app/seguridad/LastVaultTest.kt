@@ -8,6 +8,7 @@ import app.seguridad.vault.VaultRegistry
 import app.seguridad.vault.VaultState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -114,11 +115,47 @@ class LastVaultTest {
         c.createVault("Dos", masterB.toCharArray())
         val b = c.vault
         b.lock()
-        // It goes through every check (the key is A's own, the master was typed just now) and reaches the gate: no
-        // exception at all, StaleBiometricKey (which would turn A's fingerprint off) nor MasterRequired.
-        a.unlockWithKey(keyOfA!!)
+        testScheduler.advanceUntilIdle()
+        val fileOfA = File(c.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").readBytes()
+        val settings = File(tmp.root, "settings.json").readBytes()
+        // No exception at all: neither StaleBiometricKey (which would turn A's fingerprint off) nor MasterRequired.
+        a.unlockWithKey(keyOfA!!.copyOf())
+        testScheduler.advanceUntilIdle()
         assertFalse(a.state.value is VaultState.Unlocked)
         assertFalse(b.state.value is VaultState.Unlocked)
         assertTrue(c.vault === b)
+        // Ronda 1, i-6: nothing of A is written either (no purge of its trash, no bookkeeping save, no clock mark).
+        assertArrayEquals("A's file, byte for byte", fileOfA, File(c.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").readBytes())
+        assertArrayEquals("The settings, byte for byte", settings, File(tmp.root, "settings.json").readBytes())
+        // Shown again, A opens with its fingerprint as always.
+        c.switchTo(PRIMARY_VAULT_ID)
+        a.unlockWithKey(keyOfA)
+        assertTrue(a.state.value is VaultState.Unlocked)
+    }
+
+    /**
+     * Ronda 1, i-6: the same with the master password, more likely there (Argon2id is slow): typed on A's screen, it ends
+     * after a switch to B. A stays locked and nothing of it is written; shown again, the master opens it.
+     */
+    @Test fun aLateMasterUnlockOfAnotherVaultWritesNothing() = runTest {
+        val c = container(backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val a = c.vault
+        c.createVault("Dos", masterB.toCharArray())
+        val b = c.vault
+        testScheduler.advanceUntilIdle()
+        val fileOfA = File(c.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").readBytes()
+        val settings = File(tmp.root, "settings.json").readBytes()
+        a.unlock(masterA.toCharArray())
+        testScheduler.advanceUntilIdle()
+        assertFalse(a.state.value is VaultState.Unlocked)
+        assertTrue("B is as it was", b.state.value is VaultState.Unlocked)
+        assertArrayEquals("A's file, byte for byte", fileOfA, File(c.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").readBytes())
+        assertArrayEquals("The settings, byte for byte", settings, File(tmp.root, "settings.json").readBytes())
+        c.switchTo(PRIMARY_VAULT_ID)
+        a.unlock(masterA.toCharArray())
+        assertTrue(a.state.value is VaultState.Unlocked)
     }
 }

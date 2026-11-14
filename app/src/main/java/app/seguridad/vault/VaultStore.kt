@@ -567,6 +567,10 @@ class VaultStore(
     /** True when it opened a vault of version 2 or 3 whose version 4 waits in memory (not saved yet). */
     private suspend fun unlockLocked(master: CharArray, since: Int): Boolean {
         val v = vault ?: return false
+        // 2.0, task 10, ronda 1 (i-6): as [unlockWithKeyLocked]. Checked before Argon2id (nothing to derive for a vault not
+        // shown) and again after it, before the first effect: a switch during the derivation (it is slow) leaves nothing
+        // of this vault written (the master check, the trash's purge, a key wrapped again) nor its clock mark lowered.
+        if (!active()) return false
         // 2.0, task 3: the time and the trash's mark of before this unlock, read before it tells the time to anyone.
         val at = now()
         val mark = trashClockMark()
@@ -577,9 +581,13 @@ class VaultStore(
             key.fill(0)
             throw e
         }
+        if (!active()) {
+            key.fill(0)
+            return false
+        }
         // The master password was right: a clock set forward no longer blocks this vault's fingerprint. 2.0 (review I-1):
-        // only for the active vault, which is the only one this unlock can open.
-        if (active()) onClockReset(now())
+        // only for the active vault, which is the only one this unlock can open (checked just above, with the mutex held).
+        onClockReset(now())
         if (v.version == VaultFile.VERSION) {
             // A full disk must not lock the user out of their passwords: open anyway (see [commit]).
             commit(checked, key, since, mustSave = false)
@@ -655,6 +663,10 @@ class VaultStore(
 
     private suspend fun unlockWithKeyLocked(key: ByteArray, since: Int) {
         val v = vault ?: return key.fill(0)
+        // 2.0, task 10, ronda 1 (i-6): a fingerprint that answers after a switch is of a vault no longer shown. Before any
+        // effect (the trash's purge, the bookkeeping save, the clock mark), with the mutex held: nothing of it is written
+        // and it stays locked. Shown again, it opens as always.
+        if (!active()) return key.fill(0)
         // 2.0, task 3: read before this unlock tells the time (see [unlockLocked]).
         val at = now()
         val mark = trashClockMark()
