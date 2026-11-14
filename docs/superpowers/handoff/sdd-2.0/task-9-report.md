@@ -380,3 +380,52 @@ Todos están en el anexo, en «Clavero 2.0, tarea 9», al día:
 3. **La clave WEP de 32 cifras** (128 bits) está en la lista de claves en bruto, porque la descripción pública la da como forma de proveedor. Si se prefiere solo lo de IEEE (10 y 26), basta con quitarla del conjunto.
 
 Las Dudas 1 y 4 de la ronda 0 están aceptadas; la 6, rechazada; la 2, decidida por el dueño (arriba); la 3, resuelta por m-2; la 5, por m-3 y m-7; la 7, por I-1.
+
+---
+
+# Ronda 2 de arreglos (base `51b45db`)
+
+**Estado: DONE.** La re-revisión 1 aprobó la tarea con tres menores, y los tres están arreglados en `54e86fc`.
+
+## Menores
+
+- **n-1. `left` ya es estado observable.**
+  - `QrPendingText.leftState` es un `StateFlow<Boolean>`, y `left` lee su valor (`QrPendingText.kt`).
+  - Las dos pantallas de importar (`QrTotpImportScreen` y `QrWifiImportScreen`) lo recogen con `collectAsStateWithLifecycle()` (`QrInspectScreen.kt`). Al volver a la app se recomponen y vuelven al Inspector en ese momento, sin esperar al siguiente desbloqueo.
+  - Test de comportamiento: `QrHandoffTest.aCollectorHearsThatTheAppWasLeft` recoge el flujo y oye `[false, true]`. `leavingTheAppDropsEveryPendingTextAndSaysSo` también mira `leftState`.
+  - Pin de fuente en `PlatformSourcesTest`: las dos pantallas leen el estado y ya no el `var`.
+- **n-2. El Inspector enseña el tipo tal como dice el código.**
+  - `WifiRead.Usable` y `QrKind.Wifi` llevan `written`: el tipo escrito, en mayúsculas, cuando no es el que se guarda.
+  - «Cifrado» enseña «WPA2» con `T:WPA2` y con `T:wpa2` (`QrView.kt`, a través de `visibleText`).
+  - Lo que se guarda y lo que escribe el QR siguen siendo WPA.
+  - Test: `WifiQrInspectTest.aWifiTheVaultCanHoldOffersAddToVault`.
+- **n-3. Texto cambiado:** `QR_WIFI_NAME_SPACES` dice ahora «…empieza o termina con un espacio en blanco, y la bóveda no lo guardaría igual, así que no se añade.» (`WifiQr.kt`). Va también al anexo y al Abogado.
+
+## Red
+
+Sin los arreglos de n-1 y n-2 (deshechos en el código y luego `git checkout`), fallan los tres tests que los fijan:
+- `QrHandoffTest.aCollectorHearsThatTheAppWasLeft`;
+- `QrHandoffTest.leavingTheAppDropsEveryPendingTextAndSaysSo`;
+- `WifiQrInspectTest.aWifiTheVaultCanHoldOffersAddToVault`.
+
+n-3 es solo un literal.
+
+## Tests
+
+Primero ejecuté solo las clases tocadas: `tools.qr.*`, `PlatformSourcesTest`, `AppContainerTest`, `ui.screens.Wifi*` y `WifiQrFormTest`. Después, las dos suites por separado:
+- **App**, con lint, licencias, Fragment y assets: BUILD SUCCESSFUL, **2293 tests, 0 fallos**. Lint solo da los avisos de siempre (`OldTargetApi`, `DiscouragedApi` y `ObsoleteSdkInt`) y los de versiones nuevas en línea.
+- **jvm-check:** BUILD SUCCESSFUL, **2249 tests, 0 fallos**.
+
+## Revisiones
+
+- **experto-seguridad-cripto:** sin cambios de seguridad. Con n-1, el usuario ve en cuanto vuelve que el texto pendiente se soltó. n-2 no toca lo que se guarda.
+- **Ingeniero Móvil Senior:** el flujo se recoge con `collectAsStateWithLifecycle`, que vuelve a recoger al pasar a STARTED. La escritura viene de `onStop`, en el hilo principal, y `MutableStateFlow` es seguro entre hilos. No se abre otro camino de ciclo de vida.
+
+## Textos para el Abogado Digital
+
+- Cambia `QR_WIFI_NAME_SPACES`, que ahora dice «espacio en blanco».
+
+## Dudas
+
+- Ninguna nueva.
+- El informativo i-1 de la re-revisión (`WIFI:S:Casa;\n` es `Malformed`, más estricto que ZXing, y falla cerrado) se queda como está.
