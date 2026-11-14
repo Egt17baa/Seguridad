@@ -48,6 +48,10 @@ class SimpleModeFirstVaultTest {
         assertNull("Undecided, so off, until the first vault", c.settings.settings.value.simpleMode)
         c.vault.create(master.toCharArray())
         assertEquals(true, c.settings.settings.value.simpleMode)
+        // What it keeps unencrypted (pendientes, row 8): one switch, and the guide only once it is seen (a false is not written).
+        val written = File(tmp.root, "app/settings.json").readText()
+        assertTrue(written, "\"simpleMode\":true" in written)
+        assertTrue(written, "onboardingDone" !in written)
         // A second vault, or the first one made again after «He olvidado la contraseña maestra», changes nothing.
         c.settings.update { it.copy(simpleMode = false) }
         c.createVault("Dos", "maestra-de-prueba-dos".toCharArray())

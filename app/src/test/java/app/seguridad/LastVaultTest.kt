@@ -39,6 +39,10 @@ class LastVaultTest {
         c.vault.load()
         c.vault.create(masterA.toCharArray(), name = "Uno")
         val b = c.createVault("Dos", masterB.toCharArray())
+        // What the registry keeps unencrypted (pendientes, row 8): ids, colours, order and the last one opened; no name.
+        val registry = File(tmp.root, VAULTS_FILE).readText()
+        assertTrue(registry, "\"lastOpened\":\"$b\"" in registry)
+        assertFalse(registry, "Uno" in registry || "Dos" in registry)
         // The next start (a new process) shows «Dos», locked.
         val again = container(backgroundScope)
         assertEquals(b, again.activeVaultId)

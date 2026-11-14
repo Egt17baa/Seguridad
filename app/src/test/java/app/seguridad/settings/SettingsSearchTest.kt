@@ -98,4 +98,28 @@ class SettingsSearchTest {
         }
         assertEquals("Titles are unique", SettingItem.entries.size, SettingItem.entries.map { it.title }.toSet().size)
     }
+
+    /**
+     * «La letra sigue la escala del sistema» (R-1, letra al 200 %): nothing in the app sets its own font scale or density,
+     * and the screens of this task (Ajustes, «Aspecto», Herramientas) never cut a text to a number of lines: at 200 % a
+     * text wraps and the screen scrolls. The check on the phone is a row of pendientes.md.
+     */
+    @Test fun textFollowsTheSystemScale() {
+        val ui = File(main, "ui")
+        for (f in ui.walkTopDown().filter { it.isFile && it.extension == "kt" }) {
+            val src = f.readText()
+            assertFalse("${f.name} sets the font scale", "fontScale" in src)
+            assertFalse("${f.name} sets the density", "LocalDensity provides" in src)
+        }
+        for (path in listOf("ui/screens/SettingsScreen.kt", "ui/screens/AppearanceScreen.kt", "ui/screens/ToolsScreen.kt")) {
+            val src = code(path)
+            assertFalse("$path cuts a text", "maxLines" in src || "TextOverflow" in src)
+        }
+        assertTrue("Ajustes scrolls", "verticalScroll(" in code("ui/screens/SettingsScreen.kt"))
+        // The cards of Herramientas grow with their text: a minimum height, never a fixed one.
+        val tools = code("ui/screens/ToolsScreen.kt")
+        assertTrue("heightIn(min" in tools)
+        assertFalse(Regex("""\.height\(""").containsMatchIn(tools))
+    }
 }
+

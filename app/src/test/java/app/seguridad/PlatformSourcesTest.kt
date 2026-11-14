@@ -328,7 +328,7 @@ class PlatformSourcesTest {
         // The visible notice, word for word, and the entry in Herramientas.
         assertTrue("Text(CLASSIC_NOTICE)" in src)
         assertTrue("Son cifrados históricos, rotos desde hace décadas: no protegen nada. Sirven para aprender cómo funcionaban." in main("tools/classic/ClassicTexts.kt"))
-        assertTrue("Tool(\"tools/classic\"" in code("ui/screens/ToolsScreen.kt"))
+        assertTrue("Tool(\"tools/classic\"" in code("tools/ToolCatalog.kt")) // 2.0, task 10: the list moved out of ui/
     }
 
     @Test fun `Repartir un secreto has the guard of the other tools, runs off the main thread and copies with clearing`() {
@@ -344,7 +344,7 @@ class PlatformSourcesTest {
         assertTrue("AwayNote {" in src && "session.guard.typed()" in src)
         assertTrue("SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
         assertTrue("composable(\"tools/share-secret\")" in code("ui/AppNavHost.kt"))
-        assertTrue("Tool(\"tools/share-secret\", \"🧩\", SHARE_TITLE, SHARE_SUBTITLE)" in code("ui/screens/ToolsScreen.kt"))
+        assertTrue("Tool(\"tools/share-secret\", \"🧩\", SHARE_TITLE, SHARE_SUBTITLE)" in code("tools/ToolCatalog.kt"))
         // PBKDF2 off the main thread (SecretShareRuns, tested in SecretShareRunsTest), each run on a snapshot of the form.
         assertTrue("val r = splitRequest(s.secretInput, isPhrase = !hexInput, s.passphrase, s.groupThreshold, s.groups, words)" in src)
         assertTrue("val r = combineRequest(s.typedParts, s.passphrase)" in src)
