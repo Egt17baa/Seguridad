@@ -96,6 +96,8 @@ data class Settings(
      * with a guide of its own only raises [GUIDE_CURRENT].
      */
     val guideSeen: Int = GUIDE_NONE,
+    /** 2.0, task 10 (phase B, R-2 of the Abogado Digital): «Sugerencias de «Salud»» off: no mission is shown. */
+    val missionsOff: Boolean = false,
 )
 
 /** [Settings.guideSeen] of a new install: no guide seen. */
