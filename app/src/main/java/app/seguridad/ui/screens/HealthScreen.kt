@@ -240,7 +240,8 @@ fun HealthScreen(
                     message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
-            items(items.sortedByDescending { it.issues.size }, key = { it.entryId }) { item ->
+            // C-1: an entry's id (any text, from a copy) never meets the fixed key «mission».
+            items(items.sortedByDescending { it.issues.size }, key = { lazyKey('e', it.entryId) }) { item ->
                 HealthRow(item, byId[item.entryId]?.title.orEmpty(), onClick = { onEdit(item.entryId) })
             }
         }
