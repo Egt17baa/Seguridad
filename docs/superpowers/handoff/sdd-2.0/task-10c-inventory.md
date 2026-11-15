@@ -143,7 +143,7 @@ Sobre el árbol de la ronda 1 da **180 coincidencias** en 30 archivos. Cada una 
 - **I-2, `KDF_OUT_OF_MEMORY`.** Antes de la ronda 1 no llegaba a la pantalla de bloqueo: lo tapaba «Contraseña incorrecta». Ahora sale tal cual. No nombra ninguna acción.
 - **m-1, `IMPORT_COPY_*`.** No son datos: son `CopyResult.Failed`, solo en memoria (`v/AutoBackup.kt:758-788`). Fila por fila:
   - `IMPORT_COPY_NO_PERMISSION` y `IMPORT_COPY_NO_FOLDER` ya dicen qué hacer (elegir la carpeta otra vez);
-  - `IMPORT_COPY_WRITE_FAILED` y `IMPORT_COPY_FAILED` terminan en «No se ha importado nada.», y la pantalla de importar ofrece «Elegir dónde guardar la copia» (`IMPORT_CHOOSE_COPY_PLACE_BUTTON`);
+  - `IMPORT_COPY_WRITE_FAILED` («¿Queda espacio?», una pregunta, no una causa afirmada) e `IMPORT_COPY_FAILED` (sin causa conocida) terminan en «No se ha importado nada.», y vuelven a la vista previa con «Importar» a la vista (`ImportSession.kt:344-347`). Se dejan: no hay otro qué hacer veraz;
   - `IMPORT_COPY_LOCKED` e `IMPORT_COPY_VAULT_CHANGED` se dejan. Se comparan con la misma constante, en memoria, así que cambiarlos no cambiaría el comportamiento: se dejan por el Ruling al pie de la letra, y además ya dicen lo que pasó y que no se importó nada.
 - **m-1, las cinco comparadas** (`IMPORT_COPY_LOCKED`, `IMPORT_COPY_VAULT_CHANGED`, `IMPORT_WRONG_PASSWORD`, `NOT_A_VAULT`, `UPGRADE_PENDING`). Se comparan con la misma constante, en memoria. Se dejan por el Ruling al pie de la letra, no porque cambiarlas cambie el comportamiento. No se reabren (Ruling T10 fase C).
 - **m-1, `ImportTexts.kt`.** `ImportTextsTest` solo fija palabra por palabra seis textos:
@@ -201,7 +201,7 @@ Sobre el árbol de la ronda 1 da **180 coincidencias** en 30 archivos. Cada una 
 | Los problemas de «Comprobar una copia» («Falta N adjunto…», «N adjuntos no coinciden…») | El informe de la comprobación | `v/BackupCheckTexts.kt:55-62` | — | Se dejan: son la lista del informe, debajo de `BACKUP_CHECK_HAS_PROBLEMS` |
 | «Ya la tenían (o no caben más de 10 etiquetas).» | Etiquetar en la selección | `v/ListTexts.kt:43` | Dos casos | Se deja: es un resultado, no un error |
 | `IMPORT_KDF_BUSY` | Importar con contraseña mientras corre otra | `i/ImportTexts.kt:258` | — | Se deja: ya dice qué hacer |
-| `importTooBigText` | Importar algo que no cabe en una copia | `i/ImportTexts.kt:363` | Lo que sobra | Se deja: tiene al lado «Elegir otro archivo» |
+| `importTooBigText` | Importar algo que no cabe en una copia | `i/ImportTexts.kt:363` | Lo que sobra | Se deja: dice cuánto sobra y vuelve a la vista previa, donde «Importar» queda apagado hasta cambiar una elección (`ImportSession.kt:348-353`, M-2 de la 1.4.0) |
 | Las razones de `SkipReason` («Un campo pasa del tamaño máximo», «Fila o elemento dañado»…) | Las líneas de «No entran» | `i/ImportModel.kt:40-54` | — | Se dejan: dicen por qué no entra cada elemento; no son fallos de la acción |
 | `UPGRADE_SAVE_FAILED` | El diálogo del paso a v4 | `ui/VaultUpgrade.kt:47` | — | Se deja: O-3, y ya dice qué hacer |
 | «El texto cifrado está incompleto o dañado», `NOT_COMPATIBLE` | «Cifrar texto» | `c/Crypto.kt:609`, `:518` | — | Fuera de alcance (herramienta) |
