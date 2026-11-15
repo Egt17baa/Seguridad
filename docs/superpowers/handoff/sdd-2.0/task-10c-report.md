@@ -25,7 +25,7 @@ Todos siguen la misma forma: la frase de antes (lo que pasó) y, a continuación
 | «No se pudo abrir la bóveda con la huella» | «No se pudo abrir la bóveda con la huella. Escribe la contraseña maestra.» | Huella: una excepción sin texto propio (LIBRE-4). El campo de la maestra está en la misma pantalla | `vault/VaultStore.kt:71` | `ErrorTextsTest`; `VaultStoreTest` «LIBRE-4…» |
 | «El adjunto pasa de 5 MB» | «El adjunto pasa de 5 MB. Elige un archivo más pequeño.» | Añadir un adjunto (solo desde `addAttachment`) | `vault/Attachments.kt:29` | `ErrorTextsTest`; `AttachmentsTest.over5MbRejected` |
 | «La copia está dañada o no es una copia de Clavero» | «… Elige otra copia.» | Leer una copia al importarla, al comprobarla o al importarla como bóveda nueva. En los tres sitios hay un botón para elegir otra | `vault/Backup.kt:79` | `ErrorTextsTest`; `BackupCheckTest`, `VaultV3Test` (por la constante) |
-| «La copia es de una versión más nueva de Clavero» | La misma frase y, a continuación, «Actualiza Clavero para abrirla.» Conserva sus palabras: diseño §Formato v4, el texto de la 1.4.3 | La marca de la copia es más nueva que la que esta versión lee | `vault/Backup.kt:82` | `ErrorTextsTest`; `BackupV3Test` |
+| «La copia es de una versión más nueva de Clavero» | La misma frase y, a continuación, «Actualiza Clavero. (ronda 1, m-2: sin «para abrirla»)» Conserva sus palabras: diseño §Formato v4, el texto de la 1.4.3 | La marca de la copia es más nueva que la que esta versión lee | `vault/Backup.kt:82` | `ErrorTextsTest`; `BackupV3Test` |
 | «La copia está dañada: no se puede importar» | «… Elige otra copia.» | Comprobar o importar una copia con ids repetidos o campos dañados | `vault/BackupCheck.kt:180` | `ErrorTextsTest`; `VaultStoreTest` (LIBRE-1 y «a copy that breaks…») |
 | «El archivo pasa de 40 MB: no es una copia de la bóveda» | «… Elige una copia .sgbak de Clavero.» | «Importar copia» con un archivo que no es un ZIP y pasa de 40 MB | `vault/VaultStore.kt:1665` | `ErrorTextsTest` |
 
@@ -101,7 +101,7 @@ Busqué los seis textos de antes:
 
 - **Veracidad.** Ninguna línea de qué hacer nombra una causa:
   - «Elige otra copia» no dice si la copia está dañada o es ajena; la primera parte ya dice que el código no lo sabe (`Backup.kt:79`).
-  - «Actualiza Clavero para abrirla» solo sale cuando la marca es más nueva que la que esta versión lee (`Backup.kt:325`).
+  - «Actualiza Clavero» (ronda 1, m-2) solo sale cuando la marca es más nueva que la que esta versión lee (`Backup.kt:325`).
   - «Escribe la contraseña maestra» sale donde está su campo (`VaultScreen.kt`, `UnlockVault`). La maestra no depende de la huella.
 - **Ningún reintento prometido:** lo fija `ErrorTextsTest`.
 - **Sin datos de la bóveda en los mensajes.** Los textos son fijos, nunca una ruta ni lo que dice una excepción (LIBRE-4, `biometricUnlockError`).
@@ -115,9 +115,9 @@ Busqué los seis textos de antes:
 
 ## Textos para el Abogado Digital (revisión final)
 
-Los seis de la tabla final. `BACKUP_NEWER` conserva las palabras que dice la 1.4.3 y añade «Actualiza Clavero para abrirla.».
+Los seis de la tabla final. `BACKUP_NEWER` conserva las palabras que dice la 1.4.3 y añade «Actualiza Clavero. (ronda 1, m-2: sin «para abrirla»)».
 
 ## Dudas
 
-1. **Forma de los dos textos.** El diseño dice «qué pasó, y debajo qué hacer». Uso dos frases seguidas en la misma cadena («… de Clavero. Elige otra copia.»), como los errores ya aprobados (`AUTO_BACKUP_NO_PERMISSION`: «… Vuelve a elegirla.»). No uso un salto de línea, para no cambiar cómo se pintan en los snackbars. Si se prefiere el salto, basta un `\n` en los seis.
+1. **Forma de los dos textos.** Uso dos frases seguidas en la misma cadena («… de Clavero. Elige otra copia.»), como los errores ya aprobados. Corregido en la ronda 1 (m-6): un `\n` no bastaba. `ToolTextsTest` lee el anexo de la 1.3.0 línea a línea, así que un texto con salto de línea no podría estar nunca en él, y `ErrorTextsTest` también tendría que cambiar. Ahora es un Ruling: dos frases en la misma cadena, sin `\n`.
 2. **«Contraseña incorrecta» nombra una causa que AES-GCM no distingue:** una clave envuelta dañada da el mismo error. Está congelado desde la 1.3.1, así que no lo he tocado. Lo apunto para el Abogado y para el dueño.
