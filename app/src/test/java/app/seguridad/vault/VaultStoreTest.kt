@@ -1261,8 +1261,9 @@ class VaultStoreTest {
     @Test fun `F2 the unlock screen says a vault it cannot open is not compatible and shows no 7-day notice for it`() {
         val src = vaultScreenCode()
         // The master password on a file this version cannot open: the existing text, not «Contraseña incorrecta».
-        assertTrue("error = if (e.message == NOT_A_VAULT) NOT_A_VAULT else \"Contraseña incorrecta\"" in src)
-        assertTrue("import app.seguridad.vault.NOT_A_VAULT" in src)
+        // 2.0, task 10, phase C, ronda 1 (I-2): through one closed list (masterUnlockErrorText, UnlockErrorTextTest).
+        assertTrue("error = masterUnlockErrorText(e)" in src)
+        assertEquals(NOT_A_VAULT, masterUnlockErrorText(app.seguridad.crypto.CryptoFailure(NOT_A_VAULT)))
         // The notice under the button: the 7-day text only for MASTER_DUE; nothing for UNSUPPORTED (no new text).
         val sevenDays = Regex("""BiometricRefusal\.MASTER_DUE ->\s*Text\("Por seguridad, cada 7 días""")
         assertTrue(sevenDays.containsMatchIn(src))

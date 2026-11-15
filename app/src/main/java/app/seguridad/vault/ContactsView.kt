@@ -70,7 +70,6 @@ const val VERIFY_QUESTION =
 const val VAULT_CLOSED = "La bóveda está cerrada"
 
 private const val UNKNOWN_CARD = "No se pudo leer la tarjeta"
-private const val WRONG_MASTER = "Contraseña incorrecta"
 private const val NOT_OPENED = "No se pudo abrir la bóveda"
 private const val NOT_SAVED = "No se pudo guardar"
 private const val NOT_SAVED_STATE = "No se pudo guardar: hace falta la contraseña maestra o ya existe una identidad"

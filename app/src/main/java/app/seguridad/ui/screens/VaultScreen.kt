@@ -74,7 +74,7 @@ import app.seguridad.vault.CLOCK_CHANGED_TEXT
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MIN_MASTER
-import app.seguridad.vault.NOT_A_VAULT
+import app.seguridad.vault.masterUnlockErrorText
 import app.seguridad.vault.UPGRADE_NEEDS_MASTER
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
@@ -449,8 +449,9 @@ private fun UnlockVault(store: VaultStore) {
                         store.unlock(chars)
                         pw = ""
                     } catch (e: CryptoFailure) {
-                        // A file this version cannot open is not a forgotten password («He olvidado» deletes it).
-                        error = if (e.message == NOT_A_VAULT) NOT_A_VAULT else "Contraseña incorrecta"
+                        // A file this version cannot open, or an Argon2id that cannot run here, is not a forgotten password
+                        // («He olvidado» deletes it): ronda 1 of phase C (I-2), one closed list.
+                        error = masterUnlockErrorText(e)
                     } catch (e: Exception) {
                         error = "No se pudo abrir la bóveda"
                     } finally {

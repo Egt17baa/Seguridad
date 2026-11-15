@@ -1,5 +1,7 @@
 package app.seguridad.vault
 
+import app.seguridad.crypto.KDF_PARAMS_INVALID
+import app.seguridad.crypto.KDF_OUT_OF_MEMORY
 import app.seguridad.core.appJson
 import app.seguridad.crypto.Aead
 import app.seguridad.crypto.CryptoFailure
@@ -273,6 +275,22 @@ private fun open(key: ByteArray, sealed: String, aad: ByteArray): ByteArray {
 
 /** What [VaultCrypto] says of a file it cannot open; the unlock screen shows it, not «Contraseña incorrecta» (F2). */
 internal const val NOT_A_VAULT = "No es una bóveda compatible"
+
+/** The frozen words of a master password that does not open the vault (1.3.1); also «Contactos»' check of it. */
+const val WRONG_MASTER = "Contraseña incorrecta"
+
+/**
+ * 2.0, task 10, phase C, ronda 1 (I-2): what the gate says when [VaultStore.unlock] fails with [e]. What the store tells
+ * apart before the key is tried, so nothing of the password is in it, is said as it is: a file this version cannot open
+ * ([NOT_A_VAULT]), Argon2id without memory ([KDF_OUT_OF_MEMORY]) and parameters it cannot run ([KDF_PARAMS_INVALID]);
+ * none of them is a forgotten password, and «He olvidado la contraseña maestra» deletes the vault. Anything else is
+ * [WRONG_MASTER], word for word (AES-GCM cannot tell a wrong password from a damaged wrapped key). A closed list: never
+ * the message of any other exception.
+ */
+fun masterUnlockErrorText(e: CryptoFailure): String = when (val m = e.message) {
+    NOT_A_VAULT, KDF_OUT_OF_MEMORY, KDF_PARAMS_INVALID -> m
+    else -> WRONG_MASTER
+}
 
 /** 2.0: the unlock screen's line for [BiometricRefusal.UPGRADE] (design «Formato v4»). */
 const val UPGRADE_NEEDS_MASTER = "Clavero 2.0 necesita la maestra una vez para pasar la bóveda al formato nuevo."

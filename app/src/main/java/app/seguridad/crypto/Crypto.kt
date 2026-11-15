@@ -70,12 +70,18 @@ data class KdfParams(val memoryKiB: Int = DEFAULT_KDF_MEMORY_KIB, val iterations
         // before any work. Inside this bound an OutOfMemoryError is still possible and [argon2id] turns it into a
         // CryptoFailure. The default is always accepted, or a phone with a small heap could not open its own data.
         val cannotFit = memoryKiB > DEFAULT_KDF_MEMORY_KIB && memoryKiB > heapKiB * 3 / 4
-        if (outOfBounds || cannotFit) throw CryptoFailure("Parámetros de cifrado no válidos")
+        if (outOfBounds || cannotFit) throw CryptoFailure(KDF_PARAMS_INVALID)
     }
 }
 
 /** What this phone lets the app use on the Java heap, in KiB (Bouncy Castle's Argon2 allocates its memory there). */
 fun appHeapKiB(): Long = Runtime.getRuntime().maxMemory() / 1024
+
+/**
+ * What [KdfParams.checkSane] throws: a header that asks for Argon2id parameters out of bounds, or more memory than this
+ * phone can give (2.0, task 10, phase C, ronda 1: a constant, with the same value it always had).
+ */
+const val KDF_PARAMS_INVALID = "Parámetros de cifrado no válidos"
 
 /** Shown when Argon2id runs out of memory instead of crashing the app. */
 const val KDF_OUT_OF_MEMORY = "Este móvil no tiene memoria suficiente para el coste «Alto» de Argon2id"
