@@ -177,7 +177,7 @@ fun removeBackupCheckLeftovers(tempDir: File) {
 }
 
 internal const val SEVERAL_IDENTITIES = "La copia tiene más de una identidad: no se puede importar"
-internal const val COPY_DAMAGED = "La copia está dañada: no se puede importar"
+internal const val COPY_DAMAGED = "La copia está dañada: no se puede importar. Elige otra copia."
 
 /** The import's refusal of a copy whose attachment is missing or changed; it names the attachment (only the import says it). */
 internal fun attachmentNotInCopy(name: String) = "La copia está incompleta o dañada: falta o no coincide el adjunto «$name»"

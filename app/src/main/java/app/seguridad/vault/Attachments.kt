@@ -26,7 +26,7 @@ const val MAX_ATTACHMENTS_TOTAL_BYTES = 50L * 1024 * 1024
 /** An attachment over [MAX_ATTACHMENT_BYTES], or one that would take the vault over [MAX_ATTACHMENTS_TOTAL_BYTES]. */
 class AttachmentLimit(message: String) : Exception(message)
 
-internal const val ATTACHMENT_TOO_BIG = "El adjunto pasa de 5 MB"
+internal const val ATTACHMENT_TOO_BIG = "El adjunto pasa de 5 MB. Elige un archivo más pequeño."
 internal const val ATTACHMENTS_TOTAL_TOO_BIG = "Los adjuntos de la bóveda pasan de 50 MB en total"
 internal const val ATTACHMENT_DAMAGED = "El adjunto está dañado o se ha cambiado"
 

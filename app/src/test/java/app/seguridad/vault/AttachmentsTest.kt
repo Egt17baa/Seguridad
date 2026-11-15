@@ -111,7 +111,7 @@ class AttachmentsTest {
             a.add(ByteArrayInputStream(ByteArray(max + 1)), "grande.bin")
             fail("Debía rechazarlo")
         } catch (e: AttachmentLimit) {
-            assertEquals("El adjunto pasa de 5 MB", e.message)
+            assertEquals("El adjunto pasa de 5 MB. Elige un archivo más pequeño.", e.message)
         }
         assertEquals(1, attDir.listFiles()!!.size) // Nothing written for the rejected one.
     }

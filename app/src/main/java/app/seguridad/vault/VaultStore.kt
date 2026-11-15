@@ -68,7 +68,7 @@ sealed interface VaultState {
 const val CLOCK_CHANGED_TEXT = "La hora del móvil se ha atrasado. Por seguridad, escribe la contraseña maestra."
 
 /** Shown when a fingerprint unlock fails for a reason the store has no text of its own for (LIBRE-4). */
-const val BIOMETRIC_UNLOCK_FAILED = "No se pudo abrir la bóveda con la huella"
+const val BIOMETRIC_UNLOCK_FAILED = "No se pudo abrir la bóveda con la huella. Escribe la contraseña maestra."
 
 /**
  * Shown when the fingerprint released a key that does not authenticate this vault's entries: the blob it guards is
@@ -1662,7 +1662,7 @@ const val IMPORT_SETTINGS_FAILED = "No se ha importado la copia: no se pudieron 
  */
 class ReplacePrepared(val droppedRequest: Boolean, val undo: suspend () -> Unit)
 private const val ONLY_ONE_IDENTITY = "Solo puede haber una identidad"
-private const val IMPORT_TOO_BIG = "El archivo pasa de 40 MB: no es una copia de la bóveda"
+internal const val IMPORT_TOO_BIG = "El archivo pasa de 40 MB: no es una copia de la bóveda. Elige una copia .sgbak de Clavero."
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"
 private const val IMPORT_DIR_PREFIX = "import-"
 

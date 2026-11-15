@@ -159,9 +159,9 @@ class VaultStoreTest {
         val identity = VaultEntry("i", EntryType.IDENTITY, "Yo", createdAt = 0, updatedAt = 0)
         val big = (0 until 11).map { ref("%032x".format(it), MAX_ATTACHMENT_BYTES.toLong()) } // 55 MB in all.
         val all = listOf(
-            "La copia está dañada: no se puede importar" to handMadeExport(entry("1", "a"), entry("1", "b")),
-            "La copia está dañada: no se puede importar" to handMadeExport(identity.copy(attachments = listOf(ref("%032x".format(1), 1)))),
-            "La copia está dañada: no se puede importar" to handMadeExport(identity.copy(passwordHistory = listOf(PasswordChange("vieja", 0)))),
+            "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(entry("1", "a"), entry("1", "b")),
+            "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(identity.copy(attachments = listOf(ref("%032x".format(1), 1)))),
+            "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(identity.copy(passwordHistory = listOf(PasswordChange("vieja", 0)))),
             "Los adjuntos de la bóveda pasan de 50 MB en total" to handMadeExport(entry("1", "a").copy(attachments = big)),
             "Los adjuntos de la bóveda pasan de 50 MB en total" to handMadeExport(entry("1", "a").copy(attachments = listOf(ref("%032x".format(1), -1)))),
         )
@@ -833,7 +833,7 @@ class VaultStoreTest {
                 s.importReplace(exportWithIds("ok-1", bad), "m".toCharArray())
                 fail("accepted id «$bad»")
             } catch (e: CryptoFailure) {
-                assertEquals("La copia está dañada: no se puede importar", e.message)
+                assertEquals("La copia está dañada: no se puede importar. Elige otra copia.", e.message)
             }
             assertEquals(0, (s.state.value as VaultState.Unlocked).entries.size)
         }
@@ -944,7 +944,7 @@ class VaultStoreTest {
         assertEquals(MasterRequired().message, biometricUnlockError(MasterRequired()))
         assertEquals(BIOMETRIC_UNLOCK_FAILED, biometricUnlockError(java.io.IOException("/data/user/0/app/files/vault: ENOSPC")))
         assertEquals(BIOMETRIC_UNLOCK_FAILED, biometricUnlockError(IllegalStateException()))
-        assertEquals("No se pudo abrir la bóveda con la huella", BIOMETRIC_UNLOCK_FAILED)
+        assertEquals("No se pudo abrir la bóveda con la huella. Escribe la contraseña maestra.", BIOMETRIC_UNLOCK_FAILED)
     }
 
     @Test fun `BOV-3 a fingerprint key handed over from a scope already gone opens the vault`() = runTest {
