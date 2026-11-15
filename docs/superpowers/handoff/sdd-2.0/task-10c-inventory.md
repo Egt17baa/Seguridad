@@ -116,3 +116,93 @@ Son errores de las herramientas, y quedan apuntados aquí sin tocar:
 - **6 cadenas cambian:** `BIOMETRIC_UNLOCK_FAILED`, `ATTACHMENT_TOO_BIG`, `BACKUP_DAMAGED`, `BACKUP_NEWER` (con una línea añadida), `COPY_DAMAGED` e `IMPORT_TOO_BIG`.
 - **3 filas nuevas en `pendientes.md`:** 37 (`ATTACHMENTS_TOTAL_TOO_BIG`), 38 (`KDF_OUT_OF_MEMORY`) y 39 (`BACKUP_DOES_NOT_FIT`).
 - **El resto se deja**, con su motivo en cada fila.
+
+---
+
+# Ronda 1 del inventario (`task-10c-review.md` y «Ruling (advisor, T10 fase C)»)
+
+## La búsqueda, para repetirla
+
+Se lanza desde `app/src/main/java/app/seguridad`:
+
+```bash
+P='"[^"]*(No se |no se ha|no se puede|No es |no es |dañad|no válid|incorrect|bloqueó|pasa de|pasan de|no cabe|demasiad|Ya hay|ya no |no responde|no está|No hay|Falta|falta )[^"]*"'
+grep -rnoE "$P" vault imports crypto/Crypto.kt android/BiometricVault.kt AppContainer.kt \
+  ui/screens/{VaultScreen,VaultBackup,VaultAttachments,VaultEntryScreen,VaultPickerScreen,BackupCheckScreen,ImportScreen,SettingsScreen,TrashScreen,EntryHistoryScreen,VaultOrganize,VaultUpgrade}.kt
+```
+
+Además, a mano:
+- cada `throw CryptoFailure(` y `throw AttachmentLimit(`;
+- cada `catch (e: CryptoFailure)` de `ui/screens/`, `AppContainer.kt`, `vault/BackupCheckSession.kt` y `vault/VaultStore.kt`, para ver qué texto enseña.
+
+Sobre el árbol de la ronda 1 da **180 coincidencias** en 30 archivos. Cada una está en una fila: las de la versión 1 del inventario o las de abajo. Las de `crypto/pk`, `vault/Contacts*.kt` y `vault/PkActions.kt` son de Contactos y quedan fuera de alcance, igual que en la sección 4.
+
+## Filas corregidas
+
+- **I-2, «Contraseña incorrecta»** (`ui/VaultScreen.kt`). El almacén distingue, antes de probar la clave, tres casos que ahora la pantalla dice tal cual: `NOT_A_VAULT`, `KDF_OUT_OF_MEMORY` y `KDF_PARAMS_INVALID`. Solo los demás son AES-GCM, que no separa una contraseña equivocada de una clave envuelta dañada. Se arregló con código, en su propio commit (`masterUnlockErrorText`, `vault/Vault.kt`). «Contraseña incorrecta» conserva sus palabras (1.3.1).
+- **I-2, `KDF_OUT_OF_MEMORY`.** Antes de la ronda 1 no llegaba a la pantalla de bloqueo: lo tapaba «Contraseña incorrecta». Ahora sale tal cual. No nombra ninguna acción.
+- **m-1, `IMPORT_COPY_*`.** No son datos: son `CopyResult.Failed`, solo en memoria (`v/AutoBackup.kt:758-788`). Fila por fila:
+  - `IMPORT_COPY_NO_PERMISSION` y `IMPORT_COPY_NO_FOLDER` ya dicen qué hacer (elegir la carpeta otra vez);
+  - `IMPORT_COPY_WRITE_FAILED` y `IMPORT_COPY_FAILED` terminan en «No se ha importado nada.», y la pantalla de importar ofrece «Elegir dónde guardar la copia» (`IMPORT_CHOOSE_COPY_PLACE_BUTTON`);
+  - `IMPORT_COPY_LOCKED` e `IMPORT_COPY_VAULT_CHANGED` se dejan. Se comparan con la misma constante, en memoria, así que cambiarlos no cambiaría el comportamiento: se dejan por el Ruling al pie de la letra, y además ya dicen lo que pasó y que no se importó nada.
+- **m-1, las cinco comparadas** (`IMPORT_COPY_LOCKED`, `IMPORT_COPY_VAULT_CHANGED`, `IMPORT_WRONG_PASSWORD`, `NOT_A_VAULT`, `UPGRADE_PENDING`). Se comparan con la misma constante, en memoria. Se dejan por el Ruling al pie de la letra, no porque cambiarlas cambie el comportamiento. No se reabren (Ruling T10 fase C).
+- **m-1, `ImportTexts.kt`.** `ImportTextsTest` solo fija palabra por palabra seis textos:
+  - `IMPORT_TRADEMARKS`;
+  - `IMPORT_BITWARDEN_ACCOUNT_ENCRYPTED`;
+  - `IMPORT_REPLACE_NOTE`;
+  - `IMPORT_TOO_MANY_ITEMS`;
+  - `IMPORT_NOT_PROTECTED`;
+  - `IMPORT_REMOVE_EXPLAIN`.
+
+  Los demás errores se dejan por otro motivo: cada `ErrorText` de la pantalla de importar tiene al lado el botón «Elegir otro archivo» (`IMPORT_PICK_OTHER`, `ui/ImportScreen.kt:523-559`, `:612-616`), así que el qué hacer ya está a la vista.
+- **m-2, `BACKUP_NEWER`.** La constante de la 2.0 no está fijada. El texto de la 1.4.3 está en su propio APK. Su primera frase se conserva para que diga lo mismo que la 1.4.3, y lo que sigue es «Actualiza Clavero.», sin «para abrirla», que sonaba a promesa.
+- **m-3, la fila 37.** `ATTACHMENTS_TOTAL_TOO_BIG` lo lanzan dos sitios por separado:
+  - añadir un adjunto (`v/VaultStore.kt:1292`, `AttachmentLimit`);
+  - comprobar o importar una copia (`v/BackupCheck.kt:204-205`, `CryptoFailure`), donde además es falso cuando un solo adjunto tiene un tamaño fuera de 0..5 MB, también negativo.
+
+  Va a `pendientes.md`, fila 37, marcada de veracidad.
+- **m-4, `TAG_NOT_VALID`** («Esa etiqueta no es válida.», `v/Folders.kt:37`). Se deja, pero el motivo de antes («ya dice qué hacer») era falso. Lo sostienen estos dos:
+  - en «Etiquetar» (`ui/VaultOrganize.kt:184`) solo sale con el nombre vacío, porque las comas pasan a espacios (`v/Selection.kt:108`), y el usuario tiene delante el campo vacío;
+  - en los colores de las etiquetas (`ui/VaultOrganize.kt:438`, `withTagColor`, `v/Folders.kt:265`) la etiqueta **se elige** de la lista de las que ya hay, no se escribe; solo falla con una etiqueta guardada rara (de una copia).
+
+  «Escribe un solo nombre, sin comas» no sería verdad en ninguno de los dos sitios.
+- **m-7, R-10 del Abogado inicial** (`abogado-2.0-inicial.md:309-311`). Ningún error propone desinstalar, «Seguir sin copia» ni borrar sin decir qué se pierde, y ninguno culpa al usuario. Los textos de esta fase cumplen. `UPGRADE_EXPORT_FAILED` («No se pudo guardar la copia. Vuelve a intentarlo o sigue sin copia.», `ui/VaultUpgrade.kt:46`) propone «Seguir sin copia». Lo que cuesta está a la vista en el mismo diálogo (`UPGRADE_NOT_BACK`), así que se apunta para el Abogado.
+
+## Filas nuevas (I-1)
+
+| Texto actual | Cuándo sale | `archivo:línea` | Qué distingue el código | Propuesta |
+|---|---|---|---|---|
+| Texto por defecto de `CryptoFailure`, «Contraseña incorrecta o datos dañados» | Contraseña equivocada o datos que no se descifran: al importar una copia, al importarla como bóveda nueva, al comprobarla, y en la pantalla de bloqueo tras la huella (`biometricUnlockError`) | `c/Crypto.kt:204`; `ui/VaultBackup.kt:183`; `AppContainer.kt:763`; `v/BackupCheckSession.kt:130`; `v/VaultStore.kt:90` | AES-GCM no lo separa | Se deja: la constante es la misma que la de «Cifrar texto». Para la copia, fila 42 de `pendientes.md`; tras la huella, fila 41 (la 1.3.1 decidió que «da el error de siempre», CRY-A02) |
+| `KDF_PARAMS_INVALID` «Parámetros de cifrado no válidos» | `checkSane`: un encabezado fuera de los límites (más de 128 MiB, de 1 a 10 pasadas, de 1 a 4 carriles), o «Alto» en un móvil con poco *heap* | `c/Crypto.kt:84` (constante desde la ronda 1, con el mismo valor) | Esas dos condiciones, antes de derivar | Se deja: es verdad en las dos, y tampoco empuja a «He olvidado». En las copias, fila 42 |
+| «No se pudo usar la huella», «No se pudo desbloquear con la huella» y «La huella no está activada» | Desbloquear con la huella (`BiometricVault.unlock`, solo desde `VaultScreen.kt:429`) | `android/BiometricVault.kt:560`, `:574`, `:600`, `:602-603`, `:632`, `:643`, `:648` | La causa técnica (Keystore, diálogo de la huella) | **Cambian**, solo como cadenas: añaden «. Escribe la contraseña maestra.» (`FINGERPRINT_UNLOCK_*`, `v/VaultStore.kt`). El `:472` (activar) no cambia |
+| «La bóveda se bloqueó: no se ha añadido.», «… no se ha quitado.», «La bóveda se bloqueó o el adjunto ya no está: no se ha guardado.» | Adjuntos | `ui/VaultAttachments.kt:71`, `:171`, `:92` | El bloqueo, o que el adjunto ya no está | Se dejan: lo que pasó deja claro qué hacer (abrirla), y la revisión los acepta |
+| «El adjunto es demasiado grande» | Respaldo de `AttachmentLimit` sin mensaje | `ui/VaultAttachments.kt:73` | — | Se deja: nunca sale, porque `AttachmentLimit` siempre lleva mensaje |
+| «El adjunto está dañado» | Respaldo de `CryptoFailure` sin mensaje al abrir un adjunto | `ui/VaultAttachments.kt:103` | — | Se deja: nunca sale; el que sale es `ATTACHMENT_DAMAGED` |
+| «La bóveda se bloqueó: ábrela y vuelve a exportarla» | Exportar | `ui/VaultBackup.kt:93` | — | Se deja: ya dice qué hacer |
+| «La bóveda se bloqueó: no se ha cambiado nada» | Cambiar la maestra | `ui/VaultBackup.kt:151` | — | Se deja: bloqueo, aceptado |
+| «No se pudo mover a la papelera (¿almacenamiento lleno?)» | La ficha, al mandar la entrada a la papelera | `ui/VaultEntryScreen.kt:242` | No sabe la causa; la pregunta no la afirma | Se deja: como `TRASH_SAVE_FAILED` |
+| «El QR de Google Authenticator no es válido o está dañado» | Importar los códigos de esa app desde el formulario | `ui/VaultEntryScreen.kt:405` | — | Se deja: está en la lista exacta de `ImportTextsTest` (R7) |
+| «El QR o enlace no es un código 2FA (otpauth://totp/…)» | Ídem, con un QR o un enlace de otro tipo | `ui/VaultEntryScreen.kt:422` | — | Se deja: ya dice lo que hace falta |
+| «La bóveda se bloqueó: no se ha importado nada» / «No se pudo importar» | Ídem, al guardar | `ui/VaultEntryScreen.kt:470`, `:482` | El bloqueo / nada | Se dejan: el bloqueo está aceptado; el segundo no tiene causa |
+| «La clave secreta no es válida (Base32: …, al menos 16)» | El formulario de un 2FA | `ui/VaultEntryScreen.kt:509` | — | Se deja: ya dice qué hace falta |
+| «No se pudo abrir el escáner: pega el enlace otpauth:// o escribe la clave» | Ídem | `ui/VaultEntryScreen.kt:701` | — | Se deja: ya dice qué hacer |
+| «No hay códigos nuevos que importar.» / «No se importan (N):» | Ídem | `ui/VaultEntryScreen.kt:768`, `:774` | — | Se dejan: son informativos, no fallos |
+| `SETTING_SAVE_FAILED` «No se pudo guardar el ajuste» | Ajustes y «Aspecto» | `ui/SettingsScreen.kt:167` | Nada | Se deja: sin causa conocida no hay un qué hacer veraz |
+| «No se pudo obtener permiso para usar esa carpeta. Elige otra.» | Elegir la carpeta de las copias | `ui/SettingsScreen.kt:331` | — | Se deja: ya dice qué hacer |
+| `SAVE_LOCKED`, `HISTORY_ALL_LOCKED` | El editor; borrar todo el historial | `v/TrashTexts.kt:146`, `:120` | El bloqueo | Se dejan: bloqueo, aceptado |
+| `ENTRY_IN_TRASH` | El editor de una entrada que está en la papelera | `v/TrashTexts.kt:143` | — | Se deja: ya dice qué hacer |
+| `HISTORY_RESTORE_REFUSED` «Esta versión no se puede restaurar.» | Restaurar una versión que ya no está, igual a la entrada o de un tipo que no cabe | `v/TrashTexts.kt:140` | Tres casos, un solo texto | Se deja: ninguna acción es verdad en los tres |
+| `TRASH_RESTORE_NONE` | Restaurar una identidad con otra en la bóveda | `v/TrashTexts.kt:30` | — | Se deja: es de Contactos, y ya dice por qué |
+| `EXPIRY_BAD_DATE`; la fecha de un campo | El formulario | `v/EntryForm.kt:43`, `:37` | — | Se dejan: ya dicen qué hacer |
+| `BACKUP_ENTRY_TOO_BIG_V3` | Leer una copia con la marca 3 | `v/Backup.kt:85` | El tope | Se deja, como los demás topes de lectura |
+| «Id de adjunto no válido» | `require` de `writeBackup`: error de programa, nunca de datos | `v/Backup.kt:147` | — | Se deja: no lo ve el usuario (y si lo viera, sería como texto de `IllegalArgumentException`) |
+| «El adjunto «X» falta o está dañado: quítalo de su entrada para poder hacer la copia» | Exportar | `v/VaultStore.kt:1694` | — | Se deja: ya dice qué hacer |
+| «La copia está incompleta o dañada: falta o no coincide el adjunto «X»» | Importar una copia | `v/BackupCheck.kt:183` | Dos casos | Se deja: no lo distingue, y otra copia no tiene por qué arreglarlo |
+| Los problemas de «Comprobar una copia» («Falta N adjunto…», «N adjuntos no coinciden…») | El informe de la comprobación | `v/BackupCheckTexts.kt:55-62` | — | Se dejan: son la lista del informe, debajo de `BACKUP_CHECK_HAS_PROBLEMS` |
+| «Ya la tenían (o no caben más de 10 etiquetas).» | Etiquetar en la selección | `v/ListTexts.kt:43` | Dos casos | Se deja: es un resultado, no un error |
+| `IMPORT_KDF_BUSY` | Importar con contraseña mientras corre otra | `i/ImportTexts.kt:258` | — | Se deja: ya dice qué hacer |
+| `importTooBigText` | Importar algo que no cabe en una copia | `i/ImportTexts.kt:363` | Lo que sobra | Se deja: tiene al lado «Elegir otro archivo» |
+| Las razones de `SkipReason` («Un campo pasa del tamaño máximo», «Fila o elemento dañado»…) | Las líneas de «No entran» | `i/ImportModel.kt:40-54` | — | Se dejan: dicen por qué no entra cada elemento; no son fallos de la acción |
+| `UPGRADE_SAVE_FAILED` | El diálogo del paso a v4 | `ui/VaultUpgrade.kt:47` | — | Se deja: O-3, y ya dice qué hacer |
+| «El texto cifrado está incompleto o dañado», `NOT_COMPATIBLE` | «Cifrar texto» | `c/Crypto.kt:609`, `:518` | — | Fuera de alcance (herramienta) |
+| Contactos: `masterFailureMessage` y los textos de `ContactsView.kt`, `Contacts.kt` y `PkActions.kt` | Contactos | `v/ContactsView.kt` | — | Fuera de alcance. `masterFailureMessage` tapa también `KDF_OUT_OF_MEMORY`, como I-2: fila 43 de `pendientes.md` |
