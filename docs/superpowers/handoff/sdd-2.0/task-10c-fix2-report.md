@@ -15,7 +15,7 @@ No se tocan formatos, permisos, dependencias, red ni registros. Los textos de A6
 | `753ec1e` | **n-1**: `checkSane` separa «fuera de límites» de «sin memoria» |
 | `ffceacc` | **n-2** (KDoc y tests de «sin memoria» al derivar y al volver a envolver) y **n-5** (Contactos usa `masterUnlockErrorText`; «Contraseña incorrecta» sale de un solo sitio) |
 | `36c4523` | **n-3, n-6 y n-7** en el inventario, con el método por los sitios que enseñan errores; filas 38, 42 y 44 |
-| (final) | «2.0, tarea 10 (fase C): ronda 2 de arreglos», con el inventario y este informe copiados a `docs/superpowers/handoff/sdd-2.0/` |
+| `192d7b7` | «2.0, tarea 10 (fase C): ronda 2 de arreglos», con el inventario y este informe copiados a `docs/superpowers/handoff/sdd-2.0/` |
 
 ## n-1: las comprobaciones de antes de cambiar
 
