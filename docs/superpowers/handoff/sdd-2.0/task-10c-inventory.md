@@ -206,3 +206,56 @@ Sobre el árbol de la ronda 1 da **180 coincidencias** en 30 archivos. Cada una 
 | `UPGRADE_SAVE_FAILED` | El diálogo del paso a v4 | `ui/VaultUpgrade.kt:47` | — | Se deja: O-3, y ya dice qué hacer |
 | «El texto cifrado está incompleto o dañado», `NOT_COMPATIBLE` | «Cifrar texto» | `c/Crypto.kt:609`, `:518` | — | Fuera de alcance (herramienta) |
 | Contactos: `masterFailureMessage` y los textos de `ContactsView.kt`, `Contacts.kt` y `PkActions.kt` | Contactos | `v/ContactsView.kt` | — | Fuera de alcance. `masterFailureMessage` tapa también `KDF_OUT_OF_MEMORY`, como I-2: fila 43 de `pendientes.md` |
+
+---
+
+# Ronda 2 del inventario (`task-10c-rereview-1.md` y «Ruling (advisor, T10 fase C, ronda 2)»)
+
+## El método: por dónde se enseñan los errores, no por sus palabras
+
+Se lanza desde `app/src/main/java/app/seguridad`. Lo que da, lo guardé en `sites.txt`: **281 sitios**.
+
+```bash
+UI=ui/screens/{VaultScreen,VaultBackup,VaultAttachments,VaultEntryScreen,VaultPickerScreen,BackupCheckScreen,ImportScreen,SettingsScreen,TrashScreen,EntryHistoryScreen,VaultOrganize,VaultUpgrade,HealthScreen}.kt
+grep -rnE "ErrorText\(" $UI                                                          # 1. cada ErrorText(
+grep -rnE "\b(error|message|failed|session\.error|form\.error\.value)\s*=\s*[^=]" $UI  # 2. cada estado de error que se pone
+grep -rnE "showSnackbar\(|onError\(|onMessage\(" $UI android/BiometricVault.kt        # 3. cada resultado de fallo que se enseña
+grep -rnE "throw (CryptoFailure|AttachmentLimit|VaultLimitExceeded|OrganizeRefused|ImportFailure|VaultsRefused|MasterRequired|IllegalStateException)\(|CopyResult\.Failed\(|ImportFailure\(|Failed\(StrongBoxFailure" \
+  vault imports core crypto/Crypto.kt android/BiometricVault.kt AppContainer.kt       # 4. cada throw y cada resultado de fallo del alcance
+```
+
+Cada sitio se sigue hasta su cadena: un literal, una constante o el `e.message` de lo que se lanzó.
+
+Para cruzar, un script lista los literales y las constantes de esos 281 sitios que no aparecen en este inventario. Se sigue usando el patrón de frases de la ronda 1, ampliado con lo que añadió el revisor («más de», «como mucho», «no coincide», «Has cambiado», «no tiene», «no permite») y con `core/`.
+
+Lo que salió del cruce: constantes de límites y de formato (números, no textos), textos de Contactos y de «Cifrar texto» (fuera de alcance) y las filas de abajo.
+
+## Filas corregidas en la ronda 2
+
+- **`KDF_PARAMS_INVALID`** (n-1): ahora `checkSane` separa sus dos condiciones (`crypto/Crypto.kt:73-76`):
+  - fuera de los límites, que se mira primero, sigue dando `KDF_PARAMS_INVALID`;
+  - dentro de los límites pero sin *heap* suficiente da `KDF_OUT_OF_MEMORY`. Antes esto daba «Parámetros de cifrado no válidos».
+- **`KDF_OUT_OF_MEMORY`** (n-2). La frase de la ronda 1, «sale antes de probar la clave», no es del todo verdad. También puede salir después de una maestra buena, al volver a envolver la clave con el coste de Ajustes (`afterMasterUnlock`, `vault/Vault.kt:512`). Entonces el archivo queda igual, la bóveda bloqueada, y el siguiente intento abre (`UnlockErrorTextTest.noMemoryWhenWrappingAgainLeavesTheFileAsItWas`). En la pantalla de bloqueo sale tal cual.
+- **Contactos, `masterFailureMessage`** (n-5): ahora usa `masterUnlockErrorText`. La fila 43 de `pendientes.md` queda cerrada.
+
+## Filas nuevas de la ronda 2 (cada una juzgada sola)
+
+| Texto actual | Cuándo sale | `archivo:línea` | Qué distingue el código | Propuesta |
+|---|---|---|---|---|
+| «No se pudo activar la huella» | Activar la huella: crear la clave, `doFinal` o el diálogo, después del reintento sin StrongBox | `android/BiometricVault.kt:406`, `:431`, `:449`, `:464`, `:490` | La causa técnica, ya reintentada | Se deja: el reintento con la otra zona ya lo hizo el código, y no hay un qué hacer veraz. La bóveda sigue abriéndose con la maestra |
+| «Este móvil no permite guardar la clave con huella» | Activar, cuando el Keystore no crea la clave | `android/BiometricVault.kt:457` | El Keystore | Se deja: no hay nada que hacer en ese móvil, y lo que pasó está dicho |
+| «Has cambiado las huellas del móvil: entra con la contraseña maestra y vuelve a activarla» | Desbloquear con una clave invalidada | `android/BiometricVault.kt:629` | `KeyPermanentlyInvalidatedException` | Se deja: ya dice qué hacer |
+| `FINGERPRINT_NOT_RESPONDING` | Desbloquear, cuando falla StrongBox | `android/BiometricVault.kt:615`; `tools/ToolTexts.kt:497` | Fallo de StrongBox | Se deja: ya dice qué hacer |
+| El texto de error del **sistema** en el diálogo de la huella (n-7) | Desbloquear: bloqueo por intentos, tiempo agotado, sensor | `android/BiometricVault.kt:641` (`PromptAnswer.Error.message`, que viene de `BiometricPrompt`) | Lo que dice Android | Se deja: es del sistema, en el idioma del móvil, y la app no lo escribe. Añadirle una línea sería tocar el código que monta el mensaje, no una cadena. El campo de la maestra está debajo |
+| `NO_FILE_PICKER` «Este móvil no tiene ninguna app para elegir o guardar archivos.» / `PICKER_FAILED` «No se pudo abrir el selector de archivos.» | Cualquier selector: copias, importar, adjuntos y las herramientas | `core/PickerLaunch.kt:4`, `:7` | Que no hay app / que falló al lanzarla | Se dejan: se comparten con las herramientas. El primero dice lo que pasa; el segundo no tiene causa |
+| «No coinciden» | Repetir la maestra al crear la bóveda, al cambiarla y al crear otra bóveda | `ui/VaultScreen.kt:368`; `ui/VaultBackup.kt:254`; `ui/VaultPickerScreen.kt:426` | Que las dos no son iguales | Se deja: es un aviso en vivo junto al campo «Repítela», y el flujo `borra-datos/p19-crear-boveda-maestra-nueva.yaml` lo busca palabra por palabra (líneas 110 y 131), y ese flujo no se toca en esta fase |
+| ««X»: es HOTP (por contador), que esta app no admite» / ««X»: tipo de código desconocido» / ««X»: la clave es demasiado corta…» | Las cuentas que no entran al importar los códigos de Google Authenticator | `crypto/OtpMigration.kt:190-192` | El motivo de cada cuenta | Se dejan: son la lista de lo que no entra, como `SkipReason`, no un fallo de la acción |
+| Borrar una bóveda con la maestra equivocada: el texto por defecto de `CryptoFailure` | «Bóvedas» → borrar | `AppContainer.kt:688-690` (`unlock` o `confirmMaster`) → `:763` (`e.message ?: CryptoFailure().message`) | AES-GCM: contraseña o datos | Se deja: «Contraseña incorrecta o datos dañados» no nombra una causa que no distinga, y la misma rama enseña los fallos de «Importar como bóveda nueva». Separarlos pide código: fila 42 |
+| «A vault already exists» | `create` sobre una bóveda que se puede leer | `vault/VaultStore.kt:538` | — | Se deja: no lo ve el usuario. La pantalla pone su propio texto («No se pudo crear la bóveda. Inténtalo de nuevo.», `newPasswordFailureMessage`) |
+| «Sin permiso de cámara: pega el enlace otpauth:// o escribe la clave» | El formulario de un 2FA | `ui/VaultEntryScreen.kt:644` | — | Se deja: ya dice qué hacer |
+| «El portapapeles está vacío» | Pegar en el formulario de un 2FA | `ui/VaultEntryScreen.kt:706` | — | Se deja: informativo; el qué hacer es evidente |
+| `TOTP_UNSUPPORTED_LINK` | El formulario de un 2FA | `ui/VaultEntryScreen.kt:421` | CRY-B02 | Se deja: fijado por CRY-B02 (1.3.1), y dice por qué |
+| `SETTINGS_NEED_OPEN_VAULT` | Ajustes con la bóveda bloqueada | `ui/SettingsScreen.kt:310` y siguientes | — | Se deja: ya dice qué hacer |
+| «Aún no tienes bóveda: no hay nada que copiar.» | «Hacer una copia ahora» sin bóveda | `ui/SettingsScreen.kt:443` | — | Se deja: dice lo que pasa; crear la bóveda está en su pestaña |
+| `AUTO_BACKUP_REPLACE_DROPPED`, `AUTO_BACKUP_REMOVED` | Quitar una carpeta | `ui/SettingsScreen.kt:460` | — | Se dejan: A6 y la fase anterior |
+| La línea de error de la pantalla de bloqueo (n-6) | — | `ui/VaultScreen.kt:478` | — | No es una región viva: lo decía mal el informe de la ronda 1. Va a la fila 44 de `pendientes.md` (TalkBack en el móvil), sin tocar el código |
