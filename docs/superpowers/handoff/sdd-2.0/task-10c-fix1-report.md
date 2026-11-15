@@ -19,6 +19,7 @@ No cambia nada de formatos, permisos, dependencias, red ni registros. Los textos
 ## I-2: las cuatro comprobaciones de antes
 
 **(1) Los dos errores salen antes de probar la clave, así que no revelan nada de la contraseña.**
+(Corregido en la ronda 2, n-2: `KDF_PARAMS_INVALID` sale antes de probar la clave, pero `KDF_OUT_OF_MEMORY` también puede salir al volver a envolver la clave después de una maestra buena, `afterMasterUnlock`; ver `task-10c-fix2-report.md`.)
 - **`KDF_PARAMS_INVALID`:** sale de `checkSane` (`crypto/Crypto.kt:73`). Se llama en `VaultCrypto.unlock` antes de leer la sal y de derivar (`vault/Vault.kt`, `val kdf = file.kdf.params().also { it.checkSane(heapKiB) }`), y otra vez al principio de `argon2id` (`Crypto.kt:231`). Solo depende del encabezado y del *heap*, nunca de la contraseña.
 - **`KDF_OUT_OF_MEMORY`:** sale de `outOfMemoryAsFailure`, alrededor de `Argon2BytesGenerator().init(params).generateBytes` (`Crypto.kt:243`). La memoria que se pide depende solo de los parámetros, no del valor de la contraseña, así que la misma contraseña, buena o mala, da el mismo resultado. Además va antes de abrir la clave envuelta (`openAny`).
 
@@ -95,6 +96,7 @@ Ninguno está en `.maestro/`, en el README ni en el anexo de la 1.3.0. `ToolText
 
 - **I-2, el riesgo que se quita.** Con la maestra buena, una bóveda «Alto» en un móvil sin memoria decía «Contraseña incorrecta», y el usuario podía pulsar «He olvidado la contraseña maestra» y borrarla. Ahora dice lo que pasa (`ui/screens/VaultScreen.kt:454`).
 - **Los textos nuevos no filtran nada.** Los dos salen antes de probar la clave y no dependen de la contraseña (respuesta 1). «Contraseña incorrecta» sigue tapando, deliberadamente, la diferencia entre una contraseña equivocada y una clave envuelta dañada (`Crypto.kt:197-198`).
+  (Corregido en la ronda 2, n-2: `KDF_PARAMS_INVALID` sale antes de probar la clave, pero `KDF_OUT_OF_MEMORY` también puede salir al volver a envolver la clave después de una maestra buena, `afterMasterUnlock`; ver `task-10c-fix2-report.md`.)
 - **Lista cerrada.** `masterUnlockErrorText` nunca enseña el mensaje de una excepción cualquiera (LIBRE-4), cosa que prueba `whatTheStoreTellsApartIsSaid` con un mensaje inventado (`vault/Vault.kt:290`).
 - **La huella.** Los textos dicen qué hacer y no cambian cuándo se apaga la huella: eso sigue siendo solo `StaleBiometricKey` (CRY-A02). Activar la huella no cambia (`android/BiometricVault.kt:472`).
 - **Nada más se toca:** ni formatos, ni la AAD, ni los parámetros, ni la red.
@@ -102,6 +104,7 @@ Ninguno está en `.maestro/`, en el README ni en el anexo de la 1.3.0. `ToolText
 ## Revisión Ingeniero Móvil Senior
 
 - **La pantalla de bloqueo** sigue pintando el error en la misma línea (`error`), con `liveRegion` como antes. Solo cambia la función que elige el texto.
+  (Corregido en la ronda 2, n-6: la línea de error de `UnlockVault` no es región viva, `VaultScreen.kt:478`; va a la fila 44 de `pendientes.md`.)
 - **`BiometricVault`.** Las constantes viven en `vault/` (Kotlin puro), así que se prueban en las dos suites. El archivo Android solo las importa.
 - **Limpieza.** La constante privada repetida `WRONG_MASTER` de `ContactsView.kt` se quita, y se usa la pública (`vault/Vault.kt:280`), con el mismo valor.
 

@@ -110,6 +110,7 @@ Son errores de las herramientas, y quedan apuntados aquí sin tocar:
 - `crypto/Totp.kt`;
 - `NOT_COMPATIBLE` (`c/Crypto.kt:512`), de «Cifrar texto»;
 - los de `tools/*`: generador, hashes, clásico, SLIP-0039, foto, tachar, QR, PIN y códigos.
+- «Salud» (`ui/screens/HealthScreen.kt:229`, «No se pudo completar la comprobación (… de …). Revisa la conexión.»): es la comprobación de filtraciones en red, no un error de la bóveda, las copias ni la importación (r-3 de la re-revisión 2).
 
 ## Resumen de la propuesta
 
@@ -135,11 +136,11 @@ Además, a mano:
 - cada `throw CryptoFailure(` y `throw AttachmentLimit(`;
 - cada `catch (e: CryptoFailure)` de `ui/screens/`, `AppContainer.kt`, `vault/BackupCheckSession.kt` y `vault/VaultStore.kt`, para ver qué texto enseña.
 
-Sobre el árbol de la ronda 1 da **180 coincidencias** en 30 archivos. Cada una está en una fila: las de la versión 1 del inventario o las de abajo. Las de `crypto/pk`, `vault/Contacts*.kt` y `vault/PkActions.kt` son de Contactos y quedan fuera de alcance, igual que en la sección 4.
+Sobre el árbol de la ronda 1 da **180 coincidencias** en 30 archivos. Cada una está en una fila: las de la versión 1 del inventario o las de abajo. (Superado en la ronda 2, n-3: el método bueno enumera por los sitios que enseñan errores; ver más abajo.) Las de `crypto/pk`, `vault/Contacts*.kt` y `vault/PkActions.kt` son de Contactos y quedan fuera de alcance, igual que en la sección 4.
 
 ## Filas corregidas
 
-- **I-2, «Contraseña incorrecta»** (`ui/VaultScreen.kt`). El almacén distingue, antes de probar la clave, tres casos que ahora la pantalla dice tal cual: `NOT_A_VAULT`, `KDF_OUT_OF_MEMORY` y `KDF_PARAMS_INVALID`. Solo los demás son AES-GCM, que no separa una contraseña equivocada de una clave envuelta dañada. Se arregló con código, en su propio commit (`masterUnlockErrorText`, `vault/Vault.kt`). «Contraseña incorrecta» conserva sus palabras (1.3.1).
+- **I-2, «Contraseña incorrecta»** (`ui/VaultScreen.kt`). El almacén distingue (ronda 2, n-2: `KDF_OUT_OF_MEMORY` también puede salir al volver a envolver tras una maestra buena) tres casos que ahora la pantalla dice tal cual: `NOT_A_VAULT`, `KDF_OUT_OF_MEMORY` y `KDF_PARAMS_INVALID`. Solo los demás son AES-GCM, que no separa una contraseña equivocada de una clave envuelta dañada. Se arregló con código, en su propio commit (`masterUnlockErrorText`, `vault/Vault.kt`). «Contraseña incorrecta» conserva sus palabras (1.3.1).
 - **I-2, `KDF_OUT_OF_MEMORY`.** Antes de la ronda 1 no llegaba a la pantalla de bloqueo: lo tapaba «Contraseña incorrecta». Ahora sale tal cual. No nombra ninguna acción.
 - **m-1, `IMPORT_COPY_*`.** No son datos: son `CopyResult.Failed`, solo en memoria (`v/AutoBackup.kt:758-788`). Fila por fila:
   - `IMPORT_COPY_NO_PERMISSION` y `IMPORT_COPY_NO_FOLDER` ya dicen qué hacer (elegir la carpeta otra vez);
