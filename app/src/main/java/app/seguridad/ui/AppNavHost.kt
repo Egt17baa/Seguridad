@@ -265,7 +265,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     val requestKept = guideRequestKept(onTab, phase)
     LaunchedEffect(requestKept, guideRequested) { if (guideRequested != null && !requestKept) container.guide.forgetRequest() }
     // 2.0, task 10 (phase B): one thing at a time, in the order openingItem gives («Antes de empezar» is before all of
-    // this, in AppNavHost; the upgrade's choice is drawn by VaultGate, and nothing else here while it waits).
+    // this, in AppNavHost; the upgrade's choice and its line are drawn here too, below, and nothing else while they wait).
     val showing = openingItem(
         OpeningState(
             noticeAccepted = true,

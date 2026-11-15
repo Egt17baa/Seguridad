@@ -77,11 +77,12 @@ class OpeningTest {
     @Test fun theScreenDrawsWhatItPicks() {
         val main = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
             .map { java.io.File(it, "app/src/main/java/app/seguridad/ui/AppNavHost.kt") }.first { it.isFile }.readText()
-        for (item in OpeningItem.entries - setOf(OpeningItem.NOTICE, OpeningItem.UPGRADE, OpeningItem.UPGRADE_DONE)) {
+        // Ronda 2 (n-1): every item but «Antes de empezar», the upgrade's two included (ronda 1, I-1).
+        for (item in OpeningItem.entries - OpeningItem.NOTICE) {
             assertTrue(item.name, "showing == OpeningItem.${item.name}" in main)
         }
         assertTrue("openingItem(" in main)
-        // «Antes de empezar» returns before any of them; the upgrade's choice is VaultGate's.
+        // «Antes de empezar» returns before any of them, in AppNavHost.
         assertTrue(main.indexOf("NoticeScreen(") < main.indexOf("openingItem("))
     }
 
