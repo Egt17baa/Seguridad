@@ -70,7 +70,10 @@ data class KdfParams(val memoryKiB: Int = DEFAULT_KDF_MEMORY_KIB, val iterations
         // before any work. Inside this bound an OutOfMemoryError is still possible and [argon2id] turns it into a
         // CryptoFailure. The default is always accepted, or a phone with a small heap could not open its own data.
         val cannotFit = memoryKiB > DEFAULT_KDF_MEMORY_KIB && memoryKiB > heapKiB * 3 / 4
-        if (outOfBounds || cannotFit) throw CryptoFailure(KDF_PARAMS_INVALID)
+        // 2.0, task 10, phase C, ronda 2 (n-1): two answers. Out of bounds first (a header no Clavero writes): the
+        // parameters are not valid. Within bounds but more than this phone can give: it has no memory for them.
+        if (outOfBounds) throw CryptoFailure(KDF_PARAMS_INVALID)
+        if (cannotFit) throw CryptoFailure(KDF_OUT_OF_MEMORY)
     }
 }
 
@@ -78,8 +81,8 @@ data class KdfParams(val memoryKiB: Int = DEFAULT_KDF_MEMORY_KIB, val iterations
 fun appHeapKiB(): Long = Runtime.getRuntime().maxMemory() / 1024
 
 /**
- * What [KdfParams.checkSane] throws: a header that asks for Argon2id parameters out of bounds, or more memory than this
- * phone can give (2.0, task 10, phase C, ronda 1: a constant, with the same value it always had).
+ * What [KdfParams.checkSane] throws for a header that asks for Argon2id parameters out of bounds (2.0, task 10, phase C:
+ * a constant, with the same value it always had; ronda 2: more memory than this phone can give is [KDF_OUT_OF_MEMORY]).
  */
 const val KDF_PARAMS_INVALID = "Parámetros de cifrado no válidos"
 

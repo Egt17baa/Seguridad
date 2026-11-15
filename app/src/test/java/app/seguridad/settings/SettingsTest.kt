@@ -338,9 +338,22 @@ class SettingsTest {
 
     @Test fun highIsRefusedWhenTheHeapPlainlyCannotHoldIt() {
         // 128 MiB per app (Android Go): Argon2 alone would take the whole heap.
-        assertRefused { KdfProfile.HIGH.params.checkSane(128L * 1024) }
+        // 2.0, task 10, phase C, ronda 2 (n-1): the parameters are valid, this phone cannot run them: «sin memoria».
+        assertRefused(KDF_OUT_OF_MEMORY) { KdfProfile.HIGH.params.checkSane(128L * 1024) }
         val token = encryptText("x", "pw".toCharArray(), kdf = KdfProfile.HIGH.params)
-        assertRefused { decryptText(token, Secret.Password("pw".toCharArray()), heapKiB = 128L * 1024) }
+        assertRefused(KDF_OUT_OF_MEMORY) { decryptText(token, Secret.Password("pw".toCharArray()), heapKiB = 128L * 1024) }
+    }
+
+    /**
+     * Ronda 2 (n-1): checkSane tells its two conditions apart. Out of bounds (any heap) is «Parámetros de cifrado no
+     * válidos», looked at first; within bounds but more than this phone can give is [KDF_OUT_OF_MEMORY]; both at once,
+     * out of bounds.
+     */
+    @Test fun checkSaneTellsBoundsFromMemory() {
+        assertRefused(KDF_OUT_OF_MEMORY) { KdfParams(128 * 1024, 4, 1).checkSane(heapKiB = 128L * 1024) }
+        assertRefused(app.seguridad.crypto.KDF_PARAMS_INVALID) { KdfParams(MAX_KDF_MEMORY_KIB + 1, 3, 1).checkSane(heapKiB = 8L * 1024 * 1024) }
+        assertRefused(app.seguridad.crypto.KDF_PARAMS_INVALID) { KdfParams(MAX_KDF_MEMORY_KIB * 2, 3, 1).checkSane(heapKiB = 1024) }
+        assertRefused(app.seguridad.crypto.KDF_PARAMS_INVALID) { KdfParams(96 * 1024, 11, 1).checkSane(heapKiB = 1024) }
     }
 
     @Test fun moreThanTheMaximumIsRefusedWhateverTheHeap() {
@@ -359,12 +372,12 @@ class SettingsTest {
         assertEquals(7, outOfMemoryAsFailure { 7 })
     }
 
-    private fun assertRefused(block: () -> Unit) {
+    private fun assertRefused(message: String = "Parámetros de cifrado no válidos", block: () -> Unit) {
         try {
             block()
             fail()
         } catch (e: CryptoFailure) {
-            assertEquals("Parámetros de cifrado no válidos", e.message)
+            assertEquals(message, e.message)
         }
     }
 
