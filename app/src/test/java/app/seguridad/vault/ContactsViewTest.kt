@@ -577,6 +577,10 @@ class ContactsViewTest {
 
     @Test fun laContrasenaMaestraMalaDiceLoMismoQueLaPantallaDeDesbloqueo() {
         assertEquals("Contraseña incorrecta", masterFailureMessage(CryptoFailure("lo que sea")))
+        // 2.0, task 10, phase C, ronda 2 (n-5): what the store tells apart is said, as at the gate (masterUnlockErrorText).
+        assertEquals(app.seguridad.crypto.KDF_OUT_OF_MEMORY, masterFailureMessage(CryptoFailure(app.seguridad.crypto.KDF_OUT_OF_MEMORY)))
+        assertEquals(app.seguridad.crypto.KDF_PARAMS_INVALID, masterFailureMessage(CryptoFailure(app.seguridad.crypto.KDF_PARAMS_INVALID)))
+        assertEquals(NOT_A_VAULT, masterFailureMessage(CryptoFailure(NOT_A_VAULT)))
         assertEquals("No se pudo abrir la bóveda", masterFailureMessage(java.io.IOException("x")))
         assertEquals("La bóveda está cerrada", VAULT_CLOSED)
     }

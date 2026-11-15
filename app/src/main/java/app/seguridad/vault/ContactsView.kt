@@ -438,8 +438,11 @@ fun renamedContact(entry: VaultEntry, name: String, now: Long): VaultEntry {
 /** El mensaje de una tarjeta que no se pudo leer: el de la [CryptoFailure] (ya en español) o uno genérico. */
 fun cardReadErrorMessage(e: Throwable): String = (e as? CryptoFailure)?.message?.takeIf { it.isNotBlank() } ?: UNKNOWN_CARD
 
-/** Lo mismo que dice la pantalla de desbloqueo cuando falla la contraseña maestra. */
-fun masterFailureMessage(e: Throwable): String = if (e is CryptoFailure) WRONG_MASTER else NOT_OPENED
+/**
+ * Lo mismo que dice la pantalla de desbloqueo cuando falla la contraseña maestra ([masterUnlockErrorText]: lo que el
+ * almacén distingue, tal cual; lo demás, «Contraseña incorrecta»), y un texto genérico para cualquier otro fallo.
+ */
+fun masterFailureMessage(e: Throwable): String = if (e is CryptoFailure) masterUnlockErrorText(e) else NOT_OPENED
 
 /**
  * Qué decir de lo que devolvió `upsert` o `delete` (true si guardó; false si la bóveda estaba bloqueada), o `null` si todo fue bien.

@@ -60,4 +60,58 @@ class UnlockErrorTextTest {
         f.writeText(f.readText().replace(Regex("\"memoryKiB\":\\d+"), "\"memoryKiB\":999999999"))
         assertEquals(KDF_PARAMS_INVALID, masterUnlockErrorText(failureOf("maestra-de-prueba-buena")))
     }
+
+    /**
+     * Ronda 2 (n-2), first case: the derivation itself cannot run here (a cost of 96 MiB on a phone whose heap cannot give
+     * it, injected): [KDF_OUT_OF_MEMORY], said as it is.
+     */
+    @Test fun aDerivationWithoutMemoryIsSaid() = runTest {
+        val (file, _) = VaultCrypto.create("maestra-de-prueba-buena".toCharArray(), 0, KdfParams(96 * 1024, 1, 1))
+        try {
+            VaultCrypto.unlock(file, "maestra-de-prueba-buena".toCharArray(), heapKiB = 96L * 1024)
+            fail("It opened")
+        } catch (e: CryptoFailure) {
+            assertEquals(KDF_OUT_OF_MEMORY, masterUnlockErrorText(e))
+        }
+    }
+
+    /**
+     * Ronda 2 (n-2), second case: the master password is right, and wrapping the key again at the cost chosen in Ajustes
+     * (afterMasterUnlock) has no memory (the cost injected to fail once). It says so, the file is as it was byte for byte,
+     * the vault stays locked, and the next try opens.
+     */
+    @Test fun noMemoryWhenWrappingAgainLeavesTheFileAsItWas() = runTest {
+        var failOnce = false
+        val s = VaultStore(
+            File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined,
+            kdf = { if (failOnce) { failOnce = false; throw CryptoFailure(KDF_OUT_OF_MEMORY) } else KdfParams(1024, 1, 1) },
+        )
+        s.load()
+        s.create("maestra-de-prueba-buena".toCharArray())
+        s.lock()
+        val before = File(tmp.root, "vault.bin").readBytes()
+        failOnce = true
+        try {
+            s.unlock("maestra-de-prueba-buena".toCharArray())
+            fail("It opened")
+        } catch (e: CryptoFailure) {
+            assertEquals(KDF_OUT_OF_MEMORY, masterUnlockErrorText(e))
+        }
+        org.junit.Assert.assertArrayEquals(before, File(tmp.root, "vault.bin").readBytes())
+        assertEquals(VaultState.Locked, s.state.value)
+        s.unlock("maestra-de-prueba-buena".toCharArray())
+        org.junit.Assert.assertTrue(s.state.value is VaultState.Unlocked)
+    }
+
+    /**
+     * Ronda 2 (n-5): «Contraseña incorrecta» of a check of the master password comes from one place ([WRONG_MASTER],
+     * through [masterUnlockErrorText]): no screen writes the words on its own.
+     */
+    @Test fun theWordsComeFromOnePlace() {
+        val main = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad") }.first { it.isDirectory }
+        val found = main.walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .flatMap { f -> f.readLines().withIndex().filter { "\"Contraseña incorrecta\"" in it.value }.map { "${f.name}:${it.index + 1}" } }.toList()
+        assertEquals(listOf("Vault.kt"), found.map { it.substringBefore(":") })
+    }
 }
