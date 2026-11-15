@@ -15,8 +15,8 @@ class ErrorTextsTest {
         BIOMETRIC_UNLOCK_FAILED to ("No se pudo abrir la bóveda con la huella" to "Escribe la contraseña maestra."),
         ATTACHMENT_TOO_BIG to ("El adjunto pasa de 5 MB" to "Elige un archivo más pequeño."),
         BACKUP_DAMAGED to ("La copia está dañada o no es una copia de Clavero" to "Elige otra copia."),
-        // BACKUP_NEWER keeps its words (design §Formato v4, the reader of 1.4.3): a line is added after them.
-        BACKUP_NEWER to ("La copia es de una versión más nueva de Clavero" to "Actualiza Clavero para abrirla."),
+        // BACKUP_NEWER keeps its first sentence, to say the same as 1.4.3 does (with its own copy of it); ronda 1 (m-2).
+        BACKUP_NEWER to ("La copia es de una versión más nueva de Clavero" to "Actualiza Clavero."),
         COPY_DAMAGED to ("La copia está dañada: no se puede importar" to "Elige otra copia."),
         IMPORT_TOO_BIG to ("El archivo pasa de 40 MB: no es una copia de la bóveda" to "Elige una copia .sgbak de Clavero."),
     )

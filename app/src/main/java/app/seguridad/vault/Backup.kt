@@ -77,9 +77,9 @@ private val ATTACHMENT_ENTRY = Regex("att/([0-9a-f]{32})\\.bin")
 private val ATTACHMENT_ID = Regex("[0-9a-f]{32}")
 
 internal const val BACKUP_DAMAGED = "La copia está dañada o no es una copia de Clavero. Elige otra copia."
-// 2.0, task 10 (phase C): its words stay (design §Formato v4: 1.4.3 says them for a copy with the new marker); the line
-// of what to do is added after them.
-internal const val BACKUP_NEWER = "La copia es de una versión más nueva de Clavero. Actualiza Clavero para abrirla."
+// 2.0, task 10 (phase C): its first sentence stays as it was, to say the same as 1.4.3 (whose own copy of it, in its APK,
+// is what it shows for a copy with the new marker); ronda 1 (m-2): what to do after it, with no promise («para abrirla»).
+internal const val BACKUP_NEWER = "La copia es de una versión más nueva de Clavero. Actualiza Clavero."
 internal const val BACKUP_TOO_BIG = "La copia pasa de 100 MB"
 internal const val BACKUP_ENTRY_TOO_BIG = "Un archivo de la copia pasa de 6 MB"
 internal const val BACKUP_ENTRY_TOO_BIG_V3 = "Un archivo de la copia pasa de 33 MB"
