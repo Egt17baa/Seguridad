@@ -70,6 +70,15 @@ const val CLOCK_CHANGED_TEXT = "La hora del móvil se ha atrasado. Por seguridad
 /** Shown when a fingerprint unlock fails for a reason the store has no text of its own for (LIBRE-4). */
 const val BIOMETRIC_UNLOCK_FAILED = "No se pudo abrir la bóveda con la huella. Escribe la contraseña maestra."
 
+/*
+ * 2.0, task 10, phase C, ronda 1 (I-1.3): the fingerprint's own failures when unlocking (BiometricVault.unlock, only
+ * called from the gate, next to the master password's field), with what to do, as [BIOMETRIC_UNLOCK_FAILED]. Enabling
+ * the fingerprint keeps its own words.
+ */
+const val FINGERPRINT_UNLOCK_UNUSABLE = "No se pudo usar la huella. Escribe la contraseña maestra."
+const val FINGERPRINT_UNLOCK_FAILED = "No se pudo desbloquear con la huella. Escribe la contraseña maestra."
+const val FINGERPRINT_UNLOCK_NOT_ENABLED = "La huella no está activada. Escribe la contraseña maestra."
+
 /**
  * Shown when the fingerprint released a key that does not authenticate this vault's entries: the blob it guards is
  * another vault's (the master password was changed or a copy imported, and turning the fingerprint off then failed or

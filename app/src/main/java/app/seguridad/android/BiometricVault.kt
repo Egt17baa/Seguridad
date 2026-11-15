@@ -19,6 +19,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import app.seguridad.core.Notice
 import app.seguridad.tools.FINGERPRINT_ENABLE_INTERRUPTED
 import app.seguridad.tools.FINGERPRINT_NOT_RESPONDING
+import app.seguridad.vault.FINGERPRINT_UNLOCK_FAILED
+import app.seguridad.vault.FINGERPRINT_UNLOCK_NOT_ENABLED
+import app.seguridad.vault.FINGERPRINT_UNLOCK_UNUSABLE
 import app.seguridad.tools.KeyLevel
 import app.seguridad.tools.KeyOp
 import app.seguridad.tools.KeyOpsQueue
@@ -554,7 +557,7 @@ object BiometricVault {
             } catch (e: CancellationException) {
                 // The activity went away: nothing to say (a key already released is still handed over, below).
             } catch (e: Exception) {
-                if (key == null && message == null) message = "No se pudo usar la huella"
+                if (key == null && message == null) message = FINGERPRINT_UNLOCK_UNUSABLE
             } catch (e: Throwable) {
                 // An Error (OutOfMemoryError in the Keystore, say): the guard is released (finally), so a later «Usar
                 // huella» is not refused for good, and the Error goes on as before.
@@ -568,7 +571,7 @@ object BiometricVault {
             val released = key
             if (released != null) {
                 // onKey owns the key once it returns; if it throws (an Error too), the key is zeroed first.
-                handOverKey(released, onKey) { onError("No se pudo desbloquear con la huella") }
+                handOverKey(released, onKey) { onError(FINGERPRINT_UNLOCK_FAILED) }
             } else {
                 message?.let(onError)
             }
@@ -594,10 +597,10 @@ object BiometricVault {
         val p = prefs(activity, vaultId)
         val iv = p.getString(KEY_IV, null)
         val blob = p.getString(KEY_BLOB, null)
-        if (iv == null || blob == null) return onError("La huella no está activada")
+        if (iv == null || blob == null) return onError(FINGERPRINT_UNLOCK_NOT_ENABLED)
         val decoder = Base64.getDecoder()
-        val ivBytes = runCatching { decoder.decode(iv) }.getOrNull() ?: return onError("No se pudo usar la huella")
-        val wrapped = runCatching { decoder.decode(blob) }.getOrNull() ?: return onError("No se pudo usar la huella")
+        val ivBytes = runCatching { decoder.decode(iv) }.getOrNull() ?: return onError(FINGERPRINT_UNLOCK_UNUSABLE)
+        val wrapped = runCatching { decoder.decode(blob) }.getOrNull() ?: return onError(FINGERPRINT_UNLOCK_UNUSABLE)
         var key: SecretKey? = null
 
         // Created in StrongBox (recorded when enabling) or, if that record is missing, as KeyInfo reports it.
@@ -626,7 +629,7 @@ object BiometricVault {
             return onError("Has cambiado las huellas del móvil: entra con la contraseña maestra y vuelve a activarla")
         } catch (e: Exception) {
             // Broad on purpose: any failure to start a StrongBox key leads to the TEE on re-enable, the safe direction.
-            return failedAt(UnlockFailure.INIT, "No se pudo usar la huella")
+            return failedAt(UnlockFailure.INIT, FINGERPRINT_UNLOCK_UNUSABLE)
         }
         val answer = withContext(Dispatchers.Main) {
             // Back on the main thread: the activity may have gone meanwhile; a prompt asked for now would never show.
@@ -637,12 +640,12 @@ object BiometricVault {
             // The prompt never uses the key: sensor faults, timeouts and lockouts are not StrongBox's (1.2.2 behaviour).
             is PromptAnswer.Error -> failedAt(UnlockFailure.PROMPT_ERROR, answer.message)
             is PromptAnswer.Ok -> {
-                val c = answer.cipher ?: return failedAt(UnlockFailure.NO_CRYPTO_OBJECT, "No se pudo usar la huella")
+                val c = answer.cipher ?: return failedAt(UnlockFailure.NO_CRYPTO_OBJECT, FINGERPRINT_UNLOCK_UNUSABLE)
                 // A StrongBox that rejects the fingerprint's auth token fails here, not at init.
                 val dataKey = try {
                     c.doFinal(wrapped)
                 } catch (e: Exception) {
-                    return failedAt(UnlockFailure.DO_FINAL, "No se pudo desbloquear con la huella")
+                    return failedAt(UnlockFailure.DO_FINAL, FINGERPRINT_UNLOCK_FAILED)
                 }
                 onKey(dataKey)
             }

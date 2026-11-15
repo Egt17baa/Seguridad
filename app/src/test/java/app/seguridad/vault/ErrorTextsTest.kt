@@ -37,4 +37,28 @@ class ErrorTextsTest {
         assertEquals("Se hará en cuanto abras la bóveda con la contraseña nueva.", AUTO_BACKUP_REPLACE_WAITS)
         assertTrue("Se volverá a intentar en la próxima copia." in AUTO_BACKUP_OLD_NOT_DELETED)
     }
+
+    /**
+     * Ronda 1 (I-1.3): the fingerprint's own failures at the gate (BiometricVault.unlock, called only from the gate,
+     * VaultScreen's UnlockVault, next to the master password's field) say what to do, as [BIOMETRIC_UNLOCK_FAILED]
+     * does. The same words when enabling the fingerprint (another place, no field there) stay as they were.
+     */
+    @Test fun theFingerprintsFailuresAtTheGate() {
+        assertEquals("No se pudo usar la huella. Escribe la contraseña maestra.", FINGERPRINT_UNLOCK_UNUSABLE)
+        assertEquals("No se pudo desbloquear con la huella. Escribe la contraseña maestra.", FINGERPRINT_UNLOCK_FAILED)
+        assertEquals("La huella no está activada. Escribe la contraseña maestra.", FINGERPRINT_UNLOCK_NOT_ENABLED)
+        val src = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
+            .map { java.io.File(it, "app/src/main/java/app/seguridad/android/BiometricVault.kt") }.first { it.isFile }.readText()
+        // From unlock( to the end of unlockSteps: every message of its own is one of the three constants.
+        val unlock = src.substring(src.indexOf("fun unlock(activity: FragmentActivity"))
+        for (old in listOf("\"No se pudo usar la huella\"", "\"No se pudo desbloquear con la huella\"", "\"La huella no está activada\"")) {
+            assertTrue("$old is still in the unlock", old !in unlock)
+        }
+        assertEquals(5, Regex("FINGERPRINT_UNLOCK_UNUSABLE").findAll(unlock).count())
+        assertEquals(2, Regex("FINGERPRINT_UNLOCK_FAILED").findAll(unlock).count())
+        assertEquals(1, Regex("FINGERPRINT_UNLOCK_NOT_ENABLED").findAll(unlock).count())
+        // Enabling keeps its words.
+        val enable = src.substring(0, src.indexOf("fun unlock(activity: FragmentActivity"))
+        assertTrue("return Failed(StrongBoxFailure.AUTH_OR_FINAL, \"No se pudo usar la huella\")" in enable)
+    }
 }
