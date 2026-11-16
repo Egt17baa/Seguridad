@@ -10,16 +10,17 @@ Encargo: «Ruling (advisor, T10 cierre y T12 paso 1)» de `progress.md`. Base: `
 |---|---|
 | `c0fe71f` | La tabla de afirmaciones `sdd-2.0/task-12-1-claims.md`, en su propio commit, antes de editar ningún documento |
 | `e91316d` | README, `docs/privacidad.html`, `docs/ficha-google-play.md`, `docs/PUBLICAR.md`, el borrador de notas `2026-11-15-clavero-2.0-notas.md` y `versionName` 2.0.0 |
-| (cierre) | «2.0, tarea 12 (paso 1): versión y documentos»: `pendientes.md` (filas 6, 7, 8, 22, 36 y 40 cerradas; 46 a 50 nuevas) y este informe |
+| `f2b583c` | (Del controlador, por el límite de uso) `pendientes.md` (filas 6, 7, 8, 22, 36 y 40 cerradas; 46 a 50 nuevas) y una copia a medias de este informe |
+| (cierre) | «2.0, tarea 12 (paso 1): versión y documentos»: una frase de la política corregida (abajo) y este informe terminado |
 
 ## Tests
 
 Ejecutados por separado en el árbol de trabajo (`ANDROID_HOME=/home/user/android-sdk`), contados con Python sobre los XML de resultados:
 
-- `:app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets`: APP_RESULT
-- `./gradlew --stop` y `./gradlew -p jvm-check test`: JVM_RESULT
+- `:app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets`: 2370 tests, 0 omitidos, 0 fallos, 0 errores; BUILD SUCCESSFUL
+- `./gradlew --stop` y `./gradlew -p jvm-check test`: 2326 tests, 0 omitidos, 0 fallos, 0 errores; BUILD SUCCESSFUL
 
-Los mismos números que en `dcf28dc` (app 2370, jvm-check 2326): el paso 1 no añade ni quita tests; los que leen los documentos (`PublishedTextsTest`, `FinalLegalReviewTest`, `AppNameTest`, `ImportTextsTest`, `SourceTextsTest`) pasan con los textos nuevos.
+Los mismos números que en `dcf28dc` (app 2370, jvm-check 2326): el paso 1 no añade ni quita tests; los que leen los documentos (`PublishedTextsTest`, `FinalLegalReviewTest`, `AppNameTest`, `ImportTextsTest`, `SourceTextsTest`) pasan con los textos nuevos. La primera ejecución dio 1 fallo: `FinalLegalReviewTest.o1ThePolicySaysOnlyTheListedCopiesAreDeleted` (`:78`) prohíbe «que la app hizo en esa carpeta» en la política, y la frase nueva de la copia de antes de la 2.0 lo decía; pasa a «que la app tiene apuntada en esa carpeta», que además es lo exacto (A6 borra por la lista, no por quién la hizo). Con eso, las dos suites en verde.
 
 ## Qué cambió
 
