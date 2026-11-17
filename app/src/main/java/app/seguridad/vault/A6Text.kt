@@ -88,17 +88,33 @@ data class A6Decision(val failures: List<String>, val summary: A6Summary?, val s
  * Round 6 (ruling «T8 tras la ronda 5»): the one place that decides whether an A6 outcome is told or nothing is said, from
  * what the targets saved ([targets], [a6]) and the last summary the user closed ([A6State.said], a [a6Snapshot]); pure.
  * Something is told when there are [failures] not told yet, or when at least one folder replaced for the request and the
- * targets in it hold something the closed summary did not (one waiting that was not, a result that was not in it, one gone
- * or come back). So nothing is ever kept silent while a target in the request waits or has a result that the user has not
- * closed; and once the user closed a summary, nothing more is told until a target in the request changes (a folder added
- * after the request never does). [sameVault] false (an import since the pass began) tells no summary. Null: say nothing.
+ * targets in it changed since the closed summary ([a6SnapshotChanged]: another request, a line the closed one did not
+ * have, or a folder that was waiting and is gone). A folder added after the request is not in it, so it never opens it
+ * again; a folder already told as done that goes away is no change either (branch review, row 18). Nothing is kept silent
+ * when no summary was closed, or when the summary of the request cannot be told ([sameVault] false: an import since the
+ * pass began; or no folder replaced for it yet). Null: say nothing.
  */
 fun a6Decide(targets: List<BackupTargetSettings>, a6: A6State?, failures: List<String>, sameVault: Boolean, masterMark: String?): A6Decision? {
     val summary = a6Summary(targets, a6, masterMark).takeIf { sameVault && it.replaced > 0 }
     val snapshot = a6Snapshot(targets, a6)
-    val changed = summary != null && snapshot != a6?.said
+    val changed = summary != null && a6SnapshotChanged(snapshot, a6?.said)
     if (failures.isEmpty() && !changed) return null
     return A6Decision(failures, summary, snapshot)
+}
+
+/**
+ * Branch review, row 18: whether [now] (an [a6Snapshot]) holds something the closed [said] did not: none closed; another
+ * request (the first line); a folder line that is new; or a folder line «=pendiente» that went away. A line «hecha» or
+ * «sin» that goes away (the folder was removed) is no change: what it held was told already.
+ */
+internal fun a6SnapshotChanged(now: String, said: String?): Boolean {
+    if (said == null) return true
+    val n = now.split("\n")
+    val s = said.split("\n")
+    if (n.first() != s.first()) return true
+    val linesN = n.drop(1).filter { it.isNotEmpty() }.toSet()
+    val linesS = s.drop(1).filter { it.isNotEmpty() }.toSet()
+    return (linesN - linesS).isNotEmpty() || (linesS - linesN).any { it.endsWith("=pendiente") }
 }
 
 /**
@@ -108,6 +124,8 @@ fun a6Decide(targets: List<BackupTargetSettings>, a6: A6State?, failures: List<S
  *   («…en cada carpeta»), and the files left unlisted;
  * - only some: in how many folders the copies of before were deleted and in how many not (with the warning that some may
  *   open with an earlier password), and the files left unlisted in those that did.
+ * - a request asked before a later change of the master password ([A6Summary.stale], also every one of 1.4.3, which saved
+ *   no mark): [a6StaleText], whether all the folders or only some replaced, instead of the two above.
  * «En cada carpeta» is never said unless every folder of now has a replacement of this request.
  */
 fun a6Text(failures: List<String>, summary: A6Summary?): String {

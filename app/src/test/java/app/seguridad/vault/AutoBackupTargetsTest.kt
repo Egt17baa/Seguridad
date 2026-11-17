@@ -1479,6 +1479,34 @@ class AutoBackupTargetsTest {
         assertEquals(4 * (1 + 3 + 9), checked)
     }
 
+    /**
+     * Branch review, row 18, P-18: two folders done, the summary closed, then one done folder is removed: nothing new to
+     * tell (a line «hecha» that goes away is no change); one that was waiting and goes away, or a line that is new, is.
+     */
+    @Test fun aFolderDoneAndRemovedAfterClosingSaysNothing() {
+        var v = VaultSettings().withTargetAdded("content://uno", BackupSchedule.ON_CHANGE).withTargetAdded("content://dos", BackupSchedule.ON_CHANGE)
+            .withAutoBackupResult(AutoBackupResult("content://uno", 1L, null, copies = listOf("u0")))
+            .withAutoBackupResult(AutoBackupResult("content://dos", 1L, null, copies = listOf("d0")))
+            .copy(a6 = A6State("R"))
+        for (t in v.targets) v = v.withAutoBackupResult(AutoBackupResult(t.uri, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = t.copies, request = "R"))
+        for (t in v.targets) v = v.withAutoBackupResult(AutoBackupResult(t.uri, 2L, null, copies = listOf("n"), replaced = true, replaceTargets = emptyList(), request = "R", deleted = 1))
+        val closed = v.copy(a6 = v.a6!!.copy(said = a6Snapshot(v.targets, v.a6)))
+        assertNull(a6Decide(closed.targets, closed.a6, emptyList(), true, null))
+        val removed = closed.withTargetRemoved("content://dos")
+        assertNull(a6Decide(removed.targets, removed.a6, emptyList(), true, null))
+        // A folder that was waiting when the summary was closed and goes away: that is a change.
+        var w = v.withTargetAdded("content://tres", BackupSchedule.ON_CHANGE)
+            .withAutoBackupResult(AutoBackupResult("content://tres", 1L, null, copies = listOf("t0")))
+            .withAutoBackupResult(AutoBackupResult("content://tres", null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true, replaceTargets = listOf("t0"), request = "R"))
+        w = w.copy(a6 = w.a6!!.copy(said = a6Snapshot(w.targets, w.a6)))
+        assertNull(a6Decide(w.targets, w.a6, emptyList(), true, null))
+        val goneWaiting = w.withTargetRemoved("content://tres")
+        assertNotNull(a6Decide(goneWaiting.targets, goneWaiting.a6, emptyList(), true, null))
+        // Another request (another header): a change.
+        val other = closed.copy(a6 = closed.a6!!.copy(said = closed.a6!!.said!!.replaceFirst("R\n", "R0\n")))
+        assertNotNull(a6Decide(other.targets, other.a6, emptyList(), true, null))
+    }
+
     /** Branch review, row 17, P-17c: the three branches of [a6StaleText]. */
     @Test fun theStaleTextSaysWhere() {
         assertTrue("en la carpeta." in a6StaleText(1, 1))

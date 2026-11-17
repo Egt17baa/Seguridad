@@ -425,15 +425,6 @@ class VaultStore(
     fun lastChangeSavedAt(): Long? = file.lastModified().takeIf { it > 0 }
 
     /**
-     * Task 8, round 3 (owner's decision D-3): a mark of the vault as the copies would hold it, kept by each target of the
-     * automatic copies when one is written ([BackupTargetSettings.copiedMark]); a copy by the calendar is skipped while
-     * the mark has not changed. Saved on disk, so it outlives the process: it is a SHA-256 (opaque: nothing of the vault
-     * can be read from it) of the time of the last change saved ([lastChangeSavedAt]: entries, attachments, the vault's
-     * own settings as its folders, views or name, a new master password, an import; never bookkeeping such as an unlock or
-     * «Recientes»), of the Argon2id cost of the file (a wrap again with a higher cost, A8, at an unlock, keeps that time)
-     * and of the vault's [VaultData.vaultTag] (a new tag starts it again). Null with the vault not open, or no file.
-     */
-    /**
      * Round 6 (I-2): a mark of the master password's wrap of now: a SHA-256 (opaque) of the salt of the file, which a new
      * master password always renews (and so does a wrap again with a higher cost, A8, or the upgrade to v4: then a request
      * of before is said as of an earlier change, a text true in both cases). The salt is no secret: it is on disk with the
@@ -445,6 +436,15 @@ class VaultStore(
             .joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * Task 8, round 3 (owner's decision D-3): a mark of the vault as the copies would hold it, kept by each target of the
+     * automatic copies when one is written ([BackupTargetSettings.copiedMark]); a copy by the calendar is skipped while
+     * the mark has not changed. Saved on disk, so it outlives the process: it is a SHA-256 (opaque: nothing of the vault
+     * can be read from it) of the time of the last change saved ([lastChangeSavedAt]: entries, attachments, the vault's
+     * own settings as its folders, views or name, a new master password, an import; never bookkeeping such as an unlock or
+     * «Recientes»), of the Argon2id cost of the file (a wrap again with a higher cost, A8, at an unlock, keeps that time)
+     * and of the vault's [VaultData.vaultTag] (a new tag starts it again). Null with the vault not open, or no file.
+     */
     fun changeMark(): String? {
         val v = vault ?: return null
         val tag = (_state.value as? VaultState.Unlocked)?.data?.vaultTag ?: return null
