@@ -298,6 +298,9 @@ fun masterUnlockErrorText(e: CryptoFailure): String = when (val m = e.message) {
     else -> WRONG_MASTER
 }
 
+/** RT-21, part a: what [VaultCrypto.afterMasterUnlockWithData] wrote ([file]) and the data in it ([data], decoded once). */
+data class MasterUnlocked(val file: VaultFile, val data: VaultData)
+
 /** The Argon2id of a master password that opens a vault, to wrap its key again: (master, salt, cost) to the key. */
 typealias KekDerive = (CharArray, ByteArray, KdfParams) -> ByteArray
 
@@ -407,6 +410,7 @@ object VaultCrypto {
      * [VaultEntry.history] come back without history or attachments of their own, whatever the file says.
      */
     fun read(file: VaultFile, dek: ByteArray): VaultData {
+        decodes.incrementAndGet()
         val (json, version) = openAny(dek, file.data, file) { dataAad(file, it) }
         try {
             if (!jsonNestingWithin(json)) throw CryptoFailure()
@@ -425,6 +429,9 @@ object VaultCrypto {
             json.fill(0)
         }
     }
+
+    /** RT-21, part a: how many times [read] decoded a vault's data in this process; only tests read it. */
+    internal val decodes = java.util.concurrent.atomic.AtomicInteger()
 
     /** The data's JSON exactly as stored (decrypted, not decoded): for tests that check what was really written. */
     internal fun readJson(file: VaultFile, dek: ByteArray): String {
@@ -517,7 +524,24 @@ object VaultCrypto {
         prepare: (VaultData) -> VaultData = { it },
         derive: KekDerive = EXISTING_DERIVE,
         onCostKept: () -> Unit = {},
-    ): VaultFile {
+    ): VaultFile = afterMasterUnlockWithData(file, dek, master, now, kdf, random, prepare, derive, onCostKept).file
+
+    /**
+     * RT-21, part a: [afterMasterUnlock] and the data it wrote, decoded once ([read] runs once): what [prepare] gave is
+     * what is sealed and what the caller shows (decision (b)). [prepare] runs before any write or wrap, so a check in it
+     * that throws (a copy refused) spends no second Argon2id.
+     */
+    fun afterMasterUnlockWithData(
+        file: VaultFile,
+        dek: ByteArray,
+        master: CharArray,
+        now: Long,
+        kdf: KdfParams = KdfParams(),
+        random: SecureRandom = secureRandom,
+        prepare: (VaultData) -> VaultData = { it },
+        derive: KekDerive = EXISTING_DERIVE,
+        onCostKept: () -> Unit = {},
+    ): MasterUnlocked {
         val known = resolve(file, dek)
         val old = known.version != VaultFile.VERSION
         val read = read(known, dek)
@@ -529,9 +553,9 @@ object VaultCrypto {
             maxOf(known.kdf.iterations, kdf.iterations),
             maxOf(known.kdf.parallelism, kdf.parallelism),
         )
-        if (known.format == VaultFile.FORMAT && !old && !weaker) return write(known.copy(masterCheckedAt = now), dek, data, random)
+        if (known.format == VaultFile.FORMAT && !old && !weaker) return MasterUnlocked(write(known.copy(masterCheckedAt = now), dek, data, random), data)
         return try {
-            wrap(dek, data, master, PasswordUse.EXISTING, now, cost, random, known.revision + 1, derive)
+            MasterUnlocked(wrap(dek, data, master, PasswordUse.EXISTING, now, cost, random, known.revision + 1, derive), data)
         } catch (e: CryptoFailure) {
             // Branch review, row 45 (option B): raising the cost to Ajustes' ran out of memory (it is retried at every
             // unlock with the master password, and failed at each, with no way out but the fingerprint). Kept with the
@@ -544,7 +568,7 @@ object VaultCrypto {
                 wrap(dek, data, master, PasswordUse.EXISTING, now, known.kdf.params(), random, known.revision + 1, derive)
             }
             onCostKept()
-            kept
+            MasterUnlocked(kept, data)
         }
     }
 

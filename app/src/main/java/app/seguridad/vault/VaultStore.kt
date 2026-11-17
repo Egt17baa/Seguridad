@@ -589,14 +589,17 @@ class VaultStore(
         val mark = trashClockMark()
         val key = derive { VaultCrypto.unlock(v, master) }
         var costKept = false
-        val checked = try {
+        // RT-21, part a: decoded once; what is written is what opens (decision (b)).
+        val unlocked = try {
             derive {
-                VaultCrypto.afterMasterUnlock(v, key, master, at, kdf(), prepare = { it.purgedTrash(at, mark) }, derive = kekDerive, onCostKept = { costKept = true })
+                VaultCrypto.afterMasterUnlockWithData(v, key, master, at, kdf(), prepare = { it.purgedTrash(at, mark) }, derive = kekDerive, onCostKept = { costKept = true })
             }
         } catch (e: Exception) {
             key.fill(0)
             throw e
         }
+        val checked = unlocked.file
+        val shown = withContext(compute) { unlocked.data.withPlainVersions().sortedForShow() }
         if (!active()) {
             key.fill(0)
             return false
@@ -606,20 +609,14 @@ class VaultStore(
         onClockReset(now())
         if (v.version == VaultFile.VERSION) {
             // A full disk must not lock the user out of their passwords: open anyway (see [commit]).
-            commit(checked, key, since, mustSave = false)
+            commit(checked, key, since, mustSave = false, read = shown)
             tellCostKept(costKept)
             return false
         }
         // 2.0, the upgrade: nothing is written yet. The file on disk stays the 2 or 3 until the copy before it is made or
         // declined; a process death meanwhile leaves it as it was (focus 1).
-        // Review I-2 of task 4: the version 4 waiting is decrypted off the caller's thread, as in [commit].
-        val read = try {
-            withContext(compute) { VaultCrypto.read(checked, key).sortedForShow() }
-        } catch (e: CryptoFailure) {
-            key.fill(0)
-            throw e
-        }
-        opened(v, key, since, upgraded = checked, read = read)
+        // Review I-2 of task 4 and RT-21 part a: the version 4 waiting is what was prepared, sorted off the caller's thread.
+        opened(v, key, since, upgraded = checked, read = shown)
         tellCostKept(costKept)
         collectGarbage()
         return upgrade != null
@@ -1498,29 +1495,33 @@ class VaultStore(
             // 2.0, task 8 (D-12): «Importar como bóveda nueva» gives the new vault a tag of its own, so a copy of the vault
             // it came from never counts as checked for it (nor the other way round), and no date of a check of the other
             // (re-review 1, N-1): its reminder starts from none.
-            val checked = derive {
-                VaultCrypto.afterMasterUnlock(
-                    incoming, key, master, now(), kdf(), prepare = { if (newTag) it.copy(vaultTag = VaultCrypto.newTag(), lastCheckedBackupAt = 0L) else it },
+            // RT-21, part a: the copy's checks run in [prepare], on the data about to be written (already in v4 and fitted,
+            // A m-2), before any write or wrap: a copy refused spends no second Argon2id. What they checked is what is
+            // sealed and shown (decision (b)), decoded once.
+            val unlocked = derive {
+                VaultCrypto.afterMasterUnlockWithData(
+                    incoming, key, master, now(), kdf(),
+                    prepare = { read ->
+                        val data = if (newTag) read.copy(vaultTag = VaultCrypto.newTag(), lastCheckedBackupAt = 0L) else read
+                        checkCopyStructure(data)
+                        checkCopySize(data) // Branch review, A m-2.
+                        // The rules «Comprobar una copia» checks too (BackupCheck.kt), so the two never drift apart: one
+                        // identity per vault (see [upsert]), and what [upsert] and [addAttachment] keep.
+                        checkCopyEntries(data.entries)
+                        if (backup == null && data.entries.any { it.attachments.isNotEmpty() }) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
+                        data
+                    },
                     derive = kekDerive, onCostKept = { costKept = true },
                 )
             }
-            val incomingData = withContext(compute) { VaultCrypto.read(checked, key) }
-            val incomingEntries = incomingData.entries
-            checkCopyStructure(incomingData)
-            withContext(compute) { checkCopySize(incomingData) } // Branch review, A m-2.
-            // The rules «Comprobar una copia» checks too (BackupCheck.kt), so the two never drift apart: one identity per
-            // vault (see [upsert]), and what [upsert] and [addAttachment] keep. A copy that breaks one is refused before
-            // anything changes.
-            checkCopyEntries(incomingEntries)
-            val refs = incomingEntries.flatMap { it.attachments }
-            if (backup == null) {
-                if (refs.isNotEmpty()) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
-            } else {
+            val checked = unlocked.file
+            val refs = unlocked.data.entries.flatMap { it.attachments }
+            if (backup != null) {
                 // Each file, in the temporary folder the copy was read into, is the one moved into place below: what is
                 // checked here is what is imported, from a single read of the document.
                 withContext(io) { refs.forEach { if (attachmentInCopy(it, backup.first) != CopyAttachment.OK) throw CryptoFailure(attachmentNotInCopy(it.name)) } }
             }
-            Triple(checked, refs, withContext(compute) { incomingData.sortedForShow() })
+            Triple(checked, refs, withContext(compute) { unlocked.data.withPlainVersions().sortedForShow() })
         } catch (e: Exception) {
             key.fill(0)
             throw e
