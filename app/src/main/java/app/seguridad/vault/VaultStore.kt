@@ -1295,13 +1295,12 @@ class VaultStore(
         val sinceLock = epoch
         val plain = withContext(io) { attachments.read(input) }
         try {
-            return modify(sinceLock = sinceLock) { list ->
-                val entry = list.firstOrNull { it.id == entryId && !it.type.isPersonal } ?: return@modify null
-                if (attachments.totalBytes(list.flatMap { it.attachments }) + plain.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
-                    throw AttachmentLimit(ATTACHMENTS_TOTAL_TOO_BIG)
-                }
+            // Branch review, C-1: the total counts the trash too (a copy holds it), so no copy the app writes is refused.
+            return modifyData(sinceLock = sinceLock) { data ->
+                val entry = data.live.firstOrNull { it.id == entryId && !it.type.isPersonal } ?: return@modifyData null
+                if (!attachmentsFit(data, plain.size.toLong())) throw AttachmentLimit(ATTACHMENTS_TOTAL_WOULD_PASS)
                 val ref = withContext(io) { attachments.add(plain, name) }
-                list.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now()) else it }
+                data.copy(entries = data.entries.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now()) else it })
             }
         } finally {
             plain.fill(0)

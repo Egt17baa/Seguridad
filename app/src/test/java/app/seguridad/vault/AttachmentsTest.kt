@@ -127,7 +127,8 @@ class AttachmentsTest {
             s.addAttachment("b", ByteArrayInputStream(ByteArray(1)), "uno-más.bin")
             fail("Debía rechazarlo")
         } catch (e: AttachmentLimit) {
-            assertEquals("Los adjuntos de la bóveda pasan de 50 MB en total", e.message)
+            // Branch review, row 37: it would pass, it does not yet; the trash counts.
+            assertEquals(ATTACHMENTS_TOTAL_WOULD_PASS, e.message)
         }
         assertEquals(5, s.entry("b").attachments.size)
         assertEquals(10, attDir.listFiles()!!.size) // The rejected file is not left behind.
@@ -135,6 +136,61 @@ class AttachmentsTest {
         // Removing one makes room again.
         assertTrue(s.removeAttachment("b", s.entry("b").attachments.first().id))
         assertTrue(s.addAttachment("b", ByteArrayInputStream(ByteArray(1)), "uno-más.bin"))
+    }
+
+    private fun declared(id: Int, size: Long) = AttachmentRef("%032x".format(id), "a.bin", size, "00".repeat(32), "AA".repeat(22))
+
+    /** Branch review, C-1, P-C1a: 45 MB alive and 10 MB in the trash leave no room for 1 MB more; without the trash, there is. */
+    @Test fun attachmentsFitCountsTheTrash() {
+        val mb = 1024L * 1024
+        val alive = VaultEntry("a", EntryType.NOTE, "A", createdAt = 0, updatedAt = 0, attachments = (0 until 9).map { declared(it, 5 * mb) })
+        val trashed = VaultEntry("b", EntryType.NOTE, "B", createdAt = 0, updatedAt = 0, deletedAt = 1, attachments = (9 until 11).map { declared(it, 5 * mb) })
+        assertFalse(attachmentsFit(VaultData(listOf(alive, trashed)), mb))
+        assertTrue(attachmentsFit(VaultData(listOf(alive)), mb))
+        assertTrue(attachmentsFit(VaultData(listOf(alive, trashed.copy(attachments = listOf(declared(9, 4 * mb))))), mb))
+        assertFalse(attachmentsFit(VaultData(listOf(alive, trashed.copy(attachments = listOf(declared(9, 4 * mb))))), mb + 1))
+    }
+
+    /** Branch review, C-1, P-C1b: [VaultStore.addAttachment] counts with [attachmentsFit], not over the live entries of `modify`. */
+    @Test fun addAttachmentCountsEveryEntry() {
+        val src = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/vault/VaultStore.kt") }.first { it.isFile }.readText()
+        val start = src.indexOf("suspend fun addAttachment(")
+        val body = src.substring(start, src.indexOf("\n    }\n", start))
+        assertTrue(body, "attachmentsFit(" in body)
+        assertFalse(body, "modify(" in body)
+        assertFalse(body, "totalBytes(" in body)
+    }
+
+    /**
+     * Branch review, C-1, P-C1c: every vault the trash and the attachments leave passes the copy's check
+     * ([checkCopyEntries] over [VaultData.entries]): 25 MB alive and 25 MB in the trash take no byte more until the trash is
+     * emptied, and restoring does not take it over.
+     */
+    @Test fun whatTheTrashLeavesAlwaysPassesTheCopyCheck() = runTest {
+        val s = store().apply { load(); create("maestra-larga".toCharArray()) }
+        fun data() = (s.state.value as VaultState.Unlocked).data
+        fun check() = checkCopyEntries(data().entries)
+        s.upsert(note("a"))
+        s.upsert(note("b"))
+        val five = 5 * 1024 * 1024
+        repeat(5) { assertTrue(s.addAttachment("a", ByteArrayInputStream(ByteArray(five)), "a$it.bin")); check() }
+        repeat(5) { assertTrue(s.addAttachment("b", ByteArrayInputStream(ByteArray(five)), "b$it.bin")); check() }
+        assertEquals(1, s.moveToTrash(setOf("b")))
+        check()
+        try {
+            s.addAttachment("a", ByteArrayInputStream(ByteArray(1)), "uno-más.bin")
+            fail("Debía rechazarlo: la papelera cuenta")
+        } catch (e: AttachmentLimit) {
+            assertEquals(ATTACHMENTS_TOTAL_WOULD_PASS, e.message)
+        }
+        check()
+        assertEquals(1, s.restore(setOf("b")))
+        check()
+        assertEquals(1, s.moveToTrash(setOf("b")))
+        assertEquals(1, s.emptyTrash())
+        assertTrue(s.addAttachment("a", ByteArrayInputStream(ByteArray(1)), "uno-más.bin"))
+        check()
     }
 
     @Test fun garbageCollectionKeepsLiveRemovesDead() = runTest {
@@ -353,7 +409,8 @@ class AttachmentsTest {
             s.addAttachment("a", ByteArrayInputStream(ByteArray(1)), "uno-más.bin")
             fail("Debía rechazarlo")
         } catch (e: AttachmentLimit) {
-            assertEquals("Los adjuntos de la bóveda pasan de 50 MB en total", e.message)
+            // Branch review, row 37: it would pass, it does not yet; the trash counts.
+            assertEquals(ATTACHMENTS_TOTAL_WOULD_PASS, e.message)
         }
         assertEquals(10, s.entry("a").attachments.size)
     }

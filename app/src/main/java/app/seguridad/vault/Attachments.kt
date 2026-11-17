@@ -28,6 +28,22 @@ class AttachmentLimit(message: String) : Exception(message)
 
 internal const val ATTACHMENT_TOO_BIG = "El adjunto pasa de 5 MB. Elige un archivo más pequeño."
 internal const val ATTACHMENTS_TOTAL_TOO_BIG = "Los adjuntos de la bóveda pasan de 50 MB en total"
+
+/**
+ * Branch review, C-1 (row 37): adding an attachment that would take the vault over [MAX_ATTACHMENTS_TOTAL_BYTES], the
+ * attachments in the trash counted (a copy holds them, and a copy over it is not read back).
+ */
+internal const val ATTACHMENTS_TOTAL_WOULD_PASS =
+    "Con este adjunto, los adjuntos de la bóveda (también los de la papelera) pasarían de 50 MB. Quita algún adjunto o " +
+        "vacía la papelera para añadir otro."
+
+/**
+ * Branch review, C-1: whether [adding] more bytes of attachments fit in [data], counting every entry ([VaultData.entries],
+ * the trash too: a copy holds them and [checkCopyEntries] counts them), so every vault the app saves passes its own copy
+ * check; pure.
+ */
+internal fun attachmentsFit(data: VaultData, adding: Long): Boolean =
+    data.entries.sumOf { e -> e.attachments.sumOf { it.size } } + adding <= MAX_ATTACHMENTS_TOTAL_BYTES
 internal const val ATTACHMENT_DAMAGED = "El adjunto está dañado o se ha cambiado"
 
 /** Associated data prefix of format v1; the id follows it, so a file cannot be moved under another id. */
