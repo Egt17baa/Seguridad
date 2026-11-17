@@ -13,7 +13,7 @@ Range `d0702a3..490e973` (one commit, `Crypto.kt` and `CryptoTest.kt`). The diff
 - Step 3: `val kp = KeyParameter(key)` before the `try`, `finally { kp.key.fill(0) }` in both Bouncy Castle paths (`Crypto.kt:263,275` and `:337-350`, wipe at `:349`), with the why in the KDoc (`:255-261`, `:332-336`). AES `SecretKeySpec` (`:322`) and `HKDFParameters` (`:282`, `:405`) untouched, as the design says. AES stays on Conscrypt.
 - Interfaces: `aead(...)` has the same signature and the same bytes (the only change in its body is the ChaCha branch, `:329`). `blockGcm` goes from `private` to `internal`; `chaChaPoly` is new and `internal`. The plan said "ninguna nueva" but itself proposed an `internal` helper, so this is within the plan.
 - Design `CRY-A03`: both bullets are met (finally + two pins). The third (accepted risk written in the report) is only partly met because the sentence is inaccurate (Important 1, Minor 5).
-- Not verified (no git): author, trailer `Co-Authored-By: Claude Opus 5.5`, absence of `Claude-Session`, and that the commit was pushed.
+- Not verified (no git): author, trailer `Co-Authored-By: Claude`, absence of `Claude-Session`, and that the commit was pushed.
 
 ## Strengths
 

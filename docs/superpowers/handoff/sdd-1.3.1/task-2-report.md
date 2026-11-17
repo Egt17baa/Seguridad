@@ -2,7 +2,7 @@
 
 Estado: DONE (con dos observaciones en «Concerns»).
 Commit: `d981e72` «vault: una maestra nueva tiene que pasar la estimación de fuerza (CRY-A01)», empujado a `ccr-a1a6eabb-765f9g`.
-El mensaje acaba solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
+El mensaje acaba solo en `Co-Authored-By: Claude <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
 
 ## Qué se ha implementado
 
@@ -209,7 +209,7 @@ Sin textos nuevos para el usuario. Un dato que el Abogado Digital debe tener en 
 # Ronda 2 (ampliación del dueño)
 
 Estado: DONE_WITH_CONCERNS (las observaciones están en «Concerns»).
-Commit: `1be454e` «vault: la maestra nueva no puede ser una sola palabra conocida (CRY-A01, ampliación del dueño)», empujado a `ccr-a1a6eabb-765f9g` (`20d8e69..1be454e`). Autor `Claude <noreply@anthropic.com>`; el mensaje acaba solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0). Sin `--amend`, `rebase` ni `push --force`.
+Commit: `1be454e` «vault: la maestra nueva no puede ser una sola palabra conocida (CRY-A01, ampliación del dueño)», empujado a `ccr-a1a6eabb-765f9g` (`20d8e69..1be454e`). Autor `Claude <noreply@anthropic.com>`; el mensaje acaba solo en `Co-Authored-By: Claude <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0). Sin `--amend`, `rebase` ni `push --force`.
 
 ## Comprobación de la ronda 1 (cada hallazgo de `task-2-review.md`, en `e76565a`/HEAD)
 
@@ -364,7 +364,7 @@ Ninguno nuevo. La ampliación reutiliza `MASTER_TOO_WEAK` (sin cambiar sus palab
 
 # Ronda 3 (re-revisión de la tarea 2: N1 y N2, más una entrada de `jvm-check`)
 
-Estado: DONE. Commit: `b5c72b1` «vault: cifras y nombres de la ampliación de CRY-A01, y los assets como entrada de jvm-check», empujado a `ccr-a1a6eabb-765f9g` (`74b8f4a..b5c72b1`; el mensaje acaba solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`). Cambios solo de texto, de un comentario de test y de una línea de `jvm-check/build.gradle.kts`; la regla y su comportamiento no cambian.
+Estado: DONE. Commit: `b5c72b1` «vault: cifras y nombres de la ampliación de CRY-A01, y los assets como entrada de jvm-check», empujado a `ccr-a1a6eabb-765f9g` (`74b8f4a..b5c72b1`; el mensaje acaba solo en `Co-Authored-By: Claude <noreply@anthropic.com>`). Cambios solo de texto, de un comentario de test y de una línea de `jvm-check/build.gradle.kts`; la regla y su comportamiento no cambian.
 
 ## Cambios
 

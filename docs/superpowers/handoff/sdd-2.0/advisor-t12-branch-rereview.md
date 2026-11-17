@@ -1,6 +1,6 @@
 # Ruling del director: re-revisiones de la rama (17-11-2026)
 
-Veredicto: una ronda corta más, con el mismo implementador opus, para arreglar A N-1 (Important, solo cambia el texto), C n-1, B i-1, B i-2, los cinco menores y C i-3. Después vienen tres re-revisiones cortas, cada una de su parte y en paralelo. No se ejecutó nada: todo lo que sigue sale de leer el código en `HEAD 8b8cf76`.
+Veredicto: una ronda corta más, con el mismo implementador, para arreglar A N-1 (Important, solo cambia el texto), C n-1, B i-1, B i-2, los cinco menores y C i-3. Después vienen tres re-revisiones cortas, cada una de su parte y en paralelo. No se ejecutó nada: todo lo que sigue sale de leer el código en `HEAD 8b8cf76`.
 
 Motivos:
 - **A N-1 (y C n-2), confirmado.**
@@ -66,7 +66,7 @@ Ruling por punto:
    - **i-2:** se acepta.
    - **B i-3 e i-4:** se aceptan como los deja el revisor.
 
-6. **Proceso:** una ronda más, con el mismo implementador opus, y re-revisiones cortas en paralelo, cada una en su clon, de solo lectura y sin gradle:
+6. **Proceso:** una ronda más, con el mismo implementador, y re-revisiones cortas en paralelo, cada una en su clon, de solo lectura y sin gradle:
    - **Revisor de A:** N-1, n-1, el margen de B i-2, y el código de B i-1 en `onMasterChanged` y `switchTo`, junto con la guarda de `deleteVault` (concurrencia con `masterChangedLock`, sin interbloqueos).
    - **Revisor de B:** m-1 con el anexo, m-2, y que `hadFolders` sea el mismo predicado que el diálogo.
    - **Revisor de C:** la unión en `runMarked` (qué se ve y en qué orden), i-3, y todos los textos de pantalla de esta ronda.
@@ -78,7 +78,7 @@ Ruling por punto:
      5. La revisión final: `code-review`, `security-review`, la auditoría completa, el ataque (fila 24 y prueba n.º 7) y el Abogado final.
      6. El PR del APK, según la decisión del dueño del 16-11.
 
-Encargo de la ronda (implementador opus; mismas reglas que en `advisor-t12-branch-fixes.md`):
+Encargo de la ronda (implementador; mismas reglas que en `advisor-t12-branch-fixes.md`):
 - **Qué puede tocar:** `app/src/main` y `app/src/test`, y además **solo la línea 129** del anexo `docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md`. Si otro test ata un documento, para y avisa.
 - **TDD:** cada test se ve primero en rojo y después en verde. Los arreglos de solo comentario no llevan test. Sin criptografía nueva, sin logs y sin cambiar ningún formato. Sin *push*.
 - **Gradle:** `ANDROID_HOME=/home/user/android-sdk`. Una suite a la vez, con aviso al controlador.
@@ -120,4 +120,4 @@ Revisión Ingeniero Móvil Senior:
 
 Textos para el Abogado Digital (revisión final): `KDF_COST_KEPT` con «se queda con»; las dos variantes de `masterChangedInOtherVaultText` («la bóveda de color {color}») y su línea de la huella; el aviso unido («resultado» + línea en blanco + aviso); «(automáticas, de antes de importar o de antes de la 2.0)» en `AutoBackup.kt:190` y en el anexo. A eso se suma todo lo de la lista de la ronda anterior.
 
-Modelo: el director (opus, esfuerzo extra).
+Modelo: el director (esfuerzo extra).

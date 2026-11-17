@@ -1,6 +1,6 @@
 # Revisión de la tarea 10, fase C (textos de error), `ce147ba..b1c9d35`
 
-Revisor: opus. Leídos `CLAUDE.md`, `experto-seguridad-cripto/SKILL.md` (principios y «Trabajo conjunto»), `references/auditoria.md` (errores y excepciones), las skills `desarrollo-movil-senior` y `auditoria-seguridad-movil`, los Rulings de T10 (`progress.md:192`, `:195`, `:200`, `:204`), el plan (tarea 10, `plans/…2.0.md:301-322`), el diseño (`specs/…2.0-design.md:143`, `:226`; Formato v4 `:67`, `:266`), R-10 del Abogado inicial (`abogado-2.0-inicial.md:309-311`), el inventario, el informe y el diff. He comprobado cada fila contra el código y buscado lo que falta.
+Revisor independiente. Leídos `CLAUDE.md`, `experto-seguridad-cripto/SKILL.md` (principios y «Trabajo conjunto»), `references/auditoria.md` (errores y excepciones), las skills `desarrollo-movil-senior` y `auditoria-seguridad-movil`, los Rulings de T10 (`progress.md:192`, `:195`, `:200`, `:204`), el plan (tarea 10, `plans/…2.0.md:301-322`), el diseño (`specs/…2.0-design.md:143`, `:226`; Formato v4 `:67`, `:266`), R-10 del Abogado inicial (`abogado-2.0-inicial.md:309-311`), el inventario, el informe y el diff. He comprobado cada fila contra el código y buscado lo que falta.
 
 Prueba: `./gradlew -p jvm-check test --tests 'app.seguridad.vault.ErrorTextsTest' --tests 'app.seguridad.tools.ToolTextsTest'`, en verde. No he corrido la suite entera, por el aviso de memoria.
 

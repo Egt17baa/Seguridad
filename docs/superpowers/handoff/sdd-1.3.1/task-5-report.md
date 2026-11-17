@@ -2,7 +2,7 @@
 
 Estado: DONE (con una duda de redacción sobre el texto 1, ver «Preocupaciones»).
 Commit: `5657ec3` «totp: rechazar los ajustes no admitidos en vez de cambiarlos (CRY-B02)», subido a `ccr-a1a6eabb-765f9g` (`7256c07..5657ec3`).
-El mensaje termina solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
+El mensaje termina solo en `Co-Authored-By: Claude <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
 
 ## Qué se ha implementado
 

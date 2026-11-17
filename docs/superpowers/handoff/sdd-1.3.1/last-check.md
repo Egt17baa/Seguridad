@@ -60,7 +60,7 @@ Para que el controlador los marque como hechos:
 - `docs/auditorias/2026-11-01-auditoria-1.3.1.md:452`: §12, «Queda», punto 1, «La comprobación corta de la última tanda … **[PENDIENTE]**».
 - `docs/superpowers/handoff/2026-11-01-clavero-1.3.1-traspaso.md:13`: «**Falta:** la comprobación corta de la última tanda».
 - `docs/superpowers/handoff/2026-11-01-clavero-1.3.1-traspaso.md:28`: «Para Claude», punto 1, «La comprobación corta de la última tanda».
-- Aparte (del controlador): `docs/superpowers/handoff/sdd-1.3.1/progress.md:129`, «Short scoped check dispatched (sonnet, adbba00..6bff07a)», pide su línea de cierre.
+- Aparte (del controlador): `docs/superpowers/handoff/sdd-1.3.1/progress.md:129`, «Short scoped check dispatched (adbba00..6bff07a)», pide su línea de cierre.
 
 No se refieren a esta comprobación y siguen pendientes: `CLAUDE.md:54`, la auditoría `:379-383` (pruebas en el móvil) y `:453-456` (PR, APK firmado, fecha de la política y etiqueta), y los pasos del dueño del traspaso.
 

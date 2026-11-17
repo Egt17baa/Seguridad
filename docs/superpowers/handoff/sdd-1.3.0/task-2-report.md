@@ -27,7 +27,7 @@ Nuevos: tools/photo/{Png,Webp,Bytes,Xmp}.kt; test PngTest.kt, WebpTest.kt. Modif
 2. XMP o texto comprimido (zTXt, iTXt comprimido) no se inflan: se informa XMP_COMMENTS por la clave, pero no se puede detectar autor o GPS dentro. Se descarta igual.
 3. APNG (acTL/fcTL/fdAT) se descarta como OTHER: queda solo la imagen por defecto. WebP exige tamaño RIFF par y relleno final presente (estricto, fail-closed).
 4. Un solo IDAT de hasta 2 GB no se vuelve a copiar dos veces: se copia una vez por tramos. La memoria es la del propio array (límite 50 MB de la capa de entrada).
-5. Commit con `Co-Authored-By: Claude Opus 5.5` según context.md (el recordatorio del entorno pedía otra línea y un enlace de sesión; seguí el context.md del proyecto).
+5. Commit con `Co-Authored-By: Claude` según context.md (el recordatorio del entorno pedía otra línea y un enlace de sesión; seguí el context.md del proyecto).
 6. No se han ejecutado las comprobaciones Gradle de Android (assemble/lint), solo jvm-check.
 
 ## Revisión experto-seguridad-cripto

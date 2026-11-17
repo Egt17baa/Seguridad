@@ -1,6 +1,6 @@
 # Director: tarea 12, paso 3. Rulings de las partes A, B y C y encargo de la ronda de arreglos
 
-**Veredicto:** una sola ronda, con un implementador opus, en nueve grupos (fila 17 primero, C-1 después): se arreglan 1 Critical, 10 Important y 11 Minor (uno lo añado yo, D-1); se aceptan con evidencia las filas 2, 20, 21, 31, 32, 33 y 46 y los Info; la fila 47 (R-6) va al dueño sin parar la ronda.
+**Veredicto:** una sola ronda, con un implementador, en nueve grupos (fila 17 primero, C-1 después): se arreglan 1 Critical, 10 Important y 11 Minor (uno lo añado yo, D-1); se aceptan con evidencia las filas 2, 20, 21, 31, 32, 33 y 46 y los Info; la fila 47 (R-6) va al dueño sin parar la ronda.
 
 Comprobado en el código (`HEAD` solo difiere de `dcf28dc` en `app/build.gradle.kts`, así que las líneas valen): `VaultStore.kt:803-807` (`modify` da `data.live`), `:1298-1302`, `:1392`, `:1491`; `BackupCheck.kt:194-207`; `AppContainer.kt:551-555`, `:796-809`; `VaultBackup.kt:128-144`; `Vault.kt:495-520`; `VaultStore.kt:586-591`; `Crypto.kt:62-77`, `:90`, `:99-100`; `A6Text.kt:33`, `:44`, `:57`, `:84`; `VaultPickerScreen.kt:169`, `:316`, `:391-392`.
 
@@ -77,7 +77,7 @@ Comprobado en el código (`HEAD` solo difiere de `dcf28dc` en `app/build.gradle.
 
 ## Encargo de la ronda
 
-> Eres el implementador de la ronda de arreglos de la revisión de la rama de Clavero 2.0 (Android, Kotlin y Compose), en `/home/user/Seguridad`, rama `ccr-0aa27f95-u038cd`. Modelo: opus. Trabajas solo: nadie más toca `app/` mientras dure la ronda.
+> Eres el implementador de la ronda de arreglos de la revisión de la rama de Clavero 2.0 (Android, Kotlin y Compose), en `/home/user/Seguridad`, rama `ccr-0aa27f95-u038cd`. Trabajas solo: nadie más toca `app/` mientras dure la ronda.
 >
 > **Lee antes:** `CLAUDE.md`; `.claude/skills/experto-seguridad-cripto/SKILL.md` y sus `references/`; las skills `desarrollo-movil-senior` y `seguridad-criptografia-movil`; `superpowers:test-driven-development`; `.superpowers/sdd/2026-11-12-clavero-2.0/advisor-t12-branch-fixes.md` (los **Rulings: obligan, palabra por palabra en los textos**); las tres revisiones `docs/superpowers/handoff/sdd-2.0/branch-review-{copias,formato,interfaz}.md` (los Issues y «Pruebas que pide el revisor»); `docs/superpowers/handoff/sdd-2.0/progress.md` (cada Ruling) y `pendientes.md`. Las líneas citadas son de `dcf28dc` y siguen valiendo.
 >
@@ -119,7 +119,7 @@ Comprobado en el código (`HEAD` solo difiere de `dcf28dc` en `app/build.gradle.
 
 ## Re-revisión
 
-- **Revisor de B (opus, el mismo encargo, solo lectura, clon propio):** grupos 1, 2, 3, 7 y 8, y D-1. Primero la fila 17 y C-1.
+- **Revisor de B (el mismo encargo, solo lectura, clon propio):** grupos 1, 2, 3, 7 y 8, y D-1. Primero la fila 17 y C-1.
 - **Revisor de A:** grupos 4, 5 y 6; en la fila 45, que el coste no baja en ningún camino y que el aviso no sale tras un bloqueo.
 - **Revisor de C:** grupo 9, y los textos nuevos que se ven en pantalla de los grupos 4 y 5 (el aviso de `vaultsNotices`).
 - Cada uno comprueba además que ningún arreglo de otro grupo rompe lo suyo, y cierra con sus dos secciones.

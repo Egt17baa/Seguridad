@@ -28,7 +28,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Papelera durante 30 días, con «Deshacer», e historial de los cambios de cada entrada.
 • Adjuntos cifrados (hasta 5 MB cada uno).
 • Salud de la bóveda: contraseñas repetidas, débiles, antiguas o sin 2FA, con una sugerencia cada vez.
-• Copias cifradas que exportas tú, y copia automática opcional hasta en 3 carpetas que elijas, cada una con su calendario (con cada cambio, diaria, semanal o mensual). Las copias con calendario se hacen al abrir la app.
+• Copias cifradas que exportas tú, y copia automática opcional hasta en 3 carpetas que elijas, cada una con su calendario (con cada cambio, diaria, semanal o mensual). Las copias con calendario se hacen con la bóveda abierta, al abrir la app o al desbloquearla, y solo si hubo cambios.
 • Enseña el QR de una red wifi guardada para que otro móvil se conecte. Quien vea el código ve la contraseña.
 • Comprueba una copia sin importarla: que tu contraseña la abre y que cada adjunto está y coincide con lo que guarda su entrada.
 • Importa los archivos CSV de los navegadores más usados y las exportaciones de algunos gestores de contraseñas y apps de 2FA (la lista está en la app y en el código fuente), también las protegidas con contraseña, y añade sus entradas a tu bóveda sin reemplazarla. Antes de guardar te enseña lo que entra, lo que ya tienes y lo que no entra, y hace una copia cifrada de tu bóveda. Al terminar te ofrece quitar el archivo exportado.
@@ -57,7 +57,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Comprobación de contraseñas filtradas.
 
 **Aspecto**
-• El aspecto «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan lo de detrás), o «Sólido», sin transparencias. Seis paletas, una personalizada y, desde Android 12, los colores del fondo de pantalla. «Reducir transparencias» y «Alto contraste» en Ajustes.
+• El aspecto «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás), o «Sólido», sin transparencias. Seis paletas, una personalizada y, desde Android 12, los colores del fondo de pantalla. «Reducir transparencias» y «Alto contraste» en Ajustes.
 • Modo sencillo y una guía al empezar.
 
 **Privacidad**
@@ -68,7 +68,7 @@ Las bóvedas se quedan cifradas en tu móvil. De la app sale lo que tú exportas
 • Lo que los contactos no protegen: si alguien roba tu identidad (por ejemplo, con una copia de la bóveda y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. Los metadatos son visibles para el canal que uses: quién escribe a quién, cuándo y el tamaño. Solo funciona entre usuarios de Clavero.
 • Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia.
 • Cambiar la contraseña maestra no cambia las copias que ya existen: se siguen abriendo con la contraseña anterior.
-• La copia automática con calendario solo se hace al abrir la app: si no la abres, no hay copia.
+• La copia automática con calendario solo se hace con la bóveda abierta, al abrir la app o al desbloquearla: si no la abres, no hay copia.
 • Al actualizar desde una versión anterior, la bóveda pasa a un formato nuevo la primera vez que la abres con la contraseña maestra: después, las versiones anteriores de Clavero no abren la bóveda ni sus copias nuevas. Exporta antes una copia.
 • Borrar algo de la bóveda o de su papelera no lo borra de las copias que ya hiciste.
 • El archivo que exportas de otra app para importarlo suele estar sin cifrar, salvo si lo proteges con contraseña. Quitarlo con Clavero no borra sus copias en la nube, en la papelera ni en otras apps.

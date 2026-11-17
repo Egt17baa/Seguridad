@@ -145,7 +145,7 @@ Fuente: code-review 8.
   - `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets --no-daemon --max-workers=1 --offline`.
 - **Commits:** puedes hacer uno por grupo (F1+F2, F3, F4+F5, F6+F7, F8+F9) o uno solo. Cada uno:
   - con autor `Claude <noreply@anthropic.com>` (`git -c user.name=Claude -c user.email=noreply@anthropic.com commit`);
-  - con un mensaje que acabe solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`, sin `Claude-Session` ni claude.ai (`git log -1 --format=%B | grep -cE "Claude-Session|claude\.ai"` da 0);
+  - con un mensaje que acabe solo en `Co-Authored-By: Claude <noreply@anthropic.com>`, sin `Claude-Session` ni claude.ai (`git log -1 --format=%B | grep -cE "Claude-Session|claude\.ai"` da 0);
   - con push a `ccr-a1a6eabb-765f9g`;
   - nunca `amend`, `rebase` ni `force`.
 - **Informe:** en `final-fixes-report.md`, en esta misma carpeta, con:

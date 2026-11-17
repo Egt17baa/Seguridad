@@ -30,7 +30,7 @@
 >
 > **Informe:** `/home/user/Seguridad/.superpowers/sdd/2026-11-12-clavero-2.0/branch-review-<parte>.md`. Escríbelo por bloques a medida que avanzas (un reinicio del contenedor no debe perderlo). Estructura: Alcance (archivos leídos enteros y commits) · Issues (Critical, Important, Minor, Info; cada uno con `archivo:línea` de `dcf28dc`, qué pasa, por qué cruza tareas, el arreglo y su test) · Filas de `pendientes.md` (tabla fila → veredicto) · Pruebas que pide el revisor · Dudas · Lo que no pudiste comprobar · «Revisión experto-seguridad-cripto» · «Revisión Ingeniero Móvil Senior» · «Textos para el Abogado Digital (revisión final)». Un hallazgo de seguridad o de veracidad confirmado es Important como mínimo. No reportes nada que no puedas señalar en el código: márcalo «a comprobar» y di cómo.
 >
-> **Hecho** quiere decir: todos los archivos de tu alcance leídos enteros en `dcf28dc` (no solo el diff), cada riesgo de tu lista con su respuesta y su `archivo:línea`, cada fila con su veredicto, y el informe en su sitio. Modelo: opus.
+> **Hecho** quiere decir: todos los archivos de tu alcance leídos enteros en `dcf28dc` (no solo el diff), cada riesgo de tu lista con su respuesta y su `archivo:línea`, cada fila con su veredicto, y el informe en su sitio.
 
 ### Parte A: formato y bóvedas (`branch-review-formato.md`) — empieza ya
 
@@ -140,7 +140,7 @@ Empieza cuando el paso 1 esté aprobado por su revisor **y** la ronda de arreglo
 ## Riesgos o dudas
 
 - **En paralelo con el paso 1:** el riesgo real es gradle (memoria, exit 137) y un `checkout` en el árbol compartido; lo quitan el clon propio y «sin gradle». Los informes van a `.superpowers/sdd/`, que git ignora (`.superpowers/sdd/.gitignore:1`, comprobado): no chocan con los commits del paso 1.
-- **Reinicios y límite de uso:** tres revisores opus más el implementador gastan el límite semanal antes (estaba al 71 %). Ninguna revisión se recorta: si hay que elegir, A y B primero (tienen los Important con nombre) y C después. Por eso los informes se escriben por bloques.
+- **Reinicios y límite de uso:** tres revisores más el implementador gastan el límite semanal antes (estaba al 71 %). Ninguna revisión se recorta: si hay que elegir, A y B primero (tienen los Important con nombre) y C después. Por eso los informes se escriben por bloques.
 - **Las líneas de A–C son de `dcf28dc`.** Tras el paso 1 el código no debería moverse; si se mueve, el controlador lo dice en el encargo de arreglos.
 - **D no puede ser la última palabra sobre los documentos:** el ataque y las revisiones de seguridad traen arreglos después. De ahí la última pasada del punto 7 antes del Abogado.
 - **No comprobé:**

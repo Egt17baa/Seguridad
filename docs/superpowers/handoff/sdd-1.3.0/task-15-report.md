@@ -1,6 +1,6 @@
 # Tarea 15: documentos, versión 1.3.0 y revisión de los textos
 
-**Estado:** DONE_WITH_CONCERNS. Commit `f439d00` «Seguridad 1.3.0: documentación y versión», autor `Claude <noreply@anthropic.com>`, que termina solo con `Co-Authored-By: Claude Opus 5.5`. Sin push. BASE `8df0860`.
+**Estado:** DONE_WITH_CONCERNS. Commit `f439d00` «Seguridad 1.3.0: documentación y versión», autor `Claude <noreply@anthropic.com>`, que termina solo con `Co-Authored-By: Claude`. Sin push. BASE `8df0860`.
 
 La sesión se cortó una vez por el límite de 5 horas mientras se escribía el anexo. Al reanudar, se comprobó que `SourceTextsTest.kt` (324 líneas, termina en el cierre de `KotlinLexer`) y el anexo (183 líneas, termina en «Licencias y atribución») estaban completos. Después se siguió con el resto.
 

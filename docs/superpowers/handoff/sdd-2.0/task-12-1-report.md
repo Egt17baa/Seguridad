@@ -56,13 +56,13 @@ Sacado de los `@Serializable` de `settings.json` (`settings/Settings.kt:40-101`,
 - `autoBackupOffForNewVault`;
 - la huella por bóveda (la clave envuelta, el IV y si está en StrongBox).
 
-Todo eso va en la política, en una lista. Ninguno es un secreto ni el contenido de una entrada (`Settings.kt:36-39`: «Never a secret, nor a vault's name»).
+Todo eso va en la política, en una lista (corrección de la segunda pasada: le faltaban cuatro cosas, m-7 de la revisión del paso 1, que se añadieron; ver `task-12-2-report.md`). Ninguno es un secreto ni el contenido de una entrada (`Settings.kt:36-39`: «Never a secret, nor a vault's name»).
 
 ## Contradicciones entre el código y lo que se afirmaría (se avisa; no se arregla)
 
 1. **X-1 (fila 46):** la política de la 1.4.2 decía «Al borrar la bóveda se olvidan todas» (los lugares de los selectores). Con varias bóvedas, «Borrar esta bóveda» (`AppContainer.kt:677-716`) no llama a `forgetAll`; solo lo hace «He olvidado la contraseña maestra» (`ui/screens/VaultScreen.kt:494-497`). Los lugares son de todo el móvil (`core/PickerPlaces.kt:97-100`). La política dice ahora lo que hace el código (O-10.7). Si se quiere otra cosa, es código: revisión de la rama.
 2. **X-2 (fila 47):** R-6 del Abogado inicial (tras «Seguir sin copia», una línea en Ajustes que ofrezca hacer una copia hasta que se haga) no tiene una línea propia; lo más cercano es `BACKUP_CHECK_NEVER` («Aún no has comprobado ninguna copia.», `vault/BackupCheckTexts.kt:80`) y la misión «Comprueba una copia» (`health/Missions.kt:44`). Ningún documento afirma que exista.
-3. Ninguna otra afirmación de la tabla choca con el código. Un matiz que se corrigió al escribir: «Sólido» no es «el aspecto de la 1.x» (conserva la paleta, Ruling T5 bis); el README dice «paneles opacos sobre un fondo liso, sin transparencias», como `STYLE_SOLID_SHORT` (`ui/screens/AppearanceScreen.kt:80`).
+3. Ninguna otra fila de la tabla choca con el código (corrección de la segunda pasada: la tabla estaba bien, pero el texto que llevaban los documentos sobre las copias y la papelera, I-1, y sobre el difuminado, m-5, decía más que el código; ver `task-12-2-report.md`). Un matiz que se corrigió al escribir: «Sólido» no es «el aspecto de la 1.x» (conserva la paleta, Ruling T5 bis); el README dice «paneles opacos sobre un fondo liso, sin transparencias», como `STYLE_SOLID_SHORT` (`ui/screens/AppearanceScreen.kt:80`).
 
 ## Dudas
 
