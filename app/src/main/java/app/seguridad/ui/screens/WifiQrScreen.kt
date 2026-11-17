@@ -1,5 +1,9 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.tools.qr.wifiQrNameHidden
+import app.seguridad.tools.qr.hiddenMarks
+import app.seguridad.tools.qr.hasHiddenChars
+import app.seguridad.tools.qr.visibleText
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -29,7 +33,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import app.seguridad.imports.plainReportText
 import app.seguridad.tools.qr.WIFI_QR_FAILED
 import app.seguridad.tools.qr.WIFI_QR_HIDE
 import app.seguridad.tools.qr.WIFI_QR_IMAGE
@@ -88,7 +91,7 @@ private fun BitMatrix.toImage(): ImageBitmap {
 }
 
 /**
- * What the screen says about the network: its name (shown through `plainReportText`), the lines under it
+ * What the screen says about the network: its name (shown through `visibleText`, RT-24), the lines under it
  * ([wifiQrLines]) and whether a code can be drawn at all ([WifiQr.problem]).
  */
 private data class WifiQrShown(val ssid: String, val lines: List<String>, val canDraw: Boolean) {
@@ -206,12 +209,19 @@ fun WifiQrScreen(store: VaultStore, id: String, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(plainReportText(shown.ssid), style = MaterialTheme.typography.titleMedium)
+            // RT-24: the name with the marks of what draws nothing (as the inspector shows it), never a look-alike.
+            Text(visibleText(shown.ssid), style = MaterialTheme.typography.titleMedium)
             // Why no code can be drawn, alone; or the warning (O-4: on view, never folded) and what the code leaves out.
             Text(shown.lines.first(), color = NegativeColor)
             if (!shown.canDraw) return@Column
+            // RT-24: the line about a hidden character in the name, in the colour of the warnings; the others, small.
+            val hiddenLine = if (hasHiddenChars(shown.ssid)) wifiQrNameHidden(hiddenMarks(shown.ssid).joinToString(", ")) else null
             shown.lines.drop(1).forEach {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (it == hiddenLine) {
+                    Text(it, color = NegativeColor)
+                } else {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             val image = vm.drawn.value
             val failed = vm.problem.value

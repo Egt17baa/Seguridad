@@ -15,7 +15,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 import java.io.File
 
@@ -44,7 +43,6 @@ class RedTeam20WifiQrTest {
      * The safe behaviour asserted: for a name with characters that draw nothing, what the screen shows tells it from the
      * plain name: the name is not shown through `plainReportText` alone, or the lines under it say so.
      */
-    @Ignore("RT-24: abierto, ver redteam-report.md")
     @Test fun rt24_theQrScreenNeverShowsAnotherNetworkThanTheCodeJoins() {
         val screen = source("ui/screens/WifiQrScreen.kt")
         assertTrue("the screen shows the name", screen.contains("shown.ssid"))

@@ -341,7 +341,9 @@ fun wifiConfigOf(entry: VaultEntry): WifiConfig {
 fun wifiQrLines(c: WifiConfig): List<String> {
     WifiQr.problem(c)?.let { return listOf(it) }
     val open = c.security == "nopass"
-    return listOfNotNull(if (open) WIFI_QR_WARNING_OPEN else WIFI_QR_WARNING, WIFI_QR_OPEN_WITH_PASSWORD.takeIf { open && c.password.isNotEmpty() })
+    // RT-24: second, right after O-4, a name with characters that draw nothing (the code carries them as they are).
+    val hidden = if (hasHiddenChars(c.ssid)) wifiQrNameHidden(hiddenMarks(c.ssid).joinToString(", ")) else null
+    return listOfNotNull(if (open) WIFI_QR_WARNING_OPEN else WIFI_QR_WARNING, hidden, WIFI_QR_OPEN_WITH_PASSWORD.takeIf { open && c.password.isNotEmpty() })
 }
 
 // Texts (also in «Textos para el Abogado Digital (revisión final)» of the task's report and in the annex of texts).
@@ -354,6 +356,15 @@ const val WIFI_QR_TITLE = "QR del wifi"
 
 /** O-4, on view, with a password in the code. */
 const val WIFI_QR_WARNING = "Quien vea este código ve la contraseña y puede conectarse a tu wifi."
+
+/**
+ * RT-24: on view, in the colour of the warnings, right after O-4, when the network's name has characters that draw
+ * nothing ([hasHiddenChars]); [marks] as [hiddenMarks] joined with «, ». The code writes the name as it is, so a reader
+ * joins that very name, which may be another network.
+ */
+fun wifiQrNameHidden(marks: String) =
+    "El nombre de esta red lleva caracteres que no se ven, marcados como $marks, y el código los lleva tal cual. Si no lo " +
+        "escribiste así, vuelve a escribir el nombre en «Editar»."
 
 /** The same warning for an open network, which has no password to see. */
 const val WIFI_QR_WARNING_OPEN = "Quien vea este código puede conectarse a tu wifi."
@@ -405,5 +416,5 @@ val WIFI_QR_TEXTS: List<String> = listOf(
     WIFI_QR_OPEN, WIFI_QR_TITLE, WIFI_QR_WARNING, WIFI_QR_WARNING_OPEN, WIFI_QR_OPEN_WITH_PASSWORD, WIFI_QR_SHOW, WIFI_QR_HIDE,
     WIFI_QR_IMAGE, WIFI_QR_NO_NAME, WIFI_QR_NO_SECURITY, WIFI_QR_NO_PASSWORD, WIFI_QR_TOO_BIG, WIFI_QR_FAILED, WIFI_QR_NOT_ADDED,
     QR_WIFI_NOT_ADDABLE, qrWifiOtherSecurity("WPA3"), QR_WIFI_PASSWORD_WITHOUT_TYPE, QR_WIFI_NAME_SPACES, QR_WIFI_UNREADABLE,
-    QR_TEXT_HIDDEN_WIFI,
+    QR_TEXT_HIDDEN_WIFI, wifiQrNameHidden("\u27E8U+200B\u27E9"),
 )

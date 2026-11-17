@@ -798,8 +798,9 @@ class PlatformSourcesTest {
                 "expiryLine(item.copy(what = plainReportText(item.what, 100)), today)",
             ),
             "ui/screens/OtpQrScreen.kt" to listOf("Text(plainReportText(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(\" · \"))"),
-            // 2.0, task 9: the network's name over its QR.
-            "ui/screens/WifiQrScreen.kt" to listOf("Text(plainReportText(shown.ssid)"),
+            // 2.0, task 9: the network's name over its QR. RT-24: with the marks of what draws nothing (visibleText, as the
+            // inspector), which also neutralises controls and direction marks.
+            "ui/screens/WifiQrScreen.kt" to listOf("Text(visibleText(shown.ssid)"),
             "ui/screens/HealthScreen.kt" to listOf("Text(plainReportText(title).ifEmpty { \"(sin título)\" }"),
             "ui/screens/ContactsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(e.title)), maxLines = 1"),
             "ui/screens/ContactDetailScreen.kt" to listOf("Text(plainReportText(shownContactTitle(entry.title)), style"),

@@ -424,6 +424,31 @@ class WifiQrTest {
         assertEquals(WifiConfig("Casa", "primera", "WPA", false), wifiConfigOf(e))
     }
 
+    /**
+     * RT-24: a name with characters that draw nothing gets, second, the line that names their marks (the code carries them
+     * as they are); a legitimate emoji with its variation selector does not.
+     */
+    @Test fun aNameWithHiddenCharactersSaysSo() {
+        for (twin in listOf("Casa\u200B", "Ca\u00ADsa", "Casa\u202E", "\u2066Casa", "Casa\u0000")) {
+            val c = wpa(twin, "clave-larga-1")
+            if (WifiQr.problem(c) != null) continue // No code at all: only why.
+            val lines = wifiQrLines(c)
+            assertEquals(twin, WIFI_QR_WARNING, lines[0])
+            assertEquals(twin, wifiQrNameHidden(hiddenMarks(twin).joinToString(", ")), lines[1])
+        }
+        assertEquals(listOf(WIFI_QR_WARNING), wifiQrLines(wpa("Casa ❤️", "clave-larga-1")))
+        assertEquals(
+            listOf(WIFI_QR_WARNING_OPEN, wifiQrNameHidden("\u27E8U+200B\u27E9"), WIFI_QR_OPEN_WITH_PASSWORD),
+            wifiQrLines(WifiConfig("Bar\u200B", "clave", "nopass", false)),
+        )
+        assertEquals(
+            "El nombre de esta red lleva caracteres que no se ven, marcados como ⟨U+200B⟩, y el código los lleva tal cual. Si no " +
+                "lo escribiste así, vuelve a escribir el nombre en «Editar».",
+            wifiQrNameHidden("⟨U+200B⟩"),
+        )
+        assertTrue(wifiQrNameHidden("\u27E8U+200B\u27E9") in WIFI_QR_TEXTS)
+    }
+
     @Test fun theTextsSayNoOtherWifiSpellingAndShowNoPassword() {
         for (t in WIFI_QR_TEXTS) {
             assertFalse(t, "Wi-Fi" in t || "WiFi" in t)
