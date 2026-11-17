@@ -29,6 +29,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -146,11 +147,28 @@ fun VaultSwitcher(container: AppContainer, onOpen: () -> Unit) {
 }
 
 private sealed interface PickerDialog {
-    data object New : PickerDialog
-    data object Rename : PickerDialog
-    data object Delete : PickerDialog
-    data object DeleteEmpty : PickerDialog
-    data class ImportNew(val uri: Uri) : PickerDialog
+    val kind: PickerDialogKind
+
+    data object New : PickerDialog { override val kind = PickerDialogKind.NEW }
+    data object Rename : PickerDialog { override val kind = PickerDialogKind.RENAME }
+    data object Delete : PickerDialog { override val kind = PickerDialogKind.DELETE }
+    data object DeleteEmpty : PickerDialog { override val kind = PickerDialogKind.DELETE_EMPTY }
+    data class ImportNew(val uri: Uri) : PickerDialog { override val kind = PickerDialogKind.IMPORT_NEW }
+}
+
+/** Branch review, C I-1: the dialogs of «Bóvedas», by kind (what [pickerDialogKept] decides on). */
+internal enum class PickerDialogKind { NEW, RENAME, DELETE, DELETE_EMPTY, IMPORT_NEW }
+
+/**
+ * Branch review, C I-1: whether the dialog [kind] stays open with the active vault in [state]. Open: every one. Locked
+ * (or still loading): only «Borrar» of an empty slot, which holds nothing typed; «Cambiar el nombre» holds the vault's
+ * name, and the others a typed master password (the one of a copy is often a real master), so they go as «PIN y
+ * códigos» does. With no vault: those that make one, and «Borrar» of the empty slot.
+ */
+internal fun pickerDialogKept(kind: PickerDialogKind, state: VaultState): Boolean = when (state) {
+    is VaultState.Unlocked -> true
+    VaultState.NoVault -> kind == PickerDialogKind.NEW || kind == PickerDialogKind.IMPORT_NEW || kind == PickerDialogKind.DELETE_EMPTY
+    else -> kind == PickerDialogKind.DELETE_EMPTY
 }
 
 /**
@@ -177,6 +195,11 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
     // holding the phone with every vault locked changes nothing here but which one is shown; read off the main thread.
     val canAdd by produceState(false, activeState, vaults) { value = withContext(Dispatchers.IO) { container.canAddVault() } }
     VaultIdleLock(active)
+    // Branch review, C I-1: a lock (idle, or leaving the app) closes what a dialog shows or holds of the vault, or a typed
+    // master; from the active vault's state, which is synchronous (canAdd is read off the main thread).
+    LaunchedEffect(active, activeState) {
+        dialog?.let { if (!pickerDialogKept(it.kind, activeState)) dialog = null }
+    }
 
     // Review M-1: an empty slot (no vault file at all) can be taken away without a master; read off the main thread.
     val emptySlot by produceState(false, active, activeState) {
