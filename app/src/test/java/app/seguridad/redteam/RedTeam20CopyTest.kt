@@ -22,7 +22,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -133,7 +132,6 @@ class RedTeam20CopyTest {
      * but «Importar copia» of 1.3.0 to 1.4.3 kept any number from a copy made by hand, and their copies carried them on;
      * see the report, «Fila 52».
      */
-    @Ignore("RT-21: abierto, ver redteam-report.md")
     @Test fun rt21_aCopyWhoseTreeOutgrowsThePhoneIsRefusedBeforeItIsDecoded() = runBlocking {
         val size = 18 * 1024 * 1024
         val hostileJson = manyTags(size / 7)
@@ -160,15 +158,20 @@ class RedTeam20CopyTest {
     }
 
     /**
-     * RT-21, the impact that passes today: «Comprobar una copia» reads the same copy as fine (no problem listed) and keeps
-     * every tag, and the decoded tree retained is several times the copy's JSON. Measured on a smaller copy (2 MiB), so the
-     * test stays far from the 512 MiB of the tests' heap; the ratio is what scales to 24 MiB.
+     * RT-21, after the fix (part b): «Comprobar una copia» of the same copy (a list of 300 000 tags, over [COPY_LIST_MAX])
+     * refuses it as damaged. The measure of what such a tree keeps stays, with [VaultCrypto.read] without the bounds of a
+     * copy (the vault's own file has none): it is several times the copy's JSON. Measured on a smaller copy (2 MiB), so
+     * the test stays far from the 512 MiB of the tests' heap; the ratio is what scales to 24 MiB.
      */
-    @Test fun rt21Impact_aCheckOfTheCopyFindsNothingWrongAndTheTreeIsSeveralTimesItsJson() = runBlocking {
+    @Test fun resistsACheckOfACopyOverTheListCapRefusesIt() = runBlocking {
         val json = manyTags(300_000)
         val (file, dek) = rt20HostileFile(json)
-        val report = checkBackup(ByteArrayInputStream(rt20Copy(file)), RT20_MASTER.toCharArray(), File(tmp.root, "comprobar"), Dispatchers.Unconfined, Dispatchers.Unconfined)
-        assertEquals(emptyList<String>(), report.problems)
+        try {
+            checkBackup(ByteArrayInputStream(rt20Copy(file)), RT20_MASTER.toCharArray(), File(tmp.root, "comprobar"), Dispatchers.Unconfined, Dispatchers.Unconfined)
+            fail("The check found nothing wrong")
+        } catch (e: CryptoFailure) {
+            assertEquals(app.seguridad.vault.COPY_DAMAGED, e.message)
+        }
         fun used(): Long {
             repeat(3) { System.gc() }
             return Runtime.getRuntime().let { it.totalMemory() - it.freeMemory() }

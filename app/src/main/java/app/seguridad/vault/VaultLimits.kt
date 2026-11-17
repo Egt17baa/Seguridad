@@ -247,6 +247,204 @@ internal fun VaultData.checkStructure() {
     if (deepest > VaultLimits.FOLDER_DEPTH_MAX) throw VaultLimitExceeded(FOLDERS_TOO_DEEP)
 }
 
+/*
+ * RT-21, part b (ruling of the director on the final attack): what a copy's data cost once decoded, estimated from its
+ * bytes before they are decoded, and the longest of its lists. Only for copies («Importar copia», «Importar como bóveda
+ * nueva», the JSON export of 1.0 and «Comprobar una copia»); never for the vault's own file.
+ *
+ * The model follows the typed decoding (kotlinx-serialization into [VaultData]), not a JSON tree; member names cost
+ * nothing (they are the classes' fields), save in [VaultData.tagColors], a map:
+ * - an object: [COPY_TREE_OBJECT_BYTES] (the largest class, [VaultEntry]); in `tagColors`, a `LinkedHashMap`
+ *   ([COPY_TREE_COLLECTION_BYTES] and its table) and per member [COPY_TREE_ELEMENT_BYTES] and its key's string;
+ * - an array: [COPY_TREE_COLLECTION_BYTES] and a table of references made at its first element with 16 slots and
+ *   doubled when more than ¾ full, plus [COPY_TREE_ELEMENT_BYTES] per element: the cost of a `LinkedHashSet` element,
+ *   the dearest of the lists the classes hold (a `Set` in a view's filter), for every array;
+ * - a string: [COPY_TREE_STRING_BYTES] plus [COPY_TREE_CHAR_BYTES] per byte inside its quotes (an escape counts what it
+ *   writes, more than what it gives);
+ * - a number, `true`, `false` or `null`: [COPY_TREE_LITERAL_BYTES] (a boxed `Long?` at most).
+ * Each constant is measured against the live heap after GC for samples of each shape (list, set, map and object) and is
+ * never below it (RedTeam20CopyShapeTest); the table is in redteam-fixes-report.md.
+ */
+
+/** Longest list (or object with members) of a copy, the list of entries aside. */
+const val COPY_LIST_MAX = 10_000
+
+/** An object: a [VaultEntry] (the largest class: about 30 fields, 4-byte references, 8-byte longs, a 12-byte header). */
+const val COPY_TREE_OBJECT_BYTES = 160L
+
+/** An `ArrayList`, `LinkedHashSet` or `LinkedHashMap` with nothing in it (its table aside). */
+const val COPY_TREE_COLLECTION_BYTES = 64L
+
+/** One element of a list, a set or a map: a `LinkedHashMap.Entry` (40 B), the dearest of the three. */
+const val COPY_TREE_ELEMENT_BYTES = 40L
+
+/** A `String` and its byte array, besides the characters (a one-character string is 48 B). */
+const val COPY_TREE_STRING_BYTES = 48L
+
+/** Each byte inside a string's quotes: at most two bytes of `String` (UTF-16) per byte of UTF-8. */
+const val COPY_TREE_CHAR_BYTES = 2L
+
+/** A number, `true`, `false` or `null`: a boxed `Long?` at most. */
+const val COPY_TREE_LITERAL_BYTES = 16L
+
+/**
+ * Largest estimated decoded tree of a copy's data ([copyTreeEstimate]): 262 MiB, 1.25 times the dearest legitimate
+ * shape at [VaultLimits.VAULT_MAX_DATA_BYTES] + [VaultLimits.COPY_DATA_MARGIN_BYTES] (logins as the app makes them, each
+ * with 10 tags of one code point: 219 574 908 bytes estimated), rounded up to the MiB. The calibration, shape by shape,
+ * is in redteam-fixes-report.md and RedTeam20CopyShapeTest. A copy over it is refused before it is decoded; the vault's
+ * own file never is.
+ */
+const val COPY_TREE_MAX_BYTES = 262L * 1024 * 1024
+
+/** What [scanCopy] found: the [estimate] (stopped at [treeLimit] if passed) and the [longest] list but the entries. */
+internal data class CopyShape(val estimate: Long, val longest: Int)
+
+/**
+ * RT-21: refuses with [CryptoFailure] ([COPY_DAMAGED]) the data of a copy ([json], of [version]) with a list or an
+ * object of more than [COPY_LIST_MAX] elements or members (the list of entries aside: the root of a version 2, 3 or
+ * unknown, the member `entries` of the root in a 4), or whose decoded tree would pass [treeMax]. Before any `String` is
+ * made, in one linear pass.
+ */
+internal fun checkCopyShape(json: ByteArray, version: Int, treeMax: Long = COPY_TREE_MAX_BYTES) {
+    val shape = scanCopy(json, version, treeMax, COPY_LIST_MAX)
+    if (shape.longest > COPY_LIST_MAX || shape.estimate > treeMax) throw app.seguridad.crypto.CryptoFailure(COPY_DAMAGED)
+}
+
+/** The estimate of [checkCopyShape], with no bound: for the tests and the calibration. */
+internal fun copyTreeEstimate(json: ByteArray, version: Int): Long = scanCopy(json, version, Long.MAX_VALUE, Int.MAX_VALUE).estimate
+
+/** The longest list or object but the entries, with no bound: for the tests. */
+internal fun copyLongestList(json: ByteArray, version: Int): Int = scanCopy(json, version, Long.MAX_VALUE, Int.MAX_VALUE).longest
+
+private fun tableBytes(slots: Int): Long = (16L + 4L * slots + 7) / 8 * 8
+
+private fun bytesEqual(json: ByteArray, from: Int, to: Int, word: String): Boolean {
+    if (to - from != word.length) return false
+    for (k in word.indices) if (json[from + k].toInt() != word[k].code) return false
+    return true
+}
+
+/**
+ * The pass of [checkCopyShape]: knows about strings and their escapes (a bracket or a quote inside a string does not
+ * count), keeps per open level whether it is an object, a map or the entries, its count and its table, and stops as
+ * soon as the estimate passes [treeLimit] or a list passes [listLimit]. It does not check that the JSON is valid; the
+ * decoder does that afterwards. Nesting past [VaultLimits.JSON_MAX_DEPTH] is [jsonNestingWithin]'s, checked before.
+ */
+private fun scanCopy(json: ByteArray, version: Int, treeLimit: Long, listLimit: Int): CopyShape {
+    val max = VaultLimits.JSON_MAX_DEPTH + 1
+    val isObject = BooleanArray(max + 1)
+    val isMap = BooleanArray(max + 1)
+    val isEntries = BooleanArray(max + 1)
+    val count = IntArray(max + 1)
+    val room = IntArray(max + 1)
+    var depth = 0
+    var bytes = 0L
+    var longest = 0
+    var inLiteral = false
+    var lastStringFrom = -1
+    var lastStringTo = -1
+    var lastStringCost = 0L
+    // What the next value of the root's member is: 1 entries, 2 tagColors, 0 anything else.
+    var pending = 0
+
+    fun grow() {
+        val table = room[depth]
+        if (table == 0) {
+            bytes += tableBytes(16)
+            room[depth] = 16
+        } else if (count[depth] > table / 4 * 3) {
+            bytes += tableBytes(table * 2) - tableBytes(table)
+            room[depth] = table * 2
+        }
+    }
+
+    fun counted() {
+        if (!isEntries[depth] && count[depth] > longest) longest = count[depth]
+    }
+
+    /** A value starts at the current level: an element, if that level is an array. */
+    fun element() {
+        if (depth == 0 || isObject[depth]) return
+        count[depth]++
+        bytes += COPY_TREE_ELEMENT_BYTES
+        grow()
+        counted()
+    }
+
+    fun open(obj: Boolean) {
+        element()
+        val kind = if (depth == 1) pending else 0
+        pending = 0
+        if (++depth > max) return
+        isObject[depth] = obj
+        isMap[depth] = obj && kind == 2
+        isEntries[depth] = (!obj && kind == 1) || (!obj && depth == 1 && version != VaultFile.VERSION)
+        count[depth] = 0
+        room[depth] = 0
+        bytes += if (!obj || isMap[depth]) COPY_TREE_COLLECTION_BYTES else COPY_TREE_OBJECT_BYTES
+    }
+
+    var i = 0
+    val n = json.size
+    while (i < n) {
+        when (json[i].toInt()) {
+            '"'.code -> {
+                inLiteral = false
+                element()
+                val from = ++i
+                while (i < n) {
+                    val c = json[i].toInt()
+                    if (c == '\\'.code) i += 2 else if (c == '"'.code) break else i++
+                }
+                lastStringFrom = from
+                lastStringTo = minOf(i, n)
+                lastStringCost = COPY_TREE_STRING_BYTES + COPY_TREE_CHAR_BYTES * (lastStringTo - from)
+                bytes += lastStringCost
+            }
+            '{'.code, '['.code -> {
+                inLiteral = false
+                open(json[i].toInt() == '{'.code)
+            }
+            '}'.code, ']'.code -> {
+                inLiteral = false
+                if (depth > 0) depth--
+            }
+            ':'.code -> {
+                inLiteral = false
+                if (depth > 0 && isObject[depth]) {
+                    count[depth]++
+                    counted()
+                    if (isMap[depth]) {
+                        // A key of tagColors: its string stays, with its map entry and the table.
+                        bytes += COPY_TREE_ELEMENT_BYTES
+                        grow()
+                    } else {
+                        bytes -= lastStringCost // A member's name is a field: it costs nothing.
+                        if (depth == 1) {
+                            pending = when {
+                                bytesEqual(json, lastStringFrom, lastStringTo, "entries") -> 1
+                                bytesEqual(json, lastStringFrom, lastStringTo, "tagColors") -> 2
+                                else -> 0
+                            }
+                        }
+                    }
+                }
+            }
+            ','.code, ' '.code, '\t'.code, '\n'.code, '\r'.code -> inLiteral = false
+            else -> {
+                if (!inLiteral) {
+                    element()
+                    bytes += COPY_TREE_LITERAL_BYTES
+                }
+                inLiteral = true
+            }
+        }
+        if (bytes > treeLimit || longest > listLimit) break
+        i++
+    }
+    return CopyShape(bytes, longest)
+}
+
 /**
  * Whether the JSON in [json] never nests `{` and `[` deeper than [max] (outside strings, with their escapes). A linear
  * pass over the bytes, before decoding: what does not pass is not decoded.

@@ -90,7 +90,7 @@ suspend fun checkBackup(
         KdfLock.derive(compute) { key = unlock(incoming, master) }
         currentCoroutineContext().ensureActive()
         val dek = key!!
-        val data = withContext(compute) { VaultCrypto.read(incoming, dek) }
+        val data = withContext(compute) { VaultCrypto.read(incoming, dek, copy = true) } // RT-21, part b.
         val entries = data.entries
         checkCopyEntries(entries)
         checkCopyStructure(data)

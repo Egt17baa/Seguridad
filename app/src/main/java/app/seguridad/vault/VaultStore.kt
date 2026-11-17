@@ -1511,7 +1511,7 @@ class VaultStore(
                         if (backup == null && data.entries.any { it.attachments.isNotEmpty() }) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
                         data
                     },
-                    derive = kekDerive, onCostKept = { costKept = true },
+                    derive = kekDerive, onCostKept = { costKept = true }, copy = true, // RT-21, part b.
                 )
             }
             val checked = unlocked.file

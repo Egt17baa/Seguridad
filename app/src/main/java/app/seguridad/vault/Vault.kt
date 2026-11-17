@@ -408,12 +408,18 @@ object VaultCrypto {
      * (or without a version). [CryptoFailure] for a key that does not open it, or data that does not decode: also JSON
      * nested deeper than [VaultLimits.JSON_MAX_DEPTH], refused before it is decoded. The versions in
      * [VaultEntry.history] come back without history or attachments of their own, whatever the file says.
+     *
+     * RT-21, part b: with [copy] (the data of a copy: «Importar copia», «Importar como bóveda nueva», a JSON export of
+     * 1.0 and «Comprobar una copia»), [checkCopyShape] runs on the bytes before any of them is decoded: a list of more
+     * than [COPY_LIST_MAX] or a tree over [COPY_TREE_MAX_BYTES] is [COPY_DAMAGED]. The vault's own file never has those
+     * bounds: it opens as it is if there is memory.
      */
-    fun read(file: VaultFile, dek: ByteArray): VaultData {
-        decodes.incrementAndGet()
+    fun read(file: VaultFile, dek: ByteArray, copy: Boolean = false): VaultData {
         val (json, version) = openAny(dek, file.data, file) { dataAad(file, it) }
         try {
             if (!jsonNestingWithin(json)) throw CryptoFailure()
+            if (copy) checkCopyShape(json, version)
+            decodes.incrementAndGet()
             val text = json.toString(Charsets.UTF_8)
             val data = if (version == VaultFile.VERSION) {
                 appJson.decodeFromString(VaultData.serializer(), text)
@@ -430,7 +436,7 @@ object VaultCrypto {
         }
     }
 
-    /** RT-21, part a: how many times [read] decoded a vault's data in this process; only tests read it. */
+    /** RT-21: how many times [read] decoded a vault's data (after its checks) in this process; only tests read it. */
     internal val decodes = java.util.concurrent.atomic.AtomicInteger()
 
     /** The data's JSON exactly as stored (decrypted, not decoded): for tests that check what was really written. */
@@ -541,10 +547,11 @@ object VaultCrypto {
         prepare: (VaultData) -> VaultData = { it },
         derive: KekDerive = EXISTING_DERIVE,
         onCostKept: () -> Unit = {},
+        copy: Boolean = false,
     ): MasterUnlocked {
         val known = resolve(file, dek)
         val old = known.version != VaultFile.VERSION
-        val read = read(known, dek)
+        val read = read(known, dek, copy)
         val data = prepare(if (old) read.upgraded(random).fitted() else read.copy(vaultTag = read.vaultTag.ifEmpty { newVaultTag(random) }))
         val weaker = known.kdf.memoryKiB < kdf.memoryKiB || known.kdf.iterations < kdf.iterations
         // Whatever is wrapped again never costs less than the file did on any axis (a stronger old file keeps its strength).
