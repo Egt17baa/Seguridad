@@ -4,11 +4,11 @@
 
 - **Fase 1 (lo que haría fracasar la 2.0): hecha.** Superficies 1 (copias v4 hostiles, fila 52), 2 (paso a v4 y muerte del proceso), 3 (aislamiento entre bóvedas, H-1 y H-2) y 4 (copias a varios destinos y A6).
 - **Fase 2 (textos de fuera, QR y portapapeles): hecha.** Superficies 5 (fila 24), 6 (notas con formato), 7 (portapapeles) y 8 (búsquedas).
-- **Fase 3 (barrido de regresión): pendiente.**
+- **Fase 3 (barrido de regresión): hecha.** Sin hallazgos nuevos; 3 tests de resistencia más.
+- **El ataque está terminado** (las tres fases). Lo siguiente es del controlador: el Ruling del director por cada RT y la ronda de arreglos; después, la re-comprobación (`redteam-recheck-N.md`).
 - **Hallazgos hasta ahora:** RT-21 (Media), RT-22 (Baja), RT-23 (Informativa) y RT-24 (Baja).
-- **Último commit:** el de «2.0, ataque: fase 2, QR del wifi, notas, portapapeles y búsquedas» (encima de `7927ffc`, el cierre de la fase 1).
-- **Última ejecución de Gradle (17-11-2026, cierre de la fase 2):** `jvm-check`, `RedTeam20*`: verde, 13 tests, 3 ignorados (RT-21 a RT-23). La app, `:app:testDebugUnitTest --tests 'app.seguridad.redteam.*' --tests 'app.seguridad.ui.redteam.*'`: verde, 88 tests, 4 ignorados (RT-21 a RT-24), 0 fallos; después `./gradlew --stop`. Sin los `@Ignore`, fallan solo los `rtN_`.
-- **Siguiente paso si se corta la sesión:** fase 3, el barrido de regresión (empezar por «Importar de otra app» sobre una bóveda v4).
+- **Último commit:** el de «2.0, ataque: fase 3, barrido de regresión y cierre del ataque» (encima de `c014f2f`, la fase 2).
+- **Última ejecución de Gradle (17-11-2026, cierre del ataque):** `jvm-check`, `--tests 'app.seguridad.redteam.*'`: verde, 88 tests (los de la 1.4.0 y los de la 2.0), 3 ignorados (RT-21 a RT-23), 0 fallos. La app, `:app:testDebugUnitTest --tests 'app.seguridad.redteam.*' --tests 'app.seguridad.ui.redteam.*'`: verde, 91 tests, 4 ignorados (RT-21 a RT-24), 0 fallos; después `./gradlew --stop`.
 
 ## Alcance y modelo de amenaza
 
@@ -34,9 +34,13 @@ Atacantes: quien consigue que el usuario importe un archivo manipulado (y conoce
 | RT-23 | 3. Aislamiento (H-2) | «Importar como bóveda nueva» (y «Importar copia») conserva la clave de datos de la copia: la bóveda nueva tiene la misma clave que la bóveda de la que salió la copia. El diseño dice que cada bóveda tiene la suya (`specs/…-design.md:38`, `:62`). No he encontrado ningún camino sin root que lo aproveche: es veracidad del diseño | Informativa | MASVS-CRYPTO-2 | Abierto |
 | RT-24 | 5. QR del wifi (fila 24, sentido (b)) | «Enseñar QR» escribe el nombre de la red tal como está guardado, pero la pantalla lo enseña con `plainReportText`, que quita lo que no se dibuja: una entrada «Casa» seguida de U+200B (o de U+00AD, U+202E, U+2066 o un NUL) enseña «Casa» sobre el código, sin ningún aviso, y cualquier lector se une a otra red, la de quien hizo el código | Baja: 3,7 (`AV:A/AC:H/PR:N/UI:R/S:U/C:L/I:L/A:N`) | MASVS-PLATFORM-3, MASVS-CODE-4 | Abierto |
 
-Recuento de la fase 1: **1 hallazgo de severidad media (RT-21), 1 bajo (RT-22) y 1 informativo (RT-23)**; ninguno crítico ni alto. Hay 7 tests de ataques resistidos en la fase 1 (abajo).
+Recuento de la fase 1: **1 hallazgo de severidad media (RT-21), 1 bajo (RT-22) y 1 informativo (RT-23)**; ninguno crítico ni alto. Hay 5 tests de ataques resistidos en la fase 1 (abajo), más un test de impacto de RT-21 que pasa hoy.
 
 Recuento de la fase 2: **1 hallazgo bajo (RT-24)**; ninguno crítico, alto ni medio. Hay 6 tests de ataques resistidos en la fase 2 (abajo).
+
+Recuento de la fase 3: **ningún hallazgo nuevo**; 3 tests de resistencia y las 4 clases de la 1.4.0 otra vez en verde sobre el código de la 2.0.
+
+**Recuento total del ataque: 4 hallazgos: RT-21 (Media), RT-22 y RT-24 (Bajas) y RT-23 (Informativa); ninguno crítico ni alto. 14 tests de ataques resistidos nuevos, más el de impacto de RT-21.**
 
 ## Hallazgos
 
@@ -255,6 +259,27 @@ java.lang.AssertionError: The screen shows «Casa» and says nothing, while the 
 - **Lo que sí delata la lista:** el filtro «Débiles» y la vista que lo guarda (`:178`) dicen qué contraseñas son débiles, que es lo que hace «Salud», por diseño. No lo cuento como hallazgo.
 - **Tope y hilo:** el texto se corta a 200 puntos de código (`searchText`, `:55-58`) y la búsqueda corre en `Dispatchers.Default` (`ui/screens/VaultList.kt:272`). El buscador de Ajustes corta a 60 (`settings/SettingsSearch.kt:85-97`) y solo lee títulos y líneas cortas de los ajustes.
 
+### Fase 3: barrido de regresión
+
+- **«Importar de otra app» sobre una bóveda v4** (`RedTeam20SweepTest.resistsAnImportOverAV4VaultWithHistoryAndTrash`). El plan y el guardado solo ven las entradas vivas (`VaultState.Unlocked.entries = data.live`, `vault/VaultStore.kt:61-63`; `modify`, `:821-825`), y la papelera se vuelve a añadir tal cual. Lo probé así:
+  - con una gemela en la papelera, «Reemplazar» cambia solo la entrada viva, y la de la papelera no se toca;
+  - un 2FA en la papelera no cuenta como duplicado: entra uno nuevo y el de la papelera se queda;
+  - en una entrada con el historial lleno (20 versiones), «Reemplazar» guarda la anterior como versión y quita la más vieja (`withVersion`, `vault/EntryHistory.kt:34-39`), sin dar `EntryTooBig`.
+
+  Los tipos nuevos frente a R67: solo se comparan y se reemplazan entradas del mismo tipo que no sean personales (`imports/MergePlan.kt:107`, `:139-141`, `:341-345`). Una importación no trae tarjetas, wifi, licencias ni pasaportes, y el 2FA solo se busca en `totp` (`:652-670`).
+- **`SG1:`, `.sgenc`, SLIP-0039, las bombas de KDF y los nombres de archivo:** desde la 1.4.3 solo cambiaron los textos de `crypto/Crypto.kt` (`KDF_PARAMS_INVALID`, `KDF_OUT_OF_MEMORY` según el coste y `KDF_NO_MEMORY_NOW`; `git diff a3ac942 HEAD -- crypto tools/slip39 net core`). `checkSane` sigue rechazando antes de derivar, y ahora con dos textos que solo dependen de la cabecera y del *heap*, nunca de la contraseña: no sirven de oráculo. Las cuatro clases de la 1.4.0 (`RedTeamCryptoTest`, `RedTeamImportTest`, `RedTeamSecondAttackTest`, `RedTeamRecheckTest`) pasan en verde sobre el código de la 2.0, en `jvm-check` y en la app.
+- **Cada ventana con `FilterObscuredTouches()`** (`resistsAWindowWhoseOnlyFilterIsInAnotherWindow`). `PlatformSourcesTest.kt:548-567` mira que haya una llamada dentro de cada ventana, pero una ventana dentro de otra (un menú en un diálogo) le valdría solo con la llamada de la de dentro. Este test mira cada ventana por separado, y todas tienen la suya, fuera de las ventanas que llevan dentro (al menos 15 encontradas). No se usa ninguna otra clase de ventana (`TooltipBox`, `PopupWindow`, `AlertDialog.Builder`, `DialogFragment`, barras de búsqueda, selectores de hora o de fechas: `grep`, sin coincidencias), y los envoltorios (`TagColorsDialog`…) llaman dentro a uno de los que se miran.
+- **Nada secreto en `rememberSaveable` ni en un `Bundle`:** desde la 1.4.3 solo hay tres `rememberSaveable` nuevos (`git diff a3ac942 HEAD`):
+  - el editor de «Personalizado», con tonos e intensidad (`ui/screens/AppearanceScreen.kt:138-141`);
+  - la página de la guía (`ui/screens/OnboardingScreen.kt:47`);
+  - la carpeta cuyo selector está abierto (`ui/screens/SettingsScreen.kt:301`), una URI que ya está en los ajustes.
+
+  Ninguno es un secreto. Las rutas nuevas solo llevan ids (`ui/AppNavHost.kt:362-460`). «Ver en grande» lee la contraseña de la bóveda y se cierra al bloquear (`ui/screens/BigPasswordScreen.kt:106-129`).
+- **Ningún log con datos:** en `app/src/main` no hay ningún `android.util.Log`, `println` ni `printStackTrace` (`grep`, y el diff desde la 1.4.3 no añade ninguno).
+- **`settings.json` y `vaults.json`** (`resistsSecretsInThePlainFiles`). Con dos bóvedas con nombre, entradas con título, usuario, contraseña, 2FA y nota, una carpeta de copias y las marcas del reloj, ninguno de los dos archivos lleva un nombre, un título, un usuario, una contraseña, una clave de 2FA, una nota ni la maestra. `vaults.json` solo tiene `vaults`, `id`, `color`, `order` y `lastOpened`. Que cada campo de `settings.json` sea exactamente lo que dice la fila 8 (y la política, §13) lo comprobó el paso 1 de la tarea 12 (`task-12-1-claims.md`). Este test fija lo que nunca debe estar.
+- **La red:** el paquete `net/` no cambió desde la 1.4.3. El único cliente es el de `AppContainer.kt:188` (`secureClient`), y solo se usa en `PwnedPasswords`. En «Salud», la consulta solo sale de los dos botones de siempre (`ui/screens/HealthScreen.kt:205-222`). Ninguna misión la lanza (O-6): una misión es una ruta, `EditEntry` o `CheckBackup` (`health/Missions.kt:22-34`), y la pantalla solo navega (`HealthScreen.kt:150`).
+- **El manifiesto y los permisos:** `git diff a3ac942 HEAD -- app/src/main/AndroidManifest.xml` sale vacío. La parte D (`branch-review-compilacion.md`) volcó el APK y lo encontró igual que el de la 1.4.3. No compilé ningún APK.
+
 ## Filas 24 y 52
 
 - **Fila 52 (prueba n.º 7):** confirmada y ampliada: es RT-21. La memoria se va al decodificar, antes de `afterMasterUnlock` y otra vez después (`VaultStore.kt:1501-1507`); el `OutOfMemoryError` no se captura en ningún sitio de las copias; una copia que entra en un móvil con mucha memoria deja una bóveda que no se abre en uno con poca. Una versión publicada pudo dejar más de 10 etiquetas en una entrada (desde una copia hecha a mano), así que **no** un tope de 10: estimar antes de decodificar, un tope generoso y la excepción capturada como última defensa (arriba).
@@ -277,12 +302,19 @@ java.lang.AssertionError: The screen shows «Casa» and says nothing, while the 
 - **Primitivas:** sin cambios; AES-256-GCM con la AAD de la versión (`vault/Vault.kt:213-255`) y Argon2id. RT-23 no debilita ninguna: con una misma clave de datos, cada sellado usa un *nonce* aleatorio de 12 bytes, y el número de sellados sigue muy lejos del límite de 2^32 por clave (NIST SP 800-38D §8.3).
 - **Aislamiento:** RT-22 es un fallo de control de acceso (CWE-284) en un ajuste de seguridad; RT-23, una afirmación del diseño sin respaldo en el código.
 - **Lo que está bien:** el registro (`dirOf` con patrón exacto), la versión atada en la AAD, la escritura atómica, la papelera con la fecha futura llevada a «ahora», la rotación por id.
+- **Fases 2 y 3:** RT-24 es CWE-451 (lo que se ve frente a lo que el código une). El lector del wifi resiste el CWE-436, el conflicto de interpretación con ZXing. La búsqueda no deja ningún canal lateral hacia un secreto (CWE-203). Las primitivas, los KDF y la red no cambiaron desde la 1.4.3, y el ataque de la 1.4.0 sigue en verde.
 
 ## Revisión Ingeniero Móvil Senior
 
 - **Memoria:** en Android el *heap* de una app va de 192 a 512 MiB según el móvil (`ActivityManager.getMemoryClass`); `importReplace` decodifica dos veces y cifra en medio, y el desbloqueo decodifica, codifica y vuelve a decodificar (`VaultStore.kt:593-603`). Con RT-21 eso pasa de cientos de MiB. Ningún `OutOfMemoryError` está capturado en esas rutas (solo en `ImportScreen.kt:308`, `QrInspectScreen.kt:221` y las de imágenes).
 - **Compose:** las claves perezosas con datos de la bóveda son únicas por construcción (arriba); la lista de etiquetas se rehace con un `HashSet` en cada cambio de datos (`VaultList.kt:302`), lo que con RT-21 es otro coste por composición.
 - **Ciclo de vida:** el borrado al bloquear cuelga del flujo `vaultState` de `AppContainer` y del contador `lockEpoch` de toda la app; ninguna pantalla de la fase 1 guarda un secreto en `rememberSaveable`.
+- **Fases 2 y 3:**
+  - la pantalla del QR esconde el código en `ON_STOP` y se cierra al bloquear;
+  - `MarkupText` lee la nota en `remember`, en el hilo principal: es lineal y está acotado a 64 KiB, salvo el resto sin formato de una nota enorme (RT-21);
+  - la búsqueda corre en `Dispatchers.Default`;
+  - todas las ventanas filtran los toques ocultos;
+  - los tres `rememberSaveable` nuevos no guardan secretos.
 
 ## Textos para el Abogado Digital (revisión final)
 
@@ -294,11 +326,20 @@ java.lang.AssertionError: The screen shows «Casa» and says nothing, while the 
 
 ## Puerta
 
-- Fase 1, `jvm-check` (`--tests 'app.seguridad.redteam.RedTeam20*'`): 9 tests, 3 ignorados (RT-21, RT-22, RT-23), verde.
-- Fase 1, la app (`:app:testDebugUnitTest --tests 'app.seguridad.redteam.*'`, con `flock` y después `--stop`): 81 tests (los de la 1.4.0 y los nuevos), 3 ignorados, 0 fallos, verde.
-- Sin los `@Ignore`, fallan solo los tres `rtN_`, con las salidas copiadas en cada hallazgo.
-- Fase 2, `jvm-check` (`RedTeam20*`): 13 tests, 3 ignorados, verde.
-- Fase 2, la app (`app.seguridad.redteam.*` y `app.seguridad.ui.redteam.*`): 88 tests, 4 ignorados (RT-21 a RT-24), 0 fallos, verde. `RedTeam20WifiQrTest` está en `ui/redteam/` porque usa ZXing y lee una pantalla de Compose: solo la compila la app.
+Estado al cerrar el ataque (17-11-2026), con los `@Ignore` de RT-21 a RT-24:
+
+| Ejecución | Tests | Ignorados | Fallos | Resultado |
+|---|---|---|---|---|
+| `jvm-check`, `--tests 'app.seguridad.redteam.*'` (los de la 1.4.0 y los de la 2.0 que corren en la JVM) | 88 | 3 (RT-21, RT-22, RT-23) | 0 | verde |
+| `:app:testDebugUnitTest --tests 'app.seguridad.redteam.*' --tests 'app.seguridad.ui.redteam.*'`, después `./gradlew --stop` | 91 | 4 (RT-21 a RT-24) | 0 | verde |
+
+- Cada Gradle se corrió con `flock /home/user/.gradle-run.lock`, `--no-daemon` y `--max-workers=1`, y nunca dos a la vez. Las suites enteras no se corrieron: las corre el controlador en un clon limpio.
+- Sin los `@Ignore`, fallan exactamente los cuatro `rtN_`, con las salidas copiadas en cada hallazgo.
+- Archivos de tests de la 2.0:
+  - en `app/src/test/java/app/seguridad/redteam/`: `RedTeam20CopyTest.kt`, `RedTeam20VaultsTest.kt`, `RedTeam20TextsTest.kt` y `RedTeam20SweepTest.kt`;
+  - en `app/src/test/java/app/seguridad/ui/redteam/`: `RedTeam20WifiQrTest.kt`, que solo compila la app.
+- No se tocó `app/src/main`, ni `jvm-check`, ni `gradle/`, ni `.github/`, ni ningún documento salvo este informe.
+- **El PR no puede llevar ningún `@Ignore` en `redteam/`:** cada arreglo quita el suyo (o el Ruling convierte el test en `resists…`, como se dice para RT-23).
 
 ## Después (para quien venga)
 
