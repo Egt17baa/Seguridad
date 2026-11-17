@@ -1510,6 +1510,7 @@ class VaultStore(
             val incomingData = withContext(compute) { VaultCrypto.read(checked, key) }
             val incomingEntries = incomingData.entries
             checkCopyStructure(incomingData)
+            withContext(compute) { checkCopySize(incomingData) } // Branch review, A m-2.
             // The rules «Comprobar una copia» checks too (BackupCheck.kt), so the two never drift apart: one identity per
             // vault (see [upsert]), and what [upsert] and [addAttachment] keep. A copy that breaks one is refused before
             // anything changes.

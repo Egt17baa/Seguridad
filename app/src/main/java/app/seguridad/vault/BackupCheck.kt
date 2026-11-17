@@ -94,6 +94,8 @@ suspend fun checkBackup(
         val entries = data.entries
         checkCopyEntries(entries)
         checkCopyStructure(data)
+        // A copy of before 2.0 is upgraded and fitted when imported, so only a version-4 one is held to the size as read.
+        if (incoming.version == VaultFile.VERSION) checkCopySize(data)
         val refs = entries.flatMap { it.attachments }
         val found = withContext(io) {
             refs.map {
@@ -210,8 +212,8 @@ internal fun checkCopyEntries(entries: List<VaultEntry>) {
 }
 
 /**
- * 2.0: the folders, views and tag colours of a copy within [VaultLimits] ([checkStructure]: no folder inside itself), or
- * the copy is refused as damaged, before anything changes. A copy of 1.4.3 or before has none, and always passes.
+ * 2.0: the folders, views and tag colours of a copy within [VaultLimits] ([checkStructure]: no folder inside itself), and
+ * their names within [ORGANIZE_NAME_MAX] (branch review, A m-4), or the copy is refused as damaged, before anything changes. A copy of 1.4.3 or before has none, and always passes.
  */
 internal fun checkCopyStructure(data: VaultData) {
     try {
@@ -219,6 +221,18 @@ internal fun checkCopyStructure(data: VaultData) {
     } catch (e: VaultLimitExceeded) {
         throw CryptoFailure(COPY_DAMAGED)
     }
+    // Branch review, A m-4: the app never names a folder or a view with more than [ORGANIZE_NAME_MAX] code points.
+    fun long(name: String) = name.codePointCount(0, name.length) > ORGANIZE_NAME_MAX
+    if (data.folders.any { long(it.name) } || data.views.any { long(it.name) }) throw CryptoFailure(COPY_DAMAGED)
+}
+
+/**
+ * Branch review, A m-2: the data of a copy over [VaultLimits.VAULT_MAX_DATA_BYTES] (as the import holds them, an old copy
+ * already upgraded and fitted) are a damaged copy: no vault of Clavero passes it, and one that did could not be saved
+ * again (every save would refuse it).
+ */
+internal fun checkCopySize(data: VaultData) {
+    if (jsonBytes(data) > VaultLimits.VAULT_MAX_DATA_BYTES) throw CryptoFailure(COPY_DAMAGED)
 }
 
 /** How an attachment an entry lists is in a copy ([attachmentInCopy]). */

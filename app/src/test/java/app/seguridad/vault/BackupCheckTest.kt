@@ -116,6 +116,15 @@ class BackupCheckTest {
         return zipOf(parts.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json else it })
     }
 
+    /** As [rewritten], with [change] to the whole data (folders, views…). */
+    private fun rewrittenData(zip: ByteArray, change: (VaultData) -> VaultData): ByteArray {
+        val parts = entriesOf(zip)
+        val file = VaultCrypto.decodeFile(parts.single { it.first == BACKUP_VAULT }.second.decodeToString())
+        val dek = VaultCrypto.unlock(file, master.toCharArray())
+        val json = VaultCrypto.encodeFile(VaultCrypto.write(file, dek, change(VaultCrypto.read(file, dek)))).toByteArray()
+        return zipOf(parts.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json else it })
+    }
+
     private suspend fun check(zip: ByteArray, temp: File, pw: String = master) = checkBackup(ByteArrayInputStream(zip), pw.toCharArray(), temp)
 
     private suspend fun checkFails(zip: ByteArray, temp: File, pw: String = master): String {
@@ -543,6 +552,43 @@ class BackupCheckTest {
         assertNull(copyCheckFails(listOf(trashed, trashed.copy(id = "y3"))))
         assertEquals(SEVERAL_IDENTITIES, copyCheckFails(listOf(alive, alive.copy(id = "y3"))))
         assertEquals(SEVERAL_IDENTITIES, copyCheckFails(listOf(alive, trashed, alive.copy(id = "y3"))))
+    }
+
+    /** Both «Importar copia» (into a vault, which stays as it was) and «Comprobar una copia» refuse [zip] with [message]. */
+    private suspend fun bothRefuse(zip: ByteArray, message: String) {
+        assertEquals(message, checkFails(zip, temp()))
+        val dir = phone("dest-" + Random.nextInt(1_000_000))
+        val b = store(dir).apply { load(); create(master.toCharArray()); upsert(note("mía")) }
+        val before = snapshot(dir)
+        try {
+            b.importReplace(ByteArrayInputStream(zip), master.toCharArray())
+            fail("La importación debía fallar")
+        } catch (e: CryptoFailure) {
+            assertEquals(message, e.message)
+        }
+        assertEquals(before, snapshot(dir))
+    }
+
+    /**
+     * Branch review, A m-2 (test n.º 4): a v4 copy whose data pass [VaultLimits.VAULT_MAX_DATA_BYTES] (made by hand: no
+     * vault of Clavero does), with no history to drop, still within the copy's own limit: a damaged copy, nothing changed.
+     */
+    @Test fun v4CopyOverTheDataLimitIsDamaged() = runTest {
+        val zip = phoneA().backup()
+        val each = VaultLimits.VAULT_MAX_DATA_BYTES / 3 + 1
+        val big = rewritten(zip) { list -> list + (0 until 3).map { i -> note("grande$i").copy(notes = "a".repeat(each)) } }
+        assertTrue("the copy is within its own limit", big.size < BACKUP_MAX_READ_BYTES)
+        bothRefuse(big, COPY_DAMAGED)
+    }
+
+    /** Branch review, A m-4 (test n.º 6): a folder or a view named with more than [ORGANIZE_NAME_MAX] code points: damaged. */
+    @Test fun longFolderNameIsDamaged() = runTest {
+        val zip = phoneA().backup()
+        val long = "ñ".repeat(ORGANIZE_NAME_MAX + 1)
+        bothRefuse(rewrittenData(zip) { it.copy(folders = listOf(Folder("f1", long))) }, COPY_DAMAGED)
+        bothRefuse(rewrittenData(zip) { it.copy(views = listOf(SavedView("v1", long, EntryFilter()))) }, COPY_DAMAGED)
+        // At the limit, it is read.
+        check(rewrittenData(zip) { it.copy(folders = listOf(Folder("f1", "ñ".repeat(ORGANIZE_NAME_MAX)))) }, temp())
     }
 
     @Test fun aForgedSizeIsRefusedBeforeTheWork() = runTest {
