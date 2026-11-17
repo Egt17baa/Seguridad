@@ -27,6 +27,14 @@ object VaultLimits {
 
     /** The whole data blob, before it is encrypted. */
     const val VAULT_MAX_DATA_BYTES = 24 * 1024 * 1024
+
+    /**
+     * Re-review B i-2: what the bookkeeping writes may add to the data with no save that fits them ([vaultTag] when it is
+     * missing, [VaultData.lastUnlockAt], [VaultData.trashPurgeSkipped], at an unlock with the master or the fingerprint).
+     * Only a copy's check allows it over [VAULT_MAX_DATA_BYTES] ([checkCopySize]), so a copy of a vault at the limit is
+     * still read; every save stays at [VAULT_MAX_DATA_BYTES].
+     */
+    const val COPY_DATA_MARGIN_BYTES = 4 * 1024
     const val FOLDERS_MAX = 500
     const val FOLDER_DEPTH_MAX = 5
     const val VIEWS_MAX = 50

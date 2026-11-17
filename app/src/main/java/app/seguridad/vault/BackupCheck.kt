@@ -232,7 +232,8 @@ internal fun checkCopyStructure(data: VaultData) {
  * again (every save would refuse it).
  */
 internal fun checkCopySize(data: VaultData) {
-    if (jsonBytes(data) > VaultLimits.VAULT_MAX_DATA_BYTES) throw CryptoFailure(COPY_DAMAGED)
+    // Re-review B i-2: with the margin of the bookkeeping writes, which no save fits (a vault at the limit, opened).
+    if (jsonBytes(data) > VaultLimits.VAULT_MAX_DATA_BYTES + VaultLimits.COPY_DATA_MARGIN_BYTES) throw CryptoFailure(COPY_DAMAGED)
 }
 
 /** How an attachment an entry lists is in a copy ([attachmentInCopy]). */

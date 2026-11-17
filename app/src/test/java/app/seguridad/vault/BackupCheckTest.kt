@@ -575,10 +575,33 @@ class BackupCheckTest {
      */
     @Test fun v4CopyOverTheDataLimitIsDamaged() = runTest {
         val zip = phoneA().backup()
-        val each = VaultLimits.VAULT_MAX_DATA_BYTES / 3 + 1
+        // Re-review B i-2: over the limit plus the margin of the bookkeeping writes.
+        val each = (VaultLimits.VAULT_MAX_DATA_BYTES + VaultLimits.COPY_DATA_MARGIN_BYTES) / 3 + 1
         val big = rewritten(zip) { list -> list + (0 until 3).map { i -> note("grande$i").copy(notes = "a".repeat(each)) } }
         assertTrue("the copy is within its own limit", big.size < BACKUP_MAX_READ_BYTES)
         bothRefuse(big, COPY_DAMAGED)
+    }
+
+    /**
+     * Re-review B i-2: a v4 made by hand right at [VaultLimits.VAULT_MAX_DATA_BYTES], with no vault tag nor last unlock:
+     * the unlock with the master adds them (bookkeeping, no save that fits), and its own copy is still read and checked.
+     */
+    @Test fun aVaultAtTheLimitStillReadsItsOwnCopyAfterAnUnlock() = runTest {
+        val dir = phone("al-limite")
+        val (file, dek) = VaultCrypto.create(master.toCharArray(), 0, KdfParams(1024, 1, 1))
+        val base = VaultData(entries = listOf(note("1").copy(notes = "a")))
+        assertEquals("", base.vaultTag)
+        val pad = VaultLimits.VAULT_MAX_DATA_BYTES - jsonBytes(base) + 1
+        val data = VaultData(entries = listOf(note("1").copy(notes = "a".repeat(pad.toInt()))))
+        assertEquals(VaultLimits.VAULT_MAX_DATA_BYTES.toLong(), jsonBytes(data))
+        File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, data)))
+        val s = store(dir).apply { load() }
+        s.unlock(master.toCharArray())
+        val opened = s.data()
+        assertTrue("the unlock added bookkeeping", jsonBytes(opened) > VaultLimits.VAULT_MAX_DATA_BYTES)
+        checkCopySize(opened)
+        val report = check(s.backup(), temp())
+        assertEquals(1, report.entries.values.sum())
     }
 
     /** Branch review, A m-4 (test n.º 6): a folder or a view named with more than [ORGANIZE_NAME_MAX] code points: damaged. */
