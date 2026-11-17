@@ -844,9 +844,9 @@ class AutoBackup(
             } else {
                 val owned = target(uri)?.copies.orEmpty()
                 // A request without targets (saved before 1.3.0): every listed copy but the new one, as before (M4).
-                // No import copy there: a request without targets was saved before 1.3.0, and every import copy (1.4.0)
-                // was made after it, under the current password. So none from before the change exists, and
-                // AUTO_BACKUP_REPLACED («y las de antes de importar hechas antes del cambio») stays true.
+                // It is an inherited request ([LEGACY_A6_REQUEST]), so since row 17 it always ends with [a6StaleText],
+                // never with AUTO_BACKUP_REPLACED. No import copy (1.4.0) nor the copy before 2.0 is from before that
+                // change: both were made after it, so leaving them out leaves nothing under that old password.
                 val targets = replace?.let { it.targets ?: owned.filter { id -> id != written.id } }
                 val rotation = try {
                     rotate(uri, folder, owned, written, targets, generation)
