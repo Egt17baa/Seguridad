@@ -12,8 +12,12 @@ const val TRASH_TITLE = "Papelera"
 /** On view, at the top of the trash (O-2). */
 const val TRASH_SHORT = "Lo que borras se queda aquí 30 días. Al abrir la bóveda, lo que lleve más de 30 días se quita solo."
 
-/** On view in the trash and in each confirmation of «Borrar para siempre», «Vaciar papelera» and «Borrar historial» (O-2). */
-const val COPIES_KEEP_IT = "Las copias ya hechas (automáticas o exportadas) lo conservan."
+/**
+ * On view in the trash and in each confirmation of «Borrar para siempre», «Vaciar papelera» and «Borrar historial» (O-2).
+ * Branch review, row 30: «pueden», as [HISTORY_ALL_CONFIRM_TEXT]: each deletion is a save, whose automatic copy rotates the
+ * oldest out, so the copies made before keep it only for a while.
+ */
+const val COPIES_KEEP_IT = "Las copias ya hechas (automáticas o exportadas) pueden conservarlo; la copia automática quita las más antiguas."
 
 /** Folded under «Más información» in the trash. */
 const val TRASH_MORE =

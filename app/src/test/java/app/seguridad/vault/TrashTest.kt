@@ -325,6 +325,21 @@ class TrashTest {
         assertEquals(now + 1, c.trashClockMark(id))
     }
 
+    /**
+     * Branch review, row 30 (B I-3), P-I3: with automatic copies the deletion is a save, whose copy rotates the oldest out:
+     * the copies «pueden conservarlo», never «lo conservan», with the words of [HISTORY_ALL_CONFIRM_TEXT].
+     */
+    @Test fun theCopiesMayKeepItNotAlways() {
+        assertEquals(
+            "Las copias ya hechas (automáticas o exportadas) pueden conservarlo; la copia automática quita las más antiguas.",
+            COPIES_KEEP_IT,
+        )
+        for (t in listOf(TRASH_DELETE_FOREVER_TEXT, trashEmptyText(2), HISTORY_CLEAR_TEXT)) {
+            assertFalse(t, "lo conservan." in t)
+            assertTrue(t, "pueden conservarlo" in t)
+        }
+    }
+
     /** Abogado Digital, O-2: on view, the copies keep what they hold and the trash empties itself after 30 days. */
     @Test fun trashTextsSayWhatStays() {
         for (t in listOf(TRASH_DELETE_FOREVER_TEXT, trashEmptyText(1), trashEmptyText(12), HISTORY_CLEAR_TEXT)) {
