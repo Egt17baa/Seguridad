@@ -263,6 +263,58 @@ class AppContainerVaultsTest {
     }
 
     /**
+     * Re-review of the branch, C n-1: what an action of «Bóvedas» says and a notice posted while it ran are both seen,
+     * the action's first, then the notice, in one message.
+     */
+    @Test fun anActionAndANoticeAreBothSaid() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        twoVaults(c)
+        val said = c.runVaultsAction { c.onMasterChanged(PRIMARY_VAULT_ID, fingerprintFailed = false, hasIdentity = true); VAULT_IMPORT_NEW_DONE }
+        val notice = masterChangedInOtherVaultText(fingerprintFailed = false)
+        assertEquals(VAULT_IMPORT_NEW_DONE + "\n\n" + notice, said)
+        assertEquals(said, c.vaultsNotice.value)
+    }
+
+    /**
+     * Re-review of the branch, C n-1: «Importar como bóveda nueva» of a copy cheaper than Ajustes, with no memory to raise
+     * its cost when the new vault opens: it says it was imported and that the cost was kept.
+     */
+    @Test fun importAsNewWithoutMemoryToRaiseTheCostSaysBoth() = runTest {
+        val noMemoryAbove: app.seguridad.vault.KekDerive = { m, salt, p ->
+            if (p.memoryKiB > 1024) app.seguridad.crypto.outOfMemoryAsFailure(p) { throw OutOfMemoryError("Failed to allocate") }
+            app.seguridad.crypto.argon2id(m, salt, p, use = app.seguridad.crypto.PasswordUse.EXISTING)
+        }
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, vaultKekDerive = noMemoryAbove)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val (file, dek) = app.seguridad.vault.VaultCrypto.create("maestra-de-la-copia".toCharArray(), 0, app.seguridad.crypto.KdfParams(1024, 1, 1))
+        val written = app.seguridad.vault.VaultCrypto.write(file, dek, app.seguridad.vault.VaultData(entries = listOf(note("1"))))
+        val copy = ByteArrayOutputStream().also { app.seguridad.vault.writeBackup(it, app.seguridad.vault.VaultCrypto.encodeFile(written), emptyMap()) }.toByteArray()
+        val said = c.runVaultsAction {
+            copyRefusal { c.importAsNewVault(ByteArrayInputStream(copy), "maestra-de-la-copia".toCharArray(), "") }
+            VAULT_IMPORT_NEW_DONE
+        }
+        assertEquals(VAULT_IMPORT_NEW_DONE + "\n\n" + app.seguridad.vault.KDF_COST_KEPT, said)
+        assertTrue(c.vault.unlocked())
+    }
+
+    /**
+     * Re-review of the branch, C n-1: deleting the active vault with its A6 dialog open closes it with no notice (that
+     * vault is gone: nothing to go back to); [VAULT_DELETED] says the copies stay.
+     */
+    @Test fun deletingTheVaultOfTheOpenDialogSaysOnlyThatItIsDeleted() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        c.onMasterChanged(idB, fingerprintFailed = false, hasIdentity = true)
+        assertTrue(c.masterChanged.state.value.open)
+        val said = c.runVaultsAction { masterRefusal { deletionText(c.deleteVault(idB, masterB.toCharArray(), "Dos")) } }
+        assertEquals(app.seguridad.vault.VAULT_DELETED, said)
+        assertEquals(app.seguridad.vault.VAULT_DELETED, c.vaultsNotice.value)
+        assertFalse(c.masterChanged.state.value.open)
+    }
+
+    /**
      * Branch review, B m-2, P-m2: the settings of a vault that is neither in the registry nor on the disk (a deletion cut
      * half way) go at the start, and its copies' folder is given back; those of a vault whose folder is still there stay,
      * even if the registry does not list it.
@@ -304,6 +356,7 @@ class AppContainerVaultsTest {
         val copy = ByteArrayOutputStream().also { assertTrue(c.vault.exportBackup(it)) }.toByteArray()
         val imported = c.runVaultsAction { copyRefusal { c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), ""); VAULT_IMPORT_NEW_DONE } }
         assertEquals(app.seguridad.vault.COPY_WRONG_PASSWORD_OR_DAMAGED, imported)
+        c.vaultsNoticeShown(imported!!) // Shown and closed, as the screen does before the next action.
         val deleted = c.runVaultsAction { masterRefusal { deletionText(c.deleteVault(idB, masterA.toCharArray(), "Dos")) } }
         assertEquals(app.seguridad.vault.WRONG_MASTER, deleted)
         assertTrue(c.registry.vaults.value.any { it.id == idB })
@@ -568,6 +621,7 @@ class AppContainerVaultsTest {
         withTimeout(30_000) { c.vaultsBusy.first { !it } }
         assertEquals(1, runs.get())
         assertEquals("uno", said)
+        c.vaultsNoticeShown(said!!) // Shown and closed (re-review C n-1: one not shown is said with the next).
         // Once it ended, the next one runs.
         c.launchVaultsAction { runs.incrementAndGet(); "tres" }
         withTimeout(30_000) { c.vaultsNotice.first { it == "tres" } }

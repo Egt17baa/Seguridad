@@ -147,6 +147,8 @@ class AppContainer(
     private val vaultCompute: CoroutineDispatcher = Dispatchers.Default,
     /** The wall clock of the vaults ([VaultStore]'s now); the tests move it (the trash's 30 days, task 3). */
     private val vaultNow: () -> Long = System::currentTimeMillis,
+    /** The Argon2id that wraps a vault's key again after its master opens it ([VaultStore]'s kekDerive); only tests change it. */
+    private val vaultKekDerive: app.seguridad.vault.KekDerive = app.seguridad.vault.EXISTING_DERIVE,
 ) {
     val settings = SettingsStore(File(filesDir, SETTINGS_FILE), settingsIo)
 
@@ -441,6 +443,7 @@ class AppContainer(
             active = { activeId == id },
             // Branch review, row 45: the vault opened with the cost it had (no memory to raise it), said once.
             onCostKept = { vaultsNotices.post(KDF_COST_KEPT) },
+            kekDerive = vaultKekDerive,
         )
 
         /**
@@ -708,6 +711,11 @@ class AppContainer(
             if (compareKey(typedName) != compareKey(displayName(data, order))) return@withLock VaultDeletion.WRONG_NAME
         }
         withContext(NonCancellable) {
+            // Re-review C n-1: the dialog of A6 of the vault being deleted closes with no notice (there is no vault to go
+            // back to; [VAULT_DELETED] says the copies stay), never by the switch below, which would say it.
+            synchronized(masterChangedLock) {
+                if (masterChangedSlot?.id == id && masterChanged.state.value.open) masterChanged.close()
+            }
             switchTo(registry.vaults.value.first { it.id != id }.id)
             val gone = synchronized(slots) { slots.remove(id) }
             gone?.scope?.cancel()
@@ -808,8 +816,14 @@ class AppContainer(
         } finally {
             _vaultsBusy.value = false
         }
-        message?.let(vaultsNotices::post)
-        message
+        // Re-review C n-1: a notice posted while the action ran (the cost kept by the vault it opened, a dialog of A6 a
+        // switch closed) is not covered by its result: both are said, the result first ([Notice] keeps one message).
+        val said = message?.let { m ->
+            val pending = vaultsNotices.value.value
+            if (pending != null && pending != m) "$m\n\n$pending" else m
+        }
+        said?.let(vaultsNotices::post)
+        said
     }
 
     /** [runVaultsAction] in [appScope], for the screen; one at a time ([vaultsBusy]). */
