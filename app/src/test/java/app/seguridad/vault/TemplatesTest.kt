@@ -89,7 +89,11 @@ class TemplatesTest {
         assertEquals("Red wifi", EntryType.WIFI.label)
         // R-4: the security of a network is said as text, never «segura»; an open network says it has no password.
         assertEquals(listOf("WPA", "WEP", "nopass"), WIFI_SECURITY_VALUES)
-        assertEquals("WPA/WPA2/WPA3", wifiSecurityLabel("WPA"))
+        // Branch review, C I-3 (row 26, test n.º 3): the QR writes T:WPA, which a network that is only WPA3 may refuse.
+        assertEquals("WPA/WPA2", wifiSecurityLabel("WPA"))
+        assertFalse("WPA3" in wifiSecurityLabel("WPA"))
+        assertEquals("Si la red es solo WPA3, puede que el QR no sirva para conectarse.", WIFI_WPA3_NOTE)
+        assertTrue("WIFI_WPA3_NOTE" in source("ui/screens/EntryFields.kt"))
         assertEquals("Abierta (sin contraseña)", wifiSecurityLabel("nopass"))
     }
 

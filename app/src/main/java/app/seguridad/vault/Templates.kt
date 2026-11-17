@@ -26,11 +26,15 @@ val WIFI_SECURITY_VALUES = listOf("WPA", "WEP", "nopass")
 
 /** What the wifi's [value] of «Tipo de seguridad» is shown as (R-4: as text, never «segura»); unknown values as they are. */
 fun wifiSecurityLabel(value: String): String = when (value) {
-    "WPA" -> "WPA/WPA2/WPA3"
+    // Branch review, row 26: the QR writes T:WPA, which a network that is only WPA3 may not take ([WIFI_WPA3_NOTE]).
+    "WPA" -> "WPA/WPA2"
     "WEP" -> "WEP"
     "nopass" -> "Abierta (sin contraseña)"
     else -> value
 }
+
+/** Branch review, row 26: under the wifi's «Tipo de seguridad» in the editor. */
+const val WIFI_WPA3_NOTE = "Si la red es solo WPA3, puede que el QR no sirva para conectarse."
 
 /** The wifi's «Red oculta» is kept as the text `true` or `false`. */
 fun wifiHiddenLabel(value: String): String = if (value == "true") "Sí" else "No"

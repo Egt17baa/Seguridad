@@ -66,6 +66,7 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.WIFI_HIDDEN_KEY
 import app.seguridad.vault.WIFI_SECURITY_KEY
 import app.seguridad.vault.WIFI_SECURITY_VALUES
+import app.seguridad.vault.WIFI_WPA3_NOTE
 import app.seguridad.vault.displayDate
 import app.seguridad.vault.displayMonthYear
 import app.seguridad.vault.hasOwnExpiry
@@ -274,6 +275,8 @@ internal fun TemplateFieldsEditor(form: EntryEditSession, type: EntryType) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     WIFI_SECURITY_VALUES.forEach { v -> FilterChip(selected = value == v, onClick = { set(v) }, label = { Text(wifiSecurityLabel(v)) }) }
                 }
+                // Branch review, row 26: what is saved does not change; whether a phone takes T:WPA for WPA3 is measured.
+                Text(WIFI_WPA3_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             type == EntryType.WIFI && t.key == WIFI_HIDDEN_KEY -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Switch(checked = value == "true", onCheckedChange = { set(if (it) "true" else "false") })
