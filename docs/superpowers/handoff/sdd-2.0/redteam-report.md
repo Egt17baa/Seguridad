@@ -6,8 +6,9 @@
 - **Fase 2 (textos de fuera, QR y portapapeles): pendiente.** Superficies 5 (fila 24), 6, 7 y 8.
 - **Fase 3 (barrido de regresión): pendiente.**
 - **Hallazgos hasta ahora:** RT-21 (Media), RT-22 (Baja), RT-23 (Informativa).
-- **Último commit:** ver «Puerta» (se pone al día en cada commit).
-- **Última ejecución de Gradle:** `jvm-check`, `--tests 'app.seguridad.redteam.RedTeam20*'`: verde con los tres `@Ignore` (9 tests, 3 ignorados); sin los `@Ignore`, 4 fallos antes de ajustar un test de resistencia y 3 después (RT-21, RT-22, RT-23). La app, en «Puerta».
+- **Último commit:** `8c350a3` (fase 1: tests e informe) y, encima, el que pone al día este bloque y la puerta.
+- **Última ejecución de Gradle (17-11-2026, cierre de la fase 1):** la app, `:app:testDebugUnitTest --tests 'app.seguridad.redteam.*'`: **verde**, 81 tests, 3 ignorados (RT-21 a RT-23), 0 fallos; después `./gradlew --stop`. Antes, `jvm-check` con `RedTeam20*`: verde con los `@Ignore` (9 tests, 3 ignorados); sin ellos, fallan exactamente los tres `rtN_`.
+- **Siguiente paso si se corta la sesión:** fase 2, superficie 5 (fila 24, `tools/qr/WifiQr.kt` frente a ZXing).
 
 ## Alcance y modelo de amenaza
 
@@ -201,7 +202,9 @@ Si el Ruling elige (a), el test pasa a ser un `resists…` que fije lo que es ve
 
 ## Puerta
 
-- Fase 1: `jvm-check`, `RedTeam20*`: 9 tests, 3 ignorados (RT-21, RT-22, RT-23), verde. La app (`:app:testDebugUnitTest --tests 'app.seguridad.redteam.*'`): se apunta al cerrar la fase.
+- Fase 1, `jvm-check` (`--tests 'app.seguridad.redteam.RedTeam20*'`): 9 tests, 3 ignorados (RT-21, RT-22, RT-23), verde.
+- Fase 1, la app (`:app:testDebugUnitTest --tests 'app.seguridad.redteam.*'`, con `flock` y después `--stop`): 81 tests (los de la 1.4.0 y los nuevos), 3 ignorados, 0 fallos, verde.
+- Sin los `@Ignore`, fallan solo los tres `rtN_`, con las salidas copiadas en cada hallazgo.
 
 ## Después (para quien venga)
 
