@@ -3,7 +3,14 @@ package app.seguridad
 import app.seguridad.settings.oneTarget
 import app.seguridad.settings.autoBackupUri
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.BackupSchedule
 import app.seguridad.vault.BiometricRefusal
+import app.seguridad.vault.MASTER_CHANGED_IN_OTHER_VAULT
+import app.seguridad.vault.masterChangedInOtherVaultText
+import app.seguridad.settings.vault
+import app.seguridad.settings.withAutoBackupResult
+import app.seguridad.settings.withTargetAdded
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultDeletion
 import app.seguridad.vault.deletionText
@@ -180,6 +187,79 @@ class AppContainerVaultsTest {
             scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
             pool.shutdown()
         }
+    }
+
+    /**
+     * Branch review, A I-1 (test n.º 1 of part A): the master password of A changes while the user switches to B; the
+     * derivation of A is held on the compute thread while the switch starts. The dialog of A6 never opens on B (nor can it
+     * replace B's copies), B's settings stay as they were, and what was lost is said in [AppContainer.vaultsNotice].
+     */
+    @Test fun changeOfMasterThenSwitchNeverOpensA6ForTheOtherVault() = runBlocking {
+        val pool = Executors.newSingleThreadExecutor()
+        val armed = java.util.concurrent.atomic.AtomicReference<CountDownLatch?>(null)
+        val compute = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                pool.execute(block)
+                armed.getAndSet(null)?.countDown()
+            }
+        }
+        val gate = CountDownLatch(1)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+        try {
+            val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = scope, vaultCompute = compute)
+            val (_, idB) = twoVaults(c)
+            for ((id, folder) in listOf(PRIMARY_VAULT_ID to "content://a", idB to "content://b")) {
+                c.settings.updateVault(id) {
+                    it.withTargetAdded(folder, BackupSchedule.ON_CHANGE)
+                        .withAutoBackupResult(AutoBackupResult(folder, 1L, null, copies = listOf("copia-$id")))
+                }
+            }
+            c.switchTo(PRIMARY_VAULT_ID)
+            c.vault.unlock(masterA.toCharArray())
+            val a = c.vault
+            val settingsB = c.settings.settings.value.vault(idB)
+            pool.execute { gate.await() }
+            val handed = CountDownLatch(1)
+            armed.set(handed)
+            val change = scope.async { a.changeMaster("maestra-de-prueba-nueva".toCharArray()) }
+            assertTrue("the change of A reached the compute thread", handed.await(30, java.util.concurrent.TimeUnit.SECONDS))
+            val switch = scope.async { c.switchTo(idB) }
+            withTimeout(30_000) { while (c.activeVaultId != idB) kotlinx.coroutines.delay(5) }
+            gate.countDown()
+            assertTrue(withTimeout(60_000) { change.await() })
+            // As VaultBackup does, once the change is saved: of A.
+            c.onMasterChanged(a.id, fingerprintFailed = true, hasIdentity = true)
+            withTimeout(60_000) { switch.await() }
+            assertFalse("the dialog of A6 never opens on B", c.masterChanged.state.value.open)
+            assertFalse(c.masterChanged.replace())
+            assertEquals(settingsB, c.settings.settings.value.vault(idB))
+            assertEquals(masterChangedInOtherVaultText(fingerprintFailed = true), c.vaultsNotice.value)
+        } finally {
+            gate.countDown()
+            scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
+            pool.shutdown()
+        }
+    }
+
+    /**
+     * Branch review, A I-1: a switch closes the dialog of A6 of the vault left; when nothing was asked in it, that is said
+     * once in [AppContainer.vaultsNotice]. Opened for the active vault, it opens.
+     */
+    @Test fun aSwitchThatClosesTheDialogUnaskedSaysSo() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        c.onMasterChanged(idB, fingerprintFailed = false, hasIdentity = true)
+        assertTrue(c.masterChanged.state.value.open)
+        assertEquals(null, c.vaultsNotice.value)
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertFalse(c.masterChanged.state.value.open)
+        assertEquals(MASTER_CHANGED_IN_OTHER_VAULT, c.vaultsNotice.value)
+        c.vaultsNoticeShown(MASTER_CHANGED_IN_OTHER_VAULT)
+        // Closed by the user before the switch: nothing to say.
+        c.onMasterChanged(PRIMARY_VAULT_ID, fingerprintFailed = false, hasIdentity = true)
+        c.masterChanged.close()
+        c.switchTo(idB)
+        assertEquals(null, c.vaultsNotice.value)
     }
 
     /**

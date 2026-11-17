@@ -61,7 +61,7 @@ import kotlinx.coroutines.withContext
  * does nothing. The app root provides AppContainer.masterChanged, which outlives the activity: a lambda captured before
  * a rotation still reaches the dialog of the new one (M-3).
  */
-val LocalOnMasterChanged = staticCompositionLocalOf<(fingerprintFailed: Boolean, hasIdentity: Boolean) -> Unit> { { _, _ -> } }
+val LocalOnMasterChanged = staticCompositionLocalOf<(vaultId: String, fingerprintFailed: Boolean, hasIdentity: Boolean) -> Unit> { { _, _, _ -> } }
 
 /** What the vault menu and Ajustes can do with the vault file; each one shows its own dialog or picker. */
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
@@ -141,7 +141,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                             }
                             // Inside this block: leaving the screen or rotating during the key derivation must not
                             // lose the dialog (it is kept outside the activity).
-                            onMasterChanged(!fingerprintOff, hadIdentity)
+                            onMasterChanged(store.id, !fingerprintOff, hadIdentity)
                             // changeMaster has locked the vault: it opens with the new password from now on.
                             if (fingerprintOff) {
                                 "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."

@@ -88,3 +88,21 @@ fun TagColor.label(): String = when (this) {
     TagColor.PURPLE -> "morado"
     TagColor.GRAY -> "gris"
 }
+
+/**
+ * Branch review, A I-1: the dialog after a change of master password (A6) of a vault that is no longer the active one was
+ * not shown, or a switch closed it before anything was asked in it; its copies are still under the password of before.
+ */
+const val MASTER_CHANGED_IN_OTHER_VAULT =
+    "La contraseña maestra de la otra bóveda se cambió. Al cambiar de bóveda, el aviso que ofrece borrar sus copias " +
+        "anteriores no se llegó a mostrar o se cerró: esas copias siguen abriéndose con la contraseña anterior. Para " +
+        "borrarlas, vuelve a esa bóveda y cambia otra vez la contraseña maestra, o bórralas a mano."
+
+/** Branch review, A I-1: the line after [MASTER_CHANGED_IN_OTHER_VAULT] when that vault's fingerprint could not be turned off. */
+const val MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT =
+    "En esa bóveda la huella ya no la abre, pero no se pudo desactivar: ábrela con la contraseña nueva, desactiva la " +
+        "huella y vuelve a activarla."
+
+/** Branch review, A I-1: what is said of a dialog of A6 lost by a switch ([fingerprintFailed]: one line more). */
+fun masterChangedInOtherVaultText(fingerprintFailed: Boolean): String =
+    if (fingerprintFailed) MASTER_CHANGED_IN_OTHER_VAULT + "\n" + MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT else MASTER_CHANGED_IN_OTHER_VAULT

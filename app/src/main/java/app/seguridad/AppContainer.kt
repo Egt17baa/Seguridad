@@ -1,6 +1,7 @@
 package app.seguridad
 
 import app.seguridad.core.MemoryPlaceStore
+import app.seguridad.vault.masterChangedInOtherVaultText
 import app.seguridad.vault.VaultLimitExceeded
 import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
 import app.seguridad.vault.VAULT_FAILED
@@ -548,10 +549,18 @@ class AppContainer(
         val old = slot(activeId)
         val next = slot(id)
         withContext(NonCancellable) {
-            activeId = id // Shuts the old one's gate before it is locked: an unlock finishing now stays locked.
+            // Branch review, A I-1: the active vault changes and the dialog of A6 (of the vault left) closes as one step
+            // against [onMasterChanged], so that dialog never opens for another vault. One closed with nothing asked in it
+            // is said ([vaultsNotice]): its copies are still under the password of before.
+            val lost = synchronized(masterChangedLock) {
+                activeId = id // Shuts the old one's gate before it is locked: an unlock finishing now stays locked.
+                val s = masterChanged.state.value
+                masterChanged.close()
+                s.takeIf { it.open && it.requestedAt == 0L }
+            }
+            lost?.let { vaultsNotices.post(masterChangedInOtherVaultText(it.fingerprintFailed)) }
             old.store.lock(LockReason.MANUAL)
             clipboardNotice.drop()
-            masterChanged.close()
             old.store.awaitIdle()
             next.store.load()
             synchronized(epochLock) {
@@ -802,10 +811,25 @@ class AppContainer(
         oldCopies = { settings.settings.value.vault((masterChangedSlot ?: slot(activeId)).id).listedCopies },
     )
 
-    /** The screen that changed the master password of the active vault says so ([MasterChanged.changed]). */
-    fun onMasterChanged(fingerprintFailed: Boolean, hasIdentity: Boolean) {
-        masterChangedSlot = slot(activeId)
-        masterChanged.changed(fingerprintFailed, hasIdentity)
+    /** Makes «check the active vault and open the dialog» and «switch and close it» one step each (branch review, A I-1). */
+    private val masterChangedLock = Any()
+
+    /**
+     * The screen that changed the master password of vault [vaultId] says so ([MasterChanged.changed]). Branch review,
+     * A I-1: the dialog opens only if [vaultId] is still the active vault, checked and opened under [masterChangedLock]
+     * (so [switchTo] closes it, or it never opens); otherwise it is said in [vaultsNotice] that it was not shown.
+     */
+    fun onMasterChanged(vaultId: String, fingerprintFailed: Boolean, hasIdentity: Boolean) {
+        val opened = synchronized(masterChangedLock) {
+            if (vaultId != activeId) {
+                false
+            } else {
+                masterChangedSlot = slot(vaultId)
+                masterChanged.changed(fingerprintFailed, hasIdentity)
+                true
+            }
+        }
+        if (!opened) vaultsNotices.post(masterChangedInOtherVaultText(fingerprintFailed))
     }
 
     /**
