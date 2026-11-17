@@ -141,8 +141,15 @@ class GuideTest {
     /** Ronda 1: m-3, m-4 (what the code does), m-2 (a tap outside never skips it) and m-5 (no pressure in the guides). */
     @Test fun theRoundsTexts() {
         assertEquals(
-            "En Ajustes puedes exportar una copia o elegir hasta 3 carpetas para la copia automática. Las copias con calendario solo se hacen al abrir Clavero.",
+            // Branch review, C m-2: also at an unlock, only of the vault open, and only if it changed (AutoBackup).
+            "En Ajustes puedes exportar una copia o elegir hasta 3 carpetas para la copia automática. Las copias con calendario " +
+                "se hacen con la bóveda abierta, al abrir Clavero o al desbloquearla, y solo si hubo cambios.",
             FULL_GUIDE[1].text,
+        )
+        assertEquals(
+            "Hasta 3 carpetas, con calendario propio. Las copias con calendario se hacen con la bóveda abierta, al abrir " +
+                "Clavero o al desbloquearla, y solo si hubo cambios.",
+            WHATS_NEW_GUIDE[2].text,
         )
         assertEquals(
             "Si tienes una huella registrada en el móvil, puedes activarla en el menú de la bóveda abierta. Por seguridad, cada 7 días pide la contraseña maestra.",

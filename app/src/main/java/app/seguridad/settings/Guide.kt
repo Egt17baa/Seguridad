@@ -39,7 +39,8 @@ val FULL_GUIDE = listOf(
     GuidePage(
         "La copia",
         "En Ajustes puedes exportar una copia o elegir hasta ${VaultLimits.BACKUP_TARGETS_MAX} carpetas para la copia automática. " +
-            "Las copias con calendario solo se hacen al abrir Clavero.",
+            // Branch review, C m-2: as AutoBackup does (at the start and at an unlock, of the vault open, if it changed).
+            "Las copias con calendario se hacen con la bóveda abierta, al abrir Clavero o al desbloquearla, y solo si hubo cambios.",
     ),
     GuidePage(
         "La huella",
@@ -58,7 +59,9 @@ val WHATS_NEW_GUIDE = listOf(
     GuidePage("Papelera e historial", "Lo que borras pasa ${VaultLimits.TRASH_DAYS} días en la papelera. Al cambiar una entrada se guarda su versión anterior."),
     GuidePage(
         "Copias en varias carpetas",
-        "Hasta ${VaultLimits.BACKUP_TARGETS_MAX} carpetas, cada una con su calendario. Las copias con calendario solo se hacen al abrir Clavero.",
+        // Branch review, C m-2: the line of the Ruling; the first sentence shorter, so the page keeps its 160 characters.
+        "Hasta ${VaultLimits.BACKUP_TARGETS_MAX} carpetas, con calendario propio. Las copias con calendario se hacen con la " +
+            "bóveda abierta, al abrir Clavero o al desbloquearla, y solo si hubo cambios.",
     ),
     GuidePage("Tipos nuevos", "Tarjeta bancaria, red wifi, licencia y pasaporte, cada uno con sus campos."),
 )
