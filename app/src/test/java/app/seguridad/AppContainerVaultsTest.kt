@@ -299,6 +299,28 @@ class AppContainerVaultsTest {
     }
 
     /**
+     * RT-22 (i): the guarded settings of Ajustes follow the rule of [AppContainer.canAddVault]: a first install (no vault
+     * file) can change them; vault A with its file and vault B empty and shown cannot; A open can.
+     */
+    @Test fun theGuardedSettingsFollowTheRuleOfCreatingAVault() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        assertEquals(VaultState.NoVault, c.vault.state.value)
+        assertTrue("first install", c.settingsEditableNow())
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val idB = c.createVault("Dos", masterB.toCharArray())
+        c.vault.destroy()
+        assertEquals(idB, c.activeVaultId)
+        assertEquals(VaultState.NoVault, c.vault.state.value)
+        assertFalse("A has its file, B is empty", c.settingsEditableNow())
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertFalse("A locked", c.settingsEditableNow())
+        c.vault.unlock(masterA.toCharArray())
+        assertTrue("A open", c.settingsEditableNow())
+    }
+
+    /**
      * Re-review of the branch, C n-1: what an action of «Bóvedas» says and a notice posted while it ran are both seen,
      * the action's first, then the notice, in one message.
      */

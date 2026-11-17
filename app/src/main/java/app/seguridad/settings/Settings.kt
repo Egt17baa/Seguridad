@@ -437,7 +437,18 @@ fun VaultSettings.resettingClock(now: Long): VaultSettings = if (now == clockHig
 /**
  * COV2-1 (owner's ruling): whether Ajustes lets the copies' folder (choose, change, turn off), «Conservar las N
  * últimas», the idle lock, the clipboard time and the Argon2id cost be changed. Only with the vault open, or with no
- * vault (nothing to protect, and the Argon2id cost also serves text and file encryption): someone holding the phone
- * for a moment with the vault locked must not redirect its copies or weaken its defences.
+ * vault on the phone (nothing to protect, and the Argon2id cost also serves text and file encryption): someone holding
+ * the phone for a moment with the vault locked must not redirect its copies or weaken its defences. RT-22 (i): an empty
+ * vault shown ([VaultState.NoVault]) counts as «no vault» only when no vault of the phone has a file ([anyVaultFile]),
+ * the rule of [app.seguridad.AppContainer.canAddVault]: emptying one vault never unlocks the settings that protect the
+ * others.
  */
-fun settingsEditable(state: VaultState): Boolean = state is VaultState.Unlocked || state is VaultState.NoVault
+fun settingsEditable(state: VaultState, anyVaultFile: Boolean): Boolean =
+    state is VaultState.Unlocked || (state is VaultState.NoVault && !anyVaultFile)
+
+/** RT-22 (i): an empty vault shown while another one of the phone has its file. */
+const val SETTINGS_NEED_AN_OPEN_VAULT = "Abre una de tus bóvedas (pestaña Bóveda) para cambiar este ajuste."
+
+/** RT-22 (i): why a guarded setting cannot change now, by the state of the vault shown. */
+fun settingsLockedText(state: VaultState): String =
+    if (state is VaultState.NoVault) SETTINGS_NEED_AN_OPEN_VAULT else app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT

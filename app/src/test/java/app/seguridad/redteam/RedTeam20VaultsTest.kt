@@ -1,7 +1,6 @@
 package app.seguridad.redteam
 
 import app.seguridad.AppContainer
-import app.seguridad.settings.settingsEditable
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.VaultEntry
@@ -47,7 +46,6 @@ class RedTeam20VaultsTest {
      * editable, whichever vault is active. If the fix moves the rule elsewhere (a function of the container), this test
      * calls that one instead; the assertion stays.
      */
-    @Ignore("RT-22: abierto, ver redteam-report.md")
     @Test fun rt22_emptyingAnotherVaultDoesNotUnlockTheSettingsOfTheWholeApp() = runTest {
         val c = container(backgroundScope)
         c.settings.load()
@@ -56,7 +54,7 @@ class RedTeam20VaultsTest {
         c.vault.upsert(VaultEntry("x", EntryType.LOGIN, "Banco", password = "de-a", createdAt = 1, updatedAt = 1))
         val b = c.createVault("Dos", masterB.toCharArray())
         c.vault.lock()
-        assertFalse("Both locked: nothing editable", settingsEditable(c.vault.state.value))
+        assertFalse("Both locked: nothing editable", c.settingsEditableNow())
         // The steps on the lock screen of B: «He olvidado la contraseña maestra», «Borrar bóveda» (VaultScreen.kt:494-497).
         c.vault.destroy()
         assertEquals(b, c.activeVaultId)
@@ -64,7 +62,7 @@ class RedTeam20VaultsTest {
         assertTrue("Vault A still has its file", File(c.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").exists())
         assertFalse(
             "With vault A locked and its file there, emptying B must not let the lock and the clipboard of the whole app be changed",
-            settingsEditable(c.vault.state.value),
+            c.settingsEditableNow(),
         )
     }
 

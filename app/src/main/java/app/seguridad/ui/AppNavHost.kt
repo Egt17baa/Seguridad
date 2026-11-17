@@ -489,6 +489,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                         onCheckBackup = { nav.navigate("settings/check-backup") },
                         onAppearance = { nav.navigate("settings/appearance") },
                         onGuide = container.guide::request,
+                        editableNow = container::settingsEditableNow,
                     )
                 }
                 // 2.0, task 5 bis: the look (mode, style, palette, «Personalizado», transparencies, contrast).

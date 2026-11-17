@@ -628,8 +628,19 @@ class AppContainer(
      * open, and with it change the settings of the whole app). An empty slot left by «He olvidado la contraseña» can
      * still be made into a vault on its own screen, as before.
      */
-    fun canAddVault(): Boolean =
-        vault.state.value is VaultState.Unlocked || registry.vaults.value.none { File(registry.dirOf(it.id), "vault.bin").exists() }
+    /**
+     * RT-22 (i): whether Ajustes lets the guarded settings change now ([app.seguridad.settings.settingsEditable], with
+     * [anyVaultFile], the predicate [canAddVault] uses). Reads the disk: off the main thread. Each write asks it again.
+     */
+    suspend fun settingsEditableNow(): Boolean {
+        val state = vault.state.value
+        return app.seguridad.settings.settingsEditable(state, withContext(Dispatchers.IO) { anyVaultFile() })
+    }
+
+    /** Whether any vault of the phone has its file (shared by [canAddVault] and [settingsEditableNow]). Reads the disk. */
+    private fun anyVaultFile(): Boolean = registry.vaults.value.any { File(registry.dirOf(it.id), "vault.bin").exists() }
+
+    fun canAddVault(): Boolean = vault.state.value is VaultState.Unlocked || !anyVaultFile()
 
     /**
      * A new vault: [before] runs on its store while the vault of now is still the active one (so a failure there changes

@@ -92,6 +92,7 @@ import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.availableOn
 import app.seguridad.settings.settingsEditable
+import app.seguridad.settings.settingsLockedText
 import app.seguridad.settings.vault
 import app.seguridad.settings.withVault
 import app.seguridad.settings.TargetRefusal
@@ -134,7 +135,6 @@ import app.seguridad.tools.PASSWORD_CHANGE_REPLACE_COPIES
 import app.seguridad.tools.PASSWORD_CHANGE_SECRETS_HINT
 import app.seguridad.tools.PASSWORD_CHANGE_WORKING
 import app.seguridad.tools.RENEW_IDENTITY
-import app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT
 import app.seguridad.tools.STRONGBOX_AVAILABLE_NOTICE
 import app.seguridad.tools.keyLevelLabel
 import app.seguridad.tools.shouldOfferStrongBoxHint
@@ -283,6 +283,7 @@ private fun AutoBackupSection(
     autoBackup: AutoBackup,
     releaseIfUnused: (String) -> Unit,
     snackbar: SnackbarHostState,
+    editableNow: suspend () -> Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -294,8 +295,9 @@ private fun AutoBackupSection(
     // Copies are only made from the open vault (each attachment is checked): while locked, one waits for it.
     val locked = vaultState is VaultState.Locked
     val noVault = vaultState is VaultState.NoVault
-    // COV2-1: where the copies go and how many are kept change only with the vault open, or with none.
-    val editable = settingsEditable(vaultState)
+    // COV2-1: where the copies go and how many are kept change only with the vault open, or with none on the phone
+    // (RT-22 (i)); read off the main thread, closed until known.
+    val editable by produceState(false, vaultState) { value = editableNow() }
     // The target whose folder the picker changes; null when it adds one. Only a folder's URI (saved in plain text in the
     // settings anyway), never a secret: kept across a re-creation of the activity while the picker is open.
     var changing by rememberSaveable { mutableStateOf<String?>(null) }
@@ -306,8 +308,8 @@ private fun AutoBackupSection(
         changing = null
         if (uri != null) scope.launch {
             // Checked again on return: the vault may have locked while the picker was open (COV2-1). No permission taken.
-            if (!settingsEditable(vault.state.value)) {
-                snackbar.showSnackbar(SETTINGS_NEED_OPEN_VAULT)
+            if (!editableNow()) {
+                snackbar.showSnackbar(settingsLockedText(vault.state.value))
                 return@launch
             }
             val chosen = uri.toString()
@@ -365,7 +367,7 @@ private fun AutoBackupSection(
         }
     }
     val choose: (String?) -> Unit = choose@{ from ->
-        if (!settingsEditable(vault.state.value)) return@choose
+        if (!editable) return@choose // Checked again when the picker returns.
         changing = from
         VaultLock.keepOpenOnce = true
         vault.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
@@ -376,7 +378,8 @@ private fun AutoBackupSection(
         }
     }
     val save: ((VaultSettings) -> VaultSettings) -> Unit = { change ->
-        if (settingsEditable(vault.state.value)) scope.launch {
+        scope.launch {
+            if (!editableNow()) return@launch
             try {
                 store.updateVault(id, change)
             } catch (e: Exception) {
@@ -408,7 +411,7 @@ private fun AutoBackupSection(
                 Text(if (settings.targets.isEmpty()) "Elegir carpeta" else AUTO_BACKUP_ADD_FOLDER)
             }
         }
-        if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+        if (!editable) Hint(settingsLockedText(vaultState))
     }
     settings.targets.forEachIndexed { index, t ->
         Section(autoBackupTargetTitle(index + 1)) {
@@ -450,7 +453,8 @@ private fun AutoBackupSection(
             OutlinedButton(
                 enabled = editable,
                 onClick = {
-                    if (settingsEditable(vault.state.value)) scope.launch {
+                    scope.launch {
+                        if (!editableNow()) return@launch
                         try {
                             // From the write itself (T11-c): a replacement that finished just before is not «dropped».
                             val hadRequest = store.removeTarget(id, t.uri)
@@ -596,6 +600,8 @@ fun SettingsScreen(
     onCheckBackup: () -> Unit,
     onAppearance: () -> Unit,
     onGuide: (GuideKind) -> Unit = {},
+    /** RT-22 (i): the container's [app.seguridad.AppContainer.settingsEditableNow]; it reads the disk. */
+    editableNow: suspend () -> Boolean = { settingsEditable(vault.state.value, anyVaultFile = true) },
 ) {
     VaultIdleLock(vault)
     val settings by store.settings.collectAsStateWithLifecycle()
@@ -605,10 +611,12 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val actions = vaultActions(vault, snackbar)
     val highAvailable = remember { KdfProfile.HIGH.availableOn(Runtime.getRuntime().maxMemory() / 1024) }
-    // COV2-1: the lock, the clipboard and the Argon2id cost change only with the vault open, or with none (the theme always).
-    val editable = settingsEditable(vaultState)
-    fun change(f: (Settings) -> Settings) {
+    // COV2-1: the lock, the clipboard and the Argon2id cost change only with the vault open, or with none on the phone
+    // (RT-22 (i): read off the main thread, closed until known; the theme always).
+    val editable by produceState(false, vaultState) { value = editableNow() }
+    fun change(guarded: Boolean = false, f: (Settings) -> Settings) {
         scope.launch {
+            if (guarded && !editableNow()) return@launch // COV2-1: each guarded write checks again.
             try {
                 store.update(f)
             } catch (e: Exception) {
@@ -630,26 +638,26 @@ fun SettingsScreen(
             SettingsSearchBox(anchors, onAppearance, onAbout)
             Section(SettingItem.LOCK.title, anchor(SettingItem.LOCK)) {
                 Choices(LockAfter.entries, settings.lockAfter, { it.label }, enabled = { editable }) { v ->
-                    if (settingsEditable(vault.state.value)) change { it.copy(lockAfter = v) }
+                    change(guarded = true) { it.copy(lockAfter = v) }
                 }
-                if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+                if (!editable) Hint(settingsLockedText(vaultState))
                 Hint(LOCK_ON_EXIT_SHORT)
                 MoreInfo { Hint(LOCK_ON_EXIT_HINT) }
             }
             Section(SettingItem.CLIPBOARD.title, anchor(SettingItem.CLIPBOARD)) {
                 Choices(ClipboardClear.entries, settings.clipboard, { "A los ${it.seconds} s" }, enabled = { editable }) { v ->
-                    if (settingsEditable(vault.state.value)) change { it.copy(clipboard = v) }
+                    change(guarded = true) { it.copy(clipboard = v) }
                 }
-                if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+                if (!editable) Hint(settingsLockedText(vaultState))
                 Hint(CLIPBOARD_CLEAR_SHORT)
                 MoreInfo { Hint(CLIPBOARD_CLEAR_HINT) }
             }
             Section(SettingItem.KDF.title, anchor(SettingItem.KDF)) {
                 // 2.0, task 2: the cost is each vault's (the one shown).
                 Choices(KdfProfile.entries, settings.vault(vault.id).kdf, { it.label }, enabled = { editable && (it != KdfProfile.HIGH || highAvailable) }) { v ->
-                    if (settingsEditable(vault.state.value)) change { s -> s.withVault(vault.id) { it.copy(kdf = v) } }
+                    change(guarded = true) { s -> s.withVault(vault.id) { it.copy(kdf = v) } }
                 }
-                if (!editable) Hint(SETTINGS_NEED_OPEN_VAULT)
+                if (!editable) Hint(settingsLockedText(vaultState))
                 // On view: what the high cost means, and why its chip is off (code review of 1.4.2).
                 Hint(KDF_HIGH_SHORT)
                 if (!highAvailable) Hint(KDF_HIGH_UNAVAILABLE)
@@ -705,7 +713,7 @@ fun SettingsScreen(
                 )
                 MoreInfo { Hint("«Exportar bóveda» guarda una copia .sgbak con los adjuntos. «Importar copia» acepta esa copia y la exportación .json de la 1.0.") }
             }
-            AutoBackupSection(store, vault, autoBackup, releaseIfUnused, snackbar)
+            AutoBackupSection(store, vault, autoBackup, releaseIfUnused, snackbar, editableNow)
             FingerprintKeySection(vault.id, vaultState)
             HistorySection(vault, vaultState, snackbar)
             Section(SettingItem.INFO.title, anchor(SettingItem.INFO)) {
