@@ -447,7 +447,8 @@ class PlatformSourcesTest {
         assertTrue("const val BACKUP_CHECK_TITLE = \"Comprobar una copia\"" in main("vault/BackupCheckTexts.kt"))
         // The import uses the same checks (BackupCheck.kt), so they cannot drift apart.
         val store = code("vault/VaultStore.kt")
-        assertTrue("checkCopyEntries(incomingEntries)" in store && "attachmentInCopy(it, backup.first)" in store)
+        // RT-21, part a: in [VaultCrypto.afterMasterUnlockWithData]'s prepare, on the data about to be written.
+        assertTrue("checkCopyEntries(data.entries)" in store && "attachmentInCopy(it, backup.first)" in store)
     }
 
     /** Ruling R3: no other product's brand in a user-visible text; the licence's attribution lives on the Licencias screen. */

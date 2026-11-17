@@ -231,7 +231,8 @@ class AppContainerVaultsTest {
             withTimeout(60_000) { switch.await() }
             assertFalse("the dialog of A6 never opens on B", c.masterChanged.state.value.open)
             assertFalse(c.masterChanged.replace())
-            assertEquals(settingsB, c.settings.settings.value.vault(idB))
+            // The A11 clock mark of every vault rises with any use (by design); everything else of B stays as it was.
+            assertEquals(settingsB.copy(clockHighWaterMs = 0), c.settings.settings.value.vault(idB).copy(clockHighWaterMs = 0))
             // Re-review B i-1: A, which has folders, by its colour.
             val colorA = c.registry.vaults.value.single { it.id == PRIMARY_VAULT_ID }.color
             assertEquals(masterChangedInOtherVaultText(colorA, hadFolders = true, fingerprintFailed = true), c.vaultsNotice.value)
@@ -296,6 +297,47 @@ class AppContainerVaultsTest {
         twoVaults(c)
         c.onMasterChanged("c".repeat(32), fingerprintFailed = false, hasIdentity = true)
         assertEquals(null, c.vaultsNotice.value)
+    }
+
+    /**
+     * RT-22 (ii) (owner's decision): an empty vault can be filled (created in, imported into) only by the rule of
+     * [AppContainer.canAddVault]: on a first install, yes; with another vault that has its file, no (it can only be
+     * deleted); and a new vault from an open one is made as before.
+     */
+    @Test fun anEmptyVaultIsFilledOnlyByTheRuleOfCreatingAVault() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        assertTrue("first install", c.mayFillEmptySlot())
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val idB = c.createVault("Dos", masterB.toCharArray())
+        c.vault.destroy()
+        assertEquals(idB, c.activeVaultId)
+        assertEquals(VaultState.NoVault, c.vault.state.value)
+        assertFalse("A has its file: B, empty, cannot be filled", c.mayFillEmptySlot())
+        // From A open, a new vault is made as before (no guard on that path).
+        c.switchTo(PRIMARY_VAULT_ID)
+        c.vault.unlock(masterA.toCharArray())
+        val idC = c.createVault("Tres", "maestra-de-prueba-c".toCharArray())
+        assertEquals(idC, c.activeVaultId)
+        assertTrue(c.vault.unlocked())
+    }
+
+    /** RT-22 (ii): the screens ask the guard right before they call the store, and its texts are the Ruling's. */
+    @Test fun theScreensAskTheGuardBeforeFillingAnEmptyVault() {
+        fun code(path: String) = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/$path") }.first { it.isFile }.readText()
+        val vault = code("ui/screens/VaultScreen.kt")
+        assertTrue(Regex("""if \(!guard\(\)\) \{\s*failed = VAULT_NEW_NEEDS_OPEN\s*return@launch\s*\}[\s\S]{0,400}store\.create\(pw\)""").containsMatchIn(vault))
+        val backup = code("ui/screens/VaultBackup.kt")
+        assertTrue(Regex("""store\.state\.value is VaultState\.NoVault && !guard\(\)\) VAULT_NEW_NEEDS_OPEN""").containsMatchIn(backup))
+        assertTrue("container::mayFillEmptySlot" in code("ui/AppNavHost.kt"))
+        assertEquals("Para crear o importar otra bóveda, abre antes una de las que tienes.", app.seguridad.vault.VAULT_NEW_NEEDS_OPEN)
+        assertEquals("Esta bóveda está vacía: no hay nada que copiar.", app.seguridad.vault.VAULT_EMPTY_NOTHING_TO_COPY)
+        assertEquals(
+            "Esta bóveda está vacía. Para crear o importar otra bóveda, abre antes una de las que tienes.",
+            app.seguridad.tools.HEALTH_EMPTY_VAULT,
+        )
     }
 
     /**

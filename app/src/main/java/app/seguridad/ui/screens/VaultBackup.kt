@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
 import app.seguridad.vault.copyFailureText
 import app.seguridad.vault.BACKUP_DOES_NOT_FIT_V3
 import app.seguridad.vault.BACKUP_DOES_NOT_FIT
@@ -65,6 +66,12 @@ import kotlinx.coroutines.withContext
  */
 val LocalOnMasterChanged = staticCompositionLocalOf<(vaultId: String, fingerprintFailed: Boolean, hasIdentity: Boolean) -> Unit> { { _, _, _ -> } }
 
+/**
+ * RT-22 (ii): whether the empty vault shown can be filled now (AppContainer.mayFillEmptySlot, provided by the app root);
+ * asked right before the store is called. The default lets it, for previews.
+ */
+val LocalEmptySlotGuard = staticCompositionLocalOf<suspend () -> Boolean> { { true } }
+
 /** What the vault menu and Ajustes can do with the vault file; each one shows its own dialog or picker. */
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
 
@@ -97,6 +104,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             snackbar.showSnackbar(if (ok) "Copia cifrada guardada. Necesitarás tu contraseña maestra para abrirla." else failure ?: "No se pudo guardar la copia")
         }
     }
+    val guard = LocalEmptySlotGuard.current
     // Only the document's address is kept until the password is typed; the file is read as a stream then.
     var importUri by remember { mutableStateOf<Uri?>(null) }
     val importer = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.IMPORT_COPY) { uri ->
@@ -176,7 +184,8 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             importUri = null
             scope.launch {
                 val msg = withContext(NonCancellable) {
-                    try {
+                    // RT-22 (ii): an empty vault is filled only by the rule of creating a vault, checked right before.
+                    if (store.state.value is VaultState.NoVault && !guard()) VAULT_NEW_NEEDS_OPEN.also { pw.fill('\u0000') } else try {
                         // A .sgbak copy or a JSON export: the store tells them apart by their first bytes.
                         // True when the import dropped a pending request to replace the old automatic copies (COPIAS-3).
                         val dropped = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { store.importReplace(it, pw) } }

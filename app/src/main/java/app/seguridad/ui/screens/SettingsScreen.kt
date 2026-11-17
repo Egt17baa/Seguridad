@@ -1,5 +1,7 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
+import app.seguridad.vault.VAULT_EMPTY_NOTHING_TO_COPY
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -443,7 +445,7 @@ private fun AutoBackupSection(
                     when (vault.state.value) {
                         is VaultState.Unlocked -> autoBackup.request(t.uri)
                         VaultState.Locked -> scope.launch { snackbar.showSnackbar(AUTO_BACKUP_NOW_NEEDS_OPEN) }
-                        VaultState.NoVault -> scope.launch { snackbar.showSnackbar("Aún no tienes bóveda: no hay nada que copiar.") }
+                        VaultState.NoVault -> scope.launch { snackbar.showSnackbar(VAULT_EMPTY_NOTHING_TO_COPY) }
                         else -> Unit
                     }
                 },
@@ -695,7 +697,8 @@ fun SettingsScreen(
             }
             Section(SettingItem.VAULT_COPY.title, anchor(SettingItem.VAULT_COPY)) {
                 val unlocked = vaultState is VaultState.Unlocked
-                val canImport = unlocked || vaultState is VaultState.NoVault
+                // RT-22 (ii): into an empty vault only by the rule of creating one (the same as [editable] with no vault).
+                val canImport = unlocked || (vaultState is VaultState.NoVault && editable)
                 OutlinedButton(onClick = actions.export, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text(VAULT_EXPORT) }
                 OutlinedButton(onClick = actions.import, enabled = canImport, modifier = Modifier.fillMaxWidth()) { Text(VAULT_IMPORT) }
                 OutlinedButton(onClick = actions.changeMaster, enabled = unlocked, modifier = Modifier.fillMaxWidth()) { Text(VAULT_CHANGE_MASTER) }
@@ -706,7 +709,7 @@ fun SettingsScreen(
                 Hint(
                     when (vaultState) {
                         VaultState.Locked -> "Desbloquea la bóveda (pestaña Bóveda) para exportarla, importar una copia o cambiar la contraseña maestra."
-                        VaultState.NoVault -> "Aún no tienes bóveda: puedes crearla en la pestaña Bóveda o importar una copia."
+                        VaultState.NoVault -> if (editable) "Aún no tienes bóveda: puedes crearla en la pestaña Bóveda o importar una copia." else VAULT_NEW_NEEDS_OPEN
                         else -> "La copia va cifrada con tu contraseña maestra: guárdala donde quieras. " +
                             "Al importar se reemplaza la bóveda de este móvil."
                     },

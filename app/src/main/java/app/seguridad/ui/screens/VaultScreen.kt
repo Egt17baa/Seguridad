@@ -1,5 +1,7 @@
 package app.seguridad.ui.screens
 
+import androidx.compose.runtime.produceState
+import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
@@ -353,8 +355,23 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
     // A single known word is not a master: the lists load off the main thread (null until they are in), once for this
     // screen, and the button of creating waits for them.
     val words = rememberMasterWords()
+    // RT-22 (ii): while another vault of the phone has its file, this empty one can only be deleted («Bóvedas»); read off
+    // the main thread, nothing offered until it is known.
+    val guard = LocalEmptySlotGuard.current
+    val mayFill by produceState<Boolean?>(null, store) { value = guard() }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LocalVaultSwitcher.current()
+        when (mayFill) {
+            null -> {
+                CircularProgressIndicator(Modifier.size(24.dp))
+                return@Column
+            }
+            false -> {
+                Text(VAULT_NEW_NEEDS_OPEN)
+                return@Column
+            }
+            true -> Unit
+        }
         Text("Crea tu bóveda", style = MaterialTheme.typography.headlineSmall)
         failed?.let { Text(it, color = NegativeColor) }
         Text(VAULT_CREATE_SHORT)
@@ -386,6 +403,11 @@ private fun CreateVault(store: VaultStore, onImport: () -> Unit) {
                 val pw = a.toCharArray()
                 scope.launch {
                     try {
+                        // RT-22 (ii): checked again right before the store is called.
+                        if (!guard()) {
+                            failed = VAULT_NEW_NEEDS_OPEN
+                            return@launch
+                        }
                         // A fingerprint left from a previous (deleted or damaged) vault wraps the wrong key.
                         BiometricVault.disable(context, store.id)
                         store.create(pw)

@@ -123,3 +123,6 @@ const val KDF_COST_KEPT =
     "No se pudo subir el coste de Argon2id al elegido en Ajustes: ahora no hay memoria suficiente. La bóveda se queda " +
         "con el coste que ya tenía el archivo o la copia. Se volverá a intentar cada vez que la abras con la " +
         "contraseña maestra. Si en Ajustes tienes el coste «Alto», puedes elegir «Estándar»."
+
+/** RT-22 (ii): «Hacer una copia ahora» in Ajustes on an empty vault. */
+const val VAULT_EMPTY_NOTHING_TO_COPY = "Esta bóveda está vacía: no hay nada que copiar."

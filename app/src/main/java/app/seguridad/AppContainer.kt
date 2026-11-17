@@ -643,6 +643,15 @@ class AppContainer(
     fun canAddVault(): Boolean = vault.state.value is VaultState.Unlocked || !anyVaultFile()
 
     /**
+     * RT-22 (ii) (owner's decision, 17-11-2026): whether the empty vault shown can be filled now («Crea tu bóveda» and
+     * «Importar copia» into it): only when [canAddVault], so while another vault of the phone has its file, the empty one
+     * can only be deleted, and making or importing another needs one of the user's vaults open (as «Bóveda nueva» in
+     * «Bóvedas»). Checked by the screens right before they call the store; reads the disk. A new vault made or imported
+     * from an open one ([createVault], [importAsNewVault]) does not go through it.
+     */
+    suspend fun mayFillEmptySlot(): Boolean = withContext(Dispatchers.IO) { canAddVault() }
+
+    /**
      * A new vault: [before] runs on its store while the vault of now is still the active one (so a failure there changes
      * nothing of it), then the switch, then [made]. Review M-3: both get the new vault's own store, never whichever
      * is active.

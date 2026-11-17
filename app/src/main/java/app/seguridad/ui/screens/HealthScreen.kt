@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.tools.HEALTH_EMPTY_VAULT
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -112,7 +113,10 @@ fun HealthScreen(
             // 2.0, task 10 (m-2 of phase A): reached from Herramientas too. With no vault, its own line; locked (or still
             // reading), the vault's gate in place, to open it from here (its fingerprint is this vault's).
             if (state is VaultState.NoVault) {
-                Text(HEALTH_NO_VAULT, Modifier.padding(padding).padding(16.dp))
+                // RT-22 (ii): while another vault of the phone has its file, the empty one is not one to create in.
+                val guard = LocalEmptySlotGuard.current
+                val mayFill by produceState(true, store) { value = guard() }
+                Text(if (mayFill) HEALTH_NO_VAULT else HEALTH_EMPTY_VAULT, Modifier.padding(padding).padding(16.dp))
             } else {
                 VaultGate(store, onImport = {}, modifier = Modifier.padding(padding)) { }
             }

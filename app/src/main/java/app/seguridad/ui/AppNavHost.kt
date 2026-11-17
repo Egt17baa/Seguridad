@@ -1,5 +1,6 @@
 package app.seguridad.ui
 
+import app.seguridad.ui.screens.LocalEmptySlotGuard
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
@@ -331,6 +332,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     val leaveGuard = remember { LeaveGuard() }
     CompositionLocalProvider(
         LocalOnMasterChanged provides container::onMasterChanged,
+        LocalEmptySlotGuard provides container::mayFillEmptySlot,
         LocalVaultSwitcher provides switcher,
         LocalLeaveGuard provides leaveGuard,
         LocalOpeningBusy provides (showing != null),
