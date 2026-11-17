@@ -127,7 +127,7 @@ class BackupCheckRuns(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: CryptoFailure) {
-                if (current(mine, epoch)) session.error = e.message ?: BACKUP_CHECK_FAILED
+                if (current(mine, epoch)) session.error = copyFailureText(e) // Branch review, row 42.
             } catch (e: IOException) {
                 if (current(mine, epoch)) session.error = BACKUP_CHECK_READ_FAILED
             } catch (e: Exception) {

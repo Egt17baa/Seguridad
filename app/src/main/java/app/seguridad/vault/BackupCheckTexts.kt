@@ -100,3 +100,18 @@ const val BACKUP_CHECK_NOT_COUNTED =
 const val BACKUP_CHECK_NOTICE_MORE =
     "Los días se cuentan desde que comprobaste con «Comprobar una copia» una copia de esta bóveda, no desde que se hizo la " +
         "copia. Las copias de antes de la 2.0 y las de otra bóveda no cuentan."
+
+/** Branch review, row 42: a copy that its password does not open, or damaged (AES-GCM cannot tell them apart). */
+const val COPY_WRONG_PASSWORD_OR_DAMAGED = "Contraseña incorrecta o copia dañada. Vuelve a elegir la copia y escribe su contraseña."
+
+/** Branch review, row 42: a copy whose header asks for Argon2id parameters out of bounds ([app.seguridad.crypto.KDF_PARAMS_INVALID]). */
+const val COPY_KDF_PARAMS_INVALID = "La copia pide unos parámetros de cifrado que Clavero no admite. Elige otra copia."
+
+/**
+ * Branch review, row 42: what «Importar copia», «Importar como bóveda nueva» and «Comprobar una copia» say of [e]; pure.
+ */
+fun copyFailureText(e: app.seguridad.crypto.CryptoFailure): String = when (val m = e.message) {
+    null, app.seguridad.crypto.CryptoFailure().message -> COPY_WRONG_PASSWORD_OR_DAMAGED
+    app.seguridad.crypto.KDF_PARAMS_INVALID -> COPY_KDF_PARAMS_INVALID
+    else -> m
+}

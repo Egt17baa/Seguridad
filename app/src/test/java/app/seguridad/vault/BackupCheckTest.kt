@@ -591,6 +591,18 @@ class BackupCheckTest {
         check(rewrittenData(zip) { it.copy(folders = listOf(Folder("f1", "ñ".repeat(ORGANIZE_NAME_MAX)))) }, temp())
     }
 
+    /**
+     * Branch review, row 42, P-42: what the three places of a copy say: the default failure of AES-GCM as of a copy, with
+     * what to do; parameters out of bounds as of a copy; everything else as it is.
+     */
+    @Test fun aCopysFailureIsSaidAsOfACopy() {
+        assertEquals("Contraseña incorrecta o copia dañada. Vuelve a elegir la copia y escribe su contraseña.", copyFailureText(CryptoFailure()))
+        assertEquals("La copia pide unos parámetros de cifrado que Clavero no admite. Elige otra copia.", copyFailureText(CryptoFailure(app.seguridad.crypto.KDF_PARAMS_INVALID)))
+        for (m in listOf(app.seguridad.crypto.KDF_OUT_OF_MEMORY, app.seguridad.crypto.KDF_NO_MEMORY_NOW, COPY_DAMAGED, NOT_A_VAULT, BACKUP_NEWER, SEVERAL_IDENTITIES)) {
+            assertEquals(m, copyFailureText(CryptoFailure(m)))
+        }
+    }
+
     @Test fun aForgedSizeIsRefusedBeforeTheWork() = runTest {
         val good = entriesOf(phoneA().backup())
         // A local header that says 4 GB but brings a few bytes: the sizes in headers are never used to allocate.

@@ -1,5 +1,7 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.masterRefusal
+import app.seguridad.copyRefusal
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -328,7 +330,8 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
                 val id = active.id
                 run {
                     try {
-                        deletionText(container.deleteVault(id, master, typed))
+                        // Branch review, row 42: the vault's master password, said as the lock screen says it.
+                        masterRefusal { deletionText(container.deleteVault(id, master, typed)) }
                     } finally {
                         master.fill('\u0000')
                     }
@@ -362,8 +365,11 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
             dialog = null
             run {
                 try {
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(d.uri)!!.use { container.importAsNewVault(it, master, name = "") }
+                    // Branch review, row 42: a copy's failure, said as of a copy.
+                    copyRefusal {
+                        withContext(Dispatchers.IO) {
+                            context.contentResolver.openInputStream(d.uri)!!.use { container.importAsNewVault(it, master, name = "") }
+                        }
                     }
                     VAULT_IMPORT_NEW_DONE
                 } finally {

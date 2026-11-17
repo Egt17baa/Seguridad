@@ -7,6 +7,8 @@ import app.seguridad.vault.VaultLimitExceeded
 import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
 import app.seguridad.vault.VAULT_FAILED
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.vault.copyFailureText
+import app.seguridad.vault.masterUnlockErrorText
 import app.seguridad.core.Notice
 import app.seguridad.core.PickerPlaces
 import app.seguridad.core.PlaceStore
@@ -924,3 +926,17 @@ class AppContainer(
 
 /** A vault action refused by a rule of the app (not a failure): [message] is a fixed Spanish text that says why. */
 class VaultsRefused(message: String) : IllegalStateException(message)
+
+/** Branch review, row 42: [block], an action of «Bóvedas» with a copy, with its [CryptoFailure] said as [copyFailureText]. */
+suspend fun <T> copyRefusal(block: suspend () -> T): T = try {
+    block()
+} catch (e: CryptoFailure) {
+    throw VaultsRefused(copyFailureText(e))
+}
+
+/** Branch review, row 42: [block], an action of «Bóvedas» with the vault's master password, said as [masterUnlockErrorText]. */
+suspend fun <T> masterRefusal(block: suspend () -> T): T = try {
+    block()
+} catch (e: CryptoFailure) {
+    throw VaultsRefused(masterUnlockErrorText(e))
+}

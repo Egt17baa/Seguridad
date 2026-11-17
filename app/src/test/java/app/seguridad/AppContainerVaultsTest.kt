@@ -263,6 +263,32 @@ class AppContainerVaultsTest {
     }
 
     /**
+     * Branch review, row 42: in «Bóvedas», a copy that its password does not open is said as of a copy, and deleting a
+     * vault with a wrong master password says [app.seguridad.vault.WRONG_MASTER], as the lock screen.
+     */
+    @Test fun theVaultsActionsSayTheirOwnFailures() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        val copy = ByteArrayOutputStream().also { assertTrue(c.vault.exportBackup(it)) }.toByteArray()
+        val imported = c.runVaultsAction { copyRefusal { c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), ""); VAULT_IMPORT_NEW_DONE } }
+        assertEquals(app.seguridad.vault.COPY_WRONG_PASSWORD_OR_DAMAGED, imported)
+        val deleted = c.runVaultsAction { masterRefusal { deletionText(c.deleteVault(idB, masterA.toCharArray(), "Dos")) } }
+        assertEquals(app.seguridad.vault.WRONG_MASTER, deleted)
+        assertTrue(c.registry.vaults.value.any { it.id == idB })
+    }
+
+    /** Branch review, row 42: the three places of a copy and the deletion use those texts (from the sources). */
+    @Test fun theCopyTextsAreUsedWhereACopyIsOpened() {
+        fun code(path: String) = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/$path") }.first { it.isFile }.readText()
+        assertTrue("copyFailureText(e)" in code("ui/screens/VaultBackup.kt"))
+        assertTrue("copyFailureText(e)" in code("vault/BackupCheckSession.kt"))
+        val picker = code("ui/screens/VaultPickerScreen.kt")
+        assertTrue(Regex("""copyRefusal \{\s*withContext\(Dispatchers\.IO\) \{\s*context\.contentResolver\.openInputStream\(d\.uri\)!!\.use \{ container\.importAsNewVault""").containsMatchIn(picker))
+        assertTrue(Regex("""masterRefusal \{ deletionText\(container\.deleteVault\(""").containsMatchIn(picker))
+    }
+
+    /**
      * 2.0, re-review 1 of task 7: a save of the editor that waits while the vault locks (behind another save, or a
      * derivation) never lands after the lock: not in the other vault after a switch, and not in its own vault opened
      * again. The editor gives the lock epoch of its «Guardar» ([VaultStore.upsert] with `sinceLock`).

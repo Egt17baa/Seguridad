@@ -1,8 +1,8 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.copyFailureText
 import app.seguridad.vault.BACKUP_DOES_NOT_FIT_V3
 import app.seguridad.vault.BACKUP_DOES_NOT_FIT
-import app.seguridad.vault.WRONG_MASTER
 import app.seguridad.vault.backupCheckNotice
 import app.seguridad.vault.BACKUP_CHECK_NOTICE_MORE
 import app.seguridad.ui.theme.CautionColor
@@ -183,7 +183,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                         BiometricVault.disable(context, store.id)
                         if (dropped) "Copia importada. $AUTO_BACKUP_REPLACE_DROPPED" else "Copia importada"
                     } catch (e: CryptoFailure) {
-                        e.message ?: WRONG_MASTER
+                        copyFailureText(e) // Branch review, row 42.
                     } catch (e: Exception) {
                         "No se pudo importar la copia"
                     } finally {
