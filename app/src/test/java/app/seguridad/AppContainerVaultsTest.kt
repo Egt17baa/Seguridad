@@ -6,7 +6,6 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.BackupSchedule
 import app.seguridad.vault.BiometricRefusal
-import app.seguridad.vault.MASTER_CHANGED_IN_OTHER_VAULT
 import app.seguridad.vault.masterChangedInOtherVaultText
 import app.seguridad.settings.vault
 import app.seguridad.settings.withAutoBackupResult
@@ -233,7 +232,9 @@ class AppContainerVaultsTest {
             assertFalse("the dialog of A6 never opens on B", c.masterChanged.state.value.open)
             assertFalse(c.masterChanged.replace())
             assertEquals(settingsB, c.settings.settings.value.vault(idB))
-            assertEquals(masterChangedInOtherVaultText(fingerprintFailed = true), c.vaultsNotice.value)
+            // Re-review B i-1: A, which has folders, by its colour.
+            val colorA = c.registry.vaults.value.single { it.id == PRIMARY_VAULT_ID }.color
+            assertEquals(masterChangedInOtherVaultText(colorA, hadFolders = true, fingerprintFailed = true), c.vaultsNotice.value)
         } finally {
             gate.countDown()
             scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
@@ -253,12 +254,47 @@ class AppContainerVaultsTest {
         assertEquals(null, c.vaultsNotice.value)
         c.switchTo(PRIMARY_VAULT_ID)
         assertFalse(c.masterChanged.state.value.open)
-        assertEquals(MASTER_CHANGED_IN_OTHER_VAULT, c.vaultsNotice.value)
-        c.vaultsNoticeShown(MASTER_CHANGED_IN_OTHER_VAULT)
+        // Re-review B i-1: B has no folders, so no offer to delete was lost; said by its colour.
+        val lost = masterChangedInOtherVaultText(c.registry.vaults.value.single { it.id == idB }.color, hadFolders = false, fingerprintFailed = false)
+        assertEquals(lost, c.vaultsNotice.value)
+        c.vaultsNoticeShown(c.vaultsNotice.value!!) // The very text shown ([Notice.shown] compares by identity).
         // Closed by the user before the switch: nothing to say.
         c.onMasterChanged(PRIMARY_VAULT_ID, fingerprintFailed = false, hasIdentity = true)
         c.masterChanged.close()
         c.switchTo(idB)
+        assertEquals(null, c.vaultsNotice.value)
+    }
+
+    /**
+     * Re-review of the branch, B i-1: the two texts of a dialog of A6 lost by a switch, by the vault's colour (from the
+     * registry, never its name): with folders, where the dialog offered to delete; with none, what is true then. The line
+     * of the fingerprint after either.
+     */
+    @Test fun theLostDialogSaysWhichVaultAndWhatIsLeft() {
+        assertEquals(
+            "La contraseña maestra de la bóveda de color azul se cambió. Al cambiar de bóveda, el aviso que ofrece borrar sus " +
+                "copias anteriores no se llegó a mostrar o se cerró: esas copias siguen abriéndose con la contraseña anterior. " +
+                "Para borrarlas, vuelve a esa bóveda y cambia otra vez la contraseña maestra, o bórralas a mano.",
+            masterChangedInOtherVaultText(app.seguridad.vault.TagColor.BLUE, hadFolders = true, fingerprintFailed = false),
+        )
+        val none = "La contraseña maestra de la bóveda de color turquesa se cambió. Las copias .sgbak que ya tenías de esa " +
+            "bóveda se siguen abriendo con la contraseña anterior."
+        assertEquals(none, masterChangedInOtherVaultText(app.seguridad.vault.TagColor.TEAL, hadFolders = false, fingerprintFailed = false))
+        assertEquals(
+            none + "\n" + app.seguridad.vault.MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT,
+            masterChangedInOtherVaultText(app.seguridad.vault.TagColor.TEAL, hadFolders = false, fingerprintFailed = true),
+        )
+        assertTrue(
+            masterChangedInOtherVaultText(app.seguridad.vault.TagColor.RED, hadFolders = true, fingerprintFailed = true)
+                .endsWith("\n" + app.seguridad.vault.MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT),
+        )
+    }
+
+    /** Re-review of the branch, B i-1: a vault no longer in the registry says nothing. */
+    @Test fun aVaultThatIsGoneSaysNothing() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        twoVaults(c)
+        c.onMasterChanged("c".repeat(32), fingerprintFailed = false, hasIdentity = true)
         assertEquals(null, c.vaultsNotice.value)
     }
 
@@ -270,7 +306,7 @@ class AppContainerVaultsTest {
         val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
         twoVaults(c)
         val said = c.runVaultsAction { c.onMasterChanged(PRIMARY_VAULT_ID, fingerprintFailed = false, hasIdentity = true); VAULT_IMPORT_NEW_DONE }
-        val notice = masterChangedInOtherVaultText(fingerprintFailed = false)
+        val notice = masterChangedInOtherVaultText(c.registry.vaults.value.single { it.id == PRIMARY_VAULT_ID }.color, hadFolders = false, fingerprintFailed = false)
         assertEquals(VAULT_IMPORT_NEW_DONE + "\n\n" + notice, said)
         assertEquals(said, c.vaultsNotice.value)
     }

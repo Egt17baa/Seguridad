@@ -90,22 +90,28 @@ fun TagColor.label(): String = when (this) {
 }
 
 /**
- * Branch review, A I-1: the dialog after a change of master password (A6) of a vault that is no longer the active one was
- * not shown, or a switch closed it before anything was asked in it; its copies are still under the password of before.
+ * Branch review, A I-1, and re-review B i-1: the dialog after a change of master password (A6) of a vault that is no longer
+ * the active one was not shown, or a switch closed it before anything was asked in it. The vault is named by its colour
+ * (from the registry, not encrypted; never its encrypted name). With folders for its copies ([hadFolders], the very
+ * predicate that makes the dialog offer «Borrar…»): its copies are still under the password of before, and how to delete
+ * them. With none: no offer was lost; the copies exported by hand still open with the password of before.
  */
-const val MASTER_CHANGED_IN_OTHER_VAULT =
-    "La contraseña maestra de la otra bóveda se cambió. Al cambiar de bóveda, el aviso que ofrece borrar sus copias " +
-        "anteriores no se llegó a mostrar o se cerró: esas copias siguen abriéndose con la contraseña anterior. Para " +
-        "borrarlas, vuelve a esa bóveda y cambia otra vez la contraseña maestra, o bórralas a mano."
+fun masterChangedInOtherVaultText(color: TagColor, hadFolders: Boolean, fingerprintFailed: Boolean): String {
+    val head = "La contraseña maestra de la bóveda de color ${color.label()} se cambió."
+    val text = if (hadFolders) {
+        "$head Al cambiar de bóveda, el aviso que ofrece borrar sus copias anteriores no se llegó a mostrar o se cerró: esas " +
+            "copias siguen abriéndose con la contraseña anterior. Para borrarlas, vuelve a esa bóveda y cambia otra vez la " +
+            "contraseña maestra, o bórralas a mano."
+    } else {
+        "$head Las copias .sgbak que ya tenías de esa bóveda se siguen abriendo con la contraseña anterior."
+    }
+    return if (fingerprintFailed) text + "\n" + MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT else text
+}
 
-/** Branch review, A I-1: the line after [MASTER_CHANGED_IN_OTHER_VAULT] when that vault's fingerprint could not be turned off. */
+/** Branch review, A I-1: the line after [masterChangedInOtherVaultText] when that vault's fingerprint could not be turned off. */
 const val MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT =
     "En esa bóveda la huella ya no la abre, pero no se pudo desactivar: ábrela con la contraseña nueva, desactiva la " +
         "huella y vuelve a activarla."
-
-/** Branch review, A I-1: what is said of a dialog of A6 lost by a switch ([fingerprintFailed]: one line more). */
-fun masterChangedInOtherVaultText(fingerprintFailed: Boolean): String =
-    if (fingerprintFailed) MASTER_CHANGED_IN_OTHER_VAULT + "\n" + MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT else MASTER_CHANGED_IN_OTHER_VAULT
 
 /**
  * Branch review, row 45 (A I-2, option B): a vault opened with the master password (or a copy imported) whose cost could

@@ -564,9 +564,10 @@ class AppContainer(
                 activeId = id // Shuts the old one's gate before it is locked: an unlock finishing now stays locked.
                 val s = masterChanged.state.value
                 masterChanged.close()
-                s.takeIf { it.open && it.requestedAt == 0L }
+                // Re-review B i-1: of the vault whose dialog it was.
+                s.takeIf { it.open && it.requestedAt == 0L }?.let { (masterChangedSlot?.id ?: old.store.id) to it.fingerprintFailed }
             }
-            lost?.let { vaultsNotices.post(masterChangedInOtherVaultText(it.fingerprintFailed)) }
+            lost?.let { (vaultId, fingerprintFailed) -> lostDialogText(vaultId, fingerprintFailed)?.let(vaultsNotices::post) }
             old.store.lock(LockReason.MANUAL)
             clipboardNotice.drop()
             old.store.awaitIdle()
@@ -876,7 +877,18 @@ class AppContainer(
                 true
             }
         }
-        if (!opened) vaultsNotices.post(masterChangedInOtherVaultText(fingerprintFailed))
+        if (!opened) lostDialogText(vaultId, fingerprintFailed)?.let(vaultsNotices::post)
+    }
+
+    /**
+     * Re-review B i-1: what is said of the dialog of A6 of [vaultId] that was not shown or was closed by a switch: by its
+     * colour, and with or without folders as the dialog decides its offer (its targets, read now); null (nothing said)
+     * when the vault is no longer in the registry.
+     */
+    private fun lostDialogText(vaultId: String, fingerprintFailed: Boolean): String? {
+        val info = registry.vaults.value.firstOrNull { it.id == vaultId } ?: return null
+        val hadFolders = settings.settings.value.vault(vaultId).targets.isNotEmpty()
+        return masterChangedInOtherVaultText(info.color, hadFolders, fingerprintFailed)
     }
 
     /**
