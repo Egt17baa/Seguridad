@@ -10,6 +10,7 @@ import app.seguridad.vault.VaultState
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Ignore
 import org.junit.Rule
@@ -68,30 +69,44 @@ class RedTeam20VaultsTest {
     }
 
     /**
-     * RT-23 (H-2, truthfulness). «Importar como bóveda nueva» (AppContainer.kt:612-624) runs [VaultStore.importReplace],
-     * whose [VaultCrypto.afterMasterUnlock] only re-seals a v4 copy (Vault.kt:532) or wraps its same key again (:534); only
-     * [VaultCrypto.changeMaster] makes a new data key (Vault.kt:555-563). So the vault made from a copy of vault A has A's
-     * data key, and so has each vault imported again from the same copy. The design says the opposite (spec :38 «cada
-     * bóveda tiene su propia clave de datos, así que los trozos de dos bóvedas no se abren juntos» and :62 «la clave de un
-     * archivo no abre los datos de otro»): here A's key opens B's data and the other way round.
-     *
-     * No way without root was found to use it (report, «H-2»): the files are private, the fingerprint keys are one per
-     * vault and wrap only their vault's key, each attachment has its own key. The safe behaviour asserted is the design's;
-     * if the Ruling corrects the design's sentence instead of the code, this test becomes a resists… test of what is true.
+     * RT-23 (H-2, truthfulness), closed by the director's ruling, option (a): no code changes, the design is corrected.
+     * «Importar como bóveda nueva» keeps the copy's data key ([VaultCrypto.afterMasterUnlock] only re-seals a v4 copy or wraps
+     * its same key again; only [VaultCrypto.changeMaster] makes a new one). What is true: right after the import the new
+     * vault has A's data key (and A's master), its own vault tag (D-12), and after a change of its master password it has a
+     * key of its own, A's master no longer opens it, and A still opens with its own master and its entry.
      */
-    @Ignore("RT-23: abierto, ver redteam-report.md")
-    @Test fun rt23_aVaultImportedAsNewHasADataKeyOfItsOwn() = runTest {
+    @Test fun resistsAVaultImportedAsNewSharesTheCopysKeyOnlyUntilAMasterChanges() = runTest {
         val c = container(backgroundScope)
         c.settings.load()
         c.vault.load()
         c.vault.create(masterA.toCharArray(), name = "Uno")
         c.vault.upsert(VaultEntry("x", EntryType.LOGIN, "Banco", password = "de-a", createdAt = 1, updatedAt = 1))
         val keyA = c.vault.dataKeyCopy()!!
+        val tagA = (c.vault.state.value as VaultState.Unlocked).data.vaultTag
         val copy = ByteArrayOutputStream().also { assertTrue(c.vault.exportBackup(it)) }.toByteArray()
-        c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), "Copia")
+        val idB = c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), "Copia")
         assertTrue(c.vault.state.value is VaultState.Unlocked)
         val keyB = c.vault.dataKeyCopy()!!
-        assertFalse("The vault made from A's copy has A's data key", keyA.contentEquals(keyB))
+        assertTrue("Right after the import, the copy's data key", keyA.contentEquals(keyB))
+        assertNotEquals("A tag of its own (D-12)", tagA, (c.vault.state.value as VaultState.Unlocked).data.vaultTag)
+        // A change of B's master password gives B a data key of its own.
+        assertTrue(c.vault.changeMaster(masterB.toCharArray()))
+        c.vault.unlock(masterB.toCharArray())
+        val keyB2 = c.vault.dataKeyCopy()!!
+        assertFalse(keyA.contentEquals(keyB2))
+        c.vault.lock()
+        try {
+            c.vault.unlock(masterA.toCharArray())
+        } catch (e: app.seguridad.crypto.CryptoFailure) {
+            // A's master no longer opens B.
+        }
+        assertFalse(c.vault.state.value is VaultState.Unlocked)
+        assertEquals(idB, c.activeVaultId)
+        c.switchTo(PRIMARY_VAULT_ID)
+        c.vault.unlock(masterA.toCharArray())
+        assertTrue(c.vault.state.value is VaultState.Unlocked)
+        assertTrue((c.vault.state.value as VaultState.Unlocked).entries.any { it.id == "x" && it.password == "de-a" })
+        assertTrue(keyA.contentEquals(c.vault.dataKeyCopy()!!))
     }
 
     /**
