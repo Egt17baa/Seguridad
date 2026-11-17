@@ -92,3 +92,11 @@ enum class SortOrder { NAME, UPDATED, CREATED, USED }
 /** The fixed colours a tag may have; the colour is never the only sign of anything (R-1). */
 @Serializable
 enum class TagColor { RED, ORANGE, YELLOW, GREEN, TEAL, BLUE, PURPLE, GRAY }
+
+/**
+ * Branch review, A m-3: these data with the entries in the order the screens show them (by title, lower-cased, stable),
+ * each key worked out once. Only on the store's compute dispatcher, never on the caller's thread: [VaultStore] sorts
+ * there before it opens the vault in memory; what is written to the file keeps its own order.
+ */
+internal fun VaultData.sortedForShow(): VaultData =
+    copy(entries = entries.map { it to it.title.lowercase() }.sortedBy { it.second }.map { it.first })

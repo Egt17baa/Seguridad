@@ -44,6 +44,59 @@ class VaultStoreTest {
 
     private fun entry(id: String, title: String) = VaultEntry(id, EntryType.NOTE, title, notes = "secreto", createdAt = 0, updatedAt = 0)
 
+    /**
+     * Branch review, A m-3 (test n.º 5): the entries are sorted for the screens on the store's compute dispatcher, never in
+     * [VaultStore]'s `opened` (it runs on the caller's thread, the main one for a tap): every [sortedForShow] in the store
+     * is inside a `withContext(compute)`, and `opened` sorts nothing.
+     */
+    @Test fun sortRunsOnCompute() {
+        val src = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/vault/VaultStore.kt") }.first { it.isFile }.readLines()
+        val start = src.indexOfFirst { "private fun opened(" in it }
+        val end = (start + 1 until src.size).first { src[it] == "    }" }
+        val opened = src.subList(start, end).filterNot { it.trim().startsWith("//") }.joinToString("\n")
+        assertFalse(opened, "sorted" in opened)
+        assertFalse(opened, "VaultCrypto.read(" in opened)
+        val calls = src.indices.filter { ".sortedForShow()" in src[it] }
+        assertTrue(calls.size >= 5)
+        for (i in calls) {
+            val block = (i downTo maxOf(0, i - 6)).firstOrNull { "withContext(" in src[it] }
+            assertTrue("VaultStore.kt:${i + 1}", block != null && "withContext(compute)" in src[block])
+        }
+    }
+
+    /** Branch review, A m-3: the list is sorted (as before) after each path that opens or saves the vault. */
+    @Test fun theListIsSortedAfterEveryPath() = runTest {
+        fun VaultStore.titles() = (state.value as VaultState.Unlocked).entries.map { it.title }
+        val sorted = listOf("Alfa", "beta", "Gamma")
+        val s = store().apply { load(); create("maestra".toCharArray()) }
+        s.upsert(entry("1", "beta"))
+        s.upsert(entry("2", "Gamma"))
+        s.upsert(entry("3", "Alfa"))
+        assertEquals("upsert", sorted, s.titles())
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        s.unlock("maestra".toCharArray())
+        assertEquals("maestra", sorted, s.titles())
+        s.lock()
+        s.unlockWithKey(key)
+        assertEquals("huella", sorted, s.titles())
+        val copy = java.io.ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
+        val other = store("otra.bin").apply { load() }
+        other.importReplace(java.io.ByteArrayInputStream(copy), "maestra".toCharArray())
+        assertEquals("importar", sorted, other.titles())
+        // The vault of 1.4.3 (version 3), opened before its upgrade.
+        val old = File(tmp.newFolder("p143"), "vault.bin").apply {
+            writeText(this@VaultStoreTest.javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        }
+        val v3 = VaultStore(old, Dispatchers.Unconfined, Dispatchers.Unconfined, now = { 1_800_000_000_000L + 3_600_000L }, kdf = { KdfParams(1024, 1, 1) })
+        v3.load()
+        v3.unlock("maestra-de-prueba-143".toCharArray())
+        val t = v3.titles()
+        assertEquals("paso a v4", t.sortedBy { it.lowercase() }, t)
+        assertTrue(t.size > 1)
+    }
+
     @Test fun `create, add, lock and unlock again`() = runTest {
         val s = store().apply { load() }
         assertEquals(VaultState.NoVault, s.state.value)

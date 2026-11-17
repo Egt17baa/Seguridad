@@ -485,7 +485,7 @@ class VaultStore(
         }
         // 2.0, review I-2 of task 4: with no [read], the file is decrypted and decoded here, off the caller's thread.
         val data = read ?: if (epoch != since) null else try {
-            withContext(compute) { VaultCrypto.read(next, key) }
+            withContext(compute) { VaultCrypto.read(next, key).sortedForShow() }
         } catch (e: CryptoFailure) {
             key.fill(0)
             throw e
@@ -500,15 +500,12 @@ class VaultStore(
      * is what opens (same data key), and it waits for [completeUpgrade]; null for any other opening, which ends a pending
      * upgrade (an import replaced the vault).
      */
-    private fun opened(v: VaultFile, key: ByteArray, since: Int, upgraded: VaultFile? = null, read: VaultData? = null) {
+    private fun opened(v: VaultFile, key: ByteArray, since: Int, upgraded: VaultFile? = null, read: VaultData?) {
         vault = v
-        val data = if (epoch != since) null else try {
-            // [read]: what [v] holds, already decrypted by the caller (review M-5: the fingerprint's unlock reads it once).
-            (read ?: VaultCrypto.read(upgraded ?: v, key)).let { d -> d.copy(entries = d.entries.sortedBy { it.title.lowercase() }) }
-        } catch (e: CryptoFailure) {
-            key.fill(0)
-            throw e
-        }
+        // [read]: what [v] (or [upgraded]) holds, already decrypted and sorted for the screens by the caller on [compute]
+        // (review M-5: the fingerprint's unlock reads it once; branch review, A m-3: nothing of it on the caller's thread).
+        // Null only when a lock came since [since]: then it stays locked.
+        val data = if (epoch != since) null else read
         synchronized(opening) {
             if (data == null || epoch != since || !active()) {
                 upgrades.drop()
@@ -617,7 +614,7 @@ class VaultStore(
         // declined; a process death meanwhile leaves it as it was (focus 1).
         // Review I-2 of task 4: the version 4 waiting is decrypted off the caller's thread, as in [commit].
         val read = try {
-            withContext(compute) { VaultCrypto.read(checked, key) }
+            withContext(compute) { VaultCrypto.read(checked, key).sortedForShow() }
         } catch (e: CryptoFailure) {
             key.fill(0)
             throw e
@@ -727,10 +724,11 @@ class VaultStore(
         // Decrypted once (review M-5): what is written is what opens.
         val data = withContext(compute) { VaultCrypto.read(known, key).purgedTrash(at, mark) }
         val next = withContext(compute) { VaultCrypto.write(known, key, data) }
+        val shown = withContext(compute) { data.sortedForShow() }
         // Task 10, n-1: decrypting and encrypting the whole vault again takes long (up to hundreds of ms near 24 MiB); a
         // switch meanwhile leaves nothing written either, so the window is as short as the master password's.
         if (!active()) return key.fill(0)
-        commit(next, key, since, mustSave = false, read = data)
+        commit(next, key, since, mustSave = false, read = shown)
     }
 
     /**
@@ -861,8 +859,7 @@ class VaultStore(
         val next = try {
             withContext(compute) {
                 change(current)?.fittedForSave(current)?.withPlainVersions()?.let { data ->
-                    saved = data
-                    VaultCrypto.write(v, key, data)
+                    VaultCrypto.write(v, key, data).also { saved = data.sortedForShow() }
                 }?.takeIf { accept(it) }
             }
         } catch (e: Exception) {
@@ -1497,7 +1494,7 @@ class VaultStore(
         val key = derive { VaultCrypto.unlock(incoming, master) }
         var costKept = false
         // Validates the data before replacing anything, and brings an old export to the current format.
-        val (checked, refs) = try {
+        val (checked, refs, shown) = try {
             // 2.0, task 8 (D-12): «Importar como bóveda nueva» gives the new vault a tag of its own, so a copy of the vault
             // it came from never counts as checked for it (nor the other way round), and no date of a check of the other
             // (re-review 1, N-1): its reminder starts from none.
@@ -1523,7 +1520,7 @@ class VaultStore(
                 // checked here is what is imported, from a single read of the document.
                 withContext(io) { refs.forEach { if (attachmentInCopy(it, backup.first) != CopyAttachment.OK) throw CryptoFailure(attachmentNotInCopy(it.name)) } }
             }
-            checked to refs
+            Triple(checked, refs, withContext(compute) { incomingData.sortedForShow() })
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -1545,7 +1542,7 @@ class VaultStore(
                 // Importing with no readable vault (the "Crea tu bóveda" screen): a file that could not be read is kept, as in [create].
                 if (vault == null) withContext(io) { keepAside() }
                 if (backup == null) {
-                    commit(checked, key, since)
+                    commit(checked, key, since, read = shown)
                     onClockReset(now()) // Only once the copy is saved: a failed save lowers nothing.
                     tellCostKept(costKept)
                     return@withContext prepared.droppedRequest
@@ -1569,7 +1566,7 @@ class VaultStore(
                 throw e
             }
             onClockReset(now()) // Saved: the copy's master password was verified and it is the vault now.
-            opened(checked, key, since)
+            opened(checked, key, since, read = shown)
             tellCostKept(costKept)
             collectGarbage() // The old vault's attachments the new one does not use.
             prepared.droppedRequest

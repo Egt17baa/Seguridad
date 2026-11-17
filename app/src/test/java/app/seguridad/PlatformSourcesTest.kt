@@ -147,7 +147,8 @@ class PlatformSourcesTest {
         // Review I-2: a save opens what it wrote, never decrypting the vault again on the caller's thread.
         val store = code("vault/VaultStore.kt")
         assertTrue("commit(next, key, since, mustSave = !bookkeeping, read = saved)" in store)
-        assertTrue("withContext(compute) { VaultCrypto.read(next, key) }" in store)
+        // Branch review, A m-3: and sorted there too.
+        assertTrue("withContext(compute) { VaultCrypto.read(next, key).sortedForShow() }" in store)
     }
 
     /**
