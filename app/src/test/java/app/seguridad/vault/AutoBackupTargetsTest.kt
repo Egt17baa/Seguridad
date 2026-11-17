@@ -1519,6 +1519,8 @@ class AutoBackupTargetsTest {
             a6UnlistedInDoneText(1, 1), a6UnlistedInDoneText(2, 2),
         )
         for (t in texts) assertTrue(t, "antes de la 2.0" in t)
+        // Re-review B m-1: several copies in one folder, in plural.
+        assertTrue(autoBackupUnlistedText(2), "(automáticas," in autoBackupUnlistedText(2))
     }
 
     /** Branch review, row 17, P-17c: the three branches of [a6StaleText]. */

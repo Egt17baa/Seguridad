@@ -187,7 +187,7 @@ fun autoBackupUnlistedText(n: Int, severalFolders: Boolean = false): String {
             "la versión 1.2.1 o de otra bóveda): no se ha borrado y puede que se abra con una contraseña anterior. Si no la " +
             "necesitas, bórrala a mano."
     } else {
-        "En la carpeta quedan $n copias con nombre de copia de la app (automática, de antes de importar o de antes de la 2.0) que la app no " +
+        "En la carpeta quedan $n copias con nombre de copia de la app (automáticas, de antes de importar o de antes de la 2.0) que la app no " +
             "tenía apuntadas (por ejemplo, de antes " +
             "de la versión 1.2.1 o de otra bóveda): no se han borrado y puede que se abran con una contraseña anterior. Si no " +
             "las necesitas, bórralas a mano."
