@@ -189,8 +189,8 @@ fun a6DialogView(status: ReplaceStatus, working: Boolean, summary: A6Summary?): 
 
 /** Task 8, round 4: [replaced] of [folders] folders (some, not all) replaced their old copies for the request. */
 fun a6PartialText(replaced: Int, folders: Int): String {
-    val done = "Se borraron las copias automáticas y las de antes de importar hechas antes del cambio de contraseña (las " +
-        "que la app tenía apuntadas) en $replaced de las $folders carpetas."
+    val done = "Se borraron las copias automáticas, las de antes de importar y las de antes de la 2.0 hechas antes del cambio " +
+        "de contraseña (las que la app tenía apuntadas) en $replaced de las $folders carpetas."
     val left = folders - replaced
     // Round 5 (m-8): true whatever those folders hold (one added after the change has nothing of before; one that failed
     // half-way deleted some).
@@ -206,11 +206,11 @@ fun a6PartialText(replaced: Int, folders: Int): String {
 fun a6UnlistedInDoneText(n: Int, inFolders: Int): String {
     val where = if (inFolders == 1) "En la carpeta en que se borraron" else "En las carpetas en que se borraron"
     return if (n == 1) {
-        "$where quedaba 1 copia con nombre de copia de la app (automática o de antes de importar) que la app no tenía " +
+        "$where quedaba 1 copia con nombre de copia de la app (automática, de antes de importar o de antes de la 2.0) que la app no tenía " +
             "apuntada (por ejemplo, de antes de la versión 1.2.1 o de otra bóveda): no se ha borrado y puede que se abra con " +
             "una contraseña anterior. Si no la necesitas, bórrala a mano."
     } else {
-        "$where quedaban $n copias con nombre de copia de la app (automáticas o de antes de importar) que la app no tenía " +
+        "$where quedaban $n copias con nombre de copia de la app (automáticas, de antes de importar o de antes de la 2.0) que la app no tenía " +
             "apuntadas (por ejemplo, de antes de la versión 1.2.1 o de otra bóveda): no se han borrado y puede que se abran " +
             "con una contraseña anterior. Si no las necesitas, bórralas a mano."
     }

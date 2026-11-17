@@ -1507,6 +1507,20 @@ class AutoBackupTargetsTest {
         assertNotNull(a6Decide(other.targets, other.a6, emptyList(), true, null))
     }
 
+    /**
+     * Branch review, B I-2, P-I2: A6 also deletes the copies made before the upgrade to 2.0 (they are on the lists of
+     * import copies, [UPGRADE_COPY_PREFIX]); every text that says which copies it deletes, or counts those left, names them.
+     */
+    @Test fun theA6TextsNameTheCopiesOfBefore20() {
+        val texts = listOf(
+            app.seguridad.tools.PASSWORD_CHANGE_REPLACE_COPIES, AUTO_BACKUP_REPLACED, AUTO_BACKUP_REPLACED_SEVERAL,
+            a6PartialText(1, 2), a6PartialText(1, 3),
+            autoBackupUnlistedText(1), autoBackupUnlistedText(2), autoBackupUnlistedText(1, true), autoBackupUnlistedText(2, true),
+            a6UnlistedInDoneText(1, 1), a6UnlistedInDoneText(2, 2),
+        )
+        for (t in texts) assertTrue(t, "antes de la 2.0" in t)
+    }
+
     /** Branch review, row 17, P-17c: the three branches of [a6StaleText]. */
     @Test fun theStaleTextSaysWhere() {
         assertTrue("en la carpeta." in a6StaleText(1, 1))

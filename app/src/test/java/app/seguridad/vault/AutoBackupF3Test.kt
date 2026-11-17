@@ -175,9 +175,10 @@ class AutoBackupF3Test {
     @Test fun `m1 the replacement's text names the copies from before the change`() {
         assertEquals(
             // R15 (1.4.0, Task 8): the import copies listed in the folder are replaced too.
-            "Se hizo una copia nueva y se borraron las copias automáticas y las de antes de importar hechas antes del " +
-                "cambio de contraseña: las que la app tenía apuntadas en esta carpeta. Las que se hayan copiado a otro sitio " +
-                "(otra carpeta, la nube o su papelera) no se borran.",
+            // Branch review, B I-2: and those made before the upgrade to 2.0.
+            "Se hizo una copia nueva y se borraron las copias automáticas, las de antes de importar y las de antes de la 2.0 " +
+                "hechas antes del cambio de contraseña: las que la app tenía apuntadas en esta carpeta. Las que se hayan " +
+                "copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran.",
             AUTO_BACKUP_REPLACED,
         )
     }

@@ -505,7 +505,7 @@ const val PASSWORD_CHANGE_COPIES = "Cambiar la contraseña no cambia las copias 
 /** A6, the dialog after the master password changed: title, the two sentences (the first is above), and the buttons. */
 const val PASSWORD_CHANGED_TITLE = "Contraseña maestra cambiada"
 const val PASSWORD_CHANGE_OLD_BACKUPS = "Las copias .sgbak de antes, también las automáticas, se siguen abriendo con la contraseña anterior."
-const val PASSWORD_CHANGE_REPLACE_COPIES = "Hacer una copia nueva y borrar las anteriores (automáticas y de antes de importar)"
+const val PASSWORD_CHANGE_REPLACE_COPIES = "Hacer una copia nueva y borrar las anteriores (automáticas, de antes de importar y de antes de la 2.0)"
 const val PASSWORD_CHANGE_RENEW_HINT =
     "Si temes que alguien tenga la contraseña anterior y una copia, con las dos puede ver todo lo que guardabas al " +
         "hacerla: cambia las contraseñas y los códigos 2FA que más te importen, y renueva tu identidad."

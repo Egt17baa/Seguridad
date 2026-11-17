@@ -150,8 +150,8 @@ const val AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY = "La copia automática se hizo, 
 // Only what is true whatever the folder holds: the copies deleted are those the app had listed (COPIAS-2). O-2 (final
 // review of the Abogado Digital): the colon keeps «que la app tenía apuntadas» from being read as said of «contraseña».
 const val AUTO_BACKUP_REPLACED =
-    "Se hizo una copia nueva y se borraron las copias automáticas y las de antes de importar hechas antes del cambio de " +
-        "contraseña: las que la app tenía apuntadas en esta carpeta. " +
+    "Se hizo una copia nueva y se borraron las copias automáticas, las de antes de importar y las de antes de la 2.0 " +
+        "hechas antes del cambio de contraseña: las que la app tenía apuntadas en esta carpeta. " +
         "Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
 
 /**
@@ -159,8 +159,8 @@ const val AUTO_BACKUP_REPLACED =
  * it had listed.
  */
 const val AUTO_BACKUP_REPLACED_SEVERAL =
-    "Se hizo una copia nueva en cada carpeta y se borraron las copias automáticas y las de antes de importar hechas antes " +
-        "del cambio de contraseña: las que la app tenía apuntadas en cada carpeta. " +
+    "Se hizo una copia nueva en cada carpeta y se borraron las copias automáticas, las de antes de importar y las de " +
+        "antes de la 2.0 hechas antes del cambio de contraseña: las que la app tenía apuntadas en cada carpeta. " +
         "Las que se hayan copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran."
 
 /**
@@ -172,22 +172,22 @@ fun autoBackupUnlistedText(n: Int, severalFolders: Boolean = false): String {
     // pass), and the text says so.
     if (severalFolders) {
         return if (n == 1) {
-            "Al borrar las copias anteriores, en las carpetas quedaba 1 copia con nombre de copia de la app (automática o de " +
-                "antes de importar) que la app no tenía apuntada (por ejemplo, de antes de la versión 1.2.1 o de otra bóveda): " +
+            "Al borrar las copias anteriores, en las carpetas quedaba 1 copia con nombre de copia de la app (automática, de " +
+                "antes de importar o de antes de la 2.0) que la app no tenía apuntada (por ejemplo, de antes de la versión 1.2.1 o de otra bóveda): " +
                 "no se ha borrado y puede que se abra con una contraseña anterior. Si no la necesitas, bórrala a mano."
         } else {
-            "Al borrar las copias anteriores, en las carpetas quedaban $n copias con nombre de copia de la app (automáticas o " +
-                "de antes de importar) que la app no tenía apuntadas (por ejemplo, de antes de la versión 1.2.1 o de otra " +
+            "Al borrar las copias anteriores, en las carpetas quedaban $n copias con nombre de copia de la app (automáticas, " +
+                "de antes de importar o de antes de la 2.0) que la app no tenía apuntadas (por ejemplo, de antes de la versión 1.2.1 o de otra " +
                 "bóveda): no se han borrado y puede que se abran con una contraseña anterior. Si no las necesitas, bórralas a mano."
         }
     }
     return if (n == 1) {
-        "En la carpeta queda 1 copia con nombre de copia de la app (automática o de antes de importar) que la app no tenía " +
+        "En la carpeta queda 1 copia con nombre de copia de la app (automática, de antes de importar o de antes de la 2.0) que la app no tenía " +
             "apuntada (por ejemplo, de antes de " +
             "la versión 1.2.1 o de otra bóveda): no se ha borrado y puede que se abra con una contraseña anterior. Si no la " +
             "necesitas, bórrala a mano."
     } else {
-        "En la carpeta quedan $n copias con nombre de copia de la app (automática o de antes de importar) que la app no " +
+        "En la carpeta quedan $n copias con nombre de copia de la app (automática, de antes de importar o de antes de la 2.0) que la app no " +
             "tenía apuntadas (por ejemplo, de antes " +
             "de la versión 1.2.1 o de otra bóveda): no se han borrado y puede que se abran con una contraseña anterior. Si no " +
             "las necesitas, bórralas a mano."
