@@ -184,7 +184,7 @@ internal fun attachmentNotInCopy(name: String) = "La copia está incompleta o da
 
 /**
  * What [VaultStore.upsert] and [VaultStore.addAttachment] keep for entries added here holds for a copy too, or it is
- * refused (by the import, before anything changes; by [checkBackup], with the same message): only one identity, no two
+ * refused (by the import, before anything changes; by [checkBackup], with the same message): only one identity alive, no two
  * entries with the same id, no attachments or password history in an identity or a contact, the fields within their
  * limits and without an id twice (2.0, [fieldsDamaged]), and the attachments within
  * [MAX_ATTACHMENT_BYTES] each and [MAX_ATTACHMENTS_TOTAL_BYTES] in all. A copy this app made always passes; one written
@@ -192,7 +192,9 @@ internal fun attachmentNotInCopy(name: String) = "La copia está incompleta o da
  * [MAX_ATTACHMENTS_TOTAL_BYTES] in all.
  */
 internal fun checkCopyEntries(entries: List<VaultEntry>) {
-    if (entries.count { it.type == EntryType.IDENTITY } > 1) throw CryptoFailure(SEVERAL_IDENTITIES)
+    // Branch review, D-1: only the identities alive count, as for [VaultStore.upsert]; one in the trash (a copy brings it
+    // back) and another made after is a vault the app saves, so its own copy must pass.
+    if (entries.count { it.type == EntryType.IDENTITY && it.deletedAt == null } > 1) throw CryptoFailure(SEVERAL_IDENTITIES)
     // The id goes, encoded, into the screens' routes (AppNavHost): only an id nothing could ever show or route is
     // refused, so a copy of a vault that 1.0 to 1.2.x let in with any other id still restores (LIBRE-1).
     if (entries.any { !isEntryId(it.id) }) throw CryptoFailure(COPY_DAMAGED)

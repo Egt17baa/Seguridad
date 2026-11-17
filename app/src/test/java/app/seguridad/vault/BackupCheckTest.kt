@@ -532,6 +532,19 @@ class BackupCheckTest {
         assertNull(copyCheckFails(with(*(0 until 10).map { declaredRef(it, five) }.toTypedArray())))
     }
 
+    /**
+     * Branch review, D-1: an identity in the trash (a copy brings it back with [VaultStore.restore]) and another one alive is
+     * a vault the app can save, so its copy passes; two alive are still [SEVERAL_IDENTITIES].
+     */
+    @Test fun anIdentityInTheTrashIsNotASecondOne() {
+        val alive = VaultEntry("y1", EntryType.IDENTITY, "Yo", createdAt = 0, updatedAt = 0)
+        val trashed = VaultEntry("y2", EntryType.IDENTITY, "Yo antes", createdAt = 0, updatedAt = 0, deletedAt = 5)
+        assertNull(copyCheckFails(listOf(alive, trashed)))
+        assertNull(copyCheckFails(listOf(trashed, trashed.copy(id = "y3"))))
+        assertEquals(SEVERAL_IDENTITIES, copyCheckFails(listOf(alive, alive.copy(id = "y3"))))
+        assertEquals(SEVERAL_IDENTITIES, copyCheckFails(listOf(alive, trashed, alive.copy(id = "y3"))))
+    }
+
     @Test fun aForgedSizeIsRefusedBeforeTheWork() = runTest {
         val good = entriesOf(phoneA().backup())
         // A local header that says 4 GB but brings a few bytes: the sizes in headers are never used to allocate.
