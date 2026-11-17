@@ -202,3 +202,13 @@ Rama `ccr-0aa27f95-u038cd`, desde `7e1860b`. Encargo: `docs/superpowers/handoff/
 - `AppContainer.kt` `forgetOrphanVaults` bajo `changingVaults`, lanzado en `appScope` (IO) desde `SeguridadApp.kt` tras `settings.load()`; nunca en el hilo principal.
 - `ui/screens/VaultPickerScreen.kt`: `LaunchedEffect(active, activeState)`, con el estado síncrono de la bóveda.
 - `ui/screens/EntryHistoryScreen.kt`: `TwoStepCopy` viene de `AppContainer` (vive con el proceso, no con la pantalla).
+
+## B I-2, tras el Ruling del controlador (0d6df21)
+- Ruling: actualizar el anexo `docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md` y mantener `ToolTextsTest` atado a él.
+- Anexo, líneas 120, 124, 128, 129 y 448 a 450: los textos de la 2.0, cada línea con la nota «(cambiado en la 2.0, B I-2)» al final. La nota va sin comillas angulares, porque `ToolTextsTest` toma cada texto entre «» como un texto de la app.
+- Aplicado `branch-fixes-b-i2.patch` sin cambios: los cinco literales, P-I2 y los tests que los fijan (`ToolTextsTest`, `FinalLegalReviewTest`, `AutoBackupF3Test`). El rojo de P-I2 está en el grupo 7.
+- Suites, por separado:
+  - app (`:app:testDebugUnitTest`, `assembleDebug`, `lintDebug`, `checkLicense`, `checkFragmentVersion`, `checkAssets`): BUILD SUCCESSFUL, **2404 tests, 0 fallos**;
+  - `./gradlew --stop`;
+  - jvm-check: **2353 tests, 0 fallos**.
+- Sin *push*.
