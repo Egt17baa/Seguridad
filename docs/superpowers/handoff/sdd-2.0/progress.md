@@ -229,3 +229,4 @@ Task 12 (ronda de la revisión de la rama): implementada (`035752d`..`d12f70b`, 
 Ruling (controlador, B I-2): el anexo de la 1.3.0 se actualiza con los textos de la 2.0 en esas líneas y en las 448-450, cada una con la nota «(cambiado en la 2.0, B I-2)», como las notas de corrección del diseño; el test sigue atado al anexo. Se aplica el parche con eso.
 Task 12 (ronda de la revisión de la rama, B I-2): hecho en `0d6df21` (anexo de la 1.3.0 con los textos de la 2.0 y su nota; parche aplicado). Ronda completa: app 2404, jvm-check 2353, por separado. Re-revisiones A, B y C dispatched.
 Clon limpio en `6268333`: app 2404 y jvm-check 2353, 0 fallos, por separado. Re-revisiones A, B y C cortadas por el límite de uso; se reanudan.
+Owner decision (17-11-2026): cambia el director: desde ahora, cada Ruling con un Important, cada encargo de fase y cada fase de la revisión final los consulta el director nuevo, con esfuerzo extra.
