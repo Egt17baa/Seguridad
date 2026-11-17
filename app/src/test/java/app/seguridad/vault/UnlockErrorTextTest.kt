@@ -80,9 +80,10 @@ class UnlockErrorTextTest {
     }
 
     /**
-     * Ronda 2 (n-2), second case: the master password is right, and wrapping the key again at the cost chosen in Ajustes
-     * (afterMasterUnlock) has no memory (the cost injected to fail once). It says so, the file is as it was byte for byte,
-     * the vault stays locked, and the next try opens.
+     * Ronda 2 (n-2), second case, as it stands after row 45: the master password is right and the cost of Ajustes cannot
+     * be read ([kdf] throws [KDF_OUT_OF_MEMORY], injected; it runs before afterMasterUnlock, so nothing is wrapped). It
+     * says so, the file is as it was byte for byte, the vault stays locked, and the next try opens. Running out of memory
+     * while wrapping again opens the vault with the file's cost: [noMemoryWhenWrappingAgainOpensWithTheFileCost].
      */
     @Test fun noMemoryWhenWrappingAgainLeavesTheFileAsItWas() = runTest {
         var failOnce = false
