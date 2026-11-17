@@ -1,5 +1,7 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.BACKUP_DOES_NOT_FIT_V3
+import app.seguridad.vault.BACKUP_DOES_NOT_FIT
 import app.seguridad.vault.WRONG_MASTER
 import app.seguridad.vault.backupCheckNotice
 import app.seguridad.vault.BACKUP_CHECK_NOTICE_MORE
@@ -90,7 +92,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             if (!ok) discardDocumentNow(context, uri)
             // A CryptoFailure names the attachment that is missing or damaged; false with a vault means it locked
             // meanwhile, and only an open vault's attachments can be checked.
-            val failure = (result.exceptionOrNull() as? CryptoFailure)?.message
+            val failure = exportFailureText((result.exceptionOrNull() as? CryptoFailure)?.message)
                 ?: "La bóveda se bloqueó: ábrela y vuelve a exportarla".takeIf { result.isSuccess && store.state.value is VaultState.Locked }
             snackbar.showSnackbar(if (ok) "Copia cifrada guardada. Necesitarás tu contraseña maestra para abrirla." else failure ?: "No se pudo guardar la copia")
         }
@@ -274,4 +276,16 @@ fun BackupCheckNoticeLine(lastCheckedBackupAt: Long, modifier: Modifier = Modifi
         Text(text, style = MaterialTheme.typography.bodySmall, color = CautionColor)
         if (explain) MoreInfo { Hint(BACKUP_CHECK_NOTICE_MORE) }
     }
+}
+
+/** Branch review, row 39: what to do when the vault does not fit in a copy, after the reason, in «Exportar». */
+internal const val EXPORT_DOES_NOT_FIT_TODO = "Quita adjuntos o entradas grandes, o vacía la papelera, y vuelve a exportarla."
+
+/**
+ * Branch review, row 39: what «Exportar» says of a failed copy ([message], the [CryptoFailure]'s; null: none): a vault
+ * that does not fit says what to do; anything else as it is.
+ */
+internal fun exportFailureText(message: String?): String? = when (message) {
+    BACKUP_DOES_NOT_FIT, BACKUP_DOES_NOT_FIT_V3 -> "$message. $EXPORT_DOES_NOT_FIT_TODO"
+    else -> message
 }

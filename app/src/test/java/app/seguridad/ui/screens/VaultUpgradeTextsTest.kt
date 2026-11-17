@@ -3,6 +3,7 @@ package app.seguridad.ui.screens
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.tools.ForbiddenWords
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,6 +14,26 @@ class VaultUpgradeTextsTest {
         assertEquals("El adjunto «a.txt» falta o está dañado", upgradeExportFailure(CryptoFailure("El adjunto «a.txt» falta o está dañado")))
         assertEquals(UPGRADE_EXPORT_FAILED, upgradeExportFailure(java.io.IOException("disco lleno")))
         assertEquals(UPGRADE_EXPORT_FAILED, upgradeExportFailure(null))
+    }
+
+    /**
+     * Branch review, row 39: a vault that does not fit in a copy says what to do, each place its own: «Exportar» to take
+     * things out and export again; the upgrade, that it can go on without a copy (never «quita»).
+     */
+    @Test fun aVaultThatDoesNotFitSaysWhatToDo() {
+        for (m in listOf(app.seguridad.vault.BACKUP_DOES_NOT_FIT, app.seguridad.vault.BACKUP_DOES_NOT_FIT_V3)) {
+            assertEquals(
+                "$m. Quita adjuntos o entradas grandes, o vacía la papelera, y vuelve a exportarla.",
+                exportFailureText(m),
+            )
+            val upgrade = upgradeExportFailure(CryptoFailure(m))
+            assertEquals("$m. Puedes seguir sin copia: la bóveda pasará al formato nuevo y las versiones anteriores ya no la abrirán.", upgrade)
+            assertFalse(upgrade, "quita" in upgrade.lowercase())
+            assertTrue(UPGRADE_SKIP == "Seguir sin copia")
+        }
+        // Any other reason, as it was.
+        assertEquals("El adjunto «a.txt» falta o está dañado", exportFailureText("El adjunto «a.txt» falta o está dañado"))
+        assertEquals(null, exportFailureText(null))
     }
 
     /** M-5 and O-3 with a folder: fixed texts, at sight, with no forbidden words. */

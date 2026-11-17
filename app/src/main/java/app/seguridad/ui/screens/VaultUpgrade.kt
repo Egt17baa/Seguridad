@@ -1,5 +1,7 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.BACKUP_DOES_NOT_FIT_V3
+import app.seguridad.vault.BACKUP_DOES_NOT_FIT
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -57,8 +59,22 @@ internal const val UPGRADE_DONE_OK = "Entendido"
 /** [name] is the copy's file name ([app.seguridad.vault.CopyResult.Saved.where]), never a path or a URI. */
 internal fun upgradeDoneCopy(name: String) = "La copia de antes del cambio está en la carpeta de la copia automática: «$name»."
 
-/** Review M-3: what the dialog says when «Exportar una copia antes» failed: the export's own reason, as «Exportar» does. */
-internal fun upgradeExportFailure(e: Throwable?): String = (e as? CryptoFailure)?.message ?: UPGRADE_EXPORT_FAILED
+/**
+ * Branch review, row 39: what to do when the vault does not fit in a copy, after the reason, in the upgrade's dialog
+ * (there is no export to try again: it can go on without one).
+ */
+internal const val UPGRADE_DOES_NOT_FIT_TODO =
+    "Puedes seguir sin copia: la bóveda pasará al formato nuevo y las versiones anteriores ya no la abrirán."
+
+/**
+ * Review M-3: what the dialog says when «Exportar una copia antes» failed: the export's own reason, as «Exportar» does;
+ * branch review, row 39: a vault that does not fit says what it can do here.
+ */
+internal fun upgradeExportFailure(e: Throwable?): String = when (val m = (e as? CryptoFailure)?.message) {
+    null -> UPGRADE_EXPORT_FAILED
+    BACKUP_DOES_NOT_FIT, BACKUP_DOES_NOT_FIT_V3 -> "$m. $UPGRADE_DOES_NOT_FIT_TODO"
+    else -> m
+}
 
 /**
  * Shown over every vault screen while [VaultStore.pendingUpgrade]: a vault of version 2 or 3 was opened with the master
