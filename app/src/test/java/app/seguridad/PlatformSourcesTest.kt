@@ -1183,5 +1183,16 @@ class PlatformSourcesTest {
         )
         assertEquals(1, Regex("""android:exported="true"""").findAll(m).count())
     }
+
+    /**
+     * Re-review of the branch, C i-3: the notice of «Bóvedas» (now a result and a notice joined, C n-1) scrolls, as the
+     * dialog after a change of master password does; nothing of it in saved state.
+     */
+    @Test fun theVaultsNoticeScrolls() {
+        val nav = code("ui/AppNavHost.kt")
+        val dialog = nav.substring(nav.indexOf("if (showing == OpeningItem.VAULTS_NOTICE)"), nav.indexOf("val replacing by container.autoBackup.replacing"))
+        assertTrue(dialog, Regex("""FilterObscuredTouches\(\)\s*Column\(Modifier\.verticalScroll\(rememberScrollState\(\)\)\) \{ Text\(shown\) \}""").containsMatchIn(dialog))
+        assertFalse(dialog, "rememberSaveable" in dialog)
+    }
 }
 

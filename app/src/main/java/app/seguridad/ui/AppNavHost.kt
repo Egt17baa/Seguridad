@@ -1,5 +1,8 @@
 package app.seguridad.ui
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Column
 import android.net.Uri
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
@@ -298,7 +301,8 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
             onDismissRequest = { container.vaultsNoticeShown(shown) },
             text = {
                 FilterObscuredTouches()
-                Text(shown)
+                // Re-review C i-3: a result and a notice may come joined (C n-1); it scrolls, as MasterChangedDialog.
+                Column(Modifier.verticalScroll(rememberScrollState())) { Text(shown) }
             },
             confirmButton = { TextButton(onClick = { container.vaultsNoticeShown(shown) }) { Text(PASSWORD_CHANGE_CLOSE) } },
         )
