@@ -786,8 +786,9 @@ class PlatformSourcesTest {
             "ui/screens/EntryHistoryScreen.kt" to listOf(
                 "BackScaffold(\"\$HISTORY_TITLE · \${plainReportText(entry.title)}\", onBack)",
                 "Text(\"\${typeIcon(e.type)} \${plainReportText(e.title)}\")",
-                "Field(\"Usuario\", e.username, plain = true)",
-                "Field(\"Web\", e.url, plain = true)",
+                // Branch review, C m-3: with the copy that ends the offer of «Copiar contraseña».
+                "Field(\"Usuario\", e.username, plain = true, onCopied = onCopied)",
+                "Field(\"Web\", e.url, plain = true, onCopied = onCopied)",
                 "Text(historyClearTitle(plainReportText(entry.title)))",
             ),
             // 2.0, task 5: the names of the fields (a copy brings any), the expiry line and the duplicate's title.

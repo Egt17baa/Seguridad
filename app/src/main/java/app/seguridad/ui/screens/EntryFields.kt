@@ -137,9 +137,9 @@ private fun shownValue(type: EntryType, field: CustomField): String = when {
  * password, as the password itself.
  */
 @Composable
-internal fun EntryFieldsCard(entry: VaultEntry, onCopied: () -> Unit, onBig: (String) -> Unit = {}) {
+internal fun EntryFieldsCard(entry: VaultEntry, onCopied: () -> Unit, onBig: ((String) -> Unit)? = null) {
     // 2.0, task 6: a hidden field can be seen big; BigPasswordScreen finds it by its id and checks it is a secret.
-    fun big(f: CustomField): (() -> Unit)? = { onBig(f.id) }.takeIf { bigPasswordValue(entry, f.id) != null }
+    fun big(f: CustomField): (() -> Unit)? = bigActionFor(entry, f.id, onBig)
     val used = HashSet<Int>()
     for (t in Templates.fieldsFor(entry.type)) {
         val i = entry.fields.indexOfFirst { it.id == t.key }
@@ -431,3 +431,11 @@ internal fun ExpiryEditor(form: EntryEditSession, type: EntryType) {
     }
     Text(EXPIRY_ONLY_IN_APP, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
+
+/**
+ * Branch review, C I-2: «Ver en grande» of the field [fieldId] of [entry]: an action only when someone receives it
+ * ([onBig]; the versions of the history pass none: BigPasswordScreen reads the entry of now, not the version) and the
+ * field is a secret of the entry; null for no button.
+ */
+internal fun bigActionFor(entry: VaultEntry, fieldId: String, onBig: ((String) -> Unit)?): (() -> Unit)? =
+    onBig?.let { cb -> { cb(fieldId) } }?.takeIf { bigPasswordValue(entry, fieldId) != null }

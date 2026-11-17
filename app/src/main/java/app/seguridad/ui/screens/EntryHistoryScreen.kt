@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.tools.TwoStepCopy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -58,7 +59,7 @@ import kotlinx.coroutines.launch
  * or the entry is no longer out of the trash.
  */
 @Composable
-fun EntryHistoryScreen(store: VaultStore, id: String, onBack: () -> Unit) {
+fun EntryHistoryScreen(store: VaultStore, twoStep: TwoStepCopy, id: String, onBack: () -> Unit) {
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     val entry = (state as? VaultState.Unlocked)?.entries?.firstOrNull { it.id == id }
@@ -85,13 +86,13 @@ fun EntryHistoryScreen(store: VaultStore, id: String, onBack: () -> Unit) {
                         Text(historyOldPasswords(old.size), style = MaterialTheme.typography.titleSmall)
                         old.forEach { h ->
                             val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
-                            Field("Cambiada el $date", h.password, secret = true)
+                            Field("Cambiada el $date", h.password, secret = true, onCopied = twoStep::clear)
                         }
                     }
                 }
             }
             itemsIndexed(entry.history, key = { i, v -> "${v.savedAt}-$i" }) { i, v ->
-                VersionCard(v) {
+                VersionCard(v, onCopied = twoStep::clear) {
                     message = null
                     scope.launch {
                         message = try {
@@ -137,7 +138,7 @@ fun EntryHistoryScreen(store: VaultStore, id: String, onBack: () -> Unit) {
 
 /** One version: its date, folded; open, its fields as on the card (secrets hidden until shown). */
 @Composable
-private fun VersionCard(v: EntryVersion, onRestore: () -> Unit) {
+private fun VersionCard(v: EntryVersion, onCopied: () -> Unit, onRestore: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     val e = v.entry
     val date = java.time.Instant.ofEpochMilli(v.savedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
@@ -150,14 +151,15 @@ private fun VersionCard(v: EntryVersion, onRestore: () -> Unit) {
                 FilledTonalButton(onClick = onRestore) { Text(HISTORY_RESTORE) }
             }
             if (open) {
-                Field("Usuario", e.username, plain = true)
-                Field(if (e.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", e.password, secret = true)
-                Field("Web", e.url, plain = true)
-                Field("Frase semilla", e.seedWords, secret = true)
-                Field("Notas", e.notes, secret = e.type == EntryType.NOTE)
-                e.totp?.let { Field("Clave secreta 2FA", it.secret, secret = true, mono = true) }
+                // Branch review, C m-3: any copy ends the offer of «Copiar contraseña», here too.
+                Field("Usuario", e.username, plain = true, onCopied = onCopied)
+                Field(if (e.type == EntryType.SEED) "Passphrase BIP-39" else "Contraseña", e.password, secret = true, onCopied = onCopied)
+                Field("Web", e.url, plain = true, onCopied = onCopied)
+                Field("Frase semilla", e.seedWords, secret = true, onCopied = onCopied)
+                Field("Notas", e.notes, secret = e.type == EntryType.NOTE, onCopied = onCopied)
+                e.totp?.let { Field("Clave secreta 2FA", it.secret, secret = true, mono = true, onCopied = onCopied) }
                 // 2.0, task 5: as on the card: the template's labels, and its secrets hidden whatever kind a copy gave them.
-                EntryFieldsCard(e, onCopied = {})
+                EntryFieldsCard(e, onCopied = onCopied)
                 if (e.tags.isNotEmpty()) Text(e.tags.joinToString("  ") { "#${plainReportText(it)}" }, style = MaterialTheme.typography.bodySmall)
             }
         }

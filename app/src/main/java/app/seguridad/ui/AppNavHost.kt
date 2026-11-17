@@ -360,7 +360,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                 // 2.0, task 3: the trash and the versions of an entry (the id encoded, LIBRE-1).
                 composable("vault/trash") { TrashScreen(vault, onBack = backOnce(nav)) }
                 composable("vault/entry/{id}/history") { entry ->
-                    EntryHistoryScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
+                    EntryHistoryScreen(vault, container.twoStepCopy, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
                 }
                 composable("vault/entry/{id}") { entry ->
                     val id = entry.arguments?.getString("id").orEmpty()
