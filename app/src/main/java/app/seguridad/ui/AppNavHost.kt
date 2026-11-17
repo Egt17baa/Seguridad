@@ -532,7 +532,7 @@ private fun RenameNoticeDialog(onClose: () -> Unit) {
  */
 @Composable
 private fun backOnce(nav: NavHostController): () -> Unit {
-    val entry = LocalLifecycleOwner.current as? NavBackStackEntry ?: return remember(nav) { { nav.popBackStack(); Unit } }
+    val entry = LocalLifecycleOwner.current as? NavBackStackEntry ?: return remember(nav) { { nav.popBackStack() } }
     var pending by remember(entry) { mutableStateOf(false) }
     LaunchedEffect(nav, entry) {
         nav.currentBackStackEntryFlow.collect { top ->

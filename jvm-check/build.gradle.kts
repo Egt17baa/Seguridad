@@ -60,7 +60,7 @@ tasks.test {
         "../.github/workflows/build-apk.yml",
         "../app/build.gradle.kts", "../app/src/main/AndroidManifest.xml",
     ).withPropertyName("textsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md") })
+    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md", "*-notas.md") })
         .withPropertyName("handoffsReadByTests")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("../app/src/main/res")

@@ -247,9 +247,9 @@ fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
     return placed.drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         val at = place.at
-        val ready = blurs && at != null && backdrop!!.size != IntSize.Zero
+        val ready = blurs && at != null && backdrop.size != IntSize.Zero
         val alpha = look.alpha(level, blurNow = ready)
-        val layer = if (ready && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) blurredBackdrop(this, look, backdrop!!, at!!) else null
+        val layer = if (ready && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) blurredBackdrop(this, look, backdrop, at) else null
         val clip = Path().apply { addOutline(outline) }
         val fill = colors.panelColor(level).copy(alpha = alpha)
         val highlight = Brush.verticalGradient(

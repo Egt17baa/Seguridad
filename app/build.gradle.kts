@@ -239,7 +239,7 @@ tasks.withType<Test>().configureEach {
         "../.github/workflows/build-apk.yml",
         "build.gradle.kts", "src/main/AndroidManifest.xml",
     ).withPropertyName("textsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md") })
+    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md", "*-notas.md") })
         .withPropertyName("handoffsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("src/main/res").withPropertyName("resReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("src/main/assets").withPropertyName("assetsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)

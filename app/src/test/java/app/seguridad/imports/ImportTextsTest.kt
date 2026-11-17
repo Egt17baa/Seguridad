@@ -147,7 +147,7 @@ class ImportTextsTest {
         val store = listing.substringAfter("## Nombre de la app", missingDelimiterValue = "")
         assertTrue("the listing's store texts not found", store.length > 1000 && "## Descripción completa" in store)
         val parts = mutableListOf("docs/ficha-google-play.md" to store)
-        val handoffs = File(repo, "docs/superpowers/handoff").listFiles { f -> f.name.endsWith("-traspaso.md") }.orEmpty()
+        val handoffs = File(repo, "docs/superpowers/handoff").listFiles { f -> f.name.endsWith("-traspaso.md") || f.name.endsWith("-notas.md") }.orEmpty()
         assertTrue("handoffs not found", handoffs.isNotEmpty())
         for (h in handoffs) {
             val text = h.readText()
@@ -161,6 +161,8 @@ class ImportTextsTest {
             }
         }
         assertTrue("the 1.4.0 «Novedades» draft not found", parts.size >= 2)
+        // 2.0 (branch review D, Minor-1): the draft of the release notes of 2.0 lives in its own «-notas.md» file.
+        assertTrue("the 2.0 «Novedades» draft not read", parts.any { it.first == "2026-11-15-clavero-2.0-notas.md" })
         val bad = parts.flatMap { (name, text) ->
             text.lines().filter { namesIn(it).isNotEmpty() && it.trim() !in LISTING_ALLOWED }.map { "$name: ${namesIn(it)} «${it.trim()}»" }
         }
