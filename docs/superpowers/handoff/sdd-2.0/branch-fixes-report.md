@@ -212,3 +212,116 @@ Rama `ccr-0aa27f95-u038cd`, desde `7e1860b`. Encargo: `docs/superpowers/handoff/
   - `./gradlew --stop`;
   - jvm-check: **2353 tests, 0 fallos**.
 - Sin *push*.
+
+# Ronda 2 de la revisión de la rama
+
+Encargo: `docs/superpowers/handoff/sdd-2.0/advisor-t12-branch-rereview.md`, «Encargo de la ronda». Base: `e20b3c2`. Ocho commits, en el orden del Ruling, todos con la firma Egt17baa y sin *push*. Solo se tocaron `app/src/main`, `app/src/test` y la línea 129 del anexo; ningún otro test ata un documento.
+
+## 1. A N-1 (`cda4590`)
+- **Cambio:** `vault/VaultsTexts.kt` `KDF_COST_KEPT`, con un KDoc nuevo.
+  - Antes: «… La bóveda se ha guardado con el coste que ya tenía el archivo o la copia. …»
+  - Después: «No se pudo subir el coste de Argon2id al elegido en Ajustes: ahora no hay memoria suficiente. La bóveda se queda con el coste que ya tenía el archivo o la copia. Se volverá a intentar cada vez que la abras con la contraseña maestra. Si en Ajustes tienes el coste «Alto», puedes elegir «Estándar».»
+- **Test:** `UnlockErrorTextTest.theCostKeptTextSaysNoSave` comprueba el texto exacto y que no dice «se ha guardado».
+- **Rojo:** `expected:<…La bóveda se [queda] con…> but was:<…La bóveda se [ha guardado] con…>`.
+- **Verde:** sí.
+
+## 2. A n-1 (`b51162b`)
+- **Cambio:** el KDoc de `noMemoryWhenWrappingAgainLeavesTheFileAsItWas` (`UnlockErrorTextTest`), con el texto del Ruling.
+- **Test:** ninguno; es solo un comentario.
+
+## 3. C n-1 (`e59822d`)
+- **`runMarked`** (`AppContainer.kt`): si al terminar la acción hay en `vaultsNotices` un aviso pendiente distinto del resultado, publica «resultado\n\naviso» y lo devuelve. `Notice` no cambia.
+- **Guarda en `deleteVault`:** justo antes de `switchTo(...first...)`, bajo `masterChangedLock`, se cierra sin aviso el diálogo de A6 abierto de la bóveda que se borra (`masterChangedSlot?.id == id`).
+- **Parámetro interno nuevo** `vaultKekDerive` en `AppContainer` (por defecto, `EXISTING_DERIVE`), que se pasa a cada `VaultStore`.
+- **Tests** (`AppContainerVaultsTest`):
+  - `anActionAndANoticeAreBothSaid`
+  - `importAsNewWithoutMemoryToRaiseTheCostSaysBoth`: devuelve `VAULT_IMPORT_NEW_DONE` + «\n\n» + `KDF_COST_KEPT`, y la bóveda nueva queda abierta.
+  - `deletingTheVaultOfTheOpenDialogSaysOnlyThatItIsDeleted`: exactamente `VAULT_DELETED`.
+- **Rojo:**
+  - Los dos primeros, sin la unión: `expected:<…bóveda nueva[\n\n…aviso…]> but was:<…bóveda nueva[]>`.
+  - El tercero pasaba sin la unión, porque `VAULT_DELETED` tapaba el aviso. Con la unión y sin la guarda, falla: `expected:<…siguen donde estaban.[]> but was:<…siguen donde estaban.[\n\nLa contraseña maestra de la otra bóveda…]>`. Lo vi así quitando la guarda un momento.
+- **Tests que reflejan la unión:** `twoTapsRunTheActionOnce` y `theVaultsActionsSayTheirOwnFailures` ahora cierran el aviso (`vaultsNoticeShown`) antes de la acción siguiente, como hace la pantalla. Si no, el resultado anterior, sin enseñar, se uniría al siguiente.
+- **Verde:** sí.
+
+## 4. C i-3 (`79da15f`)
+- **Cambio:** en `ui/AppNavHost.kt`, el diálogo de `VAULTS_NOTICE` queda `FilterObscuredTouches(); Column(Modifier.verticalScroll(rememberScrollState())) { Text(shown) }`.
+- **Test:** `PlatformSourcesTest.theVaultsNoticeScrolls`, de fuente, que además comprueba que no hay `rememberSaveable`.
+- **Rojo:** `theVaultsNoticeScrolls :: AssertionError`.
+- **Verde:** sí.
+- La prueba con la letra al 200 % queda en la fila «Móvil».
+
+## 5. B i-1 (`15f19b1`)
+- **`vault/VaultsTexts.kt`:** `masterChangedInOtherVaultText(color, hadFolders, fingerprintFailed)`. La línea de la huella (`MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT`) no cambia y va detrás con «\n». Desaparecen la constante `MASTER_CHANGED_IN_OTHER_VAULT` y la función anterior.
+- **`AppContainer.kt`:**
+  - `lostDialogText(vaultId, fp)` busca la bóveda en el registro (si no está, no se dice nada) y calcula `hadFolders = settings…vault(id).targets.isNotEmpty()`, el mismo predicado que usa el diálogo.
+  - `onMasterChanged` usa `vaultId`.
+  - `switchTo` usa la bóveda del diálogo cerrado (`masterChangedSlot?.id ?: old.store.id`), leída bajo el cerrojo.
+- **Textos:**
+  - Antes: «La contraseña maestra de la otra bóveda se cambió. Al cambiar de bóveda, …»
+  - Con carpetas: «La contraseña maestra de la bóveda de color {color} se cambió. Al cambiar de bóveda, el aviso que ofrece borrar sus copias anteriores no se llegó a mostrar o se cerró: esas copias siguen abriéndose con la contraseña anterior. Para borrarlas, vuelve a esa bóveda y cambia otra vez la contraseña maestra, o bórralas a mano.»
+  - Sin carpetas: «La contraseña maestra de la bóveda de color {color} se cambió. Las copias .sgbak que ya tenías de esa bóveda se siguen abriendo con la contraseña anterior.»
+- **Tests:**
+  - `theLostDialogSaysWhichVaultAndWhatIsLeft`: las dos variantes y la línea de la huella.
+  - `aVaultThatIsGoneSaysNothing`.
+  - `aSwitchThatClosesTheDialogUnaskedSaysSo` espera la variante sin carpetas, con el color de B. Además cierra el aviso con el objeto mostrado, porque `Notice.shown` compara por identidad.
+  - `changeOfMasterThenSwitch…` espera la variante con carpetas, con el color de A y la huella.
+  - `anActionAndANoticeAreBothSaid` usa la variante sin carpetas de A.
+- **Rojo** (con la firma nueva y el texto viejo): `theLostDialogSaysWhichVaultAndWhatIsLeft :: expected:<…de la [bóveda de color azul] se cambió…> but was:<…de la [otra bóveda] se cambió…>` y `aVaultThatIsGoneSaysNothing :: expected:<null> but was:<La contraseña maestra de la otra bóveda…>`.
+- **Verde:** sí.
+
+## 6. B i-2 (`332ed25`)
+- **Constante nueva:** `VaultLimits.COPY_DATA_MARGIN_BYTES = 4 * 1024`, con su KDoc (`vaultTag`, `lastUnlockAt`, `trashPurgeSkipped`).
+- **Comprobación:** `checkCopySize` (`BackupCheck.kt`) solo rechaza por encima de `VAULT_MAX_DATA_BYTES + COPY_DATA_MARGIN_BYTES`. Los guardados siguen en 24 MiB (`VaultLimits.kt`, `fittedForSave` y `checkSize`, sin tocar).
+- **Cálculo de los 33 MiB:**
+  - Datos: 24 MiB + 4 KiB = 25 169 920 bytes.
+  - Cifrados con AES-GCM (más 12 de nonce y 16 de etiqueta): 25 169 948 bytes.
+  - En Base64: 33 559 932 bytes.
+  - `BACKUP_V3_MAX_ENTRY_BYTES` = 33 MiB = 34 603 008 bytes. Quedan 1 043 076 bytes para el resto del JSON de `vault.bin`, que son unos cientos. **Cabe.**
+- **Tests** (`BackupCheckTest`):
+  - `aVaultAtTheLimitStillReadsItsOwnCopyAfterAnUnlock`: una v4 hecha a mano con exactamente 24 MiB de datos, sin `vaultTag` ni `lastUnlockAt`. El `unlock` con la maestra pasa los datos del tope, `checkCopySize` no lanza y «Comprobar una copia» de su exportación pasa.
+  - `v4CopyOverTheDataLimitIsDamaged` mide ahora por encima del tope más el margen.
+- **Rojo:** `aVaultAtTheLimitStillReadsItsOwnCopyAfterAnUnlock :: CryptoFailure: La copia está dañada: no se puede importar. Elige otra copia.`
+  - Antes salió otro rojo, por un error del propio test: el relleno no daba los 24 MiB exactos, porque `notes = ""` no se escribe en el JSON. Lo corregí.
+- **Verde:** sí.
+
+## 7. B m-1 (`4cace26`)
+- **Cambio:** `vault/AutoBackup.kt` `autoBackupUnlistedText(n > 1)`, con una carpeta.
+  - Antes: «(automática, de antes de importar o de antes de la 2.0)»
+  - Después: «(automáticas, de antes de importar o de antes de la 2.0)»
+- **Anexo, línea 129:** el mismo cambio, y la nota pasa a «(cambiado en la 2.0, B I-2 y m-1 de la re-revisión)», sin comillas angulares.
+- **Tests:** ningún test fijaba ese literal palabra por palabra, salvo el propio anexo a través de `ToolTextsTest`, que sigue en verde. P-I2 (`theA6TextsNameTheCopiesOfBefore20`) comprueba ahora que `autoBackupUnlistedText(2)` contiene «(automáticas,».
+- **Rojo:** `theA6TextsNameTheCopiesOfBefore20 :: AssertionError: En la carpeta quedan 2 copias … (automática, de antes de importar…`.
+- **Verde:** sí.
+
+## 8. B m-2 (`4666fb2`)
+- **Cambio:** el comentario de `AutoBackup.kt` (la petición sin objetivos), con el texto del Ruling. Solo comentario.
+- **Contrastado con el código:**
+  - Una petición guardada en la 2.0 siempre lleva objetivos (`waitForUnlock`: `asked ?: copies.orEmpty()`).
+  - `oldCopies` de `AppContainer` nunca es nulo (`listedCopies`).
+  - Por tanto, una sin objetivos solo viene de la 1.x anterior a la 1.3.0. Su `requestId` es `"1.x"` (`A6Text.kt:33`) y `a6Summary` la marca siempre `stale` (`A6Text.kt:56-61`), así que termina con `a6StaleText`.
+
+## Suites finales (sobre `4666fb2`), por separado
+- app (`:app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets`): BUILD SUCCESSFUL, **2412 tests, 0 fallos**.
+- `./gradlew --stop`.
+- jvm-check (`-p jvm-check test`): BUILD SUCCESSFUL, **2361 tests, 0 fallos**.
+
+## Revisión experto-seguridad-cripto
+- `vault/Vault.kt` (`afterMasterUnlock`): sin cambios; el coste no baja en ningún eje. Solo cambia el texto (`VaultsTexts.kt`, `KDF_COST_KEPT`), que ahora es verdad en los tres caminos.
+- `vault/BackupCheck.kt` (`checkCopySize`): el margen de 4 KiB solo afecta a la lectura de copias. Los guardados siguen en 24 MiB (`VaultLimits.kt:152` y `:173`, que no toqué), así que la decisión (a) se mantiene y «una copia propia siempre se lee» vuelve a cumplirse.
+- `AppContainer.kt` (`lostDialogText`, `onMasterChanged`, `switchTo`): el color sale del registro, que no está cifrado; el nombre cifrado nunca se usa. Sin carpetas, el aviso no promete una oferta que no había.
+- `AppContainer.kt` (`deleteVault`): el aviso de una bóveda borrada nunca manda «vuelve a esa bóveda».
+- No hay primitivas, permisos, hosts ni registros nuevos, y no cambia ningún formato.
+
+## Revisión Ingeniero Móvil Senior
+- `AppContainer.kt` (`runMarked`): la unión vive en `AppContainer`, dentro de `NonCancellable`, y sobrevive al giro. `core/Notice.kt` no se toca: lo comparten `AutoBackup` y `BiometricVault`.
+- `AppContainer.kt` (`masterChangedLock`): tanto la guarda de `deleteVault` como `switchTo` solo leen y cierran estado dentro de `synchronized`, sin suspender. `lostDialogText` lee el registro y los ajustes fuera del cerrojo. No hay interbloqueo con `switching`, `changingVaults` ni los mutex de las bóvedas.
+- `ui/AppNavHost.kt` (aviso de `VAULTS_NOTICE`): el desplazamiento sigue el patrón de `MasterChangedDialog`, sin `rememberSaveable`.
+- `vaultKekDerive` es un parámetro de constructor con el valor de hoy por defecto; la app no lo cambia.
+
+## Textos para el Abogado Digital (revisión final)
+- `KDF_COST_KEPT`, que ahora dice «se queda con».
+- Las dos variantes de `masterChangedInOtherVaultText` («la bóveda de color {color}»; {color} es uno de: rojo, naranja, amarillo, verde, turquesa, azul, morado o gris) y su línea de la huella.
+  - Con más de 8 bóvedas los colores se repiten: el texto sería ambiguo, pero no falso.
+- El aviso unido de «Bóvedas»: el resultado, una línea en blanco y el aviso.
+- «(automáticas, de antes de importar o de antes de la 2.0)», en `AutoBackup.kt` y en la línea 129 del anexo.
+- Además, todo lo de la lista de la ronda anterior.
