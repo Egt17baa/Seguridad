@@ -364,12 +364,12 @@ class SettingsTest {
 
     @Test fun runningOutOfMemoryInArgon2IsAClearFailure() {
         try {
-            outOfMemoryAsFailure { throw OutOfMemoryError("Failed to allocate") }
+            outOfMemoryAsFailure(KdfProfile.HIGH.params) { throw OutOfMemoryError("Failed to allocate") }
             fail()
         } catch (e: CryptoFailure) {
             assertEquals(KDF_OUT_OF_MEMORY, e.message)
         }
-        assertEquals(7, outOfMemoryAsFailure { 7 })
+        assertEquals(7, outOfMemoryAsFailure(KdfProfile.HIGH.params) { 7 })
     }
 
     private fun assertRefused(message: String = "Parámetros de cifrado no válidos", block: () -> Unit) {

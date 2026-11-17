@@ -12,6 +12,7 @@ import org.bouncycastle.crypto.params.AEADParameters
 import org.bouncycastle.crypto.params.KeyParameter
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
@@ -117,6 +118,35 @@ private fun littleEndianWords(key: ByteArray) = (0 until 8).map { i ->
 }
 
 class CryptoTest {
+    private fun oomText(p: KdfParams): String? = try {
+        outOfMemoryAsFailure(p) { throw OutOfMemoryError("Failed to allocate") }
+    } catch (e: CryptoFailure) {
+        e.message
+    }
+
+    /**
+     * Branch review, row 38 (A I-3), test n.º 3: running out of memory says a higher cost only when the cost is higher
+     * than «Estándar»; with 64 MiB or less, [KDF_NO_MEMORY_NOW]. Both pass the closed lists of the screens.
+     */
+    @Test fun outOfMemoryTextFollowsTheCost() {
+        assertEquals(
+            "No hay memoria suficiente para este coste de Argon2id, más alto que «Estándar». Cierra Clavero del todo, vuelve a " +
+                "abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede con ese coste.",
+            KDF_OUT_OF_MEMORY,
+        )
+        assertEquals("Ahora no hay memoria suficiente para esta operación. Cierra Clavero del todo, vuelve a abrirlo e inténtalo otra vez.", KDF_NO_MEMORY_NOW)
+        assertEquals(KDF_NO_MEMORY_NOW, oomText(KdfParams(DEFAULT_KDF_MEMORY_KIB, 1, 1)))
+        assertEquals(KDF_NO_MEMORY_NOW, oomText(KdfParams(1024, 1, 1)))
+        assertEquals(KDF_OUT_OF_MEMORY, oomText(KdfParams(DEFAULT_KDF_MEMORY_KIB + 1, 1, 1)))
+        assertEquals(KDF_OUT_OF_MEMORY, oomText(KdfParams(MAX_KDF_MEMORY_KIB, 1, 1)))
+        for (m in listOf(KDF_OUT_OF_MEMORY, KDF_NO_MEMORY_NOW)) {
+            assertEquals(m, app.seguridad.vault.masterUnlockErrorText(CryptoFailure(m)))
+            assertEquals(m, newPasswordFailureMessage(CryptoFailure(m), "x"))
+        }
+        // No «Cierra otras apps»: Argon2id takes Clavero's own heap.
+        assertFalse("otras apps" in KDF_OUT_OF_MEMORY || "otras apps" in KDF_NO_MEMORY_NOW)
+    }
+
     @Test fun `argon2id matches RFC 9106`() {
         val tag = argon2idRaw(ByteArray(32) { 1 }, ByteArray(16) { 2 }, ByteArray(8) { 3 }, ByteArray(12) { 4 }, KdfParams(32, 3, 4), 32)
         assertEquals("0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659", hex(tag).lowercase())

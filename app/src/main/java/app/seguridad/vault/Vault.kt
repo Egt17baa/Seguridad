@@ -1,6 +1,7 @@
 package app.seguridad.vault
 
 import app.seguridad.crypto.KDF_PARAMS_INVALID
+import app.seguridad.crypto.KDF_NO_MEMORY_NOW
 import app.seguridad.crypto.KDF_OUT_OF_MEMORY
 import app.seguridad.core.appJson
 import app.seguridad.crypto.Aead
@@ -287,12 +288,13 @@ const val WRONG_MASTER = "Contraseña incorrecta"
  * - [KDF_OUT_OF_MEMORY]: the derivation cannot run on this phone (its cost is more than the heap gives, from checkSane,
  *   or Argon2id ran out of memory), or, ronda 2 (n-2), after a right master password, wrapping the key again at the cost
  *   chosen in Ajustes ([VaultCrypto.afterMasterUnlock]) had no memory; then the file is left as it was and the vault
- *   locked. That one comes only once the password was right.
+ *   locked. That one comes only once the password was right. Branch review, row 38: [KDF_NO_MEMORY_NOW] when the cost
+ *   that ran out of memory was the default or less.
  * Anything else is [WRONG_MASTER], word for word (AES-GCM cannot tell a wrong password from a damaged wrapped key). A
  * closed list: never the message of any other exception. «Contactos» checks the master password through it too.
  */
 fun masterUnlockErrorText(e: CryptoFailure): String = when (val m = e.message) {
-    NOT_A_VAULT, KDF_OUT_OF_MEMORY, KDF_PARAMS_INVALID -> m
+    NOT_A_VAULT, KDF_OUT_OF_MEMORY, KDF_NO_MEMORY_NOW, KDF_PARAMS_INVALID -> m
     else -> WRONG_MASTER
 }
 
