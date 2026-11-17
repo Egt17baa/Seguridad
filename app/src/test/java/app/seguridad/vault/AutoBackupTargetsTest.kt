@@ -6,6 +6,7 @@ import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.TargetRefusal
 import app.seguridad.settings.VaultSettings
 import app.seguridad.settings.canAddTarget
+import app.seguridad.settings.decodeSettings
 import app.seguridad.settings.firstBackupError
 import app.seguridad.settings.oldestBackupAt
 import app.seguridad.settings.replaceToldAny
@@ -1368,6 +1369,15 @@ class AutoBackupTargetsTest {
                     val speaks = a6Decide(back.targets, back.a6, emptyList(), true, null) != null
                     assertEquals("$label, $f vuelve", back.a6Summary.replaced > 0, speaks)
                 }
+                // Branch review, row 17, P-17b: a request asked with the mark m1 and told with the vault's mark m2 is stale.
+                val marked = v.copy(a6 = v.a6!!.copy(masterMark = "m1"))
+                val staleOne = a6Decide(marked.targets, marked.a6, emptyList(), true, "m2")?.summary
+                assertEquals(label, anyDone, staleOne != null)
+                if (staleOne != null) {
+                    assertTrue(label, staleOne.stale)
+                    assertTrue(label, a6Text(emptyList(), staleOne).startsWith(a6StaleText(staleOne.replaced, n)))
+                }
+                assertFalse(label, a6Decide(marked.targets, marked.a6, emptyList(), true, "m1")?.summary?.stale == true)
                 if (anyDone && !all2) assertTrue(label, text.startsWith(a6PartialText(summary.replaced, n)))
                 if (expectedUnlisted > 0) assertTrue(label, "$expectedUnlisted cop" in text)
                 checked++
@@ -1399,7 +1409,142 @@ class AutoBackupTargetsTest {
         val t = v.targets.single()
         assertEquals(LEGACY_A6_REQUEST, t.requestId)
         val done = v.withAutoBackupResult(AutoBackupResult("content://x", 1L, null, copies = listOf("n"), replaced = true, request = t.requestId, deleted = 1))
-        assertEquals(AUTO_BACKUP_REPLACED, a6Text(emptyList(), done.a6Summary))
+        // Branch review, row 17 (B I-1): a request of 1.4.3 has no mark, so it may be of a change before the last one; it
+        // says so (prudent text), never the plain success.
+        assertEquals(a6StaleText(1, 1), a6Text(emptyList(), done.a6Summary))
+    }
+
+    private enum class LegacyFate { REPLACED, FAILED, READDED_WAITING, READDED_DONE }
+
+    private enum class NewFate { ADDED, COPIED, FAILED }
+
+    /**
+     * Branch review, row 17, P-17a: every combination of the folder of a 1.4.3 request ([LegacyVaultSettings], A6 request
+     * waiting, no id, no mark) and up to two folders added in 2.0 after it, through the real transitions: the summary is
+     * always [A6Summary.stale] (its text starts with [a6StaleText]); a folder added after is never in the request
+     * ([a6Snapshot] has no line of it) and never opens the closed summary again.
+     */
+    @Test fun everyCombinationOfFoldersWithARequestOf143() {
+        var checked = 0
+        for (extra in 0..2) {
+            fun combos(k: Int): List<List<NewFate>> = if (k == 0) listOf(emptyList()) else combos(k - 1).flatMap { c -> NewFate.entries.map { c + it } }
+            for (first in LegacyFate.entries) for (others in combos(extra)) {
+                val label = "$first $others"
+                val uri0 = "content://c0"
+                var v = LegacyVaultSettings(
+                    autoBackupUri = uri0, autoBackupCopies = listOf("old0"), autoBackupCopiesFolder = uri0,
+                    autoBackupReplacePending = true, autoBackupReplaceTargets = listOf("old0"),
+                ).converted()
+                val t0 = v.targets.single()
+                for ((j, f) in others.withIndex()) {
+                    val uri = "content://c${j + 1}"
+                    v = v.withTargetAdded(uri, BackupSchedule.ON_CHANGE)
+                    v = when (f) {
+                        NewFate.ADDED -> v
+                        NewFate.COPIED -> v.withAutoBackupResult(AutoBackupResult(uri, 2L, null, copies = listOf("n${j + 1}")))
+                        NewFate.FAILED -> v.withAutoBackupResult(AutoBackupResult(uri, null, AUTO_BACKUP_WRITE_FAILED))
+                    }
+                }
+                val done = AutoBackupResult(uri0, 3L, null, copies = listOf("n0"), replaced = true, replaceTargets = emptyList(), request = t0.requestId, deleted = 1)
+                v = when (first) {
+                    LegacyFate.REPLACED -> v.withAutoBackupResult(done)
+                    LegacyFate.FAILED -> v.withAutoBackupResult(AutoBackupResult(uri0, null, AUTO_BACKUP_WRITE_FAILED, request = t0.requestId, toldKey = AUTO_BACKUP_WRITE_FAILED))
+                    LegacyFate.READDED_WAITING -> v.withTargetRemoved(uri0).withTargetAdded(uri0, BackupSchedule.ON_CHANGE)
+                    LegacyFate.READDED_DONE -> v.withAutoBackupResult(done).withTargetRemoved(uri0).withTargetAdded(uri0, BackupSchedule.ON_CHANGE)
+                }
+                val isDone = first == LegacyFate.REPLACED || first == LegacyFate.READDED_DONE
+                val summary = v.a6Summary
+                val n = 1 + extra
+                assertEquals(label, LEGACY_A6_REQUEST, summary.request)
+                assertTrue(label, summary.stale)
+                assertEquals(label, if (isDone) 1 else 0, summary.replaced)
+                val text = a6Text(emptyList(), summary)
+                if (isDone) assertTrue(label, text.startsWith(a6StaleText(1, n))) else assertEquals(label, "", text)
+                assertFalse(label, text.startsWith(AUTO_BACKUP_REPLACED))
+                // The folders added after are not in the request.
+                val snapshot = a6Snapshot(v.targets, v.a6)
+                for (j in 1..extra) assertFalse(label, "content://c$j=" in snapshot)
+                assertTrue(label, "$uri0=" in snapshot)
+                // Closed as it is now (as [AutoBackup.replaceOutcomeShown] keeps it): silent, also with a folder added after.
+                val closed = v.copy(a6 = A6State(LEGACY_A6_REQUEST, said = snapshot))
+                assertNull(label, a6Decide(closed.targets, closed.a6, emptyList(), true, null))
+                val withNew = closed.withTargetAdded("content://nueva", BackupSchedule.WEEKLY)
+                assertNull(label, a6Decide(withNew.targets, withNew.a6, emptyList(), true, null))
+                assertEquals(label, snapshot, a6Snapshot(withNew.targets, withNew.a6))
+                // The closed one of 1.4.3 (no mark) stays stale.
+                assertTrue(label, a6Summary(closed.targets, closed.a6, "m").stale)
+                checked++
+            }
+        }
+        assertEquals(4 * (1 + 3 + 9), checked)
+    }
+
+    /** Branch review, row 17, P-17c: the three branches of [a6StaleText]. */
+    @Test fun theStaleTextSaysWhere() {
+        assertTrue("en la carpeta." in a6StaleText(1, 1))
+        assertTrue("en todas las carpetas" in a6StaleText(2, 2))
+        assertTrue("en 1 de las 2 carpetas; en las demás puede quedar" in a6StaleText(1, 2))
+    }
+
+    private fun settingsOf143WithARequest(): VaultSettings {
+        val real = javaClass.getResourceAsStream("/seguridad/settings-1.4.3.json")!!.use { it.readBytes() }.decodeToString()
+        val json = real.trimEnd().removeSuffix("}") + ",\"autoBackupReplacePending\":true,\"autoBackupReplaceTargets\":[\"doc-prueba-1\"]}"
+        return decodeSettings(json).vault(PRIMARY_VAULT_ID)
+    }
+
+    /**
+     * Branch review, row 17, P-17d (path a), from the real settings.json of 1.4.3 with a request waiting: the folder fails,
+     * the master password is changed again without «Borrar…» (the vault's mark is another), the folder comes back and
+     * replaces: the text is the prudent one, never [AUTO_BACKUP_REPLACED].
+     */
+    @Test fun aRequestOf143FinishedAfterAnotherChangeSaysSo() {
+        var v = settingsOf143WithARequest()
+        val t = v.targets.single()
+        assertTrue(t.replacePending)
+        assertEquals(listOf("doc-prueba-1"), t.replaceTargets)
+        v = v.withAutoBackupResult(AutoBackupResult(t.uri, null, AUTO_BACKUP_WRITE_FAILED, request = t.requestId, toldKey = AUTO_BACKUP_WRITE_FAILED))
+        assertTrue(v.targets.single().replacePending)
+        v = v.withAutoBackupResult(AutoBackupResult(t.uri, 5L, null, copies = listOf("doc-nueva"), replaced = true, replaceTargets = emptyList(), request = t.requestId, deleted = 1))
+        val d = a6Decide(v.targets, v.a6, emptyList(), true, "marca-de-ahora")!!
+        val text = a6Text(d.failures, d.summary)
+        assertEquals(a6StaleText(1, 1), text)
+        assertFalse(text.startsWith(AUTO_BACKUP_REPLACED))
+    }
+
+    /**
+     * Branch review, row 17, P-17e (path b), from the same file: it replaces, the summary is closed, a folder is added: nothing
+     * is told, and what was closed does not change.
+     */
+    @Test fun aFolderAddedAfterAClosedRequestOf143SaysNothing() {
+        var v = settingsOf143WithARequest()
+        val t = v.targets.single()
+        v = v.withAutoBackupResult(AutoBackupResult(t.uri, 5L, null, copies = listOf("doc-nueva"), replaced = true, replaceTargets = emptyList(), request = t.requestId, deleted = 1))
+        val said = a6Snapshot(v.targets, v.a6)
+        v = v.copy(a6 = A6State(LEGACY_A6_REQUEST, said = said))
+        v = v.withTargetAdded("content://dos", BackupSchedule.ON_CHANGE)
+        assertNull(a6Decide(v.targets, v.a6, emptyList(), true, "marca-de-ahora"))
+        assertEquals(said, a6Snapshot(v.targets, v.a6))
+    }
+
+    /**
+     * Branch review, row 17, P-17f: a folder of 1.4.3 that finishes keeps its result for [LEGACY_A6_REQUEST] and is still in
+     * it; a folder added after, with no request, is not; one of a 2.0 request is in its own only.
+     */
+    @Test fun whoIsInARequest() {
+        var v = settingsOf143WithARequest()
+        val t = v.targets.single()
+        assertTrue(t.inRequest(LEGACY_A6_REQUEST))
+        v = v.withAutoBackupResult(AutoBackupResult(t.uri, 5L, null, copies = listOf("doc-nueva"), replaced = true, replaceTargets = emptyList(), request = t.requestId, deleted = 1))
+        val after = v.targets.single()
+        assertEquals(LEGACY_A6_REQUEST, after.replaceRequest)
+        assertEquals(LEGACY_A6_REQUEST, after.replaceDone?.request)
+        assertTrue(after.inRequest(LEGACY_A6_REQUEST))
+        val fresh = BackupTargetSettings("content://dos", 5, BackupSchedule.ON_CHANGE)
+        assertFalse(fresh.inRequest(LEGACY_A6_REQUEST))
+        val of20 = fresh.copy(replacePending = true, replaceRequest = "R")
+        assertTrue(of20.inRequest("R"))
+        assertFalse(of20.inRequest(LEGACY_A6_REQUEST))
+        assertFalse(of20.inRequest("R2"))
     }
 
     /** m-4: a check of a copy and the purge of the trash at an unlock are no change for D-3; «Importar copia» is. */

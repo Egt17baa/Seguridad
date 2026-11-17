@@ -33,20 +33,35 @@ fun currentA6Request(a6: A6State?): String = a6?.id ?: LEGACY_A6_REQUEST
 val BackupTargetSettings.requestId: String get() = replaceRequest ?: LEGACY_A6_REQUEST
 
 /**
+ * Branch review, row 17 (B I-1): whether this target is in the A6 request [request], for [a6Snapshot] only ([requestId] is
+ * still what a replacement records). In a request of 2.0, the targets that saved its id. In one of 1.4.3
+ * ([LEGACY_A6_REQUEST]), only the folder that came with it waiting (no id saved) or that finished it (its result is of it):
+ * a folder added in 2.0, with no request, is not in it, so it never opens again what was closed.
+ */
+fun BackupTargetSettings.inRequest(request: String): Boolean =
+    if (request == LEGACY_A6_REQUEST) {
+        (replacePending && replaceRequest == null) || (replaceRequest == LEGACY_A6_REQUEST && replaceDone?.request == LEGACY_A6_REQUEST)
+    } else {
+        replaceRequest == request
+    }
+
+/**
  * [A6Summary] of the request of [a6] over [targets], as saved; pure. [masterMark] is the vault's mark of now
  * ([VaultStore.masterMark]; null where it is not known, as in the dialog of the change, whose own request is of now); a
- * request saved with another one is [A6Summary.stale]. One saved with none (by 1.4.3, whose request was always of its last
- * change) is not.
+ * request saved with another one is [A6Summary.stale]. Branch review, row 17: one of 1.4.3 ([LEGACY_A6_REQUEST], which
+ * saved no mark) always is, since another change may have come after it.
  */
 fun a6Summary(targets: List<BackupTargetSettings>, a6: A6State?, masterMark: String? = null): A6Summary {
     val request = currentA6Request(a6)
     val done = targets.mapNotNull { t -> t.replaceDone?.takeIf { it.request == request } }
-    val stale = a6?.masterMark != null && masterMark != null && a6.masterMark != masterMark
+    // Branch review, row 17: a request of 1.4.3 has no mark, so it may be of a change before the last one: always stale.
+    val stale = (a6?.masterMark == null && request == LEGACY_A6_REQUEST) ||
+        (a6?.masterMark != null && masterMark != null && a6.masterMark != masterMark)
     return A6Summary(request, targets.size, done.size, done.sumOf { it.deleted }, done.sumOf { it.unlisted }, stale)
 }
 
 /**
- * Round 6 («cuándo hablar»): what the targets in the request of now (their [BackupTargetSettings.requestId] is it) hold for
+ * Round 6 («cuándo hablar»): what the targets in the request of now ([BackupTargetSettings.inRequest]) hold for
  * it, one line per folder in a fixed order: waiting, replaced (with what it deleted and left unlisted), or in it with
  * neither (a failure of «Borrar…» asked with the vault open). Targets not in the request (added after it) are not in it,
  * so adding a folder never opens a request again; one that comes back from [VaultSettings.pastTargets] with the request
@@ -54,7 +69,7 @@ fun a6Summary(targets: List<BackupTargetSettings>, a6: A6State?, masterMark: Str
  */
 fun a6Snapshot(targets: List<BackupTargetSettings>, a6: A6State?): String {
     val request = currentA6Request(a6)
-    val members = targets.filter { it.requestId == request }.sortedBy { it.uri }.map { t ->
+    val members = targets.filter { it.inRequest(request) }.sortedBy { it.uri }.map { t ->
         val done = t.replaceDone?.takeIf { it.request == request }
         val state = when {
             t.replacePending -> "pendiente"
