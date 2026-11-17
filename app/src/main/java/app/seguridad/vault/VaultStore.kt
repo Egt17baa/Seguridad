@@ -489,6 +489,9 @@ class VaultStore(
         } catch (e: CryptoFailure) {
             key.fill(0)
             throw e
+        } catch (e: OutOfMemoryError) {
+            key.fill(0)
+            throw CryptoFailure(VAULT_NO_MEMORY) // RT-21, part c: what was saved stays; the vault stays locked.
         }
         opened(next, key, since, read = data)
         // After a failed save that did not have to succeed, the disk differs only by bookkeeping: same attachments.
@@ -590,16 +593,20 @@ class VaultStore(
         val key = derive { VaultCrypto.unlock(v, master) }
         var costKept = false
         // RT-21, part a: decoded once; what is written is what opens (decision (b)).
-        val unlocked = try {
-            derive {
+        // RT-21, part c: out of memory (the last defence), the vault stays locked and saved as it was: VAULT_NO_MEMORY.
+        val (unlocked, shown) = try {
+            val u = derive {
                 VaultCrypto.afterMasterUnlockWithData(v, key, master, at, kdf(), prepare = { it.purgedTrash(at, mark) }, derive = kekDerive, onCostKept = { costKept = true })
             }
+            u to withContext(compute) { u.data.withPlainVersions().sortedForShow() }
+        } catch (e: OutOfMemoryError) {
+            key.fill(0)
+            throw CryptoFailure(VAULT_NO_MEMORY)
         } catch (e: Exception) {
             key.fill(0)
             throw e
         }
         val checked = unlocked.file
-        val shown = withContext(compute) { unlocked.data.withPlainVersions().sortedForShow() }
         if (!active()) {
             key.fill(0)
             return false
@@ -719,9 +726,14 @@ class VaultStore(
         // 2.0, task 3: the unlock is recorded and the trash emptied of what is due ([purgedTrash]), as a bookkeeping save:
         // a full disk never keeps the vault closed ([commit] with mustSave false). Its attachments go with the collection.
         // Decrypted once (review M-5): what is written is what opens.
-        val data = withContext(compute) { VaultCrypto.read(known, key).purgedTrash(at, mark) }
-        val next = withContext(compute) { VaultCrypto.write(known, key, data) }
-        val shown = withContext(compute) { data.sortedForShow() }
+        // RT-21, part c: out of memory, locked and saved as it was, and the fingerprint stays on (not a stale key).
+        val (next, shown) = try {
+            val data = withContext(compute) { VaultCrypto.read(known, key).purgedTrash(at, mark) }
+            withContext(compute) { VaultCrypto.write(known, key, data) } to withContext(compute) { data.sortedForShow() }
+        } catch (e: OutOfMemoryError) {
+            key.fill(0)
+            throw CryptoFailure(VAULT_NO_MEMORY)
+        }
         // Task 10, n-1: decrypting and encrypting the whole vault again takes long (up to hundreds of ms near 24 MiB); a
         // switch meanwhile leaves nothing written either, so the window is as short as the master password's.
         if (!active()) return key.fill(0)
@@ -1522,6 +1534,10 @@ class VaultStore(
                 withContext(io) { refs.forEach { if (attachmentInCopy(it, backup.first) != CopyAttachment.OK) throw CryptoFailure(attachmentNotInCopy(it.name)) } }
             }
             Triple(checked, refs, withContext(compute) { unlocked.data.withPlainVersions().sortedForShow() })
+        } catch (e: OutOfMemoryError) {
+            // RT-21, part c: the last defence; nothing has been written before this point.
+            key.fill(0)
+            throw CryptoFailure(COPY_NO_MEMORY)
         } catch (e: Exception) {
             key.fill(0)
             throw e

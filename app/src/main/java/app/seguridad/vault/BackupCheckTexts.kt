@@ -101,6 +101,14 @@ const val BACKUP_CHECK_NOTICE_MORE =
     "Los días se cuentan desde que comprobaste con «Comprobar una copia» una copia de esta bóveda, no desde que se hizo la " +
         "copia. Las copias de antes de la 2.0 y las de otra bóveda no cuentan."
 
+/**
+ * RT-21, part c: the phone ran out of memory reading a copy («Importar copia», «Importar como bóveda nueva», «Comprobar una
+ * copia»): nothing was changed (it happens before anything is written). [copyFailureText] says it as it is.
+ */
+const val COPY_NO_MEMORY =
+    "Este móvil no tiene memoria suficiente para leer esta copia. No se ha cambiado nada. Cierra Clavero del todo, vuelve " +
+        "a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede leerla."
+
 /** Branch review, row 42: a copy that its password does not open, or damaged (AES-GCM cannot tell them apart). */
 const val COPY_WRONG_PASSWORD_OR_DAMAGED = "Contraseña incorrecta o copia dañada. Vuelve a elegir la copia y escribe su contraseña."
 

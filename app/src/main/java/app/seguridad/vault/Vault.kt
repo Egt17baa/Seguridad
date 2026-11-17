@@ -281,6 +281,14 @@ internal const val NOT_A_VAULT = "No es una bóveda compatible"
 const val WRONG_MASTER = "Contraseña incorrecta"
 
 /**
+ * RT-21, part c: the phone ran out of memory opening the vault (with the master password or the fingerprint): it stays
+ * locked and saved as it was, the fingerprint stays on, and «Contraseña incorrecta» is never said ([masterUnlockErrorText]).
+ */
+const val VAULT_NO_MEMORY =
+    "Este móvil no tiene memoria suficiente para abrir esta bóveda. La bóveda sigue guardada: cierra Clavero del todo, " +
+        "vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede abrirla."
+
+/**
  * 2.0, task 10, phase C, ronda 1 (I-2): what the gate says when [VaultStore.unlock] fails with [e]. Said as it is, as
  * none of them is a forgotten password and «He olvidado la contraseña maestra» deletes the vault:
  * - [NOT_A_VAULT]: a file this version cannot open, before any key is tried;
@@ -294,7 +302,7 @@ const val WRONG_MASTER = "Contraseña incorrecta"
  * closed list: never the message of any other exception. «Contactos» checks the master password through it too.
  */
 fun masterUnlockErrorText(e: CryptoFailure): String = when (val m = e.message) {
-    NOT_A_VAULT, KDF_OUT_OF_MEMORY, KDF_NO_MEMORY_NOW, KDF_PARAMS_INVALID -> m
+    NOT_A_VAULT, KDF_OUT_OF_MEMORY, KDF_NO_MEMORY_NOW, KDF_PARAMS_INVALID, VAULT_NO_MEMORY -> m
     else -> WRONG_MASTER
 }
 
@@ -420,6 +428,7 @@ object VaultCrypto {
             if (!jsonNestingWithin(json)) throw CryptoFailure()
             if (copy) checkCopyShape(json, version)
             decodes.incrementAndGet()
+            beforeDecode()
             val text = json.toString(Charsets.UTF_8)
             val data = if (version == VaultFile.VERSION) {
                 appJson.decodeFromString(VaultData.serializer(), text)
@@ -435,6 +444,9 @@ object VaultCrypto {
             json.fill(0)
         }
     }
+
+    /** RT-21, part c: runs right before [read] decodes; only tests change it (an [OutOfMemoryError] made by hand). */
+    @Volatile internal var beforeDecode: () -> Unit = {}
 
     /** RT-21: how many times [read] decoded a vault's data (after its checks) in this process; only tests read it. */
     internal val decodes = java.util.concurrent.atomic.AtomicInteger()

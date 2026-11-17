@@ -31,6 +31,23 @@ class ErrorTextsTest {
     }
 
     /** The ones that stay word for word (frozen: A6, a Ruling, or data kept in settings.json). */
+    /** RT-21, part c: the two texts of running out of memory, word for word (ruling of the director on the final attack). */
+    @Test fun theTextsOfRunningOutOfMemory() {
+        assertEquals(
+            "Este móvil no tiene memoria suficiente para leer esta copia. No se ha cambiado nada. Cierra Clavero del todo, " +
+                "vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede leerla.",
+            COPY_NO_MEMORY,
+        )
+        assertEquals(
+            "Este móvil no tiene memoria suficiente para abrir esta bóveda. La bóveda sigue guardada: cierra Clavero del todo, " +
+                "vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede abrirla.",
+            VAULT_NO_MEMORY,
+        )
+        assertEquals(VAULT_NO_MEMORY, masterUnlockErrorText(app.seguridad.crypto.CryptoFailure(VAULT_NO_MEMORY)))
+        assertEquals(COPY_NO_MEMORY, copyFailureText(app.seguridad.crypto.CryptoFailure(COPY_NO_MEMORY)))
+        for (t in listOf(COPY_NO_MEMORY, VAULT_NO_MEMORY)) assertEquals(t, emptyList<String>(), ForbiddenWords.problems(t))
+    }
+
     @Test fun theFrozenOnesKeepTheirWords() {
         assertEquals("No es una bóveda compatible", NOT_A_VAULT)
         assertEquals("No se pudo hacer la copia automática.", AUTO_BACKUP_FAILED)

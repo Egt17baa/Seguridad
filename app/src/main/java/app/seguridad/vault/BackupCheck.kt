@@ -90,12 +90,20 @@ suspend fun checkBackup(
         KdfLock.derive(compute) { key = unlock(incoming, master) }
         currentCoroutineContext().ensureActive()
         val dek = key!!
-        val data = withContext(compute) { VaultCrypto.read(incoming, dek, copy = true) } // RT-21, part b.
+        // RT-21, part c: out of memory reading the copy (the last defence): nothing changed, the folder goes.
+        val data = try {
+            withContext(compute) {
+                VaultCrypto.read(incoming, dek, copy = true).also { data -> // RT-21, part b.
+                    checkCopyEntries(data.entries)
+                    checkCopyStructure(data)
+                    // A copy of before 2.0 is upgraded and fitted when imported, so only a version-4 one is held to the size as read.
+                    if (incoming.version == VaultFile.VERSION) checkCopySize(data)
+                }
+            }
+        } catch (e: OutOfMemoryError) {
+            throw CryptoFailure(COPY_NO_MEMORY)
+        }
         val entries = data.entries
-        checkCopyEntries(entries)
-        checkCopyStructure(data)
-        // A copy of before 2.0 is upgraded and fitted when imported, so only a version-4 one is held to the size as read.
-        if (incoming.version == VaultFile.VERSION) checkCopySize(data)
         val refs = entries.flatMap { it.attachments }
         val found = withContext(io) {
             refs.map {
