@@ -201,9 +201,10 @@ internal fun checkCopyEntries(entries: List<VaultEntry>) {
     // 2.0, task 5 (review I-1 and I-2): the fields as the app writes them, in the entry and in every version of its history.
     if (entries.any { e -> e.fieldsDamaged() || e.history.any { it.entry.fieldsDamaged() } }) throw CryptoFailure(COPY_DAMAGED)
     val refs = entries.flatMap { it.attachments }
-    if (refs.any { it.size !in 0..MAX_ATTACHMENT_BYTES.toLong() } || refs.sumOf { it.size } > MAX_ATTACHMENTS_TOTAL_BYTES) {
-        throw CryptoFailure(ATTACHMENTS_TOTAL_TOO_BIG)
-    }
+    // Branch review, row 37: a size no version of Clavero ever wrote (negative or over 5 MB) is a damaged copy; only a
+    // sum over 50 MB is said as such.
+    if (refs.any { it.size !in 0..MAX_ATTACHMENT_BYTES.toLong() }) throw CryptoFailure(COPY_DAMAGED)
+    if (refs.sumOf { it.size } > MAX_ATTACHMENTS_TOTAL_BYTES) throw CryptoFailure(ATTACHMENTS_TOTAL_TOO_BIG)
 }
 
 /**

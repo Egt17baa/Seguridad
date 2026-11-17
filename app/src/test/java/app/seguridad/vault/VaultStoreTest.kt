@@ -163,7 +163,8 @@ class VaultStoreTest {
             "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(identity.copy(attachments = listOf(ref("%032x".format(1), 1)))),
             "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(identity.copy(passwordHistory = listOf(PasswordChange("vieja", 0)))),
             "Los adjuntos de la bóveda pasan de 50 MB en total" to handMadeExport(entry("1", "a").copy(attachments = big)),
-            "Los adjuntos de la bóveda pasan de 50 MB en total" to handMadeExport(entry("1", "a").copy(attachments = listOf(ref("%032x".format(1), -1)))),
+            // Branch review, row 37: a size no Clavero wrote is a damaged copy, not a total over 50 MB.
+            "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(entry("1", "a").copy(attachments = listOf(ref("%032x".format(1), -1)))),
         )
         val s = store().apply { load(); create("m".toCharArray()); upsert(entry("x", "Mía")) }
         val before = File(tmp.root, "vault.bin").readText()

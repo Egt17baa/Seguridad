@@ -510,6 +510,28 @@ class BackupCheckTest {
         assertTrue(temp().listFiles().isNullOrEmpty())
     }
 
+    private fun declaredRef(id: Int, size: Long) = AttachmentRef("%032x".format(id), "a.bin", size, "00".repeat(32), "AA".repeat(22))
+
+    private fun copyCheckFails(entries: List<VaultEntry>): String? = try {
+        checkCopyEntries(entries)
+        null
+    } catch (e: CryptoFailure) {
+        e.message
+    }
+
+    /**
+     * Branch review, row 37 (B I-4), P-I4: an attachment of a size no Clavero ever wrote (negative, or over 5 MB) is a
+     * damaged copy; only a sum over 50 MB is [ATTACHMENTS_TOTAL_TOO_BIG].
+     */
+    @Test fun anAttachmentSizeOutOfRangeIsDamaged() {
+        val five = MAX_ATTACHMENT_BYTES.toLong()
+        fun with(vararg refs: AttachmentRef) = listOf(VaultEntry("a", EntryType.NOTE, "A", createdAt = 0, updatedAt = 0, attachments = refs.toList()))
+        assertEquals(COPY_DAMAGED, copyCheckFails(with(declaredRef(1, -1))))
+        assertEquals(COPY_DAMAGED, copyCheckFails(with(declaredRef(1, five + 1))))
+        assertEquals(ATTACHMENTS_TOTAL_TOO_BIG, copyCheckFails(with(*(0 until 11).map { declaredRef(it, five) }.toTypedArray())))
+        assertNull(copyCheckFails(with(*(0 until 10).map { declaredRef(it, five) }.toTypedArray())))
+    }
+
     @Test fun aForgedSizeIsRefusedBeforeTheWork() = runTest {
         val good = entriesOf(phoneA().backup())
         // A local header that says 4 GB but brings a few bytes: the sizes in headers are never used to allocate.
