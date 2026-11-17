@@ -59,13 +59,13 @@ Ningún test ata un documento a algo que cambie aquí. El único atado que toqu�
 
 ### 4. Nombres de modelos
 
-Buscados en todo `docs/` (`fable`, `opus`, `sonnet`, `haiku` y `claude-` seguido de un modelo, sin distinguir mayúsculas): 194 apariciones en 46 archivos, de la 1.1.0 a la 2.0. Cambiadas así:
-- «Claude Opus 5.5» de los pies de commit citados en planes, contextos e informes → «Claude»;
-- «`/advisor fable`» → «`/advisor`»;
-- «Fable» y «Fable 5.2» → «el director» o, donde decía qué modelo eligió el dueño, «el modelo que eligió el dueño»;
-- «(opus)», «(sonnet)», «model opus», «implementer opus», «reviewer opus», «re-review sonnet», «revisor opus», «Modelo: opus» y semejantes → sin el modelo («implementer», «reviewer», «revisor», «un implementador nuevo»…).
+Buscados en todo `docs/` los nombres de los modelos (cuatro palabras y los identificadores que empiezan por el nombre del asistente seguido de un modelo), sin distinguir mayúsculas: 194 apariciones en 46 archivos, de la 1.1.0 a la 2.0. Se sustituyeron todas:
+- en los pies de commit citados en planes, contextos e informes, el nombre del asistente se queda y el del modelo se quita;
+- la llamada a la skill `advisor` se escribe sin modelo («`/advisor`»);
+- el nombre del modelo del director pasa a «el director» o, donde decía cuál eligió el dueño, a «el modelo que eligió el dueño»;
+- el modelo de cada implementador, revisor o re-revisión se quita («implementer», «reviewer», «revisor», «un implementador nuevo»…).
 
-Después, `grep -rniE "\b(fable|opus|sonnet|haiku)\b|claude-(opus|sonnet|haiku|[0-9])" docs/` solo encuentra rutas del *scratchpad* (`/tmp/claude-0/…`), que no son nombres de modelos. Los pies de los commits ya hechos están en git, no en archivos, y no se tocan. Fuera de `docs/` quedan `.claude/skills/advisor/SKILL.md` (la skill del director, configuración del proyecto: no la toco sin que el controlador lo diga) y la palabra «opus» de la lista de la EFF, que no es un modelo.
+Después, la misma búsqueda solo encuentra rutas del *scratchpad* (`/tmp/claude-0/…`), que no son nombres de modelos. Los pies de los commits ya hechos están en git, no en archivos, y no se tocan. Fuera de `docs/` queda la skill del director (`.claude/skills/advisor/SKILL.md`, configuración del proyecto: no la toco sin que el controlador lo diga) y una palabra de la lista de la EFF que coincide con uno de esos nombres y no es un modelo.
 
 ### 5. Notas
 
@@ -99,3 +99,66 @@ Después, `grep -rniE "\b(fable|opus|sonnet|haiku)\b|claude-(opus|sonnet|haiku|[
 - La ficha: «Aspecto» y las dos líneas del calendario.
 - Las notas de GitHub y de Play, enteras.
 - Además, lo que ya pedían las rondas: la fila 46 (los selectores) y la fila 19 con la 30 (la redacción de `COPIES_KEEP_IT`).
+
+# Ronda de la parte D
+
+Encargo del controlador: los Minor-1 a Minor-7 y el Info-1 de la parte D (`sdd-2.0/branch-review-compilacion.md`) y n-1 a n-3 de la re-revisión de la segunda pasada (`sdd-2.0/task-12-2-rereview.md`). Sin *push* mío (el controlador subió `a827d10`).
+
+## Commits
+
+| Commit | Qué |
+|---|---|
+| `a827d10` | Código y tests: Minor-1 (`ImportTextsTest` y las entradas de las dos tareas `test`), Minor-4 (`AppNameTest` fija `versionName` 2.0.0) e Info-1 (los avisos del compilador) |
+| (este) | «2.0, revisión de la rama, parte D: documentos»: Minor-2, -3, -5, -6, -7, n-1, n-2, n-3 y este informe |
+
+## Por punto
+
+- **Minor-1 (fila 50):** `ImportTextsTest.kt:150` lee también los `*-notas.md`, y `thePlayListingAndItsNovedadesNameNoOtherProduct` comprueba que lee `2026-11-15-clavero-2.0-notas.md`. Las entradas de la tarea `test` en `jvm-check/build.gradle.kts:63` y `app/build.gradle.kts:242` incluyen `*-notas.md`. **Rojo** (con la aserción y sin ampliar el lector): `thePlayListingAndItsNovedadesNameNoOtherProduct :: AssertionError: the 2.0 «Novedades» draft not read`. **Verde** con el lector ampliado; el bloque de las notas no nombra ninguna app. La fila 50 pasa a hecha.
+- **Minor-2:** `README.md:283` y `:364` citan el botón de la 2.0, «Hacer una copia nueva y borrar las anteriores (automáticas, de antes de importar y de antes de la 2.0)» (`tools/ToolTexts.kt:508`). La de la 1.3.0 recuerda el texto de la 1.4.x, y P-11 añade «y las de antes de la 2.0». `grep -n "automáticas y de antes de importar)" README.md` solo encuentra ya esa mención entre paréntesis.
+- **Minor-3 y n-3:** la sección 4 de este informe (en las dos copias) ya no nombra ningún modelo: dice que se sustituyeron y cómo, sin citarlos. También se quitaron los dos nombres que citaba la revisión de la parte D (`branch-review-compilacion.md:83` y `:117`). `grep -rniE "\b(fable|opus|sonnet|haiku)\b|claude-(opus|sonnet|haiku|[0-9])" docs/ CLAUDE.md README.md`, quitando las rutas `/tmp/claude-0/`, sale vacío.
+- **Minor-4:** `AppNameTest.theIdentityTheFormatsAndTheClipboardLabelDoNotChange` comprueba `versionName = "2.0.0"` en `app/build.gradle.kts` (opción a). **Rojo** con `versionName` puesto a mano en 1.4.3 durante la prueba: `theIdentityTheFormatsAndTheClipboardLabelDoNotChange :: java.lang.AssertionError` (8 tests, 1 fallo). **Verde** con 2.0.0, que se restauró antes del commit.
+- **Minor-5:** fila 43 con `ffceacc`.
+- **Minor-6:** `CLAUDE.md:35`: «… `seguridad-boveda-`, desde la 1.4.0, `seguridad-antes-de-importar-` y, desde la 2.0, `seguridad-antes-de-2-0-`».
+- **Minor-7:** `README.md:78`, en pasado: «La 1.4.0 no cambió ningún formato de Clavero ni añadió uno nuevo.»
+- **Info-1:**
+  - `ui/theme/Glass.kt:250` y `:252` quedan sin los `!!` innecesarios (`backdrop` y `at` ya se sabían no nulos).
+  - `ui/AppNavHost.kt:535`: `{ nav.popBackStack(); Unit }` pasa a `{ nav.popBackStack() }`. Era trivial: la lambda ya es `() -> Unit`, así que el `Boolean` se descarta igual. El comportamiento no cambia y `backOnce` sigue cubierto por sus tests.
+  - La compilación ya no da ningún aviso `w:` de Kotlin.
+- **n-1, el calendario:** donde decía «y solo si hubo cambios», ahora dice que las copias con calendario «se saltan si no hubo cambios desde la última de esa carpeta (nunca la primera)», adaptado a cada frase:
+  - el README (línea 31, que ya no se contradice);
+  - la política (párrafo de las copias);
+  - la ficha («Copias cifradas…»);
+  - las notas.
+  
+  La guía de la app (`settings/Guide.kt:43`) sigue con «y solo si hubo cambios», más corta (M-3): va al Abogado para que decida si quiere las mismas palabras.
+- **n-2:**
+  - La prueba de la fila 30 del README dice ahora: «exportar una copia, borrar una entrada para siempre («Borrar para siempre» en la papelera, o «Vaciar papelera») y hacer dos cambios más, esperando cada vez a que se haga su copia: ninguna copia automática de la carpeta tiene ya la entrada; la exportada antes, sí». Explica que una entrada solo movida a la papelera sigue en todas las copias.
+  - La prueba de la memoria dice «(fila 51)».
+
+## Tests
+
+Por separado, sobre el árbol con todo esto:
+- app (`:app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets`): BUILD SUCCESSFUL, **2412 tests, 0 fallos**, sin avisos `w:`.
+- `./gradlew --stop`.
+- jvm-check: BUILD SUCCESSFUL, **2361 tests, 0 fallos**.
+
+Los dos tests cambiados añaden aserciones, no tests, así que el número no cambia.
+
+## Revisión experto-seguridad-cripto
+
+- `app/src/test/java/app/seguridad/imports/ImportTextsTest.kt:150`, `:164-165`: la regla de no nombrar otras apps en las «Novedades» de Play (R2, R7, R8) protege ya también el borrador de la 2.0. Las entradas de las tareas (`jvm-check/build.gradle.kts:63`, `app/build.gradle.kts:242`) hacen que un cambio en las notas vuelva a ejecutar el test.
+- `app/src/test/java/app/seguridad/tools/AppNameTest.kt`: `versionName` fijado, para que no salga una release con el número viejo. El User-Agent de Pwned Passwords lo toma de ahí.
+- `ui/theme/Glass.kt:250`, `:252` y `ui/AppNavHost.kt:535`: solo quitan avisos, sin cambio de comportamiento, de red, de formato ni de permisos.
+- Los documentos dicen ahora lo que hace el código con las copias con calendario (`vault/AutoBackup.kt`, `runDue`, la condición de D-3) y con la papelera en las copias (`vault/Trash.kt:9-12`).
+
+## Revisión Ingeniero Móvil Senior
+
+- `ui/AppNavHost.kt:535`: la lambda de `backOnce` sin fragmento suelto; `remember(nav)` la sigue guardando igual.
+- `ui/theme/Glass.kt:250-252`: el *smart cast* de `backdrop` y `at` ya los da por no nulos dentro de `ready`. El difuminado sigue solo desde Android 12 (`SDK_INT >= S`).
+- Pruebas en el móvil del README: la de la fila 30 es ahora reproducible (borrar para siempre y esperar cada copia), y la de la memoria apunta a la fila 51.
+
+## Textos para el Abogado Digital (revisión final)
+
+- La frase del calendario, en el README (línea 31), la política, la ficha y las notas: «se saltan si no hubo cambios desde la última de esa carpeta (nunca la primera)». Frente a ella, la guía de la app dice «y solo si hubo cambios».
+- `README.md:78` («no cambió») y las dos pruebas con el botón de A6 de la 2.0 (`:283`, `:364`).
+- La prueba de la fila 30 del README.

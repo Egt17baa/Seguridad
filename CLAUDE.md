@@ -32,7 +32,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - el `applicationId` `io.github.egt17baa.seguridad` y el paquete `app.seguridad`;
 - la autoridad del `FileProvider` y el alias de la clave del Keystore;
 - la etiqueta propia del portapapeles «Seguridad»;
-- los nombres de los formatos (`seguridad-vault`, `seguridad-backup`, `SG1:`…) y los prefijos de las copias (`seguridad-auto-`, `seguridad-boveda-` y, desde la 1.4.0, `seguridad-antes-de-importar-`);
+- los nombres de los formatos (`seguridad-vault`, `seguridad-backup`, `SG1:`…) y los prefijos de las copias (`seguridad-auto-`, `seguridad-boveda-`, desde la 1.4.0, `seguridad-antes-de-importar-` y, desde la 2.0, `seguridad-antes-de-2-0-`);
 - el nombre del repositorio, que el dueño puede cambiar si quiere.
 
 **Fase:**

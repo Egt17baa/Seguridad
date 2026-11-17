@@ -28,7 +28,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Papelera durante 30 días, con «Deshacer», e historial de los cambios de cada entrada.
 • Adjuntos cifrados (hasta 5 MB cada uno).
 • Salud de la bóveda: contraseñas repetidas, débiles, antiguas o sin 2FA, con una sugerencia cada vez.
-• Copias cifradas que exportas tú, y copia automática opcional hasta en 3 carpetas que elijas, cada una con su calendario (con cada cambio, diaria, semanal o mensual). Las copias con calendario se hacen con la bóveda abierta, al abrir la app o al desbloquearla, y solo si hubo cambios.
+• Copias cifradas que exportas tú, y copia automática opcional hasta en 3 carpetas que elijas, cada una con su calendario (con cada cambio, diaria, semanal o mensual). Las copias con calendario se hacen con la bóveda abierta, al abrir la app o al desbloquearla, y se saltan si no hubo cambios desde la última de esa carpeta (nunca la primera).
 • Enseña el QR de una red wifi guardada para que otro móvil se conecte. Quien vea el código ve la contraseña.
 • Comprueba una copia sin importarla: que tu contraseña la abre y que cada adjunto está y coincide con lo que guarda su entrada.
 • Importa los archivos CSV de los navegadores más usados y las exportaciones de algunos gestores de contraseñas y apps de 2FA (la lista está en la app y en el código fuente), también las protegidas con contraseña, y añade sus entradas a tu bóveda sin reemplazarla. Antes de guardar te enseña lo que entra, lo que ya tienes y lo que no entra, y hace una copia cifrada de tu bóveda. Al terminar te ofrece quitar el archivo exportado.
