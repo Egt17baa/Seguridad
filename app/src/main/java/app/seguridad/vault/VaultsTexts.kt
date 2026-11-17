@@ -110,8 +110,10 @@ fun masterChangedInOtherVaultText(fingerprintFailed: Boolean): String =
 /**
  * Branch review, row 45 (A I-2, option B): a vault opened with the master password (or a copy imported) whose cost could
  * not be raised to the one chosen in Ajustes for want of memory: it was kept with the cost it had; told once per process.
+ * Re-review A N-1: «se queda», never «se ha guardado»: a v4's save may fail (it opens anyway) and the upgrade is still
+ * in memory when it is told; the disk keeps that cost either way.
  */
 const val KDF_COST_KEPT =
-    "No se pudo subir el coste de Argon2id al elegido en Ajustes: ahora no hay memoria suficiente. La bóveda se ha " +
-        "guardado con el coste que ya tenía el archivo o la copia. Se volverá a intentar cada vez que la abras con la " +
+    "No se pudo subir el coste de Argon2id al elegido en Ajustes: ahora no hay memoria suficiente. La bóveda se queda " +
+        "con el coste que ya tenía el archivo o la copia. Se volverá a intentar cada vez que la abras con la " +
         "contraseña maestra. Si en Ajustes tienes el coste «Alto», puedes elegir «Estándar»."

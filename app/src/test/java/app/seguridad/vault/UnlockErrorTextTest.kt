@@ -165,6 +165,20 @@ class UnlockErrorTextTest {
         assertEquals(1, told)
     }
 
+    /**
+     * Re-review of the branch, A N-1: [KDF_COST_KEPT] is true on the three paths it is told on (a v4 whose save may fail,
+     * the upgrade still waiting in memory, an import): it never says the vault was saved.
+     */
+    @Test fun theCostKeptTextSaysNoSave() {
+        assertEquals(
+            "No se pudo subir el coste de Argon2id al elegido en Ajustes: ahora no hay memoria suficiente. La bóveda se queda " +
+                "con el coste que ya tenía el archivo o la copia. Se volverá a intentar cada vez que la abras con la contraseña " +
+                "maestra. Si en Ajustes tienes el coste «Alto», puedes elegir «Estándar».",
+            KDF_COST_KEPT,
+        )
+        assertTrue("se ha guardado" !in KDF_COST_KEPT)
+    }
+
     /** Row 45: a failure that is not of memory, or with no higher cost to reach, still fails as before. */
     @Test fun otherFailuresWhenWrappingAgainStillFail() = runTest {
         val (file, dek) = VaultCrypto.create("maestra-de-prueba-buena".toCharArray(), 0, fileCost)
