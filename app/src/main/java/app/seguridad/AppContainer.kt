@@ -730,6 +730,34 @@ class AppContainer(
     }
 
     /**
+     * Branch review, B m-2: once at the start, after the settings are read, forgets the settings of a vault that is gone
+     * (a deletion cut between the registry and the settings, or a full disk): an id of [Settings.perVault] goes only when
+     * it is not in the registry **and** its folder (`files/vaults/<id>/`, or `files/vault/`) does not exist, so a registry
+     * that could not be read never takes the settings (nor the A11 marks) of a vault still on the disk. Then the copies'
+     * folders no vault uses any more are given back. Best effort: a failure leaves everything as it was.
+     */
+    suspend fun forgetOrphanVaults() = changingVaults.withLock {
+        val listed = registry.vaults.value.map { it.id }.toSet()
+        val all = settings.settings.value
+        val gone = all.perVault.keys.filter { id -> id !in listed && !folderOnDisk(id) }
+        if (gone.isEmpty()) return@withLock
+        val folders = gone.flatMap { all.vault(it).backupFolders }.distinct()
+        try {
+            settings.update { s -> gone.fold(s) { acc, id -> acc.withoutVault(id) } }
+        } catch (e: Exception) {
+            return@withLock // A full disk: the next start tries again.
+        }
+        folders.forEach { releaseIfUnused(it) }
+    }
+
+    /** Whether the folder of the vault [id] exists on the disk; an id that names no folder ([VaultRegistry.dirOf]) has none. */
+    private fun folderOnDisk(id: String): Boolean = try {
+        registry.dirOf(id).exists()
+    } catch (e: IllegalArgumentException) {
+        false
+    }
+
+    /**
      * Whether the folder of the vault [id] has no vault file at all: no `vault.bin` (also one that could not be read) and
      * nothing set aside as damaged (`vault.bin.bad-…`, `att.bad-…`, BOV-2, kept for recovery). Only such a slot is deleted
      * without its master and its name (review M-2). Reads the disk.

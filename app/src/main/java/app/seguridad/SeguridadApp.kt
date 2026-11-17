@@ -77,5 +77,7 @@ class SeguridadApp : Application() {
         }
         // The clock mark also rises when the app starts, not only on use; the trash's clock does not (task 3, focus 3).
         container.appStarted(System.currentTimeMillis())
+        // Branch review, B m-2: the settings of a vault whose deletion was cut half way, once the settings are read.
+        container.appScope.launch(Dispatchers.IO) { container.forgetOrphanVaults() }
     }
 }

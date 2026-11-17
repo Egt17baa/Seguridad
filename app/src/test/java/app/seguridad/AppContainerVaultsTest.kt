@@ -263,6 +263,38 @@ class AppContainerVaultsTest {
     }
 
     /**
+     * Branch review, B m-2, P-m2: the settings of a vault that is neither in the registry nor on the disk (a deletion cut
+     * half way) go at the start, and its copies' folder is given back; those of a vault whose folder is still there stay,
+     * even if the registry does not list it.
+     */
+    @Test fun theSettingsOfAVaultThatIsGoneGoAtTheStart() = runTest {
+        val released = mutableListOf<String>()
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, releaseFolder = { released += it })
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray())
+        val gone = "a".repeat(32)
+        val onDisk = "b".repeat(32)
+        File(tmp.root, "vaults/$onDisk").mkdirs()
+        for ((id, folder) in listOf(gone to "content://gone", onDisk to "content://disk", PRIMARY_VAULT_ID to "content://principal")) {
+            c.settings.updateVault(id) { it.withTargetAdded(folder, BackupSchedule.ON_CHANGE) }
+        }
+        c.forgetOrphanVaults()
+        val per = c.settings.settings.value.perVault
+        assertFalse(gone in per)
+        assertTrue(onDisk in per)
+        assertTrue(PRIMARY_VAULT_ID in per)
+        assertEquals(listOf("content://gone"), released)
+        // From the file too, as the next start reads it.
+        val again = app.seguridad.settings.SettingsStore(File(tmp.root, SETTINGS_FILE)).apply { load() }
+        assertFalse(gone in again.settings.value.perVault)
+        // The app does it at every start, once the settings are read.
+        val app = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/SeguridadApp.kt") }.first { it.isFile }.readText()
+        assertTrue(app.indexOf("container.forgetOrphanVaults()") > app.indexOf("container.settings.load()"))
+    }
+
+    /**
      * Branch review, row 42: in «Bóvedas», a copy that its password does not open is said as of a copy, and deleting a
      * vault with a wrong master password says [app.seguridad.vault.WRONG_MASTER], as the lock screen.
      */
