@@ -119,21 +119,25 @@ fun HealthScreen(
             return@BackScaffold
         }
         val data = (state as VaultState.Unlocked).data
-        // 2.0, task 10 (phase B): the missions, computed off the main thread from what «Salud» computes (never with the
-        // leak check, O-6). Their titles may hold an entry's title: they live only here, and a lock takes this branch
-        // away, which cancels the work and drops them. «Ahora no» per vault and until its next unlock.
-        val missionList by produceState<List<Mission>?>(null, data, missionsOff) {
-            value = if (missionsOff) null else withContext(Dispatchers.Default) {
+        // Branch review, C m-1: «Salud» is computed once, off the main thread, only when its inputs change (the data, the
+        // leaks found, the day; not on scrolling or the check's progress). 2.0, task 10 (phase B): the missions come from
+        // that same result, never with the leak check (O-6: [Issue.BREACHED] is taken out). Their titles may hold an
+        // entry's title: they live only here, and a lock takes this branch away, which cancels the work and drops them.
+        // «Ahora no» per vault and until its next unlock.
+        val day = System.currentTimeMillis() / DAY_MS
+        val health by produceState<HealthView?>(null, data, breached, day, missionsOff) {
+            value = withContext(Dispatchers.Default) {
                 val now = System.currentTimeMillis()
-                missions(vaultHealth(data.live, now), data, now)
+                val all = vaultHealth(data.live, now, breached)
+                val noLeaks = all.map { it.copy(issues = it.issues - Issue.BREACHED) }.filter { it.issues.isNotEmpty() }
+                HealthView(all, if (missionsOff) null else missions(noLeaks, data, now))
             }
         }
         val epoch = store.lockEpoch
         var postponed by remember(epoch) { mutableStateOf(postponements?.postponed(store.id, epoch).orEmpty()) }
-        val mission = missionList?.let { nextMission(it, postponed, off = missionsOff) }
-        // Not on every recomposition (scrolling, the check's progress): only when its inputs change, or the day.
-        val day = System.currentTimeMillis() / DAY_MS
-        val items = remember(entries, breached, day) { vaultHealth(entries, System.currentTimeMillis(), breached) }
+        val mission = health?.missions?.let { nextMission(it, postponed, off = missionsOff) }
+        // Until the first result, neither «Sin problemas detectados.» nor any count.
+        val items = health?.items
         val byId = entries.associateBy { it.id }
         LazyColumn(Modifier.padding(padding).fillMaxSize().touchesVault(store), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (mission != null) {
@@ -156,16 +160,18 @@ fun HealthScreen(
                     }
                 }
             }
-            item {
-                SectionCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (items.isEmpty()) Text("Sin problemas detectados.")
-                        Issue.entries.forEach { issue ->
-                            val n = items.count { issue in it.issues }
-                            if (issue != Issue.BREACHED || breached.isNotEmpty()) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(issue.label())
-                                    Text(n.toString(), color = if (n > 0) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (items != null) {
+                item {
+                    SectionCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (items.isEmpty()) Text("Sin problemas detectados.")
+                            Issue.entries.forEach { issue ->
+                                val n = items.count { issue in it.issues }
+                                if (issue != Issue.BREACHED || breached.isNotEmpty()) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(issue.label())
+                                        Text(n.toString(), color = if (n > 0) NegativeColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                             }
                         }
@@ -241,7 +247,7 @@ fun HealthScreen(
                 }
             }
             // C-1: an entry's id (any text, from a copy) never meets the fixed key «mission».
-            items(items.sortedByDescending { it.issues.size }, key = { lazyKey('e', it.entryId) }) { item ->
+            items(items.orEmpty().sortedByDescending { it.issues.size }, key = { lazyKey('e', it.entryId) }) { item ->
                 HealthRow(item, byId[item.entryId]?.title.orEmpty(), onClick = { onEdit(item.entryId) })
             }
         }
@@ -259,3 +265,6 @@ private fun HealthRow(item: HealthItem, title: String, onClick: () -> Unit) {
         }
     }
 }
+
+/** Branch review, C m-1: one result of «Salud»: its [items] and, from them without the leak check, its [missions]. */
+private data class HealthView(val items: List<HealthItem>, val missions: List<Mission>?)
