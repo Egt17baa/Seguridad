@@ -4,9 +4,13 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KDF_OUT_OF_MEMORY
 import app.seguridad.crypto.KDF_PARAMS_INVALID
 import app.seguridad.crypto.KdfParams
+import app.seguridad.crypto.PasswordUse
+import app.seguridad.crypto.argon2id
+import app.seguridad.crypto.outOfMemoryAsFailure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
@@ -101,6 +105,80 @@ class UnlockErrorTextTest {
         assertEquals(VaultState.Locked, s.state.value)
         s.unlock("maestra-de-prueba-buena".toCharArray())
         org.junit.Assert.assertTrue(s.state.value is VaultState.Unlocked)
+    }
+
+    private val fileCost = KdfParams(1024, 1, 1)
+
+    /** Runs out of memory (as Argon2id would, through [outOfMemoryAsFailure]) for any cost above the file's, always. */
+    private val noMemoryAboveTheFile: KekDerive = { m, salt, p ->
+        if (p.memoryKiB > fileCost.memoryKiB) outOfMemoryAsFailure(p) { throw OutOfMemoryError("Failed to allocate") }
+        argon2id(m, salt, p, use = PasswordUse.EXISTING)
+    }
+
+    /**
+     * Branch review, row 45 (A I-2, option B), test n.º 2: Ajustes asks for more than the file has, and wrapping again
+     * with it runs out of memory every time. Each unlock still opens, with the file's cost (never lowered), the master
+     * check recorded, and [KDF_COST_KEPT] told once.
+     */
+    @Test fun noMemoryWhenWrappingAgainOpensWithTheFileCost() = runTest {
+        var clock = 1_000L
+        var told = 0
+        var profile = fileCost
+        val f = File(tmp.root, "vault.bin")
+        val s = VaultStore(
+            f, Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { profile },
+            kekDerive = noMemoryAboveTheFile, onCostKept = { told++ },
+        )
+        s.load()
+        s.create("maestra-de-prueba-buena".toCharArray())
+        s.lock()
+        profile = KdfParams(2048, 2, 1)
+        for (round in 1..2) {
+            clock += 10_000
+            s.unlock("maestra-de-prueba-buena".toCharArray())
+            assertTrue("round $round", s.state.value is VaultState.Unlocked)
+            val disk = VaultCrypto.decodeFile(f.readText())
+            assertEquals(VaultKdf(1024, 1, 1), disk.kdf)
+            assertEquals(clock, disk.masterCheckedAt)
+            s.lock()
+        }
+        assertEquals(1, told)
+    }
+
+    /** Row 45: the same from the vault of 1.4.3 (version 3): it goes to version 4 with its own cost, said once. */
+    @Test fun noMemoryWhenWrappingAgainUpgradesWithTheFileCost() = runTest {
+        var told = 0
+        val dir = tmp.newFolder("p143")
+        val f = File(dir, "vault.bin")
+        f.writeText(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        val s = VaultStore(
+            f, Dispatchers.Unconfined, Dispatchers.Unconfined, now = { 1_800_000_000_000L + 3_600_000L }, kdf = { KdfParams(2048, 2, 1) },
+            kekDerive = noMemoryAboveTheFile, onCostKept = { told++ },
+        )
+        s.load()
+        s.unlock("maestra-de-prueba-143".toCharArray())
+        assertTrue(s.state.value is VaultState.Unlocked)
+        assertTrue(s.completeUpgrade())
+        val disk = VaultCrypto.decodeFile(f.readText())
+        assertEquals(VaultFile.VERSION, disk.version)
+        assertEquals(VaultKdf(1024, 1, 1), disk.kdf)
+        assertEquals(1, told)
+    }
+
+    /** Row 45: a failure that is not of memory, or with no higher cost to reach, still fails as before. */
+    @Test fun otherFailuresWhenWrappingAgainStillFail() = runTest {
+        val (file, dek) = VaultCrypto.create("maestra-de-prueba-buena".toCharArray(), 0, fileCost)
+        var kept = 0
+        try {
+            VaultCrypto.afterMasterUnlock(
+                file, dek, "maestra-de-prueba-buena".toCharArray(), 5, KdfParams(2048, 1, 1),
+                derive = { _, _, _ -> throw CryptoFailure("otra cosa") }, onCostKept = { kept++ },
+            )
+            fail("It wrapped")
+        } catch (e: CryptoFailure) {
+            assertEquals("otra cosa", e.message)
+        }
+        assertEquals(0, kept)
     }
 
     /**

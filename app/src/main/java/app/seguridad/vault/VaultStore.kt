@@ -240,6 +240,13 @@ class VaultStore(
      * vault would open, under the same lock as [lock].
      */
     private val active: () -> Boolean = { true },
+    /** The Argon2id that wraps the key again after a master unlock ([VaultCrypto.afterMasterUnlock]); only tests change it. */
+    private val kekDerive: KekDerive = EXISTING_DERIVE,
+    /**
+     * Branch review, row 45: told once per process when a vault opened (an unlock with the master password, or an
+     * import) with the cost its file or copy had, because raising it to the one of Ajustes had no memory ([KDF_COST_KEPT]).
+     */
+    private val onCostKept: () -> Unit = {},
 ) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
@@ -584,8 +591,11 @@ class VaultStore(
         val at = now()
         val mark = trashClockMark()
         val key = derive { VaultCrypto.unlock(v, master) }
+        var costKept = false
         val checked = try {
-            derive { VaultCrypto.afterMasterUnlock(v, key, master, at, kdf(), prepare = { it.purgedTrash(at, mark) }) }
+            derive {
+                VaultCrypto.afterMasterUnlock(v, key, master, at, kdf(), prepare = { it.purgedTrash(at, mark) }, derive = kekDerive, onCostKept = { costKept = true })
+            }
         } catch (e: Exception) {
             key.fill(0)
             throw e
@@ -600,6 +610,7 @@ class VaultStore(
         if (v.version == VaultFile.VERSION) {
             // A full disk must not lock the user out of their passwords: open anyway (see [commit]).
             commit(checked, key, since, mustSave = false)
+            tellCostKept(costKept)
             return false
         }
         // 2.0, the upgrade: nothing is written yet. The file on disk stays the 2 or 3 until the copy before it is made or
@@ -612,8 +623,19 @@ class VaultStore(
             throw e
         }
         opened(v, key, since, upgraded = checked, read = read)
+        tellCostKept(costKept)
         collectGarbage()
         return upgrade != null
+    }
+
+    /** Whether [onCostKept] was told in this process (once per vault: the store lives as long as the process). */
+    @Volatile private var costKeptTold = false
+
+    /** Branch review, row 45: tells [onCostKept] once, if [kept] and the vault did open (not after a lock meanwhile). */
+    private fun tellCostKept(kept: Boolean) {
+        if (!kept || costKeptTold || _state.value !is VaultState.Unlocked) return
+        costKeptTold = true
+        onCostKept()
     }
 
     /**
@@ -1473,13 +1495,17 @@ class VaultStore(
         newTag: Boolean = false,
     ): Boolean = mutex.withLock {
         val key = derive { VaultCrypto.unlock(incoming, master) }
+        var costKept = false
         // Validates the data before replacing anything, and brings an old export to the current format.
         val (checked, refs) = try {
             // 2.0, task 8 (D-12): «Importar como bóveda nueva» gives the new vault a tag of its own, so a copy of the vault
             // it came from never counts as checked for it (nor the other way round), and no date of a check of the other
             // (re-review 1, N-1): its reminder starts from none.
             val checked = derive {
-                VaultCrypto.afterMasterUnlock(incoming, key, master, now(), kdf(), prepare = { if (newTag) it.copy(vaultTag = VaultCrypto.newTag(), lastCheckedBackupAt = 0L) else it })
+                VaultCrypto.afterMasterUnlock(
+                    incoming, key, master, now(), kdf(), prepare = { if (newTag) it.copy(vaultTag = VaultCrypto.newTag(), lastCheckedBackupAt = 0L) else it },
+                    derive = kekDerive, onCostKept = { costKept = true },
+                )
             }
             val incomingData = withContext(compute) { VaultCrypto.read(checked, key) }
             val incomingEntries = incomingData.entries
@@ -1520,6 +1546,7 @@ class VaultStore(
                 if (backup == null) {
                     commit(checked, key, since)
                     onClockReset(now()) // Only once the copy is saved: a failed save lowers nothing.
+                    tellCostKept(costKept)
                     return@withContext prepared.droppedRequest
                 }
                 val moved = try {
@@ -1542,6 +1569,7 @@ class VaultStore(
             }
             onClockReset(now()) // Saved: the copy's master password was verified and it is the vault now.
             opened(checked, key, since)
+            tellCostKept(costKept)
             collectGarbage() // The old vault's attachments the new one does not use.
             prepared.droppedRequest
         }

@@ -106,3 +106,12 @@ const val MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT =
 /** Branch review, A I-1: what is said of a dialog of A6 lost by a switch ([fingerprintFailed]: one line more). */
 fun masterChangedInOtherVaultText(fingerprintFailed: Boolean): String =
     if (fingerprintFailed) MASTER_CHANGED_IN_OTHER_VAULT + "\n" + MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT else MASTER_CHANGED_IN_OTHER_VAULT
+
+/**
+ * Branch review, row 45 (A I-2, option B): a vault opened with the master password (or a copy imported) whose cost could
+ * not be raised to the one chosen in Ajustes for want of memory: it was kept with the cost it had; told once per process.
+ */
+const val KDF_COST_KEPT =
+    "No se pudo subir el coste de Argon2id al elegido en Ajustes: ahora no hay memoria suficiente. La bóveda se ha " +
+        "guardado con el coste que ya tenía el archivo o la copia. Se volverá a intentar cada vez que la abras con la " +
+        "contraseña maestra. Si en Ajustes tienes el coste «Alto», puedes elegir «Estándar»."

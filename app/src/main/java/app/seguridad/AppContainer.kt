@@ -2,6 +2,7 @@ package app.seguridad
 
 import app.seguridad.core.MemoryPlaceStore
 import app.seguridad.vault.masterChangedInOtherVaultText
+import app.seguridad.vault.KDF_COST_KEPT
 import app.seguridad.vault.VaultLimitExceeded
 import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
 import app.seguridad.vault.VAULT_FAILED
@@ -436,6 +437,8 @@ class AppContainer(
             beforeUpgrade = { autoBackup.copyBeforeUpgrade() },
             id = id,
             active = { activeId == id },
+            // Branch review, row 45: the vault opened with the cost it had (no memory to raise it), said once.
+            onCostKept = { vaultsNotices.post(KDF_COST_KEPT) },
         )
 
         /**

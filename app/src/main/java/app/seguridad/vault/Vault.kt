@@ -286,10 +286,10 @@ const val WRONG_MASTER = "Contraseña incorrecta"
  * - [NOT_A_VAULT]: a file this version cannot open, before any key is tried;
  * - [KDF_PARAMS_INVALID]: a header out of bounds ([KdfParams.checkSane]), before any derivation;
  * - [KDF_OUT_OF_MEMORY]: the derivation cannot run on this phone (its cost is more than the heap gives, from checkSane,
- *   or Argon2id ran out of memory), or, ronda 2 (n-2), after a right master password, wrapping the key again at the cost
- *   chosen in Ajustes ([VaultCrypto.afterMasterUnlock]) had no memory; then the file is left as it was and the vault
- *   locked. That one comes only once the password was right. Branch review, row 38: [KDF_NO_MEMORY_NOW] when the cost
- *   that ran out of memory was the default or less.
+ *   or Argon2id ran out of memory). Branch review, row 45: wrapping the key again at a higher cost chosen in Ajustes
+ *   ([VaultCrypto.afterMasterUnlock]) with no memory no longer fails: the vault opens with the file's cost
+ *   ([KDF_COST_KEPT]). Branch review, row 38: [KDF_NO_MEMORY_NOW] when the cost that ran out of memory was the default
+ *   or less.
  * Anything else is [WRONG_MASTER], word for word (AES-GCM cannot tell a wrong password from a damaged wrapped key). A
  * closed list: never the message of any other exception. «Contactos» checks the master password through it too.
  */
@@ -297,6 +297,12 @@ fun masterUnlockErrorText(e: CryptoFailure): String = when (val m = e.message) {
     NOT_A_VAULT, KDF_OUT_OF_MEMORY, KDF_NO_MEMORY_NOW, KDF_PARAMS_INVALID -> m
     else -> WRONG_MASTER
 }
+
+/** The Argon2id of a master password that opens a vault, to wrap its key again: (master, salt, cost) to the key. */
+typealias KekDerive = (CharArray, ByteArray, KdfParams) -> ByteArray
+
+/** [KekDerive] of today: [argon2id] with [PasswordUse.EXISTING]; only tests pass another ([VaultCrypto.afterMasterUnlock]). */
+val EXISTING_DERIVE: KekDerive = { m, s, p -> argon2id(m, s, p, use = PasswordUse.EXISTING) }
 
 /** 2.0: the unlock screen's line for [BiometricRefusal.UPGRADE] (design «Formato v4»). */
 const val UPGRADE_NEEDS_MASTER = "Clavero 2.0 necesita la maestra una vez para pasar la bóveda al formato nuevo."
@@ -351,9 +357,12 @@ object VaultCrypto {
      * is [PasswordUse.NEW] for a new vault or a new master password, and [PasswordUse.EXISTING] when wrapping again under
      * the master that has just opened the file (review F5, M1: a 1.0.x/1.1.x master must keep working after the upgrade).
      */
-    private fun wrap(dek: ByteArray, data: VaultData, master: CharArray, use: PasswordUse, now: Long, kdf: KdfParams, random: SecureRandom, revision: Long = 0): VaultFile {
+    private fun wrap(
+        dek: ByteArray, data: VaultData, master: CharArray, use: PasswordUse, now: Long, kdf: KdfParams, random: SecureRandom, revision: Long = 0,
+        derive: KekDerive = { m, s, p -> argon2id(m, s, p, use = use) },
+    ): VaultFile {
         val salt = randomBytes(SALT_BYTES, random)
-        val kek = argon2id(master, salt, kdf, use = use)
+        val kek = derive(master, salt, kdf)
         try {
             val plain = VaultFile(
                 format = VaultFile.FORMAT, // Required (no default), so it is always written out.
@@ -493,6 +502,10 @@ object VaultCrypto {
      * are each the higher of the file's and [kdf]'s. A lower parallelism alone is not «cheaper»: Argon2id's cost to an
      * attacker is its memory and its passes (the lanes split that work across threads, RFC 9106 §4), so it is not a reason to
      * wrap again, but it is never lowered when wrapping for another reason.
+     *
+     * Branch review, row 45 (option B): when raising the cost runs out of memory ([KDF_OUT_OF_MEMORY], [KDF_NO_MEMORY_NOW]),
+     * the file is kept with its own cost (a v4 re-sealed; a 2 or a 3 wrapped with exactly the file's cost) and
+     * [onCostKept] is told. [derive] is the Argon2id of that wrap; only tests pass another one.
      */
     fun afterMasterUnlock(
         file: VaultFile,
@@ -502,6 +515,8 @@ object VaultCrypto {
         kdf: KdfParams = KdfParams(),
         random: SecureRandom = secureRandom,
         prepare: (VaultData) -> VaultData = { it },
+        derive: KekDerive = EXISTING_DERIVE,
+        onCostKept: () -> Unit = {},
     ): VaultFile {
         val known = resolve(file, dek)
         val old = known.version != VaultFile.VERSION
@@ -514,10 +529,22 @@ object VaultCrypto {
             maxOf(known.kdf.iterations, kdf.iterations),
             maxOf(known.kdf.parallelism, kdf.parallelism),
         )
-        return if (known.format != VaultFile.FORMAT || old || weaker) {
-            wrap(dek, data, master, PasswordUse.EXISTING, now, cost, random, known.revision + 1)
-        } else {
-            write(known.copy(masterCheckedAt = now), dek, data, random)
+        if (known.format == VaultFile.FORMAT && !old && !weaker) return write(known.copy(masterCheckedAt = now), dek, data, random)
+        return try {
+            wrap(dek, data, master, PasswordUse.EXISTING, now, cost, random, known.revision + 1, derive)
+        } catch (e: CryptoFailure) {
+            // Branch review, row 45 (option B): raising the cost to Ajustes' ran out of memory (it is retried at every
+            // unlock with the master password, and failed at each, with no way out but the fingerprint). Kept with the
+            // cost the file has, which has just opened it: a v4 as it is; a 2, a 3 or another format wrapped with exactly
+            // its own cost. Never lower than the file on any axis. Any other failure, or none to raise, fails as before.
+            if (!weaker || (e.message != KDF_OUT_OF_MEMORY && e.message != KDF_NO_MEMORY_NOW)) throw e
+            val kept = if (known.format == VaultFile.FORMAT && !old) {
+                write(known.copy(masterCheckedAt = now), dek, data, random)
+            } else {
+                wrap(dek, data, master, PasswordUse.EXISTING, now, known.kdf.params(), random, known.revision + 1, derive)
+            }
+            onCostKept()
+            kept
         }
     }
 
