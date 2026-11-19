@@ -1514,20 +1514,22 @@ class VaultStore(
             // 2.0, task 8 (D-12): «Importar como bóveda nueva» gives the new vault a tag of its own, so a copy of the vault
             // it came from never counts as checked for it (nor the other way round), and no date of a check of the other
             // (re-review 1, N-1): its reminder starts from none.
-            // RT-21, part a: the copy's checks run in [prepare], on the data about to be written (already in v4 and fitted,
-            // A m-2), before any write or wrap: a copy refused spends no second Argon2id. What they checked is what is
-            // sealed and shown (decision (b)), decoded once.
+            // RT-21, part a: the copy's checks run in [prepare], before any write or wrap: a copy refused spends no second
+            // Argon2id. Round 3, row 63: on the data as read and brought to v4 (fitted, A m-2), exactly what «Comprobar una
+            // copia» checks; only then does «Importar como bóveda nueva» give its own tag and drop the date of a check,
+            // which never makes the data bigger (a valid tag has the same size, a date of 0 is not written). What is sealed
+            // and shown is that (decision (b)), decoded once.
             val unlocked = derive {
                 VaultCrypto.afterMasterUnlockWithData(
                     incoming, key, master, now(), kdf(),
-                    prepare = { read ->
-                        val data = if (newTag) read.copy(vaultTag = VaultCrypto.newTag(), lastCheckedBackupAt = 0L) else read
-                        // The checks «Comprobar una copia» runs too, on the same data and in the same order (checkCopyData,
-                        // round 2, point 8): the structure, the size (A m-2) and the entries (one identity per vault, see
-                        // [upsert], and what [upsert] and [addAttachment] keep). The two never drift apart.
+                    prepare = { data ->
+                        // The checks «Comprobar una copia» runs too, on the same data (as read and brought to v4) and in the
+                        // same order (checkCopyData, round 2, point 8): the structure, the size (A m-2) and the entries (one
+                        // identity per vault, see [upsert], and what [upsert] and [addAttachment] keep). The two never drift
+                        // apart. Round 3, row 63: the new tag and the dropped date come after them.
                         checkCopyData(data)
                         if (backup == null && data.entries.any { it.attachments.isNotEmpty() }) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
-                        data
+                        if (newTag) data.copy(vaultTag = VaultCrypto.newTag(), lastCheckedBackupAt = 0L) else data
                     },
                     derive = kekDerive, onCostKept = { costKept = true }, copy = true, // RT-21, part b.
                 )

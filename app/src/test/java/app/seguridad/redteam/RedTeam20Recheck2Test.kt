@@ -23,6 +23,8 @@ import app.seguridad.vault.SavedView
 import app.seguridad.vault.SearchIndex
 import app.seguridad.vault.VaultCrypto
 import app.seguridad.vault.VaultData
+import app.seguridad.vault.checkCopyData
+import app.seguridad.vault.isVaultTag
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultFile
 import app.seguridad.vault.VaultLimits
@@ -146,10 +148,13 @@ class RedTeam20Recheck2Test {
 
     private val limit = VaultLimits.VAULT_MAX_DATA_BYTES + VaultLimits.COPY_DATA_MARGIN_BYTES.toLong()
 
-    /** A v4 copy of one note whose data are exactly [size] bytes, with the tag [tag] and no date of a check. */
-    private fun copyOfSize(size: Long, tag: String): ByteArray {
+    /**
+     * A v4 copy of one note whose data are exactly [size] bytes (the date of a check counted), with the tag [tag] and the
+     * date of its last check [checkedAt] (0: none, not written).
+     */
+    private fun copyOfSize(size: Long, tag: String, checkedAt: Long = 0L): ByteArray {
         val rnd = Random(20261119L)
-        val one = VaultData(entries = listOf(VaultEntry(UUID(rnd.nextLong(), rnd.nextLong()).toString(), EntryType.NOTE, "Nota", notes = "n", createdAt = 1, updatedAt = 1)), vaultTag = tag)
+        val one = VaultData(entries = listOf(VaultEntry(UUID(rnd.nextLong(), rnd.nextLong()).toString(), EntryType.NOTE, "Nota", notes = "n", createdAt = 1, updatedAt = 1)), vaultTag = tag, lastCheckedBackupAt = checkedAt)
         val pad = (size - jsonBytes(one)).toInt() + 1
         val data = one.copy(entries = listOf(one.entries[0].copy(notes = "n".repeat(pad))))
         check(jsonBytes(data) == size)
@@ -172,29 +177,52 @@ class RedTeam20Recheck2Test {
         e.message ?: "?"
     }
 
-    /**
-     * Row 63, as the director accepted it (informative): a tag of one character and the data exactly at 24 MiB + 4 KiB.
-     * «Comprobar una copia» passes it; «Importar como bóveda nueva» writes a tag of 32 hex first (+31 B) and refuses it.
+    /** «Importar copia» (no new tag): "OK" or the message it refuses with. */
+    private fun imported(copy: ByteArray, master: String = RT20_MASTER): String = try {
+        runBlocking { store().importReplace(ByteArrayInputStream(copy), master.toCharArray()) }
+        "OK"
+    } catch (e: CryptoFailure) {
+        e.message ?: "?"
+    }
+
+    /** The three gates of a copy, in one line: «Comprobar», «Importar copia» and «Importar como bóveda nueva». */
+    private fun gates(copy: ByteArray) = listOf(checked(copy), imported(copy), importedAsNew(copy))
+
+    /*
+     * Row 63, as round 3 of the fixes closed it (the director's ruling, advisor-t12-redteam-fixes-3.md, point 2): a tag
+     * the app never writes is refused by the three gates (isVaultTag), and «Importar como bóveda nueva» checks the data as
+     * read, before it gives the vault a tag of its own and drops the date of a check: the three say the same. Changed with
+     * the director's authorisation (the four informative63_ of re-check 2 fixed what was accepted then).
      */
-    @Test fun informative63_aShortTagPassesTheCheck() {
-        assertEquals("OK", checked(copyOfSize(limit, "a")))
+
+    @Test fun informative63_aShortTagIsRefusedByTheThreeGates() {
+        assertEquals(List(3) { COPY_DAMAGED }, gates(copyOfSize(limit, "a")))
     }
 
-    @Test fun informative63_aShortTagIsRefusedAsANewVault() {
-        assertEquals(COPY_DAMAGED, importedAsNew(copyOfSize(limit, "a")))
+    @Test fun informative63_aLongTagIsRefusedByTheThreeGates() {
+        assertEquals(List(3) { COPY_DAMAGED }, gates(copyOfSize(limit, "b".repeat(64))))
+    }
+
+    /** A tag as the app writes it and a date of a check, 20 B over the limit counting the date: refused by the three. */
+    @Test fun informative63_aDateOfACheckOverTheLimitIsRefusedByTheThreeGates() {
+        assertEquals(List(3) { COPY_DAMAGED }, gates(copyOfSize(limit + 20, "0123456789abcdef0123456789abcdef", checkedAt = 1_800_000_000_000L)))
     }
 
     /**
-     * Row 63, the other way, which the director did not list: a tag longer than 32 characters (the app never writes one)
-     * shrinks when «Importar como bóveda nueva» replaces it, with no bound but the copy. A copy 20 B over the limit with a
-     * tag of 64: «Comprobar una copia» says it is damaged, and «Importar como bóveda nueva» imports it.
+     * The same exactly at the limit: the three pass; the new vault has a tag of its own and no date of a check, and what
+     * it sealed is no bigger than what was checked and passes the same checks.
      */
-    @Test fun informative63_aLongTagIsRefusedByTheCheck() {
-        assertEquals(COPY_DAMAGED, checked(copyOfSize(limit + 20, "b".repeat(64))))
-    }
-
-    @Test fun informative63_aLongTagImportsAsANewVault() {
-        assertEquals("OK", importedAsNew(copyOfSize(limit + 20, "b".repeat(64))))
+    @Test fun informative63_aDateOfACheckAtTheLimitPassesTheThreeGates() {
+        val tag = "0123456789abcdef0123456789abcdef"
+        val copy = copyOfSize(limit, tag, checkedAt = 1_800_000_000_000L)
+        assertEquals(listOf("OK", "OK", "OK"), gates(copy))
+        val s = store()
+        runBlocking { s.importReplace(ByteArrayInputStream(copy), RT20_MASTER.toCharArray(), newTag = true) }
+        val sealed = (s.state.value as VaultState.Unlocked).data
+        assertTrue("a tag of its own", sealed.vaultTag != tag && isVaultTag(sealed.vaultTag))
+        assertEquals("no date of a check", 0L, sealed.lastCheckedBackupAt)
+        assertTrue("sealed ${jsonBytes(sealed)} <= checked $limit", jsonBytes(sealed) <= limit)
+        checkCopyData(sealed)
     }
 
     // ---------------------------------------------------------------------------------------------------------------

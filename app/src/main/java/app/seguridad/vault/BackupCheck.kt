@@ -271,6 +271,8 @@ internal fun checkCopyEntries(entries: List<VaultEntry>) {
 /**
  * 2.0: the folders, views and tag colours of a copy within [VaultLimits] ([checkStructure]: no folder inside itself), and
  * their names within [ORGANIZE_NAME_MAX] (branch review, A m-4), or the copy is refused as damaged, before anything changes. A copy of 1.4.3 or before has none, and always passes.
+ * Round 3 of the fixes of the attack, row 63: a [VaultData.vaultTag] that is not empty must be one the app writes
+ * ([isVaultTag]: 32 ASCII `0-9a-f`), or the copy is damaged; so its size never depends on a tag the app would replace.
  */
 internal fun checkCopyStructure(data: VaultData) {
     try {
@@ -281,6 +283,8 @@ internal fun checkCopyStructure(data: VaultData) {
     // Branch review, A m-4: the app never names a folder or a view with more than [ORGANIZE_NAME_MAX] code points.
     fun long(name: String) = name.codePointCount(0, name.length) > ORGANIZE_NAME_MAX
     if (data.folders.any { long(it.name) } || data.views.any { long(it.name) }) throw CryptoFailure(COPY_DAMAGED)
+    // Round 3, row 63: a tag the app never writes (only [isVaultTag]; a copy of before 2.0 has none, and gets one when upgraded).
+    if (data.vaultTag.isNotEmpty() && !isVaultTag(data.vaultTag)) throw CryptoFailure(COPY_DAMAGED)
 }
 
 /**

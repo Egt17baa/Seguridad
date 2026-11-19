@@ -353,6 +353,12 @@ private fun VaultData.upgraded(random: SecureRandom): VaultData = copy(
 
 private fun newVaultTag(random: SecureRandom): String = hex(randomBytes(16, random))
 
+/**
+ * Round 3 of the fixes of the attack, row 63: whether [tag] is a [VaultData.vaultTag] as the app writes it ([newVaultTag]):
+ * exactly 32 characters of ASCII `0-9a-f`. No other digit, no upper case, no full-width letter.
+ */
+internal fun isVaultTag(tag: String): Boolean = tag.length == 32 && tag.all { it in '0'..'9' || it in 'a'..'f' }
+
 object VaultCrypto {
     /** 2.0, task 8 (D-12): a new [VaultData.vaultTag] (16 random bytes in hex), for a vault imported as a new one. */
     fun newTag(): String = newVaultTag(secureRandom)

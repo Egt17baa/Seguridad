@@ -6,6 +6,7 @@ import app.seguridad.crypto.KdfParams
 import app.seguridad.crypto.NONCE_BYTES
 import app.seguridad.crypto.aead
 import app.seguridad.crypto.randomBytes
+import app.seguridad.vault.COPY_DAMAGED
 import app.seguridad.vault.Expiry
 import app.seguridad.vault.VaultCrypto
 import app.seguridad.vault.VaultFile
@@ -191,12 +192,13 @@ class RedTeam20CopyTest {
 
     /**
      * Surface 1: dates at the ends of a Long (deletedAt, expiresAt, lastUsedAt, lastUnlockAt and lastCheckedBackupAt in
-     * the future, at Long.MAX_VALUE or negative), unknown enums with a default (notesFormat, a view's sort; an unknown one without a default, such as a field's kind
-     * or a type in a view, makes the copy damaged), a vaultTag
-     * that is not hex, and a name of 5 000 code points. The import either takes it or refuses it with a CryptoFailure;
-     * nothing throws anything else, and what the screens compute from it (the trash's line, the expiry notice, the copy's
-     * reminder, the vault's name) does not throw either. Today a name over 100 code points is refused as damaged
-     * ([checkStructure], VaultLimits.kt:228) and the rest is taken.
+     * the future, at Long.MAX_VALUE or negative), unknown enums with a default (notesFormat, a view's sort; an unknown one
+     * without a default, such as a field's kind or a type in a view, makes the copy damaged), a hostile vaultTag and a
+     * name of 5 000 code points, each case in its own store. A tag the app never writes (row 63, round 3: only
+     * [app.seguridad.vault.isVaultTag], 32 ASCII hex) or a name over 100 code points ([checkStructure], VaultLimits.kt:228)
+     * gives exactly COPY_DAMAGED and changes nothing; with a tag as the app writes it, the rest is imported, and what the
+     * screens compute from it (the trash's line, the expiry notice, the copy's reminder, the vault's name) does not throw.
+     * Nothing throws anything but a CryptoFailure. Changed with the director's authorisation (consulta de la fila 63).
      */
     @Test fun resistsHostileDatesEnumsAndNamesInAV4Copy() = runBlocking {
         val m = Long.MAX_VALUE
@@ -205,25 +207,34 @@ class RedTeam20CopyTest {
             "{\"id\":\"b\",\"type\":\"LOGIN\",\"title\":\"B\",\"password\":\"x\",\"createdAt\":1,\"updatedAt\":1,\"deletedAt\":-9223372036854775807,\"expiresAt\":-1,\"rotateMonths\":1,\"passwordChangedAt\":$m," +
             "\"fields\":[{\"id\":\"f\",\"name\":\"n\",\"kind\":\"HIDDEN\",\"value\":\"v\"}]}" +
             "],\"views\":[{\"id\":\"v\",\"name\":\"V\",\"filter\":{\"sort\":\"RANDOM\"}}]," +
-            "\"lastUnlockAt\":$m,\"lastCheckedBackupAt\":$m,\"trashPurgeSkipped\":true,\"templatesVersion\":-5,\"vaultTag\":\"<script>\""
-        for (name in listOf("", "x".repeat(5_000))) {
-            val s = store("fechas-${name.length}").apply { load() }
+            "\"lastUnlockAt\":$m,\"lastCheckedBackupAt\":$m,\"trashPurgeSkipped\":true,\"templatesVersion\":-5"
+        fun copy(tag: String, name: String) = rt20Copy(rt20HostileFile("$entries,\"vaultTag\":\"$tag\",\"name\":\"$name\"}").first)
+        val hex = "0123456789abcdef0123456789abcdef"
+        val long = "x".repeat(5_000)
+        // The three refused: exactly COPY_DAMAGED, and the store as it was.
+        for ((i, case) in listOf("<script>" to "", "<script>" to long, hex to long).withIndex()) {
+            val s = store("fechas-$i").apply { load() }
+            val before = s.state.value
             try {
-                s.importReplace(ByteArrayInputStream(rt20Copy(rt20HostileFile("$entries,\"name\":\"$name\"}").first)), RT20_MASTER.toCharArray())
+                s.importReplace(ByteArrayInputStream(copy(case.first, case.second)), RT20_MASTER.toCharArray())
+                fail("case $i imported")
             } catch (e: CryptoFailure) {
-                assertTrue("Only the long name is refused (${e.message})", name.isNotEmpty())
-                continue
+                assertEquals("case $i", COPY_DAMAGED, e.message)
             }
-            val data = (s.state.value as VaultState.Unlocked).data
-            data.entries.forEach { e -> e.deletedAt?.let { trashLeavesIn(it, clock) } }
-            Expiry.dueSoon(data.entries, clock)
-            backupCheckNotice(data.lastCheckedBackupAt, clock)
-            displayName(data, 0)
-            // Opened again with the master password: the trash's dates in the future become now, nothing else is lost.
-            s.lock()
-            s.unlock(RT20_MASTER.toCharArray())
-            assertEquals(setOf("a", "b"), (s.state.value as VaultState.Unlocked).data.entries.map { it.id }.toSet())
+            assertEquals("case $i: a refusal changes nothing", before, s.state.value)
         }
+        // A tag as the app writes it and a short name: imported, and nothing the screens compute throws.
+        val s = store("fechas-3").apply { load() }
+        s.importReplace(ByteArrayInputStream(copy(hex, "")), RT20_MASTER.toCharArray())
+        val data = (s.state.value as VaultState.Unlocked).data
+        data.entries.forEach { e -> e.deletedAt?.let { trashLeavesIn(it, clock) } }
+        Expiry.dueSoon(data.entries, clock)
+        backupCheckNotice(data.lastCheckedBackupAt, clock)
+        displayName(data, 0)
+        // Opened again with the master password: the trash's dates in the future become now, nothing else is lost.
+        s.lock()
+        s.unlock(RT20_MASTER.toCharArray())
+        assertEquals(setOf("a", "b"), (s.state.value as VaultState.Unlocked).data.entries.map { it.id }.toSet())
     }
 
     /**
