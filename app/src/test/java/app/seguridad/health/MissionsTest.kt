@@ -152,13 +152,14 @@ class MissionsTest {
         val gate = src.indexOf("return@BackScaffold")
         // Branch review, C m-1: one computation of «Salud», off the main thread, whose result gives the missions. Round 2,
         // point 9: in health/HealthView.kt (healthView, with its catch of running out of memory), called from there.
-        val computed = src.indexOf("withContext(Dispatchers.Default) { healthView(data, System.currentTimeMillis(), breached, missionsOff) }")
+        // Round 3: with the computation cancellable between entries.
+        val computed = src.indexOf("withContext(Dispatchers.Default) { val work = coroutineContext.job; healthView(data, System.currentTimeMillis(), breached, missionsOff) { work.ensureActive() } }")
         assertTrue(gate in 0 until computed)
         val view = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
             .map { java.io.File(it, "app/src/main/java/app/seguridad/health/HealthView.kt") }.first { it.isFile }.readText()
         assertTrue(
             "The same computation",
-            Regex("""val all = vaultHealth\(data\.live, now, breached\)\s*val noLeaks = [^\n]*Issue\.BREACHED[^\n]*\n\s*HealthView\(all, if \(missionsOff\) null else missions\(noLeaks, data, now\)\)""").containsMatchIn(view),
+            Regex("""val all = vaultHealth\(data\.live, now, breached, active\)\s*val noLeaks = [^\n]*Issue\.BREACHED[^\n]*\n[^\n]*active\(\)[^\n]*\n\s*HealthView\(all, if \(missionsOff\) null else missions\(noLeaks, data, now\)\)""").containsMatchIn(view),
         )
         assertFalse("Never in saved state", "rememberSaveable" in src)
         val holder = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }

@@ -37,4 +37,27 @@ class HealthViewTest {
         assertTrue(v.missions != null)
         assertEquals(null, healthView(data, now, emptyMap(), missionsOff = true).missions)
     }
+
+    /** Round 3: a CancellationException from `active` at its k-th call goes out as it is, never as NO_MEMORY. */
+    @Test fun aCancellationFromActiveGoesOutAsItIs() {
+        val many = VaultData(entries = List(2_000) { VaultEntry("a$it", EntryType.LOGIN, "Foro", password = "hola$it", createdAt = now, updatedAt = now) })
+        for (k in listOf(1, 3, 8)) {
+            var calls = 0
+            try {
+                healthView(many, now, emptyMap(), missionsOff = false) { if (++calls == k) throw kotlinx.coroutines.CancellationException("parada") }
+                throw AssertionError("k = $k: not cancelled ($calls calls)")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                assertEquals("parada", e.message)
+            }
+            assertEquals(k, calls)
+        }
+    }
+
+    /** Round 3: vaultHealth calls `active` at least once every HEALTH_ACTIVE_EVERY entries. */
+    @Test fun vaultHealthCallsActiveBetweenEntries() {
+        val entries = List(10_000) { VaultEntry("a$it", EntryType.LOGIN, "Foro", password = "hola$it", createdAt = now, updatedAt = now) }
+        var calls = 0
+        vaultHealth(entries, now) { calls++ }
+        assertTrue("$calls calls for ${entries.size} entries", calls >= entries.size / HEALTH_ACTIVE_EVERY)
+    }
 }

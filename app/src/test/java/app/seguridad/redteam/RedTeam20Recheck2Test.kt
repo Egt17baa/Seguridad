@@ -494,10 +494,10 @@ class RedTeam20Recheck2Test {
     }
 
     /**
-     * Attack 5, informative: with NO_MEMORY, «Salud» returns before its leak check (HealthScreen.kt, `return@BackScaffold`
-     * before the progress and «Cancelar»). A check running when a new leak makes healthView run again and run out of
-     * memory goes on with no progress, no «Cancelar» and no result shown; leaving the screen stops it
-     * (`DisposableEffect(Unit) { onDispose { job?.cancel() } }`), and so does a lock.
+     * Attack 5, informative, inverted in round 3 (the director's ruling, authorised): with NO_MEMORY, «Salud» still returns
+     * before its leak check (HealthScreen.kt, `return@BackScaffold` before the progress and «Cancelar»), but first stops
+     * the check that runs (`LaunchedEffect(Unit) { job?.cancel() }`): no request goes after the one in flight. Leaving the
+     * screen stops it too (`DisposableEffect(Unit) { onDispose { job?.cancel() } }`).
      */
     @Test fun informativeSaludWithoutMemoryHidesTheCancelOfARunningCheck() {
         val src = File(main, "ui/screens/HealthScreen.kt").readText()
@@ -507,7 +507,8 @@ class RedTeam20Recheck2Test {
         assertTrue(noMemory in 0 until back && back < cancel)
         assertTrue("produceState keyed by the leaks found", "produceState<HealthView?>(null, data, breached, day, missionsOff)" in src)
         assertTrue("leaving stops it", "DisposableEffect(Unit) { onDispose { job?.cancel() } }" in src)
-        assertFalse("nothing cancels it on NO_MEMORY", src.substring(noMemory, back).contains("cancel"))
+        assertTrue("NO_MEMORY stops the running check", "LaunchedEffect(Unit) { job?.cancel() }" in src.substring(noMemory, back))
+        assertFalse("without dropping its results (which would change the key)", "dropResults()" in src.substring(noMemory, back))
     }
 
     // ---------------------------------------------------------------------------------------------------------------

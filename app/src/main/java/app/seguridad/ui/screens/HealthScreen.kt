@@ -54,6 +54,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 
@@ -132,10 +133,14 @@ fun HealthScreen(
         val day = System.currentTimeMillis() / DAY_MS
         // Round 2 of the fixes of the attack, point 9: worked out in health/ (healthView), which catches running out of memory.
         val health by produceState<HealthView?>(null, data, breached, day, missionsOff) {
-            value = withContext(Dispatchers.Default) { healthView(data, System.currentTimeMillis(), breached, missionsOff) }
+            // Round 3: cancellable between entries (a new leak found or a lock stops the computation of before).
+            value = withContext(Dispatchers.Default) { val work = coroutineContext.job; healthView(data, System.currentTimeMillis(), breached, missionsOff) { work.ensureActive() } }
         }
         // Out of memory: the text instead of anything else (no mission, no count, never «Sin problemas detectados.»).
         if (health?.noMemory == true) {
+            // Round 3: a leak check running stops here (its «Cancelar» is not on screen): no request goes after the one in
+            // flight; the leaks found stay in `breached`, and dropResults is not called (it would change the key again).
+            LaunchedEffect(Unit) { job?.cancel() }
             Text(LIST_NO_MEMORY, color = NegativeColor, modifier = Modifier.padding(padding).padding(16.dp))
             return@BackScaffold
         }

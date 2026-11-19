@@ -44,8 +44,9 @@ class HealthScreenTest {
         val text = src.joinToString("\n")
         val at = text.indexOf("if (health?.noMemory == true) {")
         assertTrue("the branch is there", at > 0)
-        val body = text.substring(at, text.indexOf("}", at))
-        assertTrue(body, "Text(LIST_NO_MEMORY" in body && "return@BackScaffold" in body)
+        // Round 3 (authorised): the branch also stops a leak check, so it is read up to its return, not its first brace.
+        val body = text.substring(at, text.indexOf("return@BackScaffold", at) + "return@BackScaffold".length)
+        assertTrue(body, "Text(LIST_NO_MEMORY" in body && "LaunchedEffect(Unit) { job?.cancel() }" in body)
         assertTrue("before the LazyColumn", at < text.indexOf("LazyColumn("))
         assertTrue("before «Sin problemas detectados.»", at < text.indexOf("Text(\"Sin problemas detectados.\")"))
         assertTrue("before the mission", at < text.indexOf("val mission = health?.missions"))
