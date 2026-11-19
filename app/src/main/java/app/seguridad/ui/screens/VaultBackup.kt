@@ -68,9 +68,10 @@ val LocalOnMasterChanged = staticCompositionLocalOf<(vaultId: String, fingerprin
 
 /**
  * RT-22 (ii): whether the empty vault shown can be filled now (AppContainer.mayFillEmptySlot, provided by the app root);
- * asked right before the store is called. The default lets it, for previews.
+ * asked right before the store is called. The default refuses (round 2 of the fixes of the attack, informative 1): a
+ * screen composed without the app root's provider fails closed, never open.
  */
-val LocalEmptySlotGuard = staticCompositionLocalOf<suspend () -> Boolean> { { true } }
+val LocalEmptySlotGuard = staticCompositionLocalOf<suspend () -> Boolean> { { false } }
 
 /** What the vault menu and Ajustes can do with the vault file; each one shows its own dialog or picker. */
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)

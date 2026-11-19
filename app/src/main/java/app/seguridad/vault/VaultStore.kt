@@ -531,6 +531,8 @@ class VaultStore(
     /**
      * Creates a new vault; only with none readable (the «Crea tu bóveda» screen), else [IllegalStateException] and
      * nothing changes. Once Argon2id has run, a cancelled caller does not stop it: the vault is created (BOV-3).
+     * A screen only calls it on an empty slot after AppContainer.mayFillEmptySlot (RT-22 (ii), through
+     * `LocalEmptySlotGuard`; EmptySlotGuardSourceTest); the store itself does not check it, so `newVault` can.
      */
     suspend fun create(master: CharArray, name: String = "") {
         val since = epoch
@@ -1464,7 +1466,8 @@ class VaultStore(
      * before anything is replaced; if writing the vault then fails, the attachments are put back as they were.
      * The attachments the old vault had and the new one does not are collected after the save. Returns what the
      * other [importReplace] does. With [newTag] (2.0, «Importar como bóveda nueva»), the vault gets a new
-     * [VaultData.vaultTag] instead of the copy's.
+     * [VaultData.vaultTag] instead of the copy's. A screen only calls it on an empty slot after
+     * AppContainer.mayFillEmptySlot (RT-22 (ii), through `LocalEmptySlotGuard`; EmptySlotGuardSourceTest).
      */
     suspend fun importReplace(input: InputStream, master: CharArray, newTag: Boolean = false): Boolean {
         checkCanReplace()
