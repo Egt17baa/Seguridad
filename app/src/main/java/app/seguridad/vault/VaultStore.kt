@@ -1452,7 +1452,7 @@ class VaultStore(
     }
 
     private suspend fun importText(text: String, master: CharArray, since: Int, newTag: Boolean = false): Boolean {
-        val incoming = withContext(compute) { VaultCrypto.decodeFile(text) }
+        val incoming = withContext(compute) { copyRead(CopyReadStep.DECODE_FILE) { VaultCrypto.decodeFile(text) } }
         return replace(incoming, master, null, since, newTag)
     }
 
@@ -1475,14 +1475,18 @@ class VaultStore(
             buffered.readAtMost(BACKUP_HEAD_BYTES).also { buffered.reset() }
         }
         if (!isBackup(head)) {
-            val bytes = withContext(io) { buffered.readAtMost(VAULT_IMPORT_MAX_BYTES + 1) }
+            // Informative 3 of round 2: reading the export and making its text, each in its protected block.
+            val bytes = withContext(io) { copyRead(CopyReadStep.READ) { buffered.readAtMost(VAULT_IMPORT_MAX_BYTES + 1) } }
             if (bytes.size > VAULT_IMPORT_MAX_BYTES) throw CryptoFailure(IMPORT_TOO_BIG)
-            return importText(bytes.decodeToString(), master, since, newTag)
+            val text = withContext(compute) { copyRead(CopyReadStep.TEXT) { bytes.decodeToString() } }
+            return importText(text, master, since, newTag)
         }
         val temp = File(attachments.dir.absoluteFile.parentFile, IMPORT_DIR_PREFIX + randomBytes(8).joinToString("") { "%02x".format(it) })
         return try {
-            val contents = withContext(io) { BackupReader().read(buffered, temp) }
-            val incoming = withContext(compute) { VaultCrypto.decodeFile(contents.vaultJson) }
+            // Informative 3 of round 2: reading the copy into its folder and decoding its file, each in its protected block;
+            // the folder goes in the finally below.
+            val contents = withContext(io) { copyRead(CopyReadStep.READ) { BackupReader().read(buffered, temp) } }
+            val incoming = withContext(compute) { copyRead(CopyReadStep.DECODE_FILE) { VaultCrypto.decodeFile(contents.vaultJson) } }
             replace(incoming, master, contents to temp, since, newTag)
         } finally {
             withContext(NonCancellable) { withContext(io) { temp.deleteRecursively() } }

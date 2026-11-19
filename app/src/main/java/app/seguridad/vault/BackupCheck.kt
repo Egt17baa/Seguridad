@@ -81,11 +81,13 @@ suspend fun checkBackup(
         withContext(NonCancellable) { withContext(io) { dir = newRunDir(tempDir) } }
         currentCoroutineContext().ensureActive()
         val runDir = dir!!
+        // Informative 3 of round 2: reading the copy and decoding its file, each in its protected block (COPY_NO_MEMORY;
+        // the folder goes in the finally).
         val contents = withContext(io) {
             val job = currentCoroutineContext().job
-            BackupReader().read(input, runDir) { job.ensureActive() }
+            copyRead(CopyReadStep.READ) { BackupReader().read(input, runDir) { job.ensureActive() } }
         }
-        val incoming = withContext(compute) { VaultCrypto.decodeFile(contents.vaultJson) }
+        val incoming = withContext(compute) { copyRead(CopyReadStep.DECODE_FILE) { VaultCrypto.decodeFile(contents.vaultJson) } }
         currentCoroutineContext().ensureActive()
         KdfLock.derive(compute) { key = unlock(incoming, master) }
         currentCoroutineContext().ensureActive()

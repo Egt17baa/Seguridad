@@ -109,6 +109,27 @@ const val COPY_NO_MEMORY =
     "Este móvil no tiene memoria suficiente para leer esta copia. No se ha cambiado nada. Cierra Clavero del todo, vuelve " +
         "a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede leerla."
 
+/**
+ * Round 2 of the fixes of the attack, informative 3: what reads a copy before its checks (the bytes of a JSON export and
+ * their text, a `.sgbak` read into its folder, and [VaultCrypto.decodeFile]), a step of [copyRead].
+ */
+internal enum class CopyReadStep { READ, TEXT, DECODE_FILE }
+
+/** Runs right before each [CopyReadStep]; only tests change it (an [OutOfMemoryError] made by hand). */
+@Volatile internal var beforeCopyRead: (CopyReadStep) -> Unit = {}
+
+/**
+ * Round 2 of the fixes of the attack, informative 3: [block], the [step] that reads a copy, with running out of memory as
+ * [COPY_NO_MEMORY] (true there: it runs before anything is written). Inside the caller's `withContext(io)` or
+ * `withContext(compute)`, so the error never leaves that block as an Error.
+ */
+internal inline fun <T> copyRead(step: CopyReadStep, block: () -> T): T = try {
+    beforeCopyRead(step)
+    block()
+} catch (e: OutOfMemoryError) {
+    throw app.seguridad.crypto.CryptoFailure(COPY_NO_MEMORY)
+}
+
 /** Branch review, row 42: a copy that its password does not open, or damaged (AES-GCM cannot tell them apart). */
 const val COPY_WRONG_PASSWORD_OR_DAMAGED = "Contraseña incorrecta o copia dañada. Vuelve a elegir la copia y escribe su contraseña."
 
