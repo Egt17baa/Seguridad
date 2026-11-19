@@ -331,7 +331,20 @@ val EXISTING_DERIVE: KekDerive = { m, s, p -> argon2id(m, s, p, use = PasswordUs
 /** 2.0: the unlock screen's line for [BiometricRefusal.UPGRADE] (design «Formato v4»). */
 const val UPGRADE_NEEDS_MASTER = "Clavero 2.0 necesita la maestra una vez para pasar la bóveda al formato nuevo."
 
-private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it) }
+/**
+ * [bytes] as lower-case hex, by hand: never through the default locale (round 3, row 63, the owner's decision), so the
+ * app's own tags always pass [isVaultTag], whatever the phone's language. The same output as `"%02x"` in a Latin locale.
+ */
+private fun hex(bytes: ByteArray): String {
+    val digits = "0123456789abcdef"
+    val out = CharArray(bytes.size * 2)
+    for ((i, b) in bytes.withIndex()) {
+        val v = b.toInt() and 0xff
+        out[2 * i] = digits[v ushr 4]
+        out[2 * i + 1] = digits[v and 0x0f]
+    }
+    return String(out)
+}
 
 /**
  * 2.0, the upgrade to v4: each LOGIN's [VaultEntry.passwordHistory] also becomes [VaultEntry.history], one
