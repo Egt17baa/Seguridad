@@ -253,7 +253,8 @@ internal fun VaultData.checkStructure() {
  * nueva», the JSON export of 1.0 and «Comprobar una copia»); never for the vault's own file.
  *
  * The model follows the typed decoding (kotlinx-serialization into [VaultData]), not a JSON tree; member names cost
- * nothing (they are the classes' fields), save in [VaultData.tagColors], a map:
+ * nothing (they are the classes' fields, and one with an escape is refused, RT-26, so each is read as the decoder reads
+ * it), save in [VaultData.tagColors], a map:
  * - an object: [COPY_TREE_OBJECT_BYTES] (the largest class, [VaultEntry]); in `tagColors`, a `LinkedHashMap`
  *   ([COPY_TREE_COLLECTION_BYTES] and its table) and per member [COPY_TREE_ELEMENT_BYTES] and its key's string;
  * - an array: [COPY_TREE_COLLECTION_BYTES] and a table of references made at its first element with 16 slots and
@@ -296,18 +297,28 @@ const val COPY_TREE_LITERAL_BYTES = 16L
  */
 const val COPY_TREE_MAX_BYTES = 262L * 1024 * 1024
 
-/** What [scanCopy] found: the [estimate] (stopped at [treeLimit] if passed) and the [longest] list but the entries. */
-internal data class CopyShape(val estimate: Long, val longest: Int)
+/**
+ * What [scanCopy] found: the [estimate] (stopped at [treeLimit] if passed), the [longest] list but the entries, and
+ * whether a member of an object of a class (any but the map `tagColors`) has an [escapedName] (RT-26).
+ */
+internal data class CopyShape(val estimate: Long, val longest: Int, val escapedName: Boolean = false)
 
 /**
  * RT-21: refuses with [CryptoFailure] ([COPY_DAMAGED]) the data of a copy ([json], of [version]) with a list or an
  * object of more than [COPY_LIST_MAX] elements or members (the list of entries aside: the root of a version 2, 3 or
  * unknown, the member `entries` of the root in a 4), or whose decoded tree would pass [treeMax]. Before any `String` is
  * made, in one linear pass.
+ *
+ * RT-26 (round 2 of the fixes of the attack): also refuses a `\` in the name of a member of an object of a class, at
+ * any depth (every object but the map `tagColors`, whose keys are tags and may carry `\"`, `\\` or `\uXXXX` as
+ * kotlinx writes them). Clavero never writes an escape in a field's name, and the decoder reads names unescaped: so the
+ * pass only ever knows names the decoder reads the same (CWE-436), and the estimate is never below the tree.
  */
 internal fun checkCopyShape(json: ByteArray, version: Int, treeMax: Long = COPY_TREE_MAX_BYTES) {
     val shape = scanCopy(json, version, treeMax, COPY_LIST_MAX)
-    if (shape.longest > COPY_LIST_MAX || shape.estimate > treeMax) throw app.seguridad.crypto.CryptoFailure(COPY_DAMAGED)
+    if (shape.escapedName || shape.longest > COPY_LIST_MAX || shape.estimate > treeMax) {
+        throw app.seguridad.crypto.CryptoFailure(COPY_DAMAGED)
+    }
 }
 
 /** The estimate of [checkCopyShape], with no bound: for the tests and the calibration. */
@@ -344,6 +355,8 @@ private fun scanCopy(json: ByteArray, version: Int, treeLimit: Long, listLimit: 
     var lastStringFrom = -1
     var lastStringTo = -1
     var lastStringCost = 0L
+    var lastStringEscaped = false
+    var escapedName = false
     // What the next value of the root's member is: 1 entries, 2 tagColors, 0 anything else.
     var pending = 0
 
@@ -392,9 +405,13 @@ private fun scanCopy(json: ByteArray, version: Int, treeLimit: Long, listLimit: 
                 inLiteral = false
                 element()
                 val from = ++i
+                lastStringEscaped = false
                 while (i < n) {
                     val c = json[i].toInt()
-                    if (c == '\\'.code) i += 2 else if (c == '"'.code) break else i++
+                    if (c == '\\'.code) {
+                        lastStringEscaped = true
+                        i += 2
+                    } else if (c == '"'.code) break else i++
                 }
                 lastStringFrom = from
                 lastStringTo = minOf(i, n)
@@ -420,6 +437,8 @@ private fun scanCopy(json: ByteArray, version: Int, treeLimit: Long, listLimit: 
                         grow()
                     } else {
                         bytes -= lastStringCost // A member's name is a field: it costs nothing.
+                        // RT-26: a field's name with an escape is one the pass would not read as the decoder does.
+                        if (lastStringEscaped) escapedName = true
                         if (depth == 1) {
                             pending = when {
                                 bytesEqual(json, lastStringFrom, lastStringTo, "entries") -> 1
@@ -442,7 +461,7 @@ private fun scanCopy(json: ByteArray, version: Int, treeLimit: Long, listLimit: 
         if (bytes > treeLimit || longest > listLimit) break
         i++
     }
-    return CopyShape(bytes, longest)
+    return CopyShape(bytes, longest, escapedName)
 }
 
 /**

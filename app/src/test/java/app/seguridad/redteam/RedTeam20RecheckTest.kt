@@ -126,7 +126,6 @@ class RedTeam20RecheckTest {
      * The safe behaviour asserted: the estimate is never below the tree the decoder keeps, whatever the spelling of a
      * member's name (the fix: compare the unescaped name, or refuse an escape in a member name of the root).
      */
-    @Ignore("RT-26: abierto, ver redteam-recheck-1.md")
     @Test fun rt26_anEscapedMemberNameIsEstimatedAsTheDecoderReadsIt() {
         val json = buildString {
             append("{\"tag\\u0043olors\":{")

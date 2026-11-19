@@ -228,6 +228,44 @@ class RedTeam20CopyShapeTest {
         checkCopyShape(many.toByteArray(), 3)
     }
 
+    /**
+     * RT-26 (round 2 of the fixes of the attack): a `\\` in the name of a member of an object of a class is refused with
+     * [COPY_DAMAGED], at any depth and whatever the escape (`\\uXXXX`, `\\/`), before anything is decoded.
+     */
+    @Test fun anEscapeInTheNameOfAFieldIsRefusedAtAnyDepth() {
+        refused("root, \\u", "{\"tag\\u0043olors\":{\"a\":\"RED\"}}")
+        refused("root, \\/", "{\"entr\\/ies\":[]}")
+        refused("an entry's member", "{\"entries\":[{\"id\":\"e\",\"type\":\"NOTE\",\"ti\\u0074le\":\"t\",\"createdAt\":1,\"updatedAt\":1}]}")
+        refused(
+            "a field's member",
+            "{\"entries\":[{\"id\":\"e\",\"type\":\"NOTE\",\"title\":\"t\",\"createdAt\":1,\"updatedAt\":1," +
+                "\"fields\":[{\"na\\u006de\":\"n\",\"value\":\"v\"}]}]}",
+        )
+        refused("v3, an entry's member", "[{\"id\":\"e\",\"type\":\"NOTE\",\"title\":\"t\",\"created\\u0041t\":1,\"updatedAt\":1}]", version = 3)
+        // An escape in a value is not a name: it passes.
+        checkCopyShape("{\"entries\":[{\"id\":\"e\",\"type\":\"NOTE\",\"title\":\"t\\u0041\\\"\",\"createdAt\":1,\"updatedAt\":1}]}".toByteArray(), 4)
+    }
+
+    /**
+     * RT-26: the keys of `tagColors` are tags, and may carry `\\"`, `\\\\` or `\\uXXXX` as kotlinx writes them (and «é» as it
+     * is): a copy written by the app with them passes and imports, with its colours as they were.
+     */
+    @Test fun theKeysOfTheTagColoursMayCarryEscapes() = runBlocking {
+        val tags = listOf("a\"b", "é", "x\\y", "c\u0007")
+        val data = VaultData(
+            entries = listOf(VaultEntry("e", EntryType.NOTE, "Nota", createdAt = 1, updatedAt = 1, tags = tags)),
+            tagColors = tags.associateWith { app.seguridad.vault.TagColor.BLUE },
+            vaultTag = "b".repeat(32),
+        )
+        val json = appJson.encodeToString(VaultData.serializer(), data)
+        assertTrue(json, json.contains("\"a\\\"b\"") && json.contains("\\u0007") && json.contains("\"é\""))
+        checkCopyShape(json.toByteArray(), 4)
+        val copy = rt20Copy(rt20HostileFile(json).first)
+        val store = VaultStore(File(tmp.newFolder(), "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, kdf = { RT20_KDF }).apply { load() }
+        store.importReplace(ByteArrayInputStream(copy), RT20_MASTER.toCharArray())
+        assertEquals(tags.toSet(), (store.state.value as VaultState.Unlocked).data.tagColors.keys)
+    }
+
     /** A vault of its own (not a copy) with 20 000 tags in an entry still opens, with the master and with the key. */
     @Test fun aVaultOfItsOwnWithManyTagsStillOpens() = runBlocking {
         val dir = tmp.newFolder("propia")
