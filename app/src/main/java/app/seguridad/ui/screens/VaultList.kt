@@ -25,6 +25,7 @@ import app.seguridad.vault.CANCEL
 import app.seguridad.vault.CODE_COPIED
 import app.seguridad.vault.EMPTY_CREATE_FIRST
 import app.seguridad.vault.EMPTY_IMPORT
+import app.seguridad.vault.LIST_NO_MEMORY
 import app.seguridad.vault.MOVE_TO_TRASH
 import app.seguridad.vault.MOVE_TO_TRASH_TEXT
 import app.seguridad.vault.NEXT_CODE_COPIED
@@ -190,11 +191,37 @@ internal class ListResult(
     val tags: List<String>,
     /** 2.0, task 5: how many of them expire within 30 days or already have ([Expiry]). */
     val dueSoon: Int = 0,
+    /**
+     * RT-25, part a: working the list out ran out of memory: nothing of the vault is held here, and the list and «Códigos»
+     * show [LIST_NO_MEMORY] instead of the rows. The next change of the data, the search or the filter tries again.
+     */
+    val noMemory: Boolean = false,
 ) {
     companion object {
         val EMPTY = ListResult(null, emptyList(), emptyList(), emptyList(), 0, emptyMap(), emptyList())
+
+        /** RT-25, part a: what the list holds after running out of memory: nothing. */
+        val NO_MEMORY = ListResult(null, emptyList(), emptyList(), emptyList(), 0, emptyMap(), emptyList(), noMemory = true)
     }
 }
+
+/** What the list paints for a [ListResult] ([listShows]): nothing yet, the text of no memory, the empty list or the rows. */
+internal enum class ListShows { LOADING, OUT_OF_MEMORY, EMPTY, NO_MATCH, ROWS }
+
+/**
+ * RT-25, part a: what [EntryList] paints for [r]. Out of memory comes first: never «La bóveda está vacía», its actions
+ * («Importar copia»), the tools, «Todas (0)» nor the dropping of a tag filter that is gone; only [LIST_NO_MEMORY].
+ */
+internal fun listShows(r: ListResult): ListShows = when {
+    r.noMemory -> ListShows.OUT_OF_MEMORY
+    r.data == null -> ListShows.LOADING
+    r.shown.isNotEmpty() -> ListShows.ROWS
+    r.total == 0 -> ListShows.EMPTY
+    else -> ListShows.NO_MATCH
+}
+
+/** RT-25, part a: runs right before [EntryListViewModel] works the list out; only tests change it (an [OutOfMemoryError] made by hand). */
+@Volatile internal var beforeListCompute: () -> Unit = {}
 
 /**
  * What the vault list shows while the vault stays open: the search, the filter (types, quick filters, folder, the view
@@ -269,7 +296,18 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
                     _result.value = ListResult.EMPTY
                     return@collectLatest
                 }
-                val r = withContext(Dispatchers.Default) { compute(data, qf.first, qf.second) }
+                // RT-25, part a: everything worked out only because the vault opened (the index, «Salud»'s marks, the
+                // tags, the expiry count, the query) is in [compute]; running out of memory there never closes the app.
+                // What was half built goes with [cache], so the GC can take it back; the vault stays open.
+                val r = withContext(Dispatchers.Default) {
+                    try {
+                        beforeListCompute()
+                        compute(data, qf.first, qf.second)
+                    } catch (e: OutOfMemoryError) {
+                        cache = null
+                        ListResult.NO_MEMORY
+                    }
+                }
                 // A lock while it ran: nothing of the vault stays here.
                 if (store.state.value is VaultState.Unlocked) {
                     _result.value = r
@@ -341,6 +379,11 @@ internal fun EntryList(
     onMessage: (String) -> Unit,
 ) {
     val result by list.result.collectAsStateWithLifecycle()
+    // RT-25, part a: out of memory working the list out: the text instead of the rows (the list and «Códigos»).
+    if (listShows(result) == ListShows.OUT_OF_MEMORY) {
+        Text(LIST_NO_MEMORY, color = NegativeColor, modifier = Modifier.fillMaxSize().padding(24.dp))
+        return
+    }
     val data = result.data
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -576,10 +619,11 @@ internal fun EntryList(
             if (sections && result.shown.isNotEmpty()) {
                 item(key = "h-a") { Text(ALL_TITLE, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)) }
             }
-            if (result.shown.isEmpty() && data != null) {
+            val shows = listShows(result)
+            if (shows == ListShows.EMPTY || shows == ListShows.NO_MATCH) {
                 item(key = "empty") {
                     Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(if (result.total == 0) EMPTY_VAULT else NO_RESULTS, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (shows == ListShows.EMPTY) EMPTY_VAULT else NO_RESULTS, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (result.total > 0 && !list.unfiltered()) {
                             TextButton(onClick = { list.query = ""; list.filter = list.initialFilter().copy(sort = f.sort) }) { Text(CLEAR_FILTERS) }
                         }

@@ -159,6 +159,34 @@ class NoMemoryTest {
         assertArrayEquals(vaultBefore, File(c.registry.dirOf(active), "vault.bin").readBytes())
     }
 
+    /**
+     * Round 2, point 6 of the coordinator: «Importar como bóveda nueva» out of memory at each read of the copy (reading
+     * it and decoding its file, informative 3) undoes its new slot (AppContainer.newVault catches any Throwable and drops
+     * it), so «No se ha cambiado nada» stays true.
+     */
+    @Test fun anImportAsNewWithoutMemoryAtEachReadLeavesNoVault() = runTest {
+        val c = AppContainer(tmp.root, tmp.newFolder("cache"), appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(master.toCharArray(), name = "Uno")
+        c.vault.upsert(note("1"))
+        val copy = ByteArrayOutputStream().also { assertTrue(c.vault.exportBackup(it)) }.toByteArray()
+        val before = c.registry.vaults.value
+        val active = c.activeVaultId
+        val settingsBefore = File(tmp.root, SETTINGS_FILE).readBytes()
+        for (step in listOf(CopyReadStep.READ, CopyReadStep.DECODE_FILE)) {
+            failAt(step)
+            expect(COPY_NO_MEMORY) { c.importAsNewVault(ByteArrayInputStream(copy), master.toCharArray(), "") }
+            assertEquals("$step", before, c.registry.vaults.value)
+            assertEquals("$step", active, c.activeVaultId)
+            // The highest time seen (A11) is the wall clock's bookkeeping, saved by startClock whatever happens next: only
+            // it may move; nothing else of the settings changes (no vault, no copy target, no request).
+            val clock = Regex(""""clockHighWaterMs":\d+""")
+            assertEquals("$step", clock.replace(settingsBefore.decodeToString(), ""), clock.replace(File(tmp.root, SETTINGS_FILE).readText(), ""))
+            assertTrue("$step", c.vault.state.value is VaultState.Unlocked)
+        }
+    }
+
     @Test fun anUnlockWithTheMasterWithoutMemoryIsNeverAWrongPassword() = runTest {
         val dir = tmp.newFolder("m")
         val s = VaultStore(File(dir, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, kdf = { KdfParams(1024, 1, 1) })

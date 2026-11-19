@@ -135,7 +135,11 @@ class PlatformSourcesTest {
         assertTrue("a lock drops them", "store.state.collect { if (it !is VaultState.Unlocked) reset() }" in src)
         assertFalse("not only while the list is on screen", "list.reset()" in src)
         // The search and the filters run off the main thread, each run cancelling the one before; a lock drops the result.
-        assertTrue("withContext(Dispatchers.Default) { compute(data, qf.first, qf.second) }" in src && ".collectLatest {" in src)
+        // RT-25, part a (round 2 of the fixes of the attack): with running out of memory caught there, as NO_MEMORY.
+        assertTrue(
+            Regex("""withContext\(Dispatchers\.Default\) \{\s*try \{\s*beforeListCompute\(\)\s*compute\(data, qf\.first, qf\.second\)\s*\} catch \(e: OutOfMemoryError\) \{\s*cache = null\s*ListResult\.NO_MEMORY""").containsMatchIn(src) &&
+                ".collectLatest {" in src,
+        )
         // 2.0, review m-5 of task 6 (focus 4): the selection is pruned to what is shown after each result, and
         // «Seleccionar todo» takes what is shown, nothing else.
         assertTrue(Regex("""if \(store\.state\.value is VaultState\.Unlocked\) \{\s*_result\.value = r(?:\s*//[^\n]*)*\s*selection\.retainVisible\(r\.shown\)""").containsMatchIn(src))

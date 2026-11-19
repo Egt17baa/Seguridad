@@ -48,6 +48,16 @@ class ErrorTextsTest {
         for (t in listOf(COPY_NO_MEMORY, VAULT_NO_MEMORY)) assertEquals(t, emptyList<String>(), ForbiddenWords.problems(t))
     }
 
+    /** RT-25, part a: the text of the list out of memory, word for word (ruling of round 2 of the fixes of the attack). */
+    @Test fun theTextOfTheListOutOfMemory() {
+        assertEquals(
+            "Este móvil no tiene memoria suficiente para enseñar esta bóveda. La bóveda sigue guardada: cierra Clavero del todo, " +
+                "vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede enseñarla.",
+            LIST_NO_MEMORY,
+        )
+        assertEquals(emptyList<String>(), ForbiddenWords.problems(LIST_NO_MEMORY))
+    }
+
     @Test fun theFrozenOnesKeepTheirWords() {
         assertEquals("No es una bóveda compatible", NOT_A_VAULT)
         assertEquals("No se pudo hacer la copia automática.", AUTO_BACKUP_FAILED)

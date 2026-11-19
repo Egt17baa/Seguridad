@@ -289,6 +289,15 @@ const val VAULT_NO_MEMORY =
         "vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede abrirla."
 
 /**
+ * RT-25 (round 2 of the fixes of the attack), part a: the phone ran out of memory working out the list of the open vault
+ * (its search index, its tags, «Salud»'s marks): the list and «Códigos» show this instead of the rows, and the vault stays
+ * open (it can be locked, or exported from Ajustes). Word for word as the director's ruling says it.
+ */
+const val LIST_NO_MEMORY =
+    "Este móvil no tiene memoria suficiente para enseñar esta bóveda. La bóveda sigue guardada: cierra Clavero del todo, " +
+        "vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede enseñarla."
+
+/**
  * 2.0, task 10, phase C, ronda 1 (I-2): what the gate says when [VaultStore.unlock] fails with [e]. Said as it is, as
  * none of them is a forgotten password and «He olvidado la contraseña maestra» deletes the vault:
  * - [NOT_A_VAULT]: a file this version cannot open, before any key is tried;
