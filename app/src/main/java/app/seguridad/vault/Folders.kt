@@ -259,7 +259,8 @@ internal fun VaultData.withoutView(id: String): VaultData? = if (views.none { it
 /**
  * This vault with [tag] (read as [normalizeTags] stores it: lower case) of [color], or without a colour for null; null
  * when it already is. Past [VaultLimits.TAG_COLORS_MAX] tags with a colour, the colours of tags no entry has (in the
- * trash either) go first; if that is not enough, [TOO_MANY_TAG_COLORS].
+ * trash either; not the versions) go first; if that is not enough, [TOO_MANY_TAG_COLORS]. What it keeps to find them is
+ * bounded by the colours, never by the tags of the vault.
  */
 internal fun VaultData.withTagColor(tag: String, color: TagColor?): VaultData? {
     val t = normalizeTags(tag).singleOrNull() ?: throw OrganizeRefused(TAG_NOT_VALID)
@@ -267,7 +268,10 @@ internal fun VaultData.withTagColor(tag: String, color: TagColor?): VaultData? {
     if (color == null) return copy(tagColors = tagColors - t)
     var colors = tagColors
     if (t !in colors && colors.size >= VaultLimits.TAG_COLORS_MAX) {
-        val used = entries.flatMapTo(HashSet()) { it.tags }
+        // Round 2, point 9 (CWE-770, decision (a)): only the tags that have a colour, at most TAG_COLORS_MAX, never a set
+        // of every tag of the vault (a copy made by hand may bring very many). The same result (TagColorCapTest).
+        val used = HashSet<String>()
+        for (e in entries) for (tag in e.tags) if (tag in colors) used += tag
         colors = colors.filterKeys { it in used }
         if (colors.size >= VaultLimits.TAG_COLORS_MAX) throw VaultLimitExceeded(TOO_MANY_TAG_COLORS)
     }

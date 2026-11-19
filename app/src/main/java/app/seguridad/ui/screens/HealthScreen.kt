@@ -30,10 +30,8 @@ import androidx.compose.ui.unit.dp
 import app.seguridad.health.DAY_MS
 import app.seguridad.health.MISSION_GO
 import app.seguridad.health.MISSION_LATER
-import app.seguridad.health.Mission
 import app.seguridad.health.MissionAction
 import app.seguridad.health.MissionPostponements
-import app.seguridad.health.missions
 import app.seguridad.health.nextMission
 import app.seguridad.tools.HEALTH_NO_VAULT
 import androidx.compose.runtime.produceState
@@ -42,7 +40,9 @@ import kotlinx.coroutines.withContext
 import app.seguridad.health.HealthItem
 import app.seguridad.health.Issue
 import app.seguridad.health.uniquePasswords
-import app.seguridad.health.vaultHealth
+import app.seguridad.health.HealthView
+import app.seguridad.health.healthView
+import app.seguridad.vault.LIST_NO_MEMORY
 import app.seguridad.imports.plainReportText
 import app.seguridad.net.PwnedPasswords
 import app.seguridad.ui.theme.BackScaffold
@@ -129,13 +129,14 @@ fun HealthScreen(
         // entry's title: they live only here, and a lock takes this branch away, which cancels the work and drops them.
         // «Ahora no» per vault and until its next unlock.
         val day = System.currentTimeMillis() / DAY_MS
+        // Round 2 of the fixes of the attack, point 9: worked out in health/ (healthView), which catches running out of memory.
         val health by produceState<HealthView?>(null, data, breached, day, missionsOff) {
-            value = withContext(Dispatchers.Default) {
-                val now = System.currentTimeMillis()
-                val all = vaultHealth(data.live, now, breached)
-                val noLeaks = all.map { it.copy(issues = it.issues - Issue.BREACHED) }.filter { it.issues.isNotEmpty() }
-                HealthView(all, if (missionsOff) null else missions(noLeaks, data, now))
-            }
+            value = withContext(Dispatchers.Default) { healthView(data, System.currentTimeMillis(), breached, missionsOff) }
+        }
+        // Out of memory: the text instead of anything else (no mission, no count, never «Sin problemas detectados.»).
+        if (health?.noMemory == true) {
+            Text(LIST_NO_MEMORY, color = NegativeColor, modifier = Modifier.padding(padding).padding(16.dp))
+            return@BackScaffold
         }
         val epoch = store.lockEpoch
         var postponed by remember(epoch) { mutableStateOf(postponements?.postponed(store.id, epoch).orEmpty()) }
@@ -270,5 +271,4 @@ private fun HealthRow(item: HealthItem, title: String, onClick: () -> Unit) {
     }
 }
 
-/** Branch review, C m-1: one result of «Salud»: its [items] and, from them without the leak check, its [missions]. */
-private data class HealthView(val items: List<HealthItem>, val missions: List<Mission>?)
+

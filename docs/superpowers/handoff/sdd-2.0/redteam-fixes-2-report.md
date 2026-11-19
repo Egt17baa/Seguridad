@@ -231,3 +231,26 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
   | jvm-check `redteam.*` | 119 | 0 |
   | jvm-check `vault.*` y `AppContainer*` (con `VaultV4Test`, `SingleDecodeTest` y los de la huella de `VaultStoreTest` y `NoMemoryTest`, sin tocarlos) | 901 | 0 |
   | jvm-check `OpeningTest`, `LastVaultTest` y `PlatformSourcesTest` | 61 | 0 |
+
+### 9. «Organizar» y «Salud» (duda 2)
+- **«Organizar»:** `vault/Folders.kt` (`withTagColor`). `used` ya no guarda todas las etiquetas de la bóveda, solo las que ya tienen color, así que como mucho `TAG_COLORS_MAX`. La lógica no cambia: las entradas de la papelera cuentan y las versiones no.
+  - Test de equivalencia `vault/TagColorCapTest`, escrito primero, con el código anterior copiado como referencia. `Random(20261118L)`, 40 rondas con los 200 colores ocupados, entradas vivas, en la papelera y con versiones, y el caso `TOO_MANY_TAG_COLORS` (más el de las etiquetas que solo están en versiones).
+  - Pasa antes y después del cambio. No hay rojo, porque es un cambio sin otro efecto.
+- **«Salud»:**
+  - `health/HealthView.kt`, nuevo: `HealthView` sale de `HealthScreen.kt` con `noMemory` y `NO_MEMORY`. `healthView(data, now, breached, missionsOff)` captura `OutOfMemoryError`, y la costura es `beforeHealthCompute`.
+  - `HealthScreen.kt` la llama dentro de `withContext(Dispatchers.Default)`. Con `noMemory` pinta `LIST_NO_MEMORY` y vuelve antes de la misión, del `LazyColumn` y de «Sin problemas detectados.». La bóveda sigue abierta.
+  - El KDoc de `LIST_NO_MEMORY` (`Vault.kt`) añade «Salud». No hay texto nuevo.
+- **Tests:**
+  - `health/HealthViewTest`: con la costura, `NO_MEMORY` y nada lanzado; sin ella, el `WEAK` de «hola1» y las misiones.
+  - El ancla `HealthScreenTest.outOfMemoryShowsTheTextBeforeAnythingElse` (en la app): rama, texto, `return@BackScaffold`, y que todo va antes del `LazyColumn`, de `Text("Sin problemas detectados.")` y de la misión.
+  - Al día: `HealthScreenTest.vaultHealthRunsOnceOffTheMainThread` (ahora `healthView(`) y `MissionsTest.titlesLiveOnlyWithTheOpenVault` (el mismo cálculo, en `HealthView.kt`).
+- **Rojo** (la captura cambiada a `IllegalStateException`): `2 tests completed, 1 failed`, `java.lang.OutOfMemoryError`.
+- **Verde:**
+
+  | Ejecución | Tests | Fallos |
+  |---|---|---|
+  | jvm-check `health.*` | 33 | 0 |
+  | jvm-check `TagColorCapTest`, `FoldersTest`, `OrganizeStoreTest`, `ErrorTextsTest`, `PlatformSourcesTest`, `SourceTextsTest` | 0 fallos | |
+  | La app, `ui.screens.*` y `ui.redteam.*` | 31 | 0 |
+
+  En la app, el ancla nueva falló la primera vez porque encontraba «Sin problemas detectados.» en un comentario. Se corrigió buscando `Text("Sin problemas detectados.")`.
