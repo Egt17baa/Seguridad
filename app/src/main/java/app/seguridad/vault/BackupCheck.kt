@@ -17,8 +17,10 @@ import java.nio.file.Files
 
 /*
  * «Comprobar una copia» (Ajustes, 1.4.0): [checkBackup] tells whether a `seguridad-backup` copy would import, without
- * importing it. The rules on the entries ([checkCopyEntries]) and on each attachment ([attachmentInCopy]) are the ones
- * [VaultStore.importReplace] applies before it replaces anything: both call these functions, so they cannot drift apart.
+ * importing it. The checks of the data ([checkCopyData]: structure, size and entries, in that order) and of each
+ * attachment ([attachmentInCopy]) are the ones [VaultStore.importReplace] applies before it replaces anything, on the
+ * same data: the copy's data as they are imported ([VaultCrypto.readAsImported]: one of before 2.0 upgraded to v4 and
+ * fitted). Both call these functions, so they cannot drift apart (R5; round 2, point 8).
  */
 
 /** The folder of the app's cache where the checks read their copies, one subfolder per run ([checkBackup]). */
@@ -31,7 +33,8 @@ private const val RUN_PREFIX = "run-"
  * its entries list and how many of them are in the copy as their entry records them, and the [problems] found (texts of
  * BackupCheckTexts.kt, with counts only: never an entry's content, title or attachment name). No problems means the copy
  * passes every check of its contents the import makes: it is a readable `seguridad-backup` within the limits, its
- * master password opens its vault, its entries pass [checkCopyEntries] and every attachment passes [attachmentInCopy].
+ * master password opens its vault, its data as they are imported ([VaultCrypto.readAsImported]) pass [checkCopyData]
+ * (structure, size and entries, the import's order) and every attachment passes [attachmentInCopy].
  * What only the import does is not checked: wrapping the key again under the cost chosen on this phone when the copy's
  * is lower (A8, [VaultCrypto.afterMasterUnlock]: a second Argon2id, which can run out of memory with «Alto»), the state
  * of this phone's vault ([VaultStore.importReplace] needs it open, or none), saving the settings and the space to save.
@@ -43,8 +46,9 @@ data class BackupCheckReport(
     val attachmentsOk: Int,
     val problems: List<String>,
     /**
-     * 2.0, task 8: the copy's [VaultData.vaultTag], read from the very data checked above (decision (b): what was checked
-     * is what is recorded); empty for a copy made before 2.0, which has none.
+     * 2.0, task 8: the copy's [VaultData.vaultTag] as read from its data (decision (b): what was checked is what is
+     * recorded); never the one the upgrade to v4 makes for a copy of before 2.0 (round 2, point 8), which has none: so it
+     * is empty, and no date of a check is kept for it ([withBackupChecked]).
      */
     val vaultTag: String = "",
 )

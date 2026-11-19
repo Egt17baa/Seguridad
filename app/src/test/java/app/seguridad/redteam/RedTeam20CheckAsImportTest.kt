@@ -99,10 +99,13 @@ class RedTeam20CheckAsImportTest {
         }
     }
 
-    /** «Comprobar una copia»: "OK" or the message it refuses with. */
+    /**
+     * «Comprobar una copia»: "OK" only with no failure and no problem in its report (M-1 of the director), else the message
+     * it refuses with or its problems.
+     */
     private fun checked(copy: ByteArray, master: String): String = try {
-        runBlocking { checkBackup(ByteArrayInputStream(copy), master.toCharArray(), tmp.newFolder(), Dispatchers.Unconfined, Dispatchers.Unconfined) }
-        "OK"
+        val report = runBlocking { checkBackup(ByteArrayInputStream(copy), master.toCharArray(), tmp.newFolder(), Dispatchers.Unconfined, Dispatchers.Unconfined) }
+        if (report.problems.isEmpty()) "OK" else "problems: ${report.problems}"
     } catch (e: CryptoFailure) {
         e.message ?: "?"
     }
@@ -163,15 +166,50 @@ class RedTeam20CheckAsImportTest {
             // Holds vault-1.1.json byte for byte, with its attachment (README.txt of the resources).
             Triple("backup-1.1.sgbak (vault-1.1.json)", resource("backup-1.1.sgbak"), "maestra-de-prueba"),
             Triple("1.x with 50 tags and 5 old passwords", oneX(change = tagsAndOldPasswords(50, 5)), v143),
+            // M-3: 4 000 over 10 as stored and no old password to make versions of: within COPY_LIST_MAX, so both pass.
+            Triple("1.x, 4 000 over 10 and no old password", oneX(entries = 2, change = tagsAndOldPasswords(MAX_TAGS + 2_000, 0)), v143),
         )
         for ((name, copy, master) in copies) same(name, copy, master, "OK")
         val refused = listOf(
             "1.x, versions made by the upgrade" to oneX(entries = 2, change = tagsAndOldPasswords(MAX_TAGS + 2_000, 5)),
-            "1.x, 4 000 over 10 and no old password" to oneX(entries = 2, change = tagsAndOldPasswords(MAX_TAGS + 2_000, 0)),
         )
         for ((name, copy) in refused) {
             val i = imported(copy, v143)
             assertEquals("$name: «Comprobar» passes if and only if «Importar» does", i, checked(copy, v143))
+        }
+    }
+
+    /**
+     * M-1 of the director: vault-1.1.json on its own, as a copy without its attachment: «Importar» refuses it naming the
+     * attachment, and «Comprobar» does not pass it either: its report says the attachment is missing.
+     */
+    @Test fun aCopyWithoutItsAttachmentIsNeverOk() {
+        val copy = sgbak(resource("vault-1.1.json").decodeToString())
+        assertEquals(app.seguridad.vault.attachmentNotInCopy("hola.txt"), imported(copy, "maestra-de-prueba"))
+        val report = runBlocking { checkBackup(ByteArrayInputStream(copy), "maestra-de-prueba".toCharArray(), tmp.newFolder(), Dispatchers.Unconfined, Dispatchers.Unconfined) }
+        assertEquals(listOf(app.seguridad.vault.backupCheckMissing(1)), report.problems)
+        assertEquals("problems: ${listOf(app.seguridad.vault.backupCheckMissing(1))}", checked(copy, "maestra-de-prueba"))
+    }
+
+    /** M-2 of the director: a copy over the size with two identities: COPY_DAMAGED from both (the size before the entries). */
+    @Test fun aCopyOverTheSizeWithTwoIdentitiesGivesTheSameMessage() {
+        fun identity() = VaultEntry(UUID(rnd.nextLong(), rnd.nextLong()).toString(), EntryType.IDENTITY, "Yo", createdAt = 1, updatedAt = 1)
+        val big = VaultEntry(UUID(rnd.nextLong(), rnd.nextLong()).toString(), EntryType.NOTE, "Nota", notes = "n".repeat(VaultLimits.VAULT_MAX_DATA_BYTES + VaultLimits.COPY_DATA_MARGIN_BYTES), createdAt = 1, updatedAt = 1)
+        val data = VaultData(entries = listOf(identity(), identity(), big), vaultTag = "b".repeat(32))
+        val copy = rt20Copy(rt20HostileFile(appJson.encodeToString(VaultData.serializer(), data)).first)
+        same("over the size and two identities", copy, RT20_MASTER, COPY_DAMAGED)
+    }
+
+    /** M-4 of the director: «Comprobar una copia» decodes the copy's data once, for a v4, a v3 and one with no version. */
+    @Test fun checkingDecodesOnce() {
+        val v4 = rt20Copy(rt20HostileFile(appJson.encodeToString(VaultData.serializer(), VaultData(entries = listOf(VaultEntry("e", EntryType.NOTE, "Nota", createdAt = 1, updatedAt = 1)), vaultTag = "b".repeat(32)))).first)
+        val v3Text = resource("vault-1.4.3.json").decodeToString()
+        val unknown = v3Text.replace("\"version\":3,", "")
+        check(unknown != v3Text && VaultCrypto.decodeFile(unknown).version == VaultFile.VERSION_UNKNOWN)
+        for ((name, copy, master) in listOf(Triple("v4", v4, RT20_MASTER), Triple("v3", sgbak(v3Text), v143), Triple("no version", sgbak(unknown), v143))) {
+            VaultCrypto.decodes.set(0)
+            assertEquals(name, "OK", checked(copy, master))
+            assertEquals("$name: decoded once", 1, VaultCrypto.decodes.get())
         }
     }
 }

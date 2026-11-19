@@ -271,7 +271,7 @@ internal fun VaultData.withTagColor(tag: String, color: TagColor?): VaultData? {
         // Round 2, point 9 (CWE-770, decision (a)): only the tags that have a colour, at most TAG_COLORS_MAX, never a set
         // of every tag of the vault (a copy made by hand may bring very many). The same result (TagColorCapTest).
         val used = HashSet<String>()
-        for (e in entries) for (tag in e.tags) if (tag in colors) used += tag
+        for (e in entries) for (entryTag in e.tags) if (entryTag in colors) used += entryTag
         colors = colors.filterKeys { it in used }
         if (colors.size >= VaultLimits.TAG_COLORS_MAX) throw VaultLimitExceeded(TOO_MANY_TAG_COLORS)
     }

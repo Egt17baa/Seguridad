@@ -291,3 +291,38 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
 ### `pendientes.md`
 - Las filas 59 («Salud» y «Organizar») y 61 («Importar» frente a «Comprobar») pasan a «Hecho».
 - Las filas 58 y 62 añaden que las medidas son por ViewModel y que la lista y «Códigos» pueden tener dos a la vez.
+
+### Los menores del director al cerrar la ronda 2 (M-1 a M-8, `advisor-t12-redteam-fixes-2-cierre-ok.md`)
+- **M-1:** `checked()` (`RedTeam20CheckAsImportTest`) solo da «OK» si no hay excepción ni problemas. Test nuevo `aCopyWithoutItsAttachmentIsNeverOk`: con `vault-1.1.json` suelto, «Importar» da `attachmentNotInCopy("hola.txt")` y «Comprobar» da `problems == [backupCheckMissing(1)]`.
+- **M-2:** `aCopyOverTheSizeWithTwoIdentitiesGivesTheSameMessage`. Una v4 de más de 24 MiB + 4 KiB con dos identidades da `COPY_DAMAGED` en las dos.
+  - **Rojo** (orden de `checkCopyData` cambiado a entradas antes que tamaño): `«Importar copia» expected:<La copia [está dañada…]> but was:<La copia [tiene más de una identidad…]>`.
+- **M-3:** «4 000 over 10 and no old password» pasa a las copias que pasan las dos.
+- **M-4:** `checkingDecodesOnce`. `VaultCrypto.decodes == 1` alrededor de `checkBackup`, con una v4, una v3 (`vault-1.4.3.json`) y la misma sin `"version"` (`VERSION_UNKNOWN`).
+  - **Rojo** (una lectura más en `checkBackup`): `v4: decoded once expected:<1> but was:<2>`.
+- **M-5:** el test de fuente se endurece.
+  - `code()` borra los comentarios (también los del final de línea y los `/* */` anidados) y el contenido de las cadenas y de los caracteres, sin tocar el código de las plantillas `${…}`. Mantiene la longitud y los saltos de línea.
+  - Las llamadas admiten comillas invertidas y espacios antes de `(`; `!guard()` admite espacios.
+  - Cuenta también `.provides(` como proveedor.
+  - **Rojos**, uno a uno, sin commit y deshechos después:
+    1. ``store.`create`(pw)``: `ui/screens/TmpGuardBypass.kt calls the store's create (only VaultScreen.kt and VaultBackup.kt may)`;
+    2. `store.create (pw)`: lo mismo;
+    3. `LocalEmptySlotGuard.provides({ true })`: `expected:<1> but was:<2>`;
+    4. `if (false) { // !guard()` en `VaultScreen.kt`: `ui/screens/VaultScreen.kt: create without !guard() before it in the same function`;
+    5. `val note = "!guard()"` en `VaultScreen.kt`: lo mismo.
+- **M-6:** `for (entryTag in e.tags)` en `Folders.kt`, para no tapar el parámetro `tag`. Solo el nombre.
+- **M-7:** los KDoc de `BackupCheck.kt` (el de la cabecera, el de `BackupCheckReport` y su `vaultTag`). Dicen que las comprobaciones son las de `checkCopyData` sobre los datos como se importan (`readAsImported`) y que la etiqueta es la leída, nunca la de la subida. Solo los KDoc.
+- **M-8:** `pendientes.md`. El punto que faltaba en las filas 58 y 62; la fila 61 cita el test quitado e invertido en `RedTeam20CheckAsImportTest`; y la fila 63 nueva («Importar como bóveda nueva» frente a «Comprobar», informativo, con la decisión y lo que se haría si el atacante encuentra más).
+- **Verde:**
+
+  | Ejecución | Tests | Fallos |
+  |---|---|---|
+  | jvm-check: `RedTeam20CheckAsImportTest` (8), `TagColorCapTest`, `FoldersTest`, `EmptySlotGuardSourceTest` y `PlatformSourcesTest` | 72 | 0 |
+  | jvm-check: `redteam.*` | 122 | 0 |
+
+- **Revisión experto-seguridad-cripto:**
+  - R5 y la decisión (b): M-1, M-2 y M-4 cierran huecos de cobertura del diferencial. «Comprobar» con problemas ya no cuenta como «OK», el orden tamaño → entradas queda fijado, y la decodificación es única en las tres versiones (`BackupCheck.kt:99`, `:200-204`).
+  - CWE-284: el test de fuente ya no se salta con comillas invertidas, espacios, `.provides(` ni un `!guard()` en un comentario o en una cadena (`EmptySlotGuardSourceTest.kt`, `blank`, `call`, `named`, `refusing`, `providing`). Sigue siendo textual: un alias o un envoltorio fuera de `ui/` es el ataque 3 de la re-comprobación 2.
+  - Sin primitivas, formatos, dependencias, permisos ni hosts nuevos. En `app/src/main` solo cambian un nombre (`Folders.kt:274`) y unos KDoc (`BackupCheck.kt`).
+- **Revisión Ingeniero Móvil Senior:**
+  - M-6 quita un *shadowing* que confundía al leer `withTagColor`, sin cambiar lo que hace (`TagColorCapTest` y `FoldersTest` en verde).
+  - Los tests nuevos no tocan `ui/` y cada uno tarda menos de 4 s. El de más de 24 MiB tarda 3,1 s porque codifica y decodifica 25 MB.
