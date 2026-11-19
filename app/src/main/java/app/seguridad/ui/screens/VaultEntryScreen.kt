@@ -148,6 +148,8 @@ internal fun Field(
     secret: Boolean = false,
     mono: Boolean = false,
     plain: Boolean = false,
+    /** Informative 2 of round 2: the name of a wifi network, shown with its marks ([fieldShownText]); copied as it is. */
+    marked: Boolean = false,
     onCopied: () -> Unit = {},
     onBig: (() -> Unit)? = null,
 ) {
@@ -158,7 +160,7 @@ internal fun Field(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // No text selection: the system "Copy" would skip the sensitive flag and the timed clearing.
-            Text(if (shown) (if (plain) plainReportText(value, value.length) else value) else "•".repeat(minOf(value.length, 16)), fontFamily = if (mono || secret) FontFamily.Monospace else FontFamily.Default)
+            Text(if (shown) fieldShownText(value, plain, marked) else "•".repeat(minOf(value.length, 16)), fontFamily = if (mono || secret) FontFamily.Monospace else FontFamily.Default)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // A hidden field copies as the password does (sensitive, cleared after the time of Ajustes, the A14
                 // notice on Android 8 to 12); what follows the copy waits until it is really in the clipboard.

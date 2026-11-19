@@ -776,7 +776,8 @@ class PlatformSourcesTest {
                 "Field(\"Usuario\", entry.username, plain = true,",
                 "Field(\"Web\", entry.url, plain = true,",
                 "folderCrumb(path.map { plainReportText(it.name) })",
-                "if (plain) plainReportText(value, value.length) else value",
+                // Round 2, informative 2: through fieldShownText (EntryFields.kt), which marks only a wifi's name.
+                "Text(if (shown) fieldShownText(value, plain, marked) else",
                 "entry.tags.map { \"#\${plainReportText(it)}\" }",
                 "Text(moveToTrashTitle(plainReportText(entry.title)))",
                 "\${plainReportText(entries.single().title)}",
@@ -798,6 +799,7 @@ class PlatformSourcesTest {
             ),
             // 2.0, task 5: the names of the fields (a copy brings any), the expiry line and the duplicate's title.
             "ui/screens/EntryFields.kt" to listOf(
+                "plain -> plainReportText(value, value.length)",
                 "Field(plainReportText(f.name, 100), shownValue(entry.type, f)",
                 "val name = plainReportText(f.name, 100)",
                 "expiryLine(item.copy(what = plainReportText(item.what, 100)), today)",

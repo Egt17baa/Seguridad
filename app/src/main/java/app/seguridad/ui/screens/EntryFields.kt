@@ -42,6 +42,7 @@ import app.seguridad.android.copySensitive
 import app.seguridad.crypto.PasswordOptions
 import app.seguridad.crypto.generatePassword
 import app.seguridad.imports.plainReportText
+import app.seguridad.tools.qr.visibleText
 import app.seguridad.ui.theme.CautionColor
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PositiveColor
@@ -66,6 +67,7 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.WIFI_HIDDEN_KEY
 import app.seguridad.vault.WIFI_SECURITY_KEY
 import app.seguridad.vault.WIFI_SECURITY_VALUES
+import app.seguridad.vault.WIFI_SSID_KEY
 import app.seguridad.vault.WIFI_WPA3_NOTE
 import app.seguridad.vault.displayDate
 import app.seguridad.vault.displayMonthYear
@@ -124,7 +126,25 @@ private fun kindLabel(kind: FieldKind) = when (kind) {
  * How the card shows the stored [field] of an entry of [type]: a date as DD/MM/AAAA (the card's expiry as MM/AA, as it is
  * asked, review M-3), the wifi's choices in words.
  */
-private fun shownValue(type: EntryType, field: CustomField): String = when {
+/**
+ * Round 2 of the fixes of the attack, informative 2 (re-check 1 of RT-24): whether the field [key] of an entry of [type]
+ * is the name of a wifi network, which the card shows with its marks ([fieldShownText], [visibleText]), as the screen of
+ * its QR does: two «Casa» that join different networks never look the same.
+ */
+internal fun isWifiName(type: EntryType, key: String): Boolean = type == EntryType.WIFI && key == WIFI_SSID_KEY
+
+/**
+ * What a row of the card shows of [value] (never what it copies: «Copiar» copies [value] as it is). [marked] (the name of
+ * a wifi network, [isWifiName]): every character that cannot be seen as a mark «⟨U+XXXX⟩» ([visibleText]); [plain]: the
+ * controls, direction marks and invisibles taken out ([plainReportText], R9 and R10); otherwise as it is.
+ */
+internal fun fieldShownText(value: String, plain: Boolean, marked: Boolean): String = when {
+    marked -> visibleText(value)
+    plain -> plainReportText(value, value.length)
+    else -> value
+}
+
+internal fun shownValue(type: EntryType, field: CustomField): String = when {
     type == EntryType.WIFI && field.id == WIFI_SECURITY_KEY -> wifiSecurityLabel(field.value)
     type == EntryType.WIFI && field.id == WIFI_HIDDEN_KEY -> wifiHiddenLabel(field.value)
     field.kind == FieldKind.DATE && Templates.templateField(type, field.id)?.monthYear == true -> displayMonthYear(field.value)
@@ -151,7 +171,10 @@ internal fun EntryFieldsCard(entry: VaultEntry, onCopied: () -> Unit, onBig: ((S
         if (entry.type == EntryType.WIFI && t.key == WIFI_HIDDEN_KEY && f.value != "true") continue
         // Review I-3: each row under its own key, so a «Mostrar» stays with its field when the entry changes.
         key("t", t.key) {
-            Field(t.label, shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = t.secret, plain = true, onCopied = onCopied, onBig = big(f))
+            Field(
+                t.label, shownValue(entry.type, f), secret = isSecretField(entry.type, f), mono = t.secret, plain = true,
+                marked = isWifiName(entry.type, t.key), onCopied = onCopied, onBig = big(f),
+            )
         }
     }
     entry.fields.forEachIndexed { i, f ->
