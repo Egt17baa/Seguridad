@@ -101,7 +101,14 @@ private fun String.codePointLength(): Int = codePointCount(0, length)
 
 /**
  * The history of this entry within [VaultLimits.HISTORY_MAX_VERSIONS] and [VaultLimits.HISTORY_MAX_BYTES]: the oldest
- * versions (by [EntryVersion.savedAt]) go first; the order of the rest does not change. The same object when it fits.
+ * versions (by [EntryVersion.savedAt], the first of equals first) go first; the order of the rest does not change. The
+ * same object when it fits.
+ *
+ * Round 3 of the fixes of the attack, RT-29: each version is measured once ([versionSerializer]), and the size of the
+ * list is worked out from them as kotlinx writes it, `[` + the versions with a comma between each + `]` (2 + Σ + k − 1
+ * for k versions); dropping one takes its size and a comma off. Linear in the versions, instead of measuring the whole
+ * history again after each one dropped (up to 210 encodings of an entry's notes, with the 20 versions an upgrade makes).
+ * The same versions as before, case by case (FittedHistoryTest).
  */
 internal fun VaultEntry.fittedHistory(): VaultEntry {
     if (history.isEmpty()) return this
@@ -110,12 +117,22 @@ internal fun VaultEntry.fittedHistory(): VaultEntry {
         val doomed = kept.withIndex().sortedBy { it.value.savedAt }.take(kept.size - VaultLimits.HISTORY_MAX_VERSIONS).mapTo(HashSet()) { it.index }
         kept = kept.filterIndexed { i, _ -> i !in doomed }
     }
-    while (kept.isNotEmpty() && jsonBytes(historySerializer, kept) > VaultLimits.HISTORY_MAX_BYTES) {
-        val oldest = kept.indices.minBy { kept[it].savedAt }
-        kept = kept.filterIndexed { i, _ -> i != oldest }
+    val sizes = kept.map { jsonBytes(versionSerializer, it) }
+    val alive = BooleanArray(kept.size) { true }
+    var count = kept.size
+    var total = 2 + sizes.sum() + (count - 1)
+    while (count > 0 && total > VaultLimits.HISTORY_MAX_BYTES) {
+        var oldest = -1
+        for (i in kept.indices) if (alive[i] && (oldest < 0 || kept[i].savedAt < kept[oldest].savedAt)) oldest = i
+        alive[oldest] = false
+        total -= sizes[oldest] + if (count > 1) 1 else 0
+        count--
     }
+    if (count < kept.size) kept = kept.filterIndexed { i, _ -> alive[i] }
     return if (kept.size == history.size) this else copy(history = kept)
 }
+
+private val versionSerializer = EntryVersion.serializer()
 
 /** [fitted], with the size of what it returns. */
 private fun VaultData.fittedWithSize(): Pair<VaultData, Long> {

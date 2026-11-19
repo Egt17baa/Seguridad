@@ -238,7 +238,6 @@ class RedTeam20Recheck2Test {
      * The safe behaviour asserted: reading it as it is imported costs at most 5 times what the same copy without its old
      * passwords costs (measuring each version once would make it about 20 encodings per entry). Today it is 10 to 14.
      */
-    @Ignore("RT-29: the upgrade of a copy of 1.x with big notes and old passwords costs 10 to 14 times its read, and cannot be cancelled")
     @Test fun rt29_theUpgradeOfACopyOf1xCostsAboutWhatReadingItDoes() {
         val (_, dek) = base
         val notes = 256 * 1024

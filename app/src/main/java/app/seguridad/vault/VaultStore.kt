@@ -1468,6 +1468,12 @@ class VaultStore(
      * other [importReplace] does. With [newTag] (2.0, «Importar como bóveda nueva»), the vault gets a new
      * [VaultData.vaultTag] instead of the copy's. A screen only calls it on an empty slot after
      * AppContainer.mayFillEmptySlot (RT-22 (ii), through `LocalEmptySlotGuard`; EmptySlotGuardSourceTest).
+     *
+     * Round 3, named risk «la lectura de una copia no se corta a medias» (RT-29, accepted by the director): reading the
+     * copy (decrypting, decoding, bringing to v4, fitting, checking) runs to its end once started, inside
+     * `KdfLock.derive` and the mutex, so a derivation asked for meanwhile waits for it. Bounded by the copy (33 MiB a
+     * file, COPY_TREE_MAX_BYTES, 24 MiB + 4 KiB of data) and, with the linear `fittedHistory`, measured at about twice
+     * the read of the same copy without old passwords (RedTeam20Recheck2Test.rt29_).
      */
     suspend fun importReplace(input: InputStream, master: CharArray, newTag: Boolean = false): Boolean {
         checkCanReplace()

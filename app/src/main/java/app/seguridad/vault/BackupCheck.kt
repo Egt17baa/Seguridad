@@ -68,7 +68,12 @@ data class BackupCheckReport(
  * ([KdfLock], ruling R38: with the vault's own derivations and those of «Importar de otra app»), so a check stopped
  * during its derivation still holds the lock until it ends and the next derivation waits
  * (BackupCheckTest.afterCancelTheNextDerivationWaits, aCancelledCheckMakesTheUnlockWait); the copy's data key it gives
- * is always zeroed, also when the check was cancelled meanwhile.
+ * is always zeroed, also when the check was cancelled meanwhile. *
+ * Round 3 of the fixes of the attack, named risk «la lectura de una copia no se corta a medias» (accepted by the director,
+ * advisor-t12-redteam-fixes-3.md, RT-29): decrypting, decoding, bringing to v4, fitting and checking the copy's data run
+ * to their end once started (one `decodeFromString`; a cancellation is thrown as the block returns, so no late result is
+ * ever delivered). Bounded by the copy (33 MiB a file, COPY_TREE_MAX_BYTES, 24 MiB + 4 KiB of data) and, since
+ * `fittedHistory` is linear, measured at about twice the read of the same copy without old passwords (RedTeam20Recheck2Test.rt29_).
  */
 suspend fun checkBackup(
     input: InputStream,
