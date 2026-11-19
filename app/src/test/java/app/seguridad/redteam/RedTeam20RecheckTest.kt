@@ -8,13 +8,15 @@ import app.seguridad.vault.SearchIndex
 import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
+import app.seguridad.vault.checkCopyEntries
 import app.seguridad.vault.checkCopyShape
+import app.seguridad.vault.checkCopySize
+import app.seguridad.vault.checkCopyStructure
 import app.seguridad.vault.copyTreeEstimate
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -89,12 +91,18 @@ class RedTeam20RecheckTest {
      * budget bounds), or it is refused. Measured on a 2.4 MB sample (60 entries of 5 000 tags), far from the heap of the
      * tests; what scales to the budget is the ratio.
      */
-    @Ignore("RT-25: abierto, ver redteam-recheck-1.md")
     @Test fun rt25_aCopyThatPassesTheBudgetCanAlsoBeListed() {
         val json = distinctTags(60, 5_000)
         val bytes = json.toByteArray()
+        // Round 2 of the fixes (ruling of the director): «accepted» is passing every check of the import, not only
+        // checkCopyShape: the shape, decoding, checkCopyEntries (with RT-25 part b, the tags over MAX_TAGS), the structure
+        // and the size, in the order «Importar copia» runs them (VaultStore.replace, BackupCheck.checkBackup).
         val refused = try {
             checkCopyShape(bytes, 4)
+            val data = appJson.decodeFromString(VaultData.serializer(), json)
+            checkCopyStructure(data)
+            checkCopySize(data)
+            checkCopyEntries(data.entries)
             false
         } catch (e: CryptoFailure) {
             true

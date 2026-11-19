@@ -195,6 +195,38 @@ internal const val COPY_DAMAGED = "La copia está dañada: no se puede importar.
 internal fun attachmentNotInCopy(name: String) = "La copia está incompleta o dañada: falta o no coincide el adjunto «$name»"
 
 /**
+ * RT-25, part b (ruling of round 2 of the fixes of the attack, as the director corrected it): the tags a copy has over
+ * what the screens keep, summed over every entry (the trash's too) and every version of their history: for each,
+ * `max(0, tags.size − MAX_TAGS)`. [checkCopyEntries] refuses a copy with more than [COPY_LIST_MAX] of them as
+ * [COPY_DAMAGED], so the tags a copy can bring past the ones each entry or version may hold are at most [COPY_LIST_MAX]
+ * in all, whatever its size: what showing them costs (the list's search index and its chips, RT-25) is bounded by a
+ * constant, not by the copy.
+ *
+ * Why an excess, and not a cap that grows with the entries and versions (`MAX_TAGS × (entries + versions)`, the first
+ * ruling): versions and entries of the trash could raise such a cap, and both go after the import (the history is cut to
+ * [VaultLimits.HISTORY_MAX_VERSIONS] at each save, VaultLimits.kt `fittedHistory`; the trash is emptied after 30 days,
+ * Trash.kt): the vault would then hold more than its own copies may, and they would be refused without a word. Here each
+ * entry and version only ever adds to the sum, never to the allowance.
+ *
+ * - The screens never write more than [MAX_TAGS] to an entry or a version (EntryQuery.kt `normalizeTags`, Selection.kt,
+ *   MergePlan.kt), so a vault made with them sums 0, at any size.
+ * - A copy of 1.x with a few dozen tags written by hand in some entries passes: only what is over 10 counts.
+ * - The accepted cost: a copy made by hand with more than 10 000 tags over 10 in its entries is refused, also when it is
+ *   the copy of a vault of one's own that opens (the vault's own file has no such bound, RT-21 ruling).
+ *
+ * One pass, no set: it stops as soon as the sum passes [stopAbove] (the tests count it all).
+ */
+internal fun copyExtraTags(entries: List<VaultEntry>, stopAbove: Long = COPY_LIST_MAX.toLong()): Long {
+    var extra = 0L
+    for (e in entries) {
+        extra += maxOf(0, e.tags.size - MAX_TAGS)
+        for (v in e.history) extra += maxOf(0, v.entry.tags.size - MAX_TAGS)
+        if (extra > stopAbove) return extra
+    }
+    return extra
+}
+
+/**
  * What [VaultStore.upsert] and [VaultStore.addAttachment] keep for entries added here holds for a copy too, or it is
  * refused (by the import, before anything changes; by [checkBackup], with the same message): only one identity alive, no two
  * entries with the same id, no attachments or password history in an identity or a contact, the fields within their
@@ -204,6 +236,8 @@ internal fun attachmentNotInCopy(name: String) = "La copia está incompleta o da
  * [MAX_ATTACHMENTS_TOTAL_BYTES] in all.
  */
 internal fun checkCopyEntries(entries: List<VaultEntry>) {
+    // RT-25, part b: the tags over what the screens keep, before anything is built from them (the list's index, its chips).
+    if (copyExtraTags(entries) > COPY_LIST_MAX) throw CryptoFailure(COPY_DAMAGED)
     // Branch review, D-1: only the identities alive count, as for [VaultStore.upsert]; one in the trash (a copy brings it
     // back) and another made after is a vault the app saves, so its own copy must pass.
     if (entries.count { it.type == EntryType.IDENTITY && it.deletedAt == null } > 1) throw CryptoFailure(SEVERAL_IDENTITIES)
