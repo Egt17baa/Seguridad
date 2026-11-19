@@ -115,8 +115,9 @@ fun HealthScreen(
             if (state is VaultState.NoVault) {
                 // RT-22 (ii): while another vault of the phone has its file, the empty one is not one to create in.
                 val guard = LocalEmptySlotGuard.current
-                val mayFill by produceState(true, store) { value = guard() }
-                Text(if (mayFill) HEALTH_NO_VAULT else HEALTH_EMPTY_VAULT, Modifier.padding(padding).padding(16.dp))
+                // Round 2, point 10: nothing until it is known (no «Aún no tienes bóveda» flashing while another vault has its file).
+                val mayFill by produceState<Boolean?>(null, store) { value = guard() }
+                mayFill?.let { Text(if (it) HEALTH_NO_VAULT else HEALTH_EMPTY_VAULT, Modifier.padding(padding).padding(16.dp)) }
             } else {
                 VaultGate(store, onImport = {}, modifier = Modifier.padding(padding)) { }
             }

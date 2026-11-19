@@ -24,13 +24,26 @@ class EmptySlotGuardSourceTest {
     }
 
     private val call = Regex("""\.(create|importReplace)\(""")
-    private val topFun = Regex("""(?m)^(?:private |internal )?fun """)
+    /**
+     * The start of a function at the top of a file (column 0), whatever its visibility, its modifiers (`suspend`,
+     * `inline`…) and its annotations on the same line (round 2, point 10 (d)).
+     */
+    private val topFun = Regex("""(?m)^(?:@[\w.]+(?:\([^)\n]*\))?\s+)*(?:(?:public|private|internal|protected|suspend|inline|tailrec|operator|infix|override)\s+)*fun\s""")
+
+    /** A call to the store's create or importReplace with no dot before (inside `with(store)`, an extension…) (c). */
+    private val bareCall = Regex("""(?<![.\w])(create|importReplace)\(""")
+
+    /** A reference to either (c). */
+    private val reference = Regex("""::(create|importReplace)\b""")
+
+    private fun uiFiles() = ui.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+    private fun nameOf(f: File) = "ui/" + f.relativeTo(ui).invariantSeparatorsPath
 
     @Test fun onlyTheTwoScreensCallTheStoreOnASlotAndEachAsksTheGuardFirst() {
         val allowed = setOf("ui/screens/VaultScreen.kt", "ui/screens/VaultBackup.kt")
         var found = 0
-        ui.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
-            val name = "ui/" + f.relativeTo(ui).invariantSeparatorsPath
+        uiFiles().forEach { f ->
+            val name = nameOf(f)
             val src = code(f)
             for (m in call.findAll(src)) {
                 found++
@@ -56,5 +69,34 @@ class EmptySlotGuardSourceTest {
         // Nowhere else is it provided (a second provider could open it).
         val providers = ui.walkTopDown().filter { it.isFile && it.extension == "kt" }.sumOf { Regex("""LocalEmptySlotGuard provides""").findAll(code(it)).count() }
         assertEquals(1, providers)
+    }
+
+    /**
+     * Round 2 of the fixes of the attack, point 10 (the director's closure, duda 1): (a) the files that read the guard are
+     * exactly VaultScreen.kt, VaultBackup.kt and HealthScreen.kt; (b) the two that only pick what to show from it start
+     * with nothing (`produceState<Boolean?>(null, store) { value = guard() }`), so nothing false shows while the disk is
+     * read; (c) nowhere in ui/ is the store's create or importReplace called with no dot before it, or referred to.
+     */
+    @Test fun theGuardIsReadOnlyByTheThreeScreensAndNoCallHides() {
+        val readers = uiFiles().filter { "LocalEmptySlotGuard.current" in code(it) }.map(::nameOf).toSet()
+        assertEquals(setOf("ui/screens/VaultScreen.kt", "ui/screens/VaultBackup.kt", "ui/screens/HealthScreen.kt"), readers)
+        for (name in listOf("screens/HealthScreen.kt", "screens/VaultScreen.kt")) {
+            val src = code(File(ui, name))
+            assertEquals(name, 1, Regex("""produceState<Boolean\?>\(null, store\) \{ value = guard\(\) \}""").findAll(src).count())
+            assertTrue(name, Regex("""produceState\((true|false)""").findAll(src).none { src.indexOf("guard()", it.range.first) in it.range.first..it.range.first + 80 })
+        }
+        for (f in uiFiles()) {
+            val src = code(f)
+            assertEquals("${nameOf(f)}: a call of the store with no dot before it", emptyList<String>(), bareCall.findAll(src).map { it.value }.toList())
+            assertEquals("${nameOf(f)}: a reference to the store's create or importReplace", emptyList<String>(), reference.findAll(src).map { it.value }.toList())
+        }
+    }
+
+    /** (d) The start of a function is known whatever its modifiers and annotations. */
+    @Test fun theStartOfAFunctionIsKnownWithItsModifiers() {
+        for (line in listOf("fun a(", "private fun a(", "internal suspend fun a(", "public inline fun a(", "@Composable fun a(", "@Composable private fun a(", "@OptIn(X::class) internal suspend fun a(")) {
+            assertTrue(line, topFun.containsMatchIn(line))
+        }
+        assertTrue("not a call", !topFun.containsMatchIn("    val x = fun2()"))
     }
 }

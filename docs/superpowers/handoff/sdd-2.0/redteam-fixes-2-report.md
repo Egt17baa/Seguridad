@@ -254,3 +254,40 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
   | La app, `ui.screens.*` y `ui.redteam.*` | 31 | 0 |
 
   En la app, el ancla nueva falló la primera vez porque encontraba «Sin problemas detectados.» en un comentario. Se corrigió buscando `Text("Sin problemas detectados.")`.
+
+### 10. El guardián en «Salud» y el test de fuente (duda 1)
+- `ui/screens/HealthScreen.kt`: `produceState<Boolean?>(null, store) { value = guard() }`, y mientras es `null` no se pinta nada, así que «Aún no tienes bóveda» ya no parpadea.
+- `EmptySlotGuardSourceTest` se endurece:
+  - (a) los archivos que leen `LocalEmptySlotGuard.current` son exactamente `VaultScreen.kt`, `VaultBackup.kt` y `HealthScreen.kt`;
+  - (b) `HealthScreen.kt` y `VaultScreen.kt` tienen una sola vez `produceState<Boolean?>(null, store) { value = guard() }`, y ningún `produceState(true|false` con `guard()`;
+  - (c) en `ui/` no hay ningún `create(` ni `importReplace(` sin punto delante (`(?<![.\w])`), ni ningún `::create` ni `::importReplace`;
+  - (d) `topFun` reconoce cualquier visibilidad, `suspend`, `inline` y otros modificadores, y las anotaciones en la misma línea, con su propio test.
+- **Rojos** (sin commit, uno a uno, deshechos después):
+  1. `HealthScreen.kt` vuelve a `produceState(true, store)`: `AssertionError: screens/HealthScreen.kt expected:<1> but was:<0>`.
+  2. Un archivo temporal `ui/screens/TmpGuardBypass.kt` con `with(store) { create(pw) }`: `AssertionError: ui/screens/TmpGuardBypass.kt: a call of the store with no dot before it expected:<[]> but was:<[create(]>`.
+  3. El mismo archivo con `store::importReplace`: `AssertionError: ui/screens/TmpGuardBypass.kt: a reference to the store's create or importReplace expected:<[]> but was:<[::importReplace]>`.
+- **Verde:** `EmptySlotGuardSourceTest`, 4 tests y 0 fallos.
+
+### Tabla de los puntos 8 a 10
+| Punto | Rojo | Verde | Tests |
+|---|---|---|---|
+| 8, «Comprobar» igual que «Importar» (R5) | 4 de 5 fallaban: «Comprobar» decía `OK` donde «Importar» decía `COPY_DAMAGED` (versiones creadas por la subida, más de 24 MiB tras `fitted`), y con dos defectos daba «más de una identidad» frente a `COPY_DAMAGED` | `6ede139` | `RedTeam20CheckAsImportTest` (5, con el diferencial); el antiguo `aCopyOfBefore20CountsItsUpgradedVersionsOnlyWhenImported`, invertido |
+| 9, «Organizar» | Sin rojo: cambio de equivalencia; el test se escribió primero y pasa antes y después | `ae9028a` | `TagColorCapTest` (2) |
+| 9, «Salud» | Con la captura cambiada a `IllegalStateException`: `java.lang.OutOfMemoryError` | `ae9028a` | `HealthViewTest` (2), `HealthScreenTest.outOfMemoryShowsTheTextBeforeAnythingElse`; al día, `HealthScreenTest` y `MissionsTest` |
+| 10, guardián y test de fuente | Los tres rojos de arriba | el commit «el guardián en «Salud» y el test de fuente endurecido (punto 10)» | `EmptySlotGuardSourceTest` (4) |
+
+### Ejecuciones del cierre corto (con `flock`, una a una)
+| Ejecución | Tests | Fallos |
+|---|---|---|
+| jvm-check: `BackupCheckTest`, `BackupTest`, `BackupV3Test`, `VaultV4Test`, `VaultStoreTest`, `NoMemoryTest` y `EmptySlotGuardSourceTest` | 163 | 0 |
+| jvm-check: `redteam.*` | 119 | 0 |
+| La app: `EntryListNoMemoryTest`, `SelectionTest`, `EntryFieldsTest`, `EntryRowTest`, `HealthScreenTest`, `health.*` y `ui.redteam.*`; después `--stop` | 55 | 0 |
+| Antes, en el punto 8: jvm-check `vault.*` y `AppContainer*` | 901 | 0 |
+
+### Textos para el Abogado Digital: lo que añade el cierre corto
+- `LIST_NO_MEMORY` también en «Salud», en lugar de la misión y los recuentos. Es el mismo texto: «enseñar esta bóveda» es verdad también ahí. El director avisa de que el Abogado puede pedir un texto propio para «Salud».
+- En «Salud», mientras se lee el disco, ya no se ve «Aún no tienes bóveda» (`HEALTH_NO_VAULT`). No hay texto nuevo.
+
+### `pendientes.md`
+- Las filas 59 («Salud» y «Organizar») y 61 («Importar» frente a «Comprobar») pasan a «Hecho».
+- Las filas 58 y 62 añaden que las medidas son por ViewModel y que la lista y «Códigos» pueden tener dos a la vez.
