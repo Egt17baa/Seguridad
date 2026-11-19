@@ -140,6 +140,21 @@ class SearchIndex private constructor(
 
 private fun plainTitle(title: String) = compareKey(title)
 
+/** What [listTags] gives: every tag of the entries, [sorted], and those of the filter no entry has any more. */
+internal class ListTags(val sorted: List<String>, val goneFromFilter: Set<String>)
+
+/**
+ * Round 3 of the fixes of the attack, RT-28: the tag chips of the list ([listable]'s tags, sorted) and the tags of the
+ * list's filter ([filterTags]) no entry has any more, which the list drops from the filter. One set of the tags, made
+ * once and not kept (no memory beyond what RT-25's criterion measures), so O(F + N), off the main thread (the list's
+ * `compute`); the main thread never looks a tag up in a list again (it was F × N, with a view of a copy of 10 000 tags).
+ */
+internal fun listTags(listable: List<VaultEntry>, filterTags: Set<String>): ListTags {
+    val all = listable.flatMapTo(HashSet()) { it.tags }
+    val gone = if (filterTags.isEmpty()) emptySet() else filterTags.filterTo(HashSet()) { it !in all }
+    return ListTags(all.sorted(), gone)
+}
+
 /** The entries the list may show: not in the trash, and not the identity or the contacts (their own tab). */
 private fun VaultEntry.listable(): Boolean = deletedAt == null && !type.isPersonal
 

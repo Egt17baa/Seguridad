@@ -143,6 +143,7 @@ import app.seguridad.vault.SEARCH_MORE
 import app.seguridad.vault.SORT_LABEL
 import app.seguridad.vault.SavedView
 import app.seguridad.vault.SearchIndex
+import app.seguridad.vault.listTags
 import app.seguridad.vault.SortOrder
 import app.seguridad.vault.TAG_COLORS_OPEN
 import app.seguridad.vault.TagColor
@@ -196,6 +197,8 @@ internal class ListResult(
      * show [LIST_NO_MEMORY] instead of the rows. The next change of the data, the search or the filter tries again.
      */
     val noMemory: Boolean = false,
+    /** Round 3, RT-28: the tags of the filter this result was worked out for that no entry has any more (listTags). */
+    val goneFilterTags: Set<String> = emptySet(),
 ) {
     companion object {
         val EMPTY = ListResult(null, emptyList(), emptyList(), emptyList(), 0, emptyMap(), emptyList())
@@ -328,6 +331,8 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
             Cache(data, SearchIndex.build(listable, data.folders, previous = cache?.index), weak, loginsWithout2fa(data.entries), today, Expiry.dueSoon(listable, now).size)
         }.also { cache = it }
         val filter = f.copy(text = text)
+        // Round 3, RT-28: the chips and the tags of the filter that are gone, in one set made here, off the main thread.
+        val tagsNow = listTags(listable, f.tags)
         val shown = listable.query(filter, data, now, weak = { it.id in c.weak }, no2fa = { it.id in c.no2fa }, index = c.index)
         val top = !totpOnly && text.isBlank() && plain(f)
         return ListResult(
@@ -337,7 +342,8 @@ internal class EntryListViewModel(private val store: VaultStore, private val tot
             favorites = if (top) favoriteEntries(listable) else emptyList(),
             total = listable.size,
             typeCounts = listable.groupingBy { it.type }.eachCount(),
-            tags = listable.flatMapTo(HashSet()) { it.tags }.sorted(),
+            tags = tagsNow.sorted,
+            goneFilterTags = tagsNow.goneFromFilter,
             dueSoon = c.dueSoon,
         )
     }
@@ -402,7 +408,8 @@ internal fun EntryList(
     LaunchedEffect(result) {
         if (data == null) return@LaunchedEffect
         val f = list.filter
-        val tags = f.tags.filter { it in result.tags }.toSet()
+        // Round 3, RT-28: worked out off the main thread (listTags in compute); here O(1) when nothing is gone.
+        val tags = if (result.goneFilterTags.isEmpty()) f.tags else f.tags - result.goneFilterTags
         val folder = f.folderId?.takeIf { id -> folders.any { it.id == id } }
         // Review M-5: with no folder, «Con subcarpetas» goes back to on, as «Quitar carpeta» leaves it.
         if (tags != f.tags || folder != f.folderId) list.filter = f.copy(tags = tags, folderId = folder, includeSubfolders = f.includeSubfolders || folder == null)

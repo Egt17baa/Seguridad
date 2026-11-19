@@ -124,7 +124,8 @@ class PlatformSourcesTest {
         assertTrue("the scroll position is the ViewModel's", "LazyListState(list.firstIndex, list.firstOffset)" in src)
         assertTrue("and goes back to it", "list.firstIndex = listState.firstVisibleItemIndex" in src)
         assertFalse("no LazyListState kept in the ViewModel", Regex("""var listState by""").containsMatchIn(src))
-        assertTrue("a gone tag filter is dropped", "val tags = f.tags.filter { it in result.tags }.toSet()" in src)
+        // Round 3, RT-28: what is gone is worked out off the main thread (listTags in compute); the effect only takes it away.
+        assertTrue("a gone tag filter is dropped", "val tags = if (result.goneFilterTags.isEmpty()) f.tags else f.tags - result.goneFilterTags" in src)
         assertTrue("and a gone folder", "val folder = f.folderId?.takeIf { id -> folders.any { it.id == id } }" in src)
         for (v in listOf("query", "filter")) assertTrue(v, "var $v by mutableStateOf(" in src)
         assertFalse("no search in local state", Regex("""var query by remember""").containsMatchIn(src))

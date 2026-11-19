@@ -573,20 +573,16 @@ class RedTeam20Recheck2Test {
     /**
      * RT-28 [Baja]. A saved view's tags come from the copy with no bound but COPY_LIST_MAX (10 000 per list; the excess
      * of RT-25 b counts entries and versions, not views). Applied, its tags are the list's filter, and at every result
-     * (each letter typed, each save) `LaunchedEffect(result)` runs on the main thread
-     * `f.tags.filter { it in result.tags }` (VaultList.kt), where `result.tags` is a sorted List of every tag of the
-     * vault: F × N comparisons. With a legitimate shape (20 000 logins with 10 tags of their own, N = 200 000) and a view
-     * of 10 000 of them, that is about 2·10⁹ comparisons per result on the main thread. Measured here with the same
-     * expression and types on 1 000 of them (anchored to the source), against the same filter through a HashSet.
-     * The safe behaviour asserted: the main thread's work for it is within 10 times that of a set lookup.
+     * (each letter typed, each save) `LaunchedEffect(result)` ran on the main thread `f.tags.filter { it in result.tags }`,
+     * where `result.tags` is a sorted List of every tag of the vault: F × N comparisons (measured before the fix: 519 ms
+     * for a view of 1 000 against 200 000, ×3 394 a set). Fixed in round 3 (rewritten with the director's authorisation):
+     * the list works out the tags of the filter that are gone off the main thread, in `compute`, with [listTags] (one set,
+     * not kept), and the effect only takes [ListResult.goneFilterTags] away. The safe behaviour asserted: the copy still
+     * passes «Comprobar»; listTags with N = 200 000 and the view of 10 000 gives nothing gone and costs at most twice the
+     * chips alone; with 3 tags taken out of the vault, exactly those 3 are gone; and VaultList.kt has no `in result.tags`.
      */
-    @Ignore("RT-28: a view with thousands of tags makes the main thread compare each with every tag of the vault at every result")
     @Test fun rt28_aViewWithManyTagsDoesNotFreezeTheMainThread() {
-        val src = File(main, "ui/screens/VaultList.kt").readText()
-        assertTrue("val tags = f.tags.filter { it in result.tags }.toSet()" in src)
-        assertTrue("tags = listable.flatMapTo(HashSet()) { it.tags }.sorted()," in src)
-        assertTrue(Regex("""LaunchedEffect\(result\) \{\s*\n\s*if \(data == null\) return@LaunchedEffect\s*\n\s*val f = list.filter\s*\n\s*val tags = f\.tags\.filter""").containsMatchIn(src))
-        val all: List<String> = List(200_000) { "t" + it.toString(36).padStart(4, '0') }.sorted() // result.tags: 200 000 distinct
+        val all: List<String> = List(200_000) { "t" + it.toString(36).padStart(4, '0') }.sorted() // 200 000 distinct
         // The copy that carries it passes every check of «Importar copia» and «Comprobar una copia»: 20 000 logins with 10
         // tags of their own (no excess) and a view of the last 10 000 of them (one list of COPY_LIST_MAX).
         val rnd = Random(20261119L)
@@ -596,15 +592,23 @@ class RedTeam20Recheck2Test {
             vaultTag = "a".repeat(32),
         )
         assertEquals("OK", checked(rt20Copy(rt20HostileFile(appJson.encodeToString(VaultData.serializer(), data)).first)))
-        val view: Set<String> = all.takeLast(1_000).mapTo(LinkedHashSet()) { String(it.toCharArray()) } // decoded apart
-        val tList = median { check(view.filter { it in all }.toSet().size == view.size) }
-        val asSet = all.toHashSet()
-        val tSet = median { check(view.filter { it in asSet }.toSet().size == view.size) }
-        val ratio = tList.toDouble() / tSet
-        println(
-            "RT-28: view of 1 000 tags against 200 000: ${tList / 1_000_000.0} ms on the main thread per result " +
-                "(x10 for a view of 10 000: ${tList / 100_000.0} ms); with a set ${tSet / 1_000_000.0} ms (x${"%.0f".format(ratio)})",
-        )
-        assertTrue("the main thread compares each tag of the view with every tag of the vault (x${"%.0f".format(ratio)} a set)", ratio <= 10.0)
+        val view: Set<String> = data.views.single().filter.tags.mapTo(LinkedHashSet()) { String(it.toCharArray()) } // decoded apart
+        val result = app.seguridad.vault.listTags(data.entries, view)
+        assertEquals(all, result.sorted)
+        assertEquals("nothing of the view is gone", emptySet<String>(), result.goneFromFilter)
+        val tChips = median(5) { check(data.entries.flatMapTo(HashSet()) { it.tags }.sorted().size == all.size) }
+        val tTags = median(5) { check(app.seguridad.vault.listTags(data.entries, view).sorted.size == all.size) }
+        println("RT-28: listTags with 200 000 tags and a view of 10 000: ${tTags / 1_000_000.0} ms off the main thread; the chips alone ${tChips / 1_000_000.0} ms (x${"%.2f".format(tTags.toDouble() / tChips)})")
+        assertTrue("listTags costs ${"%.2f".format(tTags.toDouble() / tChips)} times the chips alone (at most 2)", tTags <= 2 * tChips)
+        // Three tags of the view taken out of the vault: exactly those three are gone.
+        val takenOut = view.take(3).toSet()
+        val fewer = data.entries.map { e -> if (e.tags.any { it in takenOut }) e.copy(tags = e.tags - takenOut) else e }
+        assertEquals(takenOut, app.seguridad.vault.listTags(fewer, view).goneFromFilter)
+        // The anchor: no lookup in the list of tags is left in VaultList.kt, and the effect reads goneFilterTags.
+        val src = File(main, "ui/screens/VaultList.kt").readText()
+        assertEquals(0, Regex("""\bin result\.tags\b""").findAll(src).count())
+        assertTrue(Regex("""LaunchedEffect\(result\) \{[^}]*result\.goneFilterTags""").containsMatchIn(src))
+        assertEquals(2, Regex("""result\.goneFilterTags""").findAll(src).count())
+        assertTrue("computed with listTags in compute", "val tagsNow = listTags(listable, f.tags)" in src)
     }
 }
