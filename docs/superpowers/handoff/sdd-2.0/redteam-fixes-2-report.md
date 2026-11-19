@@ -204,3 +204,30 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
 2. **`HealthScreen.kt:117-118`** también lee `guard()`, para elegir su texto. El test lo admite (el `!guard()` que rechaza solo está en los dos archivos). ¿Se deja así?
 3. **«Salud» y «Organizar»** sin la captura de la lista (fila 59): ¿se protegen en esta ronda o en otra?
 4. **Copias de antes de la 2.0:** «Importar» cuenta las versiones que crea la subida y «Comprobar» no (fila 61). ¿Se cuenta el exceso antes de la subida, en los dos sitios, o se deja así?
+
+## Cierre corto del director (puntos 8 a 10, `advisor-t12-redteam-fixes-2-cierre.md`)
+
+### 8. «Comprobar» comprueba lo que «Importar» sellaría (duda 3, R5)
+- `vault/Vault.kt`: `VaultCrypto.readAsImported(file, dek, copy)` y `AsImported(known, read, imported)`. Resuelve la versión; una antigua pasa por `upgraded(random).fitted()`, y una v4 recibe etiqueta solo si le falta. Decodifica una sola vez. La usa `afterMasterUnlockWithData`, cuya lógica de coste y de sellado no cambia, y también `checkBackup`.
+- `vault/BackupCheck.kt`: `checkCopyData(data)`, con el orden de «Importar»: estructura, tamaño y entradas. La llaman `VaultStore.replace` en `prepare` y `checkBackup`. `JSON_HAS_ATTACHMENTS` sigue solo en la importación. El `if (incoming.version == …) checkCopySize` desaparece. El informe enseña `opened.read.vaultTag`, la etiqueta leída, y nunca la que crea `upgraded`. Todo va dentro de la captura de `OutOfMemoryError` que ya había.
+- `PlatformSourcesTest`: el ancla de las comprobaciones compartidas pasa a `checkCopyData(data)` y a `readAsImported(...).also { checkCopyData(it.imported) }`.
+- **Tests** (`redteam/RedTeam20CheckAsImportTest`, uno nuevo; el antiguo `aCopyOfBefore20CountsItsUpgradedVersionsOnlyWhenImported` se quita y se invierte):
+  - `aCopyOfBefore20IsCheckedAsItIsImported`: las dos rechazan con `COPY_DAMAGED`.
+  - `aCopyOfBefore20OverTheSizeIsRefusedByBoth`: una v3 con notas de más de 24 MiB + 4 KiB, bajo la marca 3, que el lector admite con datos de cualquier versión. Las dos rechazan.
+  - `aCopyWithTwoDefectsGivesTheSameMessage`: dos carpetas con el mismo id y dos identidades. Las dos dan `COPY_DAMAGED`.
+  - `aCopyOfBefore20StillHasNoTagWhenChecked`: `vaultTag == ""` y `withBackupChecked` da `null`, así que no se guarda ninguna fecha.
+  - `checkPassesIfAndOnlyIfImportDoes`: el test diferencial.
+    - Pasan las dos: `backup-1.1.sgbak`, que lleva `vault-1.1.json` byte a byte con su adjunto (por eso `vault-1.1.json` no va suelto: sin su adjunto, «Importar» lo rechaza); `vault-1.4.3.json` y `export-1.0.2.json` envueltos como copia; y una 1.x con 50 etiquetas y 5 contraseñas antiguas.
+    - Dos copias rechazadas: las dos dicen lo mismo.
+- **Rojo** (contra el código de antes): `5 tests completed, 4 failed`.
+  - `1.x with versions made by the upgrade: «Comprobar una copia» says what «Importar copia» does expected:<La copia está dañada…> but was:<OK>`.
+  - `1.x over 24 MiB: … but was:<OK>`.
+  - El diferencial, con lo mismo.
+  - `two defects: … expected:<La copia está dañada…> but was:<La copia tiene más de una identidad…>`.
+- **Verde:**
+
+  | Ejecución | Tests | Fallos |
+  |---|---|---|
+  | jvm-check `redteam.*` | 119 | 0 |
+  | jvm-check `vault.*` y `AppContainer*` (con `VaultV4Test`, `SingleDecodeTest` y los de la huella de `VaultStoreTest` y `NoMemoryTest`, sin tocarlos) | 901 | 0 |
+  | jvm-check `OpeningTest`, `LastVaultTest` y `PlatformSourcesTest` | 61 | 0 |

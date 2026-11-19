@@ -137,28 +137,6 @@ class RedTeam20TagExcessTest {
     }
 
     /**
-     * Point 5 of the closure (a doubt for the director, not fixed): «Importar copia» checks a copy of before 2.0 after its
-     * upgrade to v4, where each old password becomes a version with the entry's tags (Vault.kt `upgraded`), fitted to
-     * 64 KiB of history per entry; «Comprobar una copia» checks the data as stored. So the same 1.x copy (two entries of
-     * 2 010 tags with 5 old passwords each: 4 000 over 10 as stored, several times that once upgraded) passes «Comprobar»
-     * and is refused by «Importar». This test pins what happens today; the report asks the director whether it should.
-     */
-    @Test fun aCopyOfBefore20CountsItsUpgradedVersionsOnlyWhenImported() {
-        val master = "maestra-de-prueba-143"
-        val (copy, extra) = oneXCopy(MAX_TAGS + 2_000, oldPasswords = 5, entries = 2)
-        assertEquals("as stored", 4_000L, extra)
-        check(copy, master) // «Comprobar una copia»: it passes.
-        val s = store()
-        try {
-            runBlocking { s.importReplace(ByteArrayInputStream(copy), master.toCharArray()) }
-            fail("imported")
-        } catch (e: CryptoFailure) {
-            assertEquals(COPY_DAMAGED, e.message)
-        }
-        assertEquals(VaultState.NoVault, s.state.value)
-    }
-
-    /**
      * A vault of one's own with 30 000 distinct tags in 100 entries (only from a copy made by hand) opens with the master
      * and with the fingerprint's key (its own file has no bound), but its copy is refused: 29 000 tags over 10.
      */

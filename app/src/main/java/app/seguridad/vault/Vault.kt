@@ -277,6 +277,9 @@ private fun open(key: ByteArray, sealed: String, aad: ByteArray): ByteArray {
 /** What [VaultCrypto] says of a file it cannot open; the unlock screen shows it, not «Contraseña incorrecta» (F2). */
 internal const val NOT_A_VAULT = "No es una bóveda compatible"
 
+/** What [VaultCrypto.readAsImported] gives: the file with its version resolved ([known]), its data as read and as imported. */
+internal class AsImported(val known: VaultFile, val read: VaultData, val imported: VaultData)
+
 /** The frozen words of a master password that does not open the vault (1.3.1); also «Contactos»' check of it. */
 const val WRONG_MASTER = "Contraseña incorrecta"
 
@@ -570,10 +573,10 @@ object VaultCrypto {
         onCostKept: () -> Unit = {},
         copy: Boolean = false,
     ): MasterUnlocked {
-        val known = resolve(file, dek)
+        val opened = readAsImported(file, dek, copy, random)
+        val known = opened.known
         val old = known.version != VaultFile.VERSION
-        val read = read(known, dek, copy)
-        val data = prepare(if (old) read.upgraded(random).fitted() else read.copy(vaultTag = read.vaultTag.ifEmpty { newVaultTag(random) }))
+        val data = prepare(opened.imported)
         val weaker = known.kdf.memoryKiB < kdf.memoryKiB || known.kdf.iterations < kdf.iterations
         // Whatever is wrapped again never costs less than the file did on any axis (a stronger old file keeps its strength).
         val cost = KdfParams(
@@ -598,6 +601,20 @@ object VaultCrypto {
             onCostKept()
             MasterUnlocked(kept, data)
         }
+    }
+
+    /**
+     * Round 2 of the fixes of the attack, point 8 (R5): [file]'s data, decoded once ([read], with [copy] for the data of a
+     * copy), as [AsImported.read] and as [AsImported.imported]: what opening it with the master password or importing it
+     * seals. A version 2, 3 or unknown one is upgraded to v4 and fitted ([upgraded], [fitted]); a version 4 gets a
+     * [VaultData.vaultTag] only if it has none. [afterMasterUnlockWithData] and «Comprobar una copia» ([checkBackup]) both
+     * use it, so the check holds exactly what the import would seal.
+     */
+    internal fun readAsImported(file: VaultFile, dek: ByteArray, copy: Boolean = false, random: SecureRandom = secureRandom): AsImported {
+        val known = resolve(file, dek)
+        val read = read(known, dek, copy)
+        val imported = if (known.version != VaultFile.VERSION) read.upgraded(random).fitted() else read.copy(vaultTag = read.vaultTag.ifEmpty { newVaultTag(random) })
+        return AsImported(known, read, imported)
     }
 
     /**

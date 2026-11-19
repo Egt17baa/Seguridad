@@ -93,18 +93,14 @@ suspend fun checkBackup(
         currentCoroutineContext().ensureActive()
         val dek = key!!
         // RT-21, part c: out of memory reading the copy (the last defence): nothing changed, the folder goes.
-        val data = try {
-            withContext(compute) {
-                VaultCrypto.read(incoming, dek, copy = true).also { data -> // RT-21, part b.
-                    checkCopyEntries(data.entries)
-                    checkCopyStructure(data)
-                    // A copy of before 2.0 is upgraded and fitted when imported, so only a version-4 one is held to the size as read.
-                    if (incoming.version == VaultFile.VERSION) checkCopySize(data)
-                }
-            }
+        // Round 2, point 8 (R5): what «Importar copia» would seal (a copy of before 2.0 upgraded to v4 and fitted), with
+        // its checks in its order ([checkCopyData]), decoded once (RT-21, part b).
+        val opened = try {
+            withContext(compute) { VaultCrypto.readAsImported(incoming, dek, copy = true).also { checkCopyData(it.imported) } }
         } catch (e: OutOfMemoryError) {
             throw CryptoFailure(COPY_NO_MEMORY)
         }
+        val data = opened.imported
         val entries = data.entries
         val refs = entries.flatMap { it.attachments }
         val found = withContext(io) {
@@ -124,7 +120,8 @@ suspend fun checkBackup(
                 backupCheckMissing(missing).takeIf { missing > 0 },
                 backupCheckChanged(changed).takeIf { changed > 0 },
             ),
-            vaultTag = data.vaultTag,
+            // The tag as read: never the one the upgrade makes for a copy of before 2.0, which has none (withBackupChecked).
+            vaultTag = opened.read.vaultTag,
         )
     } finally {
         key?.fill(0)
@@ -193,6 +190,18 @@ internal const val COPY_DAMAGED = "La copia está dañada: no se puede importar.
 
 /** The import's refusal of a copy whose attachment is missing or changed; it names the attachment (only the import says it). */
 internal fun attachmentNotInCopy(name: String) = "La copia está incompleta o dañada: falta o no coincide el adjunto «$name»"
+
+/**
+ * Round 2 of the fixes of the attack, point 8 (R5): every check of a copy's data, as «Importar copia» runs them
+ * (VaultStore.replace, in `prepare`) and «Comprobar una copia» too ([checkBackup]), in one order: the structure
+ * ([checkCopyStructure]), the size ([checkCopySize]) and the entries ([checkCopyEntries]). On the data as they are
+ * imported ([VaultCrypto.readAsImported]): the two always say the same of a copy, with the same message.
+ */
+internal fun checkCopyData(data: VaultData) {
+    checkCopyStructure(data)
+    checkCopySize(data) // Branch review, A m-2.
+    checkCopyEntries(data.entries)
+}
 
 /**
  * RT-25, part b (ruling of round 2 of the fixes of the attack, as the director corrected it): the tags a copy has over

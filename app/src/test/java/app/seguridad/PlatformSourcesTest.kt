@@ -452,7 +452,9 @@ class PlatformSourcesTest {
         // The import uses the same checks (BackupCheck.kt), so they cannot drift apart.
         val store = code("vault/VaultStore.kt")
         // RT-21, part a: in [VaultCrypto.afterMasterUnlockWithData]'s prepare, on the data about to be written.
-        assertTrue("checkCopyEntries(data.entries)" in store && "attachmentInCopy(it, backup.first)" in store)
+        // Round 2, point 8 (R5): one function of checks for both, on what the import would seal.
+        assertTrue("checkCopyData(data)" in store && "attachmentInCopy(it, backup.first)" in store)
+        assertTrue("VaultCrypto.readAsImported(incoming, dek, copy = true).also { checkCopyData(it.imported) }" in code("vault/BackupCheck.kt"))
     }
 
     /** Ruling R3: no other product's brand in a user-visible text; the licence's attribution lives on the Licencias screen. */

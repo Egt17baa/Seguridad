@@ -1522,11 +1522,10 @@ class VaultStore(
                     incoming, key, master, now(), kdf(),
                     prepare = { read ->
                         val data = if (newTag) read.copy(vaultTag = VaultCrypto.newTag(), lastCheckedBackupAt = 0L) else read
-                        checkCopyStructure(data)
-                        checkCopySize(data) // Branch review, A m-2.
-                        // The rules «Comprobar una copia» checks too (BackupCheck.kt), so the two never drift apart: one
-                        // identity per vault (see [upsert]), and what [upsert] and [addAttachment] keep.
-                        checkCopyEntries(data.entries)
+                        // The checks «Comprobar una copia» runs too, on the same data and in the same order (checkCopyData,
+                        // round 2, point 8): the structure, the size (A m-2) and the entries (one identity per vault, see
+                        // [upsert], and what [upsert] and [addAttachment] keep). The two never drift apart.
+                        checkCopyData(data)
                         if (backup == null && data.entries.any { it.attachments.isNotEmpty() }) throw CryptoFailure(JSON_HAS_ATTACHMENTS)
                         data
                     },
