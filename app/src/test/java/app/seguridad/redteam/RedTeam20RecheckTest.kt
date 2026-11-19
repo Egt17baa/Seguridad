@@ -4,7 +4,6 @@ import app.seguridad.AppContainer
 import app.seguridad.core.appJson
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.vault.EntryType
-import app.seguridad.vault.SearchIndex
 import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
@@ -55,19 +54,6 @@ class RedTeam20RecheckTest {
         }
     }
 
-    /** What the vault list needs to show [json] once it is open: the decoded tree, its search index and its tag chips. */
-    private fun shownCost(json: String): Triple<Long, Long, Long> {
-        val u0 = used()
-        val data = appJson.decodeFromString(VaultData.serializer(), json)
-        val u1 = used()
-        val index = SearchIndex.build(data.entries, data.folders)
-        val u2 = used()
-        val chips = data.entries.flatMapTo(HashSet()) { it.tags }.sorted() // VaultList.kt:302, at every result.
-        val u3 = used()
-        check(index.hashCode() != 0 || chips.isNotEmpty() || data.entries.isNotEmpty())
-        return Triple(u1 - u0, u2 - u1, u3 - u2)
-    }
-
     // ---------------------------------------------------------------------------------------------------------------
     // RT-25: the budget of a copy bounds its decoding, not what showing the vault then needs.
     // ---------------------------------------------------------------------------------------------------------------
@@ -87,8 +73,10 @@ class RedTeam20RecheckTest {
      * closes every time the vault opens. A legitimate vault never has thousands of distinct tags (10 an entry at most from
      * the app's own screens, MAX_TAGS).
      *
-     * The safe behaviour asserted: a copy [checkCopyShape] accepts needs no more to be shown than its estimate (which the
-     * budget bounds), or it is refused. Measured on a 2.4 MB sample (60 entries of 5 000 tags), far from the heap of the
+     * The safe behaviour asserted (round 2 of the fixes, as the director redefined it): this copy is refused by every
+     * check of the import (here by RT-25 part b, [app.seguridad.vault.copyExtraTags]: 299 400 tags over 10). The general
+     * criterion of what an accepted copy may cost to show is RedTeam20ListCostTest's. Before the fix it asserted that a
+     * copy [checkCopyShape] accepts needs no more to be shown than its estimate (which the budget bounds), or is refused. Measured on a 2.4 MB sample (60 entries of 5 000 tags), far from the heap of the
      * tests; what scales to the budget is the ratio.
      */
     @Test fun rt25_aCopyThatPassesTheBudgetCanAlsoBeListed() {
@@ -107,15 +95,10 @@ class RedTeam20RecheckTest {
         } catch (e: CryptoFailure) {
             true
         }
-        if (refused) return
-        val estimate = copyTreeEstimate(bytes, 4)
-        val (tree, index, chips) = shownCost(json)
-        val needed = tree + index + chips
-        println("RT-25: ${bytes.size} bytes of JSON, estimate $estimate, tree $tree, index $index, chips $chips (x${"%.2f".format(needed.toDouble() / estimate)} the estimate)")
-        assertTrue(
-            "Accepted, but showing it needs ${"%.1f".format(needed.toDouble() / estimate)} times its estimate (tree $tree, index $index, chips $chips; estimate $estimate)",
-            needed <= estimate,
-        )
+        // Round 2 (the director's criterion, RedTeam20ListCostTest): the general criterion of what an accepted copy may
+        // cost to show is there; this shape (60 entries of 5 000 distinct tags) is simply refused.
+        val excess = app.seguridad.vault.copyExtraTags(appJson.decodeFromString(VaultData.serializer(), json).entries, stopAbove = Long.MAX_VALUE)
+        assertTrue("Accepted by every check of the import, with $excess tags over MAX_TAGS", refused)
     }
 
     // ---------------------------------------------------------------------------------------------------------------

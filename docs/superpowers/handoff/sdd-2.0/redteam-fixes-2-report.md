@@ -3,17 +3,17 @@
 Encargo: `docs/superpowers/handoff/sdd-2.0/advisor-t12-redteam-fixes-2.md`, «Encargo de la ronda». Base: `79e21ba` (el encargo, guardado en `07e21a2`). Implementador nuevo (el de la ronda 1 no se pudo retomar). Sin *push*.
 
 ## Estado
-**Lo primero:** el punto 4 está **parado y a consulta**. El tope de etiquetas sobrantes está hecho, pero el criterio de 1,25 veces salta: 1,28x con las legítimas escritas como la app; detalle en el punto 4. Los demás puntos están hechos. Sin *push*.
+**Lo primero:** el punto 4 se paró en 1,28x y el director lo redefinió (opción (i)): ya está hecho, con el test del criterio en verde. El 1,28x se publica tal cual. Sin *push*.
 
 | Punto | Estado | Commit |
 |---|---|---|
 | 1. RT-26 | Hecho | bd0c31a |
 | 2. Informativo 3 | Hecho | 0ec7c14 |
 | 3. RT-25, parte a | Hecho | b632779 |
-| 4. RT-25, parte b | **Tope hecho; criterio parado, a consulta** (1,28x) | 655917d |
+| 4. RT-25, parte b | Hecho: el tope (`655917d`) y el test del criterio redefinido por el director | 655917d y (commit del criterio) |
 | 5. Informativo 1 | Hecho | 78d9708 |
 | 6. Informativo 2 | Hecho | 7706c47 |
-| 7. Cierre | **Parcial**: las ejecuciones, el informe y `pendientes.md`, hechos; queda abierto hasta que el director decida el criterio del punto 4 | (commit del cierre) |
+| 7. Cierre | Hecho | 937b4f2, 22379bd y (commit del criterio) |
 
 ## 1. RT-26
 - `vault/VaultLimits.kt`: `scanCopy` apunta si la última cadena llevaba una `\` (`lastStringEscaped`) y, al ver `:` en un objeto de clase (todos menos el mapa `tagColors`), marca `escapedName`. `CopyShape` gana `escapedName`, y `checkCopyShape` rechaza con `COPY_DAMAGED`. A cualquier profundidad y con cualquier escape (`\uXXXX`, `\/`, `\"`). El KDoc del modelo y el de `checkCopyShape`, al día.
@@ -66,7 +66,7 @@ Llegaron después de `0ec7c14` y se aplican desde el punto 3: (1) el tope de RT-
 - **Verde:** app, `EntryListNoMemoryTest`, `ErrorTextsTest`, `SelectionTest`, `SourceTextsTest`, `ui.redteam.*`: en verde (el ancla vieja de `PlatformSourcesTest` falló y se puso al día); jvm-check, `redteam.*`, `NoMemoryTest`, `ErrorTextsTest`, `PlatformSourcesTest`, `SourceTextsTest`: en verde, 1 ignorado (`rt25_`).
 - **Punto 6, «Importar como bóveda nueva»:** `AppContainer.newVault` captura cualquier `Throwable` y deshace el hueco (`dropVault`). Test nuevo `NoMemoryTest.anImportAsNewWithoutMemoryAtEachReadLeavesNoVault` (`READ` y `DECODE_FILE`): el registro, la bóveda activa y los ajustes quedan como estaban. Matiz: `settings.json` no queda igual byte a byte, porque `startClock` guarda la hora más alta vista (A11, `clockHighWaterMs`), que es la del reloj y no un cambio de datos; el test compara todo lo demás.
 
-## 4. RT-25, parte b: el tope hecho, el criterio parado y a consulta
+## 4. RT-25, parte b: el tope y el criterio (redefinido por el director)
 ### El tope (regla corregida por el director)
 - `vault/BackupCheck.kt`: `copyExtraTags(entries, stopAbove)` suma, en cada entrada (también las de la papelera) y en cada versión de su historial, `max(0, tags.size − MAX_TAGS)`, en una pasada y sin conjunto. `checkCopyEntries` rechaza con `COPY_DAMAGED` si la suma es `> COPY_LIST_MAX` (justo en 10 000 pasa). Lo usan igual la importación (`VaultStore.replace`, en `prepare`) y «Comprobar una copia» (`checkBackup`). El KDoc explica por qué no se usa `max(COPY_LIST_MAX, MAX_TAGS × (entradas + versiones))`: las versiones (el historial se recorta a 20 en cada guardado, `fittedHistory`) y la papelera (se vacía a los 30 días) lo subirían, la bóveda quedaría por encima del tope y sus copias se rechazarían sin avisar. También explica el coste aceptado: se rechaza una copia hecha a mano con más de 10 000 etiquetas sobrantes en entradas de más de 10.
 - Lo propio no cambia: abrir, guardar y exportar no tienen este tope.
@@ -84,33 +84,44 @@ Llegaron después de `0ec7c14` y se aplican desde el punto 3: (1) el tope de RT-
   - `justAtTheCapPassesAndOneMoreIsRefused`: con 10 000 pasa; con 10 001 se rechaza.
   - `versionsAndTheTrashDoNotRaiseIt`: 200 entradas en la papelera con 20 versiones de 10 etiquetas, que con la regla anterior habrían subido el tope a 42 000, siguen dejando sitio solo a 10 000 sobrantes. Las sobrantes de las versiones también cuentan (20 × 501).
 
-### El criterio de 1,25x: salta, así que paro
-- **Método:** `shownCost` del atacante (árbol + índice + fichas, el montón vivo después de GC) por byte de JSON, con muestras de 1 MiB. Las legítimas, con `appJson` desde objetos de la app, **ids UUID** (los de la app: `Contacts.kt:63`, `EntryForm.kt:167`) y fechas de 13 cifras. Las hostiles, en JSON mínimo y aceptadas por todas las comprobaciones de la importación. Cada forma sale de su propia `Random(20261118L)`, con calentamiento (dos `shownCost` antes), 5 repeticiones y la mediana.
-- **Duración:** como un solo test, 10,2 s y 8,2 s en las dos ejecuciones de la clase sola, al límite de los 10 s. Si se sube al árbol, hay que partirlo (las legítimas una vez, perezosas, y un test por forma hostil).
-- **Estabilidad:** con una `Random` compartida entre formas y 3 repeticiones, el resultado dependía del orden y daba dos modos (por ejemplo, el tope a 25,89 o a 22,73 B/B). Con una `Random` por forma y la mediana de 5, tres ejecuciones (dos de la clase sola y una dentro de `redteam.*`) dan los mismos márgenes, ±0,002.
-- **Tabla** (B/B; mínimo, mediana y máximo de la ejecución 2; los márgenes, iguales en las tres):
+### El criterio, primero parado y después redefinido por el director (opción (i))
+**Primera medida (parada).** Con las legítimas escritas como la app (ids UUID, fechas de 13 cifras), «etiquetas distintas justo en el tope» daba 1,28x de la legítima más cara (17,65 B/B), por encima de 1,25x. La misma forma sin ninguna etiqueta sobrante ya daba 1,21x, así que lo que pasa de 1,25x es la compacidad del JSON (ids cortos, que LIBRE-1 admite, fechas de una cifra, título vacío) y no lo cierra ningún tope de etiquetas. Avisé al controlador y paré.
 
-  | Forma | Tipo | Mín. | Mediana | Máx. | Margen sobre la legítima más cara |
-  |---|---|---|---|---|---|
-  | Notas largas | legítima | 1,36 | 1,36 | 1,37 | 0,08 |
-  | Accesos mínimos distintos | legítima | 8,61 | 8,62 | 8,62 | 0,49 |
-  | Accesos con 10 etiquetas distintas de 5 letras | legítima | 17,64 | **17,65** | 17,65 | **1,00** (la más cara) |
-  | 30 campos visibles con nombres distintos | legítima | 5,17 | 5,17 | 5,17 | 0,29 |
-  | 20 versiones con etiquetas | legítima | 3,63 | 3,63 | 3,63 | 0,21 |
-  | Carpetas, vistas y colores en sus topes | legítima | 15,66 | 15,77 | 16,97 | 0,89 |
-  | (Descomposición) 10 etiquetas distintas por entrada, JSON mínimo, **sin exceso** | hostil | 21,40 | 21,40 | 21,44 | 1,213 |
-  | **Etiquetas distintas justo en el tope (exceso 10 000)** | hostil | 22,58 | 22,58 | 22,63 | **1,280 > 1,25** |
-  | Versiones con etiquetas distintas (exceso 10 000) | hostil | 7,70 | 7,70 | 7,70 | 0,436 |
-  | Etiquetas repetidas, una entrada de 10 000 | hostil | 8,65 | 8,65 | 8,65 | 0,490 |
-  | Nombres de campo distintos | hostil | 6,67 | 6,67 | 6,67 | 0,378 |
-  | Suelo: 10 000 sobrantes en dos entradas (en absoluto) | hostil | 2 954 912 B | 2 954 912 B | 2 954 912 B | constante, no crece con la copia |
+**Decisión del director (opción (i)):** se acepta el 1,28x, publicado tal cual, sin otro tope ni otro umbral. El criterio se redefine en `redteam/RedTeam20ListCostTest.kt` (su KDoc sustituye a `advisor-t12-redteam-fixes-2.md:37-51`):
+- **B, el criterio:** el suelo que deja pasar el tope (b), dos entradas de 5 010 etiquetas distintas (exceso exacto 10 000), cuesta como mucho 4 MiB en absoluto (mediana de 5).
+- **C, cada forma es la que dice:** cada forma pasa todas las comprobaciones de la importación, y `copyExtraTags` da su exceso exacto: 0 en las parejas, 10 000 en la del tope, en la de versiones y en el suelo, y 9 990 en la de repetidas.
+- **D, guardia de regresión (no decide hallazgos):** la pareja sin exceso más densa queda como mucho a 1,5x de la legítima más cara escrita por la app.
+- **Filas informativas**, sin aserción.
 
-- **Lo que dice la descomposición:**
-  - 10 etiquetas distintas por entrada en JSON mínimo, sin ninguna sobrante, ya dan 1,21x. El exceso de 10 000 que deja el tope solo suma 0,07x.
-  - Lo que pasa de 1,25x es la compacidad del JSON (ids cortos, que `checkCopyEntries` admite desde LIBRE-1; fechas de una cifra; título vacío) con el mismo contenido que permiten las pantallas. Ningún tope de etiquetas lo cierra.
-  - Con ids cortos en las legítimas (mi primera versión, sin querer), la más cara sube a 20,7 B/B y el tope queda en 1,10x. No he elegido esa base para que pase: la decisión de qué cuenta como «la legítima más cara» es del director.
-- **Pregunta para el director:** qué es «la legítima más cara» cuando una copia puede llevar cualquier id corto (LIBRE-1), o qué se hace con la compacidad del JSON (por ejemplo, juzgar por entrada en lugar de por byte, o comparar con legítimas de ids cortos).
-- **Qué queda:** el test del criterio no está en el árbol (no se sube en rojo, con `@Ignore` ni sin aserciones). La copia de la medida está en `docs/superpowers/handoff/sdd-2.0/redteam-fixes-2-criterio.kt.txt`. Avisé al controlador con un mensaje al acabar la medida.
+**Cómo se mide:** el montón vivo después de GC por byte de JSON, con muestras de 1 MiB. Cada forma tiene su `Random(20261118L)`, hay calentamiento, se toma la mediana de 5 y el orden es siempre el mismo (`measured()`: primero las legítimas, después las parejas, después el resto). **Hallazgo de la medida:** el valor depende de lo que la JVM hizo antes. La pareja del tope medida justo después del calentamiento daba 24,40 B/B, y después de las legítimas 21,40. La legítima (c) daba 16,28 o 17,65 según el orden. Con eso, D llegaba a 1,50 y la forma del tope quedaba por debajo de su pareja (0,925, imposible). Con el orden fijo, las tres ejecuciones dan lo mismo, ±0,004.
+
+**Rojo** (sin commit): `false &&` en `BackupCheck.kt:240` y un suelo de exceso 100 000 (20 entradas de 5 010). `RED floor excess 100000`, mediana de 30 845 512 B: `AssertionError: the floor costs 30845512 bytes to show (at most 4194304)`. Deshecho después; `git diff app/src/main` vacío.
+
+**`rt25_`:** la rama «aceptada» ya no compara con la estimación: `assertTrue("Accepted by every check of the import, with $excess tags over MAX_TAGS", refused)`. Su KDoc remite el criterio general a `RedTeam20ListCostTest`. Se quitó su `shownCost`, que ya no se usaba.
+
+**Tabla** (B/B; mínimo, mediana y máximo de la ejecución 3 de la clase sola; los márgenes, de las tres ejecuciones de la clase sola, de `redteam.*` en jvm-check y de la app):
+
+| Forma | Tipo | Mín. | Mediana | Máx. | Margen |
+|---|---|---|---|---|---|
+| Notas largas | legítima | 1,36 | 1,36 | 1,36 | 0,08 |
+| Accesos mínimos distintos | legítima | 8,61 | 8,61 | 8,63 | 0,49 |
+| Accesos con 10 etiquetas distintas de 5 letras | legítima | 17,63 | **17,64** | 17,65 | **1,00** (la más cara) |
+| 30 campos visibles con nombres distintos | legítima | 5,17 | 5,17 | 5,17 | 0,29 |
+| 20 versiones con etiquetas | legítima | 3,63 | 3,63 | 3,63 | 0,21 |
+| Carpetas, vistas y colores en sus topes | legítima | 15,69 | 16,95 | 17,01 | 0,96 (bimodal en el mínimo; la mediana, igual en las tres) |
+| Pareja del tope: 10 etiquetas distintas por entrada, JSON mínimo, exceso 0 | pareja | 21,40 | 21,40 | 21,40 | **D: 1,212–1,216 ≤ 1,5** |
+| Pareja de las versiones, exceso 0 | pareja | 4,98 | 4,98 | 4,98 | — |
+| Pareja de las repetidas, exceso 0 | pareja | 8,37 | 8,37 | 8,37 | — |
+| Etiquetas distintas justo en el tope, exceso 10 000 | hostil | 22,59 | 22,60 | 22,64 | 1,055–1,057 frente a su pareja; **1,280–1,284 frente a la legítima (informativo, se publica tal cual)** |
+| Versiones con etiquetas distintas, exceso 10 000 | hostil | 7,72 | 7,72 | 7,72 | 1,549 frente a su pareja; 0,438 frente a la legítima |
+| Etiquetas repetidas, una entrada de 10 000, exceso 9 990 | hostil | 8,65 | 8,65 | 8,65 | 1,033 frente a su pareja; 0,490 frente a la legítima |
+| Nombres de campo distintos, exceso 0 | hostil | 6,68 | 6,68 | 6,70 | 0,378 frente a la legítima |
+| **Suelo**: dos entradas de 5 010 distintas, exceso 10 000 | B | 2 954 912 B | **2 954 912 B** | 2 954 912 B | **≤ 4 MiB** (en las cinco ejecuciones) |
+
+- **Estimación** (`copyTreeEstimate`, informativa): la pareja da 9,69 B/B y la del tope 9,95 B/B. Por 24 MiB + 4 KiB: 243 912 040 y 250 518 411 bytes, frente a `COPY_TREE_MAX_BYTES` = 274 726 912. Las dos pasan el presupuesto del árbol.
+- **Tiempos** (por test, con muestras de 1 MiB, así que no hizo falta la de 512 KiB): `cEachShapeIsWhatItSays`, 0,6–0,8 s; `dTheCompactEncodingStaysUnderItsGuard`, que mide las legítimas y las parejas, 5,4–7,7 s; `bTheFloorOfTheCapIsAtMostFourMiB`, 0,35–0,46 s; `informativeRows`, 2,2–3,1 s.
+- **Ejecuciones:** jvm-check `RedTeam20ListCostTest` tres veces, 4 tests y 0 fallos cada vez; jvm-check `redteam.*`, 115 tests y 0 fallos; la app, `redteam.*` y `ui.redteam.*`, 118 tests y 0 fallos, y después `--stop`. Ninguna condición de parada: B = 2,95 MB (≤ 3,5 MiB), D ≤ 1,216 (≤ 1,30) y los márgenes se mueven como mucho ±0,004.
+- La medida provisional `redteam-fixes-2-criterio.kt.txt` se quita: el test la sustituye.
 
 ## 5. Informativo 1
 - **Test de fuente** `app/src/test/java/app/seguridad/EmptySlotGuardSourceTest.kt` (corre en jvm-check y en la app). No nombra `EntryListViewModel` ni `Field`.
@@ -143,7 +154,7 @@ Llegaron después de `0ec7c14` y se aplican desde el punto 3: (1) el tope de RT-
 | Informativo 3 | `NoMemoryTest`: los dos nuevos con `java.lang.OutOfMemoryError` | `0ec7c14` | `readingACopyWithoutMemoryChangesNothing`, `checkingACopyWithoutMemoryAtEachReadLeavesNoFolder`; y, en `b632779`, `anImportAsNewWithoutMemoryAtEachReadLeavesNoVault` |
 | RT-25 a | `EntryListNoMemoryTest`: los dos del ViewModel, `TimeoutCancellationException` (el OOM salía sin capturar) | `b632779` | `theVaultListOutOfMemoryShowsTheTextAndStaysOpen`, `theCodesTabOutOfMemoryShowsTheTextAndStaysOpen`, `whatTheListPaints`, `theListShowsTheTextBeforeAnythingElse`; `ErrorTextsTest.theTextOfTheListOutOfMemory`; ancla en `PlatformSourcesTest` |
 | RT-25 b, tope | `rt25_`: `Accepted, but showing it needs 3.3 times its estimate…`; `versionsAndTheTrashDoNotRaiseIt` y `justAtTheCapPassesAndOneMoreIsRefused`: `…imported` | `655917d` | `rt25_aCopyThatPassesTheBudgetCanAlsoBeListed`; los seis de `RedTeam20TagExcessTest` |
-| RT-25 b, criterio | **1,28x > 1,25x** | **Parado, a consulta** | `RedTeam20ListCostTest`, fuera del árbol (copia en `docs/superpowers/handoff/sdd-2.0/redteam-fixes-2-criterio.kt.txt`) |
+| RT-25 b, criterio (redefinido) | B con `false &&` y un suelo de exceso 100 000: `the floor costs 30845512 bytes to show (at most 4194304)` | (commit del criterio) | `RedTeam20ListCostTest` (B, C, D y las filas informativas); `rt25_` con `assertTrue(refused)` |
 | Informativo 1 | `the default fails closed` | `78d9708` | `EmptySlotGuardSourceTest` (2 tests) |
 | Informativo 2 | El ancla del `Text` de `Field` | `7706c47` | `EntryFieldsTest.theNameOfAWifiShowsItsMarksAndCopiesAsItIs`; anclas de R9 en `PlatformSourcesTest` |
 
@@ -165,12 +176,11 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
 - **El valor por defecto `{ false }` no llega a nadie real:** el único `setContent` está en `MainActivity.kt:34` y no hay ningún `ComposeView`, así que todo pasa por el proveedor de `AppNavHost.kt:335`.
 - **Quién llama a `checkCopyEntries`:** solo `VaultStore.replace` (`VaultStore.kt:1529`) y `checkBackup` (`BackupCheck.kt:99`). Abrir, guardar y exportar no tienen el tope.
 - **Divergencia entre «Importar» y «Comprobar» con una copia de antes de la 2.0 (duda nueva, sin arreglar):** la importación comprueba los datos después de `upgraded()` (`Vault.kt:338-348`), que convierte cada contraseña antigua en una versión con las etiquetas de la entrada, ajustada a 64 KiB de historial por entrada. «Comprobar una copia» comprueba los datos tal como están guardados. La misma copia de la 1.x (dos entradas de 2 010 etiquetas con 5 contraseñas antiguas cada una: exceso 4 000 tal como está, varias veces más tras la subida) pasa «Comprobar» y la rechaza «Importar». Lo fija `RedTeam20TagExcessTest.aCopyOfBefore20CountsItsUpgradedVersionsOnlyWhenImported`, que pasa hoy. La 1.x real con 50 etiquetas y 5 contraseñas antiguas (exceso 40, y 240 tras la subida) sigue pasando las dos.
-- **La medida del criterio, guardada:** `docs/superpowers/handoff/sdd-2.0/redteam-fixes-2-criterio.kt.txt`, fuera de los tests.
 
 ## Revisión experto-seguridad-cripto
 - **RT-26 (CWE-436):** `scanCopy` marca `escapedName` en cuanto un nombre de miembro de clase lleva `\` (`vault/VaultLimits.kt:441`) y `checkCopyShape` rechaza (`:319`). Rechazar es más seguro que deshacer los escapes, porque no hace falta otro analizador, y las claves de `tagColors` (que son datos) siguen libres. El KDoc «never below it» vuelve a ser verdad.
 - **RT-25 b (CWE-400, CWE-770, decisión (a)):** el tope va antes de construir el índice: `checkCopyEntries` (`vault/BackupCheck.kt:240`) corre en `prepare`, antes de sellar, y `VaultList.kt` solo construye el índice al abrir. Va en una pasada, sin reservar memoria y con parada temprana. Las versiones y la papelera solo suman, así que no hay forma de inflar el permiso. Lo propio no tiene tope (`aVaultOfItsOwnWith30000TagsOpensButItsCopyIsRefused`).
-- **El criterio de 1,25x no se cumple** con las legítimas escritas como la app. La parte que no cierra ningún tope de etiquetas es la compacidad del JSON (ids cortos, LIBRE-1). No he cambiado la base de comparación para que pase; lo decide el director.
+- **El criterio (redefinido por el director):** el exceso que deja pasar el tope está acotado en absoluto (2,95 MB ≤ 4 MiB). La densidad del JSON compacto (1,21x) queda como riesgo con nombre (fila 62), con su guardia D.
 - **RT-25 a:** el `OutOfMemoryError` se captura solo alrededor de `compute` (`ui/screens/VaultList.kt:306`), que es lo que amplía R11c. La caché se suelta y no queda nada de la bóveda en `ListResult.NO_MEMORY`. Nunca dice «Contraseña incorrecta».
 - **Informativo 3:** `copyRead` (`vault/BackupCheckTexts.kt`) convierte el OOM en `COPY_NO_MEMORY` dentro de cada `withContext` (`VaultStore.kt:1457`, `:1482`, `:1484`, `:1491`, `:1492`; `BackupCheck.kt:88`, `:90`), antes de `replace`. Las costuras (`beforeCopyRead`, `beforeListCompute`) son `internal` y no hacen nada en producción.
 - **Informativo 1 (CWE-284):** el test de fuente fija el control de acceso de RT-22 (ii), y el valor por defecto falla cerrado (`ui/screens/VaultBackup.kt:74`). **Informativo 2 (CWE-451):** la ficha marca los invisibles del nombre de la red (`ui/screens/EntryFields.kt:141`, `VaultEntryScreen.kt:163`), y la copia sigue siendo el valor exacto (`VaultEntryScreen.kt:167`).
@@ -181,7 +191,7 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
 - **Compose:** `EntryList` vuelve pronto con `listShows(result) == OUT_OF_MEMORY` (`VaultList.kt:383-386`), antes de cualquier `remember`, efecto o `LazyColumn`. Vuelve pronto en un `@Composable`, y es válido; no borra el filtro de etiquetas. `Field(marked)` solo cambia lo que se pinta, sin estado guardado nuevo.
 - **El test del ViewModel:** `Dispatchers.setMain(Unconfined)` y un manejador global de excepciones para ver que nada se escapa. Cada test, menos de 1 s.
 - **Rendimiento:** `copyExtraTags` es O(entradas + versiones) y para en el tope.
-- **Medidas:** el test del criterio necesitó una `Random` por forma y la mediana de 5 para ser estable. Con una `Random` compartida, el orden de los tests cambiaba los datos y daba dos modos de varios MB (G1).
+- **Medidas:** el montón vivo después de GC (G1) depende de lo que la JVM hizo antes. El test del criterio necesitó una `Random` por forma, la mediana de 5 y un orden fijo de medida (`measured()`) para dar siempre lo mismo.
 
 ## Textos para el Abogado Digital (revisión final)
 - **`LIST_NO_MEMORY`** (`vault/Vault.kt:296`), el texto exacto del Ruling: «Este móvil no tiene memoria suficiente para enseñar esta bóveda. La bóveda sigue guardada: cierra Clavero del todo, vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede enseñarla.»
@@ -190,7 +200,7 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
 - **`VAULT_NEW_NEEDS_OPEN`**, que ya existía, se enseña también en una vista previa sin proveedor (el valor por defecto que falla cerrado). No llega al usuario.
 
 ## Dudas para el director
-1. **El criterio de RT-25 (punto 4):** qué es «la legítima más cara» cuando LIBRE-1 deja entrar ids cortos, o si se juzga de otra manera (por entrada, o con legítimas de ids cortos). Con ids UUID, 1,28x; con ids cortos en las legítimas, 1,10x.
+1. **El criterio de RT-25:** decidido (opción (i)); nada más que preguntar.
 2. **`HealthScreen.kt:117-118`** también lee `guard()`, para elegir su texto. El test lo admite (el `!guard()` que rechaza solo está en los dos archivos). ¿Se deja así?
 3. **«Salud» y «Organizar»** sin la captura de la lista (fila 59): ¿se protegen en esta ronda o en otra?
 4. **Copias de antes de la 2.0:** «Importar» cuenta las versiones que crea la subida y «Comprobar» no (fila 61). ¿Se cuenta el exceso antes de la subida, en los dos sitios, o se deja así?
