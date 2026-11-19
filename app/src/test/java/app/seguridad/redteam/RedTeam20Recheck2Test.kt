@@ -512,15 +512,14 @@ class RedTeam20Recheck2Test {
     // ---------------------------------------------------------------------------------------------------------------
 
     /**
-     * RT-27 [Baja]. «Importar de otra app» works the whole vault out with no catch of OutOfMemoryError: `planMerge`
-     * (a Matcher of every live entry: keys of titles, users and hosts, and `liveTags`, MergePlan.kt:157-158), run in
-     * `withContext(Dispatchers.Default)` inside `viewModelScope.launch` (ImportScreen.kt:319), and `previewEstimate` (the
-     * merged vault, ImportScreen.kt:213), whose try catches `Exception`, not `Error`. The same class as «Salud» before
-     * point 9 (row 59), judged by criterion (c) widened. Measured: planMerge allocates about what the list's index does for
-     * the same vault, while the list keeps its own index (EntryListViewModel stays in the back stack).
-     * The safe behaviour asserted: both calls sit inside a try that catches OutOfMemoryError (or Error, or Throwable).
+     * RT-27 [Baja]. «Importar de otra app» works the whole vault out: `planMerge` (a Matcher of every live entry: keys of
+     * titles, users and hosts, and `liveTags`, MergePlan.kt) and `previewEstimate` (the merged vault). Measured: planMerge
+     * allocates about what the list's index does for the same vault, while the list keeps its own index. Fixed in round
+     * 3 (the director's ruling, advisor-t12-redteam-fixes-3.md; this test rewritten with his authorisation): both run in a
+     * wrapper that turns running out of memory into null (imports/ImportMemory.kt), and the session then says
+     * IMPORT_NO_MEMORY with «Importar» off. The safe behaviour asserted: with the error made by hand, both wrappers give
+     * null and the session is in IMPORT_NO_MEMORY with «Importar» off; and ImportScreen.kt calls only the wrappers.
      */
-    @Ignore("RT-27: planMerge and previewEstimate run over the whole vault with no catch of OutOfMemoryError")
     @Test fun rt27_theImportScreensWholeVaultWorkCatchesRunningOutOfMemory() {
         val data = bigVault(20_000)
         val one = ImportRead(ImportFormat.PASSWORDS_CSV, listOf(ImportedItem(0, VaultEntry("i", EntryType.LOGIN, "Nuevo", createdAt = 1, updatedAt = 1), emptyList())), emptyList(), 0)
@@ -531,41 +530,37 @@ class RedTeam20Recheck2Test {
         val a2 = allocated()
         check(plan.newItems.size == 1 && index.hashCode() != 0)
         println("RT-27: 20 000 logins: planMerge allocates ${a1 - a0} B, the list's index ${a2 - a1} B (x${"%.2f".format((a1 - a0).toDouble() / (a2 - a1))})")
-        val src = File(main, "ui/screens/ImportScreen.kt").readText()
-        /** The block that closes the brace opened at [open]. */
-        fun closing(open: Int): Int {
-            var d = 0
-            for (e in open until src.length) {
-                if (src[e] == '{') d++ else if (src[e] == '}' && --d == 0) return e
-            }
-            return src.length
+        // With the error made by hand: both wrappers give null, and the session says so with «Importar» off.
+        val session = app.seguridad.imports.ImportSession()
+        try {
+            app.seguridad.imports.beforeImportWork = { throw OutOfMemoryError() }
+            assertEquals(null, app.seguridad.imports.planMergeOrNoMemory(one, data.entries, 0))
+            assertEquals(null, app.seguridad.imports.previewEstimateOrNoMemory(plan, app.seguridad.imports.DuplicateChoice.SKIP, emptyMap(), data.entries, 1L))
+            val run = session.begin(Any())
+            session.hold(run, byteArrayOf(1))
+            session.onRead(run, app.seguridad.imports.ReadResult.Ok(one))
+            session.planNoMemory(run)
+        } finally {
+            app.seguridad.imports.beforeImportWork = {}
         }
-        /** Whether [call] sits inside a `try` (the nearest enclosing one) with a catch of OutOfMemoryError, Error or Throwable. */
-        fun caught(call: String): Boolean {
-            val at = src.indexOf(call)
-            check(at >= 0) { call }
-            var depth = 0
-            var k = at
-            while (--k >= 0) {
-                when (src[k]) {
-                    '}' -> depth++
-                    '{' -> if (depth > 0) depth-- else if (src.substring(maxOf(0, k - 8), k).trimEnd().endsWith("try")) break
-                }
-            }
-            if (k < 0) return false
-            val types = ArrayList<String>()
-            var from = closing(k) + 1
-            val catchRe = Regex("""\s*catch\s*\(\s*\w+\s*:\s*([\w.]+)\s*\)\s*""")
-            while (true) {
-                val m = catchRe.find(src, from)?.takeIf { it.range.first == from } ?: break
-                types += m.groupValues[1]
-                from = closing(m.range.last + 1) + 1
-            }
-            return types.any { it in setOf("OutOfMemoryError", "Error", "Throwable", "VirtualMachineError") }
-        }
-        check(caught("readImport(bytes, pw)")) { "the check sees the catch that is there" }
-        val missing = listOf("planMerge(read, it.entries, it.revision)", "previewEstimate(plan, default, overrides, existing, System.currentTimeMillis())").filterNot(::caught)
-        assertEquals("whole-vault work of «Importar de otra app» with no catch of OutOfMemoryError", emptyList<String>(), missing)
+        assertEquals(app.seguridad.imports.IMPORT_NO_MEMORY, session.error)
+        assertFalse(session.canConfirm)
+        // At the preview, an estimate out of memory keeps «Importar» off.
+        val preview = app.seguridad.imports.ImportSession()
+        val run = preview.begin(Any())
+        preview.hold(run, byteArrayOf(1))
+        preview.onRead(run, app.seguridad.imports.ReadResult.Ok(one))
+        preview.onPlan(run, plan, data.entries)
+        preview.estimateNoMemory(plan, preview.default, preview.overrides)
+        assertTrue(preview.estimateNoMemory)
+        assertFalse(preview.canConfirm)
+        // The anchor: ImportScreen.kt, out of its comments, calls no bare planMerge( nor previewEstimate(, and each wrapper once.
+        val src = File(main, "ui/screens/ImportScreen.kt").readLines().filterNot { val t = it.trimStart(); t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") }
+            .joinToString("\n") { it.substringBefore("//") }
+        assertEquals("no bare planMerge(", 0, Regex("""\bplanMerge\(""").findAll(src).count())
+        assertEquals("no bare previewEstimate(", 0, Regex("""\bpreviewEstimate\(""").findAll(src).count())
+        assertEquals(1, Regex("""\bplanMergeOrNoMemory\(""").findAll(src).count())
+        assertEquals(1, Regex("""\bpreviewEstimateOrNoMemory\(""").findAll(src).count())
     }
 
     // ---------------------------------------------------------------------------------------------------------------

@@ -48,6 +48,16 @@ class ErrorTextsTest {
         for (t in listOf(COPY_NO_MEMORY, VAULT_NO_MEMORY)) assertEquals(t, emptyList<String>(), ForbiddenWords.problems(t))
     }
 
+    /** Round 3 of the fixes of the attack, RT-27: the text of an import out of memory, word for word. */
+    @Test fun theTextOfAnImportOutOfMemory() {
+        assertEquals(
+            "Este móvil no tiene memoria suficiente para preparar esta importación. No se ha cambiado nada. Cierra Clavero del " +
+                "todo, vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede hacer esta importación.",
+            app.seguridad.imports.IMPORT_NO_MEMORY,
+        )
+        assertEquals(emptyList<String>(), ForbiddenWords.problems(app.seguridad.imports.IMPORT_NO_MEMORY))
+    }
+
     /** RT-25, part a: the text of the list out of memory, word for word (ruling of round 2 of the fixes of the attack). */
     @Test fun theTextOfTheListOutOfMemory() {
         assertEquals(

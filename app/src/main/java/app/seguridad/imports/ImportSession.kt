@@ -122,6 +122,15 @@ class ImportSession(
     /** How many new folder tags [IMPORT_MAX_NEW_TAGS] leaves out with the choices shown (ruling R18). */
     var foldersNotTags: Int by foldersNotTagsCell
         private set
+    private val estimateNoMemoryCell = cells.cell(false)
+
+    /**
+     * Round 3, RT-27: working out the estimate of the choices shown ran out of memory ([estimateNoMemory]): the preview
+     * says IMPORT_NO_MEMORY instead of «Calculando», and «Importar» stays off ([overBytes] stays null). A change of
+     * choice tries again.
+     */
+    var estimateNoMemory: Boolean by estimateNoMemoryCell
+        private set
     private val removalCell = cells.cell<RemoveState?>(null)
     var removal: RemoveState? by removalCell
         private set
@@ -239,7 +248,26 @@ class ImportSession(
         default = DuplicateChoice.SKIP
         overrides = emptyMap()
         overBytes = null
+        estimateNoMemory = false
         step = ImportStep.Preview
+    }
+
+    /**
+     * Round 3, RT-27: the plan of [run] could not be worked out for lack of memory: back to the first step with nothing
+     * held and IMPORT_NO_MEMORY; nothing was saved. Only for the run still reading (a lock, a cancel or another file meanwhile
+     * moved the run on, and this result is dropped).
+     */
+    fun planNoMemory(run: Long) {
+        if (!isRun(run) || step != ImportStep.Reading) return
+        dropAll()
+        error = IMPORT_NO_MEMORY
+    }
+
+    /** Round 3, RT-27: the estimate of [plan] with [default] and [overrides] ran out of memory; kept only if those are still shown. */
+    fun estimateNoMemory(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>) {
+        if (step != ImportStep.Preview || plan !== this.plan || default != this.default || overrides != this.overrides) return
+        overBytes = null
+        estimateNoMemory = true
     }
 
     /** «Cancelar» while reading: the read stops (its result is dropped) and nothing is held. */
@@ -278,6 +306,7 @@ class ImportSession(
 
     private fun clearEstimate() {
         overBytes = null
+        estimateNoMemory = false
         newTags = null
         foldersNotTags = 0
         error = null
@@ -429,6 +458,7 @@ class ImportSession(
         overrides = emptyMap()
         skipped = emptyList()
         overBytes = null
+        estimateNoMemory = false
         removal = null
         error = null
         step = ImportStep.Pick

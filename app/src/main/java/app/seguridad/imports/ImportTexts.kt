@@ -119,6 +119,14 @@ const val IMPORT_JSON_TOO_DEEP = "El archivo tiene más de 64 niveles anidados. 
 /** A JSON whose parsed tree would pass [JSON_MAX_TREE_BYTES], by an estimate made before parsing: refused unparsed. */
 const val IMPORT_JSON_TOO_MANY_VALUES = "El archivo tiene demasiados datos. Clavero no lo lee."
 
+/**
+ * Round 3 of the fixes of the attack, RT-27: the phone ran out of memory working out the plan of an import or its
+ * preview (ImportMemory.kt): nothing was changed, and «Importar» stays off. Word for word as the director's ruling says it.
+ */
+const val IMPORT_NO_MEMORY =
+    "Este móvil no tiene memoria suficiente para preparar esta importación. No se ha cambiado nada. Cierra Clavero del " +
+        "todo, vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede hacer esta importación."
+
 /** The name a line of an `otpauth://` list is listed by in «no entran» when it names no service nor account. */
 fun importLineTitle(line: Int): String = "Línea $line"
 

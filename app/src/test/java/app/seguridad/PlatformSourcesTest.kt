@@ -685,8 +685,9 @@ class PlatformSourcesTest {
         // The plan only from one snapshot (entries and revision read together, as planImport does, kept for the
         // estimate); the confirmation only through ImportFlow, which a back does not cut (a lock before the save
         // cancels it, ruling R37: VaultStoreImportTest and AutoBackupImportCopyTest).
-        assertTrue("val snap = store.importSnapshot()" in src && "planMerge(read, it.entries, it.revision)" in src)
-        assertEquals(1, Regex("""planMerge\(""").findAll(src).count())
+        // Round 3, RT-27 (authorised by the controller, consulta del punto 3): the plan through its wrapper of no memory.
+        assertTrue("val snap = store.importSnapshot()" in src && "planMergeOrNoMemory(read, snap.entries, snap.revision)" in src)
+        assertEquals(1, Regex("""planMergeOrNoMemory\(""").findAll(src).count())
         assertEquals("the revision only from the snapshot", 1, Regex("""\.revision\b""").findAll(src).count())
         assertTrue("ImportFlow(" in src && "store.applyImport(plan, default, overrides, sinceLock = since)" in src && "withContext(NonCancellable)" in src)
         // Ruling R66: both saves (confirm and copyTo) record the lock epoch when saving starts and pass it on.
