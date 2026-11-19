@@ -117,7 +117,10 @@ internal fun VaultEntry.fittedHistory(): VaultEntry {
         val doomed = kept.withIndex().sortedBy { it.value.savedAt }.take(kept.size - VaultLimits.HISTORY_MAX_VERSIONS).mapTo(HashSet()) { it.index }
         kept = kept.filterIndexed { i, _ -> i !in doomed }
     }
-    val sizes = kept.map { jsonBytes(versionSerializer, it) }
+    val sizes = kept.map {
+        historyEncodings.incrementAndGet()
+        jsonBytes(versionSerializer, it)
+    }
     val alive = BooleanArray(kept.size) { true }
     var count = kept.size
     var total = 2 + sizes.sum() + (count - 1)
@@ -133,6 +136,13 @@ internal fun VaultEntry.fittedHistory(): VaultEntry {
 }
 
 private val versionSerializer = EntryVersion.serializer()
+
+/**
+ * Round 3, RT-29 (the controller's decision on `rt29_`): how many versions [fittedHistory] encoded to measure them, in
+ * this process: exactly one per version kept after the cut to [VaultLimits.HISTORY_MAX_VERSIONS], whatever it then
+ * drops. Only tests read it (RedTeam20Recheck2Test.rt29_), as [VaultCrypto.decodes].
+ */
+internal val historyEncodings = java.util.concurrent.atomic.AtomicLong()
 
 /** [fitted], with the size of what it returns. */
 private fun VaultData.fittedWithSize(): Pair<VaultData, Long> {

@@ -231,25 +231,28 @@ class RedTeam20Recheck2Test {
 
     /**
      * RT-29 [Baja]. A copy of 1.x whose logins have notes over 64 KiB and 20 old passwords each. The upgrade makes one
-     * version per old password with the whole entry (notes included), and `fittedHistory` (VaultLimits.kt:113-116)
-     * measures the history again after each version it drops: 20 + 19 + … + 1 = 210 encodings of the notes per entry, in
-     * «Importar copia», «Importar como bóveda nueva» and «Comprobar una copia» (`VaultCrypto.readAsImported`), none of
-     * them cancellable (decision (a)), and in «Importar» under `KdfLock.derive` (NonCancellable) and the store's mutex.
-     * The safe behaviour asserted: reading it as it is imported costs at most 5 times what the same copy without its old
-     * passwords costs (measuring each version once would make it about 20 encodings per entry). Today it is 10 to 14.
+     * version per old password with the whole entry (notes included), and `fittedHistory` measured the history again
+     * after each version it dropped: 20 + 19 + … + 1 = 210 encodings of a version (its notes) per entry, in «Importar
+     * copia», «Importar como bóveda nueva» and «Comprobar una copia» (`VaultCrypto.readAsImported`).
+     * Fixed in round 3 (fittedHistory measures each version once). The safe behaviour asserted, as a count and not in
+     * milliseconds (the controller's decision on this test, «consulta de rt29_»: times varied with the load of the suite,
+     * ×1.9 to ×6.0): reading it as it is imported encodes at most one version per version of each entry, here exactly
+     * 20 per entry (the versions + 2 the decision allowed is looser than the code: `fittedHistory` encodes each version
+     * kept after the cut to 20 once, and nothing else; `historyEncodings`). The times stay as an informative row.
      */
     @Test fun rt29_theUpgradeOfACopyOf1xCostsAboutWhatReadingItDoes() {
         val (_, dek) = base
         val notes = 256 * 1024
         val hostile = v3(oneXLogins(entries = 8, notes = notes, oldPasswords = 20))
         val pair = v3(oneXLogins(entries = 8, notes = notes, oldPasswords = 0))
+        app.seguridad.vault.historyEncodings.set(0)
+        val imported = VaultCrypto.readAsImported(hostile, dek, copy = true).imported
+        val encodings = app.seguridad.vault.historyEncodings.get()
+        assertTrue("every version made by the upgrade dropped by the fit", imported.entries.all { it.history.isEmpty() })
+        assertTrue("$encodings encodings of a version for 8 entries of 20 versions (at most 20 per entry)", encodings <= 8L * 20)
         val tPair = median { VaultCrypto.readAsImported(pair, dek, copy = true) }
         val tHostile = median { VaultCrypto.readAsImported(hostile, dek, copy = true) }
-        val ratio = tHostile.toDouble() / tPair
-        println("RT-29: 8 logins of $notes B of notes: pair ${tPair / 1_000_000.0} ms, with 20 old passwords ${tHostile / 1_000_000.0} ms (x${"%.1f".format(ratio)})")
-        val imported = VaultCrypto.readAsImported(hostile, dek, copy = true).imported
-        assertTrue("every version made by the upgrade dropped by the fit", imported.entries.all { it.history.isEmpty() })
-        assertTrue("the upgrade costs ${"%.1f".format(ratio)} times the read of the same copy (at most 5)", ratio <= 5.0)
+        println("RT-29: 8 logins of $notes B of notes: $encodings encodings of a version (${encodings / 8} per entry); pair ${tPair / 1_000_000.0} ms, with 20 old passwords ${tHostile / 1_000_000.0} ms (x${"%.1f".format(tHostile.toDouble() / tPair)}, informative)")
     }
 
     /**
