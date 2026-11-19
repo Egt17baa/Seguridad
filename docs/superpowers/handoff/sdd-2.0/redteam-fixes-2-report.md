@@ -50,7 +50,7 @@ Llegaron después de `0ec7c14` y se aplican desde el punto 3: (1) el tope de RT-
   | La pantalla: filas, fichas de etiquetas y de vistas | `VaultList.kt` (`LazyColumn`, `LazyRow`, R18) | Perezosas: solo lo que se ve; con `noMemory` no se pinta nada de eso |
   | La copia automática al abrir (`runDue(afterUnlock = true)`) | `vault/AutoBackup.kt:455-457` | No se cambia (Ruling, informativo 3). Ya captura: `attempt` tiene `catch (e: Throwable)` (`AutoBackup.kt:882`, «Never closes the app») y `copyBeforeAny` también (`:778`); un OOM ahí da `AUTO_BACKUP_FAILED`, sin cerrar la app (punto 6) |
 
-  Lo que solo se calcula al abrir una pantalla («Salud», `HealthScreen.kt:135`; «Organizar», `vault/Folders.kt:270`) va a `pendientes.md`, con la fila 51.
+  Lo que solo se calcula al abrir una pantalla («Salud», `HealthScreen.kt:135`; «Organizar», `vault/Folders.kt:270`, `withTagColor`, que reúne todas las etiquetas al poner un color con los 200 ocupados) va a `pendientes.md`, con la fila 51.
 - `vault/Vault.kt`: `LIST_NO_MEMORY`, el texto exacto del Ruling, fuera de `ui/` (como `VAULT_NO_MEMORY`).
 - `ui/screens/VaultList.kt`:
   - `ListResult.noMemory` y `ListResult.NO_MEMORY` (sin nada de la bóveda);
@@ -86,6 +86,7 @@ Llegaron después de `0ec7c14` y se aplican desde el punto 3: (1) el tope de RT-
 
 ### El criterio de 1,25x: salta, así que paro
 - **Método:** `shownCost` del atacante (árbol + índice + fichas, el montón vivo después de GC) por byte de JSON, con muestras de 1 MiB. Las legítimas, con `appJson` desde objetos de la app, **ids UUID** (los de la app: `Contacts.kt:63`, `EntryForm.kt:167`) y fechas de 13 cifras. Las hostiles, en JSON mínimo y aceptadas por todas las comprobaciones de la importación. Cada forma sale de su propia `Random(20261118L)`, con calentamiento (dos `shownCost` antes), 5 repeticiones y la mediana.
+- **Duración:** como un solo test, 10,2 s y 8,2 s en las dos ejecuciones de la clase sola, al límite de los 10 s. Si se sube al árbol, hay que partirlo (las legítimas una vez, perezosas, y un test por forma hostil).
 - **Estabilidad:** con una `Random` compartida entre formas y 3 repeticiones, el resultado dependía del orden y daba dos modos (por ejemplo, el tope a 25,89 o a 22,73 B/B). Con una `Random` por forma y la mediana de 5, tres ejecuciones (dos de la clase sola y una dentro de `redteam.*`) dan los mismos márgenes, ±0,002.
 - **Tabla** (B/B; mínimo, mediana y máximo de la ejecución 2; los márgenes, iguales en las tres):
 
@@ -109,7 +110,7 @@ Llegaron después de `0ec7c14` y se aplican desde el punto 3: (1) el tope de RT-
   - Lo que pasa de 1,25x es la compacidad del JSON (ids cortos, que `checkCopyEntries` admite desde LIBRE-1; fechas de una cifra; título vacío) con el mismo contenido que permiten las pantallas. Ningún tope de etiquetas lo cierra.
   - Con ids cortos en las legítimas (mi primera versión, sin querer), la más cara sube a 20,7 B/B y el tope queda en 1,10x. No he elegido esa base para que pase: la decisión de qué cuenta como «la legítima más cara» es del director.
 - **Pregunta para el director:** qué es «la legítima más cara» cuando una copia puede llevar cualquier id corto (LIBRE-1), o qué se hace con la compacidad del JSON (por ejemplo, juzgar por entrada en lugar de por byte, o comparar con legítimas de ids cortos).
-- **Qué queda:** el test del criterio no está en el árbol (no se sube en rojo, con `@Ignore` ni sin aserciones). La copia de la medida está en `.superpowers/sdd/2026-11-12-clavero-2.0/RedTeam20ListCostTest.kt.txt`. Avisé al controlador con un mensaje al acabar la medida.
+- **Qué queda:** el test del criterio no está en el árbol (no se sube en rojo, con `@Ignore` ni sin aserciones). La copia de la medida está en `docs/superpowers/handoff/sdd-2.0/redteam-fixes-2-criterio.kt.txt`. Avisé al controlador con un mensaje al acabar la medida.
 
 ## 5. Informativo 1
 - **Test de fuente** `app/src/test/java/app/seguridad/EmptySlotGuardSourceTest.kt` (corre en jvm-check y en la app). No nombra `EntryListViewModel` ni `Field`.
@@ -142,7 +143,7 @@ Llegaron después de `0ec7c14` y se aplican desde el punto 3: (1) el tope de RT-
 | Informativo 3 | `NoMemoryTest`: los dos nuevos con `java.lang.OutOfMemoryError` | `0ec7c14` | `readingACopyWithoutMemoryChangesNothing`, `checkingACopyWithoutMemoryAtEachReadLeavesNoFolder`; y, en `b632779`, `anImportAsNewWithoutMemoryAtEachReadLeavesNoVault` |
 | RT-25 a | `EntryListNoMemoryTest`: los dos del ViewModel, `TimeoutCancellationException` (el OOM salía sin capturar) | `b632779` | `theVaultListOutOfMemoryShowsTheTextAndStaysOpen`, `theCodesTabOutOfMemoryShowsTheTextAndStaysOpen`, `whatTheListPaints`, `theListShowsTheTextBeforeAnythingElse`; `ErrorTextsTest.theTextOfTheListOutOfMemory`; ancla en `PlatformSourcesTest` |
 | RT-25 b, tope | `rt25_`: `Accepted, but showing it needs 3.3 times its estimate…`; `versionsAndTheTrashDoNotRaiseIt` y `justAtTheCapPassesAndOneMoreIsRefused`: `…imported` | `655917d` | `rt25_aCopyThatPassesTheBudgetCanAlsoBeListed`; los seis de `RedTeam20TagExcessTest` |
-| RT-25 b, criterio | **1,28x > 1,25x** | **Parado, a consulta** | `RedTeam20ListCostTest`, fuera del árbol (copia en `.superpowers/sdd/2026-11-12-clavero-2.0/RedTeam20ListCostTest.kt.txt`) |
+| RT-25 b, criterio | **1,28x > 1,25x** | **Parado, a consulta** | `RedTeam20ListCostTest`, fuera del árbol (copia en `docs/superpowers/handoff/sdd-2.0/redteam-fixes-2-criterio.kt.txt`) |
 | Informativo 1 | `the default fails closed` | `78d9708` | `EmptySlotGuardSourceTest` (2 tests) |
 | Informativo 2 | El ancla del `Text` de `Field` | `7706c47` | `EntryFieldsTest.theNameOfAWifiShowsItsMarksAndCopiesAsItIs`; anclas de R9 en `PlatformSourcesTest` |
 
@@ -158,6 +159,13 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
 ### Punto 6 del controlador: lo que comprobé
 - **«Importar como bóveda nueva» con `COPY_NO_MEMORY`:** `AppContainer.newVault` (`AppContainer.kt:670-677`) captura cualquier `Throwable` y deshace el hueco nuevo (`dropVault`: vuelve a la bóveda de antes, quita el registro y los ajustes de la nueva). Lo cubren el test que ya había y el nuevo `anImportAsNewWithoutMemoryAtEachReadLeavesNoVault`. Un matiz: `settings.json` puede cambiar en `clockHighWaterMs` (la hora más alta vista, A11, que guarda `startClock`). Es la contabilidad del reloj, no un cambio de datos, así que «No se ha cambiado nada» sigue siendo verdad para el usuario.
 - **La copia automática al abrir** (`AutoBackup.kt:455-457`, `runDue(afterUnlock = true)`): codifica la bóveda en `VaultStore.export`, dentro de `attempt`, que tiene `catch (e: Throwable)` («Never closes the app: even an Error here only means there is no copy this time», `AutoBackup.kt:882-885`). `copyBeforeAny` hace lo mismo (`:778`). Un `OutOfMemoryError` ahí da `AUTO_BACKUP_FAILED` y no cierra la app. Solo lo informo, sin cambios.
+
+### Comprobaciones finales
+- **Regresión más amplia:** jvm-check `vault.*` y `AppContainer*` en una sola ejecución: 901 tests, 0 fallos. También las clases que leen los archivos de `ui/` que he tocado: jvm-check `ImportTextsTest`, `RedTeamRecheckTest` y `RedTeam20TagExcessTest` (63, 0 fallos), y la app `MarkupTextTest` (2, 0 fallos).
+- **El valor por defecto `{ false }` no llega a nadie real:** el único `setContent` está en `MainActivity.kt:34` y no hay ningún `ComposeView`, así que todo pasa por el proveedor de `AppNavHost.kt:335`.
+- **Quién llama a `checkCopyEntries`:** solo `VaultStore.replace` (`VaultStore.kt:1529`) y `checkBackup` (`BackupCheck.kt:99`). Abrir, guardar y exportar no tienen el tope.
+- **Divergencia entre «Importar» y «Comprobar» con una copia de antes de la 2.0 (duda nueva, sin arreglar):** la importación comprueba los datos después de `upgraded()` (`Vault.kt:338-348`), que convierte cada contraseña antigua en una versión con las etiquetas de la entrada, ajustada a 64 KiB de historial por entrada. «Comprobar una copia» comprueba los datos tal como están guardados. La misma copia de la 1.x (dos entradas de 2 010 etiquetas con 5 contraseñas antiguas cada una: exceso 4 000 tal como está, varias veces más tras la subida) pasa «Comprobar» y la rechaza «Importar». Lo fija `RedTeam20TagExcessTest.aCopyOfBefore20CountsItsUpgradedVersionsOnlyWhenImported`, que pasa hoy. La 1.x real con 50 etiquetas y 5 contraseñas antiguas (exceso 40, y 240 tras la subida) sigue pasando las dos.
+- **La medida del criterio, guardada:** `docs/superpowers/handoff/sdd-2.0/redteam-fixes-2-criterio.kt.txt`, fuera de los tests.
 
 ## Revisión experto-seguridad-cripto
 - **RT-26 (CWE-436):** `scanCopy` marca `escapedName` en cuanto un nombre de miembro de clase lleva `\` (`vault/VaultLimits.kt:441`) y `checkCopyShape` rechaza (`:319`). Rechazar es más seguro que deshacer los escapes, porque no hace falta otro analizador, y las claves de `tagColors` (que son datos) siguen libres. El KDoc «never below it» vuelve a ser verdad.
@@ -185,3 +193,4 @@ Ningún `@Ignore` en `redteam/` ni en `ui/redteam/`. Las suites enteras no se co
 1. **El criterio de RT-25 (punto 4):** qué es «la legítima más cara» cuando LIBRE-1 deja entrar ids cortos, o si se juzga de otra manera (por entrada, o con legítimas de ids cortos). Con ids UUID, 1,28x; con ids cortos en las legítimas, 1,10x.
 2. **`HealthScreen.kt:117-118`** también lee `guard()`, para elegir su texto. El test lo admite (el `!guard()` que rechaza solo está en los dos archivos). ¿Se deja así?
 3. **«Salud» y «Organizar»** sin la captura de la lista (fila 59): ¿se protegen en esta ronda o en otra?
+4. **Copias de antes de la 2.0:** «Importar» cuenta las versiones que crea la subida y «Comprobar» no (fila 61). ¿Se cuenta el exceso antes de la subida, en los dos sitios, o se deja así?

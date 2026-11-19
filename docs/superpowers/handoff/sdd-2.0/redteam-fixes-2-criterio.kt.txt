@@ -1,0 +1,169 @@
+package app.seguridad.redteam
+
+import app.seguridad.core.appJson
+import app.seguridad.vault.CustomField
+import app.seguridad.vault.EntryFilter
+import app.seguridad.vault.EntryType
+import app.seguridad.vault.EntryVersion
+import app.seguridad.vault.FieldKind
+import app.seguridad.vault.Folder
+import app.seguridad.vault.SavedView
+import app.seguridad.vault.SearchIndex
+import app.seguridad.vault.TagColor
+import app.seguridad.vault.VaultData
+import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.VaultLimits
+import app.seguridad.vault.checkCopyEntries
+import app.seguridad.vault.checkCopyShape
+import app.seguridad.vault.checkCopySize
+import app.seguridad.vault.checkCopyStructure
+import org.junit.Test
+import java.util.Random
+import java.util.UUID
+
+/**
+ * MEASUREMENT ONLY, kept as a text file outside the test sources (round 2, point 4, stopped for the director): the criterion of RT-25, per byte of JSON,
+ * shown cost = decoded tree + search index + tag chips (the attack's shownCost). Legitimate shapes as the app writes them
+ * (appJson from its objects, UUID ids, 13-digit dates); hostile ones in minimal JSON. Each shape from its own
+ * Random(20261118L), a warm-up first, [REPEATS] repeats: min, median, max.
+ */
+class RedTeam20ListCostTest {
+    private val sample = 1 shl 20
+    private val repeats = 5
+    private val t = 1_800_000_000_000L
+
+    private fun used(): Long {
+        repeat(4) {
+            System.gc()
+            Thread.yield()
+        }
+        return Runtime.getRuntime().let { it.totalMemory() - it.freeMemory() }
+    }
+
+    private fun shownCost(json: String): Long {
+        val u0 = used()
+        val data = appJson.decodeFromString(VaultData.serializer(), json)
+        val index = SearchIndex.build(data.entries, data.folders)
+        val chips = data.entries.flatMapTo(HashSet()) { it.tags }.sorted()
+        val u1 = used()
+        check(index.hashCode() != 0 || chips.isNotEmpty() || data.entries.isNotEmpty())
+        return u1 - u0
+    }
+
+    private fun accepted(json: String) {
+        checkCopyShape(json.toByteArray(), 4)
+        val data = appJson.decodeFromString(VaultData.serializer(), json)
+        checkCopyStructure(data)
+        checkCopySize(data)
+        checkCopyEntries(data.entries)
+    }
+
+    private class Gen {
+        val rnd = Random(20261118L)
+        var k = 0
+        var ids = 0
+        fun word(n: Int) = String(CharArray(n) { 'a' + rnd.nextInt(26) })
+        fun tag() = (k++).toString(36).padStart(5, 'a')
+        fun uuid() = UUID(rnd.nextLong(), rnd.nextLong()).toString()
+        fun id() = "e" + ids++
+    }
+
+    private fun legit(g: Gen, extra: VaultData = VaultData(), one: () -> VaultEntry): String {
+        val entries = ArrayList<VaultEntry>()
+        var size = appJson.encodeToString(VaultData.serializer(), extra).length + 64
+        while (true) {
+            val e = one()
+            val add = appJson.encodeToString(VaultEntry.serializer(), e).length + 1
+            if (size + add > sample) break
+            size += add
+            entries += e
+        }
+        return appJson.encodeToString(VaultData.serializer(), extra.copy(entries = entries, vaultTag = "b".repeat(32)))
+    }
+
+    private fun login(g: Gen, tags: List<String> = emptyList()) =
+        VaultEntry(g.uuid(), EntryType.LOGIN, g.word(8), username = g.word(10), url = "https://${g.word(8)}.example", createdAt = t, updatedAt = t, tags = tags)
+
+    private fun hostile(prefix: List<String> = emptyList(), one: () -> String): String = buildString(sample + 70_000) {
+        append("{\"entries\":[")
+        append(prefix.joinToString(","))
+        var first = prefix.isEmpty()
+        while (true) {
+            val e = one()
+            if (length + e.length + 60 > sample) break
+            if (!first) append(',')
+            first = false
+            append(e)
+        }
+        append("],\"vaultTag\":\"").append("b".repeat(32)).append("\"}")
+    }
+
+    private fun minimal(g: Gen, tags: List<String> = emptyList(), more: String = "") =
+        "{\"id\":\"${g.id()}\",\"type\":\"LOGIN\",\"title\":\"\",\"createdAt\":1,\"updatedAt\":1" +
+            (if (tags.isEmpty()) "" else ",\"tags\":[" + tags.joinToString(",") { "\"$it\"" } + "]") + more + "}"
+
+    private fun shapes(): Pair<Map<String, String>, Map<String, String>> {
+        val legit = linkedMapOf<String, String>()
+        Gen().let { g -> legit["notas largas"] = legit(g) { VaultEntry(g.uuid(), EntryType.NOTE, g.word(12), notes = g.word(2_000), createdAt = t, updatedAt = t) } }
+        Gen().let { g -> legit["accesos mínimos distintos"] = legit(g) { login(g) } }
+        Gen().let { g -> legit["accesos con 10 etiquetas distintas de 5 letras"] = legit(g) { login(g, List(10) { g.tag() }) } }
+        Gen().let { g ->
+            legit["30 campos visibles con nombres distintos"] = legit(g) {
+                login(g).copy(fields = List(VaultLimits.FIELDS_MAX) { CustomField(g.uuid(), g.word(12), FieldKind.TEXT, g.word(6)) })
+            }
+        }
+        Gen().let { g ->
+            legit["20 versiones con etiquetas"] = legit(g) {
+                val e = login(g, List(10) { g.tag() })
+                e.copy(history = List(VaultLimits.HISTORY_MAX_VERSIONS) { v -> EntryVersion(t - v, e.copy(password = g.word(12))) })
+            }
+        }
+        Gen().let { g ->
+            val folders = List(VaultLimits.FOLDERS_MAX) { Folder(g.uuid(), g.word(20)) }
+            val views = List(VaultLimits.VIEWS_MAX) { SavedView(g.uuid(), g.word(20), EntryFilter(text = g.word(10), tags = List(10) { g.word(5) }.toSet())) }
+            val colors = List(VaultLimits.TAG_COLORS_MAX) { g.word(5) to TagColor.entries[it % TagColor.entries.size] }.toMap()
+            legit["carpetas, vistas y colores en sus topes"] = legit(g, VaultData(folders = folders, views = views, tagColors = colors)) { login(g, List(10) { g.tag() }) }
+        }
+        val hostile = linkedMapOf<String, String>()
+        Gen().let { g -> hostile["(descomposición) 10 etiquetas distintas por entrada, JSON mínimo, sin exceso"] = hostile { minimal(g, List(10) { g.tag() }) } }
+        Gen().let { g -> hostile["etiquetas distintas justo en el tope (exceso 10 000)"] = hostile(List(100) { minimal(g, List(110) { g.tag() }) }) { minimal(g, List(10) { g.tag() }) } }
+        Gen().let { g ->
+            hostile["versiones con etiquetas distintas (exceso 10 000)"] = hostile(List(100) { minimal(g, List(110) { g.tag() }) }) {
+                minimal(g, List(10) { g.tag() }, ",\"history\":[" + List(20) { "{\"savedAt\":$it,\"entry\":" + minimal(g, List(10) { g.tag() }) + "}" }.joinToString(",") + "]")
+            }
+        }
+        Gen().let { g -> hostile["etiquetas repetidas, una entrada de 10 000"] = hostile(listOf(minimal(g, List(10_000) { "a" }))) { minimal(g, List(10) { "a" }) } }
+        Gen().let { g ->
+            hostile["nombres de campo distintos"] = hostile {
+                minimal(g, more = ",\"fields\":[" + List(VaultLimits.FIELDS_MAX) { "{\"id\":\"c$it\",\"name\":\"${g.tag()}\",\"kind\":\"TEXT\",\"value\":\"\"}" }.joinToString(",") + "]")
+            }
+        }
+        return legit to hostile
+    }
+
+    @Test fun measure() {
+        val warm = appJson.encodeToString(VaultData.serializer(), VaultData(entries = Gen().let { g -> List(200) { login(g, List(10) { g.tag() }) } }))
+        shownCost(warm)
+        shownCost(warm)
+        val (legit, hostile) = shapes()
+        fun row(kind: String, name: String, json: String): Double {
+            accepted(json)
+            val bytes = json.toByteArray().size
+            val all = List(repeats) { shownCost(json).toDouble() / bytes }.sorted()
+            println("MEASURE|$kind|$name|$bytes|${"%.2f".format(all.first())}|${"%.2f".format(all[repeats / 2])}|${"%.2f".format(all.last())}")
+            return all[repeats / 2]
+        }
+        val l = legit.mapValues { (n, j) -> row("legítima", n, j) }
+        val dearest = l.values.max()
+        for ((n, j) in hostile) {
+            val m = row("hostil", n, j)
+            println("MARGIN|$n|${"%.3f".format(m / dearest)}")
+        }
+        val g = Gen()
+        val floor = "{\"entries\":[" + minimal(g, List(5_010) { g.tag() }) + "," + minimal(g, List(5_010) { g.tag() }) + "],\"vaultTag\":\"" + "b".repeat(32) + "\"}"
+        accepted(floor)
+        val f = List(repeats) { shownCost(floor) }.sorted()
+        println("FLOOR|${f.first()}|${f[repeats / 2]}|${f.last()}")
+        println("DEAREST|${"%.2f".format(dearest)}")
+    }
+}

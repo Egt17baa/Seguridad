@@ -103,22 +103,59 @@ class RedTeam20TagExcessTest {
         passes("2 000 entries, 20 000 distinct tags", v4Copy(entries))
     }
 
-    /** A real copy of 1.4.3 (version 3) whose first entry got 50 tags written by hand, as 1.x let them be. */
-    @Test fun aCopyOf1xWithFiftyTagsInAnEntryPasses() {
+    /**
+     * A real copy of 1.4.3 (version 3) whose first entry got [tags] distinct tags written by hand, as 1.x let them be,
+     * and [oldPasswords] old passwords (1.x kept up to 5); sealed again with its own key. The copy and the excess as
+     * «Comprobar una copia» reads it (the data as stored, before the upgrade to v4).
+     */
+    private fun oneXCopy(tags: Int, oldPasswords: Int = 0, entries: Int = 1): Pair<ByteArray, Long> {
         val master = "maestra-de-prueba-143"
         val file = VaultCrypto.decodeFile(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
         val dek = VaultCrypto.unlock(file, master.toCharArray())
         val version = VaultCrypto.resolve(file, dek).version
         val list = appJson.parseToJsonElement(VaultCrypto.readJson(file, dek)).jsonArray
-        val first = JsonObject(list[0].jsonObject + ("tags" to JsonArray(distinct(50).map { JsonPrimitive(it) })))
-        val json = JsonArray(listOf(first) + list.drop(1)).toString().toByteArray()
+        check(list.size >= entries)
+        val changed = list.mapIndexed { i, e ->
+            if (i >= entries) return@mapIndexed e
+            var o = e.jsonObject + ("tags" to JsonArray(distinct(tags).map { JsonPrimitive(it) }))
+            if (oldPasswords > 0) {
+                o = o + ("passwordHistory" to JsonArray(List(oldPasswords) { JsonObject(mapOf("password" to JsonPrimitive("antigua-$it"), "changedAt" to JsonPrimitive(1_700_000_000_000L + it))) }))
+            }
+            JsonObject(o)
+        }
+        val json = JsonArray(changed).toString().toByteArray()
         val nonce = randomBytes(NONCE_BYTES)
-        val sealed = aead(Aead.AES_256_GCM, true, dek, nonce, dataAad(file, version), json)
-        val copy = ByteArrayOutputStream().also {
-            app.seguridad.vault.writeBackup(it, VaultCrypto.encodeFile(file.copy(data = Base64.getEncoder().encodeToString(nonce + sealed))), emptyMap())
-        }.toByteArray()
-        assertEquals(40L, excess(VaultCrypto.read(file.copy(data = Base64.getEncoder().encodeToString(nonce + sealed)), dek, copy = true).entries))
-        passes("1.x with 50 tags in an entry", copy, master)
+        val sealed = file.copy(data = Base64.getEncoder().encodeToString(nonce + aead(Aead.AES_256_GCM, true, dek, nonce, dataAad(file, version), json)))
+        val copy = ByteArrayOutputStream().also { app.seguridad.vault.writeBackup(it, VaultCrypto.encodeFile(sealed), emptyMap()) }.toByteArray()
+        return copy to excess(VaultCrypto.read(sealed, dek, copy = true).entries)
+    }
+
+    @Test fun aCopyOf1xWithFiftyTagsInAnEntryPasses() {
+        val (copy, extra) = oneXCopy(50, oldPasswords = 5)
+        assertEquals(40L, extra)
+        passes("1.x with 50 tags in an entry", copy, "maestra-de-prueba-143")
+    }
+
+    /**
+     * Point 5 of the closure (a doubt for the director, not fixed): «Importar copia» checks a copy of before 2.0 after its
+     * upgrade to v4, where each old password becomes a version with the entry's tags (Vault.kt `upgraded`), fitted to
+     * 64 KiB of history per entry; «Comprobar una copia» checks the data as stored. So the same 1.x copy (two entries of
+     * 2 010 tags with 5 old passwords each: 4 000 over 10 as stored, several times that once upgraded) passes «Comprobar»
+     * and is refused by «Importar». This test pins what happens today; the report asks the director whether it should.
+     */
+    @Test fun aCopyOfBefore20CountsItsUpgradedVersionsOnlyWhenImported() {
+        val master = "maestra-de-prueba-143"
+        val (copy, extra) = oneXCopy(MAX_TAGS + 2_000, oldPasswords = 5, entries = 2)
+        assertEquals("as stored", 4_000L, extra)
+        check(copy, master) // «Comprobar una copia»: it passes.
+        val s = store()
+        try {
+            runBlocking { s.importReplace(ByteArrayInputStream(copy), master.toCharArray()) }
+            fail("imported")
+        } catch (e: CryptoFailure) {
+            assertEquals(COPY_DAMAGED, e.message)
+        }
+        assertEquals(VaultState.NoVault, s.state.value)
     }
 
     /**
