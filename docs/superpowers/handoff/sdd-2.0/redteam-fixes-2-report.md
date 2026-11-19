@@ -10,10 +10,10 @@ Encargo: `docs/superpowers/handoff/sdd-2.0/advisor-t12-redteam-fixes-2.md`, «En
 | 1. RT-26 | Hecho | bd0c31a |
 | 2. Informativo 3 | Hecho | 0ec7c14 |
 | 3. RT-25, parte a | Hecho | b632779 |
-| 4. RT-25, parte b | Hecho: el tope (`655917d`) y el test del criterio redefinido por el director | 655917d y (commit del criterio) |
+| 4. RT-25, parte b | Hecho: el tope (`655917d`) y el test del criterio redefinido por el director | 655917d y e587d90 |
 | 5. Informativo 1 | Hecho | 78d9708 |
 | 6. Informativo 2 | Hecho | 7706c47 |
-| 7. Cierre | Hecho | 937b4f2, 22379bd y (commit del criterio) |
+| 7. Cierre | Hecho | 937b4f2, 22379bd y e587d90 |
 
 ## 1. RT-26
 - `vault/VaultLimits.kt`: `scanCopy` apunta si la última cadena llevaba una `\` (`lastStringEscaped`) y, al ver `:` en un objeto de clase (todos menos el mapa `tagColors`), marca `escapedName`. `CopyShape` gana `escapedName`, y `checkCopyShape` rechaza con `COPY_DAMAGED`. A cualquier profundidad y con cualquier escape (`\uXXXX`, `\/`, `\"`). El KDoc del modelo y el de `checkCopyShape`, al día.
@@ -154,7 +154,7 @@ Llegaron después de `0ec7c14` y se aplican desde el punto 3: (1) el tope de RT-
 | Informativo 3 | `NoMemoryTest`: los dos nuevos con `java.lang.OutOfMemoryError` | `0ec7c14` | `readingACopyWithoutMemoryChangesNothing`, `checkingACopyWithoutMemoryAtEachReadLeavesNoFolder`; y, en `b632779`, `anImportAsNewWithoutMemoryAtEachReadLeavesNoVault` |
 | RT-25 a | `EntryListNoMemoryTest`: los dos del ViewModel, `TimeoutCancellationException` (el OOM salía sin capturar) | `b632779` | `theVaultListOutOfMemoryShowsTheTextAndStaysOpen`, `theCodesTabOutOfMemoryShowsTheTextAndStaysOpen`, `whatTheListPaints`, `theListShowsTheTextBeforeAnythingElse`; `ErrorTextsTest.theTextOfTheListOutOfMemory`; ancla en `PlatformSourcesTest` |
 | RT-25 b, tope | `rt25_`: `Accepted, but showing it needs 3.3 times its estimate…`; `versionsAndTheTrashDoNotRaiseIt` y `justAtTheCapPassesAndOneMoreIsRefused`: `…imported` | `655917d` | `rt25_aCopyThatPassesTheBudgetCanAlsoBeListed`; los seis de `RedTeam20TagExcessTest` |
-| RT-25 b, criterio (redefinido) | B con `false &&` y un suelo de exceso 100 000: `the floor costs 30845512 bytes to show (at most 4194304)` | (commit del criterio) | `RedTeam20ListCostTest` (B, C, D y las filas informativas); `rt25_` con `assertTrue(refused)` |
+| RT-25 b, criterio (redefinido) | B con `false &&` y un suelo de exceso 100 000: `the floor costs 30845512 bytes to show (at most 4194304)` | e587d90 | `RedTeam20ListCostTest` (B, C, D y las filas informativas); `rt25_` con `assertTrue(refused)` |
 | Informativo 1 | `the default fails closed` | `78d9708` | `EmptySlotGuardSourceTest` (2 tests) |
 | Informativo 2 | El ancla del `Text` de `Field` | `7706c47` | `EntryFieldsTest.theNameOfAWifiShowsItsMarksAndCopiesAsItIs`; anclas de R9 en `PlatformSourcesTest` |
 
