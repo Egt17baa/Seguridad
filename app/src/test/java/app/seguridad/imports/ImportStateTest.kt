@@ -2,6 +2,7 @@ package app.seguridad.imports
 
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultEntry
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -355,16 +356,16 @@ class ImportStateTest {
     @Test fun theEstimateGivesTheNewTagsOfWhatEnters() {
         // M-1: from the merged entries; the tags of duplicates kept or replaced count, «casa» is already in the vault.
         val p = plan()
-        assertEquals(setOf(ORIGIN_TAG_BITWARDEN, "compras"), previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), existing, 1L).newTags)
+        assertEquals(setOf(ORIGIN_TAG_BITWARDEN, "compras"), previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L).newTags)
         assertEquals(
             setOf(ORIGIN_TAG_BITWARDEN, "compras", "trabajo"),
-            previewEstimate(p, DuplicateChoice.SKIP, mapOf(5 to DuplicateChoice.KEEP_BOTH), existing, 1L).newTags,
+            previewEstimate(p, DuplicateChoice.SKIP, mapOf(5 to DuplicateChoice.KEEP_BOTH), existing, VaultData(), 1L).newTags,
         )
         assertEquals(
             setOf(ORIGIN_TAG_BITWARDEN, "compras", "trabajo", "dinero"),
-            previewEstimate(p, DuplicateChoice.REPLACE, emptyMap(), existing, 1L).newTags,
+            previewEstimate(p, DuplicateChoice.REPLACE, emptyMap(), existing, VaultData(), 1L).newTags,
         )
-        assertEquals(0L, previewEstimate(p, DuplicateChoice.KEEP_BOTH, emptyMap(), existing, 1L).overBytes)
+        assertEquals(0L, previewEstimate(p, DuplicateChoice.KEEP_BOTH, emptyMap(), existing, VaultData(), 1L).overBytes)
     }
 
     @Test fun theSessionShowsTheTagsOfTheEstimateForTheChoicesShown() {
@@ -709,11 +710,11 @@ class ImportStateTest {
         try {
             beforeImportWork = { throw OutOfMemoryError() }
             assertNull(planMergeOrNoMemory(read, existing, 9))
-            assertNull(previewEstimateOrNoMemory(plan(), DuplicateChoice.SKIP, emptyMap(), existing, 1L))
+            assertNull(previewEstimateOrNoMemory(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L))
         } finally {
             beforeImportWork = {}
         }
         assertEquals(plan(), planMergeOrNoMemory(read, existing, 9))
-        assertEquals(previewEstimate(plan(), DuplicateChoice.SKIP, emptyMap(), existing, 1L), previewEstimateOrNoMemory(plan(), DuplicateChoice.SKIP, emptyMap(), existing, 1L))
+        assertEquals(previewEstimate(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L), previewEstimateOrNoMemory(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L))
     }
 }

@@ -538,7 +538,7 @@ class RedTeam20Recheck2Test {
         try {
             app.seguridad.imports.beforeImportWork = { throw OutOfMemoryError() }
             assertEquals(null, app.seguridad.imports.planMergeOrNoMemory(one, data.entries, 0))
-            assertEquals(null, app.seguridad.imports.previewEstimateOrNoMemory(plan, app.seguridad.imports.DuplicateChoice.SKIP, emptyMap(), data.entries, 1L))
+            assertEquals(null, app.seguridad.imports.previewEstimateOrNoMemory(plan, app.seguridad.imports.DuplicateChoice.SKIP, emptyMap(), data.entries, app.seguridad.vault.VaultData(), 1L))
             val run = session.begin(Any())
             session.hold(run, byteArrayOf(1))
             session.onRead(run, app.seguridad.imports.ReadResult.Ok(one))

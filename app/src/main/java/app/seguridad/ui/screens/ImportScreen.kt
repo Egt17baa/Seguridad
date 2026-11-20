@@ -210,9 +210,10 @@ private class ImportViewModel(
                 val default = input.default
                 val overrides = input.overrides
                 val existing = session.existing
+                val rest = session.rest
                 // Round 3, RT-27: out of memory gives null (previewEstimateOrNoMemory), never a closed app.
                 val estimate = try {
-                    withContext(Dispatchers.Default) { previewEstimateOrNoMemory(plan, default, overrides, existing, System.currentTimeMillis()) }
+                    withContext(Dispatchers.Default) { previewEstimateOrNoMemory(plan, default, overrides, existing, rest, System.currentTimeMillis()) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -322,7 +323,7 @@ private class ImportViewModel(
         // running out of memory (planMergeOrNoMemory), said as IMPORT_NO_MEMORY.
         if (snap == null) return session.onPlan(run, null, emptyList())
         val plan = withContext(Dispatchers.Default) { planMergeOrNoMemory(read, snap.entries, snap.revision) }
-        if (plan == null) session.planNoMemory(run) else session.onPlan(run, plan, snap.entries)
+        if (plan == null) session.planNoMemory(run) else session.onPlan(run, plan, snap.entries, snap.rest)
     }
 
     fun cancel() {

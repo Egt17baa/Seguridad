@@ -1015,8 +1015,10 @@ class VaultStore(
      * entries for the preview's estimate), and [app.seguridad.imports.planImport] does the same for the tests.
      */
     suspend fun importSnapshot(): VaultSnapshot? = mutex.withLock {
-        val entries = (_state.value as? VaultState.Unlocked)?.entries ?: return@withLock null
-        VaultSnapshot(entries, _revision.value)
+        val open = _state.value as? VaultState.Unlocked ?: return@withLock null
+        val d = open.data
+        // Review fixes, CR-5: what the save measures besides the live entries, from the same critical section.
+        VaultSnapshot(open.entries, _revision.value, VaultData(entries = open.trash, folders = d.folders, views = d.views, tagColors = d.tagColors, name = d.name))
     }
 
     /**
@@ -1778,8 +1780,13 @@ internal const val IMPORT_TOO_BIG = "El archivo pasa de 40 MB: no es una copia d
 private const val JSON_HAS_ATTACHMENTS = "Esta copia tiene adjuntos: importa el archivo .sgbak"
 private const val IMPORT_DIR_PREFIX = "import-"
 
-/** What [VaultStore.importSnapshot] gives: the entries shown and the revision they belong to. */
-data class VaultSnapshot(val entries: List<VaultEntry>, val revision: Long)
+/**
+ * What [VaultStore.importSnapshot] gives: the entries shown and the revision they belong to, and [rest] (review fixes,
+ * CR-5): what the save of an import measures besides them ([VaultStore.applyImport]: the trash, the folders, the views,
+ * the tags' colours and the name), as a [VaultData] whose [VaultData.entries] are the trash. Its other fields (the
+ * vault's tag, times and flags) are left out; the preview's estimate allows for them.
+ */
+data class VaultSnapshot(val entries: List<VaultEntry>, val revision: Long, val rest: VaultData)
 
 /** The marker entry's content in a `.sgbak` («2\n»), counted by [writeBackup] in the copy's total. */
 private const val BACKUP_MARKER_BYTES = 2L

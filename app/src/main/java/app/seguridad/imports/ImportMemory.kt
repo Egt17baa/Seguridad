@@ -1,5 +1,6 @@
 package app.seguridad.imports
 
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultEntry
 
 /*
@@ -27,10 +28,11 @@ internal fun previewEstimateOrNoMemory(
     default: DuplicateChoice,
     overrides: Map<Int, DuplicateChoice>,
     existing: List<VaultEntry>,
+    rest: VaultData,
     now: Long,
 ): PreviewEstimate? = try {
     beforeImportWork()
-    previewEstimate(plan, default, overrides, existing, now)
+    previewEstimate(plan, default, overrides, existing, rest, now)
 } catch (e: OutOfMemoryError) {
     null
 }

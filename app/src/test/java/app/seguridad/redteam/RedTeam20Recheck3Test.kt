@@ -180,20 +180,21 @@ class RedTeam20Recheck3Test {
     }
 
     /**
-     * RT-27, informative: the session does not hold «Importar nunca activo con estimateNoMemory» on its own. After
-     * [ImportSession.estimateNoMemory], an [ImportSession.estimated] for the SAME choices sets overBytes and leaves
-     * estimateNoMemory on: «Importar» is on while the preview shows IMPORT_NO_MEMORY (its first branch). Not reachable
-     * from the screen: its only caller is the one `collectLatest` over `snapshotFlow` of (plan, default, overrides), which
-     * cancels the estimate of before at each change (and withContext drops a result after a cancel), so two estimates of
-     * the same choices never both arrive. Asserted as it is today; the one-line hardening (estimated clears the flag, or
-     * canConfirm reads it) is for the round of fixes.
+     * RT-27, review fixes I-1 (was informative): the session holds «Importar» off on its own while IMPORT_NO_MEMORY is
+     * shown. An [ImportSession.estimated] for the same choices after [ImportSession.estimateNoMemory] is the estimate
+     * shown, and clears the flag; [ImportSession.canConfirm] also reads it. On the screen two estimates of the same
+     * choices never both arrive anyway (one `collectLatest` over `snapshotFlow`, which cancels the one of before).
      */
-    @Test fun informativeAnEstimateAfterNoMemoryForTheSameChoicesTurnsImportOn() {
+    @Test fun resistsAnEstimateAfterNoMemoryForTheSameChoices() {
         val (s, plan) = preview()
         s.estimateNoMemory(plan, s.default, s.overrides)
+        assertTrue(s.estimateNoMemory)
+        assertFalse("«Importar» off with IMPORT_NO_MEMORY on view", s.canConfirm)
         s.estimated(plan, s.default, s.overrides, PreviewEstimate(0L, emptySet(), 0))
-        assertTrue("still flagged", s.estimateNoMemory)
-        assertTrue("«Importar» on with IMPORT_NO_MEMORY on view (session only)", s.canConfirm)
+        assertFalse("the estimate that arrived is the one shown", s.estimateNoMemory)
+        assertTrue(s.canConfirm)
+        // canConfirm reads the flag: «Importar» is never on with IMPORT_NO_MEMORY on view.
+        assertTrue("!estimateNoMemory" in code("imports/ImportSession.kt").substringAfter("val canConfirm: Boolean").substringBefore("fun startSaving"))
         // Not reachable from the screen: one caller of each, in the collectLatest of the estimate.
         val src = code("ui/screens/ImportScreen.kt")
         assertEquals(1, Regex("""session\.estimated\(""").findAll(src).count())
@@ -220,7 +221,7 @@ class RedTeam20Recheck3Test {
                 assertEquals("cancelled", e.message)
             }
             try {
-                previewEstimateOrNoMemory(plan, DuplicateChoice.SKIP, emptyMap(), emptyList(), 1L)
+                previewEstimateOrNoMemory(plan, DuplicateChoice.SKIP, emptyMap(), emptyList(), app.seguridad.vault.VaultData(), 1L)
                 fail("previewEstimateOrNoMemory swallowed a cancel")
             } catch (e: CancellationException) {
                 assertEquals("cancelled", e.message)
@@ -241,7 +242,7 @@ class RedTeam20Recheck3Test {
         assertEquals(2, Regex("""catch \(e: OutOfMemoryError\)""").findAll(wrappers).count())
         val src = code("ui/screens/ImportScreen.kt")
         val flat = src.replace(Regex("""\s+"""), " ")
-        assertTrue("if (plan == null) session.planNoMemory(run) else session.onPlan(run, plan, snap.entries)" in src)
+        assertTrue("if (plan == null) session.planNoMemory(run) else session.onPlan(run, plan, snap.entries, snap.rest)" in src)
         assertEquals("one snapshot", 1, Regex("""importSnapshot\(""").findAll(src).count())
         assertTrue("} catch (e: CancellationException) { throw e } catch (e: Exception) { PreviewEstimate(0L, null, 0) }" in flat)
     }

@@ -8,6 +8,7 @@ import app.seguridad.tools.codes.getValue
 import app.seguridad.tools.codes.setValue
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.IMPORT_COPY_PREFIX
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultEntry
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -148,6 +149,10 @@ class ImportSession(
     var existing: List<VaultEntry> = emptyList()
         private set
 
+    /** Review fixes, CR-5: the rest of the same snapshot ([app.seguridad.vault.VaultSnapshot.rest]), for the estimate. */
+    var rest: VaultData = VaultData()
+        private set
+
     /** Something runs that the user waits for (and can cancel while [ImportStep.Reading]). */
     val busy: Boolean get() = step == ImportStep.Reading || step == ImportStep.Saving
 
@@ -239,11 +244,12 @@ class ImportSession(
     }
 
     /** The plan of [run] against [existing] (VaultStore.importSnapshot); null when the vault locked meanwhile. */
-    fun onPlan(run: Long, plan: MergePlan?, existing: List<VaultEntry>) {
+    fun onPlan(run: Long, plan: MergePlan?, existing: List<VaultEntry>, rest: VaultData = VaultData()) {
         if (!isRun(run) || step != ImportStep.Reading) return
         if (plan == null) return dropAll()
         this.plan = plan
         this.existing = existing
+        this.rest = rest
         skipped = plan.skipped
         default = DuplicateChoice.SKIP
         overrides = emptyMap()
@@ -316,6 +322,8 @@ class ImportSession(
     fun estimated(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, estimate: PreviewEstimate) {
         if (step != ImportStep.Preview || plan !== this.plan || default != this.default || overrides != this.overrides) return
         overBytes = estimate.overBytes
+        // Review fixes, I-1: an estimate that arrives is the one shown, also after one out of memory for these choices.
+        estimateNoMemory = false
         newTags = estimate.newTags
         foldersNotTags = estimate.foldersNotTags
     }
@@ -327,7 +335,7 @@ class ImportSession(
     val canConfirm: Boolean
         get() {
             val c = counts ?: return false
-            return step == ImportStep.Preview && overBytes == 0L && (c.addedTotal > 0 || c.replaced > 0)
+            return step == ImportStep.Preview && overBytes == 0L && !estimateNoMemory && (c.addedTotal > 0 || c.replaced > 0)
         }
 
     /** «Importar»: the run that confirms, once; null when it cannot ([canConfirm]) or already did. */
@@ -452,6 +460,7 @@ class ImportSession(
         fileName = null
         plan = null
         existing = emptyList()
+        rest = VaultData()
         newTags = null
         foldersNotTags = 0
         default = DuplicateChoice.SKIP
@@ -502,12 +511,21 @@ fun previewCounts(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int,
 data class PreviewEstimate(val overBytes: Long, val newTags: Set<String>?, val foldersNotTags: Int)
 
 /**
- * The [PreviewEstimate] of the import with these choices, against [existing] (the snapshot the plan was built on), off
- * the main thread. The ids are placeholders of a UUID's length; the save's exact check decides.
+ * The [PreviewEstimate] of the import with these choices, against [existing] and [rest] (the snapshot the plan was built
+ * on), off the main thread. Review fixes, CR-5: it measures what the save measures, the merged entries with the rest of
+ * the vault ([estimatedOverBytes] of a [VaultData]). The ids are placeholders of a UUID's length; the save's exact check
+ * decides.
  */
-fun previewEstimate(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, existing: List<VaultEntry>, now: Long): PreviewEstimate {
+fun previewEstimate(
+    plan: MergePlan,
+    default: DuplicateChoice,
+    overrides: Map<Int, DuplicateChoice>,
+    existing: List<VaultEntry>,
+    rest: VaultData,
+    now: Long,
+): PreviewEstimate {
     val r = mergeImport(plan, default, overrides, existing, now, { PLACEHOLDER_ID })
-    return PreviewEstimate(estimatedOverBytes(r.entries), r.newTags, r.foldersNotTags)
+    return PreviewEstimate(estimatedOverBytes(rest.copy(entries = r.entries + rest.entries)), r.newTags, r.foldersNotTags)
 }
 
 private const val PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000"

@@ -15,6 +15,7 @@ import app.seguridad.imports.planImport
 import app.seguridad.imports.importedEntry
 import app.seguridad.imports.mergedEntries
 import app.seguridad.imports.planMerge
+import app.seguridad.imports.previewEstimate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -172,6 +173,137 @@ class VaultStoreImportTest {
         assertEquals(1, entries(s).size)
     }
 
+    private fun trashNote(i: Int, len: Int) =
+        VaultEntry("t$i", EntryType.NOTE, "T$i", notes = "x".repeat(len), createdAt = 1, updatedAt = 1, deletedAt = clock)
+
+    /** [count] notes in the trash whose vault, with [live] and [extra], measures [target] JSON bytes (as the save does). */
+    private fun trashFor(target: Long, live: List<VaultEntry>, extra: VaultData = VaultData(), count: Int = 420): List<VaultEntry> {
+        val base = (0 until count).map { trashNote(it, 1) }
+        val size = jsonBytes(extra.copy(entries = live + base))
+        val each = ((target - size) / count).toInt()
+        val first = base.mapIndexed { i, e -> if (i == 0) e else e.copy(notes = "x".repeat(1 + each)) }
+        val last = target - jsonBytes(extra.copy(entries = live + first)) + 1
+        return first.mapIndexed { i, e -> if (i == 0) e.copy(notes = "x".repeat(last.toInt())) else e }
+    }
+
+    /**
+     * Review fixes, CR-5: the preview measures what the save measures, the merged entries with the trash, the folders,
+     * the views, the colours and the name. Here the live entries fit; with the trash, or with the folders, they do not.
+     */
+    @Test fun thePreviewMeasuresTheTrashAndTheFoldersToo() {
+        val live = listOf(VaultEntry("b", EntryType.LOGIN, "Banco", username = "ana", password = "vieja", createdAt = 1, updatedAt = 1))
+        val p = planMerge(read(ImportedItem(0, importedEntry(EntryType.NOTE, "Wifi", notes = "clave"), emptyList())), live, 1)
+        val merged = mergedEntries(p, DuplicateChoice.SKIP, emptyMap(), live, clock, { "u".repeat(36) })
+        assertEquals("the live entries alone fit", 0L, estimatedOverBytes(merged))
+        // The trash takes the vault 10 000 bytes over its 24 MiB.
+        val over = VaultData(entries = trashFor(VaultLimits.VAULT_MAX_DATA_BYTES + 10_000L, merged))
+        assertTrue(previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), live, over, clock).overBytes >= 10_000)
+        // The trash leaves 30 000 bytes free; 500 folders take more.
+        val folders = (0 until 500).map { Folder("carpeta-$it".padEnd(36, '0'), "Carpeta $it ${"n".repeat(50)}", null, it) }
+        val under = trashFor(VaultLimits.VAULT_MAX_DATA_BYTES - 30_000L, merged)
+        assertEquals("fits without the folders", 0L, previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), live, VaultData(entries = under), clock).overBytes)
+        val withFolders = VaultData(entries = under, folders = folders)
+        assertTrue(jsonBytes(withFolders.copy(entries = merged + under)) > VaultLimits.VAULT_MAX_DATA_BYTES)
+        assertTrue(previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), live, withFolders, clock).overBytes > 0)
+    }
+
+    /** A vault file of [data] under the master «maestra» and the store opened on it. */
+    private suspend fun storeOf(data: VaultData): VaultStore {
+        val (file, dek) = VaultCrypto.create("maestra".toCharArray(), clock, KdfParams(1024, 1, 1))
+        vaultFile.writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, data)))
+        dek.fill(0)
+        return store().apply { load(); unlock("maestra".toCharArray()) }
+    }
+
+    /** The vault the preview measures for [p] with [default], from [snap] (ids as long as the save's UUIDs). */
+    private fun previewData(p: MergePlan, default: DuplicateChoice, snap: VaultSnapshot): VaultData =
+        snap.rest.copy(entries = mergedEntries(p, default, emptyMap(), snap.entries, clock, { "u".repeat(36) }) + snap.rest.entries)
+
+    /**
+     * Review fixes, CR-5: 200 random vaults (Random(20261120)), each with live entries, a trash, folders, views, colours
+     * and a name, and a random import with duplicates and a random choice for them. Small (a few KB), so each case is
+     * milliseconds: what the preview counts never is below what the save measures (it does not depend on the cap), and so
+     * neither of the two verdicts can differ the wrong way. Through the real [previewEstimate] and [VaultStore.applyImport]:
+     * a TooBig of the save has a preview over 0, a preview of 0 is saved, and after each save the data the store holds
+     * (JSON) and the file on disk are within what the preview counted. The verdict at the real caps:
+     * [thePreviewAndTheSaveAgreeAtTheRealCaps] and [thePreviewAndTheSaveAgreeAtTheRealCapsNearTheEdge].
+     */
+    @Test fun thePreviewNeverCountsLessThanTheSave() = runTest {
+        val rnd = kotlin.random.Random(20261120L)
+        var saved = 0
+        repeat(200) { case ->
+            val live = (0 until rnd.nextInt(1, 8)).map {
+                VaultEntry("l$it", EntryType.LOGIN, "Sitio $it", username = "u$it", password = "p".repeat(rnd.nextInt(1, 40)), notes = "n".repeat(rnd.nextInt(0, 500)), createdAt = 1, updatedAt = 1)
+            }
+            val data = VaultData(
+                entries = live + (0 until rnd.nextInt(0, 20)).map { trashNote(it, rnd.nextInt(1, 2_000)) },
+                folders = (0 until rnd.nextInt(0, 51)).map { Folder("f$it", "Carpeta $it ${"c".repeat(rnd.nextInt(0, 50))}", null, it) },
+                views = (0 until rnd.nextInt(0, 11)).map { SavedView("v$it", "Vista $it ${"v".repeat(rnd.nextInt(0, 50))}", EntryFilter()) },
+                tagColors = (0 until rnd.nextInt(0, 31)).associate { "etiqueta$it" to TagColor.entries[rnd.nextInt(TagColor.entries.size)] },
+                name = "B".repeat(rnd.nextInt(0, 101)),
+            )
+            val s = storeOf(data)
+            val items = (0 until rnd.nextInt(1, 6)).map {
+                // Some are duplicates of a live login (same title and user), with a new password.
+                val entry = if (rnd.nextBoolean()) {
+                    val l = live[rnd.nextInt(live.size)]
+                    importedEntry(EntryType.LOGIN, l.title, username = l.username, password = "nueva".repeat(rnd.nextInt(1, 20)))
+                } else {
+                    importedEntry(EntryType.NOTE, "Importada $it", notes = "i".repeat(rnd.nextInt(1, 3_000)))
+                }
+                ImportedItem(it, entry, emptyList())
+            }
+            val default = DuplicateChoice.entries[rnd.nextInt(DuplicateChoice.entries.size)]
+            val snap = s.importSnapshot()!!
+            val p = planMerge(read(*items.toTypedArray()), snap.entries, snap.revision)
+            val estimate = previewEstimate(p, default, emptyMap(), snap.entries, snap.rest, clock).overBytes
+            val counted = app.seguridad.imports.previewDataBytes(previewData(p, default, snap))
+            val r = s.applyImport(p, default, emptyMap())
+            if (r is ApplyResult.TooBig) assertTrue("case $case: the save says $r, the preview $estimate", estimate > 0)
+            if (estimate == 0L) assertTrue("case $case: the preview says 0, the save $r", r is ApplyResult.Done)
+            if (r is ApplyResult.Done && (r.added > 0 || r.replaced > 0)) {
+                saved++
+                val held = jsonBytes((s.state.value as VaultState.Unlocked).data)
+                assertTrue("case $case: the store holds $held JSON bytes, the preview counted $counted", held <= counted)
+                assertTrue("case $case: the file has ${vaultFile.length()} bytes", vaultFile.length() <= app.seguridad.imports.previewFileBytes(counted))
+            }
+        }
+        assertTrue("$saved of 200 saved", saved >= 150)
+    }
+
+    /**
+     * Review fixes, CR-5, the verdict at the real caps: vaults a little under the 24 MiB, with a trash, folders, views,
+     * colours and a name, and an import that fits or does not. A TooBig of the save has a preview over 0; a preview of 0
+     * is saved. Few cases: each one passes over 24 MiB some 25 times (writing the file, the unlock, the preview, the save).
+     */
+    @Test fun thePreviewAndTheSaveAgreeAtTheRealCaps() = realCaps(100_000L to listOf(30_000), 100_000L to listOf(50_000, 50_000, 50_000))
+
+    /** [thePreviewAndTheSaveAgreeAtTheRealCaps], close to the edge on each side (split so each test stays under 10 s). */
+    @Test fun thePreviewAndTheSaveAgreeAtTheRealCapsNearTheEdge() = realCaps(20_000L to listOf(17_000), 20_000L to listOf(21_000))
+
+    /** Each case: the room the vault leaves, and the notes the file brings. */
+    private fun realCaps(vararg cases: Pair<Long, List<Int>>) = runTest {
+        val extra = VaultData(
+            folders = (0 until 300).map { Folder("f$it", "Carpeta $it", null, it) },
+            views = (0 until 20).map { SavedView("v$it", "Vista $it", EntryFilter()) },
+            tagColors = (0 until 50).associate { "etiqueta$it" to TagColor.BLUE },
+            name = "Bóveda de prueba",
+        )
+        val live = listOf(VaultEntry("b", EntryType.LOGIN, "Banco", username = "ana", password = "vieja", createdAt = 1, updatedAt = 1))
+        for ((room, notes) in cases) {
+            val s = storeOf(extra.copy(entries = live + trashFor(VaultLimits.VAULT_MAX_DATA_BYTES - room, live, extra)))
+            val items = notes.mapIndexed { i, n -> ImportedItem(i, importedEntry(EntryType.NOTE, "Importada $i", notes = "i".repeat(n)), emptyList()) }
+            val snap = s.importSnapshot()!!
+            val p = planMerge(read(*items.toTypedArray()), snap.entries, snap.revision)
+            val estimate = previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), snap.entries, snap.rest, clock).overBytes
+            val r = s.applyImport(p, DuplicateChoice.SKIP, emptyMap())
+            println("CR-5 at the real caps: room $room, notes $notes: preview $estimate, save $r")
+            val fits = notes.sum() < room - 2_000
+            if (fits) assertTrue("room $room, $notes: $r", r is ApplyResult.Done && estimate == 0L)
+            if (!fits) assertTrue("room $room, $notes: $r, preview $estimate", r is ApplyResult.TooBig && estimate > 0)
+        }
+    }
+
     /** I-1: text JSON escapes six times over is refused from its count, before anything is encoded or encrypted. */
     @Test fun aHeavilyEscapedImportIsRefusedBeforeEncoding() = runTest {
         val s = opened()
@@ -235,7 +367,7 @@ class VaultStoreImportTest {
         // Built on the list with the edit: it applies, and the edit is there.
         assertTrue(s.applyImport(p, DuplicateChoice.SKIP, emptyMap()) is ApplyResult.Done)
         assertTrue(entries(s).any { it.id == "x" })
-        assertEquals(VaultSnapshot(entries(s), s.revision.value), s.importSnapshot())
+        assertEquals(VaultSnapshot(entries(s), s.revision.value, VaultData()), s.importSnapshot())
         s.lock()
         assertNull(s.importSnapshot())
         assertNull(s.planImport(fileRead()))

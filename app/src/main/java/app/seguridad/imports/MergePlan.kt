@@ -6,10 +6,13 @@ import app.seguridad.tools.qr.SPECIAL_SCHEMES
 import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.schemeOf
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultFile
 import app.seguridad.vault.VaultLimits
 import app.seguridad.vault.backupMaxEntryBytes
 import app.seguridad.vault.entryLimitProblem
+import app.seguridad.vault.fitted
+import app.seguridad.vault.jsonBytes
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MAX_TAGS
 import app.seguridad.vault.VaultEntry
@@ -407,6 +410,32 @@ private val IMPORT_COPY_CAP = backupMaxEntryBytes(VaultFile.VERSION)
 /** How much [estimatedVaultFileBytes] passes [cap] (the copy's, [IMPORT_COPY_CAP]); 0 when it fits. */
 fun estimatedOverBytes(entries: List<VaultEntry>, cap: Long = IMPORT_COPY_CAP): Long =
     (estimatedVaultFileBytes(entries, cap) - cap).coerceAtLeast(0)
+
+/**
+ * Review fixes, CR-5: what the vault [data] (the merged entries with the trash, and the folders, views, colours and name)
+ * passes, with the same two limits as [app.seguridad.vault.VaultStore.applyImport]: the copy's ([IMPORT_COPY_CAP], the
+ * file estimated as [estimatedVaultFileBytes] does) and [VaultLimits.VAULT_MAX_DATA_BYTES] (the JSON of the data once
+ * [fitted], measured as the save does); 0 when both fit. Each allows [PREVIEW_UNSEEN_BYTES] for what the snapshot leaves
+ * out. As in [estimatedVaultFileBytes], texts already over the copy's limit by their count alone are never encoded.
+ */
+fun estimatedOverBytes(data: VaultData): Long {
+    val low = base64Estimate(escapedTextBytes(data.entries))
+    if (low > IMPORT_COPY_CAP) return low - IMPORT_COPY_CAP
+    val json = previewDataBytes(data)
+    return maxOf(previewFileBytes(json) - IMPORT_COPY_CAP, json - VaultLimits.VAULT_MAX_DATA_BYTES, 0)
+}
+
+/** The JSON bytes [estimatedOverBytes] counts for [data]: as the save measures it, plus [PREVIEW_UNSEEN_BYTES]. */
+internal fun previewDataBytes(data: VaultData): Long = jsonBytes(data.fitted()) + PREVIEW_UNSEEN_BYTES
+
+/** The vault file [estimatedOverBytes] counts for data of [json] bytes ([previewDataBytes]), as [estimatedVaultFileBytes]. */
+internal fun previewFileBytes(json: Long): Long = base64Estimate(json)
+
+/**
+ * What [app.seguridad.vault.VaultSnapshot.rest] leaves out of the data and the save counts: the vault's tag (32
+ * characters), two times, a flag and the templates' version, well under 1 KiB as the app writes them.
+ */
+private const val PREVIEW_UNSEEN_BYTES = 1024L
 
 private fun base64Estimate(plain: Long): Long = (plain * 4 + 2) / 3 + 4096
 
