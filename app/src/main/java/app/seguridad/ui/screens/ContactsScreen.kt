@@ -53,12 +53,14 @@ import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.ui.theme.PasswordField
 import app.seguridad.ui.theme.PositiveColor
 import app.seguridad.ui.theme.SectionCard
+import app.seguridad.vault.ContactsGate
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.NEEDS_MASTER_NOTICE
 import app.seguridad.vault.VAULT_CLOSED
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
+import app.seguridad.vault.contactsGate
 import app.seguridad.vault.contactsList
 import app.seguridad.vault.fingerprintRows
 import app.seguridad.vault.identity
@@ -75,8 +77,9 @@ internal const val ROUTE_OPEN = "contacts/open"
 
 /**
  * The frame of every `contacts/…` screen: top bar (with «Bloquear» while open), snackbar, and the vault gate. [content]
- * is drawn only with the vault open and, if it was opened with the fingerprint (version 2), after the master password was
- * typed once ([MasterPrompt]): until then no identity or contact can be saved. When the vault locks with a screen open,
+ * is drawn only with the vault open and, if it is still version 2, after the master password was typed once
+ * ([MasterPrompt]), or with the upgrade to 4 waiting, its text ([contactsGate]): until then no identity or contact can be
+ * saved. When the vault locks with a screen open,
  * [content] leaves the composition at once: the gate shows, never data. Any touch counts as use for the idle lock.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,6 +94,9 @@ internal fun ContactsFrame(
     VaultIdleLock(store)
     val state by store.state.collectAsStateWithLifecycle()
     val needsMaster by store.needsMasterForContacts.collectAsStateWithLifecycle()
+    val asking by store.pendingUpgrade.collectAsStateWithLifecycle()
+    val copying by store.upgradeCopying.collectAsStateWithLifecycle()
+    val gate = contactsGate(needsMaster, asking, copying)
     // The Bóveda tab loads it too; a restored back stack can open this screen first.
     LaunchedEffect(store) { store.load() }
     val snackbar = remember { SnackbarHostState() }
@@ -111,14 +117,21 @@ internal fun ContactsFrame(
         floatingActionButton = { if (floatingActionButton != null && state is VaultState.Unlocked && !needsMaster) floatingActionButton() },
     ) { padding ->
         VaultGate(store, onImport = actions.import, modifier = Modifier.padding(padding)) { entries ->
-            if (needsMaster) MasterPrompt(store) else content(entries, snackbar)
+            when (gate) {
+                ContactsGate.Content -> content(entries, snackbar)
+                ContactsGate.Master -> MasterPrompt(store)
+                is ContactsGate.Notice -> Text(gate.text, Modifier.padding(16.dp))
+            }
         }
     }
 }
 
 /**
- * The vault is open but still version 2 (it was opened with the fingerprint): one master password check wraps it as
- * version 3 and the screens show up. A wrong password says what the unlock screen says; the characters are wiped after.
+ * The vault is open but still version 2 and no upgrade waits ([contactsGate]; review fixes, CR-3): one master password
+ * check wraps it as version 3 and the screens show up. With the upgrade to 4 waiting (a version 2 opened with the master
+ * password), this prompt could do nothing, and the frame shows [app.seguridad.vault.UPGRADE_PENDING] or
+ * [app.seguridad.vault.UPGRADE_COPYING] instead. A wrong password says what the unlock screen says; the characters are
+ * wiped after.
  */
 @Composable
 private fun MasterPrompt(store: VaultStore) {

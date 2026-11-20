@@ -44,6 +44,26 @@ const val DELETE_IDENTITY_WARNING =
 const val DELETE_IDENTITY_CONFIRMATION =
     "Se borrará tu identidad de esta bóveda y no hay forma de recuperarla. Las copias que ya hayas exportado conservan la identidad que tenían."
 
+/**
+ * Revisión, CR-3: qué enseña un marco de «Contactos» con la bóveda abierta. Una bóveda de la versión 2 abierta con la
+ * maestra deja la subida a la 4 pendiente, y entonces pedir la maestra no serviría de nada ([VaultStore.confirmMaster] no
+ * la pasa a la 3): con la subida pendiente se enseña lo que espera, sin campo de contraseña. [ContactsGate.Master] queda
+ * solo para [VaultStore.needsMasterForContacts] sin subida pendiente.
+ */
+sealed interface ContactsGate {
+    data object Content : ContactsGate
+    data object Master : ContactsGate
+    data class Notice(val text: String) : ContactsGate
+}
+
+/** [needsMaster], [asking] y [copying]: `needsMasterForContacts`, `pendingUpgrade` y `upgradeCopying` del almacén. */
+fun contactsGate(needsMaster: Boolean, asking: Boolean, copying: Boolean): ContactsGate = when {
+    !needsMaster -> ContactsGate.Content
+    asking -> ContactsGate.Notice(UPGRADE_PENDING)
+    copying -> ContactsGate.Notice(UPGRADE_COPYING)
+    else -> ContactsGate.Master
+}
+
 /** La bóveda es de la versión 2 (abierta con la huella): hace falta la maestra una vez antes de guardar identidad o contactos. */
 const val NEEDS_MASTER_NOTICE =
     "Para guardar tu identidad y tus contactos hace falta tu contraseña maestra, una sola vez. La bóveda se abrió con la huella."

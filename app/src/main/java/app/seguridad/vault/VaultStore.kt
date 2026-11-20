@@ -284,8 +284,10 @@ class VaultStore(
 
     /**
      * Whether the vault file is not of version 3 or 4 (it was written by 1.1): identity and contacts cannot be saved. In
-     * 2.0 an open vault is always a 4, but for one of version 2 whose upgrade waits for the user ([pendingUpgrade]),
-     * when nothing can be saved anyway. False with no vault. Follows the file the store holds, so it changes after
+     * 2.0 an open vault is always a 4, but for one of version 2 whose upgrade waits ([upgradeCopying], then
+     * [pendingUpgrade]), when nothing can be saved anyway and a master password check would not wrap it as a 3: then
+     * «Contactos» shows what waits instead of asking for the master password (`contactsGate`, review fixes, CR-3). False
+     * with no vault. Follows the file the store holds, so it changes after
      * [load], [unlock], [completeUpgrade], an import, [changeMaster] and [destroy]; [lock] leaves it as it is (the file on
      * disk does not change by locking).
      */

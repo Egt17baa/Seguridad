@@ -598,4 +598,20 @@ class ContactsViewTest {
         // Un mensaje vacío de CryptoFailure no deja la pantalla sin texto.
         assertEquals("No se pudo leer la tarjeta", cardReadErrorMessage(CryptoFailure("")))
     }
+
+    /**
+     * Review fixes, CR-3: a vault of version 2 opened with the master password leaves the upgrade waiting, and then the
+     * master prompt could do nothing ([VaultStore.confirmMaster] does not wrap it as a 3). With the upgrade waiting, the
+     * screen says what waits, with no password field; the prompt is only for [VaultStore.needsMasterForContacts] alone.
+     */
+    @Test fun theContactsGateWithTheUpgradeWaiting() {
+        assertEquals(ContactsGate.Notice(UPGRADE_COPYING), contactsGate(needsMaster = true, asking = false, copying = true))
+        assertEquals(ContactsGate.Notice(UPGRADE_PENDING), contactsGate(needsMaster = true, asking = true, copying = false))
+        // «asking» wins: the dialog is what is on screen (both are never true for long, but the text must be true).
+        assertEquals(ContactsGate.Notice(UPGRADE_PENDING), contactsGate(needsMaster = true, asking = true, copying = true))
+        assertEquals(ContactsGate.Master, contactsGate(needsMaster = true, asking = false, copying = false))
+        for (asking in listOf(false, true)) for (copying in listOf(false, true)) {
+            assertEquals(ContactsGate.Content, contactsGate(needsMaster = false, asking = asking, copying = copying))
+        }
+    }
 }
