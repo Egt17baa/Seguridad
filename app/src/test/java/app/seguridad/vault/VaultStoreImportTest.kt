@@ -274,7 +274,8 @@ class VaultStoreImportTest {
     /**
      * Review fixes, CR-5, the verdict at the real caps: vaults a little under the 24 MiB, with a trash, folders, views,
      * colours and a name, and an import that fits or does not. A TooBig of the save has a preview over 0; a preview of 0
-     * is saved. Few cases: each one passes over 24 MiB some 25 times (writing the file, the unlock, the preview, the save).
+     * is saved. Few cases: near 24 MiB, 50 of them did not end in 60 s (writing the file, the unlock, the preview and the
+     * save each go over the whole vault).
      */
     @Test fun thePreviewAndTheSaveAgreeAtTheRealCaps() = realCaps(100_000L to listOf(30_000), 100_000L to listOf(50_000, 50_000, 50_000))
 

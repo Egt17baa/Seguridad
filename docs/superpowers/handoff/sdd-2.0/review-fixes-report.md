@@ -104,6 +104,15 @@ Encargo: `docs/superpowers/handoff/sdd-2.0/advisor-t12-review-fixes.md`, «Encar
   - Nota: en el primer intento, una comprobación que fallaba con la puerta de la carpeta cerrada dejaba el desbloqueo (que no se cancela) esperando, y el test acababa por la regla de 30 s. Ahora las comprobaciones de mientras dura van en un `try` cuyo `finally` abre la puerta.
 - **Verde:** jvm-check `UpgradeCopyFirstTest`, `AutoBackup*`, `VaultV4Test`, `VaultV3Test`, `VaultStoreTest`, `ErrorTextsTest`, `EntryHistoryTest` y `redteam.*`: 25 clases, 445 tests y 0 fallos.
 - **Paradas:** A6 no borra la copia `seguridad-antes-de-2-0-` (se comprueba), y la espera termina en los cuatro casos. No salta ninguna.
+- **Repaso del cierre** (commit aparte):
+  - el primer test afirma también que A6 no cuenta la copia de la subida como «sin apuntar»: los resultados con `replaced` suman `unlistedLeft = 0`;
+  - test nuevo `aCopyAskedForMeanwhileWaitsToo`: `request()` durante la copia, con su espera vencida antes de que la copia de la subida llegue al `lock`, no escribe nada antes.
+- **La espera de `runChanged` no tiene rojo propio.** Con solo `AutoBackup.kt:485` quitado, los 8 tests siguen en verde. El motivo: el colector es uno solo (`AutoBackup.kt:458`). El `Unlocked` llega antes que cualquier petición y lanza `runDue`, que espera, así que `runChanged` no puede empezar hasta que `runDue` termina. La espera de `runChanged` se queda como defensa, por si cambia el colector. El rojo de CR-2 es el de `runDue` (`:525`).
+- **«La espera siempre termina»: el camino entre `openedWith` y `afterUnlock`.**
+  - `copying` pasa a verdadero en `opened` (`VaultStore.kt:538`, dentro de `synchronized(opening)`).
+  - Después vienen `tellCostKept` (`:641`, que solo publica un aviso), `collectGarbage` (`:642`, que captura toda `Exception`, `:412-416`) y `return`.
+  - En `unlock` (`:586-594`) solo quedan `if (!upgrading) return`, `master.fill` y `afterUnlock`, cuyo `finally` pone `copying` a falso (`PendingUpgrade.kt:103`).
+  - Ninguno de esos pasos lanza una excepción. Solo un `Error`, como quedarse sin memoria en `collectGarbage`, dejaría `copying` a verdadero, y entonces se queda así hasta un bloqueo (`drop()`). Es una ventana conocida y estrecha, que no se cambia.
 
 ## 4. CR-3: «Contactos» con la subida pendiente
 - `vault/ContactsView.kt`: función pura `contactsGate(needsMaster, asking, copying)`, que da `ContactsGate`:
@@ -162,7 +171,9 @@ Encargo: `docs/superpowers/handoff/sdd-2.0/advisor-t12-review-fixes.md`, «Encar
     - después de cada guardado, el JSON que tiene el almacén y el archivo en disco no pasan de lo que contó la vista previa.
   - `thePreviewAndTheSaveAgreeAtTheRealCaps` y `…NearTheEdge`: cuatro casos con los topes reales. Con un hueco de 100 000 bytes, una nota de 30 000 se guarda y tres de 50 000 dan `TooBig`; con un hueco de 20 000, una nota de 17 000 se guarda y una de 21 000 da `TooBig`. Cifras: vista previa 0 y `Done`; 51 540 y `TooBig(50 616)`; 0 y `Done`; 2 196 y `TooBig(1 272)`.
 - **Desviación del encargo, decidida y apuntada para el director:**
-  - Las 200 bóvedas del diferencial son pequeñas, de unos KB, y no rozan los 24 MiB. Medido: cada caso a tamaño real pasa por 24 MiB unas 25 veces (escribir el archivo, el desbloqueo con su guardado de servicio, la vista previa y el guardado). Así, 50 casos no acababan en 60 s, más de 1,2 s por caso.
+  - Las 200 bóvedas del diferencial son pequeñas, de unos KB, y no rozan los 24 MiB.
+  - Lo medido: con bóvedas cerca de los 24 MiB, 50 casos no acabaron en los 60 s de `runTest`, así que cada uno pasa de 1,2 s, y los 4 casos de los topes reales tardaron 7,0 s.
+  - El motivo, estimado y no medido: cada caso recorre la bóveda entera muchas veces (escribir el archivo, el desbloqueo con su guardado de servicio, la vista previa y el guardado).
   - Lo que garantiza CR-5 no depende del tope: la vista previa nunca cuenta menos que el guardado. Por eso los 200 casos comprueban esa desigualdad a tamaño pequeño, en 1,8 s, y los cuatro casos de los topes reales comprueban el veredicto, en unos 3,5 s cada test.
 - **Conocido y sin cambiar:** `applyImport` tiene un tercer `TooBig`, el de los adjuntos (el número de archivos y los 100 MiB en `accept`), que la vista previa no modela. El encargo acota CR-5 a los dos topes, así que los generadores no llevan adjuntos, y «TooBig ⇒ vista previa > 0» vale para esos dos topes.
 - **Rojos**, cada uno con una parte del arreglo quitada:
@@ -314,7 +325,7 @@ Encargo: `docs/superpowers/handoff/sdd-2.0/advisor-t12-review-fixes.md`, «Encar
   - la decisión es una función pura (`ContactsView.kt:60`) que se prueba en jvm-check.
 - **Rendimiento:**
   - la vista previa hace una medida JSON más que antes, `jsonBytes(fitted())` contando sin construir la cadena, siempre en `Dispatchers.Default` y cancelable por `collectLatest`;
-  - el diferencial a tamaño real cuesta más de 1,2 s por caso, así que se redujo a 4 casos (unos 3,5 s por test), y los 200 casos van a tamaño pequeño, en 1,8 s;
+  - el diferencial a tamaño real pasa de 1,2 s por caso (50 casos no acabaron en 60 s), así que se redujo a 4 casos (7,0 s en total, en dos tests) y los 200 casos van a tamaño pequeño, en 1,8 s;
   - `RedTeam20ListCostTest` no se mueve.
 - **Interfaz:**
   - los errores de guardado dicen el texto del almacén en 9 pantallas;
@@ -328,5 +339,9 @@ Encargo: `docs/superpowers/handoff/sdd-2.0/advisor-t12-review-fixes.md`, «Encar
 - No hay textos nuevos fuera de esos dos. CR-6 solo hace que las pantallas enseñen textos que ya existían (`UPGRADE_*`, los topes y los de «Organizar»), y «Contactos» ahora dice `NEEDS_MASTER_FOR_CONTACTS` u `ONLY_ONE_IDENTITY` donde antes decía `NOT_SAVED_STATE`.
 
 ### Para el director
+- **Más allá de los tres tipos de error que nombra CR-6:** `saveFailureMessage` («Contactos») enseña ahora `NEEDS_MASTER_FOR_CONTACTS` u `ONLY_ONE_IDENTITY` donde antes salía `NOT_SAVED_STATE`. Los dos son textos que ya existían y son más precisos; pasan por el Abogado con los demás.
+- **CR-6, `changeMaster`** (`VaultBackup.kt:167`): está arreglado, pero el test que recorre los `catch` no lo fija (su `try` está anidado).
+- **CR-2, una ventana estrecha conocida:** la espera va antes de `lock.withLock`, como dice el encargo. Un `launchDue` que pasa la espera justo antes de un desbloqueo puede tomar el `lock` antes que la copia de la subida.
+- **CR-2:** la espera de `runChanged` no tiene rojo propio (sección 3).
 - **La desviación de CR-5:** las 200 bóvedas aleatorias van a tamaño pequeño, con la desigualdad de la medida, y hay 4 casos con los topes reales. El motivo es el coste medido; está en la sección 6.
 - **Los ajustes por la firma** fuera de la lista autorizada: el ancla de R16 en `RedTeam20Recheck3Test.kt:244`, y `deleteNeedsMasterAndName` (CR-7, por comportamiento: afirmaba el defecto).

@@ -114,6 +114,7 @@ class UpgradeCopyFirstTest {
     private lateinit var settings: SettingsStore
     private var auto: AutoBackup? = null
     private var failSave = false
+    private val results = mutableListOf<AutoBackupResult>()
 
     private fun TestScope.setup(
         target: SlowFolder,
@@ -143,7 +144,7 @@ class UpgradeCopyFirstTest {
             replacePending = { settings.settings.value.principal.autoBackupReplacePending },
             replaceTargets = { settings.settings.value.principal.autoBackupReplaceTargets },
             replaceTold = { settings.settings.value.principal.autoBackupReplaceTold },
-            onResult = { r -> settings.updatePrincipal { it.withAutoBackupResult(r, s.generation) } },
+            onResult = { r -> results += r; settings.updatePrincipal { it.withAutoBackupResult(r, s.generation) } },
             zone = ZoneOffset.UTC,
             importCopies = { settings.settings.value.principal.currentImportCopies },
             onImportCopy = { f, id, generation -> settings.updatePrincipal { it.withImportCopy(f, id, generation, s.generation) } },
@@ -195,6 +196,38 @@ class UpgradeCopyFirstTest {
         assertFalse("A6 replaced the old copy: ${t.files.keys}", "seguridad-auto-20261001-100000.sgbak" in t.files)
         assertTrue("the upgrade's copy stays", upgradeCopy in t.files)
         assertTrue("listed among the import copies", t.idOfName(upgradeCopy) in settings.settings.value.principal.currentImportCopies)
+        // ...and not counted as a copy left unlisted by the replacement.
+        val replaced = results.filter { it.replaced }
+        assertTrue("A6 ran: $results", replaced.isNotEmpty())
+        assertEquals("unlisted left: $replaced", 0, replaced.sumOf { it.unlistedLeft })
+    }
+
+    /**
+     * A copy asked for meanwhile («Hacer una copia ahora» or a folder just chosen: [AutoBackup.request], the debounced
+     * run) waits too, also when its debounce ends before the upgrade's copy reaches the lock.
+     */
+    @Test fun aCopyAskedForMeanwhileWaitsToo() = runTest {
+        val t = SlowFolder()
+        val hold = CompletableDeferred<Unit>()
+        val s = setup(t, beforeCopy = { hold.await() })
+        val unlocking = async { s.unlock("maestra-de-prueba-143".toCharArray()) }
+        runCurrent()
+        try {
+            assertTrue(s.upgradeCopying.value)
+            auto!!.request(folder)
+            advanceTimeBy(AUTO_BACKUP_DEBOUNCE_MS + 1)
+            runCurrent()
+            assertEquals("nothing before the upgrade's copy: ${t.created}", 0, t.created.size)
+        } finally {
+            hold.complete(Unit)
+        }
+        runCurrent()
+        withTimeout(5_000) { unlocking.await() }
+        advanceTimeBy(AUTO_BACKUP_DEBOUNCE_MS + 1)
+        runCurrent()
+        assertTrue("its document is the first: ${t.created}", t.created.first().startsWith("seguridad-antes-de-2-0-"))
+        assertTrue("the copy asked for, after it: ${t.created}", t.created.drop(1).any { it.startsWith("seguridad-auto-") })
+        assertEquals(4, VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText()).version)
     }
 
     @Test fun theDueCopiesWaitEvenWhenTheyCouldTakeTheLockFirst() = runTest {
