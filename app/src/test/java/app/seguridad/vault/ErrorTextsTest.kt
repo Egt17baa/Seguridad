@@ -48,6 +48,17 @@ class ErrorTextsTest {
         for (t in listOf(COPY_NO_MEMORY, VAULT_NO_MEMORY)) assertEquals(t, emptyList<String>(), ForbiddenWords.problems(t))
     }
 
+    /** Review fixes, CR-2: while the copy before the upgrade runs, a save says so (the dialog is not shown yet). */
+    @Test fun theTextOfASaveWhileTheUpgradeCopyRuns() {
+        assertEquals(
+            "Clavero está haciendo la copia automática de antes del cambio al formato nuevo. Espera a que termine e " +
+                "inténtalo otra vez.",
+            UPGRADE_COPYING,
+        )
+        assertEquals(UPGRADE_COPYING, storeSaveErrorText(IllegalStateException(UPGRADE_COPYING)))
+        assertEquals(emptyList<String>(), ForbiddenWords.problems(UPGRADE_COPYING))
+    }
+
     /** Round 3 of the fixes of the attack, RT-27: the text of an import out of memory, word for word. */
     @Test fun theTextOfAnImportOutOfMemory() {
         assertEquals(

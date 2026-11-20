@@ -303,6 +303,16 @@ class VaultStore(
     val pendingUpgrade: StateFlow<Boolean> get() = upgrades.asking
 
     /**
+     * Review fixes, CR-2: the automatic copy before the upgrade to v4 runs (the upgrade waits and nobody was asked yet):
+     * the automatic copies of [AutoBackup] wait for it to end before they take their lock, and a save says
+     * [UPGRADE_COPYING] meanwhile ([upgradeRefusal]).
+     */
+    val upgradeCopying: StateFlow<Boolean> get() = upgrades.copying
+
+    /** CR-2: what a save refused because the upgrade waits says: the choice when it is asked, else that the copy runs. */
+    private fun upgradeRefusal(): String = if (upgrades.asking.value) UPGRADE_PENDING else UPGRADE_COPYING
+
+    /**
      * 2.0 (review M-5): whether, before [pendingUpgrade] asked, there was an automatic copies' folder and its copy before
      * the upgrade was not made; the dialog says so. Read when [pendingUpgrade] turns true.
      */
@@ -868,7 +878,8 @@ class VaultStore(
      * What it gives is fitted to the limits ([fittedForSave]: the oldest history goes first) and a vault that still
      * does not fit throws [VaultLimitExceeded], with nothing saved. [accept] sees the file about to be saved, still with
      * the mutex held, and false refuses it (nothing saved, false). 2.0: while [pendingUpgrade], throws
-     * [IllegalStateException] with [UPGRADE_PENDING] and saves nothing. 2.0, task 4: with [bookkeeping] the save is
+     * [IllegalStateException] with [UPGRADE_PENDING] (CR-2: [UPGRADE_COPYING] while the copy before it runs) and saves
+     * nothing. 2.0, task 4: with [bookkeeping] the save is
      * like the last master check's ([commit] with `mustSave` false: the file keeps the time of the last change, [revision]
      * does not go up, a failed write leaves the change in memory only), and while the upgrade waits it saves nothing and
      * gives false instead of throwing.
@@ -881,7 +892,7 @@ class VaultStore(
     ): Boolean = mutex.withLock {
         // 2.0, task 4: bookkeeping ([markUsed]) is no change the user made: while the upgrade waits it is only skipped.
         if (bookkeeping && upgrade != null) return@withLock false
-        check(upgrade == null) { UPGRADE_PENDING }
+        check(upgrade == null) { upgradeRefusal() }
         val v = vault ?: return@withLock false
         val since = epoch
         // 2.0, re-reviews 1 and 2 of task 7: a change asked for before a lock ([sinceLock], read when it was asked for) is
@@ -1315,7 +1326,8 @@ class VaultStore(
      * 2.0, task 3: «Borrar historial» of every entry, those in the trash too; how many had any (0: none had, nothing
      * saved). 2.0, task 10 (the button of Ajustes): with [sinceLock] (the [lockEpoch] read when its confirmation opened), a
      * lock since then clears nothing, also if the vault was opened again: null, as when the vault is locked. Throws what
-     * a save throws (UPGRADE_PENDING while the upgrade dialog waits, a write that fails).
+     * a save throws (UPGRADE_PENDING while the upgrade dialog waits, UPGRADE_COPYING while the copy before it runs, a
+     * write that fails).
      */
     suspend fun clearAllHistory(sinceLock: Int = epoch): Int? {
         var count = 0
@@ -1389,7 +1401,7 @@ class VaultStore(
      * which also proves they remember it. If anything fails, it throws and the vault stays open as it was.
      */
     suspend fun changeMaster(newMaster: CharArray): Boolean = mutex.withLock {
-        check(upgrade == null) { UPGRADE_PENDING }
+        check(upgrade == null) { upgradeRefusal() }
         val v = vault ?: return@withLock false
         val key = dek?.copyOf() ?: return@withLock false
         val (next, newKey) = try {
@@ -1476,7 +1488,7 @@ class VaultStore(
     private fun checkCanReplace() {
         if (vault != null && _state.value !is VaultState.Unlocked) throw CryptoFailure(REPLACE_NEEDS_OPEN)
         // 2.0: not while the upgrade waits for the user's choice (its dialog is in front of everything anyway).
-        if (upgrade != null) throw CryptoFailure(UPGRADE_PENDING)
+        if (upgrade != null) throw CryptoFailure(upgradeRefusal())
     }
 
     private suspend fun importText(text: String, master: CharArray, since: Int, newTag: Boolean = false): Boolean {
@@ -1726,6 +1738,13 @@ const val VAULT_IMPORT_MAX_BYTES = 40 * 1024 * 1024
 const val UPGRADE_PENDING = "Antes de guardar nada, elige en el aviso si exportas una copia de la bóveda."
 
 /**
+ * Review fixes, CR-2: what a save says while the automatic copy before the change to the new format runs (the dialog of
+ * [UPGRADE_PENDING] is not on screen yet, so that text would not be true then). Word for word as the director's ruling.
+ */
+const val UPGRADE_COPYING =
+    "Clavero está haciendo la copia automática de antes del cambio al formato nuevo. Espera a que termine e inténtalo otra vez."
+
+/**
  * 2.0, re-review N-1 of task 3: what a screen says when a save of the store throws [e]. Only the store's own Spanish
  * texts (a limit, the upgrade waiting, the master for contacts, one identity) reach the screen; any other message, such
  * as an English one from a future check, gives [TRASH_SAVE_FAILED].
@@ -1735,7 +1754,7 @@ fun storeSaveErrorText(e: Throwable): String {
     return when {
         e is VaultLimitExceeded && text != null -> text
         e is OrganizeRefused && text != null -> text
-        e is IllegalStateException && text in setOf(UPGRADE_PENDING, NEEDS_MASTER_FOR_CONTACTS, ONLY_ONE_IDENTITY) -> text!!
+        e is IllegalStateException && text in setOf(UPGRADE_PENDING, UPGRADE_COPYING, NEEDS_MASTER_FOR_CONTACTS, ONLY_ONE_IDENTITY) -> text!!
         else -> TRASH_SAVE_FAILED
     }
 }

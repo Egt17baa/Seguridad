@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
@@ -480,6 +481,8 @@ class AutoBackup(
      */
     private suspend fun runChanged() {
         val notices = ArrayList<AutoBackupResult>()
+        // Review fixes, CR-2: the copy before the upgrade to v4 goes first; this one waits for it (never skipped).
+        store.upgradeCopying.first { !it }
         lock.withLock {
             val since = store.generation
             val change = changed.getAndSet(false)
@@ -518,6 +521,8 @@ class AutoBackup(
         val notices = ArrayList<AutoBackupResult>()
         var byCalendar = 0
         var epoch = 0
+        // Review fixes, CR-2: the copy before the upgrade to v4 goes first; these wait for it (never skipped).
+        store.upgradeCopying.first { !it }
         lock.withLock {
             epoch = store.lockEpoch
             val since = store.generation

@@ -32,6 +32,17 @@ internal class PendingUpgrade(private val opening: Any) {
     @Volatile var autoCopyFailed: Boolean = false
         private set
 
+    private val _copying = MutableStateFlow(false)
+
+    /**
+     * Review fixes, CR-2 ([VaultStore.upgradeCopying]): the automatic copy before the upgrade runs ([afterUnlock]): a
+     * version-4 [file] waits and the user is not asked yet. True from [openedWith] with something waiting; false with
+     * [saved], [drop], [openedWith] with nothing, as soon as [asking], and when [afterUnlock] ends for the opening it was
+     * made for. The automatic copies wait for it to be false before they take their lock (AutoBackup), so the copy of the
+     * upgrade goes first; it always ends.
+     */
+    val copying: StateFlow<Boolean> = _copying.asStateFlow()
+
     private val _done = MutableStateFlow<String?>(null)
 
     /** [VaultStore.upgradeDone]: the name of the copy made before an upgrade saved with no question asked (O-3). */
@@ -42,6 +53,7 @@ internal class PendingUpgrade(private val opening: Any) {
         file = next
         _asking.value = false
         autoCopyFailed = false
+        _copying.value = next != null
     }
 
     /** With [opening] held: a lock, or an opening cut short, drops what waited; the file on disk stays the 2 or 3. */
@@ -51,6 +63,7 @@ internal class PendingUpgrade(private val opening: Any) {
     fun saved() {
         file = null
         _asking.value = false
+        _copying.value = false
     }
 
     /** The notice of [done] was shown, or the vault is gone. */
@@ -67,21 +80,27 @@ internal class PendingUpgrade(private val opening: Any) {
      */
     suspend fun afterUnlock(copyBefore: suspend () -> CopyResult?, save: suspend () -> Boolean, stillOpen: () -> Boolean) =
         withContext(NonCancellable) {
-            val copy = try {
-                copyBefore()
-            } catch (e: Exception) {
-                CopyResult.Failed(AUTO_BACKUP_FAILED) // No copy: the user chooses.
-            }
-            if (copy is CopyResult.Saved && save()) {
-                _done.value = copy.where // O-3 with a folder: told once.
-                return@withContext
-            }
-            synchronized(opening) {
-                if (file != null && stillOpen()) {
-                    // A folder whose copy was not made (M-5); a copy made whose save then failed is not that.
-                    autoCopyFailed = copy != null && copy !is CopyResult.Saved
-                    _asking.value = true
+            try {
+                val copy = try {
+                    copyBefore()
+                } catch (e: Exception) {
+                    CopyResult.Failed(AUTO_BACKUP_FAILED) // No copy: the user chooses.
                 }
+                if (copy is CopyResult.Saved && save()) {
+                    _done.value = copy.where // O-3 with a folder: told once.
+                    return@withContext
+                }
+                synchronized(opening) {
+                    if (file != null && stillOpen()) {
+                        // A folder whose copy was not made (M-5); a copy made whose save then failed is not that.
+                        autoCopyFailed = copy != null && copy !is CopyResult.Saved
+                        _asking.value = true
+                    }
+                }
+            } finally {
+                // CR-2: the copy of this opening is over, whatever happened (a lock meanwhile already dropped it, and a new
+                // opening sets its own); the automatic copies that waited for it go on.
+                synchronized(opening) { if (stillOpen()) _copying.value = false }
             }
         }
 }

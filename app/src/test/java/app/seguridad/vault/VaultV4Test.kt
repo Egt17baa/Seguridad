@@ -303,7 +303,7 @@ class VaultV4Test {
             assertTrue(s!!.state.value is VaultState.Unlocked)
             // Review I-1: no choice is asked while the automatic copy runs, and nothing can be saved meanwhile.
             assertFalse(s!!.pendingUpgrade.value)
-            assertEquals(UPGRADE_PENDING, assertThrows(IllegalStateException::class.java) { kotlinx.coroutines.runBlocking { s!!.upsert(note("n")) } }.message)
+            assertEquals(UPGRADE_COPYING, assertThrows(IllegalStateException::class.java) { kotlinx.coroutines.runBlocking { s!!.upsert(note("n")) } }.message)
             val out = ByteArrayOutputStream()
             assertTrue(s!!.exportBeforeUpgrade(out))
             assertEquals("2\n" to text("vault-1.4.3.json"), markerAndVault(out.toByteArray()))
