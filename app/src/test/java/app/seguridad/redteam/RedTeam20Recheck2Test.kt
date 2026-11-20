@@ -248,7 +248,8 @@ class RedTeam20Recheck2Test {
         val imported = VaultCrypto.readAsImported(hostile, dek, copy = true).imported
         val encodings = app.seguridad.vault.historyEncodings.get()
         assertTrue("every version made by the upgrade dropped by the fit", imported.entries.all { it.history.isEmpty() })
-        assertTrue("$encodings encodings of a version for 8 entries of 20 versions (at most 20 per entry)", encodings <= 8L * 20)
+        // Review fixes, I-2: the count is exact, min(k, 20) per entry.
+        assertEquals("encodings of a version for 8 entries of 20 versions (20 per entry)", 8L * 20, encodings)
         val tPair = median { VaultCrypto.readAsImported(pair, dek, copy = true) }
         val tHostile = median { VaultCrypto.readAsImported(hostile, dek, copy = true) }
         println("RT-29: 8 logins of $notes B of notes: $encodings encodings of a version (${encodings / 8} per entry); pair ${tPair / 1_000_000.0} ms, with 20 old passwords ${tHostile / 1_000_000.0} ms (x${"%.1f".format(tHostile.toDouble() / tPair)}, informative)")
@@ -598,8 +599,9 @@ class RedTeam20Recheck2Test {
         assertEquals("nothing of the view is gone", emptySet<String>(), result.goneFromFilter)
         val tChips = median(5) { check(data.entries.flatMapTo(HashSet()) { it.tags }.sorted().size == all.size) }
         val tTags = median(5) { check(app.seguridad.vault.listTags(data.entries, view).sorted.size == all.size) }
-        println("RT-28: listTags with 200 000 tags and a view of 10 000: ${tTags / 1_000_000.0} ms off the main thread; the chips alone ${tChips / 1_000_000.0} ms (x${"%.2f".format(tTags.toDouble() / tChips)})")
-        assertTrue("listTags costs ${"%.2f".format(tTags.toDouble() / tChips)} times the chips alone (at most 2)", tTags <= 2 * tChips)
+        // Review fixes, I-3: the time is an informative row, as for rt29_ (a timing test in the CI can block a PR for nothing);
+        // RT-28 stays fixed by the anchor of VaultList.kt, listTags in compute and the differential of 3 000 cases.
+        println("RT-28: listTags with 200 000 tags and a view of 10 000: ${tTags / 1_000_000.0} ms off the main thread; the chips alone ${tChips / 1_000_000.0} ms (x${"%.2f".format(tTags.toDouble() / tChips)}, informative)")
         // Three tags of the view taken out of the vault: exactly those three are gone.
         val takenOut = view.take(3).toSet()
         val fewer = data.entries.map { e -> if (e.tags.any { it in takenOut }) e.copy(tags = e.tags - takenOut) else e }
