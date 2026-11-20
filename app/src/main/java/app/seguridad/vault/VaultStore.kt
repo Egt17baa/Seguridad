@@ -764,6 +764,32 @@ class VaultStore(
         return true
     }
 
+    /**
+     * Review fixes, CR-7: the master password of this vault, locked, checked only to delete it: the name its data hold
+     * ([VaultData.name], "" when it has none), or null when it is not the one shown any more ([active], checked before
+     * and after Argon2id) or has no file. [CryptoFailure] for a wrong master, and [VAULT_NO_MEMORY] when the phone runs
+     * out of memory decoding it. It only reads: never [state], the clock marks, the trash, a key wrapped again nor the
+     * upgrade to v4 (so no copy of a vault about to go is ever made, and its file is not rewritten). Under the mutex, not
+     * cancellable (BOV-3), one derivation at a time ([KdfLock]); the key is zeroed whatever happens.
+     */
+    suspend fun checkMasterToDelete(master: CharArray): String? = mutex.withLock {
+        withContext(NonCancellable) {
+            val v = vault ?: return@withContext null
+            if (!active()) return@withContext null
+            val key = derive { VaultCrypto.unlock(v, master) }
+            try {
+                if (!active()) return@withContext null
+                try {
+                    withContext(compute) { VaultCrypto.read(v, key).name }
+                } catch (e: OutOfMemoryError) {
+                    throw CryptoFailure(VAULT_NO_MEMORY)
+                }
+            } finally {
+                key.fill(0)
+            }
+        }
+    }
+
     /** A copy of the open data key, to wrap it with the biometric key; null while locked. */
     fun dataKeyCopy(): ByteArray? = dek?.copyOf()
 

@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -536,6 +537,70 @@ class AppContainerVaultsTest {
         }
     }
 
+    /** A folder in memory that records every document made in it (review fixes, CR-7). */
+    private class RecordingFolder : app.seguridad.vault.BackupTarget {
+        val created = java.util.Collections.synchronizedList(mutableListOf<String>())
+        override suspend fun create(name: String): app.seguridad.vault.BackupFile {
+            created += name
+            return object : app.seguridad.vault.BackupFile {
+                override val id: String = "doc:$name"
+                override suspend fun write(writer: suspend (java.io.OutputStream) -> Unit) = writer(ByteArrayOutputStream())
+                override fun rename(to: String) = Unit
+                override fun delete() = Unit
+            }
+        }
+        override fun list(prefix: String): List<app.seguridad.vault.BackupEntry> = emptyList()
+        override fun delete(id: String) = Unit
+    }
+
+    /**
+     * Review fixes, CR-7: a locked vault ([v3]: the real vault-1.4.3.json; else a v4) of the second slot, with a folder of
+     * automatic copies and A6 pending; [check] runs with the container, the slot's id, its store's states seen and the
+     * folder.
+     */
+    private fun lockedSecondVault(v3: Boolean, check: suspend (AppContainer, String, List<VaultState>, RecordingFolder) -> Unit) = runTest {
+        val folder = RecordingFolder()
+        val first = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, backupFolder = { folder })
+        val (_, idB) = twoVaults(first)
+        if (v3) File(first.registry.dirOf(idB), "vault.bin").writeText(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        first.settings.updateVault(idB) { it.oneTarget(autoBackupUri = "content://dos", autoBackupReplacePending = true) }
+        first.switchTo(PRIMARY_VAULT_ID)
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, backupFolder = { folder })
+        c.settings.load()
+        c.switchTo(idB)
+        c.vault.load()
+        assertEquals(VaultState.Locked, c.vault.state.value)
+        val seen = java.util.Collections.synchronizedList(mutableListOf<VaultState>())
+        backgroundScope.launch(Dispatchers.Unconfined) { c.vault.state.collect { seen += it } }
+        folder.created.clear()
+        check(c, idB, seen, folder)
+    }
+
+    @Test fun deletingALockedV3VaultNeverOpensItNorCopiesIt() = lockedSecondVault(v3 = true) { c, idB, seen, folder ->
+        val file = File(c.registry.dirOf(idB), "vault.bin")
+        val before = file.readBytes()
+        // A wrong master: CryptoFailure, nothing deleted; a wrong name: WRONG_NAME; neither rewrites the file.
+        assertFails<CryptoFailure> { c.deleteVault(idB, masterA.toCharArray(), "Bóveda 2") }
+        assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, "maestra-de-prueba-143".toCharArray(), "Tres"))
+        assertTrue(file.readBytes().contentEquals(before))
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, "maestra-de-prueba-143".toCharArray(), "Bóveda 2"))
+        assertFalse(file.exists())
+        assertEquals("no document in the folder", emptyList<String>(), folder.created.toList())
+        assertTrue("never open: $seen", seen.none { it is VaultState.Unlocked })
+    }
+
+    @Test fun deletingALockedV4VaultNeverOpensItNorCopiesIt() = lockedSecondVault(v3 = false) { c, idB, seen, folder ->
+        val file = File(c.registry.dirOf(idB), "vault.bin")
+        val before = file.readBytes()
+        assertFails<CryptoFailure> { c.deleteVault(idB, masterA.toCharArray(), "Dos") }
+        assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, masterB.toCharArray(), "Tres"))
+        assertTrue("the file is not written before it goes", file.readBytes().contentEquals(before))
+        assertTrue(c.registry.vaults.value.any { it.id == idB })
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        assertEquals("no document in the folder", emptyList<String>(), folder.created.toList())
+        assertTrue("never open: $seen", seen.none { it is VaultState.Unlocked })
+    }
+
     @Test fun deleteNeedsMasterAndName() = runTest {
         val released = mutableListOf<String>()
         val forgotten = mutableListOf<String>()
@@ -549,10 +614,11 @@ class AppContainerVaultsTest {
         val dirB = c.registry.dirOf(idB)
         assertFails<CryptoFailure> { c.deleteVault(idB, masterA.toCharArray(), "Dos") }
         assertTrue(dirB.exists())
-        // Its master opens it (and shows its name); a name that is not its own deletes nothing.
+        // Its master is checked (review fixes, CR-7: a locked vault is not opened for it); a name that is not its own
+        // deletes nothing.
         c.vault.lock()
         assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, masterB.toCharArray(), "Tres"))
-        assertTrue(c.vault.unlocked())
+        assertFalse(c.vault.unlocked())
         assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, masterB.toCharArray(), "dos"))
         assertTrue(dirB.exists())
         assertTrue(c.registry.vaults.value.any { it.id == idB })

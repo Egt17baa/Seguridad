@@ -722,14 +722,16 @@ class AppContainer(
         // Review M-2: no master nor name only for a slot with no vault file at all; a file set aside or unreadable stays.
         if (store.state.value is VaultState.NoVault && !isEmptySlot(id)) return@withLock VaultDeletion.KEPT_DAMAGED
         if (store.state.value !is VaultState.NoVault) {
-            if (store.state.value is VaultState.Unlocked) {
+            // Review fixes, CR-7: a locked vault (of any version) is never opened to be deleted: its master is only
+            // checked (checkMasterToDelete), so no upgrade, copy, purge of the trash or new wrap of its key happens.
+            val name = if (store.state.value is VaultState.Unlocked) {
                 if (!store.confirmMaster(master)) return@withLock VaultDeletion.LOCKED
+                (store.state.value as? VaultState.Unlocked)?.data?.name ?: return@withLock VaultDeletion.LOCKED
             } else {
-                store.unlock(master)
+                store.checkMasterToDelete(master) ?: return@withLock VaultDeletion.LOCKED
             }
-            val data = (store.state.value as? VaultState.Unlocked)?.data ?: return@withLock VaultDeletion.LOCKED
             val order = registry.vaults.value.indexOfFirst { it.id == id }
-            if (compareKey(typedName) != compareKey(displayName(data, order))) return@withLock VaultDeletion.WRONG_NAME
+            if (compareKey(typedName) != compareKey(displayName(VaultData(name = name), order))) return@withLock VaultDeletion.WRONG_NAME
         }
         withContext(NonCancellable) {
             // Re-review C n-1: the dialog of A6 of the vault being deleted closes with no notice (there is no vault to go
