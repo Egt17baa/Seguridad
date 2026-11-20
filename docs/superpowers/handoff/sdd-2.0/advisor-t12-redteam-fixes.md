@@ -222,4 +222,4 @@ Revisión Ingeniero Móvil Senior:
 - **Compose:** `visibleText` en `WifiQrScreen.kt:209`. El nombre está acotado por `WifiQr.problem` (4 096 caracteres), y el aviso se pinta a la vista sin cambiar el orden de O-4 (`WifiQrScreen.kt:211-215`).
 - **Tests:** `jvm-check/build.gradle.kts:20-22` compila `redteam/` pero no `ui/`, así que RT-24 solo se prueba en la app. Gradle siempre de uno en uno, con `flock`, para no repetir el exit 137.
 
-Modelo: el director (opus, esfuerzo extra).
+Modelo: el director (esfuerzo extra).

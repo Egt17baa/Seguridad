@@ -267,4 +267,4 @@ Revisión Ingeniero Móvil Senior:
 - **Ciclo de vida:** `MainActivity.kt:105-119` (`onStop` → `leftApp`, sin contar los cambios de configuración) y `tools/qr/QrPendingText.kt:39-58` son las únicas puertas del borrado al salir. Las pantallas nuevas con secretos tienen que colgar de ahí o del bloqueo.
 - **Compilación:** `jvm-check/build.gradle.kts:20-22` compila `redteam/` y excluye `ui/`, así que se itera ahí, con menos memoria. Con `--max-workers=1`, `--no-daemon` y `flock` se evita el exit 137.
 
-Modelo: el director (opus, esfuerzo extra).
+Modelo: el director (esfuerzo extra).

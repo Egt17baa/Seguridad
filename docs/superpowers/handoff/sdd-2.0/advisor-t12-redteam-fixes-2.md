@@ -161,4 +161,4 @@ Revisión Ingeniero Móvil Senior:
 - **Compose:** `Field(marked = true)` solo cambia lo que se pinta. La copia sigue con `copySensitive(value)` sobre el valor tal cual (`VaultEntryScreen.kt:165`). Sin estado guardado nuevo.
 - **Pruebas:** `jvm-check/build.gradle.kts:20-22` no compila `ui/`, así que los tests de la lista y de la ficha solo corren en la app. Gradle siempre con `flock`, para no repetir el exit 137.
 
-Modelo: el director (opus, esfuerzo extra).
+Modelo: el director (esfuerzo extra).
