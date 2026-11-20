@@ -223,3 +223,13 @@ No queda ningún `@Ignore` en `redteam/` ni en `ui/redteam/`.
 ## Textos para el Abogado Digital (revisión final)
 - **`IMPORT_NO_MEMORY`** (`imports/ImportTexts.kt`): «Este móvil no tiene memoria suficiente para preparar esta importación. No se ha cambiado nada. Cierra Clavero del todo, vuelve a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede hacer esta importación.»
 - `COPY_DAMAGED`, que ya existía, ahora también para una etiqueta que la app no escribe (fila 63).
+
+## Después del cierre: una corrutina viva en un test de la app (clon limpio de `bbcf90d`)
+- **El fallo:** en el clon limpio, `ActiveGateTest.aSwitchDuringTheFingerprintsDecryptionWritesNothing` dio `UncaughtExceptionsBeforeTest`, por «Dispatchers.Main was accessed when the platform dispatcher was absent».
+- **Causa:** `EntryListNoMemoryTest` y `EntryListTagsTest` cancelaban el `viewModelScope` sin esperarlo. Un cálculo de la lista que seguía en `Default` volvía a `Dispatchers.Main` después de `resetMain()`. En el clon, la excepción sale en el `system-err` de `EntryListNoMemoryTest`. No es una fuga de la app.
+- **Arreglo, solo en los tests:** `list.viewModelScope.coroutineContext.job.cancelAndJoin()` antes de `resetMain`, en los dos. También se quita el `import org.junit.Ignore` que sobraba en `RedTeam20Recheck2Test.kt`.
+- **Rojo** (temporal, sin commit): un cálculo dormido 500 ms al acabar `EntryListTagsTest` y un `@After` que, después de `resetMain`, recoge lo no capturado. Resultado: `AssertionError: a coroutine of the test was left alive: [java.lang.IllegalStateException: Dispatchers.Main was accessed when the platform dispatcher was absent…]`. Es la misma excepción que en el clon.
+- **Verde:**
+  - con `cancelAndJoin` y el mismo montaje temporal, `EntryListTagsTest` y `ActiveGateTest`: 3 tests y 0 fallos;
+  - sin el montaje, en la app, `ui.screens.*`, `ActiveGateTest`, `RedTeam20Recheck2Test` y `ui.redteam.*`: 48 tests, 0 fallos y ningún «Dispatchers.Main was accessed» en los resultados;
+  - jvm-check, `RedTeam20Recheck2Test`: en verde.

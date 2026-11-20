@@ -8,7 +8,8 @@ import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
@@ -73,7 +74,8 @@ class EntryListNoMemoryTest {
             assertTrue(again.data != null)
             assertTrue("nothing thrown: $uncaught", uncaught.isEmpty())
         } finally {
-            list.viewModelScope.cancel()
+            // Cancelled and waited for before resetMain: no computation of the list is left to resume on Dispatchers.Main.
+            list.viewModelScope.coroutineContext.job.cancelAndJoin()
         }
     }
 
