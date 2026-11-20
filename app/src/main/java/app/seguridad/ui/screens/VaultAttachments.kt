@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.storeSaveErrorText
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -72,7 +73,7 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
             } catch (e: AttachmentLimit) {
                 false to (e.message ?: "El adjunto es demasiado grande")
             } catch (e: Exception) {
-                false to "No se pudo añadir el adjunto."
+                false to storeSaveErrorText(e, fallback = "No se pudo añadir el adjunto.") // Review fixes, CR-6.
             } finally {
                 busy = false
             }
@@ -170,7 +171,7 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
                         message = try {
                             if (store.removeAttachment(entryId, ref.id)) true to "Adjunto quitado." else false to "La bóveda se bloqueó: no se ha quitado."
                         } catch (e: Exception) {
-                            false to "No se pudo quitar (¿almacenamiento lleno?)"
+                            false to storeSaveErrorText(e, fallback = "No se pudo quitar (¿almacenamiento lleno?)") // CR-6.
                         } finally {
                             busy = false
                         }

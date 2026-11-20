@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.storeSaveErrorText
 import app.seguridad.masterRefusal
 import app.seguridad.copyRefusal
 import android.net.Uri
@@ -341,8 +342,15 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
         PickerDialog.Rename -> NameDialog(VAULT_RENAME, openData?.name.orEmpty(), onDismiss = { dialog = null }) { name ->
             dialog = null
             run {
-                active.rename(name)
-                null
+                // Review fixes, CR-6: an upgrade waiting or a name too long says so, not VAULT_FAILED (AppContainer).
+                try {
+                    active.rename(name)
+                    null
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    storeSaveErrorText(e, fallback = VAULT_FAILED)
+                }
             }
         }
         PickerDialog.Delete -> {

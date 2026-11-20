@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.storeSaveErrorText
 import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
 import app.seguridad.vault.copyFailureText
 import app.seguridad.vault.BACKUP_DOES_NOT_FIT_V3
@@ -163,7 +164,8 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                             "La bóveda se bloqueó: no se ha cambiado nada"
                         }
                     } catch (e: Exception) {
-                        newPasswordFailureMessage(e, "No se pudo cambiar la contraseña maestra") // Review F5, M2.
+                        // Review F5, M2; review fixes, CR-6: an upgrade waiting says so too.
+                        storeSaveErrorText(e, fallback = newPasswordFailureMessage(e, "No se pudo cambiar la contraseña maestra"))
                     } finally {
                         pw.fill('\u0000')
                     }

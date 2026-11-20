@@ -1751,15 +1751,16 @@ const val UPGRADE_COPYING =
 /**
  * 2.0, re-review N-1 of task 3: what a screen says when a save of the store throws [e]. Only the store's own Spanish
  * texts (a limit, the upgrade waiting, the master for contacts, one identity) reach the screen; any other message, such
- * as an English one from a future check, gives [TRASH_SAVE_FAILED].
+ * as an English one from a future check, gives [fallback] ([TRASH_SAVE_FAILED] unless the screen has a text of its own
+ * for that save; review fixes, CR-6).
  */
-fun storeSaveErrorText(e: Throwable): String {
+fun storeSaveErrorText(e: Throwable, fallback: String = TRASH_SAVE_FAILED): String {
     val text = e.message
     return when {
         e is VaultLimitExceeded && text != null -> text
         e is OrganizeRefused && text != null -> text
         e is IllegalStateException && text in setOf(UPGRADE_PENDING, UPGRADE_COPYING, NEEDS_MASTER_FOR_CONTACTS, ONLY_ONE_IDENTITY) -> text!!
-        else -> TRASH_SAVE_FAILED
+        else -> fallback
     }
 }
 

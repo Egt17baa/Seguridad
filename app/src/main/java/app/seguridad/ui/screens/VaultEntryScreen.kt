@@ -211,7 +211,7 @@ fun VaultEntryDetailScreen(
     if (entry == null) return LockedNotice(onBack)
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf(false) }
-    var failed by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf<String?>(null) }
     // 2.0, task 4: «Mover a…», and copying a field counts as a use («Recientes», the order «por uso»): a bookkeeping
     // save that makes no version and no automatic copy ([VaultStore.markUsed]); a failure only loses the mark.
     var moving by remember { mutableStateOf(false) }
@@ -241,7 +241,7 @@ fun VaultEntryDetailScreen(
     PasswordOfferOnReturn(store, twoStep, snackbar) { e -> copyOfferedPassword(context, scope, store, twoStep, e, message) }
     BackScaffold("${typeIcon(entry.type)} ${plainReportText(entry.title)}", onBack, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (failed) Text("No se pudo mover a la papelera (¿almacenamiento lleno?)", color = NegativeColor)
+            failed?.let { Text(it, color = NegativeColor) }
             entry.totp?.let { t ->
                 if (!t.isSupported()) {
                     // A saved code with an algorithm, digits or period this app does not calculate: the reason, not a wrong code.
@@ -370,7 +370,8 @@ fun VaultEntryDetailScreen(
                             // 3: to the trash, with «Deshacer» on the list for 5 s ([UndoTrash]).
                             undo.moveToTrash(setOf(entry.id))
                         } catch (e: Exception) {
-                            failed = true
+                            // Review fixes, CR-6: an upgrade waiting or a limit says so.
+                            failed = storeSaveErrorText(e, fallback = "No se pudo mover a la papelera (¿almacenamiento lleno?)")
                         }
                     }
                 }) { Text(MOVE_TO_TRASH, color = NegativeColor) }
@@ -481,7 +482,8 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
             } catch (x: CancellationException) {
                 throw x
             } catch (x: Exception) {
-                if (form.loaded) form.error.value = "No se pudo importar"
+                // Review fixes, CR-6: an upgrade waiting or a limit says so.
+                if (form.loaded) form.error.value = storeSaveErrorText(x, fallback = "No se pudo importar")
             } finally {
                 form.migration.value = null
                 form.saving.value = false

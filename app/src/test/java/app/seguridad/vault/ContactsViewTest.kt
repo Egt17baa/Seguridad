@@ -614,4 +614,12 @@ class ContactsViewTest {
             assertEquals(ContactsGate.Content, contactsGate(needsMaster = false, asking = asking, copying = copying))
         }
     }
+
+    /** Review fixes, CR-6: a save of «Contactos» that the store refuses with its own text says that text. */
+    @Test fun aContactSaveRefusedSaysTheStoreText() {
+        for (t in listOf(UPGRADE_PENDING, UPGRADE_COPYING)) assertEquals(t, saveFailureMessage(Result.failure(IllegalStateException(t))))
+        assertEquals(ENTRY_TOO_BIG, saveFailureMessage(Result.failure(VaultLimitExceeded(ENTRY_TOO_BIG))))
+        assertEquals(NOT_SAVED_STATE, saveFailureMessage(Result.failure(IllegalStateException("x"))))
+        assertEquals("No se pudo guardar", saveFailureMessage(Result.failure(java.io.IOException("disco lleno"))))
+    }
 }

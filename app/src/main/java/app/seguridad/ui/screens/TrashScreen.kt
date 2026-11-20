@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.storeSaveErrorText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,7 +40,6 @@ import app.seguridad.vault.TRASH_EMPTY_TITLE
 import app.seguridad.vault.TRASH_MORE
 import app.seguridad.vault.TRASH_RESTORE
 import app.seguridad.vault.TRASH_RESTORE_NONE
-import app.seguridad.vault.TRASH_SAVE_FAILED
 import app.seguridad.vault.TRASH_SHORT
 import app.seguridad.vault.TRASH_TITLE
 import app.seguridad.vault.VaultEntry
@@ -86,7 +86,7 @@ fun TrashScreen(store: VaultStore, onBack: () -> Unit) {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message = TRASH_SAVE_FAILED
+                message = storeSaveErrorText(e) // Review fixes, CR-6: an upgrade waiting or a limit says so.
             }
         }
     }

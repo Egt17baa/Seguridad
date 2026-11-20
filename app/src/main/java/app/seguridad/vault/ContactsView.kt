@@ -92,7 +92,7 @@ const val VAULT_CLOSED = "La bóveda está cerrada"
 private const val UNKNOWN_CARD = "No se pudo leer la tarjeta"
 private const val NOT_OPENED = "No se pudo abrir la bóveda"
 private const val NOT_SAVED = "No se pudo guardar"
-private const val NOT_SAVED_STATE = "No se pudo guardar: hace falta la contraseña maestra o ya existe una identidad"
+internal const val NOT_SAVED_STATE = "No se pudo guardar: hace falta la contraseña maestra o ya existe una identidad"
 private const val NAME_EMPTY = "Escribe un nombre"
 private const val NAME_NOT_TEXT = "El nombre no es texto válido"
 private const val NAME_FORBIDDEN = "El nombre tiene caracteres de control, de dirección del texto, invisibles o no permitidos"
@@ -469,5 +469,7 @@ fun masterFailureMessage(e: Throwable): String = if (e is CryptoFailure) masterU
  */
 fun saveFailureMessage(result: Result<Boolean>): String? {
     val e = result.exceptionOrNull() ?: return if (result.getOrNull() == true) null else VAULT_CLOSED
-    return if (e is IllegalStateException) NOT_SAVED_STATE else NOT_SAVED
+    // Revisión, CR-6: los textos fijos del almacén (la subida pendiente, un tope, la maestra, una sola identidad) dicen
+    // qué pasó; lo demás, como antes.
+    return storeSaveErrorText(e, fallback = if (e is IllegalStateException) NOT_SAVED_STATE else NOT_SAVED)
 }

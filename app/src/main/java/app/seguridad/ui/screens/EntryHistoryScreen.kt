@@ -43,7 +43,6 @@ import app.seguridad.vault.historyOldPasswords
 import app.seguridad.vault.oldPasswords
 import app.seguridad.vault.HISTORY_SHORT
 import app.seguridad.vault.HISTORY_TITLE
-import app.seguridad.vault.TRASH_SAVE_FAILED
 import app.seguridad.vault.storeSaveErrorText
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
@@ -126,7 +125,7 @@ fun EntryHistoryScreen(store: VaultStore, twoStep: TwoStepCopy, id: String, onBa
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            TRASH_SAVE_FAILED to true
+                            storeSaveErrorText(e) to true // Review fixes, CR-6: the store's own text, as above.
                         }
                     }
                 }) { Text(HISTORY_CLEAR, color = NegativeColor) }

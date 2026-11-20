@@ -109,4 +109,46 @@ class ErrorTextsTest {
         val enable = src.substring(0, src.indexOf("fun unlock(activity: FragmentActivity"))
         assertTrue("return Failed(StrongBoxFailure.AUTH_OR_FINAL, \"No se pudo usar la huella\")" in enable)
     }
+
+    /** Review fixes, CR-6: [storeSaveErrorText] with a fallback of its own; the store's texts still go through. */
+    @Test fun theSaveErrorTextTakesAFallback() {
+        assertEquals("Otro", storeSaveErrorText(java.io.IOException("disco"), fallback = "Otro"))
+        assertEquals(TRASH_SAVE_FAILED, storeSaveErrorText(java.io.IOException("disco")))
+        for (t in listOf(UPGRADE_PENDING, UPGRADE_COPYING)) assertEquals(t, storeSaveErrorText(IllegalStateException(t), fallback = "Otro"))
+        assertEquals(VAULT_TOO_BIG, storeSaveErrorText(VaultLimitExceeded(VAULT_TOO_BIG), fallback = "Otro"))
+        assertEquals(FOLDER_DELETE_NAME_TAKEN, storeSaveErrorText(OrganizeRefused(FOLDER_DELETE_NAME_TAKEN), fallback = "Otro"))
+        // Anything else is never what the exception said.
+        assertEquals("Otro", storeSaveErrorText(IllegalStateException("/data/user/0/…"), fallback = "Otro"))
+    }
+
+    /**
+     * Review fixes, CR-6: on screen, a save of the vault that fails says the store's own text (an upgrade waiting, a
+     * limit, a refused change of the folders) instead of hiding it behind a fixed one. Every `catch (e: Exception)` of
+     * `ui/` whose `try` calls a save of the store goes through [storeSaveErrorText]; and the two that do it elsewhere.
+     */
+    @Test fun theScreensSayTheStoreTextsOfAFailedSave() {
+        val root = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }.first { java.io.File(it, "app/src/main/java/app/seguridad").isDirectory }
+        val ui = java.io.File(root, "app/src/main/java/app/seguridad/ui")
+        val saves = Regex("""\b(store|active|vault|undo)\.(upsert|addAll|clearHistory|restoreVersion|rename|addAttachment|removeAttachment|changeMaster|moveToTrash|delete|restore|purge|emptyTrash|moveEntries|duplicate|createFolder|renameFolder|moveFolder|deleteFolder|saveView|deleteView|setTagColor|clearAllHistory)\(""")
+        val hidden = mutableListOf<String>()
+        var checked = 0
+        for (f in ui.walk().filter { it.isFile && it.extension == "kt" }) {
+            val lines = f.readLines()
+            for ((i, line) in lines.withIndex()) {
+                if (!Regex("""catch \(\w+: Exception\)""").containsMatchIn(line)) continue
+                var j = i - 1
+                while (j > 0 && !Regex("""\btry\b""").containsMatchIn(lines[j])) j--
+                if (!saves.containsMatchIn(lines.subList(j, i).joinToString("\n"))) continue
+                checked++
+                if (lines.subList(i, minOf(i + 3, lines.size)).none { "storeSaveErrorText(" in it }) hidden += "${f.name}:${i + 1}"
+            }
+        }
+        assertEquals("catches of a save with a fixed text", emptyList<String>(), hidden)
+        assertTrue("the scan finds the saves ($checked)", checked >= 10)
+        // «Renombrar» (its catch is AppContainer.runMarked) and the trash (its saves come in as a block).
+        val picker = java.io.File(ui, "screens/VaultPickerScreen.kt").readText()
+        assertTrue(Regex("""active\.rename\(name\)[\s\S]{0,200}storeSaveErrorText\(e, fallback = VAULT_FAILED\)""").containsMatchIn(picker))
+        val trash = java.io.File(ui, "screens/TrashScreen.kt").readText()
+        assertTrue(Regex("""if \(block\(\) == 0 && none != null\) message = none[\s\S]{0,200}message = storeSaveErrorText\(e\)""").containsMatchIn(trash))
+    }
 }
