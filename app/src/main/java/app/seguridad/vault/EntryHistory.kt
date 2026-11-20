@@ -17,9 +17,21 @@ private fun VaultEntry.asVersion(): VaultEntry =
     if (history.isEmpty() && attachments.isEmpty() && passwordHistory.isEmpty()) this
     else copy(history = emptyList(), attachments = emptyList(), passwordHistory = emptyList())
 
-/** What a change is compared on: everything but the dates of use and update, the history, the attachments and the legacy list. */
+/**
+ * What a change is compared on: everything but the dates of use and update, the history, the attachments, the legacy
+ * list and the mark of the last password change (review fixes, CR-1: freezing the mark never makes a version).
+ */
 private fun VaultEntry.comparable(): VaultEntry =
-    copy(updatedAt = 0, lastUsedAt = null, history = emptyList(), attachments = emptyList(), passwordHistory = emptyList())
+    copy(updatedAt = 0, lastUsedAt = null, history = emptyList(), attachments = emptyList(), passwordHistory = emptyList(), passwordChangedAt = null)
+
+/**
+ * Review fixes, CR-1: the mark of the last password change [prev] keeps through an edit that does not change its
+ * password: its own [VaultEntry.passwordChangedAt] or, for an entry of before 2.0 that has none, the date
+ * [lastPasswordChange] reads from what it holds now (its history, the list of 1.4.3, its last edit), frozen before the
+ * edit moves [VaultEntry.updatedAt] or drops the history. Null for an entry with no password.
+ */
+internal fun frozenPasswordMark(prev: VaultEntry): Long? =
+    prev.passwordChangedAt ?: (if (prev.passwordForHealth().isNotEmpty()) lastPasswordChange(prev) else null)
 
 /** Whether [other] differs from this entry in anything the history keeps (not [VaultEntry.lastUsedAt] nor [VaultEntry.updatedAt]). */
 fun VaultEntry.changedFrom(other: VaultEntry): Boolean = comparable() != other.comparable()
@@ -33,7 +45,7 @@ fun VaultEntry.changedFrom(other: VaultEntry): Boolean = comparable() != other.c
  */
 fun VaultEntry.withVersion(previous: VaultEntry, now: Long): VaultEntry {
     // 2.0, task 5 (review M-1): the store's mark of the last change of the password, whatever the caller sent.
-    val marked = copy(passwordChangedAt = if (passwordForHealth() != previous.passwordForHealth()) now else previous.passwordChangedAt)
+    val marked = copy(passwordChangedAt = if (passwordForHealth() != previous.passwordForHealth()) now else frozenPasswordMark(previous))
     if (!marked.changedFrom(previous)) return marked
     return marked.copy(history = listOf(EntryVersion(now, previous.asVersion())) + history).fittedHistory()
 }
@@ -70,6 +82,10 @@ fun VaultEntry.oldPasswords(): List<PasswordChange> {
     return found.values.sortedByDescending { it.changedAt }
 }
 
-/** This entry without history nor the list of old passwords («Borrar historial»); the same object when it had none. */
+/**
+ * This entry without history nor the list of old passwords («Borrar historial»); the same object when it had none. CR-1:
+ * the date of the last password change is frozen first ([frozenPasswordMark]), since it may come from what goes.
+ */
 fun VaultEntry.withoutHistory(): VaultEntry =
-    if (history.isEmpty() && passwordHistory.isEmpty()) this else copy(history = emptyList(), passwordHistory = emptyList())
+    if (history.isEmpty() && passwordHistory.isEmpty()) this
+    else copy(history = emptyList(), passwordHistory = emptyList(), passwordChangedAt = frozenPasswordMark(this))

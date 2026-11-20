@@ -114,8 +114,9 @@ data class VaultEntry(
     /**
      * 2.0, task 5 (review M-1): when the password ([passwordForHealth]: a login's, a wifi's) was last set, the store's
      * own mark: [withVersion] sets it when the password changes and keeps it otherwise, a new entry with a password
-     * gets its creation, «Borrar historial» does not touch it and «Duplicar» copies it. Null for an entry of before;
-     * [lastPasswordChange] then reads its history. What «Salud» («Antigua») and «cambiar cada N meses» count from.
+     * gets its creation and «Duplicar» copies it. Null for an entry of before; [lastPasswordChange] then reads its
+     * history. Review fixes, CR-1: any edit that keeps the password (a version, «Borrar historial», an attachment added
+     * or removed, «Duplicar») freezes it first ([frozenPasswordMark]), so an entry of before gets its date fixed then. What «Salud» («Antigua») and «cambiar cada N meses» count from.
      */
     val passwordChangedAt: Long? = null,
 )

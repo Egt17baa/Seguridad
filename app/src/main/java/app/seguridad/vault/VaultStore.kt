@@ -949,7 +949,7 @@ class VaultStore(
                 id = UUID.randomUUID().toString(), title = duplicateTitle(source.title), createdAt = at, updatedAt = at,
                 history = emptyList(), passwordHistory = emptyList(), attachments = emptyList(), lastUsedAt = null, deletedAt = null,
                 // Review M-1: the same password as old as it was, not new.
-                passwordChangedAt = if (source.passwordForHealth().isEmpty()) null else lastPasswordChange(source),
+                passwordChangedAt = frozenPasswordMark(source),
             )
             made = copy
             data.copy(entries = data.live + copy + data.trash)
@@ -1330,7 +1330,7 @@ class VaultStore(
                 val entry = data.live.firstOrNull { it.id == entryId && !it.type.isPersonal } ?: return@modifyData null
                 if (!attachmentsFit(data, plain.size.toLong())) throw AttachmentLimit(ATTACHMENTS_TOTAL_WOULD_PASS)
                 val ref = withContext(io) { attachments.add(plain, name) }
-                data.copy(entries = data.entries.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now()) else it })
+                data.copy(entries = data.entries.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now(), passwordChangedAt = frozenPasswordMark(it)) else it })
             }
         } finally {
             plain.fill(0)
@@ -1343,7 +1343,7 @@ class VaultStore(
      */
     suspend fun removeAttachment(entryId: String, attachmentId: String): Boolean = modify { list ->
         val entry = list.firstOrNull { e -> e.id == entryId && e.attachments.any { it.id == attachmentId } } ?: return@modify null
-        list.map { e -> if (e === entry) e.copy(attachments = e.attachments.filterNot { it.id == attachmentId }, updatedAt = now()) else e }
+        list.map { e -> if (e === entry) e.copy(attachments = e.attachments.filterNot { it.id == attachmentId }, updatedAt = now(), passwordChangedAt = frozenPasswordMark(e)) else e }
     }
 
     /**
