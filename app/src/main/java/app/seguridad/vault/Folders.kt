@@ -31,6 +31,13 @@ const val FOLDER_NAME_EMPTY = "Ponle un nombre a la carpeta."
 const val FOLDER_NAME_TAKEN = "Ya hay una carpeta con ese nombre en el mismo sitio. Elige otro."
 const val FOLDER_NAME_LONG = "El nombre de una carpeta puede tener como mucho 60 caracteres. Acórtalo."
 const val FOLDER_GONE = "Esa carpeta ya no está en la bóveda. Elige otra."
+
+/**
+ * Review fixes, CR-4: deleting a folder and sending what it holds to the folder above would leave one of its subfolders
+ * next to a folder of the same name ([organizeKey]). Word for word as the director's ruling, for the Abogado Digital.
+ */
+const val FOLDER_DELETE_NAME_TAKEN =
+    "Una de sus subcarpetas se llama igual que otra carpeta del sitio al que pasaría. Cambia antes uno de los dos nombres."
 const val VIEW_NAME_EMPTY = "Ponle un nombre a la vista."
 const val VIEW_NAME_TAKEN = "Ya hay una vista con ese nombre. Elige otro."
 const val VIEW_NAME_LONG = "El nombre de una vista puede tener como mucho 60 caracteres. Acórtalo."
@@ -187,7 +194,8 @@ internal fun VaultData.withFolderMoved(id: String, newParentId: String?): VaultD
 
 /**
  * This vault without folder [id] (null when it is not there), in one change:
- * - [FolderDeletion.PARENT]: its entries and its subfolders go to the folder above it (none for a top folder);
+ * - [FolderDeletion.PARENT]: its entries and its subfolders go to the folder above it (none for a top folder); refused
+ *   with [OrganizeRefused] ([FOLDER_DELETE_NAME_TAKEN]) when a subfolder would land next to one of the same name;
  * - [FolderDeletion.TRASH]: it goes with all its subfolders, and their entries go to the trash at [now], as
  *   [VaultStore.moveToTrash] sends them ([VaultEntry.deletedAt]); an identity or a contact (never in a folder through
  *   the app) only leaves the folder.
@@ -198,6 +206,15 @@ internal fun VaultData.withoutFolder(id: String, to: FolderDeletion, now: Long):
     val f = folders.firstOrNull { it.id == id } ?: return null
     val ids = folders.mapTo(HashSet()) { it.id }
     val up = f.parentId?.takeIf { it in ids && it != id }
+    if (to == FolderDeletion.PARENT) {
+        // Review fixes, CR-4: the subfolders that go up keep their names; none may land next to one of the same name
+        // (the rule of every other change: [organizeKey], with a missing parent counted as the top).
+        val there = folders.filter { it.id != id && it.parentId != id && (it.parentId?.takeIf { p -> p in ids }) == up }
+            .mapTo(HashSet()) { organizeKey(it.name) }
+        if (folders.any { it.id != id && it.parentId == id && organizeKey(it.name) in there }) {
+            throw OrganizeRefused(FOLDER_DELETE_NAME_TAKEN)
+        }
+    }
     val gone = if (to == FolderDeletion.TRASH) descendants(folders, id) + id else setOf(id)
     val left = folders.filter { it.id !in gone }.map { if (it.parentId == id) it.copy(parentId = up, order = it.order) else it }
     val moved = entries.map { e ->

@@ -1,6 +1,7 @@
 package app.seguridad.vault
 
 import app.seguridad.crypto.KdfParams
+import app.seguridad.tools.ForbiddenWords
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -92,6 +93,57 @@ class FoldersTest {
         // A view of the folder now looks at the folder that took its place.
         assertEquals(a.id, d.views.single().filter.folderId)
         assertFalse(s.deleteFolder("no-existe", FolderDeletion.PARENT))
+    }
+
+    /** Review fixes, CR-4: a subfolder that goes up cannot land next to a folder of the same name. */
+    @Test fun deleteToParentRefusedWhenASubfolderNameIsTaken() = runTest {
+        val s = open()
+        // At the top: «Trabajo» > «Casa», and a «casa» at the top already.
+        val top = s.createFolder("Trabajo", null)!!
+        s.createFolder("Casa", top.id)!!
+        s.createFolder("casa", null)!!
+        // Inside another folder: «Viejo» > «Proyectos» > «Fotos», and «Viejo» > «FOTOS».
+        val old = s.createFolder("Viejo", null)!!
+        val mid = s.createFolder("Proyectos", old.id)!!
+        s.createFolder("Fotos", mid.id)!!
+        s.createFolder("FOTOS", old.id)!!
+        assertTrue(s.upsert(note("1")))
+        assertEquals(1, s.moveEntries(setOf("1"), mid.id))
+        val file = File(tmp.root, "vault.bin").readBytes()
+        val before = s.data()
+        for (id in listOf(top.id, mid.id)) {
+            val e = assertThrows(OrganizeRefused::class.java) { kotlinx.coroutines.runBlocking { s.deleteFolder(id, FolderDeletion.PARENT) } }
+            assertEquals(FOLDER_DELETE_NAME_TAKEN, e.message)
+        }
+        // A refusal changes nothing, in memory or on disk.
+        assertEquals(before, s.data())
+        assertTrue(File(tmp.root, "vault.bin").readBytes().contentEquals(file))
+        // TRASH does not move subfolders: it is not refused.
+        assertTrue(s.deleteFolder(mid.id, FolderDeletion.TRASH))
+        assertEquals(setOf("1"), s.data().trash.map { it.id }.toSet())
+        // With no clash, it deletes: «Trabajo» > «Casa» once the top «casa» is renamed.
+        s.renameFolder(s.data().folders.single { it.name == "casa" }.id, "Casa vieja")
+        assertTrue(s.deleteFolder(top.id, FolderDeletion.PARENT))
+        assertNull(s.data().folders.single { it.name == "Casa" }.parentId)
+    }
+
+    /** CR-4 with names the app does not write but a file can hold: «trabajo » and «Trabajo» compare equal (organizeKey). */
+    @Test fun deleteToParentComparesWithOrganizeKey() {
+        val data = VaultData(
+            folders = listOf(Folder("a", "Padre", null, 0), Folder("b", "trabajo ", "a", 0), Folder("c", "Trabajo", null, 1)),
+        )
+        val e = assertThrows(OrganizeRefused::class.java) { data.withoutFolder("a", FolderDeletion.PARENT, 0) }
+        assertEquals(FOLDER_DELETE_NAME_TAKEN, e.message)
+        // A folder whose parent is gone counts as a top one, as for every other change.
+        val dangling = data.copy(folders = data.folders.map { if (it.id == "c") it.copy(parentId = "no-existe") else it })
+        assertThrows(OrganizeRefused::class.java) { dangling.withoutFolder("a", FolderDeletion.PARENT, 0) }
+        // TRASH takes the subfolder with it.
+        assertEquals(listOf("c"), data.withoutFolder("a", FolderDeletion.TRASH, 0)!!.folders.map { it.id })
+        assertEquals(
+            "Una de sus subcarpetas se llama igual que otra carpeta del sitio al que pasaría. Cambia antes uno de los dos nombres.",
+            FOLDER_DELETE_NAME_TAKEN,
+        )
+        assertEquals(emptyList<String>(), ForbiddenWords.problems(FOLDER_DELETE_NAME_TAKEN))
     }
 
     @Test fun deleteToTrashTrashesEntries() = runTest {
