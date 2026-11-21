@@ -319,6 +319,7 @@ class VaultV4Test {
         s.upgradeDoneShown()
         assertNull(s.upgradeDone.value)
         assertFalse(s.upgradeAutoCopyFailed)
+        assertFalse(s.upgradeAutoCopyNotDone)
 
         // The copy failed: nothing saved, the choice is still to make, and the dialog says the copy failed (M-5).
         val other = phone143("sin-copia")
@@ -327,17 +328,20 @@ class VaultV4Test {
         assertEquals(text("vault-1.4.3.json"), File(other, "vault.bin").readText())
         assertTrue(t.pendingUpgrade.value)
         assertTrue(t.upgradeAutoCopyFailed)
+        assertFalse("a quick failure is not a copy that took too long (recheck D-1.m1)", t.upgradeAutoCopyNotDone)
         assertNull(t.upgradeDone.value)
         // A copy that throws is the same.
         val thrown = store(phone143("lanza"), beforeUpgrade = { throw IOException("x") }).apply { load() }
         thrown.unlock(master143.toCharArray())
         assertTrue(thrown.pendingUpgrade.value)
         assertTrue(thrown.upgradeAutoCopyFailed)
+        assertFalse(thrown.upgradeAutoCopyNotDone)
         // No folder: asked, without any line about a failed copy.
         val none = store(phone143("sin-carpeta")).apply { load() }
         none.unlock(master143.toCharArray())
         assertTrue(none.pendingUpgrade.value)
         assertFalse(none.upgradeAutoCopyFailed)
+        assertFalse("no folder is not a copy that took too long (recheck D-1.m1)", none.upgradeAutoCopyNotDone)
 
         // A v4 is never copied first, and has nothing to tell.
         var called = false
