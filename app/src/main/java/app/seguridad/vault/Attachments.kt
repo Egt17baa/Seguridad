@@ -88,8 +88,14 @@ private fun aad(id: String) = (AAD_PREFIX + id).toByteArray(Charsets.UTF_8)
  */
 class AttachmentStore(val dir: File, private val random: SecureRandom = secureRandom) {
 
-    /** The file of [id]; the caller has checked [isAttachmentId]. */
-    internal fun fileOf(id: String) = File(dir, "$id.bin")
+    /**
+     * The file of [id]. Audit C-5: an id that is not an attachment id ([isAttachmentId]) is refused here too
+     * ([IllegalArgumentException]), whatever the caller checked, so no file outside [dir] is ever named.
+     */
+    internal fun fileOf(id: String): File {
+        require(isAttachmentId(id)) { "Not an attachment id" }
+        return File(dir, "$id.bin")
+    }
 
     /**
      * Reads at most [MAX_ATTACHMENT_BYTES] + 1 bytes of [input] (refused above the limit, nothing written), then

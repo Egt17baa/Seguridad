@@ -103,6 +103,24 @@ class AttachmentsTest {
         assertDamaged { a.open(x) }
     }
 
+    /**
+     * Audit C-5 (CWE-22, defence in depth): [AttachmentStore.fileOf] refuses an id that is not an attachment id, so no
+     * caller can name a file outside the attachments folder, whatever it checked before.
+     */
+    @Test fun fileOfRefusesAnIdThatIsNotAnAttachmentId() {
+        val a = attachments()
+        val good = "0123456789abcdef0123456789abcdef"
+        assertEquals(File(attDir, "$good.bin"), a.fileOf(good))
+        for (bad in listOf("../vault", "../../shared_prefs/x", "", "0123456789ABCDEF0123456789ABCDEF", "$good/..", "${good}0", "a/b")) {
+            try {
+                a.fileOf(bad)
+                fail("Debía rechazar «$bad»")
+            } catch (e: IllegalArgumentException) {
+                // Refused: it fails closed, before any file is named.
+            }
+        }
+    }
+
     @Test fun over5MbRejected() {
         val a = attachments()
         val max = 5 * 1024 * 1024
