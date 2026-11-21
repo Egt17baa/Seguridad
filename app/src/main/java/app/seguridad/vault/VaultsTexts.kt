@@ -126,3 +126,15 @@ const val KDF_COST_KEPT =
 
 /** RT-22 (ii): «Hacer una copia ahora» in Ajustes on an empty vault. */
 const val VAULT_EMPTY_NOTHING_TO_COPY = "Esta bóveda está vacía: no hay nada que copiar."
+
+/**
+ * Audit A-2: the «Más información» of the cost of Argon2id in Ajustes (SettingsScreen). The vault's file is raised to the
+ * chosen cost at the next unlock with the master password and never lowered (Vault.kt, the new wrap after an unlock);
+ * what is already made keeps its cost. It never says that a higher cost protects copies made before.
+ */
+const val KDF_COST_MORE =
+    "Es de cada bóveda. Se usa al crear esta bóveda, al cambiar su contraseña maestra y, con ella elegida, al cifrar " +
+        "textos y archivos. Si el archivo de la bóveda tiene un coste menor, sube a este la próxima vez que la abras con " +
+        "la contraseña maestra; nunca se baja. Las copias ya hechas, y los textos y archivos ya cifrados, guardan su " +
+        "coste. Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria: " +
+        "muchos móviles económicos no llegan, así que úsalo solo si vas a abrir tus copias en móviles como este."

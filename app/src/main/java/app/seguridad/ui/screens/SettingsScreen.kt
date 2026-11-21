@@ -34,6 +34,7 @@ import app.seguridad.health.MISSIONS_SHORT
 import app.seguridad.tools.SIMPLE_MODE_SHORT
 import app.seguridad.tools.SIMPLE_MODE_TITLE
 import app.seguridad.vault.HISTORY_ALL_CLEAR
+import app.seguridad.vault.KDF_COST_MORE
 import app.seguridad.vault.HISTORY_ALL_CONFIRM_TEXT
 import app.seguridad.vault.HISTORY_ALL_CONFIRM_TITLE
 import app.seguridad.vault.HISTORY_ALL_SHORT
@@ -663,13 +664,8 @@ fun SettingsScreen(
                 // On view: what the high cost means, and why its chip is off (code review of 1.4.2).
                 Hint(KDF_HIGH_SHORT)
                 if (!highAvailable) Hint(KDF_HIGH_UNAVAILABLE)
-                MoreInfo {
-                        Hint(
-                            "Es de cada bóveda. Se usa al crear esta bóveda, al cambiar su contraseña maestra y, con ella elegida, al cifrar textos y archivos. Lo ya cifrado guarda su coste. " +
-                                "Lo cifrado con el coste alto solo se abre en móviles que den a la app al menos 171 MiB de memoria: muchos móviles " +
-                                "económicos no llegan, así que úsalo solo si vas a abrir tus copias en móviles como este.",
-                        )
-                }
+                // Audit A-2: the vault's file is raised to this cost at the next unlock with the master, never lowered.
+                MoreInfo { Hint(KDF_COST_MORE) }
             }
             // 2.0, task 5 bis: the mode, the style and the palette have their own screen, with a preview.
             Section(SettingItem.APPEARANCE.title, anchor(SettingItem.APPEARANCE)) {
