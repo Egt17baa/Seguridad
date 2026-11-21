@@ -70,6 +70,14 @@ class WorkflowHardeningTest {
         for ((_, l) in inBuild) if ("$trust && secrets.SEGURIDAD_" !in l || !l.trimEnd().endsWith("|| '' }}")) problems += "untrusted: ${l.trim()}"
         for ((job, l) in signing - inBuild.toSet()) if (job !in firma) problems += "$job without environment firma: ${l.trim()}"
         if ("play-bundle" !in firma || signing.count { it.first == "play-bundle" } != 4) problems += "play-bundle"
+        // Recheck C-7.m1: the jobs with the signing secrets run only in trusted runs (with C-3 open, that `if:` is the
+        // guard of play-bundle's four secrets), and play-bundle only after build-firma.
+        for (job in listOf("build-firma", "play-bundle")) {
+            val ifs = code.filter { (j, l) -> j == job && l.startsWith("    if:") }.map { it.second.trimEnd() }
+            if (ifs != listOf("    if: ${trust.removeSurrounding("(", ")")}")) problems += "$job if: $ifs"
+        }
+        val playNeeds = code.filter { (j, l) -> j == "play-bundle" && l.startsWith("    needs:") }.map { it.second.trim() }
+        if (playNeeds.size != 1 || !Regex("""\bbuild-firma\b""").containsMatchIn(playNeeds.single())) problems += "play-bundle needs: $playNeeds"
         if (code.any { (_, l) -> Regex("""secrets\[|toJSON\(secrets""").containsMatchIn(l) }) problems += "all secrets"
         val all = y.lines()
         all.withIndex().filter { (_, l) -> Regex("""uses:\s*actions/checkout@""").containsMatchIn(l) && !l.trimStart().startsWith("#") }.forEach { (i, l) ->
@@ -101,7 +109,10 @@ class WorkflowHardeningTest {
 
     /** The red of each case: a copy of the YAML with one protection taken out. */
     @Test fun eachCheckFailsOnAnAlteredCopy() {
-        fun altered(from: String, to: String): String = yaml.also { assertTrue(from, from in it) }.replaceFirst(from, to)
+        fun altered(from: String, to: String): String {
+            assertTrue(from, from in yaml)
+            return yaml.replaceFirst(from, to).also { assertTrue("the alteration changes the YAML", it != yaml) }
+        }
         assertTrue(pinning(altered("actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09", "actions/checkout@v5")).isNotEmpty())
         assertTrue(readOnly(altered("  pull_request:\n", "  pull_request_target:\n")).isNotEmpty())
         assertTrue(readOnly(altered("permissions:\n  contents: read\n", "permissions: write-all\n")).isNotEmpty())
@@ -111,6 +122,11 @@ class WorkflowHardeningTest {
         val playHead = yaml.substring(yaml.indexOf("  play-bundle:\n"))
         assertTrue(secrets(altered(playHead, playHead.replaceFirst("    environment: firma\n", ""))).isNotEmpty())
         assertTrue(secrets(altered("persist-credentials: false", "persist-credentials: true")).isNotEmpty())
+        val trustedIf = "    if: ${trust.removeSurrounding("(", ")")}\n"
+        assertTrue(secrets(altered(playHead, playHead.replaceFirst(trustedIf, "    if: always()\n"))).isNotEmpty())
+        val firmaHead = yaml.substring(yaml.indexOf("  build-firma:\n"))
+        assertTrue(secrets(altered(firmaHead, firmaHead.replaceFirst(trustedIf, ""))).isNotEmpty())
+        assertTrue(secrets(altered(playHead, playHead.replaceFirst("    needs: [build-firma, jvm-check]\n", "    needs: [jvm-check]\n"))).isNotEmpty())
         assertTrue(certificate(altered("746398EA", "746398EB"), publicar).isNotEmpty())
         assertTrue(certificate(altered("if [ \"\$FP\" != \"\$UPLOAD_CERT_SHA256\" ]; then", "if false; then"), publicar).isNotEmpty())
     }
