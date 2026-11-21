@@ -144,10 +144,14 @@ class ErrorTextsTest {
             }
         }
         assertEquals("catches of a save with a fixed text", emptyList<String>(), hidden)
-        assertTrue("the scan finds the saves ($checked)", checked >= 10)
+        // Audit RC-4: as many as the screens have today (19), so a save the scan stops seeing does not go unnoticed.
+        assertTrue("the scan finds the saves ($checked)", checked >= 19)
         // «Renombrar» (its catch is AppContainer.runMarked) and the trash (its saves come in as a block).
         val picker = java.io.File(ui, "screens/VaultPickerScreen.kt").readText()
         assertTrue(Regex("""active\.rename\(name\)[\s\S]{0,200}storeSaveErrorText\(e, fallback = VAULT_FAILED\)""").containsMatchIn(picker))
+        // Audit RC-4: «Cambiar la contraseña maestra», whose nested try the scan does not see.
+        val backup = java.io.File(ui, "screens/VaultBackup.kt").readText()
+        assertTrue(Regex("""store\.changeMaster\([\s\S]{0,1500}storeSaveErrorText\(e, fallback = newPasswordFailureMessage\(""").containsMatchIn(backup))
         val trash = java.io.File(ui, "screens/TrashScreen.kt").readText()
         assertTrue(Regex("""if \(block\(\) == 0 && none != null\) message = none[\s\S]{0,200}message = storeSaveErrorText\(e\)""").containsMatchIn(trash))
     }
