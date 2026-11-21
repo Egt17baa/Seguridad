@@ -345,6 +345,8 @@ private fun DeleteFolderDialog(store: VaultStore, f: Folder, folders: List<Folde
     val scope = rememberCoroutineScope()
     var to by remember { mutableStateOf(FolderDeletion.PARENT) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Audit D-4: one deletion at a time, as NameDialog.
+    var busy by remember { mutableStateOf(false) }
     val parent = folderPath(folders, f.id).dropLast(1).lastOrNull()
     AlertDialog(
         onDismissRequest = onDone,
@@ -353,8 +355,9 @@ private fun DeleteFolderDialog(store: VaultStore, f: Folder, folders: List<Folde
             FilterObscuredTouches()
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf(FolderDeletion.PARENT, FolderDeletion.TRASH).forEach { option ->
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable(role = Role.RadioButton) { to = option }) {
-                        RadioButton(selected = to == option, onClick = { to = option })
+                    // Audit D-4: a refusal is of the option it was for; choosing another clears it.
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable(role = Role.RadioButton) { to = option; error = null }) {
+                        RadioButton(selected = to == option, onClick = { to = option; error = null })
                         Text(
                             when (option) {
                                 FolderDeletion.PARENT -> parent?.let { folderDeleteToParent(plainReportText(it.name)) } ?: FOLDER_DELETE_TO_NONE
@@ -368,7 +371,8 @@ private fun DeleteFolderDialog(store: VaultStore, f: Folder, folders: List<Folde
             }
         },
         confirmButton = {
-            TextButton(onClick = {
+            TextButton(enabled = !busy, onClick = {
+                busy = true
                 scope.launch {
                     try {
                         store.deleteFolder(f.id, to)
@@ -377,6 +381,8 @@ private fun DeleteFolderDialog(store: VaultStore, f: Folder, folders: List<Folde
                         onDone()
                     } catch (e: Exception) {
                         error = storeSaveErrorText(e)
+                    } finally {
+                        busy = false
                     }
                 }
             }) { Text(FOLDER_DELETE, color = NegativeColor) }
