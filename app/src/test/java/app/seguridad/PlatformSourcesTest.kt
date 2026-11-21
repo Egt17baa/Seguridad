@@ -70,6 +70,9 @@ class PlatformSourcesTest {
         val commit = forget.indexOf(".edit(commit = true) {")
         val delete = forget.indexOf("deleteSharedPreferences(perVaultName(PREFS, vaultId))")
         assertTrue(forget, commit >= 0 && delete > commit)
+        // Recheck m-6: for the first vault, whose file stays, what forgets the fingerprint is what that edit removes.
+        val removed = forget.substring(commit).substringAfter("{").substringBefore("}")
+        for (key in listOf("KEY_IV", "KEY_BLOB", "KEY_IN_STRONGBOX")) assertTrue("removes $key: $removed", "remove($key)" in removed)
         assertTrue("queue.run(" in forget && "NonCancellable" in forget)
         assertTrue("never the first vault's", Regex("""if \(vaultId != PRIMARY_VAULT_ID\)[^\n]*deleteSharedPreferences""").containsMatchIn(forget))
         assertTrue("deleteKey(vaultId)" in forget)
