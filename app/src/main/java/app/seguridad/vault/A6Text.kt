@@ -152,7 +152,8 @@ fun a6Text(failures: List<String>, summary: A6Summary?): String {
 /**
  * Round 6 (I-2): [replaced] of [folders] folders finished the request asked at an earlier change of the master password
  * (the vault's mark changed since: another change, or a wrap with a higher cost). True in every case: it says which
- * copies went (those listed before that change), and that those made after it were not deleted.
+ * copies went (those listed before that change), and that this request did not delete those made after it
+ * (O-2 of the Abogado Digital, final review of 2.0: what the request did, not a state of the folder it does not know).
  */
 fun a6StaleText(replaced: Int, folders: Int): String {
     val where = when {
@@ -161,8 +162,8 @@ fun a6StaleText(replaced: Int, folders: Int): String {
         else -> "en $replaced de las $folders carpetas; en las demás puede quedar alguna copia de antes de ese cambio"
     }
     return "Se terminaron de borrar las copias que la app tenía apuntadas de antes de un cambio de contraseña anterior, $where. " +
-        "Las copias hechas después de ese cambio no se han borrado: si cambiaste la contraseña otra vez, puede que alguna se " +
-        "abra con una contraseña anterior. Míralo a mano."
+        "Esta petición no borró las copias hechas después de ese cambio: si cambiaste la contraseña otra vez, puede que " +
+        "alguna se abra con una contraseña anterior. Míralo a mano."
 }
 
 /**

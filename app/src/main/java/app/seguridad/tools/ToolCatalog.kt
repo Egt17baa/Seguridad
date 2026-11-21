@@ -46,7 +46,7 @@ const val HEALTH_TOOL_SUBTITLE = "Contraseñas repetidas, débiles o antiguas, y
 const val HEALTH_NO_VAULT = "Aún no tienes bóveda. Créala en la pestaña Bóveda."
 
 /** RT-22 (ii): «Salud» on an empty vault while another vault of the phone has its file. */
-const val HEALTH_EMPTY_VAULT = "Esta bóveda está vacía. Para crear o importar otra bóveda, abre antes una de las que tienes."
+const val HEALTH_EMPTY_VAULT = "Esta bóveda está vacía: aún no tiene archivo. Para crear o importar otra bóveda, abre antes una de las que tienes."
 
 /** The name of the switch in Ajustes. */
 const val SIMPLE_MODE_TITLE = "Modo sencillo"

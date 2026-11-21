@@ -182,6 +182,13 @@ class ContactsViewTest {
         )
         assertTrue(DELETE_IDENTITY_WARNING.contains("Los contactos tendrán que volver a añadirte y lo que te enviaron a esta identidad ya no se podrá abrir"))
         assertEquals("Compárala con la que ve tu contacto en su móvil", FINGERPRINT_HELP)
+        // O-1 and R-4 of the Abogado Digital (final review of 2.0).
+        assertEquals(
+            "Se borrará tu identidad de esta bóveda: no pasa por la papelera ni se puede deshacer. Las copias ya hechas " +
+                "(automáticas o exportadas) pueden conservar la identidad que tenían.",
+            DELETE_IDENTITY_CONFIRMATION,
+        )
+        assertEquals("Para guardar tu identidad y tus contactos hace falta tu contraseña maestra, una sola vez.", NEEDS_MASTER_NOTICE)
     }
 
     // ---- Validación del nombre ----

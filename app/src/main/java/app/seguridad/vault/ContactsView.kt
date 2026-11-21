@@ -40,9 +40,10 @@ const val TOO_BIG_CARD = "La tarjeta es demasiado grande"
 const val DELETE_IDENTITY_WARNING =
     "Los contactos tendrán que volver a añadirte y lo que te enviaron a esta identidad ya no se podrá abrir. Esto no se puede deshacer."
 
-/** Segunda confirmación al borrar la identidad. */
+/** Segunda confirmación al borrar la identidad (O-1 del Abogado Digital, revisión final de la 2.0). */
 const val DELETE_IDENTITY_CONFIRMATION =
-    "Se borrará tu identidad de esta bóveda y no hay forma de recuperarla. Las copias que ya hayas exportado conservan la identidad que tenían."
+    "Se borrará tu identidad de esta bóveda: no pasa por la papelera ni se puede deshacer. Las copias ya hechas " +
+        "(automáticas o exportadas) pueden conservar la identidad que tenían."
 
 /**
  * Revisión, CR-3: qué enseña un marco de «Contactos» con la bóveda abierta. Una bóveda de la versión 2 abierta con la
@@ -64,9 +65,13 @@ fun contactsGate(needsMaster: Boolean, asking: Boolean, copying: Boolean): Conta
     else -> ContactsGate.Master
 }
 
-/** La bóveda es de la versión 2 (abierta con la huella): hace falta la maestra una vez antes de guardar identidad o contactos. */
+/**
+ * La bóveda es de la versión 2 (abierta con la huella): hace falta la maestra una vez antes de guardar identidad o contactos.
+ * R-4 del Abogado Digital (revisión final de la 2.0): sin «La bóveda se abrió con la huella», que no sería cierto si un
+ * cambio futuro lo enseñara por otro camino.
+ */
 const val NEEDS_MASTER_NOTICE =
-    "Para guardar tu identidad y tus contactos hace falta tu contraseña maestra, una sola vez. La bóveda se abrió con la huella."
+    "Para guardar tu identidad y tus contactos hace falta tu contraseña maestra, una sola vez."
 
 /** Debajo de la huella de un contacto. */
 const val FINGERPRINT_HELP = "Compárala con la que ve tu contacto en su móvil"

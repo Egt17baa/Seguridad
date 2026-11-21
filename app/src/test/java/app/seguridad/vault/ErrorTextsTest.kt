@@ -51,8 +51,8 @@ class ErrorTextsTest {
     /** Review fixes, CR-2: while the copy before the upgrade runs, a save says so (the dialog is not shown yet). */
     @Test fun theTextOfASaveWhileTheUpgradeCopyRuns() {
         assertEquals(
-            "Clavero está haciendo la copia automática de antes del cambio al formato nuevo. Espera a que termine e " +
-                "inténtalo otra vez.",
+            "Clavero está preparando el paso de la bóveda al formato nuevo, con su copia automática si la hay. Espera a que " +
+                "termine e inténtalo otra vez.",
             UPGRADE_COPYING,
         )
         assertEquals(UPGRADE_COPYING, storeSaveErrorText(IllegalStateException(UPGRADE_COPYING)))

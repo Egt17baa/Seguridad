@@ -252,7 +252,7 @@ fun HealthScreen(
                             },
                             enabled = entries.any { it.password.isNotEmpty() && it.type == app.seguridad.vault.EntryType.LOGIN },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Comprobar filtraciones (envía solo 5 caracteres del hash de cada una)") }
+                        ) { Text("Comprobar filtraciones de los accesos (envía solo 5 caracteres del hash de cada contraseña)") }
                     }
                     message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }

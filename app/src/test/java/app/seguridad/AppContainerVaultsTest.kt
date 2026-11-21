@@ -334,9 +334,12 @@ class AppContainerVaultsTest {
         assertTrue(Regex("""store\.state\.value is VaultState\.NoVault && !guard\(\)\) VAULT_NEW_NEEDS_OPEN""").containsMatchIn(backup))
         assertTrue("container::mayFillEmptySlot" in code("ui/AppNavHost.kt"))
         assertEquals("Para crear o importar otra bóveda, abre antes una de las que tienes.", app.seguridad.vault.VAULT_NEW_NEEDS_OPEN)
-        assertEquals("Esta bóveda está vacía: no hay nada que copiar.", app.seguridad.vault.VAULT_EMPTY_NOTHING_TO_COPY)
         assertEquals(
-            "Esta bóveda está vacía. Para crear o importar otra bóveda, abre antes una de las que tienes.",
+            "Esta bóveda está vacía: aún no tiene archivo, así que no hay nada que copiar.",
+            app.seguridad.vault.VAULT_EMPTY_NOTHING_TO_COPY,
+        )
+        assertEquals(
+            "Esta bóveda está vacía: aún no tiene archivo. Para crear o importar otra bóveda, abre antes una de las que tienes.",
             app.seguridad.tools.HEALTH_EMPTY_VAULT,
         )
     }

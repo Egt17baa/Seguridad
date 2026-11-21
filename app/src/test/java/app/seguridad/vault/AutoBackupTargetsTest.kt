@@ -1528,6 +1528,11 @@ class AutoBackupTargetsTest {
         assertTrue("en la carpeta." in a6StaleText(1, 1))
         assertTrue("en todas las carpetas" in a6StaleText(2, 2))
         assertTrue("en 1 de las 2 carpetas; en las demás puede quedar" in a6StaleText(1, 2))
+        // O-2 of the Abogado Digital (final review of 2.0): what this request did, not a state of the folder.
+        for (t in listOf(a6StaleText(1, 1), a6StaleText(2, 2), a6StaleText(1, 2))) {
+            assertTrue(t, "Esta petición no borró las copias hechas después de ese cambio: si cambiaste la contraseña" in t)
+            assertFalse(t, "no se han borrado" in t)
+        }
     }
 
     private fun settingsOf143WithARequest(): VaultSettings {

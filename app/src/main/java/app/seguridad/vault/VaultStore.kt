@@ -1770,10 +1770,13 @@ const val UPGRADE_PENDING = "Antes de guardar nada, elige en el aviso si exporta
 
 /**
  * Review fixes, CR-2: what a save says while the automatic copy before the change to the new format runs (the dialog of
- * [UPGRADE_PENDING] is not on screen yet, so that text would not be true then). Word for word as the director's ruling.
+ * [UPGRADE_PENDING] is not on screen yet, so that text would not be true then). R-2 of the Abogado Digital (final review of
+ * 2.0): «preparando el paso…, con su copia automática si la hay», true also without a folder, when it may show for an
+ * instant with no copy being made.
  */
 const val UPGRADE_COPYING =
-    "Clavero está haciendo la copia automática de antes del cambio al formato nuevo. Espera a que termine e inténtalo otra vez."
+    "Clavero está preparando el paso de la bóveda al formato nuevo, con su copia automática si la hay. Espera a que " +
+        "termine e inténtalo otra vez."
 
 /**
  * 2.0, re-review N-1 of task 3: what a screen says when a save of the store throws [e]. Only the store's own Spanish
