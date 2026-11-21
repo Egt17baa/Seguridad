@@ -177,10 +177,11 @@ class BackupV3Test {
             assertEquals(BACKUP_DOES_NOT_FIT, e.message)
         }
     }
+
     /**
      * Audit A-3: the check of the marker of the copy reader of Clavero 1.4.3, copied from its own code (commit `a3ac942`,
-     * `app/src/main/java/app/seguridad/vault/Backup.kt:262-276`, with its `BACKUP_NEWEST = 2` of `:37` and its text of
-     * `:59`). That version is published and never changes: this is what it does with the first entry of a copy. Null
+     * `app/src/main/java/app/seguridad/vault/Backup.kt:262-276`, with its `BACKUP_NEWEST = 2` of `:37` and its texts of
+     * `:58-59`). That version is published and never changes: this is what it does with the first entry of a copy. Null
      * when it accepts the marker; otherwise the text it shows.
      */
     private fun reader143Marker(name: String, version: ByteArray): String? {
@@ -188,7 +189,7 @@ class BackupV3Test {
         val backupVersion143 = "2\n".toByteArray(Charsets.US_ASCII)
         val backupVersion1143 = "1\n".toByteArray(Charsets.US_ASCII)
         val backupNewer143 = "La copia es de una versión más nueva de Clavero"
-        val backupDamaged143 = BACKUP_DAMAGED
+        val backupDamaged143 = "La copia está dañada o no es una copia de Clavero"
         // From a3ac942, Backup.kt:268-275 (the marker comes first, with exactly this version).
         if (name != "seguridad-backup") return backupDamaged143
         if (!version.contentEquals(backupVersion143) && !version.contentEquals(backupVersion1143)) {
