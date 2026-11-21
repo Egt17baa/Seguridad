@@ -687,6 +687,43 @@ class AppContainerVaultsTest {
         assertTrue(onDisk in c.settings.settings.value.perVault)
     }
 
+    /**
+     * 2.0, audit A-1, recheck m-2: forgetting the fingerprint is best effort. If it throws, the deletion still ends
+     * ([VaultDeletion.DELETED], the folder gone), and the sweep at the start still forgets every other orphan's key and
+     * takes all their settings.
+     */
+    @Test fun aFingerprintThatCannotBeForgottenDoesNotStopTheDeletion() = runTest {
+        val c = AppContainer(
+            tmp.root, cache, appVersion = "test", appScope = backgroundScope,
+            forgetBiometric = { throw IllegalStateException("Keystore") },
+        )
+        val (_, idB) = twoVaults(c)
+        val dirB = c.registry.dirOf(idB)
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        assertFalse(dirB.exists())
+        assertFalse(c.registry.vaults.value.any { it.id == idB })
+        assertFalse(idB in c.settings.settings.value.perVault)
+
+        val tried = mutableListOf<String>()
+        val first = "c".repeat(32)
+        val second = "d".repeat(32)
+        val d = AppContainer(
+            tmp.newFolder("second"), tmp.newFolder("cache2"), appVersion = "test", appScope = backgroundScope,
+            forgetBiometric = { id ->
+                tried += id
+                if (id == first) throw IllegalStateException("Keystore")
+            },
+        )
+        d.settings.load()
+        d.vault.load()
+        d.vault.create(masterA.toCharArray())
+        for (id in listOf(first, second)) d.settings.updateVault(id) { it.oneTarget(autoBackupUri = "content://$id") }
+        d.forgetOrphanVaults()
+        assertEquals("each orphan tried, in its own try", setOf(first, second), tried.toSet())
+        assertFalse(first in d.settings.settings.value.perVault)
+        assertFalse(second in d.settings.settings.value.perVault)
+    }
+
     @Test fun importAsNewTwiceMakesTwoVaults() = runTest {
         val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
         c.settings.load()
