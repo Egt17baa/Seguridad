@@ -320,4 +320,104 @@ class UpgradeCopyFirstTest {
         runCurrent()
         withTimeout(5_000) { unlocking.await() }
     }
+    /**
+     * Audit RC-2: a pass that got past the wait while no upgrade's copy ran, and queued on the lock behind a slow copy,
+     * gets the lock after the vault was opened again (still a 3): its copy is deferred until the upgrade's copy, never
+     * made before it. Steps: the first upgrade's copy fails and the dialog asks; a copy asked for holds the lock in its
+     * write, and an A6 request is saved meanwhile; a lock and [AutoBackup.launchDue], which waits for the lock; a new
+     * unlock; the write ends.
+     */
+    @Test fun aPassThatWaitedForTheLockDefersItsCopyUntilTheUpgradeCopy() = runTest {
+        val t = SlowFolder().apply { failWrite = IOException("sin permiso") }
+        val s = setup(t)
+        s.unlock("maestra-de-prueba-143".toCharArray())
+        runCurrent()
+        assertTrue("the dialog asks", s.pendingUpgrade.value)
+        assertFalse(s.upgradeCopying.value)
+        t.failWrite = null
+        val gate = CompletableDeferred<Unit>().also { t.gate = it }
+        var unlocking: kotlinx.coroutines.Deferred<Unit>? = null
+        try {
+            auto!!.request(folder)
+            advanceTimeBy(AUTO_BACKUP_DEBOUNCE_MS + 1)
+            runCurrent()
+            assertTrue("the copy asked for holds the lock: ${t.created}", t.created.last().startsWith("seguridad-auto-"))
+            val held = t.created.size
+            // An A6 request comes in meanwhile (a change of master password in another session of the test's settings):
+            // the pass of launchDue has a copy to make.
+            val old = t.put("seguridad-auto-20261001-100000.sgbak")
+            settings.updatePrincipal {
+                it.oneTarget(
+                    autoBackupUri = folder, autoBackupCopies = listOf(old), autoBackupCopiesFolder = folder,
+                    autoBackupReplacePending = true, autoBackupReplaceTargets = listOf(old),
+                )
+            }
+            s.lock()
+            auto!!.launchDue(clock)
+            runCurrent()
+            unlocking = async { s.unlock("maestra-de-prueba-143".toCharArray()) }
+            runCurrent()
+            assertTrue(s.upgradeCopying.value)
+            assertEquals("nothing else while the copy is held: ${t.created}", held, t.created.size)
+            gate.complete(Unit)
+            runCurrent()
+            withTimeout(5_000) { unlocking.await() }
+            assertTrue("the next one is the upgrade's: ${t.created}", t.created[held].startsWith("seguridad-antes-de-2-0-"))
+        } finally {
+            gate.complete(Unit)
+        }
+        advanceTimeBy(AUTO_BACKUP_DEBOUNCE_MS + 1)
+        runCurrent()
+        assertEquals(4, VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText()).version)
+        val upgrade = t.created.indexOfFirst { it.startsWith("seguridad-antes-de-2-0-") && t.created.indexOf(it) > 0 }
+        assertTrue("an automatic copy after the v4 is saved: ${t.created}", t.created.drop(upgrade + 1).any { it.startsWith("seguridad-auto-") })
+    }
+
+    /**
+     * Audit E-2: the first opening's copy is slow; a lock lets that opening's due pass queue on the lock; a second opening
+     * with the master starts its own upgrade's copy, which goes before that queued pass once the slow copy ends.
+     */
+    @Test fun aCopyQueuedOnTheLockBeforeAReopenWaitsForTheNewUpgradeCopy() = runTest {
+        val t = SlowFolder()
+        val old = t.put("seguridad-auto-20261001-100000.sgbak")
+        val s = setup(t, a6 = listOf(old))
+        val gate = CompletableDeferred<Unit>().also { t.gate = it }
+        try {
+            val first = async { s.unlock("maestra-de-prueba-143".toCharArray()) }
+            runCurrent()
+            assertTrue(s.upgradeCopying.value)
+            s.lock()
+            runCurrent()
+            val second = async { s.unlock("maestra-de-prueba-143".toCharArray()) }
+            runCurrent()
+            assertTrue(s.upgradeCopying.value)
+            gate.complete(Unit)
+            runCurrent()
+            withTimeout(5_000) { first.await() }
+            withTimeout(5_000) { second.await() }
+            assertTrue("the second document is the new opening's upgrade copy: ${t.created}", t.created[1].startsWith("seguridad-antes-de-2-0-"))
+        } finally {
+            gate.complete(Unit)
+        }
+    }
+
+    /** The wait always ends: the job that called unlock is cancelled while the upgrade's copy is held. */
+    @Test fun theWaitEndsWhenTheUnlockCallerIsCancelled() = runTest {
+        val t = SlowFolder()
+        val s = setup(t)
+        val gate = CompletableDeferred<Unit>().also { t.gate = it }
+        val unlocking = launch { s.unlock("maestra-de-prueba-143".toCharArray()) }
+        runCurrent()
+        try {
+            assertTrue(s.upgradeCopying.value)
+            unlocking.cancel()
+            runCurrent()
+        } finally {
+            gate.complete(Unit)
+        }
+        runCurrent()
+        withTimeout(5_000) { unlocking.join() }
+        withTimeout(5_000) { s.upgradeCopying.first { !it } }
+        assertTrue("the copy ended: ${t.files.keys}", t.files.keys.any { it.startsWith("seguridad-antes-de-2-0-") })
+    }
 }

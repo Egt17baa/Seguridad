@@ -821,8 +821,8 @@ class AutoBackup(
 
     /**
      * One copy to the target of [uri], then its rotation ([replace]: its targets go too, see [rotate]). The result it gave
-     * [onResult], or null if nothing was done (no longer a target, its folder not usable, no vault, or the vault locked,
-     * which defers it). Call with [lock] held.
+     * [onResult], or null if nothing was done (no longer a target, its folder not usable, no vault, or the vault locked or
+     * its copy before the upgrade to v4 running, which defers it). Call with [lock] held.
      */
     private suspend fun attempt(uri: String, replace: Replace?): AutoBackupResult? {
         val replaceAll = replace != null
@@ -830,7 +830,9 @@ class AutoBackup(
         if (target(uri) == null) return null
         val result = try {
             val folder = open(uri) ?: return null
-            if (store.state.value !is VaultState.Unlocked) {
+            // Audit RC-2 (E-2): a pass that got past the wait for the upgrade's copy and then waited for the lock may get it
+            // after a new opening started that copy: deferred to the run after it (the unlock's [runDue]), never before it.
+            if (store.state.value !is VaultState.Unlocked || store.upgradeCopying.value) {
                 defer(uri)
                 return null
             }
