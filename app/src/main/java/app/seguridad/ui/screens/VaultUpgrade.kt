@@ -51,6 +51,14 @@ internal const val UPGRADE_SAVE_FAILED = "No se pudo guardar la bóveda en el fo
 /** Review M-5: at sight, when there was an automatic copies' folder and its copy before the upgrade was not made. */
 internal const val UPGRADE_AUTO_COPY_FAILED = "No se pudo hacer la copia automática de antes del cambio."
 
+/**
+ * Audit D-1: at sight, instead of [UPGRADE_AUTO_COPY_FAILED], when that copy had not ended after
+ * [app.seguridad.vault.UPGRADE_COPY_WAIT_MS] (2 minutes); the copy goes on, and is listed with the import copies if it ends.
+ */
+internal const val UPGRADE_AUTO_COPY_NOT_DONE =
+    "La copia automática de antes del cambio al formato nuevo no ha terminado en 2 minutos: la carpeta tarda en contestar. " +
+        "Puedes exportar una copia a otro sitio o seguir sin copia."
+
 // O-3 with a folder (ruling of the review of task 1): told once, after the upgrade saved with its automatic copy.
 internal const val UPGRADE_DONE_TITLE = "Bóveda en el formato nuevo"
 internal const val UPGRADE_DONE_NOT_BACK = "Las versiones anteriores de Clavero ya no abren esta bóveda ni sus copias nuevas."
@@ -121,7 +129,8 @@ internal fun VaultUpgradeDialog(store: VaultStore) {
         text = {
             FilterObscuredTouches()
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (store.upgradeAutoCopyFailed) Text(UPGRADE_AUTO_COPY_FAILED, color = NegativeColor)
+                if (store.upgradeAutoCopyNotDone) Text(UPGRADE_AUTO_COPY_NOT_DONE, color = NegativeColor)
+                else if (store.upgradeAutoCopyFailed) Text(UPGRADE_AUTO_COPY_FAILED, color = NegativeColor)
                 Text(UPGRADE_NOT_BACK)
                 Text(UPGRADE_COPY_FIRST)
                 MoreInfo { Text(UPGRADE_MORE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }

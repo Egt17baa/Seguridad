@@ -321,6 +321,12 @@ class VaultStore(
     val upgradeAutoCopyFailed: Boolean get() = upgrades.autoCopyFailed
 
     /**
+     * Audit D-1: whether, before [pendingUpgrade] asked, that copy had not ended after [UPGRADE_COPY_WAIT_MS] (a folder
+     * that takes long to answer); [upgradeAutoCopyFailed] is true too. The dialog says it instead of a failure.
+     */
+    val upgradeAutoCopyNotDone: Boolean get() = upgrades.autoCopyNotDone
+
+    /**
      * 2.0 (O-3 with a folder): the name of the copy made before the upgrade (a file name, never a path), after the
      * upgrade was saved with no question asked, until [upgradeDoneShown]: the vault screen tells it once that earlier
      * versions no longer open the vault nor its new copies. In memory only: a process death before it is shown loses it.

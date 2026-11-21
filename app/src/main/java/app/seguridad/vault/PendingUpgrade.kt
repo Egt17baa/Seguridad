@@ -5,6 +5,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * Audit D-1: how long the upgrade waits for the copy in the automatic copies' folder before the user is asked; only the
+ * wait ends, the copy goes on in AutoBackup's scope. The dialog's text says «2 minutos» (UPGRADE_AUTO_COPY_NOT_DONE).
+ */
+internal const val UPGRADE_COPY_WAIT_MS = 120_000L
 
 /**
  * 2.0: the upgrade of an open vault from version 2 or 3 to version 4 while it waits in memory (design «Formato v4»,
@@ -32,6 +39,10 @@ internal class PendingUpgrade(private val opening: Any) {
     @Volatile var autoCopyFailed: Boolean = false
         private set
 
+    /** [VaultStore.upgradeAutoCopyNotDone]: that copy had not ended after [UPGRADE_COPY_WAIT_MS] (audit D-1). */
+    @Volatile var autoCopyNotDone: Boolean = false
+        private set
+
     private val _copying = MutableStateFlow(false)
 
     /**
@@ -53,6 +64,7 @@ internal class PendingUpgrade(private val opening: Any) {
         file = next
         _asking.value = false
         autoCopyFailed = false
+        autoCopyNotDone = false
         _copying.value = next != null
     }
 
@@ -76,16 +88,22 @@ internal class PendingUpgrade(private val opening: Any) {
      * can export the file still on disk): the copy before the upgrade ([copyBefore], AutoBackup.copyBeforeUpgrade; what
      * it throws counts as a failed copy). When it is made and [save] saves the upgrade, its name is told once ([done]).
      * Otherwise the user is asked ([asking]) unless the vault locked meanwhile ([stillOpen] false, or nothing waits any
-     * more), saying whether a folder's copy failed. Not cancelled with the caller.
+     * more), saying whether a folder's copy failed, or had not ended after [UPGRADE_COPY_WAIT_MS] (audit D-1: then the
+     * wait ends there and the copy goes on in AutoBackup's scope; made late, it is listed with the import copies and
+     * never told as the upgrade's). Not cancelled with the caller.
      */
     suspend fun afterUnlock(copyBefore: suspend () -> CopyResult?, save: suspend () -> Boolean, stillOpen: () -> Boolean) =
         withContext(NonCancellable) {
             try {
+                // Audit D-1: only the wait ends after UPGRADE_COPY_WAIT_MS; the copy goes on in AutoBackup's scope. A null
+                // from copyBefore (no folder) is not a copy that took too long: the flag tells them apart.
+                var waited = true
                 val copy = try {
-                    copyBefore()
+                    withTimeoutOrNull(UPGRADE_COPY_WAIT_MS) { copyBefore().also { waited = false } }
                 } catch (e: Exception) {
+                    waited = false
                     CopyResult.Failed(AUTO_BACKUP_FAILED) // No copy: the user chooses.
-                }
+                } ?: if (waited) CopyResult.Failed(AUTO_BACKUP_FAILED) else null
                 if (copy is CopyResult.Saved && save()) {
                     _done.value = copy.where // O-3 with a folder: told once.
                     return@withContext
@@ -94,6 +112,7 @@ internal class PendingUpgrade(private val opening: Any) {
                     if (file != null && stillOpen()) {
                         // A folder whose copy was not made (M-5); a copy made whose save then failed is not that.
                         autoCopyFailed = copy != null && copy !is CopyResult.Saved
+                        autoCopyNotDone = waited
                         _asking.value = true
                     }
                 }

@@ -437,4 +437,99 @@ class UpgradeCopyFirstTest {
         val upgrade = code.single { it.startsWith("suspend fun copyBeforeUpgrade()") }
         assertFalse(upgrade, "upgradeCopying" in upgrade)
     }
+    /**
+     * Audit D-1: a folder that never answers (the upgrade's copy held in its write, with the lock) does not hold the
+     * vault: after [UPGRADE_COPY_WAIT_MS] the user is asked, saying the copy has not finished ([VaultStore.upgradeAutoCopyNotDone]),
+     * and the upgrade can be saved. The copy goes on in AutoBackup's scope: when it ends it is listed with the import
+     * copies, never told as the upgrade's ([VaultStore.upgradeDone] stays null), and A6 does not delete it.
+     */
+    @Test fun aFolderThatNeverAnswersStillLeavesTheChoice() = runTest {
+        val t = SlowFolder()
+        val old = t.put("seguridad-auto-20261001-100000.sgbak")
+        val s = setup(t, a6 = listOf(old))
+        val gate = CompletableDeferred<Unit>().also { t.gate = it }
+        try {
+            val unlocking = async { s.unlock("maestra-de-prueba-143".toCharArray()) }
+            runCurrent()
+            assertTrue(s.upgradeCopying.value)
+            advanceTimeBy(UPGRADE_COPY_WAIT_MS - 1)
+            runCurrent()
+            assertTrue("still waiting just before the time", s.upgradeCopying.value)
+            advanceTimeBy(2)
+            runCurrent()
+            assertFalse(s.upgradeCopying.value)
+            assertTrue(s.pendingUpgrade.value)
+            assertTrue(s.upgradeAutoCopyNotDone)
+            assertTrue(s.upgradeAutoCopyFailed)
+            assertEquals(UPGRADE_PENDING, refusal { s.upsert(note("x")) })
+            withTimeout(5_000) { unlocking.await() }
+            assertTrue(s.completeUpgrade())
+            assertEquals(4, VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText()).version)
+        } finally {
+            gate.complete(Unit)
+        }
+        runCurrent()
+        advanceTimeBy(AUTO_BACKUP_DEBOUNCE_MS + 1)
+        runCurrent()
+        assertEquals("never told as the upgrade's", null, s.upgradeDone.value)
+        val late = t.files.keys.single { it.startsWith("seguridad-antes-de-2-0-") }
+        assertFalse(late, late.endsWith(".tmp"))
+        assertTrue("listed with the import copies", t.idOfName(late) in settings.settings.value.principal.currentImportCopies)
+        assertFalse("A6 ran: ${t.files.keys}", "seguridad-auto-20261001-100000.sgbak" in t.files)
+        assertTrue("A6 did not delete the late copy: ${t.files.keys}", late in t.files)
+    }
+
+    /**
+     * Audit D-1: a copy stuck in the folder since before the unlock (an opening whose dialog asked, «Hacer una copia
+     * ahora» held in its write, a lock and a new unlock) holds the lock, so the upgrade's copy cannot even start: the
+     * choice comes all the same after [UPGRADE_COPY_WAIT_MS]. When the folder answers, the upgrade's copy is made late,
+     * listed with the import copies, not told as the upgrade's, and A6 does not delete it.
+     */
+    @Test fun aDueCopyStuckBeforeTheUnlockDoesNotHoldTheUpgrade() = runTest {
+        val t = SlowFolder().apply { failWrite = IOException("sin permiso") }
+        val s = setup(t)
+        s.unlock("maestra-de-prueba-143".toCharArray())
+        runCurrent()
+        assertTrue(s.pendingUpgrade.value)
+        t.failWrite = null
+        val gate = CompletableDeferred<Unit>().also { t.gate = it }
+        try {
+            auto!!.request(folder)
+            advanceTimeBy(AUTO_BACKUP_DEBOUNCE_MS + 1)
+            runCurrent()
+            assertTrue("«Hacer una copia ahora» is held: ${t.created}", t.created.last().startsWith("seguridad-auto-"))
+            val old = t.put("seguridad-auto-20261001-100000.sgbak")
+            settings.updatePrincipal {
+                it.oneTarget(
+                    autoBackupUri = folder, autoBackupCopies = listOf(old), autoBackupCopiesFolder = folder,
+                    autoBackupReplacePending = true, autoBackupReplaceTargets = listOf(old),
+                )
+            }
+            s.lock()
+            runCurrent()
+            val unlocking = async { s.unlock("maestra-de-prueba-143".toCharArray()) }
+            runCurrent()
+            assertTrue(s.upgradeCopying.value)
+            advanceTimeBy(UPGRADE_COPY_WAIT_MS + 1)
+            runCurrent()
+            assertFalse(s.upgradeCopying.value)
+            assertTrue(s.pendingUpgrade.value)
+            assertTrue(s.upgradeAutoCopyNotDone)
+            assertEquals(UPGRADE_PENDING, refusal { s.upsert(note("x")) })
+            withTimeout(5_000) { unlocking.await() }
+        } finally {
+            gate.complete(Unit)
+        }
+        runCurrent()
+        advanceTimeBy(AUTO_BACKUP_DEBOUNCE_MS + 1)
+        runCurrent()
+        assertEquals("never told as the upgrade's", null, s.upgradeDone.value)
+        val late = t.files.keys.filter { it.startsWith("seguridad-antes-de-2-0-") && !it.endsWith(".tmp") }
+        assertEquals("the late copy: ${t.files.keys}", 1, late.size)
+        assertTrue("listed with the import copies", t.idOfName(late.single()) in settings.settings.value.principal.currentImportCopies)
+        assertFalse("A6 ran: ${t.files.keys}", "seguridad-auto-20261001-100000.sgbak" in t.files)
+        assertTrue(s.completeUpgrade())
+        assertEquals(4, VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText()).version)
+        assertTrue("A6 did not delete the late copy", late.single() in t.files)
+    }
 }

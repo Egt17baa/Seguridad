@@ -49,4 +49,26 @@ class VaultUpgradeTextsTest {
             assertTrue(t, ForbiddenWords.problems(t).isEmpty())
         }
     }
+    /**
+     * Audit D-1: the upgrade waits [app.seguridad.vault.UPGRADE_COPY_WAIT_MS] for the folder's copy; the dialog then says
+     * it has not finished (true also of a folder that is only slow), word for word, with the same minutes.
+     */
+    @Test fun theCopyNotDoneSaysTheWaitAndTheChoice() {
+        assertEquals(
+            "La copia automática de antes del cambio al formato nuevo no ha terminado en 2 minutos: la carpeta tarda en contestar. " +
+                "Puedes exportar una copia a otro sitio o seguir sin copia.",
+            UPGRADE_AUTO_COPY_NOT_DONE,
+        )
+        assertEquals(2L, app.seguridad.vault.UPGRADE_COPY_WAIT_MS / 60_000L)
+        assertEquals(0L, app.seguridad.vault.UPGRADE_COPY_WAIT_MS % 60_000L)
+        assertTrue("${app.seguridad.vault.UPGRADE_COPY_WAIT_MS / 60_000L} minutos" in UPGRADE_AUTO_COPY_NOT_DONE)
+        assertTrue(ForbiddenWords.problems(UPGRADE_AUTO_COPY_NOT_DONE).isEmpty())
+        // The dialog says it instead of the failure when the store says so.
+        val src = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
+            .map { java.io.File(it, "app/src/main/java/app/seguridad/ui/screens/VaultUpgrade.kt") }.first { it.isFile }.readText()
+        assertTrue(
+            "if (store.upgradeAutoCopyNotDone) Text(UPGRADE_AUTO_COPY_NOT_DONE, color = NegativeColor)\n" +
+                "                else if (store.upgradeAutoCopyFailed) Text(UPGRADE_AUTO_COPY_FAILED, color = NegativeColor)" in src,
+        )
+    }
 }
