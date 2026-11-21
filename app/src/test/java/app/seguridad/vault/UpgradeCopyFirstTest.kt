@@ -420,4 +420,21 @@ class UpgradeCopyFirstTest {
         withTimeout(5_000) { s.upgradeCopying.first { !it } }
         assertTrue("the copy ended: ${t.files.keys}", t.files.keys.any { it.startsWith("seguridad-antes-de-2-0-") })
     }
+    /**
+     * Audit RC-3: the wait of CR-2 is in the two passes, each right before its lock: [AutoBackup.runChanged]'s (a defence
+     * with one collector, no behaviour test turns red without it) and [AutoBackup.runDue]'s; never in copyBeforeUpgrade,
+     * which would wait for itself.
+     */
+    @Test fun theTwoPassesWaitForTheUpgradeCopyRightBeforeTheLock() {
+        val path = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/vault/AutoBackup.kt") }.first { it.isFile }
+        val code = path.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("//") && !it.startsWith("*") && !it.startsWith("/*") }
+        val waits = code.indices.filter { code[it] == "store.upgradeCopying.first { !it }" }
+        assertEquals("two waits: $waits", 2, waits.size)
+        for (w in waits) assertTrue(code[w + 1], code[w + 1].startsWith("lock.withLock {"))
+        val owners = waits.map { w -> code.subList(0, w).last { it.contains(" fun ") } }
+        assertEquals(listOf("private suspend fun runChanged() {", "suspend fun runDue(now: Long, afterUnlock: Boolean = false) {"), owners)
+        val upgrade = code.single { it.startsWith("suspend fun copyBeforeUpgrade()") }
+        assertFalse(upgrade, "upgradeCopying" in upgrade)
+    }
 }
