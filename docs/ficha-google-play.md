@@ -6,6 +6,8 @@ Al publicarla (decisiones del dueño del 31-10-2026, con la revisión final del 
 
 **Recursos gráficos (2.0, O-C2 del Abogado):** el icono de la ficha es [`docs/play/icono-512.png`](play/icono-512.png), el icono nuevo de la 2.0. Las capturas se hacen de nuevo con la 2.0, con el aspecto «Cristal» y solo datos inventados: sin texto de clasificación, precio ni promoción («n.º 1», «gratis», «nuevo», «2.0»), sin marcos de un móvil de una marca concreta y sin la barra de estado con notificaciones o datos de nadie. Del logo no se dice que sea «único», «original», «registrado» o «protegido», ni lleva ® ni ™; las «Novedades» dicen solo «Icono nuevo».
 
+**Longitud (R-8 del Abogado, revisión final de la 2.0):** la descripción completa no puede pasar de 4 000 caracteres (contador de Play Console).
+
 ## Nombre de la app (máximo 30 caracteres)
 
 Clavero: bóveda cifrada
@@ -17,6 +19,54 @@ Clavero: bóveda cifrada
 Bóveda cifrada, 2FA, contactos y cifrado de archivos. Sin cuentas ni anuncios.
 
 ## Descripción completa
+
+Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semilla, notas, tarjetas bancarias, redes wifi, licencias y pasaportes en bóvedas cifradas en tu móvil, y cifra textos y archivos. Sin cuentas, nube propia, analítica ni anuncios. Código abierto (Apache-2.0).
+
+Bóveda
+• Protegida por tu contraseña maestra (Argon2id) y, si quieres, por tu huella. Hasta 10 bóvedas, cada una con su contraseña maestra; solo hay una abierta a la vez.
+• Plantillas de tarjeta, wifi, licencia y pasaporte, campos personalizados y notas con formato sencillo.
+• Carpetas, vistas, etiquetas de color, favoritos y una búsqueda que perdona erratas.
+• Papelera de 30 días con «Deshacer», e historial de cada entrada.
+• Adjuntos cifrados (hasta 5 MB cada uno).
+• Salud de la bóveda: contraseñas repetidas, débiles, antiguas o sin 2FA.
+• Copias cifradas que exportas tú, y copia automática opcional en hasta 3 carpetas, con cada cambio o con calendario. Comprueba una copia sin importarla.
+• QR de una red wifi guardada para que otro móvil se conecte. Quien vea el código ve la contraseña.
+• Importa de navegadores y de algunos gestores de contraseñas y apps de 2FA (la lista está en la app), con vista previa y una copia cifrada antes.
+
+2FA, cifrado y contactos
+• Códigos TOTP con escáner QR o con la clave a mano.
+• Cifra textos y archivos (AES-256-GCM, ChaCha20-Poly1305 y otros algoritmos estándar).
+• Cifra textos y archivos para tus contactos de Clavero, o fírmalos, y envíalos por el canal que quieras; compara su huella. El cifrado entre contactos está diseñado para resistir también a ordenadores cuánticos futuros (X-Wing, en proceso de estandarización); las firmas (Ed25519), no.
+
+Herramientas
+• Generador de contraseñas y frases, PIN, códigos de recuperación y respuestas inventadas.
+• Limpiar foto (quita la ubicación y otros datos ocultos del archivo; no cambia lo que se ve) y Tachar en imagen.
+• Inspector de QR: enseña qué hay en un QR sin abrir nada. No garantiza que un enlace sea seguro.
+• Laboratorio de hashes: que la huella coincida no dice quién la publicó.
+• Laboratorio clásico (César, Vigenère y Enigma): cifrados rotos, para aprender; no protegen nada.
+• Repartir un secreto (SLIP-0039): las partes no son una copia de recuperación SLIP-39 para un dispositivo hardware.
+
+Aspecto
+• Estilo «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app), o «Sólido», y varias paletas. Modo sencillo y guía al empezar.
+
+Privacidad
+Las bóvedas se quedan cifradas en tu móvil. Sale lo que tú exportas, guardas, copias o compartes, y las copias cifradas que la app hace donde elijas. La única conexión a Internet es opcional: al pulsar «¿Filtrada?» o «Comprobar filtraciones», consulta Pwned Passwords de Have I Been Pwned con solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña.
+
+Antes de usarla, ten en cuenta
+• Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
+• Al actualizar, la bóveda pasa a un formato nuevo la primera vez que la abres con la contraseña maestra, y las versiones anteriores ya no abren la bóveda ni sus copias nuevas. Exporta antes una copia.
+• La copia con calendario solo se hace con la bóveda abierta: si no abres la app, no hay copia.
+• Borrar algo no lo borra de las copias ya hechas, y cambiar la contraseña maestra no las cambia: se siguen abriendo con la anterior.
+• Si alguien roba tu identidad (por ejemplo, con una copia y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. El canal ve los metadatos.
+• El archivo exportado de otra app suele estar sin cifrar, salvo si lo proteges con contraseña.
+• Limpiar foto y Tachar no cambian el original: comparte la copia.
+• Sin auditoría independiente. Para fondos importantes, usa un dispositivo hardware dedicado.
+
+Gratuita y sin compras. Código fuente: https://github.com/Egt17baa/Seguridad
+
+## Versión larga (no cabe en Play)
+
+No se pega en Play: pasa de 4 000 caracteres (6 948 sin Markdown). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
 
 Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semilla, notas, tarjetas bancarias, redes wifi, licencias y pasaportes en bóvedas cifradas en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
 

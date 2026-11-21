@@ -76,9 +76,24 @@ class PublishedTextsTest {
         for (fact in listOf("copia temporal sin cifrar", "almacenamiento privado", "carpeta que elijas", "5 primeros caracteres", "portapapeles del sistema", "solo en este móvil")) {
             assertTrue("privacidad.html: $fact", fact in policy)
         }
-        val listing = ForbiddenWords.normalise(read("docs/ficha-google-play.md"))
-        for (fact in listOf("carpeta que elijas", "5 primeros caracteres", "copias al portapapeles")) assertTrue("ficha: $fact", fact in listing)
+        // 2.0, O-3 of the Abogado Digital: the text that is pasted in Play is the short full description (annex A).
+        val listing = ForbiddenWords.normalise(playFullDescription())
+        for (fact in listOf("donde elijas", "5 primeros caracteres", "exportas, guardas, copias o compartes")) assertTrue("ficha: $fact", fact in listing)
     }
+
+    /** 2.0, O-3 and R-8 of the Abogado Digital: the full description fits Play's 4 000, also if a line break counted twice. */
+    @Test
+    fun theFullPlayDescriptionFits() {
+        val full = playFullDescription()
+        assertTrue(full.length.toString(), full.length in 1000..4000)
+        assertTrue((full.length + full.count { it == '\n' }).toString(), full.length + full.count { it == '\n' } <= 4000)
+        assertTrue("Sin recuperación" in full && "Sin auditoría independiente" in full)
+        assertFalse("**" in full)
+    }
+
+    /** What is pasted in Play as the full description: from «## Descripción completa» to the next heading. */
+    private fun playFullDescription(): String =
+        read("docs/ficha-google-play.md").substringAfter("## Descripción completa\n").substringBefore("\n## ").trim()
 
     @Test
     fun theShortPlayDescriptionFits() {

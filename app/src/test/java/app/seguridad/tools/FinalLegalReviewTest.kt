@@ -158,7 +158,9 @@ class FinalLegalReviewTest {
     fun r7TheListingNamesNoMessagingBrand() {
         val listing = read("docs/ficha-google-play.md").substringAfter("## Descripción breve")
         assertFalse("WhatsApp" in listing || "Telegram" in listing)
-        assertTrue("envíalo por el canal que quieras (una app de mensajería o el correo)" in listing)
+        // 2.0, O-3 of the Abogado Digital: the short full description (annex A) says it without naming any app.
+        val full = listing.substringAfter("## Descripción completa\n").substringBefore("\n## ")
+        assertTrue("envíalos por el canal que quieras" in full)
     }
 
     @Test
