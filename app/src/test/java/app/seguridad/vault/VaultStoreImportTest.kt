@@ -305,6 +305,54 @@ class VaultStoreImportTest {
         }
     }
 
+    /**
+     * Audit RC-1: near the 24 MiB, the save trims the oldest versions of the history to fit; the preview, which allows
+     * [app.seguridad.imports.previewDataBytes]'s margin for what it does not see, trims to the cap less that margin, so
+     * it never says «no cabría» to an import the save makes. About 40 logins with 20 versions of 300 to 500 bytes each,
+     * a trash up to about 2 000 bytes under the cap, and a note of about 8 000 bytes.
+     */
+    @Test fun thePreviewLetsInWhatTrimmingTheHistoryMakesFit() = runTest {
+        val rnd = kotlin.random.Random(20261120L)
+        var at = 1_000L
+        val live = (0 until 40).map { i ->
+            val base = VaultEntry("l$i", EntryType.LOGIN, "Sitio $i", username = "u$i", password = "p$i", createdAt = 1, updatedAt = 1)
+            base.copy(history = (0 until 20).map { EntryVersion(at++, base.copy(notes = "v".repeat(rnd.nextInt(300, 501)))) })
+        }
+        val versions = live.sumOf { it.history.size }
+        val s = storeOf(VaultData(entries = live + trashFor(VaultLimits.VAULT_MAX_DATA_BYTES - 2_000L, live)))
+        val items = listOf(ImportedItem(0, importedEntry(EntryType.NOTE, "Importada", notes = "i".repeat(8_000)), emptyList()))
+        val snap = s.importSnapshot()!!
+        val p = planMerge(read(*items.toTypedArray()), snap.entries, snap.revision)
+        val estimate = previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), snap.entries, snap.rest, clock).overBytes
+        val r = s.applyImport(p, DuplicateChoice.SKIP, emptyMap())
+        assertEquals(ApplyResult.Done(added = 1, replaced = 0), r)
+        val left = (s.state.value as VaultState.Unlocked).data.entries.sumOf { it.history.size }
+        assertTrue("the save trimmed the history: $left of $versions", left < versions)
+        assertEquals("the preview lets it in", 0L, estimate)
+    }
+
+    /**
+     * Audit RC-1: the snapshot carries the whole vault besides the live entries (the trash as its entries), so no field
+     * of [VaultData] is left out of the preview, nor one added later.
+     */
+    @Test fun theSnapshotCarriesTheWholeVault() = runTest {
+        val s = storeOf(
+            VaultData(
+                entries = listOf(VaultEntry("b", EntryType.LOGIN, "Banco", username = "ana", password = "vieja", createdAt = 1, updatedAt = 1), trashNote(0, 10)),
+                folders = listOf(Folder("f", "Carpeta")),
+                vaultTag = "0123456789abcdef0123456789abcdef",
+                lastCheckedBackupAt = 1_700_000_000_000L,
+                templatesVersion = 3,
+                name = "Bóveda",
+            ),
+        )
+        val open = s.state.value as VaultState.Unlocked
+        val snap = s.importSnapshot()!!
+        assertEquals(open.data.copy(entries = open.trash), snap.rest)
+        assertEquals("0123456789abcdef0123456789abcdef", snap.rest.vaultTag)
+        assertEquals(open.entries, snap.entries)
+    }
+
     /** I-1: text JSON escapes six times over is refused from its count, before anything is encoded or encrypted. */
     @Test fun aHeavilyEscapedImportIsRefusedBeforeEncoding() = runTest {
         val s = opened()
@@ -368,7 +416,8 @@ class VaultStoreImportTest {
         // Built on the list with the edit: it applies, and the edit is there.
         assertTrue(s.applyImport(p, DuplicateChoice.SKIP, emptyMap()) is ApplyResult.Done)
         assertTrue(entries(s).any { it.id == "x" })
-        assertEquals(VaultSnapshot(entries(s), s.revision.value, VaultData()), s.importSnapshot())
+        val open = s.state.value as VaultState.Unlocked
+        assertEquals(VaultSnapshot(entries(s), s.revision.value, open.data.copy(entries = open.trash)), s.importSnapshot())
         s.lock()
         assertNull(s.importSnapshot())
         assertNull(s.planImport(fileRead()))

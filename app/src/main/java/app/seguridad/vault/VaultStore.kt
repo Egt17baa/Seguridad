@@ -1023,8 +1023,9 @@ class VaultStore(
     suspend fun importSnapshot(): VaultSnapshot? = mutex.withLock {
         val open = _state.value as? VaultState.Unlocked ?: return@withLock null
         val d = open.data
-        // Review fixes, CR-5: what the save measures besides the live entries, from the same critical section.
-        VaultSnapshot(open.entries, _revision.value, VaultData(entries = open.trash, folders = d.folders, views = d.views, tagColors = d.tagColors, name = d.name))
+        // Review fixes, CR-5, and audit RC-1: what the save measures besides the live entries, from the same critical
+        // section: the whole vault with the trash as its entries, so no field of VaultData is ever left out.
+        VaultSnapshot(open.entries, _revision.value, d.copy(entries = open.trash))
     }
 
     /**
@@ -1789,9 +1790,10 @@ private const val IMPORT_DIR_PREFIX = "import-"
 
 /**
  * What [VaultStore.importSnapshot] gives: the entries shown and the revision they belong to, and [rest] (review fixes,
- * CR-5): what the save of an import measures besides them ([VaultStore.applyImport]: the trash, the folders, the views,
- * the tags' colours and the name), as a [VaultData] whose [VaultData.entries] are the trash. Its other fields (the
- * vault's tag, times and flags) are left out; the preview's estimate allows for them.
+ * CR-5, audit RC-1): what the save of an import measures besides them ([VaultStore.applyImport]), the whole vault as a
+ * [VaultData] whose [VaultData.entries] are the trash (the folders, the views, the tags' colours, the name, the tag, the
+ * times and the flags). The preview's margin allows for what the accounting changes between the snapshot and the save
+ * without raising the revision (a use's `lastUsedAt`, the fields of [VaultLimits.COPY_DATA_MARGIN_BYTES]).
  */
 data class VaultSnapshot(val entries: List<VaultEntry>, val revision: Long, val rest: VaultData)
 

@@ -145,16 +145,16 @@ private val versionSerializer = EntryVersion.serializer()
 internal val historyEncodings = java.util.concurrent.atomic.AtomicLong()
 
 /** [fitted], with the size of what it returns. */
-private fun VaultData.fittedWithSize(): Pair<VaultData, Long> {
+private fun VaultData.fittedWithSize(limit: Long = VaultLimits.VAULT_MAX_DATA_BYTES.toLong()): Pair<VaultData, Long> {
     var changed = false
     val each = entries.map { e -> e.fittedHistory().also { if (it !== e) changed = true } }
     var data = if (changed) copy(entries = each) else this
     var size = jsonBytes(data)
-    while (size > VaultLimits.VAULT_MAX_DATA_BYTES) {
+    while (size > limit) {
         val versions = data.entries.flatMapIndexed { i, e -> e.history.mapIndexed { j, v -> Triple(i, j, v) } }
         if (versions.isEmpty()) break
         // The oldest of the whole vault first, until about what is over is freed; measured again after.
-        val over = size - VaultLimits.VAULT_MAX_DATA_BYTES
+        val over = size - limit
         val doomed = HashSet<Pair<Int, Int>>()
         var freed = 0L
         for ((i, j, v) in versions.sortedBy { it.third.savedAt }) {
@@ -174,11 +174,12 @@ private fun VaultData.fittedWithSize(): Pair<VaultData, Long> {
 
 /**
  * This vault with its history trimmed to fit: each entry's within its limits, and then, while the whole vault passes
- * [VaultLimits.VAULT_MAX_DATA_BYTES], the oldest versions of the whole vault first, whichever entry holds them. Nothing
- * but history is ever dropped: a vault that does not fit without it still does not ([checkLimits] refuses it). The same
- * object when nothing had to go.
+ * [limit] ([VaultLimits.VAULT_MAX_DATA_BYTES], what the save uses), the oldest versions of the whole vault first,
+ * whichever entry holds them. Nothing but history is ever dropped: a vault that does not fit without it still does not
+ * ([checkLimits] refuses it). The same object when nothing had to go. A smaller [limit] is only for the import's
+ * preview (audit RC-1, previewDataBytes), which trims to the cap less its margin for what it does not see.
  */
-fun VaultData.fitted(): VaultData = fittedWithSize().first
+fun VaultData.fitted(limit: Long = VaultLimits.VAULT_MAX_DATA_BYTES.toLong()): VaultData = fittedWithSize(limit).first
 
 /** Throws [VaultLimitExceeded] if this vault passes any limit of [VaultLimits]; checks what [fitted] would trim too. */
 fun VaultData.checkLimits() {

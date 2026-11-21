@@ -425,15 +425,23 @@ fun estimatedOverBytes(data: VaultData): Long {
     return maxOf(previewFileBytes(json) - IMPORT_COPY_CAP, json - VaultLimits.VAULT_MAX_DATA_BYTES, 0)
 }
 
-/** The JSON bytes [estimatedOverBytes] counts for [data]: as the save measures it, plus [PREVIEW_UNSEEN_BYTES]. */
-internal fun previewDataBytes(data: VaultData): Long = jsonBytes(data.fitted()) + PREVIEW_UNSEEN_BYTES
+/**
+ * The JSON bytes [estimatedOverBytes] counts for [data]: as the save measures it, plus [PREVIEW_UNSEEN_BYTES]. Audit
+ * RC-1: the history is trimmed to the cap less that margin ([fitted] with a limit), so the margin is inside the target of
+ * the trim: a save that fits by trimming has a preview of 0, and a save that does not fit even without any history has a
+ * preview over 0.
+ */
+internal fun previewDataBytes(data: VaultData): Long =
+    jsonBytes(data.fitted(VaultLimits.VAULT_MAX_DATA_BYTES - PREVIEW_UNSEEN_BYTES)) + PREVIEW_UNSEEN_BYTES
 
 /** The vault file [estimatedOverBytes] counts for data of [json] bytes ([previewDataBytes]), as [estimatedVaultFileBytes]. */
 internal fun previewFileBytes(json: Long): Long = base64Estimate(json)
 
 /**
- * What [app.seguridad.vault.VaultSnapshot.rest] leaves out of the data and the save counts: the vault's tag (32
- * characters), two times, a flag and the templates' version, well under 1 KiB as the app writes them.
+ * Audit RC-1: what the accounting of the vault can change between the snapshot ([app.seguridad.vault.VaultSnapshot],
+ * which carries the whole vault) and the save without raising its revision: the `lastUsedAt` of a use (markUsed) and the
+ * list of [VaultLimits.COPY_DATA_MARGIN_BYTES]'s fields (times, flags, the vault's tag). Well under 1 KiB as the app
+ * writes them.
  */
 private const val PREVIEW_UNSEEN_BYTES = 1024L
 
