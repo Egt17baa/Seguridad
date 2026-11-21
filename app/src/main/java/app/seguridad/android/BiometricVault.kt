@@ -194,7 +194,11 @@ object BiometricVault {
         val app = context.applicationContext
         withContext(NonCancellable) {
             queue.run(KeyOp.DISABLE) {
-                prefs(app, vaultId).edit().remove(KEY_IV).remove(KEY_BLOB).remove(KEY_IN_STRONGBOX).commit()
+                prefs(app, vaultId).edit(commit = true) {
+                    remove(KEY_IV)
+                    remove(KEY_BLOB)
+                    remove(KEY_IN_STRONGBOX)
+                }
                 deleteKey(vaultId)
                 if (vaultId != PRIMARY_VAULT_ID) app.deleteSharedPreferences(perVaultName(PREFS, vaultId))
             }

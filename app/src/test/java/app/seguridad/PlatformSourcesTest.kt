@@ -67,7 +67,7 @@ class PlatformSourcesTest {
     @Test fun deletingAVaultDeletesItsFingerprintPreferences() {
         val src = code("android/BiometricVault.kt")
         val forget = src.substringAfter("suspend fun forget(context: Context, vaultId: String)").substringBefore("\n    }\n")
-        val commit = forget.indexOf(".commit()")
+        val commit = forget.indexOf(".edit(commit = true) {")
         val delete = forget.indexOf("deleteSharedPreferences(perVaultName(PREFS, vaultId))")
         assertTrue(forget, commit >= 0 && delete > commit)
         assertTrue("queue.run(" in forget && "NonCancellable" in forget)
