@@ -88,22 +88,29 @@ internal class PendingUpgrade(private val opening: Any) {
      * can export the file still on disk): the copy before the upgrade ([copyBefore], AutoBackup.copyBeforeUpgrade; what
      * it throws counts as a failed copy). When it is made and [save] saves the upgrade, its name is told once ([done]).
      * Otherwise the user is asked ([asking]) unless the vault locked meanwhile ([stillOpen] false, or nothing waits any
-     * more), saying whether a folder's copy failed, or had not ended after [UPGRADE_COPY_WAIT_MS] (audit D-1: then the
-     * wait ends there and the copy goes on in AutoBackup's scope; made late, it is listed with the import copies and
-     * never told as the upgrade's). Not cancelled with the caller.
+     * more), saying whether a folder's copy failed, or had not ended after [waitMs] ([UPGRADE_COPY_WAIT_MS]; a test
+     * passes less. Audit D-1: then the wait ends there and the copy goes on in AutoBackup's scope; made late, it is listed
+     * with the import copies and never told as the upgrade's). Not cancelled with the caller.
      */
-    suspend fun afterUnlock(copyBefore: suspend () -> CopyResult?, save: suspend () -> Boolean, stillOpen: () -> Boolean) =
+    suspend fun afterUnlock(
+        copyBefore: suspend () -> CopyResult?,
+        save: suspend () -> Boolean,
+        stillOpen: () -> Boolean,
+        waitMs: Long = UPGRADE_COPY_WAIT_MS,
+    ) =
         withContext(NonCancellable) {
             try {
-                // Audit D-1: only the wait ends after UPGRADE_COPY_WAIT_MS; the copy goes on in AutoBackup's scope. A null
-                // from copyBefore (no folder) is not a copy that took too long: the flag tells them apart.
+                // Audit D-1: only the wait ends after [waitMs]; the copy goes on in AutoBackup's scope. A null from
+                // copyBefore (no folder) is not a copy that took too long: the flag tells them apart. Recheck D-1.m2: the
+                // result is kept outside withTimeoutOrNull, which gives null when the wait runs out just as the copy ends.
                 var waited = true
+                var made: CopyResult? = null
                 val copy = try {
-                    withTimeoutOrNull(UPGRADE_COPY_WAIT_MS) { copyBefore().also { waited = false } }
+                    withTimeoutOrNull(waitMs) { copyBefore().also { made = it; waited = false } }
                 } catch (e: Exception) {
                     waited = false
                     CopyResult.Failed(AUTO_BACKUP_FAILED) // No copy: the user chooses.
-                } ?: if (waited) CopyResult.Failed(AUTO_BACKUP_FAILED) else null
+                } ?: if (waited) CopyResult.Failed(AUTO_BACKUP_FAILED) else made
                 if (copy is CopyResult.Saved && save()) {
                     _done.value = copy.where // O-3 with a folder: told once.
                     return@withContext
