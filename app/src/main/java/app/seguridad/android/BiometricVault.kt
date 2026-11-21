@@ -38,6 +38,7 @@ import app.seguridad.tools.promptErrorKind
 import app.seguridad.tools.shouldMarkStrongBoxFailed
 import app.seguridad.tools.shouldSayEnableInterrupted
 import app.seguridad.tools.unlockBlamesStrongBox
+import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.perVaultName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -182,6 +183,22 @@ object BiometricVault {
     suspend fun disable(context: Context, vaultId: String) {
         val app = context.applicationContext
         withContext(NonCancellable) { queue.run(KeyOp.DISABLE) { clear(app, vaultId) } }
+    }
+
+    /**
+     * 2.0, audit B-3: forgets the fingerprint of the vault [vaultId] that is deleted, for good: what [disable] does,
+     * written at once (commit), then that vault's preferences file goes. Never the first vault's file, which also keeps
+     * what is known about this phone's StrongBox ([phonePrefs]). In the queue, run to the end, like [disable].
+     */
+    suspend fun forget(context: Context, vaultId: String) {
+        val app = context.applicationContext
+        withContext(NonCancellable) {
+            queue.run(KeyOp.DISABLE) {
+                prefs(app, vaultId).edit().remove(KEY_IV).remove(KEY_BLOB).remove(KEY_IN_STRONGBOX).commit()
+                deleteKey(vaultId)
+                if (vaultId != PRIMARY_VAULT_ID) app.deleteSharedPreferences(perVaultName(PREFS, vaultId))
+            }
+        }
     }
 
     /** [disable] itself, from an operation that already holds the queue (on its thread). */

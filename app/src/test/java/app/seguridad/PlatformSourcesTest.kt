@@ -60,6 +60,23 @@ class PlatformSourcesTest {
     }
 
     /**
+     * 2.0, audit B-3: deleting a vault forgets its fingerprint for good: [BiometricVault.forget] drops the wrapped key
+     * (written at once, commit) and the Keystore key, then deletes that vault's preferences file, never the first
+     * vault's, which also keeps what is known about this phone's StrongBox. The app passes it to the container.
+     */
+    @Test fun deletingAVaultDeletesItsFingerprintPreferences() {
+        val src = code("android/BiometricVault.kt")
+        val forget = src.substringAfter("suspend fun forget(context: Context, vaultId: String)").substringBefore("\n    }\n")
+        val commit = forget.indexOf(".commit()")
+        val delete = forget.indexOf("deleteSharedPreferences(perVaultName(PREFS, vaultId))")
+        assertTrue(forget, commit >= 0 && delete > commit)
+        assertTrue("queue.run(" in forget && "NonCancellable" in forget)
+        assertTrue("never the first vault's", Regex("""if \(vaultId != PRIMARY_VAULT_ID\)[^\n]*deleteSharedPreferences""").containsMatchIn(forget))
+        assertTrue("deleteKey(vaultId)" in forget)
+        assertTrue("forgetBiometric = { id -> BiometricVault.forget(this, id) }" in code("SeguridadApp.kt"))
+    }
+
+    /**
      * 2.0, audit B-1: every NavController (one per open vault, `key(vault)` in AppNavHost) reads the activity's intent
      * for a deep link, extras included. MainActivity replaces whoever-started-it's intent with a plain launcher one in
      * onCreate, before setContent, and never takes a new one; nothing in the app handles a deep link itself.

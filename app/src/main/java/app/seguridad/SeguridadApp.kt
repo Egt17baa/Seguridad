@@ -37,8 +37,8 @@ class SeguridadApp : Application() {
             trustedChainOf = { androidTrustedChain(it) },
             // F6: the word lists of the master rule and of the Generator, read once per process.
             openAsset = { name -> assets.open(name) },
-            // 2.0, task 2: a deleted vault's fingerprint key and its preferences go with it.
-            forgetBiometric = { id -> BiometricVault.disable(this, id) },
+            // 2.0, task 2 and audit B-3: a deleted vault's fingerprint key and its preferences file go with it.
+            forgetBiometric = { id -> BiometricVault.forget(this, id) },
         )
     }
 

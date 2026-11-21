@@ -138,9 +138,10 @@ class AppContainer(
      */
     openAsset: (String) -> InputStream = { name -> throw FileNotFoundException(name) },
     /**
-     * 2.0, task 2: forgets the fingerprint key and its preferences of a vault that is deleted ([deleteVault]); Android
-     * passes BiometricVault.disable for that vault's id. A failure leaves a key that wraps the data key of a vault that is
-     * gone, which opens nothing.
+     * 2.0, task 2: forgets the fingerprint key and its preferences of a vault that is deleted ([deleteVault]) or whose
+     * settings are left from a deletion cut half way ([forgetOrphanVaults]); Android passes BiometricVault.forget for that
+     * vault's id. The key wraps the vault's data key, which also opens the copies made before the deletion: a failure
+     * leaves a key that can open those copies with the fingerprint (audit A-1).
      */
     private val forgetBiometric: suspend (String) -> Unit = {},
     /** Where the vaults derive and encrypt ([VaultStore]'s compute); the tests hold it to stop a save half way. */
@@ -707,8 +708,8 @@ class AppContainer(
      * result ([VaultDeletion]); nothing is deleted unless it is [VaultDeletion.DELETED]: not when the name is not its own,
      * the vault locked meanwhile, a file of it is kept for recovery, or it is the only vault (the existing «He olvidado la
      * contraseña» is for that).
-     * It switches to [id] first if it was not the active one (locking the one open). Deletes its folder (its file and
-     * attachments), its fingerprint key and its settings, and gives back its copies' folder if no other vault uses it; it
+     * It switches to [id] first if it was not the active one (locking the one open). Forgets its fingerprint key first
+     * (audit A-1), then deletes its folder (its file and attachments) and its settings, and gives back its copies' folder if no other vault uses it; it
      * never touches the copies already made (R-9, O-2: the confirmation says so). Then the first vault left is active,
      * locked.
      */
@@ -743,12 +744,15 @@ class AppContainer(
             val gone = synchronized(slots) { slots.remove(id) }
             gone?.scope?.cancel()
             forgetClock(id)
-            registry.remove(id)
+            // Audit A-1 (CRY-A02's order): the fingerprint goes first, while the vault is still listed and on the disk, so
+            // a process death half way leaves the vault without fingerprint, never a key of a vault that is gone.
             try {
                 forgetBiometric(id)
             } catch (e: Exception) {
-                // A key left in the Keystore wraps the data key of a vault that is gone: it opens nothing.
+                // Best effort, the deletion goes on: a key left in the Keystore wraps this vault's data key, which also
+                // opens the copies made before the deletion. forgetOrphanVaults cannot see it (the settings go below).
             }
+            registry.remove(id)
             val folders = settings.settings.value.vault(id).backupFolders
             try {
                 settings.update { it.withoutVault(id) }
@@ -764,8 +768,8 @@ class AppContainer(
      * Branch review, B m-2: once at the start, after the settings are read, forgets the settings of a vault that is gone
      * (a deletion cut between the registry and the settings, or a full disk): an id of [Settings.perVault] goes only when
      * it is not in the registry **and** its folder (`files/vaults/<id>/`, or `files/vault/`) does not exist, so a registry
-     * that could not be read never takes the settings (nor the A11 marks) of a vault still on the disk. Then the copies'
-     * folders no vault uses any more are given back. Best effort: a failure leaves everything as it was.
+     * that could not be read never takes the settings (nor the A11 marks) of a vault still on the disk. Its fingerprint key
+     * is forgotten first (audit A-1 + B-3). Then the copies' folders no vault uses any more are given back. Best effort: a failure leaves everything as it was.
      */
     suspend fun forgetOrphanVaults() = changingVaults.withLock {
         val listed = registry.vaults.value.map { it.id }.toSet()
@@ -773,6 +777,14 @@ class AppContainer(
         val gone = all.perVault.keys.filter { id -> id !in listed && !folderOnDisk(id) }
         if (gone.isEmpty()) return@withLock
         val folders = gone.flatMap { all.vault(it).backupFolders }.distinct()
+        // Audit A-1 + B-3: its fingerprint key too, before its settings (the only trace of it left), as best effort.
+        for (id in gone) {
+            try {
+                forgetBiometric(id)
+            } catch (e: Exception) {
+                // The next start does not see it again once the settings are gone: a key that opens nothing on the disk.
+            }
+        }
         try {
             settings.update { s -> gone.fold(s) { acc, id -> acc.withoutVault(id) } }
         } catch (e: Exception) {

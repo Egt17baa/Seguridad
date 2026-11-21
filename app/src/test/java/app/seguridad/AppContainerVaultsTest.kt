@@ -636,6 +636,57 @@ class AppContainerVaultsTest {
         assertTrue(File(c.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").exists())
     }
 
+    /**
+     * 2.0, audit A-1 (CRY-A02's order): deleting a vault forgets its fingerprint key first, while its folder and its
+     * place in the list are still there. The key wraps the data key, which also opens the copies made before; a process
+     * death half way leaves the vault listed and without fingerprint, never a key of a vault that is gone.
+     */
+    @Test fun deletingAVaultForgetsItsFingerprintBeforeItsFolder() = runTest {
+        var container: AppContainer? = null
+        val seen = mutableListOf<Pair<Boolean, Boolean>>()
+        val c = AppContainer(
+            tmp.root, cache, appVersion = "test", appScope = backgroundScope,
+            forgetBiometric = { id ->
+                val now = container!!
+                seen += now.registry.dirOf(id).exists() to now.registry.vaults.value.any { it.id == id }
+            },
+        )
+        container = c
+        val (_, idB) = twoVaults(c)
+        val dirB = c.registry.dirOf(idB)
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        assertFalse(dirB.exists())
+        assertEquals("forgotten once, with its folder and its place in the list still there", listOf(true to true), seen)
+    }
+
+    /**
+     * 2.0, audit A-1 + B-3: the fingerprint key of a vault that is gone (a deletion cut after the registry, before the
+     * settings) is forgotten at the start, before its settings go; one whose folder is still there is not.
+     */
+    @Test fun anOrphanFingerprintIsForgottenAtStart() = runTest {
+        var container: AppContainer? = null
+        val forgotten = mutableListOf<String>()
+        val gone = "a".repeat(32)
+        val onDisk = "b".repeat(32)
+        val c = AppContainer(
+            tmp.root, cache, appVersion = "test", appScope = backgroundScope,
+            forgetBiometric = { id ->
+                assertTrue("before its settings go", id in container!!.settings.settings.value.perVault)
+                forgotten += id
+            },
+        )
+        container = c
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray())
+        File(tmp.root, "vaults/$onDisk").mkdirs()
+        for (id in listOf(gone, onDisk, PRIMARY_VAULT_ID)) c.settings.updateVault(id) { it.oneTarget(autoBackupUri = "content://$id") }
+        c.forgetOrphanVaults()
+        assertEquals(listOf(gone), forgotten)
+        assertFalse(gone in c.settings.settings.value.perVault)
+        assertTrue(onDisk in c.settings.settings.value.perVault)
+    }
+
     @Test fun importAsNewTwiceMakesTwoVaults() = runTest {
         val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
         c.settings.load()
