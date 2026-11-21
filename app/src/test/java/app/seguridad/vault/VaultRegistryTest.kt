@@ -182,7 +182,7 @@ class VaultRegistryTest {
         assertTrue("BiometricVault.enable(activity, store.id, key)" in screen)
         assertTrue("BiometricVault.unlock(activity, store.id, onKey" in screen)
         assertFalse(Regex("""BiometricVault\.(disable|enabled)\(context\)""").containsMatchIn(screen + code("app/src/main/java/app/seguridad/ui/screens/VaultBackup.kt")))
-        assertTrue("forgetBiometric = { id -> BiometricVault.disable(this, id) }" in code("app/src/main/java/app/seguridad/SeguridadApp.kt"))
+        assertTrue("forgetBiometric = { id -> BiometricVault.forget(this, id) }" in code("app/src/main/java/app/seguridad/SeguridadApp.kt"))
     }
 
     /** Abogado Digital O-1, O-2 and R-9: what deleting and importing as a new vault do and do not delete, on view. */
