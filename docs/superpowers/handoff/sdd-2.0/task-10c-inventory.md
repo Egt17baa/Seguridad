@@ -266,3 +266,19 @@ Lo que salió del cruce: constantes de límites y de formato (números, no texto
 | «Aún no tienes bóveda: no hay nada que copiar.» | «Hacer una copia ahora» sin bóveda | `ui/SettingsScreen.kt:443` | — | Se deja: dice lo que pasa; crear la bóveda está en su pestaña |
 | `AUTO_BACKUP_REPLACE_DROPPED`, `AUTO_BACKUP_REMOVED` | Quitar una carpeta | `ui/SettingsScreen.kt:460` | — | Se dejan: A6 y la fase anterior |
 | La línea de error de la pantalla de bloqueo (n-6) | — | `ui/VaultScreen.kt:478` | — | No es una región viva: lo decía mal el informe de la ronda 1. Va a la fila 44 de `pendientes.md` (TalkBack en el móvil), sin tocar el código |
+
+## Ronda de arreglos de la auditoría completa (21-11-2026)
+
+Encargo `advisor-t12-audit-fixes.md`; informe `audit-fixes-report.md`, §6. Todos para la revisión final del Abogado Digital.
+
+| Texto | Cuándo sale | `archivo:línea` | Qué distingue el código | Estado |
+|---|---|---|---|---|
+| `UPGRADE_AUTO_COPY_NOT_DONE` «La copia automática de antes del cambio al formato nuevo no ha terminado en 2 minutos: la carpeta tarda en contestar. Puedes exportar una copia a otro sitio o seguir sin copia.» | El diálogo del paso a v4, cuando la copia de la carpeta no terminó en `UPGRADE_COPY_WAIT_MS` (120 s) | `ui/VaultUpgrade.kt:58`, `:132`; `v/PendingUpgrade.kt:14`, `:102`, `:115` | `upgradeAutoCopyNotDone` (espera agotada), frente a `upgradeAutoCopyFailed` (la copia falló) | Nuevo (D-1). Fijado por `VaultUpgradeTextsTest.theCopyNotDoneSaysTheWaitAndTheChoice`, con los minutos iguales a la constante |
+| `ATTACHMENTS_COUNT_WOULD_PASS` «Con este adjunto, la bóveda tendría más adjuntos de los que caben en una copia (como mucho 1 998, también los de la papelera). Quita algún adjunto o vacía la papelera para añadir otro.» | «Añadir adjunto» con 1 998 adjuntos ya en la bóveda | `v/Attachments.kt:52`, `:60`; `v/VaultStore.kt:1381`; `ui/VaultAttachments.kt:73-74` | El número de archivos de una copia (`BACKUP_MAX_ENTRIES` − 2), antes que el tope de bytes | Nuevo (fila 84). Fijado por `AttachmentsTest.theCountOfACopyLimitsTheAttachments` |
+| `KDF_COST_MORE` (el «Más información» del coste de Argon2id) | Ajustes → Coste | `v/VaultsTexts.kt:135`; `ui/SettingsScreen.kt:668` | — | Cambiado (A-2): dice que el archivo de la bóveda sube al coste elegido en el siguiente desbloqueo con la maestra y nunca baja, y que lo ya hecho guarda su coste. Antes, «Lo ya cifrado guarda su coste.», escrito en la pantalla. Fijado por `KdfCostHintTest` |
+| `FOLDER_DELETE_TO_NONE` «Sus entradas pasan a «Sin carpeta» y sus subcarpetas, a «Arriba del todo»» | «Borrar carpeta» de una carpeta de arriba del todo | `v/OrganizeTexts.kt:63` | — | Cambiado (RC-5, D-3). Antes, «Sus entradas y sus subcarpetas se quedan sin carpeta». Fijado por `FolderDeletionTextTest` |
+| Las frases de «Copiar contraseña» del README (`:24`, `:407`) y de las notas de la 2.0 (`:28`) | — | — | La oferta solo vive en pantalla dividida o ventana flotante | Cambiado (B-4). Fijado por `PublishedTextsTest.theTwoStepCopyIsSaidWhereItHappens` |
+| La línea de B-2 del README (`:416`, con `:117`) | — | — | — | Nueva (B-2): el manifiesto solo cambia frente a la 1.4.3 en `versionName` y `taskAffinity` |
+| Los errores de `scripts/check-manifest.sh` sobre `taskAffinity` | Al comprobar un APK (CI y a mano) | `scripts/check-manifest.sh` | — | Nuevos; solo de compilación, no los ve el usuario de la app |
+
+Sin cambio, para su revisión: `NEEDS_MASTER_NOTICE` (`v/ContactsView.kt:68-69`, no se enseña en la 2.0), `UPGRADE_COPYING` (`v/VaultStore.kt`, con D-1 deja de salir pasados 2 minutos) y `ENTRY_TOO_BIG` (`v/VaultLimits.kt`, con E-1 ya no sale a quien no hizo más grande una entrada).
