@@ -379,4 +379,93 @@ Las tres ventanas de CR-2 son benignas (§1.3). Hay una cuarta, la de una carpet
 
   Los dos van con la fila 14.
 
+## Re-lectura de B-2 y B-1 (consolidación)
+
+Encargo de la consolidación: un hallazgo Medio o más alto lo vuelve a leer, por su cuenta, el auditor de otra parte. Leí B-2 y B-1 en `final-audit-b.md:49-153` y los juzgué contra el código de `31a793d` (el código de la app es el de `69c967b`), en solo lectura.
+
+### Los datos de partida
+
+- **Las versiones:**
+  - `minSdk` 26 (Android 8.0), `targetSdk` 36 y `compileSdk` 36 (`app/build.gradle.kts:26`, `:31-32`);
+  - `aapt2 dump badging` da lo mismo (`final-audit-b.md:233`).
+- **`MainActivity`:**
+  - exportada, con `MAIN` y `LAUNCHER`;
+  - `launchMode="singleTop"`;
+  - sin `taskAffinity`, ni en la actividad ni en `<application>` (`app/src/main/AndroidManifest.xml:21-30`), así que su afinidad es el nombre del paquete;
+  - sin `allowTaskReparenting`, que por defecto es falso;
+  - no tiene `onNewIntent` ni lee el *intent* (`MainActivity.kt:26-34`).
+- **Las otras actividades** van sin exportar: `SecureCaptureActivity` y, de la biblioteca, el `CaptureActivity` sin filtro. Ninguna se abre con `FLAG_ACTIVITY_NEW_TASK`:
+  - el escáner, por `ActivityResult` (`android/QrScanner.kt:24`);
+  - los selectores, por `rememberLauncherForActivityResult` (`ui/screens/Pickers.kt:56-80`);
+  - «Compartir», con `Intent.createChooser` desde el contexto de la actividad (`android/ImageShare.kt:22-30`, `ui/screens/Pickers.kt:150-152`).
+- **Lo que dice Android de este riesgo** ([«StrandHogg Attack / Task Affinity Vulnerability», developer.android.com](https://developer.android.com/privacy-and-security/risks/strandhogg), leído el 21-11-2026):
+  - es un fallo de diseño de la reasignación de tareas;
+  - Android 11 (API 30) y posteriores traen los parches del sistema;
+  - la versión 1 del ataque se mitiga en parte con la configuración de la app, y la versión 2 solo con esos parches;
+  - la mitigación que da la página es subir `minSdkVersion` a 30.
+
+### B-2: veredicto
+
+- **Es real, no solo «a comprobar», en Android 8.0 a 10 (API 26 a 29).** La app los admite (`minSdk` 26), y para ellos Android documenta el fallo como del sistema, sin parche.
+  - La configuración de Clavero es la que el ataque necesita: una actividad del lanzador exportada, con la afinidad por defecto, igual al paquete.
+  - El ataque no pide ningún permiso a la app maliciosa. Le basta con que el usuario la haya abierto una vez y que después abra Clavero desde su icono.
+  - El escudo de Clavero no sirve aquí, como dice B-2: `FLAG_SECURE`, el filtro de toques ocultos y la marca de accesibilidad son de su propia ventana, y la pantalla falsa es de otra app.
+- **En Android 11 y posteriores** lo corta el sistema, según esa misma página. Que la regla de Android 15 sobre el arranque de actividades entre apps cubra además este caso sigue «a comprobar», como dice B-2, pero no hace falta para decidir.
+- **Severidad:** confirmo **Media**, CVSS 3.1 **4.7**, `AV:L/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N`, con el mismo vector que B-2.
+  - **`C:H`:** el objetivo es la contraseña maestra.
+  - **`AC:H`:** con la maestra sola no basta; hace falta además el archivo, que es privado, o una copia, en una carpeta que el usuario eligió o en la nube.
+  - **En el contexto real**, es una Media de las bajas, por dos motivos:
+    - la población es la de Android 8.0 a 10;
+    - en Android 8 y 9 una app maliciosa ya podía sacar una pantalla falsa desde segundo plano, porque las restricciones de arranque en segundo plano empiezan en Android 10. Lo que añade la afinidad es un disparador fiable y sin permisos: el toque en el propio icono de Clavero.
+  - No la bajo a Baja, porque el arreglo es de una línea y no tiene coste para el usuario.
+- **Arreglo exacto** (lo mínimo, solo en `MainActivity`):
+  ```xml
+  <activity
+      android:name=".MainActivity"
+      android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+      android:exported="true"
+      android:launchMode="singleTop"
+      android:taskAffinity="">
+  ```
+  - Con la afinidad vacía, el sistema guarda una afinidad nula. Entonces:
+    - para reutilizar una tarea, el lanzador solo busca por el componente raíz (`MainActivity`), nunca por la afinidad;
+    - la reasignación de una actividad ajena con `allowTaskReparenting` exige que su afinidad coincida con la de la tarea, que ya no tiene ninguna.
+  - **No recomiendo:**
+    - el atributo en `<application>`: añade diferencias al manifiesto (las dos actividades del escáner), y no hace falta, porque no están exportadas, no tienen `allowTaskReparenting` y nunca se abren con `NEW_TASK`;
+    - `minSdk 30`: es lo que da Google, pero dejaría sin la app los Android 8.0 a 10, contra el objetivo del diseño de que «nada de lo que funciona hoy deja de funcionar». Sería una decisión del dueño;
+    - `singleTask` o `singleInstance`: cambiarían la tarea. Al tocar el icono se cerraría lo que está encima, como un selector o el escáner, y el resultado de los selectores volvería de otra forma.
+- **Qué no rompe:**
+  - **La tarea y el icono:** el lanzador la sigue encontrando por el componente, y un segundo toque con `MainActivity` arriba sigue siendo `singleTop` (la app no tiene `onNewIntent`).
+  - **`singleTop`:** no cambia.
+  - **Los selectores y el escáner:** se abren para un resultado y sin `NEW_TASK`, así que entran en la tarea de quien los llama, sea cual sea su afinidad.
+  - **«Compartir» y el `FileProvider`:** el selector de apps se abre desde la actividad, y el permiso de lectura va con el *intent* y su `ClipData` (`android/ImageShare.kt:26-28`). La afinidad no toca ni el permiso ni la autoridad, que no cambia (`AppNameTest`).
+  - **La pantalla dividida, «Al salir», la lista de recientes y `FLAG_SECURE`:** sin cambios.
+  - **Los tests:** el ancla de `PlatformSourcesTest.kt:37-38` toma el elemento entero y solo mira `configChanges`, así que sigue en verde. `scripts/check-manifest.sh` no mira la afinidad, así que tampoco falla.
+- **Lo que queda después del arreglo** (para el registro, no son hallazgos nuevos):
+  - la versión 2 del ataque (CVE-2020-0096) en un Android 8.0 o 9 sin el parche de mayo de 2020: ninguna app se puede defender de ella;
+  - una app que abre `MainActivity` sin `NEW_TASK` la mete en su propia tarea, y al volver atrás el usuario cae en una actividad de esa app. Eso solo lo evitaría `singleTask`, que no recomiendo, como se dice arriba. Además, el usuario ve que Clavero no se abrió desde su icono.
+- **La puerta del APK** («el manifiesto, igual al de la 1.4.3») tendría una excepción con nombre, y la decide el director o el dueño:
+  - la única diferencia aceptada, además de `versionName`, es `android:taskAffinity=""` en `MainActivity`;
+  - `scripts/check-manifest.sh` debería exigirla: en `aapt2 dump xmltree`, la línea `A: android:taskAffinity(0x01010012)=""` dentro del elemento de `app.seguridad.MainActivity`;
+  - la lista «Entorno de firma» del README la nombraría.
+- **Prueba de concepto:**
+  - la de B-2: `PlatformSourcesTest.theLauncherActivityHasAnEmptyTaskAffinity`, en rojo hoy;
+  - la app de prueba en el móvil, que no se publica, en un Android 8.0 a 10 (vulnerable hoy, corregido después) y en uno de 11 o posterior (corregido ya, a confirmar);
+  - además, comprobar después del arreglo que siguen igual el icono con la app en segundo plano y con el escáner abierto, un selector, «Compartir» una imagen y la pantalla dividida.
+
+### B-1: veredicto
+
+- **Es real, y la Baja de B es correcta** (CVSS 3.3, `AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N`). Lo comprobé en las clases de `navigation-runtime` 2.9.3, en la caché de Gradle del contenedor, con `javap`:
+  - `NavController` lee `Activity.getIntent()` cuando se crea el grafo, si `deepLinkHandled` es falso;
+  - `deepLinkHandled` se guarda en el estado del controlador. Bajo `key(vault)`, `rememberNavController` empieza sin estado guardado, así que cada cambio de bóveda vuelve a leer el *intent*, como dice B-1;
+  - con `FLAG_ACTIVITY_NEW_TASK` y sin `FLAG_ACTIVITY_CLEAR_TASK`, la biblioteca rehace la tarea con `TaskStackBuilder.startActivities()` y cierra la actividad (`finish()`).
+  - Ni `navigation-runtime` ni `navigation-compose` 2.9.3 escuchan `onNewIntent`: ninguna clase nombra `OnNewIntent`. Así que la única puerta es el *intent* de `onCreate`.
+- **Impacto:** no da ningún dato. La bóveda sigue bloqueada, hay `FLAG_SECURE` y no hay resultado de vuelta. Lo que permite es elegir la pantalla y, con `NEW_TASK`, rehacer la tarea, que es una molestia que ya puede causar cualquier actividad exportada.
+- **El arreglo de B-1 vale tal cual:** sustituir el *intent* en `onCreate`, antes de `setContent`.
+  - Cubre también la recreación, porque se repite en cada `onCreate`, y el caso de `onNewIntent`, que la biblioteca no usa.
+  - No toca el *intent* raíz de la tarea que guarda el sistema (`setIntent` es solo del lado de la app), así que el lanzador y la afinidad de B-2 siguen igual.
+  - No rompe los selectores ni el escáner (sus resultados no pasan por `getIntent`), ni «Compartir», ni el `FileProvider`, ni `singleTop`.
+  - No cambia el manifiesto, así que no toca la puerta del APK.
+- **Los dos arreglos son independientes:** B-1 es código y B-2 es manifiesto.
+
 Modelo: el director (esfuerzo extra).
