@@ -60,6 +60,25 @@ class PlatformSourcesTest {
     }
 
     /**
+     * 2.0, audit B-1: every NavController (one per open vault, `key(vault)` in AppNavHost) reads the activity's intent
+     * for a deep link, extras included. MainActivity replaces whoever-started-it's intent with a plain launcher one in
+     * onCreate, before setContent, and never takes a new one; nothing in the app handles a deep link itself.
+     */
+    @Test fun theNavigationNeverSeesTheLaunchIntent() {
+        val src = code("MainActivity.kt")
+        val onCreate = src.substringAfter("override fun onCreate(").substringBefore("override fun ")
+        val assign = onCreate.indexOf("intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, MainActivity::class.java)")
+        val superCall = onCreate.indexOf("super.onCreate(savedInstanceState)")
+        val content = onCreate.indexOf("setContent {")
+        assertTrue("the plain intent, after super.onCreate and before setContent", superCall >= 0 && assign > superCall && content > assign)
+        assertFalse("override fun onNewIntent" in src)
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/java/app/seguridad").isDirectory) dir = dir.parentFile
+        val handlers = File(dir, "app/src/main/java").walk().filter { it.isFile && it.name.endsWith(".kt") && "handleDeepLink(" in it.readText() }.map { it.name }.toList()
+        assertEquals(emptyList<String>(), handlers)
+    }
+
+    /**
      * 1.4.2, the owner's request: every file picker says which place it is ([PickerPlace]), so it opens where it was
      * used last; «Importar de otra app» is the place kept only while the app runs; the folder of the automatic copies
      * opens on that folder; deleting the vault forgets every place.

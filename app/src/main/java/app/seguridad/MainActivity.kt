@@ -1,5 +1,6 @@
 package app.seguridad
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -23,12 +24,19 @@ import app.seguridad.vault.VaultLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/** A FragmentActivity because the biometric prompt needs one. The app has no other entry point and takes no extras. */
+/**
+ * A FragmentActivity because the biometric prompt needs one. The app has no other entry point and takes no extras.
+ * Navigation Compose reads the activity's intent for a deep link, extras included, every time a NavController is set up
+ * (one per open vault, `key(vault)` in AppNavHost), so onCreate replaces the intent it was started with by a plain
+ * launcher one (2.0, audit B-1), and the activity never takes a new one (no onNewIntent).
+ */
 class MainActivity : FragmentActivity() {
     private val container get() = (application as SeguridadApp).container
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // B-1: whatever another app put in the intent that started Clavero never reaches the navigation.
+        intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, MainActivity::class.java)
         // Before anything is drawn, for every screen, dialog and menu of the app.
         secureWindow()
         setContent {
