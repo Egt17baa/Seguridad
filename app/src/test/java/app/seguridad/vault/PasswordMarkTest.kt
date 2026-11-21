@@ -128,4 +128,50 @@ class PasswordMarkTest {
         // The other entries, untouched.
         assertEquals(listOf("e2", "e3", "e4").map { s.entry(it).passwordChangedAt }, listOf(null, null, null))
     }
+    /** A login of before 2.0 (no mark) whose JSON without history is [VaultLimits.ENTRY_MAX_JSON_BYTES] - 10 bytes. */
+    private fun entryJustUnderTheCap(favorite: Boolean = false): VaultEntry {
+        val base = login().copy(favorite = favorite, notes = "x")
+        val n = 1 + (VaultLimits.ENTRY_MAX_JSON_BYTES - 10 - jsonBytes(VaultEntry.serializer(), base)).toInt()
+        return base.copy(notes = "x".repeat(n)).also { assertEquals(VaultLimits.ENTRY_MAX_JSON_BYTES - 10L, jsonBytes(VaultEntry.serializer(), it)) }
+    }
+
+    /**
+     * Audit E-1: the store's own mark ([VaultEntry.passwordChangedAt], frozen by an edit that keeps the password) does
+     * not count in the cap of one entry: an entry of 1.4.3 just under the cap still takes an edit of the same size.
+     */
+    @Test fun anEntryOf143JustUnderTheEntryCapStillTakesAnEditThatKeepsItsPassword() = runBlocking {
+        val e = entryJustUnderTheCap()
+        val s = withEntries(e)
+        clock += 1_000
+        s.upsert(s.entry("e").copy(notes = e.notes.dropLast(1) + "y", updatedAt = clock))
+        assertTrue(s.entry("e").notes.endsWith("y"))
+        assertEquals(old, s.entry("e").passwordChangedAt)
+        assertEquals(old, lastPasswordChange(s.entry("e")))
+    }
+
+    /** Audit E-1, with «Favorita»: taking the mark off a favourite just under the cap is saved too. */
+    @Test fun anEntryOf143JustUnderTheEntryCapCanStopBeingAFavourite() = runBlocking {
+        val s = withEntries(entryJustUnderTheCap(favorite = true))
+        clock += 1_000
+        assertEquals(1, s.setFavorite(setOf("e"), false))
+        assertTrue(!s.entry("e").favorite)
+        assertEquals(old, lastPasswordChange(s.entry("e")))
+    }
+
+    /**
+     * Audit E-1: the app never refuses its own copies. A vault with an entry just under the cap and its mark (what the
+     * edits above leave) is exported, and «Comprobar una copia» and «Importar copia» accept it.
+     */
+    @Test fun aCopyWithAnEntryAtTheCapAndItsMarkIsAccepted() = runBlocking {
+        val marked = entryJustUnderTheCap().copy(passwordChangedAt = old)
+        assertTrue(jsonBytes(VaultEntry.serializer(), marked) > VaultLimits.ENTRY_MAX_JSON_BYTES)
+        val maker = withEntries(marked)
+        val backup = java.io.ByteArrayOutputStream().also { assertTrue(maker.exportBackup(it)) }.toByteArray()
+        val report = checkBackup(ByteArrayInputStream(backup), master.toCharArray(), tmp.newFolder(), Dispatchers.Unconfined, Dispatchers.Unconfined)
+        assertEquals(emptyList<String>(), report.problems)
+        val mine = store(tmp.newFolder()).apply { load(); create(master.toCharArray()) }
+        mine.importReplace(ByteArrayInputStream(backup), master.toCharArray())
+        assertEquals(old, mine.entry("e").passwordChangedAt)
+        assertEquals(marked.notes, mine.entry("e").notes)
+    }
 }

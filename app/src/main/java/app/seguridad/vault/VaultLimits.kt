@@ -15,7 +15,7 @@ import java.util.IdentityHashMap
  * are in code points.
  */
 object VaultLimits {
-    /** One entry without its history. */
+    /** One entry, without its history nor the mark of its last password (audit E-1). */
     const val ENTRY_MAX_JSON_BYTES = 64 * 1024
     const val FIELDS_MAX = 30
     const val FIELD_NAME_MAX = 100
@@ -95,7 +95,12 @@ private val historySerializer = ListSerializer(EntryVersion.serializer())
 
 private fun VaultEntry.historyBytes(): Long = jsonBytes(historySerializer, history)
 
-private fun VaultEntry.bytesWithoutHistory(): Long = jsonBytes(VaultEntry.serializer(), if (history.isEmpty()) this else copy(history = emptyList()))
+/**
+ * The entry as [VaultLimits.ENTRY_MAX_JSON_BYTES] measures it: without its history nor [VaultEntry.passwordChangedAt]
+ * (audit E-1), the mark the store itself sets (frozenPasswordMark), at most 34 bytes; it still counts in the whole vault.
+ */
+private fun VaultEntry.bytesWithoutHistory(): Long =
+    jsonBytes(VaultEntry.serializer(), if (history.isEmpty() && passwordChangedAt == null) this else copy(history = emptyList(), passwordChangedAt = null))
 
 private fun String.codePointLength(): Int = codePointCount(0, length)
 
