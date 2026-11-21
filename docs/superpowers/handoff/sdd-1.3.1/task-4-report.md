@@ -1,7 +1,7 @@
 # Informe de la tarea 4: CRY-A03, poner a cero las copias de la clave en los parámetros de Bouncy Castle
 
 **Estado:** DONE_WITH_CONCERNS (una corrección al informe de la auditoría sobre ChaCha20-Poly1305; ver «Preocupaciones»).
-**Commit:** `490e973` «crypto: borrar la copia de la clave en los parámetros de Bouncy Castle (CRY-A03)», en `ccr-a1a6eabb-765f9g`, ya subido (`d0702a3..490e973`). Autor `Claude <noreply@anthropic.com>`; el mensaje acaba solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
+**Commit:** `490e973` «crypto: borrar la copia de la clave en los parámetros de Bouncy Castle (CRY-A03)», en `ccr-a1a6eabb-765f9g`, ya subido (`d0702a3..490e973`). Autor `Claude <noreply@anthropic.com>`; el mensaje acaba solo en `Co-Authored-By: Claude <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
 
 ## Qué se ha implementado
 

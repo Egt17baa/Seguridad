@@ -45,14 +45,14 @@ class VaultTotpTest {
 
     @Test fun `vault round trip and wrong master`() {
         val (file, dek) = VaultCrypto.create("maestra larga".toCharArray(), now = 5, kdf = FAST)
-        assertTrue(VaultCrypto.read(file, dek).isEmpty())
-        val saved = VaultCrypto.write(file, dek, listOf(entry("1"), entry("2", "ñ 🔐")))
+        assertTrue(VaultCrypto.read(file, dek).entries.isEmpty())
+        val saved = VaultCrypto.write(file, dek, VaultData(entries = listOf(entry("1"), entry("2", "ñ 🔐"))))
         val text = VaultCrypto.encodeFile(saved)
         assertTrue("password must not appear in the file", !text.contains("ñ 🔐") && !text.contains("ana"))
         val again = VaultCrypto.decodeFile(text)
         val dek2 = VaultCrypto.unlock(again, "maestra larga".toCharArray())
         assertArrayEquals(dek, dek2)
-        assertEquals(listOf("1", "2"), VaultCrypto.read(again, dek2).map { it.id })
+        assertEquals(listOf("1", "2"), VaultCrypto.read(again, dek2).entries.map { it.id })
         try {
             VaultCrypto.unlock(again, "otra".toCharArray())
             fail()
@@ -63,19 +63,19 @@ class VaultTotpTest {
 
     @Test fun `tampered data or swapped key blob is detected`() {
         val (file, dek) = VaultCrypto.create("m".toCharArray(), 0, FAST)
-        val saved = VaultCrypto.write(file, dek, listOf(entry("1")))
+        val saved = VaultCrypto.write(file, dek, VaultData(entries = listOf(entry("1"))))
         val raw = java.util.Base64.getDecoder().decode(saved.data)
         raw[20] = (raw[20].toInt() xor 1).toByte()
         val bad = saved.copy(data = java.util.Base64.getEncoder().encodeToString(raw))
         try {
-            VaultCrypto.read(bad, dek)
+            VaultCrypto.read(bad, dek).entries
             fail()
         } catch (e: CryptoFailure) {
             // expected
         }
         // The key blob used as data (or vice versa) fails thanks to the separate associated data.
         try {
-            VaultCrypto.read(saved.copy(data = saved.wrappedKey), dek)
+            VaultCrypto.read(saved.copy(data = saved.wrappedKey), dek).entries
             fail()
         } catch (e: CryptoFailure) {
             // expected
@@ -84,19 +84,19 @@ class VaultTotpTest {
 
     @Test fun `changing the master keeps entries and drops the old password`() {
         val (file, dek) = VaultCrypto.create("vieja".toCharArray(), 0, FAST)
-        val withData = VaultCrypto.write(file, dek, listOf(entry("1")))
+        val withData = VaultCrypto.write(file, dek, VaultData(entries = listOf(entry("1"))))
         val (changed, newDek) = VaultCrypto.changeMaster(withData, dek, "nueva".toCharArray(), now = 9, kdf = FAST)
         assertNotEquals(withData.salt, changed.salt)
         // A new data key: the old one (from an old export and the old password) opens nothing saved afterwards.
         assertFalse(newDek.contentEquals(dek))
         try {
-            VaultCrypto.read(changed, dek)
+            VaultCrypto.read(changed, dek).entries
             fail()
         } catch (e: CryptoFailure) {
             // expected
         }
         assertEquals(9L, changed.masterCheckedAt)
-        assertEquals(listOf("1"), VaultCrypto.read(changed, VaultCrypto.unlock(changed, "nueva".toCharArray())).map { it.id })
+        assertEquals(listOf("1"), VaultCrypto.read(changed, VaultCrypto.unlock(changed, "nueva".toCharArray())).entries.map { it.id })
         try {
             VaultCrypto.unlock(changed, "vieja".toCharArray())
             fail()
@@ -322,7 +322,7 @@ class VaultTotpTest {
         fun bytes(name: String) = javaClass.getResourceAsStream("/seguridad/$name")!!.use { it.readBytes() }
         fun entriesOf(json: String): List<VaultEntry> {
             val file = VaultCrypto.decodeFile(json)
-            return VaultCrypto.read(file, VaultCrypto.unlock(file, "maestra-de-prueba".toCharArray()))
+            return VaultCrypto.read(file, VaultCrypto.unlock(file, "maestra-de-prueba".toCharArray())).entries
         }
         val backupJson = ZipInputStream(bytes("backup-1.1.sgbak").inputStream()).use { zip ->
             generateSequence { zip.nextEntry }.first { it.name == "vault.json" }.let { String(zip.readBytes()) }
@@ -374,12 +374,13 @@ class VaultTotpTest {
         assertTrue("type == EntryType.TOTP && !isUsableTotpKey(totp.secret) ->" in source)
         assertFalse("totpKey(" in source)
         // F4: the list shows the short text instead of the code, only for settings this app does not calculate.
-        val list = File(screen.parentFile, "VaultScreen.kt").readText()
+        val list = File(screen.parentFile, "EntryRow.kt").readText() // 2.0, task 6: the list's rows moved there.
         val small = """style = MaterialTheme\.typography\.labelSmall"""
-        val row = Regex("""if \(!t\.isSupported\(\)\) \{\s*Text\(\s*TOTP_UNSUPPORTED_ROW,\s*$small""")
+        val row = Regex("""if \(!t\.isSupported\(\)\) \{(?:\s*//[^\n]*)*\s*Text\(\s*TOTP_UNSUPPORTED_ROW,\s*$small""")
         assertTrue(row.containsMatchIn(list))
         // The code itself is unchanged: totpCode gives null for such settings, and shows nothing for any other null.
-        assertTrue(Regex("""maxLines = 1,\s*\)\s*\}\s*totpCode\(t, now\)\?\.let""").containsMatchIn(list))
+        assertTrue(Regex("""maxLines = 1\)\s*\}\s*else\s*\{\s*TotpBadge\(""").containsMatchIn(list))
+        assertTrue("val (code, left) = totpCode(t, now.value) ?: return" in list)
         assertFalse(list.contains("TOTP_UNSUPPORTED_LINK") || list.contains("TOTP_UNSUPPORTED_ENTRY"))
     }
 }

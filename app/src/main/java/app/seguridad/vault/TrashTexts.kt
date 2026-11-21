@@ -1,0 +1,155 @@
+package app.seguridad.vault
+
+/*
+ * 2.0, task 3: the texts of the trash and of the history of each entry (the minimal text rule, M-3). Abogado Digital,
+ * O-2: «Borrar para siempre», «Vaciar papelera» and «Borrar historial» say on view that the copies already made keep what
+ * they hold, and the trash says that it empties itself on opening the vault after 30 days. Never «irrecuperable» nor any
+ * promise of a deletion nothing can undo: the copies, and what the phone's storage keeps, are outside the app's reach.
+ */
+
+const val TRASH_TITLE = "Papelera"
+
+/** On view, at the top of the trash (O-2). */
+const val TRASH_SHORT = "Lo que borras se queda aquí 30 días. Al abrir la bóveda, lo que lleve más de 30 días se quita solo."
+
+/**
+ * On view in the trash and in each confirmation of «Borrar para siempre», «Vaciar papelera» and «Borrar historial» (O-2).
+ * Branch review, row 30: «pueden», as [HISTORY_ALL_CONFIRM_TEXT]: each deletion is a save, whose automatic copy rotates the
+ * oldest out, so the copies made before keep it only for a while.
+ */
+const val COPIES_KEEP_IT = "Las copias ya hechas (automáticas o exportadas) pueden conservarlo; la copia automática quita las más antiguas."
+
+/** Folded under «Más información» in the trash. */
+const val TRASH_MORE =
+    "Lo de la papelera no sale en la lista, en la búsqueda, en «Salud» ni al buscar duplicados al importar, pero va en las copias. " +
+        "Si la hora del móvil salta más de 2 días hacia delante, ese día no se quita nada: se hace en la siguiente apertura."
+
+const val TRASH_EMPTY_LIST = "La papelera está vacía."
+const val TRASH_RESTORE = "Restaurar"
+const val TRASH_DELETE_FOREVER = "Borrar para siempre"
+const val TRASH_EMPTY = "Vaciar papelera"
+const val TRASH_OPEN = "Papelera"
+
+/** «Restaurar» found the vault already has an identity (only a copy made elsewhere can bring one to the trash). */
+const val TRASH_RESTORE_NONE = "No se ha restaurado: la bóveda ya tiene otra identidad."
+
+/** A save of the trash or of the history that failed (a full disk, say). */
+const val TRASH_SAVE_FAILED = "No se pudo guardar. ¿Queda espacio en el móvil?"
+
+fun trashDeleteForeverTitle(name: String): String = "¿Borrar «$name» para siempre?"
+
+/** On view in the confirmation of «Borrar para siempre» (O-2). */
+const val TRASH_DELETE_FOREVER_TEXT = "Se quita de la bóveda, con sus adjuntos. $COPIES_KEEP_IT"
+
+const val TRASH_EMPTY_TITLE = "¿Vaciar la papelera?"
+
+/** On view in the confirmation of «Vaciar papelera» (O-2). */
+fun trashEmptyText(count: Int): String =
+    "Se quita${if (count == 1) " 1 entrada" else "n $count entradas"} de la bóveda, con sus adjuntos. $COPIES_KEEP_IT"
+
+/** When an entry in the trash goes by itself, at an unlock. */
+fun trashLeavesIn(deletedAt: Long, now: Long): String {
+    val left = ((deletedAt + TRASH_MS - now) / (24 * 60 * 60_000L)).coerceAtLeast(0)
+    return when (left) {
+        0L -> "Se quita al abrir la bóveda"
+        1L -> "Se quita en 1 día"
+        else -> "Se quita en $left días"
+    }
+}
+
+const val MOVE_TO_TRASH = "Mover a la papelera"
+fun moveToTrashTitle(name: String): String = "¿Mover «$name» a la papelera?"
+fun moveToTrashCountTitle(count: Int): String = "¿Mover $count entradas a la papelera?"
+
+/** On view in the confirmation of a move to the trash. */
+const val MOVE_TO_TRASH_TEXT = "Puedes restaurarla desde la papelera durante 30 días."
+
+/** [MOVE_TO_TRASH_TEXT] for [count] entries (2.0, task 6: the selection bar). */
+fun moveToTrashText(count: Int): String = if (count == 1) MOVE_TO_TRASH_TEXT else "Puedes restaurarlas desde la papelera durante 30 días."
+
+fun movedToTrash(count: Int): String = if (count == 1) "Movida a la papelera" else "$count entradas movidas a la papelera"
+const val UNDO = "Deshacer"
+
+const val HISTORY_TITLE = "Versiones"
+
+/** On view, at the top of the versions of an entry. */
+const val HISTORY_SHORT = "Cada guardado que cambia algo deja aquí la versión anterior."
+
+/** Folded under «Más información». */
+const val HISTORY_MORE =
+    "Se guardan hasta 20 versiones y 64 KB por entrada; al pasar de ahí se quitan las más antiguas. Los adjuntos no tienen " +
+        "versiones. Las contraseñas y los campos ocultos están ocultos también aquí. Restaurar una versión no borra nada: lo que había " +
+        "queda como otra versión."
+
+const val HISTORY_EMPTY = "No hay versiones anteriores."
+const val HISTORY_RESTORE = "Restaurar esta versión"
+const val HISTORY_RESTORED = "Versión restaurada. Lo que había queda como otra versión."
+const val HISTORY_CLEAR = "Borrar historial"
+fun historyClearTitle(name: String): String = "¿Borrar el historial de «$name»?"
+
+/** On view in the confirmation of «Borrar historial» (O-2). */
+const val HISTORY_CLEAR_TEXT = "Se quitan sus versiones y sus contraseñas anteriores. $COPIES_KEEP_IT"
+const val HISTORY_CLEARED = "Historial borrado"
+
+/*
+ * 2.0, task 10 (pendientes, row 1): «Borrar todo el historial» in Ajustes ([VaultStore.clearAllHistory]). What it takes is
+ * what the code takes ([withoutHistory]): the versions and the old passwords of every entry, those in the trash too. The
+ * copies already made keep them: a copy is the whole vault file ([writeBackup]), history included (O-2).
+ */
+const val HISTORY_ALL_TITLE = "Historial de las entradas"
+/** Ronda 1, m-6: identities and contacts keep no history ([VaultStore.upsert]), so not «cada entrada guarda». */
+const val HISTORY_ALL_SHORT = "Al cambiar una entrada se guarda su versión anterior. Aquí puedes borrar las de todas a la vez."
+const val HISTORY_ALL_CLEAR = "Borrar todo el historial"
+const val HISTORY_ALL_CONFIRM_TITLE = "¿Borrar el historial de todas las entradas?"
+
+/**
+ * On view in the confirmation (O-2). Ronda 1, m-7: «pueden», never «lo conservan»: the clear is a save, so with copies on
+ * every change the copy it makes (without history) can rotate an older one (with it) out; with the fewest copies Ajustes
+ * offers, some copy of before still has it right after (AutoBackupTest.clearingTheHistoryMayRotateAnOlderCopyOut).
+ */
+const val HISTORY_ALL_CONFIRM_TEXT = "Se quitan las versiones y las contraseñas anteriores de todas las entradas, también de las de la papelera. " +
+    "Las copias ya hechas (automáticas o exportadas) pueden conservarlas; la copia automática quita las más antiguas."
+
+/**
+ * Ronda 1, m-5: the line of the section «Historial de las entradas» by the state of the vault: none with it open; with no
+ * vault, that there is none (nothing to open); locked, how to open it for this action.
+ */
+fun historyAllHint(state: VaultState): String? = when (state) {
+    is VaultState.Unlocked, VaultState.Loading -> null
+    VaultState.NoVault -> "Aún no tienes bóveda."
+    VaultState.Locked -> "Abre la bóveda (pestaña Bóveda) para borrar el historial."
+}
+
+/** The vault locked before the history was cleared: nothing changed. */
+const val HISTORY_ALL_LOCKED = "La bóveda se bloqueó: no se ha borrado nada."
+
+/** What «Borrar todo el historial» did: [cleared] entries had some; null when the vault locked first (nothing changed). */
+fun historyAllClearedText(cleared: Int?): String = when (cleared) {
+    null -> HISTORY_ALL_LOCKED
+    0 -> "Ninguna entrada tenía historial."
+    1 -> "Historial borrado de 1 entrada."
+    else -> "Historial borrado de $cleared entradas."
+}
+/**
+ * The card's button to the versions (review M-4): their number; with none, the old passwords the screen shows instead
+ * (the list of 1.4.3, or one whose version was trimmed), so «Borrar historial» never deletes what is not shown.
+ */
+fun historyOpen(versions: Int, oldPasswords: Int): String =
+    if (versions > 0) "Versiones ($versions)" else "Contraseñas anteriores ($oldPasswords)"
+
+/** Above the old passwords on the screen of the versions. */
+fun historyOldPasswords(count: Int): String = "Contraseñas anteriores ($count)"
+
+/** «Restaurar esta versión» refused it: not there any more, the entry as it is, or a type it cannot take (review M-2). */
+const val HISTORY_RESTORE_REFUSED = "Esta versión no se puede restaurar."
+
+/** Review M-3: the editor of an entry that went to the trash meanwhile. */
+const val ENTRY_IN_TRASH = "Está en la papelera: no se ha guardado. Restáurala desde la papelera para editarla."
+
+/** The editor's save found the vault locked. */
+const val SAVE_LOCKED = "La bóveda se bloqueó: no se ha guardado"
+
+/** Why a save of the entry [id] gave false, for the editor: in the trash, or the vault locked. */
+fun saveRefusedText(state: VaultState, id: String): String =
+    if ((state as? VaultState.Unlocked)?.trash?.any { it.id == id } == true) ENTRY_IN_TRASH else SAVE_LOCKED
+fun versionUntil(date: String): String = "Hasta el $date"

@@ -8,6 +8,7 @@ import app.seguridad.tools.codes.getValue
 import app.seguridad.tools.codes.setValue
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.IMPORT_COPY_PREFIX
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultEntry
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -122,6 +123,15 @@ class ImportSession(
     /** How many new folder tags [IMPORT_MAX_NEW_TAGS] leaves out with the choices shown (ruling R18). */
     var foldersNotTags: Int by foldersNotTagsCell
         private set
+    private val estimateNoMemoryCell = cells.cell(false)
+
+    /**
+     * Round 3, RT-27: working out the estimate of the choices shown ran out of memory ([estimateNoMemory]): the preview
+     * says IMPORT_NO_MEMORY instead of «Calculando», and «Importar» stays off ([overBytes] stays null). A change of
+     * choice tries again.
+     */
+    var estimateNoMemory: Boolean by estimateNoMemoryCell
+        private set
     private val removalCell = cells.cell<RemoveState?>(null)
     var removal: RemoveState? by removalCell
         private set
@@ -137,6 +147,10 @@ class ImportSession(
 
     /** The vault's entries the plan was built against (its snapshot): for the estimate, never shown. */
     var existing: List<VaultEntry> = emptyList()
+        private set
+
+    /** Review fixes, CR-5: the rest of the same snapshot ([app.seguridad.vault.VaultSnapshot.rest]), for the estimate. */
+    var rest: VaultData = VaultData()
         private set
 
     /** Something runs that the user waits for (and can cancel while [ImportStep.Reading]). */
@@ -230,16 +244,36 @@ class ImportSession(
     }
 
     /** The plan of [run] against [existing] (VaultStore.importSnapshot); null when the vault locked meanwhile. */
-    fun onPlan(run: Long, plan: MergePlan?, existing: List<VaultEntry>) {
+    fun onPlan(run: Long, plan: MergePlan?, existing: List<VaultEntry>, rest: VaultData = VaultData()) {
         if (!isRun(run) || step != ImportStep.Reading) return
         if (plan == null) return dropAll()
         this.plan = plan
         this.existing = existing
+        this.rest = rest
         skipped = plan.skipped
         default = DuplicateChoice.SKIP
         overrides = emptyMap()
         overBytes = null
+        estimateNoMemory = false
         step = ImportStep.Preview
+    }
+
+    /**
+     * Round 3, RT-27: the plan of [run] could not be worked out for lack of memory: back to the first step with nothing
+     * held and IMPORT_NO_MEMORY; nothing was saved. Only for the run still reading (a lock, a cancel or another file meanwhile
+     * moved the run on, and this result is dropped).
+     */
+    fun planNoMemory(run: Long) {
+        if (!isRun(run) || step != ImportStep.Reading) return
+        dropAll()
+        error = IMPORT_NO_MEMORY
+    }
+
+    /** Round 3, RT-27: the estimate of [plan] with [default] and [overrides] ran out of memory; kept only if those are still shown. */
+    fun estimateNoMemory(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>) {
+        if (step != ImportStep.Preview || plan !== this.plan || default != this.default || overrides != this.overrides) return
+        overBytes = null
+        estimateNoMemory = true
     }
 
     /** «Cancelar» while reading: the read stops (its result is dropped) and nothing is held. */
@@ -278,6 +312,7 @@ class ImportSession(
 
     private fun clearEstimate() {
         overBytes = null
+        estimateNoMemory = false
         newTags = null
         foldersNotTags = 0
         error = null
@@ -287,6 +322,8 @@ class ImportSession(
     fun estimated(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, estimate: PreviewEstimate) {
         if (step != ImportStep.Preview || plan !== this.plan || default != this.default || overrides != this.overrides) return
         overBytes = estimate.overBytes
+        // Review fixes, I-1: an estimate that arrives is the one shown, also after one out of memory for these choices.
+        estimateNoMemory = false
         newTags = estimate.newTags
         foldersNotTags = estimate.foldersNotTags
     }
@@ -298,7 +335,7 @@ class ImportSession(
     val canConfirm: Boolean
         get() {
             val c = counts ?: return false
-            return step == ImportStep.Preview && overBytes == 0L && (c.addedTotal > 0 || c.replaced > 0)
+            return step == ImportStep.Preview && overBytes == 0L && !estimateNoMemory && (c.addedTotal > 0 || c.replaced > 0)
         }
 
     /** «Importar»: the run that confirms, once; null when it cannot ([canConfirm]) or already did. */
@@ -351,6 +388,11 @@ class ImportSession(
                     error = importTooBigText(r.overBytes, r.overFiles)
                     // M-2: the exact check said no: «Importar» stays off until a choice changes and a new estimate comes.
                     overBytes = maxOf(1L, r.overBytes)
+                }
+                // 2.0: «Reemplazar» past the 64 KiB of one entry: back to the preview, to choose again for it.
+                ApplyResult.EntryTooBig -> {
+                    step = ImportStep.Preview
+                    error = IMPORT_REPLACE_TOO_BIG
                 }
                 // A Done here would be ImportFlow's mistake: treated as a plan that no longer holds.
                 ApplyResult.Stale, is ApplyResult.Done -> {
@@ -418,12 +460,14 @@ class ImportSession(
         fileName = null
         plan = null
         existing = emptyList()
+        rest = VaultData()
         newTags = null
         foldersNotTags = 0
         default = DuplicateChoice.SKIP
         overrides = emptyMap()
         skipped = emptyList()
         overBytes = null
+        estimateNoMemory = false
         removal = null
         error = null
         step = ImportStep.Pick
@@ -467,12 +511,21 @@ fun previewCounts(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int,
 data class PreviewEstimate(val overBytes: Long, val newTags: Set<String>?, val foldersNotTags: Int)
 
 /**
- * The [PreviewEstimate] of the import with these choices, against [existing] (the snapshot the plan was built on), off
- * the main thread. The ids are placeholders of a UUID's length; the save's exact check decides.
+ * The [PreviewEstimate] of the import with these choices, against [existing] and [rest] (the snapshot the plan was built
+ * on), off the main thread. Review fixes, CR-5: it measures what the save measures, the merged entries with the rest of
+ * the vault ([estimatedOverBytes] of a [VaultData]). The ids are placeholders of a UUID's length; the save's exact check
+ * decides.
  */
-fun previewEstimate(plan: MergePlan, default: DuplicateChoice, overrides: Map<Int, DuplicateChoice>, existing: List<VaultEntry>, now: Long): PreviewEstimate {
+fun previewEstimate(
+    plan: MergePlan,
+    default: DuplicateChoice,
+    overrides: Map<Int, DuplicateChoice>,
+    existing: List<VaultEntry>,
+    rest: VaultData,
+    now: Long,
+): PreviewEstimate {
     val r = mergeImport(plan, default, overrides, existing, now, { PLACEHOLDER_ID })
-    return PreviewEstimate(estimatedOverBytes(r.entries), r.newTags, r.foldersNotTags)
+    return PreviewEstimate(estimatedOverBytes(rest.copy(entries = r.entries + rest.entries)), r.newTags, r.foldersNotTags)
 }
 
 private const val PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000"

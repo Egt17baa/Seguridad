@@ -9,7 +9,7 @@ class ClockMarkTest {
     private val t = 1_700_000_000_000L
 
     @Test fun aLowerTimeNeverLowersTheMark() {
-        val s = Settings(clockHighWaterMs = t)
+        val s = VaultSettings(clockHighWaterMs = t)
         assertEquals(t, s.seeingClock(t - 1).clockHighWaterMs)
         assertEquals(t, s.seeingClock(t).clockHighWaterMs)
         assertEquals(t + 5, s.seeingClock(t + 5).clockHighWaterMs)
@@ -24,8 +24,8 @@ class ClockMarkTest {
     }
 
     @Test fun theMasterPasswordResetCanLowerTheMark() {
-        val future = Settings(clockHighWaterMs = t + 365L * 24 * 60 * 60_000)
+        val future = VaultSettings(clockHighWaterMs = t + 365L * 24 * 60 * 60_000)
         assertEquals(t, future.resettingClock(t).clockHighWaterMs)
-        assertEquals(t, Settings(clockHighWaterMs = t).resettingClock(t).clockHighWaterMs)
+        assertEquals(t, VaultSettings(clockHighWaterMs = t).resettingClock(t).clockHighWaterMs)
     }
 }

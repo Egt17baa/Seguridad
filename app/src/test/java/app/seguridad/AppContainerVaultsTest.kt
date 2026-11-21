@@ -1,0 +1,902 @@
+package app.seguridad
+
+import app.seguridad.settings.oneTarget
+import app.seguridad.settings.autoBackupUri
+import app.seguridad.crypto.CryptoFailure
+import app.seguridad.vault.AutoBackupResult
+import app.seguridad.vault.BackupSchedule
+import app.seguridad.vault.BiometricRefusal
+import app.seguridad.vault.masterChangedInOtherVaultText
+import app.seguridad.settings.vault
+import app.seguridad.settings.withAutoBackupResult
+import app.seguridad.settings.withTargetAdded
+import app.seguridad.vault.EntryType
+import app.seguridad.vault.VaultDeletion
+import app.seguridad.vault.deletionText
+import app.seguridad.vault.VAULT_IMPORT_NEW_DONE
+import app.seguridad.vault.PRIMARY_VAULT_ID
+import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.VaultState
+import app.seguridad.vault.VaultStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+
+/** 2.0, tarea 2: varias bóvedas en `AppContainer`, una abierta a la vez (foco de revisión 2). */
+class AppContainerVaultsTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val cache by lazy { tmp.newFolder("cache") }
+    private val masterA = "maestra-de-prueba-a"
+    private val masterB = "maestra-de-prueba-b"
+
+    /**
+     * [block] throws [T]. Not assertThrows with runBlocking: inside runTest that blocks the test's own thread, where the
+     * container's background jobs (the clock mark's write, holding the settings' lock) wait to go on.
+     */
+    private suspend inline fun <reified T : Throwable> assertFails(block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Throwable) {
+            if (e is T) return
+            throw e
+        }
+        throw AssertionError("Expected ${T::class.java.simpleName}")
+    }
+
+    private fun note(id: String) = VaultEntry(id, EntryType.NOTE, "Nota $id", notes = "n $id", createdAt = 0, updatedAt = 0)
+    private fun VaultStore.unlocked() = state.value is VaultState.Unlocked
+    private fun VaultStore.data() = (state.value as VaultState.Unlocked).data
+
+    /** A container with the first vault («Uno») open and a second one («Dos») created after it, open now. */
+    private suspend fun twoVaults(
+        c: AppContainer,
+    ): Pair<VaultStore, String> {
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val a = c.vault
+        val b = c.createVault("Dos", masterB.toCharArray())
+        return a to b
+    }
+
+    @Test fun switchLocksTheOpenOne() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (a, b) = twoVaults(c)
+        assertEquals(b, c.activeVaultId)
+        assertNotSame(a, c.vault)
+        assertFalse("Creating another locks the open one", a.unlocked())
+        assertTrue(c.vault.unlocked())
+        assertEquals("Dos", c.vault.data().name)
+        val storeB = c.vault
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertSame(a, c.vault)
+        assertSame(a, c.activeVault.value)
+        assertFalse(storeB.unlocked())
+        assertEquals(VaultState.Locked, c.vault.state.value)
+        assertEquals("The one opened last is remembered", PRIMARY_VAULT_ID, c.registry.lastOpened)
+        // The same vault again changes nothing, and an id that is not a vault is refused.
+        c.vault.unlock(masterA.toCharArray())
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertTrue(c.vault.unlocked())
+        assertFails<IllegalArgumentException> { c.switchTo("0".repeat(32)) }
+    }
+
+    @Test fun onlyOneUnlockedAtATime() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (a, _) = twoVaults(c)
+        val b = c.vault
+        // A screen that kept the first vault's store cannot open it while another is the active one.
+        a.unlock(masterA.toCharArray())
+        assertFalse(a.unlocked())
+        assertTrue(b.unlocked())
+        c.switchTo(PRIMARY_VAULT_ID)
+        c.vault.unlock(masterA.toCharArray())
+        assertTrue(a.unlocked())
+        b.unlock(masterB.toCharArray())
+        assertFalse(b.unlocked())
+        assertEquals(1, listOf(a, b).count { it.unlocked() })
+    }
+
+    @Test fun masterOfOneDoesNotOpenAnother() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        twoVaults(c)
+        c.vault.lock()
+        assertFails<CryptoFailure> { c.vault.unlock(masterA.toCharArray()) }
+        assertFalse(c.vault.unlocked())
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertFails<CryptoFailure> { c.vault.unlock(masterB.toCharArray()) }
+        assertFalse(c.vault.unlocked())
+    }
+
+    /**
+     * Review focus 2: a save that starts in one vault and ends after the switch lands there, or nowhere; never in the
+     * other. The interleaving is forced (review M-4): the save of A holds A's mutex and waits on the compute thread, which
+     * is held, when the switch starts; the switch locks A and must then wait for that save (if it did not, it would end
+     * before the compute thread is let go, and this test fails). No sleeps: each step waits for the one before.
+     */
+    @Test fun lateWriteNeverLandsInAnotherVault() = runBlocking {
+        val pool = Executors.newSingleThreadExecutor()
+        // Tells when a block is handed to the compute thread, once armed.
+        val armed = java.util.concurrent.atomic.AtomicReference<CountDownLatch?>(null)
+        val compute = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                pool.execute(block)
+                armed.getAndSet(null)?.countDown()
+            }
+        }
+        // Let go in every case: a failed assertion must end the test, not leave the save of A waiting for ever.
+        val gate = CountDownLatch(1)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+        try {
+            val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = scope, vaultCompute = compute)
+            val (_, idB) = twoVaults(c)
+            c.switchTo(PRIMARY_VAULT_ID)
+            c.vault.unlock(masterA.toCharArray())
+            val a = c.vault
+            val fileB = File(c.registry.dirOf(idB), "vault.bin")
+            val before = fileB.readText()
+            // The compute thread is held; the save of A takes A's mutex and is handed to it.
+            pool.execute { gate.await() }
+            val handed = CountDownLatch(1)
+            armed.set(handed)
+            val save = scope.async { a.upsert(note("tarde")) }
+            assertTrue("the save of A reached the compute thread", handed.await(30, java.util.concurrent.TimeUnit.SECONDS))
+            // The switch starts: it locks A at once, and then waits for A's save.
+            val switch = scope.async { c.switchTo(idB) }
+            withTimeout(30_000) { a.state.first { it is VaultState.Locked } }
+            assertEquals("the switch waits for the save of A", null, kotlinx.coroutines.withTimeoutOrNull(1_000) { switch.await() })
+            assertSame("A is still the active vault while its save runs", a, c.vault)
+            gate.countDown()
+            withTimeout(60_000) { switch.await() }
+            assertTrue("a save already started lands in A", withTimeout(60_000) { save.await() })
+            assertEquals(before, fileB.readText())
+            assertFalse(a.unlocked())
+            // B, opened, does not have it.
+            c.vault.unlock(masterB.toCharArray())
+            assertTrue(c.vault.data().entries.none { it.id == "tarde" })
+            // A stale screen of A writing now, with B open, saves nothing anywhere.
+            assertFalse(a.upsert(note("despues")))
+            assertTrue(c.vault.data().entries.none { it.id == "despues" })
+            c.switchTo(PRIMARY_VAULT_ID)
+            c.vault.unlock(masterA.toCharArray())
+            assertTrue(c.vault.data().entries.any { it.id == "tarde" })
+            assertTrue(c.vault.data().entries.none { it.id == "despues" })
+        } finally {
+            gate.countDown()
+            scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
+            pool.shutdown()
+        }
+    }
+
+    /**
+     * Branch review, A I-1 (test n.º 1 of part A): the master password of A changes while the user switches to B; the
+     * derivation of A is held on the compute thread while the switch starts. The dialog of A6 never opens on B (nor can it
+     * replace B's copies), B's settings stay as they were, and what was lost is said in [AppContainer.vaultsNotice].
+     */
+    @Test fun changeOfMasterThenSwitchNeverOpensA6ForTheOtherVault() = runBlocking {
+        val pool = Executors.newSingleThreadExecutor()
+        val armed = java.util.concurrent.atomic.AtomicReference<CountDownLatch?>(null)
+        val compute = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                pool.execute(block)
+                armed.getAndSet(null)?.countDown()
+            }
+        }
+        val gate = CountDownLatch(1)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+        try {
+            val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = scope, vaultCompute = compute)
+            val (_, idB) = twoVaults(c)
+            for ((id, folder) in listOf(PRIMARY_VAULT_ID to "content://a", idB to "content://b")) {
+                c.settings.updateVault(id) {
+                    it.withTargetAdded(folder, BackupSchedule.ON_CHANGE)
+                        .withAutoBackupResult(AutoBackupResult(folder, 1L, null, copies = listOf("copia-$id")))
+                }
+            }
+            c.switchTo(PRIMARY_VAULT_ID)
+            c.vault.unlock(masterA.toCharArray())
+            val a = c.vault
+            val settingsB = c.settings.settings.value.vault(idB)
+            pool.execute { gate.await() }
+            val handed = CountDownLatch(1)
+            armed.set(handed)
+            val change = scope.async { a.changeMaster("maestra-de-prueba-nueva".toCharArray()) }
+            assertTrue("the change of A reached the compute thread", handed.await(30, java.util.concurrent.TimeUnit.SECONDS))
+            val switch = scope.async { c.switchTo(idB) }
+            withTimeout(30_000) { while (c.activeVaultId != idB) kotlinx.coroutines.delay(5) }
+            gate.countDown()
+            assertTrue(withTimeout(60_000) { change.await() })
+            // As VaultBackup does, once the change is saved: of A.
+            c.onMasterChanged(a.id, fingerprintFailed = true, hasIdentity = true)
+            withTimeout(60_000) { switch.await() }
+            assertFalse("the dialog of A6 never opens on B", c.masterChanged.state.value.open)
+            assertFalse(c.masterChanged.replace())
+            // The A11 clock mark of every vault rises with any use (by design); everything else of B stays as it was.
+            assertEquals(settingsB.copy(clockHighWaterMs = 0), c.settings.settings.value.vault(idB).copy(clockHighWaterMs = 0))
+            // Re-review B i-1: A, which has folders, by its colour.
+            val colorA = c.registry.vaults.value.single { it.id == PRIMARY_VAULT_ID }.color
+            assertEquals(masterChangedInOtherVaultText(colorA, hadFolders = true, fingerprintFailed = true), c.vaultsNotice.value)
+        } finally {
+            gate.countDown()
+            scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
+            pool.shutdown()
+        }
+    }
+
+    /**
+     * Branch review, A I-1: a switch closes the dialog of A6 of the vault left; when nothing was asked in it, that is said
+     * once in [AppContainer.vaultsNotice]. Opened for the active vault, it opens.
+     */
+    @Test fun aSwitchThatClosesTheDialogUnaskedSaysSo() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        c.onMasterChanged(idB, fingerprintFailed = false, hasIdentity = true)
+        assertTrue(c.masterChanged.state.value.open)
+        assertEquals(null, c.vaultsNotice.value)
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertFalse(c.masterChanged.state.value.open)
+        // Re-review B i-1: B has no folders, so no offer to delete was lost; said by its colour.
+        val lost = masterChangedInOtherVaultText(c.registry.vaults.value.single { it.id == idB }.color, hadFolders = false, fingerprintFailed = false)
+        assertEquals(lost, c.vaultsNotice.value)
+        c.vaultsNoticeShown(c.vaultsNotice.value!!) // The very text shown ([Notice.shown] compares by identity).
+        // Closed by the user before the switch: nothing to say.
+        c.onMasterChanged(PRIMARY_VAULT_ID, fingerprintFailed = false, hasIdentity = true)
+        c.masterChanged.close()
+        c.switchTo(idB)
+        assertEquals(null, c.vaultsNotice.value)
+    }
+
+    /**
+     * Re-review of the branch, B i-1: the two texts of a dialog of A6 lost by a switch, by the vault's colour (from the
+     * registry, never its name): with folders, where the dialog offered to delete; with none, what is true then. The line
+     * of the fingerprint after either.
+     */
+    @Test fun theLostDialogSaysWhichVaultAndWhatIsLeft() {
+        assertEquals(
+            "La contraseña maestra de la bóveda de color azul se cambió. Al cambiar de bóveda, el aviso que ofrece borrar sus " +
+                "copias anteriores no se llegó a mostrar o se cerró: esas copias siguen abriéndose con la contraseña anterior. " +
+                "Para borrarlas, vuelve a esa bóveda y cambia otra vez la contraseña maestra, o bórralas a mano.",
+            masterChangedInOtherVaultText(app.seguridad.vault.TagColor.BLUE, hadFolders = true, fingerprintFailed = false),
+        )
+        val none = "La contraseña maestra de la bóveda de color turquesa se cambió. Las copias .sgbak que ya tenías de esa " +
+            "bóveda se siguen abriendo con la contraseña anterior."
+        assertEquals(none, masterChangedInOtherVaultText(app.seguridad.vault.TagColor.TEAL, hadFolders = false, fingerprintFailed = false))
+        assertEquals(
+            none + "\n" + app.seguridad.vault.MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT,
+            masterChangedInOtherVaultText(app.seguridad.vault.TagColor.TEAL, hadFolders = false, fingerprintFailed = true),
+        )
+        assertTrue(
+            masterChangedInOtherVaultText(app.seguridad.vault.TagColor.RED, hadFolders = true, fingerprintFailed = true)
+                .endsWith("\n" + app.seguridad.vault.MASTER_CHANGED_IN_OTHER_VAULT_FINGERPRINT),
+        )
+    }
+
+    /** Re-review of the branch, B i-1: a vault no longer in the registry says nothing. */
+    @Test fun aVaultThatIsGoneSaysNothing() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        twoVaults(c)
+        c.onMasterChanged("c".repeat(32), fingerprintFailed = false, hasIdentity = true)
+        assertEquals(null, c.vaultsNotice.value)
+    }
+
+    /**
+     * RT-22 (ii) (owner's decision): an empty vault can be filled (created in, imported into) only by the rule of
+     * [AppContainer.canAddVault]: on a first install, yes; with another vault that has its file, no (it can only be
+     * deleted); and a new vault from an open one is made as before.
+     */
+    @Test fun anEmptyVaultIsFilledOnlyByTheRuleOfCreatingAVault() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        assertTrue("first install", c.mayFillEmptySlot())
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val idB = c.createVault("Dos", masterB.toCharArray())
+        c.vault.destroy()
+        assertEquals(idB, c.activeVaultId)
+        assertEquals(VaultState.NoVault, c.vault.state.value)
+        assertFalse("A has its file: B, empty, cannot be filled", c.mayFillEmptySlot())
+        // From A open, a new vault is made as before (no guard on that path).
+        c.switchTo(PRIMARY_VAULT_ID)
+        c.vault.unlock(masterA.toCharArray())
+        val idC = c.createVault("Tres", "maestra-de-prueba-c".toCharArray())
+        assertEquals(idC, c.activeVaultId)
+        assertTrue(c.vault.unlocked())
+    }
+
+    /** RT-22 (ii): the screens ask the guard right before they call the store, and its texts are the Ruling's. */
+    @Test fun theScreensAskTheGuardBeforeFillingAnEmptyVault() {
+        fun code(path: String) = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/$path") }.first { it.isFile }.readText()
+        val vault = code("ui/screens/VaultScreen.kt")
+        assertTrue(Regex("""if \(!guard\(\)\) \{\s*failed = VAULT_NEW_NEEDS_OPEN\s*return@launch\s*\}[\s\S]{0,400}store\.create\(pw\)""").containsMatchIn(vault))
+        val backup = code("ui/screens/VaultBackup.kt")
+        assertTrue(Regex("""store\.state\.value is VaultState\.NoVault && !guard\(\)\) VAULT_NEW_NEEDS_OPEN""").containsMatchIn(backup))
+        assertTrue("container::mayFillEmptySlot" in code("ui/AppNavHost.kt"))
+        assertEquals("Para crear o importar otra bóveda, abre antes una de las que tienes.", app.seguridad.vault.VAULT_NEW_NEEDS_OPEN)
+        assertEquals(
+            "Esta bóveda está vacía: aún no tiene archivo, así que no hay nada que copiar.",
+            app.seguridad.vault.VAULT_EMPTY_NOTHING_TO_COPY,
+        )
+        assertEquals(
+            "Esta bóveda está vacía: aún no tiene archivo. Para crear o importar otra bóveda, abre antes una de las que tienes.",
+            app.seguridad.tools.HEALTH_EMPTY_VAULT,
+        )
+    }
+
+    /**
+     * RT-22 (i): the guarded settings of Ajustes follow the rule of [AppContainer.canAddVault]: a first install (no vault
+     * file) can change them; vault A with its file and vault B empty and shown cannot; A open can.
+     */
+    @Test fun theGuardedSettingsFollowTheRuleOfCreatingAVault() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        assertEquals(VaultState.NoVault, c.vault.state.value)
+        assertTrue("first install", c.settingsEditableNow())
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val idB = c.createVault("Dos", masterB.toCharArray())
+        c.vault.destroy()
+        assertEquals(idB, c.activeVaultId)
+        assertEquals(VaultState.NoVault, c.vault.state.value)
+        assertFalse("A has its file, B is empty", c.settingsEditableNow())
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertFalse("A locked", c.settingsEditableNow())
+        c.vault.unlock(masterA.toCharArray())
+        assertTrue("A open", c.settingsEditableNow())
+    }
+
+    /**
+     * Re-review of the branch, C n-1: what an action of «Bóvedas» says and a notice posted while it ran are both seen,
+     * the action's first, then the notice, in one message.
+     */
+    @Test fun anActionAndANoticeAreBothSaid() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        twoVaults(c)
+        val said = c.runVaultsAction { c.onMasterChanged(PRIMARY_VAULT_ID, fingerprintFailed = false, hasIdentity = true); VAULT_IMPORT_NEW_DONE }
+        val notice = masterChangedInOtherVaultText(c.registry.vaults.value.single { it.id == PRIMARY_VAULT_ID }.color, hadFolders = false, fingerprintFailed = false)
+        assertEquals(VAULT_IMPORT_NEW_DONE + "\n\n" + notice, said)
+        assertEquals(said, c.vaultsNotice.value)
+    }
+
+    /**
+     * Re-review of the branch, C n-1: «Importar como bóveda nueva» of a copy cheaper than Ajustes, with no memory to raise
+     * its cost when the new vault opens: it says it was imported and that the cost was kept.
+     */
+    @Test fun importAsNewWithoutMemoryToRaiseTheCostSaysBoth() = runTest {
+        val noMemoryAbove: app.seguridad.vault.KekDerive = { m, salt, p ->
+            if (p.memoryKiB > 1024) app.seguridad.crypto.outOfMemoryAsFailure(p) { throw OutOfMemoryError("Failed to allocate") }
+            app.seguridad.crypto.argon2id(m, salt, p, use = app.seguridad.crypto.PasswordUse.EXISTING)
+        }
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, vaultKekDerive = noMemoryAbove)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val (file, dek) = app.seguridad.vault.VaultCrypto.create("maestra-de-la-copia".toCharArray(), 0, app.seguridad.crypto.KdfParams(1024, 1, 1))
+        val written = app.seguridad.vault.VaultCrypto.write(file, dek, app.seguridad.vault.VaultData(entries = listOf(note("1"))))
+        val copy = ByteArrayOutputStream().also { app.seguridad.vault.writeBackup(it, app.seguridad.vault.VaultCrypto.encodeFile(written), emptyMap()) }.toByteArray()
+        val said = c.runVaultsAction {
+            copyRefusal { c.importAsNewVault(ByteArrayInputStream(copy), "maestra-de-la-copia".toCharArray(), "") }
+            VAULT_IMPORT_NEW_DONE
+        }
+        assertEquals(VAULT_IMPORT_NEW_DONE + "\n\n" + app.seguridad.vault.KDF_COST_KEPT, said)
+        assertTrue(c.vault.unlocked())
+    }
+
+    /**
+     * Re-review of the branch, C n-1: deleting the active vault with its A6 dialog open closes it with no notice (that
+     * vault is gone: nothing to go back to); [VAULT_DELETED] says the copies stay.
+     */
+    @Test fun deletingTheVaultOfTheOpenDialogSaysOnlyThatItIsDeleted() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        c.onMasterChanged(idB, fingerprintFailed = false, hasIdentity = true)
+        assertTrue(c.masterChanged.state.value.open)
+        val said = c.runVaultsAction { masterRefusal { deletionText(c.deleteVault(idB, masterB.toCharArray(), "Dos")) } }
+        assertEquals(app.seguridad.vault.VAULT_DELETED, said)
+        assertEquals(app.seguridad.vault.VAULT_DELETED, c.vaultsNotice.value)
+        assertFalse(c.masterChanged.state.value.open)
+    }
+
+    /**
+     * Branch review, B m-2, P-m2: the settings of a vault that is neither in the registry nor on the disk (a deletion cut
+     * half way) go at the start, and its copies' folder is given back; those of a vault whose folder is still there stay,
+     * even if the registry does not list it.
+     */
+    @Test fun theSettingsOfAVaultThatIsGoneGoAtTheStart() = runTest {
+        val released = mutableListOf<String>()
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, releaseFolder = { released += it })
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray())
+        val gone = "a".repeat(32)
+        val onDisk = "b".repeat(32)
+        File(tmp.root, "vaults/$onDisk").mkdirs()
+        for ((id, folder) in listOf(gone to "content://gone", onDisk to "content://disk", PRIMARY_VAULT_ID to "content://principal")) {
+            c.settings.updateVault(id) { it.withTargetAdded(folder, BackupSchedule.ON_CHANGE) }
+        }
+        c.forgetOrphanVaults()
+        val per = c.settings.settings.value.perVault
+        assertFalse(gone in per)
+        assertTrue(onDisk in per)
+        assertTrue(PRIMARY_VAULT_ID in per)
+        assertEquals(listOf("content://gone"), released)
+        // From the file too, as the next start reads it.
+        val again = app.seguridad.settings.SettingsStore(File(tmp.root, SETTINGS_FILE)).apply { load() }
+        assertFalse(gone in again.settings.value.perVault)
+        // The app does it at every start, once the settings are read.
+        val app = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/SeguridadApp.kt") }.first { it.isFile }.readText()
+        assertTrue(app.indexOf("container.forgetOrphanVaults()") > app.indexOf("container.settings.load()"))
+    }
+
+    /**
+     * Branch review, row 42: in «Bóvedas», a copy that its password does not open is said as of a copy, and deleting a
+     * vault with a wrong master password says [app.seguridad.vault.WRONG_MASTER], as the lock screen.
+     */
+    @Test fun theVaultsActionsSayTheirOwnFailures() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        val copy = ByteArrayOutputStream().also { assertTrue(c.vault.exportBackup(it)) }.toByteArray()
+        val imported = c.runVaultsAction { copyRefusal { c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), ""); VAULT_IMPORT_NEW_DONE } }
+        assertEquals(app.seguridad.vault.COPY_WRONG_PASSWORD_OR_DAMAGED, imported)
+        c.vaultsNoticeShown(imported!!) // Shown and closed, as the screen does before the next action.
+        val deleted = c.runVaultsAction { masterRefusal { deletionText(c.deleteVault(idB, masterA.toCharArray(), "Dos")) } }
+        assertEquals(app.seguridad.vault.WRONG_MASTER, deleted)
+        assertTrue(c.registry.vaults.value.any { it.id == idB })
+    }
+
+    /** Branch review, row 42: the three places of a copy and the deletion use those texts (from the sources). */
+    @Test fun theCopyTextsAreUsedWhereACopyIsOpened() {
+        fun code(path: String) = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/$path") }.first { it.isFile }.readText()
+        assertTrue("copyFailureText(e)" in code("ui/screens/VaultBackup.kt"))
+        assertTrue("copyFailureText(e)" in code("vault/BackupCheckSession.kt"))
+        val picker = code("ui/screens/VaultPickerScreen.kt")
+        assertTrue(Regex("""copyRefusal \{\s*withContext\(Dispatchers\.IO\) \{\s*context\.contentResolver\.openInputStream\(d\.uri\)!!\.use \{ container\.importAsNewVault""").containsMatchIn(picker))
+        assertTrue(Regex("""masterRefusal \{ deletionText\(container\.deleteVault\(""").containsMatchIn(picker))
+    }
+
+    /**
+     * 2.0, re-review 1 of task 7: a save of the editor that waits while the vault locks (behind another save, or a
+     * derivation) never lands after the lock: not in the other vault after a switch, and not in its own vault opened
+     * again. The editor gives the lock epoch of its «Guardar» ([VaultStore.upsert] with `sinceLock`).
+     */
+    @Test fun aSaveWaitingAcrossALockOrASwitchLandsNowhere() = runBlocking {
+        val pool = Executors.newSingleThreadExecutor()
+        val armed = java.util.concurrent.atomic.AtomicReference<CountDownLatch?>(null)
+        val compute = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                pool.execute(block)
+                armed.getAndSet(null)?.countDown()
+            }
+        }
+        val gate = CountDownLatch(1)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+        try {
+            val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = scope, vaultCompute = compute)
+            val (_, idB) = twoVaults(c)
+            c.switchTo(PRIMARY_VAULT_ID)
+            c.vault.unlock(masterA.toCharArray())
+            val a = c.vault
+
+            // 1. Requested before a lock, reaching the store after the same vault was opened again: refused.
+            val before = a.lockEpoch
+            a.lock()
+            a.unlock(masterA.toCharArray())
+            assertTrue(a.unlocked())
+            assertFalse("a save of before the lock is not written after it", a.upsert(note("de-antes"), sinceLock = before))
+            assertTrue(a.data().entries.none { it.id == "de-antes" })
+            // The same save, with the epoch of now, is written.
+            assertTrue(a.upsert(note("de-ahora"), sinceLock = a.lockEpoch))
+
+            // 2. Waiting for the mutex behind another save while the vault switches: lands nowhere.
+            val fileB = File(c.registry.dirOf(idB), "vault.bin")
+            val beforeB = fileB.readText()
+            pool.execute { gate.await() }
+            val handed = CountDownLatch(1)
+            armed.set(handed)
+            val first = scope.async { a.upsert(note("primera")) }
+            assertTrue(handed.await(30, java.util.concurrent.TimeUnit.SECONDS))
+            val epoch = a.lockEpoch
+            val waiting = scope.async { a.upsert(note("en-cola"), sinceLock = epoch) }
+            val switch = scope.async { c.switchTo(idB) }
+            withTimeout(30_000) { a.state.first { it is VaultState.Locked } }
+            gate.countDown()
+            withTimeout(60_000) { switch.await() }
+            assertTrue("a save already started lands in A", withTimeout(60_000) { first.await() })
+            assertFalse("a save that waited across the switch lands nowhere", withTimeout(60_000) { waiting.await() })
+            assertEquals(beforeB, fileB.readText())
+            c.vault.unlock(masterB.toCharArray())
+            assertTrue(c.vault.data().entries.none { it.id == "en-cola" || it.id == "primera" })
+            c.switchTo(PRIMARY_VAULT_ID)
+            c.vault.unlock(masterA.toCharArray())
+            assertTrue(c.vault.data().entries.any { it.id == "primera" })
+            assertTrue(c.vault.data().entries.none { it.id == "en-cola" || it.id == "de-antes" })
+        } finally {
+            gate.countDown()
+            scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
+            pool.shutdown()
+        }
+    }
+
+    /** A folder in memory that records every document made in it (review fixes, CR-7). */
+    private class RecordingFolder : app.seguridad.vault.BackupTarget {
+        val created = java.util.Collections.synchronizedList(mutableListOf<String>())
+        override suspend fun create(name: String): app.seguridad.vault.BackupFile {
+            created += name
+            return object : app.seguridad.vault.BackupFile {
+                override val id: String = "doc:$name"
+                override suspend fun write(writer: suspend (java.io.OutputStream) -> Unit) = writer(ByteArrayOutputStream())
+                override fun rename(to: String) = Unit
+                override fun delete() = Unit
+            }
+        }
+        override fun list(prefix: String): List<app.seguridad.vault.BackupEntry> = emptyList()
+        override fun delete(id: String) = Unit
+    }
+
+    /**
+     * Review fixes, CR-7: a locked vault ([v3]: the real vault-1.4.3.json; else a v4) of the second slot, with a folder of
+     * automatic copies and A6 pending; [check] runs with the container, the slot's id, its store's states seen and the
+     * folder.
+     */
+    private fun lockedSecondVault(v3: Boolean, check: suspend (AppContainer, String, List<VaultState>, RecordingFolder) -> Unit) = runTest {
+        val folder = RecordingFolder()
+        val first = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, backupFolder = { folder })
+        val (_, idB) = twoVaults(first)
+        if (v3) File(first.registry.dirOf(idB), "vault.bin").writeText(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        first.settings.updateVault(idB) { it.oneTarget(autoBackupUri = "content://dos", autoBackupReplacePending = true) }
+        first.switchTo(PRIMARY_VAULT_ID)
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, backupFolder = { folder })
+        c.settings.load()
+        c.switchTo(idB)
+        c.vault.load()
+        assertEquals(VaultState.Locked, c.vault.state.value)
+        val seen = java.util.Collections.synchronizedList(mutableListOf<VaultState>())
+        backgroundScope.launch(Dispatchers.Unconfined) { c.vault.state.collect { seen += it } }
+        folder.created.clear()
+        check(c, idB, seen, folder)
+    }
+
+    @Test fun deletingALockedV3VaultNeverOpensItNorCopiesIt() = lockedSecondVault(v3 = true) { c, idB, seen, folder ->
+        val file = File(c.registry.dirOf(idB), "vault.bin")
+        val before = file.readBytes()
+        // A wrong master: CryptoFailure, nothing deleted; a wrong name: WRONG_NAME; neither rewrites the file.
+        assertFails<CryptoFailure> { c.deleteVault(idB, masterA.toCharArray(), "Bóveda 2") }
+        assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, "maestra-de-prueba-143".toCharArray(), "Tres"))
+        assertTrue(file.readBytes().contentEquals(before))
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, "maestra-de-prueba-143".toCharArray(), "Bóveda 2"))
+        assertFalse(file.exists())
+        assertEquals("no document in the folder", emptyList<String>(), folder.created.toList())
+        assertTrue("never open: $seen", seen.none { it is VaultState.Unlocked })
+    }
+
+    @Test fun deletingALockedV4VaultNeverOpensItNorCopiesIt() = lockedSecondVault(v3 = false) { c, idB, seen, folder ->
+        val file = File(c.registry.dirOf(idB), "vault.bin")
+        val before = file.readBytes()
+        assertFails<CryptoFailure> { c.deleteVault(idB, masterA.toCharArray(), "Dos") }
+        assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, masterB.toCharArray(), "Tres"))
+        assertTrue("the file is not written before it goes", file.readBytes().contentEquals(before))
+        assertTrue(c.registry.vaults.value.any { it.id == idB })
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        assertEquals("no document in the folder", emptyList<String>(), folder.created.toList())
+        assertTrue("never open: $seen", seen.none { it is VaultState.Unlocked })
+    }
+
+    @Test fun deleteNeedsMasterAndName() = runTest {
+        val released = mutableListOf<String>()
+        val forgotten = mutableListOf<String>()
+        val c = AppContainer(
+            tmp.root, cache, appVersion = "test", appScope = backgroundScope,
+            releaseFolder = { released += it }, forgetBiometric = { forgotten += it },
+        )
+        val (_, idB) = twoVaults(c)
+        c.settings.updateVault(PRIMARY_VAULT_ID) { it.oneTarget(autoBackupUri = "content://uno") }
+        c.settings.updateVault(idB) { it.oneTarget(autoBackupUri = "content://dos") }
+        val dirB = c.registry.dirOf(idB)
+        assertFails<CryptoFailure> { c.deleteVault(idB, masterA.toCharArray(), "Dos") }
+        assertTrue(dirB.exists())
+        // Its master is checked (review fixes, CR-7: a locked vault is not opened for it); a name that is not its own
+        // deletes nothing.
+        c.vault.lock()
+        assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, masterB.toCharArray(), "Tres"))
+        assertFalse(c.vault.unlocked())
+        assertEquals(VaultDeletion.WRONG_NAME, c.deleteVault(idB, masterB.toCharArray(), "dos"))
+        assertTrue(dirB.exists())
+        assertTrue(c.registry.vaults.value.any { it.id == idB })
+        // The same text as it is shown: an invisible character does not count.
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), " Do​s "))
+        assertFalse(dirB.exists())
+        assertEquals(listOf(PRIMARY_VAULT_ID), c.registry.vaults.value.map { it.id })
+        assertEquals(null, c.settings.settings.value.perVault[idB])
+        assertEquals(listOf(idB), forgotten)
+        assertEquals(listOf("content://dos"), released)
+        assertEquals(PRIMARY_VAULT_ID, c.activeVaultId)
+        assertFalse(c.vault.unlocked())
+        // The last one is not deleted from here («He olvidado la contraseña» is the way for it).
+        assertEquals(VaultDeletion.LAST_VAULT, c.deleteVault(PRIMARY_VAULT_ID, masterA.toCharArray(), "Uno"))
+        assertTrue(File(c.registry.dirOf(PRIMARY_VAULT_ID), "vault.bin").exists())
+    }
+
+    /**
+     * 2.0, audit A-1 (CRY-A02's order): deleting a vault forgets its fingerprint key first, while its folder and its
+     * place in the list are still there. The key wraps the data key, which also opens the copies made before; a process
+     * death half way leaves the vault listed and without fingerprint, never a key of a vault that is gone.
+     */
+    @Test fun deletingAVaultForgetsItsFingerprintBeforeItsFolder() = runTest {
+        var container: AppContainer? = null
+        val seen = mutableListOf<Pair<Boolean, Boolean>>()
+        val c = AppContainer(
+            tmp.root, cache, appVersion = "test", appScope = backgroundScope,
+            forgetBiometric = { id ->
+                val now = container!!
+                seen += now.registry.dirOf(id).exists() to now.registry.vaults.value.any { it.id == id }
+            },
+        )
+        container = c
+        val (_, idB) = twoVaults(c)
+        val dirB = c.registry.dirOf(idB)
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        assertFalse(dirB.exists())
+        assertEquals("forgotten once, with its folder and its place in the list still there", listOf(true to true), seen)
+    }
+
+    /**
+     * 2.0, audit A-1 + B-3: the fingerprint key of a vault that is gone (a deletion cut after the registry, before the
+     * settings) is forgotten at the start, before its settings go; one whose folder is still there is not.
+     */
+    @Test fun anOrphanFingerprintIsForgottenAtStart() = runTest {
+        var container: AppContainer? = null
+        val forgotten = mutableListOf<String>()
+        val gone = "a".repeat(32)
+        val onDisk = "b".repeat(32)
+        val c = AppContainer(
+            tmp.root, cache, appVersion = "test", appScope = backgroundScope,
+            forgetBiometric = { id ->
+                assertTrue("before its settings go", id in container!!.settings.settings.value.perVault)
+                forgotten += id
+            },
+        )
+        container = c
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray())
+        File(tmp.root, "vaults/$onDisk").mkdirs()
+        for (id in listOf(gone, onDisk, PRIMARY_VAULT_ID)) c.settings.updateVault(id) { it.oneTarget(autoBackupUri = "content://$id") }
+        c.forgetOrphanVaults()
+        assertEquals(listOf(gone), forgotten)
+        assertFalse(gone in c.settings.settings.value.perVault)
+        assertTrue(onDisk in c.settings.settings.value.perVault)
+    }
+
+    /**
+     * 2.0, audit A-1, recheck m-2: forgetting the fingerprint is best effort. If it throws, the deletion still ends
+     * ([VaultDeletion.DELETED], the folder gone), and the sweep at the start still forgets every other orphan's key and
+     * takes all their settings.
+     */
+    @Test fun aFingerprintThatCannotBeForgottenDoesNotStopTheDeletion() = runTest {
+        val c = AppContainer(
+            tmp.root, cache, appVersion = "test", appScope = backgroundScope,
+            forgetBiometric = { throw IllegalStateException("Keystore") },
+        )
+        val (_, idB) = twoVaults(c)
+        val dirB = c.registry.dirOf(idB)
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        assertFalse(dirB.exists())
+        assertFalse(c.registry.vaults.value.any { it.id == idB })
+        assertFalse(idB in c.settings.settings.value.perVault)
+
+        val tried = mutableListOf<String>()
+        val first = "c".repeat(32)
+        val second = "d".repeat(32)
+        val d = AppContainer(
+            tmp.newFolder("second"), tmp.newFolder("cache2"), appVersion = "test", appScope = backgroundScope,
+            forgetBiometric = { id ->
+                tried += id
+                if (id == first) throw IllegalStateException("Keystore")
+            },
+        )
+        d.settings.load()
+        d.vault.load()
+        d.vault.create(masterA.toCharArray())
+        for (id in listOf(first, second)) d.settings.updateVault(id) { it.oneTarget(autoBackupUri = "content://$id") }
+        d.forgetOrphanVaults()
+        assertEquals("each orphan tried, in its own try", setOf(first, second), tried.toSet())
+        assertFalse(first in d.settings.settings.value.perVault)
+        assertFalse(second in d.settings.settings.value.perVault)
+    }
+
+    @Test fun importAsNewTwiceMakesTwoVaults() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        c.vault.upsert(note("n1"))
+        val copy = ByteArrayOutputStream().also { assertTrue(c.vault.exportBackup(it)) }.toByteArray()
+        val first = c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), "Copia")
+        assertEquals(first, c.activeVaultId)
+        assertEquals("Copia", c.vault.data().name)
+        assertTrue(c.vault.data().entries.any { it.id == "n1" })
+        val second = c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), "")
+        assertNotEquals(first, second)
+        assertEquals("Without a name given, the copy's own", "Uno", c.vault.data().name)
+        assertEquals(listOf(PRIMARY_VAULT_ID, first, second), c.registry.vaults.value.map { it.id })
+        // Each one is a vault of its own: the first is still there, closed, and opens with the copy's master.
+        c.switchTo(first)
+        c.vault.unlock(masterA.toCharArray())
+        assertTrue(c.vault.data().entries.any { it.id == "n1" })
+        // A wrong master creates nothing.
+        assertFails<CryptoFailure> { c.importAsNewVault(ByteArrayInputStream(copy), masterB.toCharArray(), "X") }
+        assertEquals(3, c.registry.vaults.value.size)
+        assertEquals(first, c.activeVaultId)
+    }
+
+    /**
+     * COV2-1 with several vaults: someone holding the phone for a moment, with the vaults locked, cannot make a vault of
+     * their own (which would be open, and with it the settings of the whole app): another vault is made only from an open
+     * one, or when the phone has none yet.
+     */
+    @Test fun newVaultNeedsAnOpenVault() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        assertTrue("No vault yet: the first one is made freely", c.canAddVault())
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        c.vault.lock()
+        assertFalse(c.canAddVault())
+        assertFails<IllegalStateException> { c.createVault("Mía", masterB.toCharArray()) }
+        val copy = File(tmp.root, "copia").also { it.writeText("x") }
+        assertFails<IllegalStateException> { c.importAsNewVault(copy.inputStream(), masterB.toCharArray(), "") }
+        assertEquals(listOf(PRIMARY_VAULT_ID), c.registry.vaults.value.map { it.id })
+        c.vault.unlock(masterA.toCharArray())
+        assertTrue(c.canAddVault())
+        c.createVault("Dos", masterB.toCharArray())
+        assertEquals(2, c.registry.vaults.value.size)
+    }
+
+    /**
+     * Review I-1 (ruling T2, I-1): the A11 clock mark is each vault's. Any time seen raises every vault's mark; the master
+     * password of one vault lowers only its own, so another vault's master never heals the clock of A's fingerprint.
+     */
+    @Test fun masterOfOneDoesNotHealTheClockOfAnother() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (a, idB) = twoVaults(c)
+        // The clock went back an hour: the highest time seen is ahead of it, for every vault.
+        val ahead = System.currentTimeMillis() + 60 * 60_000L
+        c.rememberClock(ahead)
+        assertEquals(ahead, c.clockMark(PRIMARY_VAULT_ID))
+        assertEquals(ahead, c.clockMark(idB))
+        assertEquals(BiometricRefusal.CLOCK, a.biometricRefusal)
+        // B's master password heals B's clock only.
+        c.vault.lock()
+        c.vault.unlock(masterB.toCharArray())
+        assertTrue(c.clockMark(idB) < ahead)
+        assertEquals(null, c.vault.biometricRefusal)
+        assertEquals(ahead, c.clockMark(PRIMARY_VAULT_ID))
+        c.switchTo(PRIMARY_VAULT_ID)
+        assertEquals(BiometricRefusal.CLOCK, c.vault.biometricRefusal)
+        // A new vault starts at the highest mark of that moment.
+        c.vault.unlock(masterA.toCharArray())
+        assertEquals(null, c.vault.biometricRefusal)
+        c.rememberClock(ahead + 1)
+        val third = c.createVault("Tres", "maestra-de-prueba-c".toCharArray())
+        assertTrue(c.clockMark(third) >= ahead + 1)
+    }
+
+    /** Review I-2: a wrong password of the copy leaves the open vault as it was, open, and says so. */
+    @Test fun importAsNewWithAWrongPasswordStaysWhereItWas() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        c.vault.create(masterA.toCharArray(), name = "Uno")
+        val copy = ByteArrayOutputStream().also { assertTrue(c.vault.exportBackup(it)) }.toByteArray()
+        val message = c.runVaultsAction { c.importAsNewVault(ByteArrayInputStream(copy), masterB.toCharArray(), ""); VAULT_IMPORT_NEW_DONE }
+        assertEquals(CryptoFailure().message, message)
+        assertEquals(message, c.vaultsNotice.value)
+        assertEquals(PRIMARY_VAULT_ID, c.activeVaultId)
+        assertTrue("never locked by the attempt", c.vault.unlocked())
+        assertEquals(listOf(PRIMARY_VAULT_ID), c.registry.vaults.value.map { it.id })
+        // Shown: gone. A good one says so, kept after the switch it makes.
+        c.vaultsNoticeShown(message!!)
+        assertEquals(null, c.vaultsNotice.value)
+        val done = c.runVaultsAction { c.importAsNewVault(ByteArrayInputStream(copy), masterA.toCharArray(), ""); VAULT_IMPORT_NEW_DONE }
+        assertEquals(VAULT_IMPORT_NEW_DONE, done)
+        assertEquals(VAULT_IMPORT_NEW_DONE, c.vaultsNotice.value)
+        assertNotEquals(PRIMARY_VAULT_ID, c.activeVaultId)
+        assertTrue(c.vault.unlocked())
+        assertEquals("Uno", c.vault.data().name)
+    }
+
+    /** Review M-1, M-2: a slot with no vault file at all goes without master or name; one with a file set aside does not. */
+    @Test fun anEmptySlotGoesWithoutMasterButASetAsideFileStays() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        c.vault.destroy() // «He olvidado la contraseña maestra» on B: an empty slot.
+        assertTrue(c.isEmptySlot(idB))
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, CharArray(0), ""))
+        assertFalse(c.registry.dirOf(idB).exists())
+        // A third vault whose file could not be read and was set aside for recovery (BOV-2): no master, no deletion.
+        c.vault.unlock(masterA.toCharArray())
+        val idC = c.createVault("Tres", masterB.toCharArray())
+        c.switchTo(PRIMARY_VAULT_ID)
+        val dirC = c.registry.dirOf(idC)
+        File(dirC, "vault.bin").renameTo(File(dirC, "vault.bin.bad-1"))
+        val fresh = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        fresh.settings.load()
+        fresh.switchTo(idC)
+        assertEquals(VaultState.NoVault, fresh.vault.state.value)
+        assertFalse(fresh.isEmptySlot(idC))
+        assertEquals(VaultDeletion.KEPT_DAMAGED, fresh.deleteVault(idC, CharArray(0), ""))
+        assertTrue(File(dirC, "vault.bin.bad-1").exists())
+        assertTrue(fresh.registry.vaults.value.any { it.id == idC })
+    }
+
+    /** Review M-5: a late result of the copies of a vault already deleted does not bring its settings back. */
+    @Test fun aLateCopyResultOfADeletedVaultIsDropped() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val (_, idB) = twoVaults(c)
+        val storeB = c.vault
+        c.settings.updateVault(idB) { it.oneTarget(autoBackupUri = "content://dos") }
+        assertEquals(VaultDeletion.DELETED, c.deleteVault(idB, masterB.toCharArray(), "Dos"))
+        c.recordAutoBackup(idB, storeB, app.seguridad.vault.AutoBackupResult("content://dos", 1L, null, listOf("x")))
+        c.recordImportCopy(idB, storeB, "content://dos", "y", storeB.generation)
+        assertEquals(null, c.settings.settings.value.perVault[idB])
+    }
+
+    /** Re-review 1, minor 1: two taps in one frame start the action once (the busy mark is set before it is launched). */
+    @Test fun twoTapsRunTheActionOnce() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        val runs = java.util.concurrent.atomic.AtomicInteger()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        c.launchVaultsAction { runs.incrementAndGet(); release.await(); "uno" }
+        c.launchVaultsAction { runs.incrementAndGet(); "dos" }
+        assertTrue(c.vaultsBusy.value)
+        testScheduler.runCurrent()
+        release.complete(Unit)
+        val said = withTimeout(30_000) { c.vaultsNotice.first { it != null } }
+        withTimeout(30_000) { c.vaultsBusy.first { !it } }
+        assertEquals(1, runs.get())
+        assertEquals("uno", said)
+        c.vaultsNoticeShown(said!!) // Shown and closed (re-review C n-1: one not shown is said with the next).
+        // Once it ended, the next one runs.
+        c.launchVaultsAction { runs.incrementAndGet(); "tres" }
+        withTimeout(30_000) { c.vaultsNotice.first { it == "tres" } }
+        assertEquals(2, runs.get())
+    }
+
+    /** Re-review 1, minor 2: each way a deletion can end has its own text; the only vault is never «dañado». */
+    @Test fun eachDeletionOutcomeSaysWhatHappened() = runTest {
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope)
+        c.settings.load()
+        c.vault.load()
+        // The only vault, empty: not deleted, and the text says why (not that a file is damaged).
+        assertEquals(VaultDeletion.LAST_VAULT, c.deleteVault(PRIMARY_VAULT_ID, CharArray(0), ""))
+        assertEquals(app.seguridad.vault.VAULT_DELETE_LAST, deletionText(VaultDeletion.LAST_VAULT))
+        assertEquals(app.seguridad.vault.VAULT_DELETED, deletionText(VaultDeletion.DELETED))
+        assertEquals(app.seguridad.vault.VAULT_DELETE_NAME_WRONG, deletionText(VaultDeletion.WRONG_NAME))
+        assertEquals(app.seguridad.vault.VAULT_DELETE_DAMAGED, deletionText(VaultDeletion.KEPT_DAMAGED))
+        assertEquals(app.seguridad.vault.VAULT_DELETE_LOCKED, deletionText(VaultDeletion.LOCKED))
+        assertEquals(VaultDeletion.entries.size, VaultDeletion.entries.map(::deletionText).distinct().size)
+    }
+}

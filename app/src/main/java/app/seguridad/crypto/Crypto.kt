@@ -70,26 +70,48 @@ data class KdfParams(val memoryKiB: Int = DEFAULT_KDF_MEMORY_KIB, val iterations
         // before any work. Inside this bound an OutOfMemoryError is still possible and [argon2id] turns it into a
         // CryptoFailure. The default is always accepted, or a phone with a small heap could not open its own data.
         val cannotFit = memoryKiB > DEFAULT_KDF_MEMORY_KIB && memoryKiB > heapKiB * 3 / 4
-        if (outOfBounds || cannotFit) throw CryptoFailure("Parámetros de cifrado no válidos")
+        // 2.0, task 10, phase C, ronda 2 (n-1): two answers. Out of bounds first (a header no Clavero writes): the
+        // parameters are not valid. Within bounds but more than this phone can give: it has no memory for them.
+        if (outOfBounds) throw CryptoFailure(KDF_PARAMS_INVALID)
+        if (cannotFit) throw CryptoFailure(KDF_OUT_OF_MEMORY)
     }
 }
 
 /** What this phone lets the app use on the Java heap, in KiB (Bouncy Castle's Argon2 allocates its memory there). */
 fun appHeapKiB(): Long = Runtime.getRuntime().maxMemory() / 1024
 
-/** Shown when Argon2id runs out of memory instead of crashing the app. */
-const val KDF_OUT_OF_MEMORY = "Este móvil no tiene memoria suficiente para el coste «Alto» de Argon2id"
+/**
+ * What [KdfParams.checkSane] throws for a header that asks for Argon2id parameters out of bounds (2.0, task 10, phase C:
+ * a constant, with the same value it always had; ronda 2: more memory than this phone can give is [KDF_OUT_OF_MEMORY]).
+ */
+const val KDF_PARAMS_INVALID = "Parámetros de cifrado no válidos"
 
 /**
- * Runs an Argon2id derivation and turns running out of heap into a [CryptoFailure] the screens show, instead of a
+ * Shown when Argon2id runs out of memory instead of crashing the app, for a cost above the default (branch review, row
+ * 38: «Alto», or a header with between 64 and 128 MiB; [KdfParams.checkSane]'s «cannot fit» is always above it). With the
+ * default or less it is [KDF_NO_MEMORY_NOW]. No «close other apps»: Argon2id takes Clavero's own heap.
+ */
+const val KDF_OUT_OF_MEMORY =
+    "No hay memoria suficiente para este coste de Argon2id, más alto que «Estándar». Cierra Clavero del todo, vuelve a " +
+        "abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede con ese coste."
+
+/**
+ * Runs an Argon2id derivation of cost [p] and turns running out of heap into a [CryptoFailure] the screens show
+ * ([kdfOutOfMemoryText]), instead of a
  * crash. Only for that: Argon2's memory is allocated by Bouncy Castle when the generator is set up (before the
  * password is touched) and is local to [block], so it is all garbage once this returns or throws.
  */
-internal inline fun <T> outOfMemoryAsFailure(block: () -> T): T = try {
+internal inline fun <T> outOfMemoryAsFailure(p: KdfParams, block: () -> T): T = try {
     block()
 } catch (e: OutOfMemoryError) {
-    throw CryptoFailure(KDF_OUT_OF_MEMORY)
+    throw CryptoFailure(kdfOutOfMemoryText(p))
 }
+
+/** Branch review, row 38: what running out of memory for the cost [p] says: a higher cost only when [p] is above the default. */
+fun kdfOutOfMemoryText(p: KdfParams): String = if (p.memoryKiB > DEFAULT_KDF_MEMORY_KIB) KDF_OUT_OF_MEMORY else KDF_NO_MEMORY_NOW
+
+/** Branch review, row 38: running out of memory for an Argon2id cost of the default or less: no higher cost to blame. */
+const val KDF_NO_MEMORY_NOW = "Ahora no hay memoria suficiente para esta operación. Cierra Clavero del todo, vuelve a abrirlo e inténtalo otra vez."
 
 /**
  * CIFRADO-1 (audit 1.3.0): a new password with a lone surrogate (half of an emoji, only possible when pasted from
@@ -189,10 +211,11 @@ internal fun utf8Replacing(chars: CharArray): ByteArray = utf8Of(chars, LoneSurr
 
 /**
  * What to say when protecting something with a new password failed: the [CryptoFailure] texts meant for that
- * ([PASSWORD_NOT_TEXT], [KDF_OUT_OF_MEMORY]), or [fallback] for anything else (never a raw exception). Review F5, M2.
+ * ([PASSWORD_NOT_TEXT], [KDF_OUT_OF_MEMORY], [KDF_NO_MEMORY_NOW]), or [fallback] for anything else (never a raw
+ * exception). Review F5, M2.
  */
 fun newPasswordFailureMessage(e: Throwable, fallback: String): String =
-    (e as? CryptoFailure)?.message?.takeIf { it == PASSWORD_NOT_TEXT || it == KDF_OUT_OF_MEMORY } ?: fallback
+    (e as? CryptoFailure)?.message?.takeIf { it == PASSWORD_NOT_TEXT || it == KDF_OUT_OF_MEMORY || it == KDF_NO_MEMORY_NOW } ?: fallback
 
 /** Wrong password, damaged or tampered data: deliberately one message, so it leaks nothing about which. */
 class CryptoFailure(message: String = "Contraseña incorrecta o datos dañados") : Exception(message)
@@ -213,7 +236,7 @@ fun randomBytes(n: Int, random: SecureRandom = secureRandom): ByteArray = ByteAr
 /**
  * Argon2id (RFC 9106, version 0x13) of [password] in UTF-8, encoded for [use] ([PasswordUse]: what protects something new
  * and what opens something made earlier differ only for a password that is not valid text); the caller wipes the result
- * when done. Throws [CryptoFailure] ([KDF_OUT_OF_MEMORY]) when the phone has no heap for [p]'s memory, so opening «Alto»
+ * when done. Throws [CryptoFailure] ([kdfOutOfMemoryText]) when the phone has no heap for [p]'s memory, so opening «Alto»
  * data on a small phone fails with a clear message rather than crashing the app, and ([PASSWORD_NOT_TEXT]) for a
  * password [use] refuses. [use] has no default on purpose (review F5, m1): a new path that opens data must say
  * [PasswordUse.EXISTING], or 1.0.x/1.1.x data would stop opening without any test noticing.
@@ -234,7 +257,7 @@ fun argon2id(password: CharArray, salt: ByteArray, p: KdfParams, length: Int = K
     val pw = passwordUtf8(password, use)
     try {
         val out = ByteArray(length)
-        outOfMemoryAsFailure { Argon2BytesGenerator().apply { init(params) }.generateBytes(pw, out) }
+        outOfMemoryAsFailure(p) { Argon2BytesGenerator().apply { init(params) }.generateBytes(pw, out) }
         return out
     } finally {
         pw.fill(0)

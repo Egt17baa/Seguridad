@@ -15,6 +15,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 
 /**
  * La lógica de la pestaña «Contactos» que no es de pantalla: el aviso de cada `CardCheck`, la validación del nombre, el
@@ -180,6 +182,13 @@ class ContactsViewTest {
         )
         assertTrue(DELETE_IDENTITY_WARNING.contains("Los contactos tendrán que volver a añadirte y lo que te enviaron a esta identidad ya no se podrá abrir"))
         assertEquals("Compárala con la que ve tu contacto en su móvil", FINGERPRINT_HELP)
+        // O-1 and R-4 of the Abogado Digital (final review of 2.0).
+        assertEquals(
+            "Se borrará tu identidad de esta bóveda: no pasa por la papelera ni se puede deshacer. Las copias ya hechas " +
+                "(automáticas o exportadas) pueden conservar la identidad que tenían.",
+            DELETE_IDENTITY_CONFIRMATION,
+        )
+        assertEquals("Para guardar tu identidad y tus contactos hace falta tu contraseña maestra, una sola vez.", NEEDS_MASTER_NOTICE)
     }
 
     // ---- Validación del nombre ----
@@ -322,7 +331,7 @@ class ContactsViewTest {
         // «» para que no pase por la marca; y solo al cambiarle el nombre hay que poner otro.
         val legacy = contactOf(person(), "Ana", title = "Ana (verificado)")
         val (file, dek) = app.seguridad.vault.VaultCrypto.create("maestra".toCharArray(), now, app.seguridad.crypto.KdfParams(1024, 1, 1))
-        val read = VaultCrypto.read(VaultCrypto.write(file, dek, listOf(legacy)), dek)
+        val read = VaultCrypto.read(VaultCrypto.write(file, dek, VaultData(entries = listOf(legacy))), dek).entries
         assertEquals(listOf(legacy), read)
         assertEquals(listOf(legacy), contactsList(read, "verificado"))
         assertEquals("«Ana (verificado)»", shownContactTitle(legacy.title))
@@ -577,6 +586,10 @@ class ContactsViewTest {
 
     @Test fun laContrasenaMaestraMalaDiceLoMismoQueLaPantallaDeDesbloqueo() {
         assertEquals("Contraseña incorrecta", masterFailureMessage(CryptoFailure("lo que sea")))
+        // 2.0, task 10, phase C, ronda 2 (n-5): what the store tells apart is said, as at the gate (masterUnlockErrorText).
+        assertEquals(app.seguridad.crypto.KDF_OUT_OF_MEMORY, masterFailureMessage(CryptoFailure(app.seguridad.crypto.KDF_OUT_OF_MEMORY)))
+        assertEquals(app.seguridad.crypto.KDF_PARAMS_INVALID, masterFailureMessage(CryptoFailure(app.seguridad.crypto.KDF_PARAMS_INVALID)))
+        assertEquals(NOT_A_VAULT, masterFailureMessage(CryptoFailure(NOT_A_VAULT)))
         assertEquals("No se pudo abrir la bóveda", masterFailureMessage(java.io.IOException("x")))
         assertEquals("La bóveda está cerrada", VAULT_CLOSED)
     }
@@ -593,5 +606,79 @@ class ContactsViewTest {
         assertEquals("No se pudo leer la tarjeta", cardReadErrorMessage(IllegalArgumentException("x")))
         // Un mensaje vacío de CryptoFailure no deja la pantalla sin texto.
         assertEquals("No se pudo leer la tarjeta", cardReadErrorMessage(CryptoFailure("")))
+    }
+
+    /**
+     * Review fixes, CR-3: a vault of version 2 opened with the master password leaves the upgrade waiting, and then the
+     * master prompt could do nothing ([VaultStore.confirmMaster] does not wrap it as a 3). With the upgrade waiting, the
+     * screen says what waits, with no password field; the prompt is only for [VaultStore.needsMasterForContacts] alone.
+     */
+    @Test fun theContactsGateWithTheUpgradeWaiting() {
+        assertEquals(ContactsGate.Notice(UPGRADE_COPYING), contactsGate(needsMaster = true, asking = false, copying = true))
+        assertEquals(ContactsGate.Notice(UPGRADE_PENDING), contactsGate(needsMaster = true, asking = true, copying = false))
+        // «asking» wins: the dialog is what is on screen (both are never true for long, but the text must be true).
+        assertEquals(ContactsGate.Notice(UPGRADE_PENDING), contactsGate(needsMaster = true, asking = true, copying = true))
+        assertEquals(ContactsGate.Master, contactsGate(needsMaster = true, asking = false, copying = false))
+        for (asking in listOf(false, true)) for (copying in listOf(false, true)) {
+            assertEquals(ContactsGate.Content, contactsGate(needsMaster = false, asking = asking, copying = copying))
+        }
+    }
+
+    /** Review fixes, CR-6: a save of «Contactos» that the store refuses with its own text says that text. */
+    @Test fun aContactSaveRefusedSaysTheStoreText() {
+        for (t in listOf(UPGRADE_PENDING, UPGRADE_COPYING)) assertEquals(t, saveFailureMessage(Result.failure(IllegalStateException(t))))
+        assertEquals(ENTRY_TOO_BIG, saveFailureMessage(Result.failure(VaultLimitExceeded(ENTRY_TOO_BIG))))
+        assertEquals(NOT_SAVED_STATE, saveFailureMessage(Result.failure(IllegalStateException("x"))))
+        assertEquals("No se pudo guardar", saveFailureMessage(Result.failure(java.io.IOException("disco lleno"))))
+    }
+
+    /**
+     * Audit E-3 and RC-6: in 2.0 a vault of version 2 open with the master always has its upgrade waiting or saved, so
+     * [contactsGate] never gives [ContactsGate.Master] with the vault open: not while the copy before the upgrade runs,
+     * not with the dialog asking (the copy failed, and then a save of the upgrade that fails), not after it is saved.
+     * Every value of the four flows is looked at, from the unlock to the v4 saved.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun theMasterGateIsNeverReachedWithAnOpenVault() = kotlinx.coroutines.test.runTest {
+        for (copyMade in listOf(true, false)) {
+            val dir = java.nio.file.Files.createTempDirectory("contacts-gate").toFile()
+            try {
+                java.io.File(dir, "vault.bin").writeBytes(javaClass.getResourceAsStream("/seguridad/vault-1.1.json")!!.use { it.readBytes() })
+                val hold = kotlinx.coroutines.CompletableDeferred<Unit>()
+                var failSave = !copyMade
+                val s = VaultStore(
+                    java.io.File(dir, "vault.bin"), kotlinx.coroutines.Dispatchers.Unconfined, kotlinx.coroutines.Dispatchers.Unconfined,
+                    now = { 1_790_000_001_000L }, kdf = { app.seguridad.crypto.KdfParams(1024, 1, 1) },
+                    beforeUpgrade = { hold.await(); if (copyMade) CopyResult.Saved("seguridad-antes-de-2-0-x.sgbak") else CopyResult.Failed(AUTO_BACKUP_FAILED) },
+                    writeFile = { f, t -> if (failSave && t.contains("\"version\":4")) throw java.io.IOException("disco lleno") else f.writeText(t) },
+                )
+                s.load()
+                val seen = mutableListOf<Pair<Boolean, ContactsGate>>()
+                val watching = backgroundScope.launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) {
+                    kotlinx.coroutines.flow.combine(s.state, s.needsMasterForContacts, s.pendingUpgrade, s.upgradeCopying) { st, n, a, c ->
+                        (st is VaultState.Unlocked) to contactsGate(n, a, c)
+                    }.collect { seen += it }
+                }
+                val unlocking = async { s.unlock("maestra-de-prueba".toCharArray()) }
+                testScheduler.runCurrent()
+                assertTrue("the copy runs", s.upgradeCopying.value)
+                hold.complete(Unit)
+                testScheduler.runCurrent()
+                kotlinx.coroutines.withTimeout(5_000) { unlocking.await() }
+                if (!copyMade) {
+                    assertTrue("the dialog asks", s.pendingUpgrade.value)
+                    assertFalse("a save of the upgrade that fails", runCatching { s.completeUpgrade() }.getOrDefault(false))
+                    failSave = false
+                    assertTrue(s.completeUpgrade())
+                }
+                testScheduler.runCurrent()
+                assertEquals(4, VaultCrypto.decodeFile(java.io.File(dir, "vault.bin").readText()).version)
+                watching.cancel()
+                assertTrue("$copyMade: open at some point: $seen", seen.any { it.first })
+                assertTrue("$copyMade: $seen", seen.none { (open, gate) -> open && gate == ContactsGate.Master })
+            } finally {
+                dir.deleteRecursively()
+            }
+        }
     }
 }

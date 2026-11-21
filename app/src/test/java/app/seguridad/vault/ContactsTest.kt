@@ -424,8 +424,8 @@ class ContactsTest {
     @Test fun laBusquedaEncuentraALosContactosPorSuNombre() {
         val ana = contactOf(person(), "Ana García")
         val luis = contactOf(person(), "Luis")
-        val found = listOf(ana, luis, newIdentityEntry(now)).query(EntryFilter("garcia"))
+        val found = listOf(ana, luis, newIdentityEntry(now)).query(ListQuery("garcia"))
         assertEquals(listOf(ana), found)
-        assertEquals(listOf(luis), listOf(ana, luis).query(EntryFilter("", type = EntryType.CONTACT)).filter { it.title == "Luis" })
+        assertEquals(listOf(luis), listOf(ana, luis).query(ListQuery("", type = EntryType.CONTACT)).filter { it.title == "Luis" })
     }
 }

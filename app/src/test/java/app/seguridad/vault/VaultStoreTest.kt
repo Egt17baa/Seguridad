@@ -38,11 +38,64 @@ class VaultStoreTest {
     /** A .sgbak (no attachments) of a vault made with [kdf] and one note, opened by the master password "m". */
     private fun backupWith(kdf: KdfParams): Pair<ByteArray, VaultFile> {
         val (file, dek) = VaultCrypto.create("m".toCharArray(), clock, kdf)
-        val written = VaultCrypto.write(file, dek, listOf(entry("1", "Wallet")))
+        val written = VaultCrypto.write(file, dek, VaultData(entries = listOf(entry("1", "Wallet"))))
         return java.io.ByteArrayOutputStream().also { writeBackup(it, VaultCrypto.encodeFile(written), emptyMap()) }.toByteArray() to written
     }
 
     private fun entry(id: String, title: String) = VaultEntry(id, EntryType.NOTE, title, notes = "secreto", createdAt = 0, updatedAt = 0)
+
+    /**
+     * Branch review, A m-3 (test n.º 5): the entries are sorted for the screens on the store's compute dispatcher, never in
+     * [VaultStore]'s `opened` (it runs on the caller's thread, the main one for a tap): every [sortedForShow] in the store
+     * is inside a `withContext(compute)`, and `opened` sorts nothing.
+     */
+    @Test fun sortRunsOnCompute() {
+        val src = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/vault/VaultStore.kt") }.first { it.isFile }.readLines()
+        val start = src.indexOfFirst { "private fun opened(" in it }
+        val end = (start + 1 until src.size).first { src[it] == "    }" }
+        val opened = src.subList(start, end).filterNot { it.trim().startsWith("//") }.joinToString("\n")
+        assertFalse(opened, "sorted" in opened)
+        assertFalse(opened, "VaultCrypto.read(" in opened)
+        val calls = src.indices.filter { ".sortedForShow()" in src[it] }
+        assertTrue(calls.size >= 5)
+        for (i in calls) {
+            val block = (i downTo maxOf(0, i - 6)).firstOrNull { "withContext(" in src[it] }
+            assertTrue("VaultStore.kt:${i + 1}", block != null && "withContext(compute)" in src[block])
+        }
+    }
+
+    /** Branch review, A m-3: the list is sorted (as before) after each path that opens or saves the vault. */
+    @Test fun theListIsSortedAfterEveryPath() = runTest {
+        fun VaultStore.titles() = (state.value as VaultState.Unlocked).entries.map { it.title }
+        val sorted = listOf("Alfa", "beta", "Gamma")
+        val s = store().apply { load(); create("maestra".toCharArray()) }
+        s.upsert(entry("1", "beta"))
+        s.upsert(entry("2", "Gamma"))
+        s.upsert(entry("3", "Alfa"))
+        assertEquals("upsert", sorted, s.titles())
+        val key = s.dataKeyCopy()!!
+        s.lock()
+        s.unlock("maestra".toCharArray())
+        assertEquals("maestra", sorted, s.titles())
+        s.lock()
+        s.unlockWithKey(key)
+        assertEquals("huella", sorted, s.titles())
+        val copy = java.io.ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
+        val other = store("otra.bin").apply { load() }
+        other.importReplace(java.io.ByteArrayInputStream(copy), "maestra".toCharArray())
+        assertEquals("importar", sorted, other.titles())
+        // The vault of 1.4.3 (version 3), opened before its upgrade.
+        val old = File(tmp.newFolder("p143"), "vault.bin").apply {
+            writeText(this@VaultStoreTest.javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        }
+        val v3 = VaultStore(old, Dispatchers.Unconfined, Dispatchers.Unconfined, now = { 1_800_000_000_000L + 3_600_000L }, kdf = { KdfParams(1024, 1, 1) })
+        v3.load()
+        v3.unlock("maestra-de-prueba-143".toCharArray())
+        val t = v3.titles()
+        assertEquals("paso a v4", t.sortedBy { it.lowercase() }, t)
+        assertTrue(t.size > 1)
+    }
 
     @Test fun `create, add, lock and unlock again`() = runTest {
         val s = store().apply { load() }
@@ -150,7 +203,7 @@ class VaultStoreTest {
     /** An export written by hand with its master password, holding [entries] as they are (no store checks). */
     private fun handMadeExport(vararg entries: VaultEntry): String {
         val (file, dek) = VaultCrypto.create("m".toCharArray(), clock, KdfParams(1024, 1, 1))
-        return VaultCrypto.encodeFile(VaultCrypto.write(file, dek, entries.toList()))
+        return VaultCrypto.encodeFile(VaultCrypto.write(file, dek, VaultData(entries = entries.toList())))
     }
 
     private fun ref(id: String, size: Long) = AttachmentRef(id, "a.bin", size, "00".repeat(32), "AA".repeat(22))
@@ -159,11 +212,12 @@ class VaultStoreTest {
         val identity = VaultEntry("i", EntryType.IDENTITY, "Yo", createdAt = 0, updatedAt = 0)
         val big = (0 until 11).map { ref("%032x".format(it), MAX_ATTACHMENT_BYTES.toLong()) } // 55 MB in all.
         val all = listOf(
-            "La copia está dañada: no se puede importar" to handMadeExport(entry("1", "a"), entry("1", "b")),
-            "La copia está dañada: no se puede importar" to handMadeExport(identity.copy(attachments = listOf(ref("%032x".format(1), 1)))),
-            "La copia está dañada: no se puede importar" to handMadeExport(identity.copy(passwordHistory = listOf(PasswordChange("vieja", 0)))),
+            "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(entry("1", "a"), entry("1", "b")),
+            "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(identity.copy(attachments = listOf(ref("%032x".format(1), 1)))),
+            "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(identity.copy(passwordHistory = listOf(PasswordChange("vieja", 0)))),
             "Los adjuntos de la bóveda pasan de 50 MB en total" to handMadeExport(entry("1", "a").copy(attachments = big)),
-            "Los adjuntos de la bóveda pasan de 50 MB en total" to handMadeExport(entry("1", "a").copy(attachments = listOf(ref("%032x".format(1), -1)))),
+            // Branch review, row 37: a size no Clavero wrote is a damaged copy, not a total over 50 MB.
+            "La copia está dañada: no se puede importar. Elige otra copia." to handMadeExport(entry("1", "a").copy(attachments = listOf(ref("%032x".format(1), -1)))),
         )
         val s = store().apply { load(); create("m".toCharArray()); upsert(entry("x", "Mía")) }
         val before = File(tmp.root, "vault.bin").readText()
@@ -384,14 +438,15 @@ class VaultStoreTest {
     }
 
     @Test fun `a 1_9_2 vault opens with the master password and is rewritten with its version`() = runTest {
-        val s = store().apply { load(); create("m".toCharArray()); upsert(entry("1", "Wallet")); lock() }
-        // Make it look like a file from before the version key was always written.
+        // 2.0: a 3 (the real vault-1.4.3.json) made to look like a file from before the version key was always written;
+        // a 4 always says it. It opens, and the upgrade to 4 writes the version.
         val f = File(tmp.root, "vault.bin")
-        f.writeText(f.readText().replace("\"version\":3,", ""))
+        f.writeText(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString().replace("\"version\":3,", ""))
         val again = store().apply { load() }
-        again.unlock("m".toCharArray())
-        assertEquals(listOf("Wallet"), (again.state.value as VaultState.Unlocked).entries.map { it.title })
-        assertTrue(f.readText().contains("\"version\":3"))
+        again.unlock("maestra-de-prueba-143".toCharArray())
+        assertEquals(4, (again.state.value as VaultState.Unlocked).entries.size)
+        assertTrue(again.completeUpgrade())
+        assertTrue(f.readText().contains("\"version\":4"))
     }
 
     /** A directory where the temporary file goes makes every save fail (even for root, unlike permissions). */
@@ -832,7 +887,7 @@ class VaultStoreTest {
                 s.importReplace(exportWithIds("ok-1", bad), "m".toCharArray())
                 fail("accepted id «$bad»")
             } catch (e: CryptoFailure) {
-                assertEquals("La copia está dañada: no se puede importar", e.message)
+                assertEquals("La copia está dañada: no se puede importar. Elige otra copia.", e.message)
             }
             assertEquals(0, (s.state.value as VaultState.Unlocked).entries.size)
         }
@@ -943,7 +998,14 @@ class VaultStoreTest {
         assertEquals(MasterRequired().message, biometricUnlockError(MasterRequired()))
         assertEquals(BIOMETRIC_UNLOCK_FAILED, biometricUnlockError(java.io.IOException("/data/user/0/app/files/vault: ENOSPC")))
         assertEquals(BIOMETRIC_UNLOCK_FAILED, biometricUnlockError(IllegalStateException()))
-        assertEquals("No se pudo abrir la bóveda con la huella", BIOMETRIC_UNLOCK_FAILED)
+        assertEquals("No se pudo abrir la bóveda con la huella. Escribe la contraseña maestra.", BIOMETRIC_UNLOCK_FAILED)
+        // R-7: the store's own text for entries that authenticate but do not decode reaches the screen as it is.
+        assertEquals(FINGERPRINT_DATA_UNREADABLE, biometricUnlockError(CryptoFailure(FINGERPRINT_DATA_UNREADABLE)))
+        assertEquals(
+            "La huella funcionó, pero los datos de la bóveda no se pudieron leer: pueden estar dañados. Prueba con la " +
+                "contraseña maestra.",
+            FINGERPRINT_DATA_UNREADABLE,
+        )
     }
 
     @Test fun `BOV-3 a fingerprint key handed over from a scope already gone opens the vault`() = runTest {
@@ -1012,46 +1074,42 @@ class VaultStoreTest {
         assertTrue(foreign.all { it == 0.toByte() })
     }
 
-    /** A vault file of unknown version (VERSION_UNKNOWN: a 1.0 or 1.1 file), written to disk and loaded; returns it with its data key. */
+    /**
+     * A vault file of unknown version (VERSION_UNKNOWN: a 1.0 or 1.1 file; here the real vault-1.4.3.json without its
+     * version), written to disk and loaded; returns it with its data key.
+     */
     private suspend fun unknownVersionVault(): Pair<VaultStore, ByteArray> {
-        val (written, dek) = VaultCrypto.create("m".toCharArray(), clock, KdfParams(1024, 1, 1))
-        File(tmp.root, "vault.bin").writeText(VaultCrypto.encodeFile(written.copy(version = VaultFile.VERSION_UNKNOWN)))
+        val text = javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString().replace("\"version\":3,", "")
+        File(tmp.root, "vault.bin").writeText(text)
+        val dek = VaultCrypto.unlock(VaultCrypto.decodeFile(text), "maestra-de-prueba-143".toCharArray())
         return store().apply { load() } to dek
     }
 
-    @Test fun `CRY-A02 another vault's key on a vault of unknown version (VERSION_UNKNOWN) is just as stale`() = runTest {
-        // With no stated version the key is how the version is found: VaultCrypto.authenticated tries the candidate
-        // versions with it, and a key that authenticates under none is a StaleBiometricKey (not a CryptoFailure).
-        val (s, _) = unknownVersionVault()
-        val foreign = foreignKey()
-        var off = 0
-        val errors = mutableListOf<String>()
-        launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
-        assertEquals(1, off)
-        assertEquals(listOf(FINGERPRINT_STALE), errors)
-        assertTrue(foreign.all { it == 0.toByte() })
+    @Test fun `CRY-A02 on a vault of unknown version (VERSION_UNKNOWN) no key is tried, another vault's or its own`() = runTest {
+        // 2.0: until 1.4.3 the key was how the version of such a file was found. Now the file passes to v4 with the
+        // master password first (BiometricRefusal.UPGRADE), before the clock and the 7 days: the key is never tried, so a
+        // stale one is not found here either, and the fingerprint stays on.
+        val (s, dek) = unknownVersionVault()
+        for (key in listOf(foreignKey(), dek.copyOf())) {
+            var off = 0
+            val errors = mutableListOf<String>()
+            launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
+            assertEquals(0, off)
+            assertEquals(listOf(UPGRADE_NEEDS_MASTER), errors)
+            assertTrue(key.all { it == 0.toByte() })
+        }
+        assertEquals(VaultState.Locked, s.state.value)
     }
 
-    @Test fun `CRY-A02 with the master password due, a vault of unknown version tries the key first, so a stale key still turns the fingerprint off`() = runTest {
-        // The other order than version 3 (see «a version-3 vault asks for it before trying the key», below): with no stated
-        // version the key has to be tried (VaultCrypto.authenticated) to know it, before the 7-day rule is looked at. A stale
-        // key is a StaleBiometricKey there; the right key then meets the 7-day rule.
+    @Test fun `CRY-A02 with the master password due, a vault of unknown version still asks to upgrade first, without the key`() = runTest {
         val (s, dek) = unknownVersionVault()
         clock += MASTER_RECHECK_MS
-        val foreign = foreignKey()
+        val key = dek.copyOf()
         var off = 0
         val errors = mutableListOf<String>()
-        launchUnlockWithKey(s, foreign, onWrongKey = { off++ }) { errors += it }.join()
-        assertEquals(1, off)
-        assertEquals(listOf(FINGERPRINT_STALE), errors)
-        assertTrue(foreign.all { it == 0.toByte() })
-        // The right key, same vault, same clock: the master password is due and the fingerprint stays.
-        val key = dek.copyOf()
-        off = 0
-        errors.clear()
         launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
         assertEquals(0, off)
-        assertEquals(listOf(MasterRequired().message!!), errors)
+        assertEquals(listOf(UPGRADE_NEEDS_MASTER), errors)
         assertTrue(key.all { it == 0.toByte() })
     }
 
@@ -1186,7 +1244,7 @@ class VaultStoreTest {
         return dek
     }
 
-    @Test fun `F1 entries that authenticate but do not decode give the usual error, fingerprint kept`() = runTest {
+    @Test fun `F1 entries that authenticate but do not decode give their own text, fingerprint kept`() = runTest {
         for (version in listOf(VaultFile.VERSION, VaultFile.VERSION_UNKNOWN)) {
             val key = undecodableVault(version)
             val s = store().apply { load() }
@@ -1194,8 +1252,11 @@ class VaultStoreTest {
             val errors = mutableListOf<String>()
             launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
             assertEquals("version $version", 0, off)
-            // «Contraseña incorrecta o datos dañados», the text a damaged vault always had: not FINGERPRINT_STALE.
-            assertEquals("version $version", listOf(CryptoFailure().message!!), errors)
+            // 2.0, R-7 of the Abogado Digital (owner, 21-11-2026): no password was typed, so not «Contraseña incorrecta o
+            // datos dañados»; and not FINGERPRINT_STALE either (the fingerprint stays). 2.0: a file without a version is
+            // asked to upgrade first, without trying the key.
+            val expected = if (version == VaultFile.VERSION) FINGERPRINT_DATA_UNREADABLE else UPGRADE_NEEDS_MASTER
+            assertEquals("version $version", listOf(expected), errors)
             assertEquals(VaultState.Locked, s.state.value)
             assertTrue(key.all { it == 0.toByte() })
         }
@@ -1251,10 +1312,10 @@ class VaultStoreTest {
         val src = vaultScreenCode()
         // The mark is set BEFORE disable(): if disable ever threw, the button would still be gone for this screen.
         assertTrue(
-            Regex("""launchUnlockWithKey\(store, key, onWrongKey = \{\s*fingerprintStale = true\s*BiometricVault\.disable\(context\)\s*\}\)""").containsMatchIn(src),
+            Regex("""launchUnlockWithKey\(store, key, onWrongKey = \{\s*fingerprintStale = true\s*BiometricVault\.disable\(context, store\.id\)\s*\}\)""").containsMatchIn(src),
         )
         // The button and the automatic prompt follow `bio`, which is read again after the failure and is off at once.
-        assertTrue("val bio = !fingerprintStale && BiometricVault.enabled(context) && store.biometricAllowed" in src)
+        assertTrue("val bio = !fingerprintStale && BiometricVault.enabled(context, store.id) && store.biometricAllowed" in src)
         assertTrue("if (bio) OutlinedButton(onClick = ::withFingerprint" in src)
         assertTrue("LaunchedEffect(Unit) { if (bio) withFingerprint() }" in src)
     }
@@ -1262,8 +1323,9 @@ class VaultStoreTest {
     @Test fun `F2 the unlock screen says a vault it cannot open is not compatible and shows no 7-day notice for it`() {
         val src = vaultScreenCode()
         // The master password on a file this version cannot open: the existing text, not «Contraseña incorrecta».
-        assertTrue("error = if (e.message == NOT_A_VAULT) NOT_A_VAULT else \"Contraseña incorrecta\"" in src)
-        assertTrue("import app.seguridad.vault.NOT_A_VAULT" in src)
+        // 2.0, task 10, phase C, ronda 1 (I-2): through one closed list (masterUnlockErrorText, UnlockErrorTextTest).
+        assertTrue("error = masterUnlockErrorText(e)" in src)
+        assertEquals(NOT_A_VAULT, masterUnlockErrorText(app.seguridad.crypto.CryptoFailure(NOT_A_VAULT)))
         // The notice under the button: the 7-day text only for MASTER_DUE; nothing for UNSUPPORTED (no new text).
         val sevenDays = Regex("""BiometricRefusal\.MASTER_DUE ->\s*Text\("Por seguridad, cada 7 días""")
         assertTrue(sevenDays.containsMatchIn(src))
@@ -1283,5 +1345,36 @@ class VaultStoreTest {
         assertEquals(0, off) // Not shown to anybody: the answer is not about this screen.
         assertTrue(errors.isEmpty())
         assertTrue(foreign.all { it == 0.toByte() })
+    }
+    /**
+     * Audit, row 84: adding an attachment to a vault that already has as many as a copy holds (1 998, the trash too) is
+     * refused before its file is written: the text, nothing saved, the vault file as it was.
+     */
+    @Test fun anAttachmentPastTheCopysFileCountIsRefused() = runTest {
+        val s = store().apply { load(); create("maestra".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        val file = File(tmp.root, "vault.bin")
+        val vf = VaultCrypto.decodeFile(file.readText())
+        val refs = (0 until 1_998).map { AttachmentRef("%032x".format(it), "a.bin", 1, "00".repeat(32), "AA".repeat(22)) }
+        val data = VaultCrypto.read(vf, key).copy(
+            // 100 per entry (an entry stays under its 64 KiB); the last two entries are in the trash.
+            entries = refs.chunked(100).mapIndexed { i, part ->
+                VaultEntry("e$i", EntryType.NOTE, "E$i", createdAt = 0, updatedAt = 0, deletedAt = if (i >= 18) clock else null, attachments = part)
+            },
+        )
+        file.writeText(VaultCrypto.encodeFile(VaultCrypto.write(vf, key, data)))
+        val again = store().apply { load(); unlockWithKey(key) }
+        val before = file.readBytes()
+        val att = File(tmp.root, "att")
+        val filesBefore = att.list()?.toSet().orEmpty()
+        try {
+            again.addAttachment("e0", java.io.ByteArrayInputStream(ByteArray(10)), "uno-más.bin")
+            fail("Debía rechazarlo")
+        } catch (e: AttachmentLimit) {
+            assertEquals(ATTACHMENTS_COUNT_WOULD_PASS, e.message)
+        }
+        assertArrayEquals(before, file.readBytes())
+        assertEquals(filesBefore, att.list()?.toSet().orEmpty())
+        assertEquals(100, (again.state.value as VaultState.Unlocked).data.entries.single { it.id == "e0" }.attachments.size)
     }
 }

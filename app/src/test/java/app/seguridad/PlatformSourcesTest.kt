@@ -40,6 +40,65 @@ class PlatformSourcesTest {
     }
 
     /**
+     * 2.0, audit B-2 (the owner's decision, 21-11-2026): the launcher activity has an empty task affinity, so another
+     * app's activity with Clavero's package name as its affinity can never join Clavero's task (a fake «Contraseña
+     * maestra» screen on Android 8 to 10). Only MainActivity: neither <application> nor any other activity has one.
+     */
+    @Test fun theLauncherActivityHasAnEmptyTaskAffinity() {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/AndroidManifest.xml").isFile) dir = dir.parentFile
+        val manifest = File(dir, "app/src/main/AndroidManifest.xml").readText()
+            .replace(Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL), "")
+        val main = Regex("""<activity\s+android:name="\.MainActivity"[^>]*>""").find(manifest)?.value ?: error("MainActivity")
+        assertEquals(listOf(""), Regex("""android:taskAffinity="([^"]*)"""").findAll(main).map { it.groupValues[1] }.toList())
+        val application = Regex("""<application\b[^>]*>""").find(manifest)?.value ?: error("application")
+        assertFalse("<application> has no taskAffinity", "taskAffinity" in application)
+        val others = Regex("""<activity(?:-alias)?\b[^>]*>""").findAll(manifest).map { it.value }.filterNot { it == main }.toList()
+        assertTrue("another activity", others.isNotEmpty())
+        for (a in others) assertFalse(a, "taskAffinity" in a)
+        assertEquals(1, Regex("""taskAffinity""").findAll(manifest).count())
+    }
+
+    /**
+     * 2.0, audit B-3: deleting a vault forgets its fingerprint for good: [BiometricVault.forget] drops the wrapped key
+     * (written at once, commit) and the Keystore key, then deletes that vault's preferences file, never the first
+     * vault's, which also keeps what is known about this phone's StrongBox. The app passes it to the container.
+     */
+    @Test fun deletingAVaultDeletesItsFingerprintPreferences() {
+        val src = code("android/BiometricVault.kt")
+        val forget = src.substringAfter("suspend fun forget(context: Context, vaultId: String)").substringBefore("\n    }\n")
+        val commit = forget.indexOf(".edit(commit = true) {")
+        val delete = forget.indexOf("deleteSharedPreferences(perVaultName(PREFS, vaultId))")
+        assertTrue(forget, commit >= 0 && delete > commit)
+        // Recheck m-6: for the first vault, whose file stays, what forgets the fingerprint is what that edit removes.
+        val removed = forget.substring(commit).substringAfter("{").substringBefore("}")
+        for (key in listOf("KEY_IV", "KEY_BLOB", "KEY_IN_STRONGBOX")) assertTrue("removes $key: $removed", "remove($key)" in removed)
+        assertTrue("queue.run(" in forget && "NonCancellable" in forget)
+        assertTrue("never the first vault's", Regex("""if \(vaultId != PRIMARY_VAULT_ID\)[^\n]*deleteSharedPreferences""").containsMatchIn(forget))
+        assertTrue("deleteKey(vaultId)" in forget)
+        assertTrue("forgetBiometric = { id -> BiometricVault.forget(this, id) }" in code("SeguridadApp.kt"))
+    }
+
+    /**
+     * 2.0, audit B-1: every NavController (one per open vault, `key(vault)` in AppNavHost) reads the activity's intent
+     * for a deep link, extras included. MainActivity replaces whoever-started-it's intent with a plain launcher one in
+     * onCreate, before setContent, and never takes a new one; nothing in the app handles a deep link itself.
+     */
+    @Test fun theNavigationNeverSeesTheLaunchIntent() {
+        val src = code("MainActivity.kt")
+        val onCreate = src.substringAfter("override fun onCreate(").substringBefore("override fun ")
+        val assign = onCreate.indexOf("intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, MainActivity::class.java)")
+        val superCall = onCreate.indexOf("super.onCreate(savedInstanceState)")
+        val content = onCreate.indexOf("setContent {")
+        assertTrue("the plain intent, after super.onCreate and before setContent", superCall >= 0 && assign > superCall && content > assign)
+        assertFalse("override fun onNewIntent" in src)
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/java/app/seguridad").isDirectory) dir = dir.parentFile
+        val handlers = File(dir, "app/src/main/java").walk().filter { it.isFile && it.name.endsWith(".kt") && "handleDeepLink(" in it.readText() }.map { it.name }.toList()
+        assertEquals(emptyList<String>(), handlers)
+    }
+
+    /**
      * 1.4.2, the owner's request: every file picker says which place it is ([PickerPlace]), so it opens where it was
      * used last; «Importar de otra app» is the place kept only while the app runs; the folder of the automatic copies
      * opens on that folder; deleting the vault forgets every place.
@@ -50,11 +109,13 @@ class PlatformSourcesTest {
         val calls = File(dir, "app/src/main/java/app/seguridad").walk().filter { it.isFile && it.name.endsWith(".kt") }.flatMap { f ->
             Regex("""rememberDocumentPicker\(([^\n]*)""").findAll(f.readText()).map { f.name to it.groupValues[1] }
         }.filterNot { (_, args) -> args.isBlank() }.toList()
-        assertEquals(28, calls.size)
+        // 2.0, task 1: +1, the copy before the upgrade to format v4 (VaultUpgrade.kt); task 2: +1, «Importar como bóveda
+        // nueva» (VaultPickerScreen.kt, PickerPlace.IMPORT_COPY).
+        assertEquals(30, calls.size)
         for ((file, args) in calls) assertTrue("$file: $args", Regex("""place = (PickerPlace\.[A-Z_]+|null)""").containsMatchIn(args))
         assertTrue("place = PickerPlace.IMPORT_OTHER" in code("ui/screens/ImportScreen.kt"))
         val settings = code("ui/screens/SettingsScreen.kt")
-        assertTrue("OpenDocumentTree(), place = null" in settings && "picker.launchOrError(folderStart(folder))" in settings)
+        assertTrue("OpenDocumentTree(), place = null" in settings && "picker.launchOrError(folderStart(from ?: settings.targets.lastOrNull()?.uri))" in settings)
         val vault = code("ui/screens/VaultScreen.kt")
         assertTrue(vault.indexOf("pickerPlaces(context)?.forgetAll()") in 0 until vault.indexOf("store.destroy()"))
         // The places kept only in memory go at every lock and unlock (code review of 1.4.2).
@@ -85,8 +146,9 @@ class PlatformSourcesTest {
     @Test fun `deleting an entry goes back once, when the entry is gone`() {
         val src = code("ui/screens/VaultEntryScreen.kt")
         assertTrue("if (entry == null) return LockedNotice(onBack)" in src)
-        assertTrue("store.delete(entry.id)" in src)
-        assertFalse("a second onBack after the delete", Regex("""store\.delete\(entry\.id\)\)\s*onBack\(\)""").containsMatchIn(src))
+        // 2.0, task 3: to the trash, through «Deshacer».
+        assertTrue("undo.moveToTrash(setOf(entry.id))" in src)
+        assertFalse("a second onBack after the delete", Regex("""undo\.moveToTrash\(setOf\(entry\.id\)\)\s*onBack\(\)""").containsMatchIn(src))
     }
 
     /**
@@ -113,19 +175,74 @@ class PlatformSourcesTest {
      * them, and a lock of the vault drops them.
      */
     @Test fun `the vault list keeps its search, filters and place after an entry, and drops them on lock`() {
-        val src = code("ui/screens/VaultScreen.kt")
-        assertTrue("the list's own ViewModel", "private class EntryListViewModel(" in src)
+        // 2.0, task 4: the list (its ViewModel, rows and filters) is in VaultList.kt.
+        val src = code("ui/screens/VaultList.kt")
+        assertTrue("the list's own ViewModel", "internal class EntryListViewModel(" in src)
+        assertTrue("viewModel { EntryListViewModel(store, totpOnly) }" in code("ui/screens/VaultScreen.kt"))
         // The place as two numbers, never the LazyListState (it holds the list's last layout; the 1.4.1 audit, finding 2).
         assertTrue("the scroll position is the ViewModel's", "LazyListState(list.firstIndex, list.firstOffset)" in src)
         assertTrue("and goes back to it", "list.firstIndex = listState.firstVisibleItemIndex" in src)
         assertFalse("no LazyListState kept in the ViewModel", Regex("""var listState by""").containsMatchIn(src))
-        assertTrue("a gone tag filter is dropped", "if (tag != null && tag !in allTags) tag = null" in src)
-        for (v in listOf("query", "type", "tag")) assertTrue(v, "var $v by list::$v" in src)
+        // Round 3, RT-28: what is gone is worked out off the main thread (listTags in compute); the effect only takes it away.
+        assertTrue("a gone tag filter is dropped", "val tags = if (result.goneFilterTags.isEmpty()) f.tags else f.tags - result.goneFilterTags" in src)
+        assertTrue("and a gone folder", "val folder = f.folderId?.takeIf { id -> folders.any { it.id == id } }" in src)
+        for (v in listOf("query", "filter")) assertTrue(v, "var $v by mutableStateOf(" in src)
         assertFalse("no search in local state", Regex("""var query by remember""").containsMatchIn(src))
-        assertFalse("nothing of the list in saved state", Regex("""rememberSaveable""").containsMatchIn(src))
+        // 2.0, task 6: nor of its rows, nor of «Ver en grande».
+        val saved = src + code("ui/screens/VaultOrganize.kt") + code("ui/screens/EntryRow.kt") + code("ui/screens/BigPasswordScreen.kt")
+        assertFalse("nothing of the list in saved state", Regex("""rememberSaveable|SavedStateHandle""").containsMatchIn(saved))
         // From the vault's own state, in the ViewModel: a lock while another tab is shown drops them too.
         assertTrue("a lock drops them", "store.state.collect { if (it !is VaultState.Unlocked) reset() }" in src)
         assertFalse("not only while the list is on screen", "list.reset()" in src)
+        // The search and the filters run off the main thread, each run cancelling the one before; a lock drops the result.
+        // RT-25, part a (round 2 of the fixes of the attack): with running out of memory caught there, as NO_MEMORY.
+        assertTrue(
+            Regex("""withContext\(Dispatchers\.Default\) \{\s*try \{\s*beforeListCompute\(\)\s*compute\(data, qf\.first, qf\.second\)\s*\} catch \(e: OutOfMemoryError\) \{\s*cache = null\s*ListResult\.NO_MEMORY""").containsMatchIn(src) &&
+                ".collectLatest {" in src,
+        )
+        // 2.0, review m-5 of task 6 (focus 4): the selection is pruned to what is shown after each result, and
+        // «Seleccionar todo» takes what is shown, nothing else.
+        assertTrue(Regex("""if \(store\.state\.value is VaultState\.Unlocked\) \{\s*_result\.value = r(?:\s*//[^\n]*)*\s*selection\.retainVisible\(r\.shown\)""").containsMatchIn(src))
+        assertTrue("onSelectAll = { list.selection.selectAll(result.shown) }" in src)
+        assertEquals(1, Regex("""\.selectAll\(""").findAll(src).count())
+        assertTrue(Regex("""fun reset\(\) \{[^}]*cache = null\s+_result.value = ListResult.EMPTY""").containsMatchIn(src))
+        // Review M-4: the place goes back to the ViewModel only while the vault is open (a lock already reset it).
+        assertTrue(Regex("""onDispose \{\s*if \(store\.state\.value is VaultState\.Unlocked\) \{\s*list\.firstIndex""").containsMatchIn(src))
+        // Review I-2: a save opens what it wrote, never decrypting the vault again on the caller's thread.
+        val store = code("vault/VaultStore.kt")
+        assertTrue("commit(next, key, since, mustSave = !bookkeeping, read = saved)" in store)
+        // Branch review, A m-3: and sorted there too.
+        assertTrue("withContext(compute) { VaultCrypto.read(next, key).sortedForShow() }" in store)
+    }
+
+    /**
+     * 2.0, review C-1 of task 4: in the lazy lists made from the vault's data (the list, its chips, the dialogs) every
+     * row of data has the key [lazyKey] gives (a kind, «:» and the id), and no fixed row has a «:» in its key. So a tag
+     * called «colors» or a view whose id is «manage» never repeats a key, which closes the app at every opening.
+     */
+    @Test fun `C-1 the keys of the vault's lazy rows never meet the fixed ones`() {
+        // Re-review M-9: every screen, and a call to items( that spans several lines too.
+        val dataKey = Regex("""\bitems(?:Indexed)?\((?:(?!\bitems(?:Indexed)?\()[\s\S]){0,400}?key = \{([^}]*)\}""")
+        val fixedKey = Regex("""\bitem\([^)]*?key = "([^"]*)"""")
+        // The tools' grid: its rows are the app's own routes, never data of the vault.
+        val ownRows = setOf("ToolsScreen.kt")
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/java/app/seguridad/ui/screens").isDirectory) dir = dir.parentFile
+        val screens = File(dir!!, "app/src/main/java/app/seguridad/ui/screens").listFiles()!!.filter { it.name.endsWith(".kt") }
+        assertTrue(screens.size > 10)
+        var checked = 0
+        for (f in screens) {
+            val src = code("ui/screens/${f.name}")
+            val fixed = fixedKey.findAll(src).map { it.groupValues[1] }.toList()
+            for (k in fixed) assertFalse("${f.name}: $k", ':' in k)
+            if (fixed.isEmpty() || f.name in ownRows) continue
+            val dataKeys = dataKey.findAll(src).map { it.groupValues[1].trim() }.toList()
+            assertTrue(f.name, dataKeys.isNotEmpty())
+            for (k in dataKeys) assertTrue("${f.name}: $k", k.startsWith("lazyKey("))
+            checked++
+        }
+        assertTrue("VaultList.kt and VaultOrganize.kt at least", checked >= 2)
+        assertTrue("internal fun lazyKey(kind: Char, id: String): String = \"\$kind:\$id\"" in code("ui/screens/VaultList.kt"))
     }
 
     @Test fun `COV2-4 the window and every dialog are marked accessibility data sensitive on Android 14+`() {
@@ -276,7 +393,7 @@ class PlatformSourcesTest {
         // The visible notice, word for word, and the entry in Herramientas.
         assertTrue("Text(CLASSIC_NOTICE)" in src)
         assertTrue("Son cifrados históricos, rotos desde hace décadas: no protegen nada. Sirven para aprender cómo funcionaban." in main("tools/classic/ClassicTexts.kt"))
-        assertTrue("Tool(\"tools/classic\"" in code("ui/screens/ToolsScreen.kt"))
+        assertTrue("Tool(\"tools/classic\"" in code("tools/ToolCatalog.kt")) // 2.0, task 10: the list moved out of ui/
     }
 
     @Test fun `Repartir un secreto has the guard of the other tools, runs off the main thread and copies with clearing`() {
@@ -292,7 +409,7 @@ class PlatformSourcesTest {
         assertTrue("AwayNote {" in src && "session.guard.typed()" in src)
         assertTrue("SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp" in code("ui/AppNavHost.kt"))
         assertTrue("composable(\"tools/share-secret\")" in code("ui/AppNavHost.kt"))
-        assertTrue("Tool(\"tools/share-secret\", \"🧩\", SHARE_TITLE, SHARE_SUBTITLE)" in code("ui/screens/ToolsScreen.kt"))
+        assertTrue("Tool(\"tools/share-secret\", \"🧩\", SHARE_TITLE, SHARE_SUBTITLE)" in code("tools/ToolCatalog.kt"))
         // PBKDF2 off the main thread (SecretShareRuns, tested in SecretShareRunsTest), each run on a snapshot of the form.
         assertTrue("val r = splitRequest(s.secretInput, isPhrase = !hexInput, s.passphrase, s.groupThreshold, s.groups, words)" in src)
         assertTrue("val r = combineRequest(s.typedParts, s.passphrase)" in src)
@@ -341,7 +458,11 @@ class PlatformSourcesTest {
         assertEquals(0, Regex("""rememberSaveable""").findAll(src).count())
         assertTrue("override fun onCleared()" in src && "session.wipe()" in src)
         assertTrue("val session: BackupCheckSession = BackupCheckSession(ComposeCells, SystemClock.elapsedRealtime()) { stopAll() }" in src)
-        assertTrue("private val runs: BackupCheckRuns = BackupCheckRuns(session, viewModelScope) { store.lockEpoch }" in src)
+        assertTrue("private val runs: BackupCheckRuns = BackupCheckRuns(session, viewModelScope, lockEpoch = { store.lockEpoch }) { report, since ->" in src)
+        // 2.0, task 8: the one thing it keeps in the vault, the date of the check of a copy of it (compared in the store with
+        // the vault's own tag, refused after a lock since the run started): a bookkeeping save, no copy, no setting.
+        assertTrue("store.recordBackupChecked(report.vaultTag, since)" in src)
+        assertEquals(1, Regex("""store\.recordBackupChecked""").findAll(src).count())
         // The guard of «Cifrar texto» (vault lock, other app, time away) and its note, wired from the navigation.
         assertTrue("watchAway(session.guard, store, lockAfterMs, awayInOtherApp)" in src)
         assertTrue("GuardEffects(s.guard, lockAfterMs)" in src && "ToolColumn(BACKUP_CHECK_TITLE, onBack, s.guard)" in src)
@@ -358,7 +479,7 @@ class PlatformSourcesTest {
         assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }" in src)
         // The screen reads the vault's state and its lock count and, for the picker, touches it (the idle count and the
         // A11 clock mark, as «Importar copia»); none of its files changes the vault, a setting, the fingerprint or a copy.
-        assertEquals(setOf("state", "lockEpoch", "touch"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
+        assertEquals(setOf("state", "lockEpoch", "touch", "recordBackupChecked"), Regex("""\bstore\.(\w+)""").findAll(src).map { it.groupValues[1] }.toSet())
         // m3: the picker as «Importar copia»'s (VaultBackup.kt): the vault stays open while it is on top, the time away
         // counts from the tap, and the flag goes back if the picker never opened (MainActivity.onStart takes it back).
         // The four steps in this order, whatever the spacing and line breaks.
@@ -390,7 +511,10 @@ class PlatformSourcesTest {
         assertTrue("const val BACKUP_CHECK_TITLE = \"Comprobar una copia\"" in main("vault/BackupCheckTexts.kt"))
         // The import uses the same checks (BackupCheck.kt), so they cannot drift apart.
         val store = code("vault/VaultStore.kt")
-        assertTrue("checkCopyEntries(incomingEntries)" in store && "attachmentInCopy(it, backup.first)" in store)
+        // RT-21, part a: in [VaultCrypto.afterMasterUnlockWithData]'s prepare, on the data about to be written.
+        // Round 2, point 8 (R5): one function of checks for both, on what the import would seal.
+        assertTrue("checkCopyData(data)" in store && "attachmentInCopy(it, backup.first)" in store)
+        assertTrue("VaultCrypto.readAsImported(incoming, dek, copy = true).also { checkCopyData(it.imported) }" in code("vault/BackupCheck.kt"))
     }
 
     /** Ruling R3: no other product's brand in a user-visible text; the licence's attribution lives on the Licencias screen. */
@@ -621,8 +745,9 @@ class PlatformSourcesTest {
         // The plan only from one snapshot (entries and revision read together, as planImport does, kept for the
         // estimate); the confirmation only through ImportFlow, which a back does not cut (a lock before the save
         // cancels it, ruling R37: VaultStoreImportTest and AutoBackupImportCopyTest).
-        assertTrue("val snap = store.importSnapshot()" in src && "planMerge(read, it.entries, it.revision)" in src)
-        assertEquals(1, Regex("""planMerge\(""").findAll(src).count())
+        // Round 3, RT-27 (authorised by the controller, consulta del punto 3): the plan through its wrapper of no memory.
+        assertTrue("val snap = store.importSnapshot()" in src && "planMergeOrNoMemory(read, snap.entries, snap.revision)" in src)
+        assertEquals(1, Regex("""planMergeOrNoMemory\(""").findAll(src).count())
         assertEquals("the revision only from the snapshot", 1, Regex("""\.revision\b""").findAll(src).count())
         assertTrue("ImportFlow(" in src && "store.applyImport(plan, default, overrides, sinceLock = since)" in src && "withContext(NonCancellable)" in src)
         // Ruling R66: both saves (confirm and copyTo) record the lock epoch when saving starts and pass it on.
@@ -648,7 +773,7 @@ class PlatformSourcesTest {
         // M-5: «Elegir otro archivo» on the password step opens the picker, as on the other steps.
         assertTrue(flat, "OutlinedButton(onClick = { vm.cancel() launchPick() }" in flat)
         // R18: the vault's tag chips are lazy.
-        assertTrue("LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(allTags, key = { it })" in code("ui/screens/VaultScreen.kt").replace(Regex("""\s+"""), " "))
+        assertTrue("LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(result.tags, key = { lazyKey('t', it) })" in code("ui/screens/VaultList.kt").replace(Regex("""\s+"""), " "))
         // A document created for the copy and not used (refused, failed) is deleted, never left empty.
         assertTrue("discardDocumentNow(appContext, uri)" in src)
         // «Quitar el archivo exportado»: the document picked in this run, once, after an import; the provider asked first.
@@ -679,22 +804,73 @@ class PlatformSourcesTest {
      */
     @Test fun `R9 every title, user, URL, service, account and tag shown goes through plainReportText`() {
         val pins = mapOf(
-            "ui/screens/VaultScreen.kt" to listOf(
-                "Text(plainReportText(e.title), maxLines = 1",
+            "ui/screens/VaultList.kt" to listOf(
+                "label = { Text(\"#\${plainReportText(t)}\", color = tagTextColor(tagColors[t])) }",
+                // 2.0, task 4: the views, the folders' crumb and the dragged entry.
+                "label = { Text(\"👁 \${plainReportText(v.name)}\") }",
+                "folderCrumb(folderPath(folders, id).map { plainReportText(it.name) })",
+                "Text(plainReportText(d.entry.title, 40)",
+                // 2.0, task 6: the confirmations of the trash and the messages that name an entry.
+                "TrashConfirm(moveToTrashTitle(plainReportText(e.title))",
+                "moveSelectedToTrashTitle(shown.size, plainReportText(shown.first().title))",
+                "message(duplicatedText(plainReportText(it.title)))",
+            ),
+            // 2.0, task 6: «Ver en grande» names its entry.
+            "ui/screens/BigPasswordScreen.kt" to listOf("plainReportText(entry!!.title) to it"),
+            // 2.0, task 6: the row of the list (its title, line, folder and tags; the menu names it).
+            "ui/screens/EntryRow.kt" to listOf(
+                "val title = plainReportText(e.title)",
+                "Text(title, maxLines = 1",
                 "if (sub.isNotBlank()) Text(plainReportText(sub)",
-                "label = { Text(\"#\${plainReportText(t)}\") }",
+                "Text(\"📁 \" + plainReportText(it.name, 30)",
+                "e.tags.take(3).forEach { t -> Text(\"#\${plainReportText(t)}\"",
+                "contentDescription = rowMenuLabel(title)",
+                "copyPasswordOffer(plainReportText(entry.title))",
+            ),
+            "ui/screens/VaultOrganize.kt" to listOf(
+                "\"📁 \${plainReportText(f.name)} (\${counts[f.id] ?: 0})\"",
+                "moveToTitle(plainReportText(e.title))",
+                "folderDeleteTitle(plainReportText(f.name))",
+                "\"#\${plainReportText(t)} · ",
+                "Text(\"👁 \${plainReportText(v.name)}\"",
             ),
             "ui/screens/VaultEntryScreen.kt" to listOf(
-                "BackScaffold(\"\${typeIcon(entry.type)} \${plainReportText(entry.title)}\", onBack)",
-                "Field(\"Usuario\", entry.username, plain = true)",
-                "Field(\"Web\", entry.url, plain = true)",
-                "if (plain) plainReportText(value, value.length) else value",
+                "BackScaffold(\"\${typeIcon(entry.type)} \${plainReportText(entry.title)}\", onBack, snackbarHost",
+                "Field(\"Usuario\", entry.username, plain = true,",
+                "Field(\"Web\", entry.url, plain = true,",
+                "folderCrumb(path.map { plainReportText(it.name) })",
+                // Round 2, informative 2: through fieldShownText (EntryFields.kt), which marks only a wifi's name.
+                "Text(if (shown) fieldShownText(value, plain, marked) else",
                 "entry.tags.map { \"#\${plainReportText(it)}\" }",
-                "Text(\"¿Borrar «\${plainReportText(entry.title)}»?\")",
+                "Text(moveToTrashTitle(plainReportText(entry.title)))",
                 "\${plainReportText(entries.single().title)}",
                 "entries.joinToString(\", \") { plainReportText(it.title) }",
+                "store.duplicate(entry.id)?.let { it.id to plainReportText(it.title) }",
+            ),
+            // 2.0, task 3: the trash and the versions of an entry.
+            "ui/screens/TrashScreen.kt" to listOf(
+                "Text(\"\${typeIcon(e.type)} \${plainReportText(e.title)}\", maxLines = 2",
+                "Text(trashDeleteForeverTitle(plainReportText(e.title)))",
+            ),
+            "ui/screens/EntryHistoryScreen.kt" to listOf(
+                "BackScaffold(\"\$HISTORY_TITLE · \${plainReportText(entry.title)}\", onBack)",
+                "Text(\"\${typeIcon(e.type)} \${plainReportText(e.title)}\")",
+                // Branch review, C m-3: with the copy that ends the offer of «Copiar contraseña».
+                "Field(\"Usuario\", e.username, plain = true, onCopied = onCopied)",
+                "Field(\"Web\", e.url, plain = true, onCopied = onCopied)",
+                "Text(historyClearTitle(plainReportText(entry.title)))",
+            ),
+            // 2.0, task 5: the names of the fields (a copy brings any), the expiry line and the duplicate's title.
+            "ui/screens/EntryFields.kt" to listOf(
+                "plain -> plainReportText(value, value.length)",
+                "Field(plainReportText(f.name, 100), shownValue(entry.type, f)",
+                "val name = plainReportText(f.name, 100)",
+                "expiryLine(item.copy(what = plainReportText(item.what, 100)), today)",
             ),
             "ui/screens/OtpQrScreen.kt" to listOf("Text(plainReportText(listOf(totp.issuer, totp.account).filter { it.isNotBlank() }.joinToString(\" · \"))"),
+            // 2.0, task 9: the network's name over its QR. RT-24: with the marks of what draws nothing (visibleText, as the
+            // inspector), which also neutralises controls and direction marks.
+            "ui/screens/WifiQrScreen.kt" to listOf("Text(visibleText(shown.ssid)"),
             "ui/screens/HealthScreen.kt" to listOf("Text(plainReportText(title).ifEmpty { \"(sin título)\" }"),
             "ui/screens/ContactsScreen.kt" to listOf("Text(plainReportText(shownContactTitle(e.title)), maxLines = 1"),
             "ui/screens/ContactDetailScreen.kt" to listOf("Text(plainReportText(shownContactTitle(entry.title)), style"),
@@ -722,6 +898,27 @@ class PlatformSourcesTest {
             code("ui/" + f.relativeTo(mainDir().resolve("ui")).invariantSeparatorsPath).lines().filter { raw.containsMatchIn(it) && "plainReportText(" !in it }.map { "${f.name}: ${it.trim()}" }
         }.toList()
         assertEquals(emptyList<String>(), bad)
+    }
+
+    /**
+     * 2.0, review of task 5: «Duplicar» once per tap (M-5); the list's notice counted again each day (M-7); the clocks
+     * and the «➕» are decoration TalkBack does not read (M-8, R-1, as `ScanQrLabel`); the CVV and the PIN with the
+     * keyboard of digits, still masked (M-9); one expiry per entry in the editor and when saving (M-4).
+     */
+    @Test fun `task 5 review, the minor ones of the screens`() {
+        val card = code("ui/screens/VaultEntryScreen.kt")
+        assertTrue("OutlinedButton(enabled = !duplicating, onClick = {" in card && "if (duplicating) return@OutlinedButton" in card)
+        assertTrue(Regex("""finally \{\s*duplicating = false""").containsMatchIn(card))
+        assertTrue("val expiresAt = entryExpiresAt(type, form.expiresText.value).getOrElse {" in card)
+        val list = code("ui/screens/VaultList.kt")
+        assertTrue("cache?.takeIf { it.data === data && it.day == today }" in list)
+        assertTrue("Text(\"⏰ \", Modifier.clearAndSetSemantics { }" in list)
+        val fields = code("ui/screens/EntryFields.kt")
+        assertTrue("Text(\"⏰ \", Modifier.clearAndSetSemantics { }" in fields)
+        assertTrue("DecoratedLabel(\"➕\", FIELD_ADD)" in fields && "Text(\"\$emoji \", Modifier.clearAndSetSemantics { })" in fields)
+        assertTrue("t.secret && t.kind == FieldKind.NUMBER -> SecretNumberField(value, set, label = t.label)" in fields)
+        assertTrue("keyboardType = KeyboardType.NumberPassword" in fields && "PasswordVisualTransformation()" in fields && "NoCopy(Modifier.fillMaxWidth())" in fields)
+        assertTrue("if (hasOwnExpiry(type)) DateField(expires, { expires = it }, ENTRY_EXPIRES)" in fields)
     }
 
     /** The arguments of each call to [name] in [src], up to its closing parenthesis (strings without parentheses). */
@@ -768,4 +965,305 @@ class PlatformSourcesTest {
         assertEquals(2, Regex("""keyboardOptions = SECRET_TEXT_KEYBOARD,""").findAll(code("ui/screens/SecretShareScreen.kt")).count())
         assertTrue("keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password)," in code("ui/screens/SecurityToolsScreen.kt"))
     }
+
+    /**
+     * 2.0, task 5 bis: the blur (RenderEffect) only from Android 12 (API 31) and only in ui/theme/Glass.kt, inside one
+     * function marked for API 31 whose every call is behind the version check. Which panels blur (bars, dialogs, never the
+     * rows) is GlassContrastTest's; this is the part the JVM cannot run.
+     */
+    @Test fun blurOnlyFromApi31() {
+        val blurApi = Regex("""\b(BlurEffect|RenderEffect|renderEffect|setRenderEffect)\b|\.blur\(""")
+        val users = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .filter { f -> blurApi.containsMatchIn(blank(f.readText()).lines().filterNot { it.trimStart().startsWith("import") }.joinToString("\n")) }
+            .map { it.name }.toList()
+        assertEquals(listOf("Glass.kt"), users)
+        val glass = blank(main("ui/theme/Glass.kt"))
+        val fn = Regex("""@RequiresApi\(Build\.VERSION_CODES\.S\)\s+private fun (\w+)\(""").find(glass) ?: error("no API 31 function")
+        val name = fn.groupValues[1]
+        // The function: from its annotation to the brace that closes its body (its signature has no braces).
+        val body = fn.range.first until closing(glass, glass.indexOf('{', fn.range.last))
+        val outside = blurApi.findAll(glass).filter { it.range.first !in body }
+            .filterNot { glass.substring(glass.lastIndexOf('\n', it.range.first) + 1, it.range.first).trimStart().startsWith("import") }.toList()
+        assertTrue("blur API outside $name: ${outside.map { it.value }}", outside.isEmpty())
+        val src = main("ui/theme/Glass.kt")
+        val calls = Regex("""\b$name\(""").findAll(glass).filter { it.range.first !in body }.toList()
+        assertTrue("$name is called", calls.isNotEmpty())
+        for (c in calls) {
+            val line = src.substring(src.lastIndexOf('\n', c.range.first) + 1, src.indexOf('\n', c.range.first))
+            assertTrue("not behind the version check: $line", "Build.VERSION.SDK_INT >= Build.VERSION_CODES.S" in line)
+        }
+        // lookFor decides the blur from the version it is given, and the activity gives it the phone's.
+        assertTrue("blur = !opaque && sdk >= Build.VERSION_CODES.S" in code("ui/theme/Glass.kt"))
+        assertTrue("sdk = Build.VERSION.SDK_INT" in code("ui/theme/Theme.kt"))
+    }
+
+    /**
+     * 2.0, review M-8 of task 5 bis: a pressed panel ([app.seguridad.ui.theme.SectionCard]) glows only while Android has
+     * animations on; which glow is GlassContrastTest's, that the card asks the system is checked here.
+     */
+    @Test fun `the press glow of a panel follows Android's animations setting`() {
+        val components = code("ui/theme/Components.kt")
+        assertTrue("LocalRippleConfiguration provides panelRipple(animationsOn)" in components)
+        assertTrue(insideCall(main("ui/theme/Components.kt"), "CompositionLocalProvider", main("ui/theme/Components.kt").indexOf("Card(\n                onClick = onClick")))
+        // Re-review N-2: a still mark while pressed, with the card's own presses.
+        assertTrue("modifier = m.pressSignal(interaction, SectionShape, animationsOn)" in components && "interactionSource = interaction," in components)
+        // Re-review N-1: the system is read as state, on start and on every return to the app, never on a recomposition.
+        assertFalse("areAnimatorsEnabled" in components)
+        assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { on = ValueAnimator.areAnimatorsEnabled() }" in code("ui/theme/Glass.kt"))
+        assertTrue("LocalAnimationsOn provides animationsOnSetting()" in code("ui/theme/Theme.kt"))
+        // Re-review N-3 (2.0, task 6: on any number of lines): no other pressable card, surface or glass panel than those of
+        // Components.kt (SectionCard and RowPanel), so every pressable panel follows the rule.
+        val found = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .flatMap { f -> pressablePanels(blank(f.readText())).map { f.name } }.toList()
+        assertEquals(listOf("Components.kt"), found.distinct())
+        // The glass is drawn only by the theme's own panels: a screen never paints one of its own around a click.
+        val glassOutside = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" && it.parentFile.name != "theme" }
+            .filter { Regex("""\.glass\(""").containsMatchIn(blank(it.readText())) }.map { it.name }.toList()
+        assertEquals(emptyList<String>(), glassOutside)
+    }
+
+    /**
+     * 2.0, task 6: the rows of the vault list are glass panels that never blur ([PanelLevel.CARD][app.seguridad.ui.theme.PanelLevel]),
+     * with the same press glow and the same still mark without animations as SectionCard; EntryRow uses that panel.
+     */
+    @Test fun `the rows of the list are panels with the press rule of SectionCard`() {
+        val components = code("ui/theme/Components.kt")
+        val b = blank(main("ui/theme/Components.kt"))
+        val row = b.substring(b.indexOf("fun RowPanel("), b.indexOf("fun RowPanel(").let { b.indexOf("\n}\n", it) })
+        assertTrue(row, "LocalRippleConfiguration provides panelRipple(animationsOn)" in row)
+        assertTrue(row, ".pressSignal(interaction, RowShape, animationsOn)" in row)
+        assertTrue(row, "interactionSource = interaction" in row && "indication = ripple()" in row)
+        assertTrue(row, ".glass(PanelLevel.CARD, RowShape)" in row)
+        // Review m-3: the still mark outside the clip, as SectionCard's, and a selected row is not marked like a press.
+        assertTrue(row, row.indexOf(".pressSignal(interaction, RowShape, animationsOn)") in 0 until row.indexOf(".clip(RowShape)"))
+        assertFalse(row, Regex("""border\(\s*2\.dp,\s*MaterialTheme\.colorScheme\.primary""").containsMatchIn(row))
+        assertTrue(row, "background(MaterialTheme.colorScheme.secondaryContainer, RowShape)" in row)
+        assertTrue("fun RowPanel(" in components)
+        val entryRow = code("ui/screens/EntryRow.kt")
+        assertTrue(Regex("""\bRowPanel\(""").containsMatchIn(entryRow))
+        // The row's presses are RowPanel's only: no clickable of its own around it (the 2FA code inside has its own).
+        assertFalse(Regex("""\.combinedClickable\b""").containsMatchIn(blank(main("ui/screens/EntryRow.kt"))))
+    }
+
+    /**
+     * 2.0, review I-1 of task 6: a message of the list can name an entry, a tag or a folder. At the lock the one on screen
+     * goes, and those still waiting die with the open vault's content (their scope is inside VaultGate's), so none comes
+     * up over «Bóveda bloqueada».
+     */
+    @Test fun `the list's messages go at the lock`() {
+        val src = main("ui/screens/VaultScreen.kt")
+        val c = code("ui/screens/VaultScreen.kt")
+        assertTrue("LaunchedEffect(unlocked) { if (!unlocked) snackbar.currentSnackbarData?.dismiss() }" in c)
+        assertTrue(insideCall(src, "VaultGate", src.indexOf("val vaultScope = rememberCoroutineScope()")))
+        assertTrue("val message: (String) -> Unit = { text -> vaultScope.launch { snackbar.showSnackbar(text) } }" in c)
+        assertTrue(insideCall(src, "VaultGate", src.indexOf("EntryList(\n")))
+        assertFalse("no message of the list from the screen's own scope", Regex("""\bscope\.launch \{ snackbar\.showSnackbar\(text\) \}""").containsMatchIn(c))
+    }
+
+    /**
+     * 2.0, review m-1 of task 6: «Copiar contraseña» is offered on the return from outside the app (MainActivity marks the
+     * leaving), never on a screen's own resume (composed, or reached inside the app).
+     */
+    @Test fun `the copy in two steps offers on the return from outside the app`() {
+        assertTrue("if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.twoStepCopy.markLeft()" in code("MainActivity.kt"))
+        val row = code("ui/screens/EntryRow.kt")
+        val offer = row.substring(row.indexOf("fun PasswordOfferOnReturn("))
+        assertFalse(offer, "ON_RESUME" in offer || "LifecycleEventEffect" in offer)
+        assertTrue(offer, "twoStep.takeReturnOffer()" in offer && "twoStep.changes.collectAsStateWithLifecycle()" in offer)
+        assertTrue(offer, "if (changes == atStart) return@LaunchedEffect" in offer)
+    }
+
+    /** The calls to a card, a surface or a glass panel in blanked code [b] that can be pressed: where each starts. */
+    private fun pressablePanels(b: String): List<Int> {
+        val panel = Regex("""\b(Card|ElevatedCard|OutlinedCard|Surface|GlassPanel)\(""")
+        val press = Regex("""\bonClick\s*=|\.(clickable|combinedClickable|selectable|toggleable)\b""")
+        return panel.findAll(b).filter { m ->
+            val open = m.range.last
+            press.containsMatchIn(b.substring(open, closing(b, open)))
+        }.map { it.range.first }.toList()
+    }
+
+    /** Review N-3 of task 5 bis: the check above sees a press on any line of the call, which the one-line one did not. */
+    @Test fun `the pressable panel check reads calls on several lines`() {
+        val multi = "Card(\n    modifier = Modifier\n        .fillMaxWidth()\n        .clickable { open() },\n) { Text(\"x\") }"
+        assertEquals(listOf(0), pressablePanels(blank(multi)))
+        val named = "Surface(\n    color = Color.Red,\n    onClick = { open() },\n) { }"
+        assertEquals(listOf(0), pressablePanels(blank(named)))
+        val glass = "GlassPanel(\n  Modifier\n    .combinedClickable(onClick = {}, onLongClick = {}),\n) { }"
+        assertEquals(listOf(0), pressablePanels(blank(glass)))
+        // Not a press: a click inside the content (a button in the card) or in a text.
+        val inside = "Card(Modifier.fillMaxWidth()) { TextButton(onClick = {}) { Text(\".clickable onClick =\") } }"
+        assertEquals(emptyList<Int>(), pressablePanels(blank(inside)))
+    }
+
+    /** 2.0, review M-2 of task 5 bis: the highlight is white fading out, as ThemeSurfaces.kt measures it (not black at 0). */
+    @Test fun `the highlight of a panel fades white`() {
+        val src = code("ui/theme/Glass.kt")
+        val highlight = src.substring(src.indexOf("val highlight = Brush.verticalGradient("), src.indexOf("val edge ="))
+        assertTrue(highlight, "0f to Color.White.copy(alpha = colors.highlightAlpha)" in highlight && "0.5f to Color.White.copy(alpha = 0f)" in highlight)
+        assertFalse(highlight, "Transparent" in highlight)
+    }
+
+    /** 2.0, task 5 bis: the theme's state is the look only: no secret, no vault, no key reaches it. */
+    @Test fun theThemeStateHasNoSecret() {
+        val banned = Regex("""import app\.seguridad\.crypto\.|\b(VaultStore|VaultEntry|VaultData|Secret|AppContainer)\b""")
+        for (f in listOf("ui/theme/Theme.kt", "ui/theme/Palettes.kt", "ui/theme/Glass.kt", "ui/screens/AppearanceScreen.kt")) {
+            val hit = banned.find(code(f))
+            assertTrue("$f: ${hit?.value}", hit == null)
+        }
+        // What Settings keeps of the look: enums, booleans and two tone numbers.
+        val settings = code("settings/Settings.kt")
+        for (field in listOf("val style: ThemeStyle = ThemeStyle.GLASS", "val palette: PaletteId = PaletteId.NIGHT", "val custom: CustomPalette? = null",
+            "val reduceTransparency: Boolean = false", "val highContrast: Boolean = false")) {
+            assertTrue(field, field in settings)
+        }
+        assertTrue("data class CustomPalette(val accentHue: Int, val backgroundHue: Int, val glass: GlassLevel)" in code("settings/Appearance.kt"))
+    }
+
+    /**
+     * Task 8, round 4: the texts of an A6 outcome come only from a6Text (vault/A6Text.kt): no other main source picks the
+     * success sentence; and «Hacer una copia ahora» with the vault locked asks for no copy (it would live in memory only)
+     * and promises none (i-3).
+     */
+    @Test fun `the A6 texts come from one function, and a copy by hand needs the vault open`() {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/java/app/seguridad").isDirectory) dir = dir.parentFile
+        val users = File(dir, "app/src/main/java/app/seguridad").walk().filter { it.isFile && it.name.endsWith(".kt") }
+            .filter { f -> Regex("""\bAUTO_BACKUP_REPLACED(_SEVERAL)?\b""").containsMatchIn(f.readText().lines().filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("//") }.joinToString("\n")) }
+            .map { it.name }.toSet()
+        assertEquals(setOf("A6Text.kt", "AutoBackup.kt", "ToolTexts.kt"), users)
+        // Round 5 (m-4): every sentence of an A6 outcome, and one post of it, and the dialog shows the text posted.
+        fun usersOf(name: String) = File(dir, "app/src/main/java/app/seguridad").walk().filter { it.isFile && it.name.endsWith(".kt") }
+            .filter { f -> Regex("""\b$name\(""").containsMatchIn(f.readText().lines().filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("//") }.joinToString("\n")) }
+            .map { it.name }.toSet()
+        assertEquals(setOf("A6Text.kt"), usersOf("a6PartialText"))
+        assertEquals(setOf("A6Text.kt"), usersOf("a6UnlistedInDoneText"))
+        assertEquals(setOf("A6Text.kt", "AutoBackup.kt", "ToolTexts.kt"), usersOf("autoBackupUnlistedText"))
+        assertEquals(setOf("AutoBackup.kt"), usersOf("a6Text") - "A6Text.kt")
+        // Round 6: whether to speak, and what the dialog of the change shows of its own request, in one place each.
+        assertEquals(setOf("AutoBackup.kt"), usersOf("a6Decide") - "A6Text.kt")
+        assertEquals(setOf("SettingsScreen.kt"), usersOf("a6DialogView") - "A6Text.kt")
+        assertTrue("summary?.takeIf { it.request == state.answerRequest }" in code("ui/screens/SettingsScreen.kt"))
+        assertEquals(1, Regex("""\boutcome\.post\(""").findAll(code("vault/AutoBackup.kt")).count())
+        assertTrue("ReplaceOutcomeDialog(shown.text ?: shown.error.orEmpty()" in code("ui/AppNavHost.kt"))
+        val auto = code("vault/AutoBackup.kt")
+        assertFalse("AUTO_BACKUP_REPLACED_SEVERAL else AUTO_BACKUP_REPLACED" in auto)
+        val settings = code("ui/screens/SettingsScreen.kt")
+        assertTrue("is VaultState.Unlocked -> autoBackup.request(t.uri)" in settings)
+        assertTrue("VaultState.Locked -> scope.launch { snackbar.showSnackbar(AUTO_BACKUP_NOW_NEEDS_OPEN) }" in settings)
+        assertEquals(1, Regex("""autoBackup\.request\(t\.uri\)""").findAll(settings).count())
+        assertFalse("se hará en cuanto la abras" in settings)
+    }
+
+    /**
+     * 2.0, task 9: the wifi QR. What it draws (the code's text and its image) lives in the screen's ViewModel, never in
+     * saved state; the ViewModel follows the vault with no composition, so a lock in the background drops the image, and
+     * the screen closes. The image is drawn only after a tap, hidden again when the app stops, and its description is a
+     * fixed text (never the password). Only the entry's id goes in the route.
+     */
+    @Test fun `task 9 the wifi QR screen keeps its image in a ViewModel and closes on lock`() {
+        val src = code("ui/screens/WifiQrScreen.kt")
+        assertEquals(0, Regex("""rememberSaveable|SavedStateHandle|Bundle""").findAll(src).count())
+        val vm = src.substringAfter("private class WifiQrViewModel(").substringBefore("\n}\n")
+        assertTrue("viewModelScope.launch { store.state.collect { follow(it) } }" in vm)
+        assertTrue("override fun onCleared()" in vm && "drawn.value = null" in vm)
+        // A lock (no open vault) or the entry gone closes, and closing drops the image and the network first.
+        assertTrue("if (entry == null) {\n            close()\n            return\n        }" in vm)
+        assertTrue("private fun close() {\n        hide()\n        config = null\n        shown.value = null\n        closed.value = true" in vm)
+        assertTrue(vm.substringAfter("fun hide() {").substringBefore("\n    }").contains("drawn.value = null"))
+        assertTrue(vm.substringAfter("override fun onCleared() {").substringBefore("\n    }").contains("drawn.value = null"))
+        val screen = src.substringAfter("fun WifiQrScreen(")
+        assertTrue("VaultIdleLock(store)" in screen && ".touchesVault(store)" in screen)
+        assertTrue("if (vm.closed.value) {\n        LaunchedEffect(Unit) { onBack() }" in screen)
+        assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.hide() }" in screen)
+        assertTrue("contentDescription = WIFI_QR_IMAGE" in screen)
+        // The texts on screen: the title, the lines of wifiQrLines (the first in the colour of a warning, and alone when
+        // no code can be drawn), and the two buttons; ZXing's refusal in place of the image.
+        assertTrue("BackScaffold(WIFI_QR_TITLE, onBack)" in screen)
+        assertTrue("Text(shown.lines.first(), color = NegativeColor)\n            if (!shown.canDraw) return@Column" in screen)
+        assertTrue("failed != null -> Text(failed, color = NegativeColor)" in screen)
+        assertTrue("OutlinedButton(onClick = vm::hide) { Text(WIFI_QR_HIDE) }" in screen && "else -> Button(onClick = vm::show) { Text(WIFI_QR_SHOW) }" in screen)
+        val drawing = src.substringAfter("internal fun wifiQrDrawing(").substringBefore("\n}\n")
+        assertTrue("catch (e: WriterException) {\n        WifiQrDrawing.Problem(WIFI_QR_TOO_BIG)" in drawing)
+        assertTrue("catch (e: Exception) {\n        WifiQrDrawing.Problem(WIFI_QR_FAILED)" in drawing)
+        assertEquals(1, Regex("""contentDescription = """).findAll(screen).count())
+        val nav = code("ui/AppNavHost.kt")
+        assertTrue("composable(\"vault/entry/{id}/wifi-qr\")" in nav)
+        assertTrue("WifiQrScreen(vault, entry.arguments?.getString(\"id\").orEmpty(), onBack = backOnce(nav))" in nav)
+        // «Enseñar QR» only on a wifi entry.
+        assertTrue("if (entry.type == EntryType.WIFI) OutlinedButton(onClick = onShowWifiQr) { Text(WIFI_QR_OPEN) }" in code("ui/screens/VaultEntryScreen.kt"))
+    }
+
+    /**
+     * 2.0, task 9: «Añadir a la bóveda» of a wifi QR in the inspector hands the text over as the 2FA one does (never in
+     * the route), to the vault's own form behind the vault's gate, which fills it and saves only with «Guardar». The
+     * hidden full text says what it hides by the kind of QR, not by whether a password was read.
+     */
+    @Test fun `task 9 the inspector hands a wifi code to the form, never saves it`() {
+        val src = code("ui/screens/QrInspectScreen.kt")
+        assertTrue("QrAction.ADD_WIFI -> { QrHandoff.put(QrTarget.WIFI, v.text); onAddWifi() }" in src)
+        assertTrue("QrAction.ADD_WIFI -> Button(onClick = onAction, modifier = Modifier.fillMaxWidth()) { Text(QR_ADD_TO_VAULT) }" in src)
+        val vm = src.substringAfter("private class QrWifiImportViewModel(").substringBefore("\n}\n")
+        assertTrue("val pending = QrPendingText(QrTarget.WIFI)" in vm && "pending.clear()" in vm)
+        val screen = src.substringAfter("fun QrWifiImportScreen(")
+        assertTrue("store, id = null, initialType = EntryType.WIFI, onDone = done, wifiQrText = vm.pending.text," in screen)
+        assertTrue("VaultGate(store" in screen)
+        assertFalse("upsert" in screen || "addAll" in screen)
+        assertTrue("Text(v.hiddenLine.orEmpty()" in src)
+        assertFalse("QR_TEXT_HIDDEN_OTP" in src)
+        assertTrue("composable(\"tools/qr/wifi\") { QrWifiImportScreen(vault, onDone = backOnce(nav)) }" in code("ui/AppNavHost.kt"))
+        val form = code("ui/screens/VaultEntryScreen.kt")
+        assertTrue("form.takeHandOver(wifiQrText)?.let(form::applyWifiQr)" in form)
+    }
+
+    /**
+     * 2.0, task 9, ronda 1 (I-1): leaving the app drops the QR texts waiting at the vault's gate, from the same place
+     * and under the same rule as the lock on leaving (MainActivity.onStop), before it; both import screens go back to
+     * the inspector when that happened.
+     */
+    @Test fun `task 9 leaving the app drops the pending QR texts, from onStop`() {
+        val stop = code("MainActivity.kt").substringAfter("override fun onStop()").substringBefore("\n    }")
+        val drop = stop.indexOf("if (!isChangingConfigurations) container.leftApp(VaultLock.keepOpenOnce)")
+        assertTrue(drop >= 0 && drop < stop.indexOf("container.vault.lock(LockReason.LEFT_APP)"))
+        val src = code("ui/screens/QrInspectScreen.kt")
+        for (screen in listOf("fun QrTotpImportScreen(", "fun QrWifiImportScreen(")) {
+            val body = src.substringAfter(screen).substringBefore("\n}\n")
+            // Ronda 2 (n-1): read as a state, so a return to the app recomposes the screen and it goes back at once.
+            assertTrue(screen, "val left by vm.pending.leftState.collectAsStateWithLifecycle()" in body)
+            val left = body.indexOf("if (left) {\n        LaunchedEffect(Unit) { done() }")
+            assertTrue(screen, left >= 0 && left < body.indexOf("if (state is VaultState.Unlocked)"))
+            assertFalse(screen, "vm.pending.left" in body.replace("vm.pending.leftState", ""))
+        }
+    }
+
+    /** 2.0, task 9: nothing joins a network. No wifi API, no intent to the system's settings, no new permission or component. */
+    @Test fun `task 9 no way to join a network and no new permission`() {
+        val wifiApi = Regex("""WifiManager|WifiNetworkSuggestion|WifiNetworkSpecifier|WifiConfiguration|android\.net\.wifi|ACTION_WIFI|WIFI_ADD_NETWORKS|ACTION_WIRELESS_SETTINGS""")
+        val bad = mainDir().walkTopDown().filter { it.isFile && it.extension == "kt" }.filter { wifiApi.containsMatchIn(it.readText()) }.map { it.name }.toList()
+        assertEquals(emptyList<String>(), bad)
+        var dir: File? = File(".").absoluteFile
+        var manifest: File? = null
+        while (dir != null && manifest == null) {
+            manifest = File(dir, "app/src/main/AndroidManifest.xml").takeIf { it.isFile }
+            dir = dir.parentFile
+        }
+        val m = manifest!!.readText()
+        assertEquals(
+            listOf("android.permission.INTERNET", "android.permission.CAMERA"),
+            Regex("""<uses-permission android:name="([^"]+)"""").findAll(m).map { it.groupValues[1] }.toList(),
+        )
+        assertEquals(1, Regex("""android:exported="true"""").findAll(m).count())
+    }
+
+    /**
+     * Re-review of the branch, C i-3: the notice of «Bóvedas» (now a result and a notice joined, C n-1) scrolls, as the
+     * dialog after a change of master password does; nothing of it in saved state.
+     */
+    @Test fun theVaultsNoticeScrolls() {
+        val nav = code("ui/AppNavHost.kt")
+        val dialog = nav.substring(nav.indexOf("if (showing == OpeningItem.VAULTS_NOTICE)"), nav.indexOf("val replacing by container.autoBackup.replacing"))
+        assertTrue(dialog, Regex("""FilterObscuredTouches\(\)\s*Column\(Modifier\.verticalScroll\(rememberScrollState\(\)\)\) \{ Text\(shown\) \}""").containsMatchIn(dialog))
+        assertFalse(dialog, "rememberSaveable" in dialog)
+    }
 }
+

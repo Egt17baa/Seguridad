@@ -10,6 +10,7 @@ import app.seguridad.SeguridadApp
 import app.seguridad.settings.ClipboardClear
 import app.seguridad.tools.CLIPBOARD_OWN_LABEL
 import app.seguridad.tools.copyOrAskNotice
+import app.seguridad.tools.copyOrAskNoticeFor
 import app.seguridad.tools.ownCopyClearDelay
 import app.seguridad.tools.wipeOwnCopy
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +49,24 @@ fun copySensitive(context: Context, text: String, onCopied: (() -> Unit)? = null
     val app = context.applicationContext
     return copyOrAskNotice(
         text,
+        container.clipboardNotice,
+        accepted = container.settings.settings.value.clipboardHistoryNoticeAccepted,
+        sdk = Build.VERSION.SDK_INT,
+        write = { copySensitiveNow(app, it) },
+        onCopied = onCopied,
+    )
+}
+
+/**
+ * [copySensitive] for a text worked out when it is written (review m-4 of task 6: a 2FA code): [produce] runs now, or
+ * on «Entendido, copiar» of the A14 notice, never at the tap before it; null copies nothing. Returns whether it was copied now.
+ */
+fun copySensitiveFor(context: Context, produce: () -> String?, onCopied: (() -> Unit)? = null): Boolean {
+    val container = (context.applicationContext as? SeguridadApp)?.container
+        ?: return produce()?.let { copySensitiveNow(context, it); onCopied?.invoke(); true } ?: false
+    val app = context.applicationContext
+    return copyOrAskNoticeFor(
+        produce,
         container.clipboardNotice,
         accepted = container.settings.settings.value.clipboardHistoryNoticeAccepted,
         sdk = Build.VERSION.SDK_INT,

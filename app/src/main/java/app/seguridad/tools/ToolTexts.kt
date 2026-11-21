@@ -277,11 +277,11 @@ const val IMAGE_NO_MEMORY = "No hay memoria suficiente para trabajar con esta im
 
 // ---- Inspector de QR ----
 
-/** Anexo: «Explicación». */
+/** Anexo: «Explicación». 2.0, task 9: «wifi» in lower case (R-4), and a wifi is passed on too (to the vault's form). */
 const val QR_EXPLANATION =
-    "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes Wi-Fi, ni pagos. Puedes copiarlo y, si es una " +
-        "tarjeta o un mensaje de Clavero o un código 2FA, pasarlo a su pantalla. La imagen se analiza en tu móvil y " +
-        "no se guarda."
+    "Enseña lo que hay en un código QR sin abrir nada: ni enlaces, ni redes wifi, ni pagos. Puedes copiarlo y, si es una " +
+        "tarjeta o un mensaje de Clavero, un código 2FA o un wifi, pasarlo a su pantalla. La imagen se analiza en tu " +
+        "móvil y no se guarda."
 
 /** Anexo: «Sin avisos», shown in a neutral colour, without ✓. */
 const val QR_NO_ALERTS =
@@ -358,7 +358,7 @@ const val QR_COPY = "Copiar"
 const val QR_COPY_PASSWORD = "Copiar contraseña"
 const val QR_ADD_CONTACT = "Añadir contacto"
 const val QR_OPEN_RECEIVED = "Abrir lo recibido"
-const val QR_ADD_TOTP = "Añadir a la bóveda"
+const val QR_ADD_TO_VAULT = "Añadir a la bóveda"
 const val QR_NOT_FOUND =
     "No hemos encontrado ningún código QR en la imagen. Prueba con otra en la que el código se vea entero y nítido."
 const val QR_IMAGE_TOO_BIG = "La imagen ocupa más de 50 MB."
@@ -374,7 +374,8 @@ const val QR_COPIED_WITH_HIDDEN = "Copiado tal cual, con los caracteres ocultos 
 
 /** Not in the annex: what each kind of QR is called, and the names of the fields shown for it. */
 const val QR_KIND_LINK = "Enlace"
-const val QR_KIND_WIFI = "Red Wi-Fi"
+// 2.0, task 9: «wifi» in lower case, the word of the RAE, not the brand (Abogado Digital, R-4).
+const val QR_KIND_WIFI = "Red wifi"
 const val QR_KIND_SEPA = "Pago SEPA"
 const val QR_KIND_CRYPTO = "Pago en criptomonedas"
 const val QR_KIND_CONTACT = "Contacto"
@@ -504,7 +505,7 @@ const val PASSWORD_CHANGE_COPIES = "Cambiar la contraseña no cambia las copias 
 /** A6, the dialog after the master password changed: title, the two sentences (the first is above), and the buttons. */
 const val PASSWORD_CHANGED_TITLE = "Contraseña maestra cambiada"
 const val PASSWORD_CHANGE_OLD_BACKUPS = "Las copias .sgbak de antes, también las automáticas, se siguen abriendo con la contraseña anterior."
-const val PASSWORD_CHANGE_REPLACE_COPIES = "Hacer una copia nueva y borrar las anteriores (automáticas y de antes de importar)"
+const val PASSWORD_CHANGE_REPLACE_COPIES = "Hacer una copia nueva y borrar las anteriores (automáticas, de antes de importar y de antes de la 2.0)"
 const val PASSWORD_CHANGE_RENEW_HINT =
     "Si temes que alguien tenga la contraseña anterior y una copia, con las dos puede ver todo lo que guardabas al " +
         "hacerla: cambia las contraseñas y los códigos 2FA que más te importen, y renueva tu identidad."
@@ -668,7 +669,7 @@ const val IMPORT_REMOVE_SHORT =
 const val VAULT_CREATE_SHORT =
     "Guarda contraseñas, frases semilla, notas y códigos 2FA, cifrados en este móvil con tu contraseña maestra."
 const val IDENTITY_SHORT = "Para que tus contactos te cifren mensajes y para firmar."
-const val AUTO_BACKUP_SHORT = "Guarda una copia cifrada en la carpeta que elijas después de cada cambio."
+const val AUTO_BACKUP_SHORT = "Guarda una copia cifrada en las carpetas que elijas, tras cada cambio o con calendario."
 
 /** On view (R-9 of the Abogado, 1.4.2): what the rotation deletes, and what it never does. */
 const val AUTO_BACKUP_DELETES_SHORT = "Borra solo sus copias automáticas más antiguas, nunca otros archivos de la carpeta."
@@ -752,7 +753,7 @@ val ALL_TOOL_TEXTS: List<String> = listOf(
     QR_WIFI_OPEN, QR_WIFI_WEP, QR_SEPA, QR_CRYPTO, QR_SMS, QR_SGK1, QR_TOO_BIG,
     QR_TOOL_TITLE, QR_TOOL_SUBTITLE, QR_HIDDEN_ELSEWHERE, QR_SCAN, QR_PICK_IMAGE, QR_READING_IMAGE, QR_FULL_TEXT,
     QR_TEXT_HIDDEN_PASSWORD, QR_TEXT_HIDDEN_OTP, QR_SHOW, QR_HIDE, QR_COPY, QR_COPY_PASSWORD, QR_ADD_CONTACT,
-    QR_OPEN_RECEIVED, QR_ADD_TOTP, QR_NOT_FOUND, QR_IMAGE_TOO_BIG, QR_IMAGE_TOO_LARGE, QR_IMAGE_DAMAGED,
+    QR_OPEN_RECEIVED, QR_ADD_TO_VAULT, QR_NOT_FOUND, QR_IMAGE_TOO_BIG, QR_IMAGE_TOO_LARGE, QR_IMAGE_DAMAGED,
     QR_NO_CAMERA_PERMISSION, QR_CAMERA_FAILED,
     QR_KIND_LINK, QR_KIND_WIFI, QR_KIND_SEPA, QR_KIND_CRYPTO, QR_KIND_CONTACT, QR_KIND_SMS, QR_KIND_PHONE, QR_KIND_EMAIL,
     QR_KIND_GEO, QR_KIND_CARD, QR_KIND_RECEIVED, QR_KIND_OTP, QR_KIND_TEXT,

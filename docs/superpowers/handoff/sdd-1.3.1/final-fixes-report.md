@@ -3,7 +3,7 @@
 - **Rama:** `ccr-a1a6eabb-765f9g`. Base de la ronda: `688b482` (`e6796db` más el registro).
 - **Estado:** F1, F2 y F4 a F9 hechos, probados, con commit y push. En la primera entrega F3 quedó parado: la condición (2) era falsa para el diseño decidido (§F3).
 - **Ronda 2:** el controlador eligió para F3 la opción A y pidió volver al orden de la 1.3.0 en F1 con la versión declarada. Las dos cosas están hechas, con commit y push: ver la sección «Ronda 2» al final, que manda sobre §F1 («El orden») y §F3.
-- **Commits** (autor `Claude <noreply@anthropic.com>`, el mensaje acaba solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`, `grep -cE "Claude-Session|claude\.ai"` = 0 en los cuatro, push después de cada uno, sin `amend`, `rebase` ni `force`):
+- **Commits** (autor `Claude <noreply@anthropic.com>`, el mensaje acaba solo en `Co-Authored-By: Claude <noreply@anthropic.com>`, `grep -cE "Claude-Session|claude\.ai"` = 0 en los cuatro, push después de cada uno, sin `amend`, `rebase` ni `force`):
 
 | Commit | Grupo | Asunto |
 |---|---|---|

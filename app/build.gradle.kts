@@ -32,7 +32,7 @@ android {
         targetSdk = 36
         // Every Play upload needs a higher versionCode: pass -PversionCode=N (CI uses the run number).
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "1.4.3"
+        versionName = "2.0.0"
         // SHA-256 of the certificate in debug.keystore (public test key), for verifying the installed debug build.
         buildConfigField("String", "DEBUG_CERT_SHA256", "\"C0014DF66F103A436485115FE0880512C9F05DB39E0E3A94D659997EE9411834\"")
     }
@@ -232,6 +232,10 @@ tasks.named("check") { dependsOn(checkAssets) }
 // the sources read without their comments, and the assets. The same list is in jvm-check/build.gradle.kts. Plain files,
 // resolved at configuration time: configuration-cache safe.
 tasks.withType<Test>().configureEach {
+    // The tests that build a vault at its data limit (24 MiB) hold the vault, its copy and the vault read back at the
+    // same time: with Gradle's default 512 MiB they run out of memory on JDK 17, the one CI uses (PR #22). This is the
+    // test JVM only; the app's own memory limits are the named risks of rows 51, 55 and 58 of pendientes.md.
+    maxHeapSize = "1g"
     inputs.files(
         "../README.md", "../NOTICE", "../SECURITY.md",
         "../docs/privacidad.html", "../docs/ficha-google-play.md", "../docs/PUBLICAR.md",
@@ -239,9 +243,17 @@ tasks.withType<Test>().configureEach {
         "../.github/workflows/build-apk.yml",
         "build.gradle.kts", "src/main/AndroidManifest.xml",
     ).withPropertyName("textsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md") })
+    inputs.files(fileTree("../docs/superpowers/handoff") { include("*-traspaso.md", "*-notas.md") })
         .withPropertyName("handoffsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("src/main/res").withPropertyName("resReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("src/main/assets").withPropertyName("assetsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("src/main/java").withPropertyName("sourcesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    // Audit C-1: PublishedFilesNameNoModelTest reads every document and the advisor skill's table of names.
+    inputs.dir("../docs").withPropertyName("docsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files("../.claude/skills/advisor/SKILL.md").withPropertyName("modelNamesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    // Recheck C-1.m1: the rest of what that test walks (without any build/), so a change in only one of them reruns it.
+    inputs.files("../CLAUDE.md", "../build.gradle.kts", "../settings.gradle.kts", "../jvm-check/build.gradle.kts", "../jvm-check/settings.gradle.kts")
+        .withPropertyName("rootFilesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(listOf("../.maestro", "../scripts", "../gradle", "../.github", "../jvm-check/src").map { fileTree(it) { exclude("**/build/**") } })
+        .withPropertyName("treesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
 }

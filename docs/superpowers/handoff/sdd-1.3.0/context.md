@@ -4,7 +4,7 @@ Repo /home/user/Seguridad, branch ccr-a1a6eabb-765f9g. Android app (Kotlin + Com
 
 Read first: CLAUDE.md, .claude/skills/experto-seguridad-cripto/SKILL.md (and the references touching your task). The design is docs/superpowers/specs/2026-10-27-seguridad-1.3.0-herramientas-design.md; UI copy is in docs/superpowers/specs/2026-10-27-seguridad-1.3.0-textos.md (use verbatim). Read only the sections relevant to your task.
 
-Commits: git -c user.name=Claude -c user.email=noreply@anthropic.com commit ... ; message ends with a blank line and 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'. No session links, no personal emails. Do NOT push (the controller pushes).
+Commits: git -c user.name=Claude -c user.email=noreply@anthropic.com commit ... ; message ends with a blank line and 'Co-Authored-By: Claude <noreply@anthropic.com>'. No session links, no personal emails. Do NOT push (the controller pushes).
 
 Builds are offline: export ANDROID_HOME=/opt/android-sdk; use --no-daemon --max-workers=1 --offline. Pure code (not under ui/ or android/, not MainActivity/SeguridadApp) is compiled by jvm-check: gradle -p jvm-check test --no-daemon --max-workers=1 --offline
 
@@ -44,5 +44,5 @@ Your report must end with the sections 'Revisión experto-seguridad-cripto' and 
   - `gradle -p jvm-check test`;
   - `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:checkLicense :app:checkFragmentVersion :app:checkAssets`.
 - **Skills:** superpowers con `experto-seguridad-cripto`. Cada informe acaba con «Revisión experto-seguridad-cripto», con la evidencia `archivo:línea`.
-- **Commits:** autor `Claude <noreply@anthropic.com>` (`git -c user.name=Claude -c user.email=noreply@anthropic.com commit`). Sin enlaces a sesiones ni correos personales. Terminan en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- **Commits:** autor `Claude <noreply@anthropic.com>` (`git -c user.name=Claude -c user.email=noreply@anthropic.com commit`). Sin enlaces a sesiones ni correos personales. Terminan en `Co-Authored-By: Claude <noreply@anthropic.com>`.
 

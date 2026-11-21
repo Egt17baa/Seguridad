@@ -8,6 +8,10 @@
 #     app.seguridad.MainActivity and androidx.profileinstaller.ProfileInstallReceiver (this one only with
 #     android.permission.DUMP). A component with an intent-filter and no android:exported counts as exported;
 #   - androidx.core.content.FileProvider is missing, exported or without grantUriPermissions="true";
+#   - app.seguridad.MainActivity is missing or has no empty android:taskAffinity (2.0, audit B-2, the owner's decision
+#     of 21-11-2026: in aapt2 dump xmltree, A: android:taskAffinity(0x01010012)="" inside its E: activity), so no other
+#     app's activity can join Clavero's task. It is the only difference of the manifest from Clavero 1.4.3 besides
+#     versionName and versionCode (the CI sets it, the run's number);
 #   - the permissions (aapt2 dump permissions) are not exactly those of Seguridad 1.2.2 (EXPECTED_PERMISSIONS);
 #   - with --release, the APK is debuggable.
 # A debuggable APK (android:debuggable="true", the local debug APK) also may export
@@ -67,13 +71,13 @@ errors=0
 fail() { echo "check-manifest: ERROR: $*" >&2; errors=$((errors + 1)); }
 
 # One tab-separated line per component: kind, name, exported, permission, has an intent-filter, grantUriPermissions,
-# and one line "debuggable<TAB>value" for <application>. An attribute belongs to the element whose indentation is two
+# taskAffinity, and one line "debuggable<TAB>value" for <application>. An attribute belongs to the element whose indentation is two
 # spaces less than its own. "-" means the attribute is absent. Values are aapt2's (true, false, or @0x... for a
 # resource reference, which the checks below treat as "not false", i.e. fail closed).
 components="$(printf '%s\n' "$tree" | awk '
   function indent(s) { match(s, /^ */); return RLENGTH }
   function flush() {
-    if (kind != "") print kind "\t" name "\t" exported "\t" perm "\t" filter "\t" grant
+    if (kind != "") print kind "\t" name "\t" exported "\t" perm "\t" filter "\t" grant "\t" affinity
     kind = ""
   }
   function value(s,   v) {
@@ -90,7 +94,7 @@ components="$(printf '%s\n' "$tree" | awk '
     if (kind != "" && i <= compIndent) flush()
     if (el == "application") appIndent = i
     if (el == "activity" || el == "activity-alias" || el == "service" || el == "receiver" || el == "provider") {
-      kind = el; compIndent = i; name = "-"; exported = "-"; perm = "-"; filter = "no"; grant = "-"
+      kind = el; compIndent = i; name = "-"; exported = "-"; perm = "-"; filter = "no"; grant = "-"; affinity = "-"
     } else if (kind != "" && el == "intent-filter" && i > compIndent) {
       filter = "yes"
     }
@@ -106,6 +110,7 @@ components="$(printf '%s\n' "$tree" | awk '
       else if (key == "exported") exported = value(attr)
       else if (key == "permission") perm = value(attr)
       else if (key == "grantUriPermissions") grant = value(attr)
+      else if (key == "taskAffinity") affinity = (value(attr) == "" ? "(vacía)" : value(attr))
     }
   }
   END { flush() }
@@ -125,8 +130,13 @@ elif [ -n "$debuggable" ] && [ "$debuggable" != "false" ]; then
 fi
 
 file_provider=0
-while IFS=$'\t' read -r kind name exported perm filter grant; do
+main_activity=0
+while IFS=$'\t' read -r kind name exported perm filter grant affinity; do
   [ -n "$kind" ] && [ "$kind" != "debuggable" ] || continue
+  if [ "$kind" = "activity" ] && [ "$name" = "$MAIN_ACTIVITY" ]; then
+    main_activity=$((main_activity + 1))
+    [ "$affinity" = "(vacía)" ] || fail "$MAIN_ACTIVITY sin android:taskAffinity=\"\" (taskAffinity=$affinity): otra app podría meter una pantalla suya en la tarea de Clavero (B-2)"
+  fi
   # targetSdk >= 31 requires android:exported with an intent-filter; without one, older rules would export it.
   if [ "$exported" = "-" ]; then
     if [ "$filter" = "yes" ]; then is_exported=true; else is_exported=false; fi
@@ -156,6 +166,7 @@ while IFS=$'\t' read -r kind name exported perm filter grant; do
   fi
 done <<< "$components"
 
+[ "$main_activity" -eq 1 ] || fail "$MAIN_ACTIVITY aparece $main_activity veces en el manifiesto (debe estar una vez)"
 [ "$file_provider" -eq 1 ] || fail "$FILE_PROVIDER aparece $file_provider veces en el manifiesto (debe estar una vez)"
 
 expected_sorted="$(printf '%s\n' "$EXPECTED_PERMISSIONS" | LC_ALL=C sort)"

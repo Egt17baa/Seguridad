@@ -1,10 +1,19 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.storeSaveErrorText
+import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
+import app.seguridad.vault.copyFailureText
+import app.seguridad.vault.BACKUP_DOES_NOT_FIT_V3
+import app.seguridad.vault.BACKUP_DOES_NOT_FIT
+import app.seguridad.vault.backupCheckNotice
+import app.seguridad.vault.BACKUP_CHECK_NOTICE_MORE
+import app.seguridad.ui.theme.CautionColor
+import androidx.compose.material3.MaterialTheme
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.AlertDialog
+import app.seguridad.ui.theme.AlertDialog
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,7 +65,14 @@ import kotlinx.coroutines.withContext
  * does nothing. The app root provides AppContainer.masterChanged, which outlives the activity: a lambda captured before
  * a rotation still reaches the dialog of the new one (M-3).
  */
-val LocalOnMasterChanged = staticCompositionLocalOf<(fingerprintFailed: Boolean, hasIdentity: Boolean) -> Unit> { { _, _ -> } }
+val LocalOnMasterChanged = staticCompositionLocalOf<(vaultId: String, fingerprintFailed: Boolean, hasIdentity: Boolean) -> Unit> { { _, _, _ -> } }
+
+/**
+ * RT-22 (ii): whether the empty vault shown can be filled now (AppContainer.mayFillEmptySlot, provided by the app root);
+ * asked right before the store is called. The default refuses (round 2 of the fixes of the attack, informative 1): a
+ * screen composed without the app root's provider fails closed, never open.
+ */
+val LocalEmptySlotGuard = staticCompositionLocalOf<suspend () -> Boolean> { { false } }
 
 /** What the vault menu and Ajustes can do with the vault file; each one shows its own dialog or picker. */
 class VaultActions(val export: () -> Unit, val import: () -> Unit, val changeMaster: () -> Unit)
@@ -85,11 +101,12 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             if (!ok) discardDocumentNow(context, uri)
             // A CryptoFailure names the attachment that is missing or damaged; false with a vault means it locked
             // meanwhile, and only an open vault's attachments can be checked.
-            val failure = (result.exceptionOrNull() as? CryptoFailure)?.message
+            val failure = exportFailureText((result.exceptionOrNull() as? CryptoFailure)?.message)
                 ?: "La bóveda se bloqueó: ábrela y vuelve a exportarla".takeIf { result.isSuccess && store.state.value is VaultState.Locked }
             snackbar.showSnackbar(if (ok) "Copia cifrada guardada. Necesitarás tu contraseña maestra para abrirla." else failure ?: "No se pudo guardar la copia")
         }
     }
+    val guard = LocalEmptySlotGuard.current
     // Only the document's address is kept until the password is typed; the file is read as a stream then.
     var importUri by remember { mutableStateOf<Uri?>(null) }
     val importer = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.IMPORT_COPY) { uri ->
@@ -129,14 +146,14 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                         if (store.changeMaster(pw)) {
                             // From here the password did change: nothing below may say it did not.
                             val fingerprintOff = try {
-                                BiometricVault.disable(context) // It wrapped the old data key.
+                                BiometricVault.disable(context, store.id) // It wrapped the old data key.
                                 true
                             } catch (e: Exception) {
                                 false
                             }
                             // Inside this block: leaving the screen or rotating during the key derivation must not
                             // lose the dialog (it is kept outside the activity).
-                            onMasterChanged(!fingerprintOff, hadIdentity)
+                            onMasterChanged(store.id, !fingerprintOff, hadIdentity)
                             // changeMaster has locked the vault: it opens with the new password from now on.
                             if (fingerprintOff) {
                                 "Contraseña maestra cambiada. Abre la bóveda con la nueva contraseña. Vuelve a activar la huella si la usabas."
@@ -147,7 +164,8 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
                             "La bóveda se bloqueó: no se ha cambiado nada"
                         }
                     } catch (e: Exception) {
-                        newPasswordFailureMessage(e, "No se pudo cambiar la contraseña maestra") // Review F5, M2.
+                        // Review F5, M2; review fixes, CR-6: an upgrade waiting says so too.
+                        storeSaveErrorText(e, fallback = newPasswordFailureMessage(e, "No se pudo cambiar la contraseña maestra"))
                     } finally {
                         pw.fill('\u0000')
                     }
@@ -169,14 +187,15 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
             importUri = null
             scope.launch {
                 val msg = withContext(NonCancellable) {
-                    try {
+                    // RT-22 (ii): an empty vault is filled only by the rule of creating a vault, checked right before.
+                    if (store.state.value is VaultState.NoVault && !guard()) VAULT_NEW_NEEDS_OPEN.also { pw.fill('\u0000') } else try {
                         // A .sgbak copy or a JSON export: the store tells them apart by their first bytes.
                         // True when the import dropped a pending request to replace the old automatic copies (COPIAS-3).
                         val dropped = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { store.importReplace(it, pw) } }
-                        BiometricVault.disable(context)
+                        BiometricVault.disable(context, store.id)
                         if (dropped) "Copia importada. $AUTO_BACKUP_REPLACE_DROPPED" else "Copia importada"
                     } catch (e: CryptoFailure) {
-                        e.message ?: "Contraseña incorrecta"
+                        copyFailureText(e) // Branch review, row 42.
                     } catch (e: Exception) {
                         "No se pudo importar la copia"
                     } finally {
@@ -253,4 +272,32 @@ internal fun PasswordDialog(
         confirmButton = { TextButton(enabled = ok, onClick = { onConfirm(a.toCharArray()) }) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
+}
+
+/**
+ * 2.0, task 8 (design «Copias»): the line «Comprobaste una copia por última vez hace N días.», or that none was checked yet, once
+ * 30 days have passed since «Comprobar una copia» checked a copy of this vault ([backupCheckNotice]); nothing before. In
+ * Ajustes with [explain] (what the date counts, O-5 of the Abogado Digital, under «Más información»); one line in the vault.
+ */
+@Composable
+fun BackupCheckNoticeLine(lastCheckedBackupAt: Long, modifier: Modifier = Modifier, explain: Boolean = true) {
+    // Review M-6: the day is part of the key, so the line is worked out again on another day, not only on another check.
+    val now = System.currentTimeMillis()
+    val text = remember(lastCheckedBackupAt, now / (24L * 60 * 60 * 1000)) { backupCheckNotice(lastCheckedBackupAt, now) } ?: return
+    Column(modifier) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = CautionColor)
+        if (explain) MoreInfo { Hint(BACKUP_CHECK_NOTICE_MORE) }
+    }
+}
+
+/** Branch review, row 39: what to do when the vault does not fit in a copy, after the reason, in «Exportar». */
+internal const val EXPORT_DOES_NOT_FIT_TODO = "Quita adjuntos o entradas grandes, o vacía la papelera, y vuelve a exportarla."
+
+/**
+ * Branch review, row 39: what «Exportar» says of a failed copy ([message], the [CryptoFailure]'s; null: none): a vault
+ * that does not fit says what to do; anything else as it is.
+ */
+internal fun exportFailureText(message: String?): String? = when (message) {
+    BACKUP_DOES_NOT_FIT, BACKUP_DOES_NOT_FIT_V3 -> "$message. $EXPORT_DOES_NOT_FIT_TODO"
+    else -> message
 }

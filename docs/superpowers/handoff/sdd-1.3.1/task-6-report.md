@@ -292,7 +292,7 @@ Lista de `references/cripto-moderna.md` y `references/auditoria.md` sobre el dif
 
 - `ba572c0` fuera CriptoPanel: Clavero deja de leer CP1:, .cpenc y criptopanel-vault (código, tests, datos de prueba y
   README juntos, porque los tests no compilan sin el código). Autor `Claude <noreply@anthropic.com>`; el mensaje termina
-  solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
+  solo en `Co-Authored-By: Claude <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
   Push a `origin/ccr-a1a6eabb-765f9g` (`1a65545..ba572c0`).
 
 

@@ -63,6 +63,48 @@ class ClipboardNoticeTest {
         assertFalse(notice.asking.value)
     }
 
+    /**
+     * Review m-4 of task 6: a copy whose text depends on the time (a 2FA code) is worked out when it is written: on
+     * «Entendido, copiar», never at the tap; and nothing is written if by then there is nothing to copy.
+     */
+    @Test fun aCopyWorkedOutAtWriteTime() {
+        var now = 0
+        var copied = 0
+        assertFalse(copyOrAskNoticeFor({ "código-$now" }, notice, accepted = false, sdk = 30, write = write, onCopied = { copied++ }))
+        now = 31
+        assertTrue(notice.accept())
+        assertEquals(listOf("código-31"), written)
+        assertEquals(1, copied)
+        // Without the notice: at once, as it is now.
+        assertTrue(copyOrAskNoticeFor({ "código-$now" }, notice, accepted = true, sdk = 30, write = write))
+        assertEquals(listOf("código-31", "código-31"), written)
+        // Nothing to copy (the entry is gone): nothing written, no callback.
+        assertFalse(copyOrAskNoticeFor({ null }, notice, accepted = true, sdk = 33, write = write, onCopied = { copied++ }))
+        val other = ClipboardNoticeRequest(lockEpoch = { epoch })
+        assertFalse(copyOrAskNoticeFor({ null }, other, accepted = false, sdk = 30, write = write, onCopied = { copied++ }))
+        assertEquals(AcceptOutcome.NOTHING_TO_COPY, other.acceptOutcome())
+        assertEquals(1, copied)
+        assertEquals(2, written.size)
+    }
+
+    /**
+     * Review N-1 of task 6 (round 2): «Entendido, copiar» with nothing left to copy (the entry went meanwhile) copies
+     * nothing, but the notice was accepted: it is recorded, so it does not come back on the next copy.
+     */
+    @Test fun acceptedWithNothingToCopyStillCountsAsAccepted() {
+        var copied = 0
+        assertFalse(copyOrAskNoticeFor({ null }, notice, accepted = false, sdk = 30, write = write, onCopied = { copied++ }))
+        assertTrue(notice.asking.value)
+        assertEquals(AcceptOutcome.NOTHING_TO_COPY, notice.acceptOutcome())
+        assertTrue(written.isEmpty())
+        assertEquals(0, copied)
+        assertFalse(notice.asking.value)
+        assertTrue("the notice was accepted", notice.acceptedNow)
+        // The next copy goes straight through.
+        assertTrue(copyOrAskNotice("otro", notice, accepted = false, sdk = 30, write = write))
+        assertEquals(listOf("otro"), written)
+    }
+
     @Test fun aDroppedCopyAndItsCallbackAreForgotten() {
         var copied = false
         notice.ask("dos", write) { copied = true }

@@ -259,7 +259,7 @@ class ToolTextsTest {
     fun afterChangingTheMasterPasswordTheTextsAreTheOnesOfTheDesign() {
         assertEquals("Cambiar la contraseña no cambia las copias que ya existen.", PASSWORD_CHANGE_COPIES)
         assertEquals("Las copias .sgbak de antes, también las automáticas, se siguen abriendo con la contraseña anterior.", PASSWORD_CHANGE_OLD_BACKUPS)
-        assertEquals("Hacer una copia nueva y borrar las anteriores (automáticas y de antes de importar)", PASSWORD_CHANGE_REPLACE_COPIES)
+        assertEquals("Hacer una copia nueva y borrar las anteriores (automáticas, de antes de importar y de antes de la 2.0)", PASSWORD_CHANGE_REPLACE_COPIES)
         assertEquals(
             "Si temes que alguien tenga la contraseña anterior y una copia, con las dos puede ver todo lo que guardabas " +
                 "al hacerla: cambia las contraseñas y los códigos 2FA que más te importen, y renueva tu identidad.",

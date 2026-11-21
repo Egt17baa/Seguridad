@@ -81,16 +81,8 @@ class MasterChangedTest {
         assertFalse(m.state.value.answered)
     }
 
-    @Test fun `COPIAS-2 the dialog keeps how many unlisted copies with a copy's name were left`() = runTest {
-        val m = MasterChanged(backgroundScope, replace = { AutoBackupResult("f", 1, null, listOf("a"), replaced = true, unlistedLeft = 2) }, now = { 1 })
-        m.changed(fingerprintFailed = false)
-        m.replace()
-        runCurrent()
-        assertNull(m.state.value.answerError)
-        assertEquals(2, m.state.value.answerUnlisted)
-        m.replace() // A second request starts from nothing.
-        assertEquals(0, m.state.value.answerUnlisted)
-    }
+    // Task 8, round 4: the dialog no longer keeps a count of its own: its text comes from what the folders saved for the
+    // request (a6Summary, a6Text), as the dialog after an unlock (AutoBackupTargetsTest.everyCombinationOfFolders).
 
     // R-5 of the earlier dictamen (abogado-textos-1-11.md): «Renovar identidad» only when there is an identity to renew,
     // read when the password changed (the vault is locked right after). Unknown: shown, as before.

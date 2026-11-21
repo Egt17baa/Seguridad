@@ -1,19 +1,29 @@
 package app.seguridad.settings
 
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.FolderGrant
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.hasFolderGrant
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Audit 1.3.0, batch F3: COV2-1 (owner ruling) and the persisted-permission check of the backup folder (CADENAS-1). */
 class SettingsEditableTest {
-    @Test fun `COV2-1 the guarded settings change only with the vault open or with no vault`() {
-        assertTrue(settingsEditable(VaultState.Unlocked(emptyList())))
-        assertTrue("no vault: nothing to protect, and Argon2id also serves text and file encryption", settingsEditable(VaultState.NoVault))
-        assertFalse(settingsEditable(VaultState.Locked))
-        assertFalse("not known yet: closed", settingsEditable(VaultState.Loading))
+    @Test fun `COV2-1 the guarded settings change only with the vault open or with no vault on the phone`() {
+        val open = VaultState.Unlocked(VaultData(entries = emptyList()))
+        for (anyFile in listOf(true, false)) {
+            assertTrue(settingsEditable(open, anyFile))
+            assertFalse(settingsEditable(VaultState.Locked, anyFile))
+            assertFalse("not known yet: closed", settingsEditable(VaultState.Loading, anyFile))
+        }
+        assertTrue("no vault at all: nothing to protect, and Argon2id also serves text and file encryption", settingsEditable(VaultState.NoVault, anyVaultFile = false))
+        // RT-22 (i): an empty vault shown while another one has its file protects nothing of that one: closed.
+        assertFalse(settingsEditable(VaultState.NoVault, anyVaultFile = true))
+        assertEquals("Abre una de tus bóvedas (pestaña Bóveda) para cambiar este ajuste.", SETTINGS_NEED_AN_OPEN_VAULT)
+        assertEquals(SETTINGS_NEED_AN_OPEN_VAULT, settingsLockedText(VaultState.NoVault))
+        assertEquals(app.seguridad.tools.SETTINGS_NEED_OPEN_VAULT, settingsLockedText(VaultState.Locked))
     }
 
     private val tree = "content://com.android.externalstorage.documents/tree/primary%3ACopias"

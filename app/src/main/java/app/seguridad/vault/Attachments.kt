@@ -26,8 +26,40 @@ const val MAX_ATTACHMENTS_TOTAL_BYTES = 50L * 1024 * 1024
 /** An attachment over [MAX_ATTACHMENT_BYTES], or one that would take the vault over [MAX_ATTACHMENTS_TOTAL_BYTES]. */
 class AttachmentLimit(message: String) : Exception(message)
 
-internal const val ATTACHMENT_TOO_BIG = "El adjunto pasa de 5 MB"
+internal const val ATTACHMENT_TOO_BIG = "El adjunto pasa de 5 MB. Elige un archivo más pequeño."
 internal const val ATTACHMENTS_TOTAL_TOO_BIG = "Los adjuntos de la bóveda pasan de 50 MB en total"
+
+/**
+ * Branch review, C-1 (row 37): adding an attachment that would take the vault over [MAX_ATTACHMENTS_TOTAL_BYTES], the
+ * attachments in the trash counted (a copy holds them, and a copy over it is not read back).
+ */
+internal const val ATTACHMENTS_TOTAL_WOULD_PASS =
+    "Con este adjunto, los adjuntos de la bóveda (también los de la papelera) pasarían de 50 MB. Quita algún adjunto o " +
+        "vacía la papelera para añadir otro."
+
+/**
+ * Branch review, C-1: whether [adding] more bytes of attachments fit in [data], counting every entry ([VaultData.entries],
+ * the trash too: a copy holds them and [checkCopyEntries] counts them), so every vault the app saves passes its own copy
+ * check; pure.
+ */
+internal fun attachmentsFit(data: VaultData, adding: Long): Boolean =
+    data.entries.sumOf { e -> e.attachments.sumOf { it.size } } + adding <= MAX_ATTACHMENTS_TOTAL_BYTES
+
+/**
+ * Audit, row 84: adding an attachment that would take the vault past what a copy holds ([BACKUP_MAX_ENTRIES] files: the
+ * vault, the marker and one per attachment, the trash too).
+ */
+internal const val ATTACHMENTS_COUNT_WOULD_PASS =
+    "Con este adjunto, la bóveda tendría más adjuntos de los que caben en una copia (como mucho 1 998, también los de la " +
+        "papelera). Quita algún adjunto o vacía la papelera para añadir otro."
+
+/**
+ * Audit, row 84: whether one attachment more fits in a copy of [data] ([writeBackup] refuses more than
+ * [BACKUP_MAX_ENTRIES] files: the attachments, the vault and the marker), counting every entry, the trash too; pure.
+ */
+internal fun attachmentCountFits(data: VaultData): Boolean =
+    data.entries.sumOf { it.attachments.size } + 1 + 2 <= BACKUP_MAX_ENTRIES
+
 internal const val ATTACHMENT_DAMAGED = "El adjunto está dañado o se ha cambiado"
 
 /** Associated data prefix of format v1; the id follows it, so a file cannot be moved under another id. */
@@ -56,8 +88,14 @@ private fun aad(id: String) = (AAD_PREFIX + id).toByteArray(Charsets.UTF_8)
  */
 class AttachmentStore(val dir: File, private val random: SecureRandom = secureRandom) {
 
-    /** The file of [id]; the caller has checked [isAttachmentId]. */
-    internal fun fileOf(id: String) = File(dir, "$id.bin")
+    /**
+     * The file of [id]. Audit C-5: an id that is not an attachment id ([isAttachmentId]) is refused here too
+     * ([IllegalArgumentException]), whatever the caller checked, so no file outside [dir] is ever named.
+     */
+    internal fun fileOf(id: String): File {
+        require(isAttachmentId(id)) { "Not an attachment id" }
+        return File(dir, "$id.bin")
+    }
 
     /**
      * Reads at most [MAX_ATTACHMENT_BYTES] + 1 bytes of [input] (refused above the limit, nothing written), then

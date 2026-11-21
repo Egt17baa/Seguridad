@@ -1,5 +1,8 @@
 package app.seguridad.settings
 
+import app.seguridad.vault.BackupSchedule
+import app.seguridad.vault.BackupTargetSettings
+import app.seguridad.vault.PRIMARY_VAULT_ID
 import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.AUTO_BACKUP_OLD_NOT_DELETED
 import app.seguridad.vault.AUTO_BACKUP_FAILED
@@ -37,7 +40,7 @@ class SettingsTest {
         assertEquals(Settings(), s.settings.value)
         assertEquals(LockAfter.MIN_5, s.settings.value.lockAfter)
         assertEquals(ClipboardClear.S45, s.settings.value.clipboard)
-        assertEquals(KdfProfile.STANDARD, s.settings.value.kdf)
+        assertEquals(KdfProfile.STANDARD, s.settings.value.principal.kdf)
         assertEquals(ThemeMode.DARK, s.settings.value.theme)
         assertFalse(s.settings.value.noticeAccepted)
     }
@@ -45,14 +48,214 @@ class SettingsTest {
     @Test fun persistsAndReloads() = runTest {
         store().apply {
             load()
-            update { it.copy(lockAfter = LockAfter.MIN_1, clipboard = ClipboardClear.S15, theme = ThemeMode.SYSTEM, noticeAccepted = true, kdf = KdfProfile.HIGH) }
+            update { it.copy(lockAfter = LockAfter.MIN_1, clipboard = ClipboardClear.S15, theme = ThemeMode.SYSTEM, noticeAccepted = true) }
+            updatePrincipal { it.copy(kdf = KdfProfile.HIGH) }
         }
         val again = store().apply { load() }
         assertEquals(LockAfter.MIN_1, again.settings.value.lockAfter)
         assertEquals(ClipboardClear.S15, again.settings.value.clipboard)
         assertEquals(ThemeMode.SYSTEM, again.settings.value.theme)
-        assertEquals(KdfProfile.HIGH, again.settings.value.kdf)
+        assertEquals(KdfProfile.HIGH, again.settings.value.principal.kdf)
         assertTrue(again.settings.value.noticeAccepted)
+    }
+
+    /**
+     * 2.0, tarea 5 bis: un settings.json de la 1.4.3 no tiene aspecto (ni estilo, ni paleta, ni «Alto contraste»; la 1.4.x
+     * no tenía colores de acento): se lee en «Noche» y «Cristal», con el modo que tenía, y nada más cambia.
+     */
+    @Test fun oldSettingsGetNightAndGlass() = runTest {
+        for (mode in ThemeMode.entries) {
+            file().writeText(
+                """{"lockAfter":"MIN_1","clipboard":"S15","theme":"${mode.name}","noticeAccepted":true,""" +
+                    """"clockHighWaterMs":1761500000000,"renameNoticePending":false}""",
+            )
+            val s = store().apply { load() }.settings.value
+            assertEquals(mode, s.theme)
+            assertEquals(ThemeStyle.GLASS, s.style)
+            assertEquals(PaletteId.NIGHT, s.palette)
+            assertNull(s.custom)
+            assertFalse(s.reduceTransparency)
+            assertFalse(s.highContrast)
+            assertEquals(LockAfter.MIN_1, s.lockAfter)
+            assertEquals(1761500000000, s.principal.clockHighWaterMs)
+        }
+    }
+
+    /** Un aspecto que no se entiende no tira los demás ajustes: la paleta vuelve a «Noche» y los tonos quedan entre los 12. */
+    @Test fun aStrangeAppearanceKeepsTheOtherSettings() = runTest {
+        file().writeText(
+            """{"lockAfter":"MIN_1","theme":"LIGHT","style":"FROSTED","palette":"PINK",""" +
+                """"custom":{"accentHue":99,"backgroundHue":-5,"glass":"HIGH"}}""",
+        )
+        val s = store().apply { load() }.settings.value
+        assertEquals(LockAfter.MIN_1, s.lockAfter)
+        assertEquals(ThemeMode.LIGHT, s.theme)
+        assertEquals(ThemeStyle.GLASS, s.style)
+        assertEquals(PaletteId.NIGHT, s.palette)
+        assertEquals(CustomPalette(99.mod(CUSTOM_HUES), (-5).mod(CUSTOM_HUES), GlassLevel.HIGH), s.custom)
+        // A «Personalizado» that cannot be read at all goes, and only it.
+        for (bad in listOf("""{"accentHue":1,"backgroundHue":2,"glass":"ULTRA"}""", """{"accentHue":"x"}""", "7")) {
+            file().writeText("""{"lockAfter":"MIN_1","theme":"LIGHT","palette":"CUSTOM","highContrast":true,"custom":$bad}""")
+            val t = store().apply { load() }.settings.value
+            assertEquals(bad, LockAfter.MIN_1, t.lockAfter)
+            assertEquals(bad, ThemeMode.LIGHT, t.theme)
+            assertNull(bad, t.custom)
+            assertTrue(bad, t.highContrast)
+            // Review M-5: without its tones «Personalizado» is drawn as «Noche», so it is «Noche».
+            assertEquals(bad, PaletteId.NIGHT, t.palette)
+        }
+    }
+
+    /** Review M-5: «Personalizado» saved without its tones reads as «Noche»; with them it stays. */
+    @Test fun aCustomWithoutTonesIsNight() = runTest {
+        file().writeText("""{"palette":"CUSTOM"}""")
+        assertEquals(PaletteId.NIGHT, store().apply { load() }.settings.value.palette)
+        file().writeText("""{"palette":"CUSTOM","custom":{"accentHue":2,"backgroundHue":3,"glass":"LOW"}}""")
+        assertEquals(PaletteId.CUSTOM, store().apply { load() }.settings.value.palette)
+    }
+
+    @Test fun theAppearanceIsSavedAndReadBack() = runTest {
+        val custom = CustomPalette(accentHue = 3, backgroundHue = 8, glass = GlassLevel.HIGH)
+        store().apply {
+            load()
+            update { it.copy(style = ThemeStyle.SOLID, palette = PaletteId.CUSTOM, custom = custom, reduceTransparency = true, highContrast = true) }
+        }
+        val s = store().apply { load() }.settings.value
+        assertEquals(ThemeStyle.SOLID, s.style)
+        assertEquals(PaletteId.CUSTOM, s.palette)
+        assertEquals(custom, s.custom)
+        assertTrue(s.reduceTransparency)
+        assertTrue(s.highContrast)
+    }
+
+    /**
+     * R-C8: la línea de cómo volver a «Sólido» es para quien actualiza (había un settings.json o una bóveda), también si
+     * ya había visto el aviso del nombre nuevo; una instalación nueva no la ve. Se decide una vez.
+     */
+    @Test fun theAppearanceNoticeIsForThoseWhoUpdated() = runTest {
+        file().writeText("""{"theme":"LIGHT","renameNoticePending":false}""")
+        val updated = store().apply { load(); decideRenameNotice(vaultExists = false) }
+        assertEquals(true, updated.settings.value.appearanceNoticePending)
+        assertEquals(false, updated.settings.value.renameNoticePending)
+        updated.update { it.copy(appearanceNoticePending = false) }
+        val again = store().apply { load(); decideRenameNotice(vaultExists = true) }
+        assertEquals(false, again.settings.value.appearanceNoticePending)
+
+        file().delete()
+        val fresh = store().apply { load(); decideRenameNotice(vaultExists = false) }
+        assertEquals(false, fresh.settings.value.appearanceNoticePending)
+        val withVault = SettingsStore(File(tmp.root, "other.json"), Dispatchers.Unconfined).apply { load(); decideRenameNotice(vaultExists = true) }
+        assertEquals(true, withVault.settings.value.appearanceNoticePending)
+    }
+
+    /**
+     * 2.0, tarea 10: el settings.json de un usuario de la 1.4.3, escrito por el `SettingsStore` de la etiqueta `v1.4.3`
+     * (`a3ac942`) con datos de prueba (`/seguridad/settings-1.4.3.json`). Quien actualiza no tiene el modo sencillo y le
+     * toca la guía corta de novedades, no la completa (dueño, 14-11-2026), con bóveda y sin ella, también al volver a
+     * abrir la app hasta verla; vista o saltada, ya no le toca ninguna.
+     */
+    @Test fun oldSettingsKeepSimpleModeOff() = runTest {
+        val real = javaClass.getResourceAsStream("/seguridad/settings-1.4.3.json")!!.use { it.readBytes() }.decodeToString()
+        for (vaultExists in listOf(true, false)) {
+            file().writeText(real)
+            val s = store().apply { load() }
+            assertNull("1.4.3 has no simple mode", s.settings.value.simpleMode)
+            s.decideRenameNotice(vaultExists)
+            for (v in listOf(s.settings.value, store().apply { load() }.settings.value)) {
+                assertEquals(false, v.simpleMode)
+                assertFalse(v.simpleOn)
+                assertEquals("The short guide of what is new", GuideDue.WHATS_NEW, v.guideDue)
+                assertEquals(GUIDE_BEFORE_2_0, v.guideSeen)
+                assertEquals(LockAfter.MIN_1, v.lockAfter)
+            }
+            // Their first vault made later (after «He olvidado la contraseña maestra», say) changes nothing.
+            s.firstVault(created = true)
+            assertEquals(false, s.settings.value.simpleMode)
+            // A later start decides nothing again.
+            store().apply { load(); decideRenameNotice(vaultExists = false) }
+            assertEquals(false, store().apply { load() }.settings.value.simpleMode)
+            assertEquals(GuideDue.WHATS_NEW, store().apply { load() }.settings.value.guideDue)
+            // Seen or skipped: nothing more, now and at the next start.
+            s.update { it.withGuideSeen() }
+            assertEquals(GuideDue.NONE, s.settings.value.guideDue)
+            assertEquals(GuideDue.NONE, store().apply { load(); decideRenameNotice(vaultExists = true) }.settings.value.guideDue)
+        }
+    }
+
+    /**
+     * The guide seen is a number, so a later version that brings a guide of its own only raises [GUIDE_CURRENT]: whoever
+     * saw an older one gets the short one of what is new, a new install the whole one, and whoever saw this one nothing.
+     */
+    @Test fun theGuideDueGoesByTheVersionSeen() {
+        assertEquals(GuideDue.FULL, Settings().guideDue)
+        assertEquals(GuideDue.FULL, Settings(guideSeen = GUIDE_NONE).guideDue)
+        assertEquals(GuideDue.WHATS_NEW, Settings(guideSeen = GUIDE_BEFORE_2_0).guideDue)
+        for (seen in GUIDE_BEFORE_2_0 until GUIDE_CURRENT) assertEquals(GuideDue.WHATS_NEW, Settings(guideSeen = seen).guideDue)
+        assertEquals(GuideDue.NONE, Settings(guideSeen = GUIDE_CURRENT).guideDue)
+        assertEquals("A file of a later version (downgraded app)", GuideDue.NONE, Settings(guideSeen = GUIDE_CURRENT + 5).guideDue)
+        assertEquals(GUIDE_CURRENT, Settings().withGuideSeen().guideSeen)
+        // Seeing it never lowers what a later version had recorded.
+        assertEquals(GUIDE_CURRENT + 5, Settings(guideSeen = GUIDE_CURRENT + 5).withGuideSeen().guideSeen)
+        assertTrue(GUIDE_NONE < GUIDE_BEFORE_2_0 && GUIDE_BEFORE_2_0 < GUIDE_CURRENT)
+        // A negative number (a file edited by hand) is a new install's: the whole guide, never an error.
+        assertEquals(GuideDue.FULL, Settings(guideSeen = -3).guideDue)
+    }
+
+    /**
+     * 2.0, tarea 10: una instalación nueva no ha decidido el modo sencillo (se ve todo) ni ha visto la guía, también tras
+     * reiniciar la app antes de crear la bóveda (el settings.json ya existe entonces); crear la primera lo enciende, y nada
+     * después lo vuelve a cambiar. Si la primera bóveda viene de una copia, se queda apagado.
+     */
+    @Test fun newInstallTurnsSimpleModeOn() = runTest {
+        file().delete()
+        repeat(2) {
+            val s = store().apply { load(); decideRenameNotice(vaultExists = false) }
+            assertNull(s.settings.value.simpleMode)
+            assertFalse(s.settings.value.simpleOn)
+            assertEquals("The whole guide", GuideDue.FULL, s.settings.value.guideDue)
+            s.update { it.copy(noticeAccepted = true) }
+        }
+        val s = store().apply { load(); decideRenameNotice(vaultExists = false) }
+        s.firstVault(created = true)
+        assertEquals(true, s.settings.value.simpleMode)
+        assertEquals(true, store().apply { load() }.settings.value.simpleMode)
+        s.update { it.copy(simpleMode = false) }
+        s.firstVault(created = true)
+        assertEquals("Only once", false, s.settings.value.simpleMode)
+        assertEquals(GuideDue.FULL, store().apply { load(); decideRenameNotice(vaultExists = true) }.settings.value.guideDue)
+
+        file().delete()
+        val imported = store().apply { load(); decideRenameNotice(vaultExists = false) }
+        imported.firstVault(created = false)
+        assertEquals(false, imported.settings.value.simpleMode)
+        imported.firstVault(created = true)
+        assertEquals(false, imported.settings.value.simpleMode)
+    }
+
+    /** A save that fails leaves the choice for this run only: the vault is made all the same. */
+    @Test fun firstVaultNeverThrows() = runTest {
+        // A file where its folder should be: every write fails (also as root, where a read-only folder is still written).
+        val notADir = File(tmp.root, "no-es-carpeta").apply { writeText("x") }
+        val s = SettingsStore(File(notADir, "settings.json"), Dispatchers.Unconfined).apply { load() }
+        s.firstVault(created = true)
+        assertEquals(true, s.settings.value.simpleMode)
+    }
+
+    /**
+     * Ronda 1 de la fase B (m-6): «Sugerencias de «Salud»» (R-2). The settings.json of 1.4.3 and one of phase A have no
+     * such field: on. Off goes and comes back; on (the default) is never written.
+     */
+    @Test fun missionsOffReadsAndWrites() = runTest {
+        file().writeText(javaClass.getResourceAsStream("/seguridad/settings-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
+        assertFalse(store().apply { load() }.settings.value.missionsOff)
+        file().writeText("""{"noticeAccepted":true,"renameNoticePending":false,"appearanceNoticePending":false,"simpleMode":true,"guideSeen":2}""")
+        assertFalse(store().apply { load() }.settings.value.missionsOff)
+        store().apply { load(); update { it.copy(missionsOff = true) } }
+        assertTrue(file().readText(), "\"missionsOff\":true" in file().readText())
+        assertTrue(store().apply { load() }.settings.value.missionsOff)
+        store().apply { load(); update { it.copy(missionsOff = false) } }
+        assertTrue(file().readText(), "missionsOff" !in file().readText())
+        assertFalse(store().apply { load() }.settings.value.missionsOff)
     }
 
     @Test fun clipboardHistoryNoticeIsNotAcceptedByDefault() {
@@ -72,7 +275,7 @@ class SettingsTest {
         assertEquals(LockAfter.MIN_1, s.lockAfter)
         assertEquals(ClipboardClear.S15, s.clipboard)
         assertTrue(s.noticeAccepted)
-        assertEquals(listOf("doc:1", "doc:2"), s.autoBackupCopies)
+        assertEquals(listOf("doc:1", "doc:2"), s.principal.autoBackupCopies)
         assertFalse(s.clipboardHistoryNoticeAccepted)
     }
 
@@ -82,13 +285,13 @@ class SettingsTest {
             """{"autoBackupUri":"content://x/tree/primary%3ACopias","autoBackupReplacePending":true,""" +
                 """"autoBackupCopies":["doc:1"],"autoBackupCopiesFolder":"content://x/tree/primary%3ACopias"}""",
         )
-        val s = store().apply { load() }.settings.value
+        val s = store().apply { load() }.settings.value.principal
         assertTrue(s.autoBackupReplacePending)
         assertEquals(null, s.autoBackupReplaceTargets)
         assertEquals(emptyList<String>(), s.autoBackupReplaceTold)
         // And what 1.3.0 saves reads back.
-        store().apply { load(); update { it.copy(autoBackupReplaceTargets = listOf("doc:1"), autoBackupReplaceTold = listOf("x")) } }
-        val back = store().apply { load() }.settings.value
+        store().apply { load(); updatePrincipal { it.oneTarget(autoBackupReplaceTargets = listOf("doc:1"), autoBackupReplaceTold = listOf("x")) } }
+        val back = store().apply { load() }.settings.value.principal
         assertEquals(listOf("doc:1"), back.autoBackupReplaceTargets)
         assertEquals(listOf("x"), back.autoBackupReplaceTold)
     }
@@ -112,8 +315,8 @@ class SettingsTest {
 
     @Test fun updateRejectsUnavailableHigh() = runTest {
         val s = store(heapKiB = 200L * 1024).apply { load() }
-        s.update { it.copy(kdf = KdfProfile.HIGH) }
-        assertEquals(KdfProfile.STANDARD, s.settings.value.kdf)
+        s.updatePrincipal { it.copy(kdf = KdfProfile.HIGH) }
+        assertEquals(KdfProfile.STANDARD, s.settings.value.principal.kdf)
         assertTrue(file().readText().let { !it.contains("HIGH") })
     }
 
@@ -135,9 +338,22 @@ class SettingsTest {
 
     @Test fun highIsRefusedWhenTheHeapPlainlyCannotHoldIt() {
         // 128 MiB per app (Android Go): Argon2 alone would take the whole heap.
-        assertRefused { KdfProfile.HIGH.params.checkSane(128L * 1024) }
+        // 2.0, task 10, phase C, ronda 2 (n-1): the parameters are valid, this phone cannot run them: «sin memoria».
+        assertRefused(KDF_OUT_OF_MEMORY) { KdfProfile.HIGH.params.checkSane(128L * 1024) }
         val token = encryptText("x", "pw".toCharArray(), kdf = KdfProfile.HIGH.params)
-        assertRefused { decryptText(token, Secret.Password("pw".toCharArray()), heapKiB = 128L * 1024) }
+        assertRefused(KDF_OUT_OF_MEMORY) { decryptText(token, Secret.Password("pw".toCharArray()), heapKiB = 128L * 1024) }
+    }
+
+    /**
+     * Ronda 2 (n-1): checkSane tells its two conditions apart. Out of bounds (any heap) is «Parámetros de cifrado no
+     * válidos», looked at first; within bounds but more than this phone can give is [KDF_OUT_OF_MEMORY]; both at once,
+     * out of bounds.
+     */
+    @Test fun checkSaneTellsBoundsFromMemory() {
+        assertRefused(KDF_OUT_OF_MEMORY) { KdfParams(128 * 1024, 4, 1).checkSane(heapKiB = 128L * 1024) }
+        assertRefused(app.seguridad.crypto.KDF_PARAMS_INVALID) { KdfParams(MAX_KDF_MEMORY_KIB + 1, 3, 1).checkSane(heapKiB = 8L * 1024 * 1024) }
+        assertRefused(app.seguridad.crypto.KDF_PARAMS_INVALID) { KdfParams(MAX_KDF_MEMORY_KIB * 2, 3, 1).checkSane(heapKiB = 1024) }
+        assertRefused(app.seguridad.crypto.KDF_PARAMS_INVALID) { KdfParams(96 * 1024, 11, 1).checkSane(heapKiB = 1024) }
     }
 
     @Test fun moreThanTheMaximumIsRefusedWhateverTheHeap() {
@@ -148,20 +364,20 @@ class SettingsTest {
 
     @Test fun runningOutOfMemoryInArgon2IsAClearFailure() {
         try {
-            outOfMemoryAsFailure { throw OutOfMemoryError("Failed to allocate") }
+            outOfMemoryAsFailure(KdfProfile.HIGH.params) { throw OutOfMemoryError("Failed to allocate") }
             fail()
         } catch (e: CryptoFailure) {
             assertEquals(KDF_OUT_OF_MEMORY, e.message)
         }
-        assertEquals(7, outOfMemoryAsFailure { 7 })
+        assertEquals(7, outOfMemoryAsFailure(KdfProfile.HIGH.params) { 7 })
     }
 
-    private fun assertRefused(block: () -> Unit) {
+    private fun assertRefused(message: String = "Parámetros de cifrado no válidos", block: () -> Unit) {
         try {
             block()
             fail()
         } catch (e: CryptoFailure) {
-            assertEquals("Parámetros de cifrado no válidos", e.message)
+            assertEquals(message, e.message)
         }
     }
 
@@ -189,18 +405,18 @@ class SettingsTest {
         file().writeText("""{"lockAfter":"MIN_1","theme":"LIGHT","noticeAccepted":true}""")
         val s = store().apply { load() }
         assertEquals(LockAfter.MIN_1, s.settings.value.lockAfter)
-        assertEquals(null, s.settings.value.autoBackupUri)
-        assertEquals(5, s.settings.value.autoBackupKeep)
-        assertEquals(null, s.settings.value.lastAutoBackupError)
-        assertEquals(null, s.settings.value.lastAutoBackupAt)
+        assertEquals(null, s.settings.value.principal.autoBackupUri)
+        assertEquals(5, s.settings.value.principal.autoBackupKeep)
+        assertEquals(null, s.settings.value.principal.lastAutoBackupError)
+        assertEquals(null, s.settings.value.principal.lastAutoBackupAt)
     }
 
     @Test fun autoBackupPersists() = runTest {
         store().apply {
             load()
-            update { it.copy(autoBackupUri = "content://x/tree/primary%3ACopias", autoBackupKeep = 10, lastAutoBackupError = "Falló", lastAutoBackupAt = 5L) }
+            updatePrincipal { it.oneTarget(autoBackupUri = "content://x/tree/primary%3ACopias", autoBackupKeep = 10, lastAutoBackupError = "Falló", lastAutoBackupAt = 5L) }
         }
-        val again = store().apply { load() }.settings.value
+        val again = store().apply { load() }.settings.value.principal
         assertEquals("content://x/tree/primary%3ACopias", again.autoBackupUri)
         assertEquals(10, again.autoBackupKeep)
         assertEquals("Falló", again.lastAutoBackupError)
@@ -209,51 +425,53 @@ class SettingsTest {
 
     @Test fun autoBackupKeepOnlyThreeFiveOrTen() = runTest {
         val s = store().apply { load() }
+        // 2.0, task 8: each target's own number of copies.
+        s.updatePrincipal { it.withTargetAdded("content://x/tree/primary%3ACopias", BackupSchedule.ON_CHANGE) }
         for (k in listOf(3, 5, 10)) {
-            s.update { it.copy(autoBackupKeep = k) }
-            assertEquals(k, s.settings.value.autoBackupKeep)
+            s.updatePrincipal { it.oneTarget(autoBackupKeep = k) }
+            assertEquals(k, s.settings.value.principal.autoBackupKeep)
         }
         for (k in listOf(0, -1, 1, 4, 11, 1000, Int.MAX_VALUE)) {
-            s.update { it.copy(autoBackupKeep = k) }
-            assertEquals(5, s.settings.value.autoBackupKeep)
+            s.updatePrincipal { it.oneTarget(autoBackupKeep = k) }
+            assertEquals(5, s.settings.value.principal.autoBackupKeep)
         }
         file().writeText("""{"autoBackupKeep":7}""")
-        assertEquals(5, store().apply { load() }.settings.value.autoBackupKeep)
+        assertEquals(5, store().apply { load() }.settings.value.principal.autoBackupKeep)
     }
 
     private val folder = "content://x/tree/primary%3ACopias"
 
     @Test fun autoBackupResultOnlyForTheFolderItWentTo() {
-        val on = Settings(autoBackupUri = folder, lastAutoBackupAt = 1L, lastAutoBackupError = "antes")
+        val on = oldVaultSettings(autoBackupUri = folder, lastAutoBackupAt = 1L, lastAutoBackupError = "antes")
         // Written: date and no error.
-        assertEquals(on.copy(lastAutoBackupAt = 9L, lastAutoBackupError = null), on.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
+        assertEquals(on.oneTarget(lastAutoBackupAt = 9L, lastAutoBackupError = null), on.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
         // Written, but old copies not deleted: the date too, and the error.
         assertEquals(
-            on.copy(lastAutoBackupAt = 9L, lastAutoBackupError = AUTO_BACKUP_OLD_NOT_DELETED),
+            on.oneTarget(lastAutoBackupAt = 9L, lastAutoBackupError = AUTO_BACKUP_OLD_NOT_DELETED),
             on.withAutoBackupResult(AutoBackupResult(folder, 9L, AUTO_BACKUP_OLD_NOT_DELETED)),
         )
         // Not written: only the error; the last copy is still the one before.
-        assertEquals(on.copy(lastAutoBackupError = AUTO_BACKUP_FAILED), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)))
+        assertEquals(on.oneTarget(lastAutoBackupError = AUTO_BACKUP_FAILED), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)))
         // Another folder chosen, or turned off, meanwhile: that copy says nothing about the current state.
-        val other = on.copy(autoBackupUri = "content://y/tree/otra")
+        val other = on.oneTarget(autoBackupUri = "content://y/tree/otra")
         assertEquals(other, other.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
-        val off = on.copy(autoBackupUri = null)
+        val off = on.oneTarget(autoBackupUri = null)
         assertEquals(off, off.withAutoBackupResult(AutoBackupResult(folder, 9L, null)))
     }
 
     @Test fun autoBackupCopiesAreKeptOnlyForTheFolderTheyAreIn() {
-        val on = Settings(autoBackupUri = folder, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder)
+        val on = oldVaultSettings(autoBackupUri = folder, autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder)
         val written = on.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a", "b")))
         assertEquals(listOf("a", "b"), written.currentAutoBackupCopies)
         // Nothing written: the list stays.
         assertEquals(listOf("a"), on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_FAILED)).currentAutoBackupCopies)
         // Another folder chosen: none of these is in it. Back to the first: they are again, and go on rotating.
-        val other = written.copy(autoBackupUri = "content://y/tree/otra")
+        val other = written.oneTarget(autoBackupUri = "content://y/tree/otra")
         assertEquals(emptyList<String>(), other.currentAutoBackupCopies)
         assertEquals(other, other.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("x"))))
-        assertEquals(listOf("a", "b"), other.copy(autoBackupUri = folder).currentAutoBackupCopies)
+        assertEquals(listOf("a", "b"), other.oneTarget(autoBackupUri = folder).currentAutoBackupCopies)
         // Turned off: none in use, but kept for the same folder chosen again.
-        assertEquals(emptyList<String>(), written.copy(autoBackupUri = null).currentAutoBackupCopies)
+        assertEquals(emptyList<String>(), written.oneTarget(autoBackupUri = null).currentAutoBackupCopies)
         // An imported vault: forgotten for good.
         assertEquals(emptyList<String>(), written.forgettingAutoBackupCopies().currentAutoBackupCopies)
     }
@@ -261,17 +479,17 @@ class SettingsTest {
     @Test fun theReplacementRequestIsPersistedAndOlderFilesStillLoad() = runTest {
         // A settings.json from before the field existed.
         file().writeText("""{"autoBackupKeep":10}""")
-        assertFalse(store().apply { load() }.settings.value.autoBackupReplacePending)
+        assertFalse(store().apply { load() }.settings.value.principal.autoBackupReplacePending)
         val s = store().apply { load() }
-        s.update { it.copy(autoBackupReplacePending = true) }
-        assertTrue(store().apply { load() }.settings.value.autoBackupReplacePending)
+        s.updatePrincipal { it.oneTarget(autoBackupUri = folder, autoBackupReplacePending = true) }
+        assertTrue(store().apply { load() }.settings.value.principal.autoBackupReplacePending)
     }
 
     @Test fun theReplacementRequestIsSetByTheWaitingResultAndClearedByTheCopyThatReplaced() {
-        val on = Settings(autoBackupUri = folder, lastAutoBackupError = "antes")
+        val on = oldVaultSettings(autoBackupUri = folder, lastAutoBackupError = "antes")
         // Asked while locked: only the flag; the error shown in Ajustes and the last copy do not change.
         val asked = on.withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true))
-        assertEquals(on.copy(autoBackupReplacePending = true), asked)
+        assertEquals(on.oneTarget(autoBackupReplacePending = true), asked)
         // A normal copy meanwhile does not clear it.
         assertTrue(asked.withAutoBackupResult(AutoBackupResult(folder, 9L, null, listOf("a"))).autoBackupReplacePending)
         // A failed replacement keeps it, with the error.
@@ -307,13 +525,13 @@ class SettingsTest {
         assertEquals(listOf("a", "b"), again.autoBackupReplaceTargets)
         assertEquals(emptyList<String>(), again.autoBackupReplaceTold)
         // For another folder, or with the copies off, it says nothing.
-        assertEquals(on.copy(autoBackupUri = null), on.copy(autoBackupUri = null).withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true)))
+        assertEquals(on.oneTarget(autoBackupUri = null), on.oneTarget(autoBackupUri = null).withAutoBackupResult(AutoBackupResult(folder, null, AUTO_BACKUP_REPLACE_WAITS, replaceRequested = true)))
         // Forgotten with the copies (new or imported vault) or when they are turned off.
         assertFalse(asked.forgettingAutoBackupCopies().autoBackupReplacePending)
     }
 
     @Test fun theSameFolderChosenAgainKeepsTheRequestAndAnotherOrOffDropsIt() {
-        val asked = Settings(autoBackupUri = folder, autoBackupReplacePending = true, autoBackupOffForNewVault = true)
+        val asked = oldVaultSettings(autoBackupUri = folder, autoBackupReplacePending = true, autoBackupOffForNewVault = true)
         val same = asked.withFolderChosen(folder)
         assertTrue(same.autoBackupReplacePending)
         assertFalse(same.autoBackupOffForNewVault)
@@ -321,7 +539,7 @@ class SettingsTest {
         assertFalse(asked.withFolderChosen("content://y/tree/otra").autoBackupReplacePending)
         assertEquals("content://y/tree/otra", asked.withFolderChosen("content://y/tree/otra").autoBackupUri)
         // From none (copies off): there is nothing to replace.
-        assertFalse(Settings(autoBackupReplacePending = true).withFolderChosen(folder).autoBackupReplacePending)
+        assertFalse(oldVaultSettings(autoBackupReplacePending = true).withFolderChosen(folder).autoBackupReplacePending)
         val off = asked.withAutoBackupTurnedOff()
         assertEquals(null, off.autoBackupUri)
         assertFalse(off.autoBackupReplacePending)
@@ -329,69 +547,71 @@ class SettingsTest {
 
     @Test fun newVaultClearsTheReplacementRequest() = runTest {
         val s = store().apply { load() }
-        s.update { it.copy(autoBackupUri = folder, autoBackupReplacePending = true) }
-        s.turnOffAutoBackupForNewVault()
-        assertFalse(s.settings.value.autoBackupReplacePending)
+        s.updatePrincipal { it.oneTarget(autoBackupUri = folder, autoBackupReplacePending = true) }
+        s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID)
+        assertFalse(s.settings.value.principal.autoBackupReplacePending)
     }
 
     @Test fun newVaultTurnsAutoBackupOff() = runTest {
         val s = store().apply { load() }
-        s.update { it.copy(autoBackupUri = folder, autoBackupKeep = 10, lastAutoBackupAt = 5L, lastAutoBackupError = "Falló", autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder) }
-        assertEquals(folder, s.turnOffAutoBackupForNewVault())
-        val off = s.settings.value
+        s.updatePrincipal { it.oneTarget(autoBackupUri = folder, autoBackupKeep = 10, lastAutoBackupAt = 5L, lastAutoBackupError = "Falló", autoBackupCopies = listOf("a"), autoBackupCopiesFolder = folder) }
+        assertEquals(listOf(folder), s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
+        val off = s.settings.value.principal
         assertEquals(null, off.autoBackupUri)
         // The old vault's copies are never rotated away, even if the same folder is chosen again.
         assertEquals(emptyList<String>(), off.autoBackupCopies)
         assertEquals(null, off.lastAutoBackupAt)
         assertEquals(null, off.lastAutoBackupError)
         assertTrue(off.autoBackupOffForNewVault)
-        assertEquals(10, off.autoBackupKeep)
+        // 2.0, task 8: with no target there is no «Conservar las N últimas» to keep; a folder chosen again starts at 5.
+        assertEquals(emptyList<BackupTargetSettings>(), off.targets)
+        assertEquals(emptyList<BackupTargetSettings>(), off.pastTargets)
         // Saved: Ajustes still says why after a restart.
-        assertTrue(store().apply { load() }.settings.value.autoBackupOffForNewVault)
+        assertTrue(store().apply { load() }.settings.value.principal.autoBackupOffForNewVault)
         // Already off: nothing to do, nothing to give back.
-        assertEquals(null, s.turnOffAutoBackupForNewVault())
-        assertEquals(off, s.settings.value)
+        assertEquals(emptyList<String>(), s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
+        assertEquals(off, s.settings.value.principal)
     }
 
     // I1 (CR re-review): with the copies off, a new vault still forgets the old vault's list (and any request), so choosing
     // the same folder again never rotates the previous vault's copies away; nothing is given back (nothing was held).
     @Test fun newVaultWithTheCopiesOffStillForgetsTheOldList() = runTest {
         val s = store().apply { load() }
-        s.update {
-            it.copy(
+        s.updatePrincipal {
+            it.oneTarget(
                 autoBackupUri = folder, autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder,
                 autoBackupReplacePending = true, autoBackupReplaceTargets = listOf("v1-a"), autoBackupReplaceTold = listOf("x"),
             )
         }
-        s.turnOffAutoBackup() // «Desactivar»: the list stays on purpose (the same folder chosen again goes on rotating it).
-        s.update { it.copy(autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder) }
-        assertEquals(null, s.turnOffAutoBackupForNewVault()) // The new vault.
-        val after = s.settings.value
+        s.turnOffAutoBackup(PRIMARY_VAULT_ID) // «Desactivar»: the list stays on purpose (the same folder chosen again goes on rotating it).
+        s.updatePrincipal { it.oneTarget(autoBackupCopies = listOf("v1-a", "v1-b"), autoBackupCopiesFolder = folder) }
+        assertEquals(emptyList<String>(), s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID)) // The new vault.
+        val after = s.settings.value.principal
         assertEquals(emptyList<String>(), after.autoBackupCopies)
         assertEquals(null, after.autoBackupCopiesFolder)
         assertFalse(after.autoBackupReplacePending)
         assertNull(after.autoBackupReplaceTargets)
         assertEquals(emptyList<String>(), after.autoBackupReplaceTold)
-        assertEquals(emptyList<String>(), store().apply { load() }.settings.value.autoBackupCopies) // Saved.
+        assertEquals(emptyList<String>(), store().apply { load() }.settings.value.principal.autoBackupCopies) // Saved.
         // The same folder chosen again: no copy of the old vault is listed as this one's.
         assertEquals(emptyList<String>(), after.withFolderChosen(folder).currentAutoBackupCopies)
     }
 
     @Test fun newVaultWithAutoBackupOffChangesNothing() = runTest {
         val s = store().apply { load() }
-        assertEquals(null, s.turnOffAutoBackupForNewVault())
-        assertFalse(s.settings.value.autoBackupOffForNewVault)
+        assertEquals(emptyList<String>(), s.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID))
+        assertFalse(s.settings.value.principal.autoBackupOffForNewVault)
         assertFalse(file().exists())
     }
 
     @Test fun turningTheCopiesOffSaysIfItDroppedAWaitingReplacement() = runTest {
         val s = store().apply { load() }
-        s.update { it.copy(autoBackupUri = "content://carpeta", autoBackupReplacePending = true) }
-        assertTrue("Decided from the very write that turned them off (T11-c)", s.turnOffAutoBackup())
-        assertEquals(null, s.settings.value.autoBackupUri)
-        assertFalse(s.settings.value.autoBackupReplacePending)
-        s.update { it.copy(autoBackupUri = "content://carpeta") }
-        assertFalse(s.turnOffAutoBackup())
-        assertFalse("Already off: nothing dropped", s.turnOffAutoBackup())
+        s.updatePrincipal { it.oneTarget(autoBackupUri = "content://carpeta", autoBackupReplacePending = true) }
+        assertTrue("Decided from the very write that turned them off (T11-c)", s.turnOffAutoBackup(PRIMARY_VAULT_ID))
+        assertEquals(null, s.settings.value.principal.autoBackupUri)
+        assertFalse(s.settings.value.principal.autoBackupReplacePending)
+        s.updatePrincipal { it.oneTarget(autoBackupUri = "content://carpeta") }
+        assertFalse(s.turnOffAutoBackup(PRIMARY_VAULT_ID))
+        assertFalse("Already off: nothing dropped", s.turnOffAutoBackup(PRIMARY_VAULT_ID))
     }
 }

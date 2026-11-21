@@ -1,5 +1,6 @@
 package app.seguridad
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -23,12 +24,19 @@ import app.seguridad.vault.VaultLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/** A FragmentActivity because the biometric prompt needs one. The app has no other entry point and takes no extras. */
+/**
+ * A FragmentActivity because the biometric prompt needs one. The app has no other entry point and takes no extras.
+ * Navigation Compose reads the activity's intent for a deep link, extras included, every time a NavController is set up
+ * (one per open vault, `key(vault)` in AppNavHost), so onCreate replaces the intent it was started with by a plain
+ * launcher one (2.0, audit B-1), and the activity never takes a new one (no onNewIntent).
+ */
 class MainActivity : FragmentActivity() {
     private val container get() = (application as SeguridadApp).container
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // B-1: whatever another app put in the intent that started Clavero never reaches the navigation.
+        intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, MainActivity::class.java)
         // Before anything is drawn, for every screen, dialog and menu of the app.
         secureWindow()
         setContent {
@@ -40,7 +48,7 @@ class MainActivity : FragmentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            SeguridadTheme(settings.theme) {
+            SeguridadTheme(settings) {
                 // A7: no keyboard learns from any field, dialogs included. A14: the clipboard notice, for every screen.
                 NoLearningInput {
                     AppNavHost(container)
@@ -58,6 +66,8 @@ class MainActivity : FragmentActivity() {
         // After lockIfIdle: a lock for the time spent away is left to each screen's own rule for time away, as leaving is.
         container.foreground = true
         VaultLock.keepOpenOnce = false
+        // 2.0, task 8: «Las copias con calendario se hacen al abrir la app».
+        container.appOpened()
         // Back from sharing an image: the copy goes once 10 minutes have passed. Off the main thread, so a share being
         // prepared at the same time (a write of up to 50 MB, under the same lock) never holds up the activity.
         container.appScope.launch(Dispatchers.IO) { container.shareTemp.onReturn() }
@@ -110,6 +120,12 @@ class MainActivity : FragmentActivity() {
         if (!isChangingConfigurations) container.foreground = false
         // A14: a copy waiting for the notice is dropped on leaving the app, whether or not the vault was open.
         if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.clipboardNotice.drop()
+        // 2.0, task 6 (review m-1): the copy in two steps offers the password on the return from outside the app. Audit
+        // B-4: here the lock below ends the offer anyway (leaving always locks); the offer lives only in split screen or a
+        // floating window, where another app taking the focus marks it (container.leftForAnotherApp).
+        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.twoStepCopy.markLeft()
+        // 2.0, task 9, ronda 1 (I-1): a QR text waiting at the vault's gate (a wifi password, a 2FA key) goes too.
+        if (!isChangingConfigurations) container.leftApp(VaultLock.keepOpenOnce)
         if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.vault.lock(LockReason.LEFT_APP)
     }
 }

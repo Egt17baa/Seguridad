@@ -10,7 +10,7 @@
 | `ae2c80e` | build: R8 9.1.31 lee los metadatos de Kotlin 2.4 (revertido por `94ddb7f`) |
 | `94ddb7f` | build: sin el R8 9.1.31, los avisos de metadatos de Kotlin quedan para la 1.4.0 |
 
-Los tres con autor `Claude <noreply@anthropic.com>`, terminan solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` y `git log -1 --format=%B | grep -cE "Claude-Session|claude\.ai"` da 0 en los tres. Solo se han añadido los archivos propios de la tarea (`app/build.gradle.kts`, `build.gradle.kts`, `gradle/verification-metadata.xml`). `.superpowers/` sigue sin entrar en git.
+Los tres con autor `Claude <noreply@anthropic.com>`, terminan solo en `Co-Authored-By: Claude <noreply@anthropic.com>` y `git log -1 --format=%B | grep -cE "Claude-Session|claude\.ai"` da 0 en los tres. Solo se han añadido los archivos propios de la tarea (`app/build.gradle.kts`, `build.gradle.kts`, `gradle/verification-metadata.xml`). `.superpowers/` sigue sin entrar en git.
 
 ## Paso 1: versionName
 
@@ -106,7 +106,7 @@ En `.superpowers/sdd/2026-11-01-clavero-1.3.1/` (no versionado): `r8-antes.txt` 
 
 El dueño decidió quitar el R8 fijado («Quitarlo»): el dex de publicación cambia mucho (repaquetado plano, 257 clases menos en el dex, otro `baseline.prof`), ningún test cubre el APK minificado, y la ganancia es solo estética (los avisos). Los 53 avisos quedan como en la 1.3.0 y se quitarán con un AGP 9 que ya traiga un R8 ≥ 9.1.29 (1.4.0).
 
-**Qué se ha revertido.** `git revert --no-commit ae2c80e` y un commit propio, `94ddb7f` («build: sin el R8 9.1.31, los avisos de metadatos de Kotlin quedan para la 1.4.0», cuerpo con el motivo, termina solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`, autor `Claude <noreply@anthropic.com>`, `grep -cE "Claude-Session|claude\.ai"` = 0). Sin reset, sin amend, sin rebase, sin `--force`. Push hecho: `ae2c80e..94ddb7f`.
+**Qué se ha revertido.** `git revert --no-commit ae2c80e` y un commit propio, `94ddb7f` («build: sin el R8 9.1.31, los avisos de metadatos de Kotlin quedan para la 1.4.0», cuerpo con el motivo, termina solo en `Co-Authored-By: Claude <noreply@anthropic.com>`, autor `Claude <noreply@anthropic.com>`, `grep -cE "Claude-Session|claude\.ai"` = 0). Sin reset, sin amend, sin rebase, sin `--force`. Push hecho: `ae2c80e..94ddb7f`.
 
 **Estado final comprobado:**
 

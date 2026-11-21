@@ -2,6 +2,7 @@ package app.seguridad
 
 import android.app.Application
 import android.os.SystemClock
+import app.seguridad.android.BiometricVault
 import app.seguridad.android.PrefsPlaceStore
 import app.seguridad.android.SafBackupTarget
 import app.seguridad.android.androidTrustedChain
@@ -36,6 +37,8 @@ class SeguridadApp : Application() {
             trustedChainOf = { androidTrustedChain(it) },
             // F6: the word lists of the master rule and of the Generator, read once per process.
             openAsset = { name -> assets.open(name) },
+            // 2.0, task 2 and audit B-3: a deleted vault's fingerprint key and its preferences file go with it.
+            forgetBiometric = { id -> BiometricVault.forget(this, id) },
         )
     }
 
@@ -51,7 +54,8 @@ class SeguridadApp : Application() {
         // The first state collected is Loading, so it is also wiped at start. A QR text the inspector handed to a vault
         // screen (a 2FA key among them) goes at the same moments.
         container.appScope.launch(Dispatchers.IO) {
-            container.vault.state.collect {
+            // 2.0: of whichever vault is active (a switch locks the one left, which counts as not open).
+            container.vaultState.collect {
                 if (it !is VaultState.Unlocked) {
                     QrHandoff.clear()
                     wipePkTemp(cacheDir)
@@ -71,6 +75,9 @@ class SeguridadApp : Application() {
             container.settings.load()
             container.decideRenameNotice()
         }
-        container.rememberClock(System.currentTimeMillis()) // The clock mark also rises when the app starts, not only on use.
+        // The clock mark also rises when the app starts, not only on use; the trash's clock does not (task 3, focus 3).
+        container.appStarted(System.currentTimeMillis())
+        // Branch review, B m-2: the settings of a vault whose deletion was cut half way, once the settings are read.
+        container.appScope.launch(Dispatchers.IO) { container.forgetOrphanVaults() }
     }
 }

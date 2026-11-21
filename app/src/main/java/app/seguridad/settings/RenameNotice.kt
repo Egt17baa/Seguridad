@@ -17,7 +17,23 @@ import kotlinx.coroutines.withContext
  * never). That write runs in [scope] (the app's), not cancellable, so the screen going away cannot cut it. In this run it
  * is never shown again once taken, even if the mark could not be saved.
  */
-class RenameNotice(private val settings: SettingsStore, private val scope: CoroutineScope) {
+class RenameNotice(settings: SettingsStore, scope: CoroutineScope) :
+    OnceNotice(settings, scope, pending = { it.renameNoticePending }, shown = { it.copy(renameNoticePending = false) })
+
+/**
+ * 2.0, task 5 bis (R-C8 of the Abogado Digital): the one line, for those who updated, that says how to go back to a look
+ * without transparencies ([Settings.appearanceNoticePending]). It works as [RenameNotice].
+ */
+class AppearanceNotice(settings: SettingsStore, scope: CoroutineScope) :
+    OnceNotice(settings, scope, pending = { it.appearanceNoticePending }, shown = { it.copy(appearanceNoticePending = false) })
+
+/** A notice shown once, as [RenameNotice] describes: [pending] says whether it is due, [shown] marks it as seen. */
+open class OnceNotice(
+    private val settings: SettingsStore,
+    private val scope: CoroutineScope,
+    private val pending: (Settings) -> Boolean?,
+    private val shown: (Settings) -> Settings,
+) {
     private val _visible = MutableStateFlow(false)
     val visible: StateFlow<Boolean> = _visible.asStateFlow()
 
@@ -25,7 +41,7 @@ class RenameNotice(private val settings: SettingsStore, private val scope: Corou
 
     /** Shows it if it is due and was not shown yet in this run; true when it was shown now. Writes nothing. */
     fun showIfDue(): Boolean {
-        if (taken || settings.settings.value.renameNoticePending != true) return false
+        if (taken || pending(settings.settings.value) != true) return false
         taken = true
         _visible.value = true
         return true
@@ -37,7 +53,7 @@ class RenameNotice(private val settings: SettingsStore, private val scope: Corou
         scope.launch {
             withContext(NonCancellable) {
                 try {
-                    settings.update { it.copy(renameNoticePending = false) }
+                    settings.update(shown)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

@@ -10,6 +10,7 @@ import app.seguridad.crypto.pk.SIGNATURE_PREFIX
 import app.seguridad.vault.AUTO_BACKUP_PREFIX
 import app.seguridad.vault.BACKUP_MARKER
 import app.seguridad.vault.IMPORT_COPY_PREFIX
+import app.seguridad.vault.UPGRADE_COPY_PREFIX
 import app.seguridad.vault.VaultFile
 import app.seguridad.vault.backupFileName
 import org.junit.Assert.assertEquals
@@ -118,6 +119,8 @@ class AppNameTest {
         val gradle = read("app/build.gradle.kts")
         assertTrue("applicationId = \"io.github.egt17baa.seguridad\"" in gradle)
         assertTrue("namespace = \"app.seguridad\"" in gradle)
+        // 2.0 (branch review D, Minor-4): the version the APK says, in Ajustes → Acerca de and in the User-Agent.
+        assertTrue("versionName = \"2.0.0\"" in gradle)
         assertTrue("android:authorities=\"\${applicationId}.compartir\"" in read("app/src/main/AndroidManifest.xml"))
         val biometric = read("app/src/main/java/app/seguridad/android/BiometricVault.kt")
         assertTrue("private const val ALIAS = \"seguridad_vault_biometric\"" in biometric)
@@ -132,6 +135,8 @@ class AppNameTest {
         // 1.4.0 (branch review C, M-4): the copies before importing are recognised by this name in the folders where
         // they already are («copias sin apuntar»), and the manual copy keeps its name too.
         assertEquals("seguridad-antes-de-importar-", IMPORT_COPY_PREFIX)
+        // 2.0: the copy before the vault passes to format v4.
+        assertEquals("seguridad-antes-de-2-0-", UPGRADE_COPY_PREFIX)
         assertEquals("seguridad-boveda-20261026.sgbak", backupFileName(java.time.LocalDate.of(2026, 10, 26)))
         assertEquals("SG1:", TEXT_PREFIX)
         assertEquals("seguridad", Dialect.SEGURIDAD.labelPrefix)

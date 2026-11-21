@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -51,6 +52,8 @@ class BackupCheckTest {
     private fun login(id: String) = VaultEntry(id, EntryType.LOGIN, "Banco", username = "ana", password = "clave-larga-1", createdAt = 0, updatedAt = 0)
 
     private fun VaultStore.entries() = (state.value as VaultState.Unlocked).entries
+
+    private fun VaultStore.data() = (state.value as VaultState.Unlocked).data
 
     private fun bytes(n: Int, seed: Int = n) = Random(seed).nextBytes(n)
 
@@ -109,6 +112,15 @@ class BackupCheckTest {
         val parts = entriesOf(zip)
         val file = VaultCrypto.decodeFile(parts.single { it.first == BACKUP_VAULT }.second.decodeToString())
         val dek = VaultCrypto.unlock(file, master.toCharArray())
+        val json = VaultCrypto.encodeFile(VaultCrypto.write(file, dek, VaultData(entries = change(VaultCrypto.read(file, dek).entries)))).toByteArray()
+        return zipOf(parts.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json else it })
+    }
+
+    /** As [rewritten], with [change] to the whole data (folders, views…). */
+    private fun rewrittenData(zip: ByteArray, change: (VaultData) -> VaultData): ByteArray {
+        val parts = entriesOf(zip)
+        val file = VaultCrypto.decodeFile(parts.single { it.first == BACKUP_VAULT }.second.decodeToString())
+        val dek = VaultCrypto.unlock(file, master.toCharArray())
         val json = VaultCrypto.encodeFile(VaultCrypto.write(file, dek, change(VaultCrypto.read(file, dek)))).toByteArray()
         return zipOf(parts.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json else it })
     }
@@ -146,7 +158,8 @@ class BackupCheckTest {
         val a = phoneA()
         val temp = temp()
         val report = check(a.backup(), temp)
-        assertEquals(BackupCheckReport(2, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 3, emptyList()), report)
+        // 2.0: marker 3; task 8: with the vault's tag.
+        assertEquals(BackupCheckReport(3, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 3, emptyList(), a.data().vaultTag), report)
         assertTrue(temp.listFiles().isNullOrEmpty())
         // A copy of version 1 (1.1.x) is read the same way, and says so.
         val v1 = zipOf(listOf(BACKUP_MARKER to "1\n".toByteArray()) + entriesOf(a.backup()).drop(1))
@@ -177,7 +190,7 @@ class BackupCheckTest {
         val zip = a.backup()
         val oneGone = zipOf(entriesOf(zip).filterNot { it.first == "att/${refs[1].id}.bin" })
         val report = check(oneGone, temp())
-        assertEquals(BackupCheckReport(2, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 2, listOf(backupCheckMissing(1))), report)
+        assertEquals(BackupCheckReport(3, mapOf(EntryType.NOTE to 2, EntryType.LOGIN to 1), 3, 2, listOf(backupCheckMissing(1)), a.data().vaultTag), report)
         // Several of each, counted apart.
         val ref0 = "att/${refs[0].id}.bin"
         val mixed = zipOf(
@@ -199,11 +212,11 @@ class BackupCheckTest {
 
     @Test fun newerVersionThrowsNewerMessage() = runTest {
         val good = entriesOf(phoneA().backup())
-        val newer = zipOf(listOf(BACKUP_MARKER to "3\n".toByteArray()) + good.drop(1))
+        val newer = zipOf(listOf(BACKUP_MARKER to "4\n".toByteArray()) + good.drop(1))
         assertEquals(BACKUP_NEWER, checkFails(newer, temp()))
         assertEquals(importFails(newer), checkFails(newer, temp()))
         // A vault file of a newer version inside a copy: what the import says too.
-        val json = good[1].second.decodeToString().replace("\"version\":3", "\"version\":4")
+        val json = good[1].second.decodeToString().replace("\"version\":4", "\"version\":5")
         val newerVault = zipOf(good.map { if (it.first == BACKUP_VAULT) BACKUP_VAULT to json.toByteArray() else it })
         assertEquals(NOT_A_VAULT, checkFails(newerVault, temp()))
         assertEquals(importFails(newerVault), checkFails(newerVault, temp()))
@@ -238,7 +251,7 @@ class BackupCheckTest {
         check(zip, temp)
         assertTrue(temp.listFiles().isNullOrEmpty())
         checkFails(zip, temp, pw = "contraseña-mala")
-        checkFails(zipOf(listOf(BACKUP_MARKER to "3\n".toByteArray()) + entriesOf(zip).drop(1)), temp)
+        checkFails(zipOf(listOf(BACKUP_MARKER to "4\n".toByteArray()) + entriesOf(zip).drop(1)), temp)
         checkFails(zip.copyOf(zip.size / 2), temp)
         checkFails(rewritten(zip) { it + it.first() }, temp)
         // A problem in the report is no failure, and leaves nothing either.
@@ -506,6 +519,113 @@ class BackupCheckTest {
         assertTrue(temp().listFiles().isNullOrEmpty())
     }
 
+    private fun declaredRef(id: Int, size: Long) = AttachmentRef("%032x".format(id), "a.bin", size, "00".repeat(32), "AA".repeat(22))
+
+    private fun copyCheckFails(entries: List<VaultEntry>): String? = try {
+        checkCopyEntries(entries)
+        null
+    } catch (e: CryptoFailure) {
+        e.message
+    }
+
+    /**
+     * Branch review, row 37 (B I-4), P-I4: an attachment of a size no Clavero ever wrote (negative, or over 5 MB) is a
+     * damaged copy; only a sum over 50 MB is [ATTACHMENTS_TOTAL_TOO_BIG].
+     */
+    @Test fun anAttachmentSizeOutOfRangeIsDamaged() {
+        val five = MAX_ATTACHMENT_BYTES.toLong()
+        fun with(vararg refs: AttachmentRef) = listOf(VaultEntry("a", EntryType.NOTE, "A", createdAt = 0, updatedAt = 0, attachments = refs.toList()))
+        assertEquals(COPY_DAMAGED, copyCheckFails(with(declaredRef(1, -1))))
+        assertEquals(COPY_DAMAGED, copyCheckFails(with(declaredRef(1, five + 1))))
+        assertEquals(ATTACHMENTS_TOTAL_TOO_BIG, copyCheckFails(with(*(0 until 11).map { declaredRef(it, five) }.toTypedArray())))
+        assertNull(copyCheckFails(with(*(0 until 10).map { declaredRef(it, five) }.toTypedArray())))
+    }
+
+    /**
+     * Branch review, D-1: an identity in the trash (a copy brings it back with [VaultStore.restore]) and another one alive is
+     * a vault the app can save, so its copy passes; two alive are still [SEVERAL_IDENTITIES].
+     */
+    @Test fun anIdentityInTheTrashIsNotASecondOne() {
+        val alive = VaultEntry("y1", EntryType.IDENTITY, "Yo", createdAt = 0, updatedAt = 0)
+        val trashed = VaultEntry("y2", EntryType.IDENTITY, "Yo antes", createdAt = 0, updatedAt = 0, deletedAt = 5)
+        assertNull(copyCheckFails(listOf(alive, trashed)))
+        assertNull(copyCheckFails(listOf(trashed, trashed.copy(id = "y3"))))
+        assertEquals(SEVERAL_IDENTITIES, copyCheckFails(listOf(alive, alive.copy(id = "y3"))))
+        assertEquals(SEVERAL_IDENTITIES, copyCheckFails(listOf(alive, trashed, alive.copy(id = "y3"))))
+    }
+
+    /** Both «Importar copia» (into a vault, which stays as it was) and «Comprobar una copia» refuse [zip] with [message]. */
+    private suspend fun bothRefuse(zip: ByteArray, message: String) {
+        assertEquals(message, checkFails(zip, temp()))
+        val dir = phone("dest-" + Random.nextInt(1_000_000))
+        val b = store(dir).apply { load(); create(master.toCharArray()); upsert(note("mía")) }
+        val before = snapshot(dir)
+        try {
+            b.importReplace(ByteArrayInputStream(zip), master.toCharArray())
+            fail("La importación debía fallar")
+        } catch (e: CryptoFailure) {
+            assertEquals(message, e.message)
+        }
+        assertEquals(before, snapshot(dir))
+    }
+
+    /**
+     * Branch review, A m-2 (test n.º 4): a v4 copy whose data pass [VaultLimits.VAULT_MAX_DATA_BYTES] (made by hand: no
+     * vault of Clavero does), with no history to drop, still within the copy's own limit: a damaged copy, nothing changed.
+     */
+    @Test fun v4CopyOverTheDataLimitIsDamaged() = runTest {
+        val zip = phoneA().backup()
+        // Re-review B i-2: over the limit plus the margin of the bookkeeping writes.
+        val each = (VaultLimits.VAULT_MAX_DATA_BYTES + VaultLimits.COPY_DATA_MARGIN_BYTES) / 3 + 1
+        val big = rewritten(zip) { list -> list + (0 until 3).map { i -> note("grande$i").copy(notes = "a".repeat(each)) } }
+        assertTrue("the copy is within its own limit", big.size < BACKUP_MAX_READ_BYTES)
+        bothRefuse(big, COPY_DAMAGED)
+    }
+
+    /**
+     * Re-review B i-2: a v4 made by hand right at [VaultLimits.VAULT_MAX_DATA_BYTES], with no vault tag nor last unlock:
+     * the unlock with the master adds them (bookkeeping, no save that fits), and its own copy is still read and checked.
+     */
+    @Test fun aVaultAtTheLimitStillReadsItsOwnCopyAfterAnUnlock() = runTest {
+        val dir = phone("al-limite")
+        val (file, dek) = VaultCrypto.create(master.toCharArray(), 0, KdfParams(1024, 1, 1))
+        val base = VaultData(entries = listOf(note("1").copy(notes = "a")))
+        assertEquals("", base.vaultTag)
+        val pad = VaultLimits.VAULT_MAX_DATA_BYTES - jsonBytes(base) + 1
+        val data = VaultData(entries = listOf(note("1").copy(notes = "a".repeat(pad.toInt()))))
+        assertEquals(VaultLimits.VAULT_MAX_DATA_BYTES.toLong(), jsonBytes(data))
+        File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, data)))
+        val s = store(dir).apply { load() }
+        s.unlock(master.toCharArray())
+        val opened = s.data()
+        assertTrue("the unlock added bookkeeping", jsonBytes(opened) > VaultLimits.VAULT_MAX_DATA_BYTES)
+        checkCopySize(opened)
+        val report = check(s.backup(), temp())
+        assertEquals(1, report.entries.values.sum())
+    }
+
+    /** Branch review, A m-4 (test n.º 6): a folder or a view named with more than [ORGANIZE_NAME_MAX] code points: damaged. */
+    @Test fun longFolderNameIsDamaged() = runTest {
+        val zip = phoneA().backup()
+        val long = "ñ".repeat(ORGANIZE_NAME_MAX + 1)
+        bothRefuse(rewrittenData(zip) { it.copy(folders = listOf(Folder("f1", long))) }, COPY_DAMAGED)
+        bothRefuse(rewrittenData(zip) { it.copy(views = listOf(SavedView("v1", long, EntryFilter()))) }, COPY_DAMAGED)
+        // At the limit, it is read.
+        check(rewrittenData(zip) { it.copy(folders = listOf(Folder("f1", "ñ".repeat(ORGANIZE_NAME_MAX)))) }, temp())
+    }
+
+    /**
+     * Branch review, row 42, P-42: what the three places of a copy say: the default failure of AES-GCM as of a copy, with
+     * what to do; parameters out of bounds as of a copy; everything else as it is.
+     */
+    @Test fun aCopysFailureIsSaidAsOfACopy() {
+        assertEquals("Contraseña incorrecta o copia dañada. Vuelve a elegir la copia y escribe su contraseña.", copyFailureText(CryptoFailure()))
+        assertEquals("La copia pide unos parámetros de cifrado que Clavero no admite. Elige otra copia.", copyFailureText(CryptoFailure(app.seguridad.crypto.KDF_PARAMS_INVALID)))
+        for (m in listOf(app.seguridad.crypto.KDF_OUT_OF_MEMORY, app.seguridad.crypto.KDF_NO_MEMORY_NOW, COPY_DAMAGED, NOT_A_VAULT, BACKUP_NEWER, SEVERAL_IDENTITIES)) {
+            assertEquals(m, copyFailureText(CryptoFailure(m)))
+        }
+    }
+
     @Test fun aForgedSizeIsRefusedBeforeTheWork() = runTest {
         val good = entriesOf(phoneA().backup())
         // A local header that says 4 GB but brings a few bytes: the sizes in headers are never used to allocate.
@@ -584,5 +704,100 @@ class BackupCheckTest {
             // The cancellation goes through as it is, never as a damaged copy.
         }
         assertTrue(temp.listFiles().isNullOrEmpty())
+    }
+
+    /**
+     * 2.0, task 8 (design «Copias», ruling (b)): the date of the check is kept only for a copy whose tag, read from the very
+     * data checked, is the open vault's; never for another vault's copy, one with no tag (made before 2.0), or after a lock.
+     */
+    @Test fun checkRecordsDateOnlyForOwnTag() = runTest {
+        val a = phoneA()
+        val b = store(phone("b")).apply {
+            load()
+            create(master.toCharArray())
+            upsert(note("9"))
+        }
+        val own = check(a.backup(), temp())
+        val other = check(b.backup(), temp())
+        assertTrue(own.vaultTag.isNotEmpty())
+        assertEquals(a.data().vaultTag, own.vaultTag)
+        assertTrue(own.vaultTag != other.vaultTag)
+        val revision = a.revision.value
+
+        // Another vault's copy, and one with no tag (before 2.0): nothing recorded.
+        assertEquals(false, a.recordBackupChecked(other.vaultTag))
+        assertEquals(false, a.recordBackupChecked(""))
+        assertEquals(0L, a.data().lastCheckedBackupAt)
+        assertEquals(null, a.data().withBackupChecked("", 5L))
+        assertEquals(null, a.data().withBackupChecked(other.vaultTag, 5L))
+
+        // Its own copy: the date is kept, saved (it is there after a lock and a new unlock) and makes no automatic copy.
+        assertEquals(true, a.recordBackupChecked(own.vaultTag))
+        assertEquals(7_000L, a.data().lastCheckedBackupAt)
+        assertEquals(revision, a.revision.value)
+        a.lock()
+        // Locked: nothing can be compared (the screen then says nothing about it), even for its own copy.
+        assertNull(a.recordBackupChecked(own.vaultTag))
+        assertNull(a.recordBackupChecked(other.vaultTag))
+        a.unlock(master.toCharArray())
+        assertEquals(7_000L, a.data().lastCheckedBackupAt)
+
+        // A lock after the check started drops it, even with the vault open again.
+        val b2 = store(phone("c")).apply {
+            load()
+            create(master.toCharArray())
+        }
+        val started = b2.lockEpoch
+        val tag = b2.data().vaultTag
+        b2.lock()
+        b2.unlock(master.toCharArray())
+        assertNull(b2.recordBackupChecked(tag, started))
+        assertEquals(0L, b2.data().lastCheckedBackupAt)
+        assertEquals(true, b2.recordBackupChecked(tag, b2.lockEpoch))
+    }
+
+    /** 2.0, task 8: the reminder, only after 30 days, or while no copy was ever checked (0). */
+    @Test fun noticeAfter30Days() {
+        val day = 24L * 60 * 60 * 1000
+        val now = 1_800_000_000_000L
+        assertEquals("Aún no has comprobado ninguna copia.", backupCheckNotice(0L, now))
+        assertEquals(null, backupCheckNotice(now, now))
+        assertEquals(null, backupCheckNotice(now - 29 * day, now))
+        assertEquals(null, backupCheckNotice(now - 30 * day + 1, now))
+        assertEquals("Comprobaste una copia por última vez hace 30 días.", backupCheckNotice(now - 30 * day, now))
+        assertEquals("Comprobaste una copia por última vez hace 45 días.", backupCheckNotice(now - 45 * day - 5, now))
+        // A clock set back a little behind the check: no reminder (it is not 30 days old).
+        assertEquals(null, backupCheckNotice(now + day / 2, now))
+        // Review M-6: a check dated more than a day ahead (made with the clock set forward) does not silence it for years.
+        assertEquals(BACKUP_CHECK_DATE_AHEAD, backupCheckNotice(now + 3 * day, now))
+        assertEquals(BACKUP_CHECK_DATE_AHEAD, backupCheckNotice(now + 4 * 365 * day, now))
+    }
+
+    /**
+     * D-12 (task 8 review): «Importar como bóveda nueva» gives the new vault a tag of its own, so checking a copy of the vault
+     * it came from (A) records nothing in it (B), and a copy of B is B's own.
+     */
+    @Test fun importAsNewVaultGetsItsOwnTag() = runTest {
+        val a = phoneA()
+        // A has a date of a check of its own (re-review 1, N-1): the new vault does not take it.
+        assertEquals(true, a.recordBackupChecked(check(a.backup(), temp()).vaultTag))
+        assertEquals(7_000L, a.data().lastCheckedBackupAt)
+        val copyOfA = a.backup()
+        val b = store(phone("nueva")).apply { load() }
+        b.importReplace(ByteArrayInputStream(copyOfA), master.toCharArray(), newTag = true)
+        if (b.state.value !is VaultState.Unlocked) b.unlock(master.toCharArray())
+        assertTrue(b.data().vaultTag.isNotEmpty())
+        assertTrue(b.data().vaultTag != a.data().vaultTag)
+        assertEquals(0L, b.data().lastCheckedBackupAt)
+        val checkedA = check(copyOfA, temp())
+        assertEquals(false, b.recordBackupChecked(checkedA.vaultTag))
+        assertEquals(0L, b.data().lastCheckedBackupAt)
+        assertEquals(true, b.recordBackupChecked(check(b.backup(), temp()).vaultTag))
+        // «Importar copia» (replacing the vault) keeps the copy's tag, as before: it is the same vault, restored.
+        val c = store(phone("restaurada")).apply { load() }
+        c.importReplace(ByteArrayInputStream(copyOfA), master.toCharArray())
+        if (c.state.value !is VaultState.Unlocked) c.unlock(master.toCharArray())
+        assertEquals(a.data().vaultTag, c.data().vaultTag)
+        assertEquals(7_000L, c.data().lastCheckedBackupAt)
     }
 }

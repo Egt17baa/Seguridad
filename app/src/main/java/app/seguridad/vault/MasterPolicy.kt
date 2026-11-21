@@ -46,8 +46,11 @@ const val EFF_WORD_LIST = "eff_large_wordlist.txt"
 /** The BIP-39 English list of `assets/`: one of [MASTER_WORD_LISTS], and the phrases of «Repartir un secreto». */
 const val BIP39_ENGLISH_LIST = "bip39_english.txt"
 
+/** The BIP-39 Spanish list of `assets/`: one of [MASTER_WORD_LISTS], and the phrases the entry form recognises (2.0, task 7). */
+const val BIP39_SPANISH_LIST = "bip39_spanish.txt"
+
 /** The word lists of `assets/` that the rule for a new master knows, the ones the app already reads (EFF, BIP-39 English and Spanish). */
-val MASTER_WORD_LISTS = listOf(EFF_WORD_LIST, BIP39_ENGLISH_LIST, "bip39_spanish.txt")
+val MASTER_WORD_LISTS = listOf(EFF_WORD_LIST, BIP39_ENGLISH_LIST, BIP39_SPANISH_LIST)
 
 private val COMBINING_MARKS = Regex("\\p{Mn}+")
 
@@ -173,6 +176,7 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
     private var known: Set<String>? = null
     private var effList: List<String>? = null
     private var bip39List: List<String>? = null
+    private var seeds: SeedLists? = null
 
     /** [loadMasterWords]: an empty set if a list cannot be read, which is not kept. */
     suspend fun master(): Set<String> = mutex.withLock {
@@ -187,6 +191,18 @@ class WordLists(private val open: (String) -> InputStream, private val io: Corou
     /** The BIP-39 English list without blank lines (for «Repartir un secreto»), or null if it cannot be read (not kept). */
     suspend fun bip39English(): List<String>? = mutex.withLock {
         bip39List ?: withContext(io) { readList(BIP39_ENGLISH_LIST) }?.also { bip39List = it }
+    }
+
+    /**
+     * 2.0, task 7: the BIP-39 lists, English and Spanish, that the entry form reads a pasted phrase with ([detectPasted]),
+     * or null if either cannot be read (not kept: the next form tries again).
+     */
+    suspend fun seedLists(): SeedLists? = mutex.withLock {
+        seeds ?: withContext(io) {
+            val english = bip39List ?: readList(BIP39_ENGLISH_LIST)?.also { bip39List = it }
+            val spanish = readList(BIP39_SPANISH_LIST)
+            if (english != null && spanish != null) SeedLists(english, spanish) else null
+        }?.also { seeds = it }
     }
 
     /** Blocking, like [loadMasterWords]: catching `Exception` here swallows no cancellation. */

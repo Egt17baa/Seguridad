@@ -48,6 +48,9 @@ enum class SkipReason(val text: String) {
     /** The 2FA of a login that is not read: only the 2FA stays out (1.4.2: [BROKEN] read as if the login had too). */
     LOGIN_TOTP_BROKEN(SKIP_LOGIN_TOTP_BROKEN),
     EMPTY("Vacío"),
+
+    /** 2.0: its entry would pass the 64 KiB of one entry; the plan leaves it out ([planMerge], ruling T1-3). */
+    ENTRY_TOO_BIG(SKIP_ENTRY_TOO_BIG),
 }
 
 /**

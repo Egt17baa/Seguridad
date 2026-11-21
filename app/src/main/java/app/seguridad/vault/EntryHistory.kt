@@ -1,0 +1,91 @@
+package app.seguridad.vault
+
+/*
+ * 2.0, task 3: the history of each entry (design «Historial por entrada»). Every save that changes something keeps the
+ * entry as it was, as an [EntryVersion] at the front of [VaultEntry.history], within the limits of [VaultLimits] (20
+ * versions and 64 KiB; the oldest go first). A version holds every field but the attachments, which are not versioned,
+ * and has no history of its own.
+ *
+ * Old passwords (review M-4 of task 1, ruling T3 I-2): a change of password goes to the history and also, as in 1.4.3,
+ * to [VaultEntry.passwordHistory] (the 5 newest, [withNewPassword]), which the limits of the history never trim.
+ * [oldPasswords] reads both, so no old password disappears from the card or from «Salud» because the history was
+ * trimmed; «Borrar historial» empties both.
+ */
+
+/** The entry as a version: without history, attachments or the legacy list of old passwords. */
+private fun VaultEntry.asVersion(): VaultEntry =
+    if (history.isEmpty() && attachments.isEmpty() && passwordHistory.isEmpty()) this
+    else copy(history = emptyList(), attachments = emptyList(), passwordHistory = emptyList())
+
+/**
+ * What a change is compared on: everything but the dates of use and update, the history, the attachments, the legacy
+ * list and the mark of the last password change (review fixes, CR-1: freezing the mark never makes a version).
+ */
+private fun VaultEntry.comparable(): VaultEntry =
+    copy(updatedAt = 0, lastUsedAt = null, history = emptyList(), attachments = emptyList(), passwordHistory = emptyList(), passwordChangedAt = null)
+
+/**
+ * Review fixes, CR-1: the mark of the last password change [prev] keeps through an edit that does not change its
+ * password: its own [VaultEntry.passwordChangedAt] or, for an entry of before 2.0 that has none, the date
+ * [lastPasswordChange] reads from what it holds now (its history, the list of 1.4.3, its last edit), frozen before the
+ * edit moves [VaultEntry.updatedAt] or drops the history. Null for an entry with no password.
+ */
+internal fun frozenPasswordMark(prev: VaultEntry): Long? =
+    prev.passwordChangedAt ?: (if (prev.passwordForHealth().isNotEmpty()) lastPasswordChange(prev) else null)
+
+/** Whether [other] differs from this entry in anything the history keeps (not [VaultEntry.lastUsedAt] nor [VaultEntry.updatedAt]). */
+fun VaultEntry.changedFrom(other: VaultEntry): Boolean = comparable() != other.comparable()
+
+/**
+ * This entry (as it is about to be saved, with its history) with [previous] (the entry as it was stored) added at the
+ * front of its history as an [EntryVersion] saved at [now], without history or attachments, when any field changed
+ * ([changedFrom]: [VaultEntry.lastUsedAt], [VaultEntry.updatedAt], the history and the attachments do not count). Then
+ * within [VaultLimits.HISTORY_MAX_VERSIONS] and [VaultLimits.HISTORY_MAX_BYTES], the oldest versions first. The same
+ * object when nothing changed.
+ */
+fun VaultEntry.withVersion(previous: VaultEntry, now: Long): VaultEntry {
+    // 2.0, task 5 (review M-1): the store's mark of the last change of the password, whatever the caller sent.
+    val marked = copy(passwordChangedAt = if (passwordForHealth() != previous.passwordForHealth()) now else frozenPasswordMark(previous))
+    if (!marked.changedFrom(previous)) return marked
+    return marked.copy(history = listOf(EntryVersion(now, previous.asVersion())) + history).fittedHistory()
+}
+
+/**
+ * When the password of this entry ([passwordForHealth]) was last set (2.0, task 5, review M-1): the store's mark
+ * ([VaultEntry.passwordChangedAt]) or, for an entry of before, the newest change its history knows (the version that
+ * had another password, replaced at its [EntryVersion.savedAt]) or the list of 1.4.3, and else its last edit. «Salud»
+ * («Antigua») and the reminder to change it ([Expiry]) read only this.
+ */
+fun lastPasswordChange(e: VaultEntry): Long {
+    e.passwordChangedAt?.let { return it }
+    val current = e.passwordForHealth()
+    val fromHistory = e.history.firstOrNull { it.entry.passwordForHealth() != current }?.savedAt
+    val fromList = if (e.type == EntryType.LOGIN) e.passwordHistory.maxOfOrNull { it.changedAt } else null
+    return listOfNotNull(fromHistory, fromList).maxOrNull() ?: e.updatedAt
+}
+
+/**
+ * The old passwords of this entry, newest first, each once (its newest date): from [VaultEntry.history], each version
+ * of type [EntryType.LOGIN] whose non-empty password differs from the one that came after it (the next newer version,
+ * or this entry), with the date it was replaced ([EntryVersion.savedAt]); and the legacy [VaultEntry.passwordHistory]
+ * of 1.4.3 and before that the history no longer holds. The entry card and «Salud» read this.
+ */
+fun VaultEntry.oldPasswords(): List<PasswordChange> {
+    val found = LinkedHashMap<String, PasswordChange>()
+    var after = password
+    for (v in history) {
+        val p = v.entry.password
+        if (v.entry.type == EntryType.LOGIN && p.isNotEmpty() && p != after && p !in found) found[p] = PasswordChange(p, v.savedAt)
+        after = p
+    }
+    for (old in passwordHistory) if (old.password.isNotEmpty() && old.password !in found) found[old.password] = old
+    return found.values.sortedByDescending { it.changedAt }
+}
+
+/**
+ * This entry without history nor the list of old passwords («Borrar historial»); the same object when it had none. CR-1:
+ * the date of the last password change is frozen first ([frozenPasswordMark]), since it may come from what goes.
+ */
+fun VaultEntry.withoutHistory(): VaultEntry =
+    if (history.isEmpty() && passwordHistory.isEmpty()) this
+    else copy(history = emptyList(), passwordHistory = emptyList(), passwordChangedAt = frozenPasswordMark(this))

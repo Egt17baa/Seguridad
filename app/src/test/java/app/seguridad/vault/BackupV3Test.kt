@@ -1,0 +1,216 @@
+package app.seguridad.vault
+
+import app.seguridad.crypto.CryptoFailure
+import app.seguridad.crypto.KdfParams
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
+
+/** 2.0, tarea 1: la copia `seguridad-backup` con la marca 3 (la de una bóveda v4) y sus topes. */
+class BackupV3Test {
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val master = "una-maestra-de-prueba"
+    private val clock = 1_800_000_000_000L
+
+    private fun store(name: String) = VaultStore(
+        File(File(tmp.root, name).apply { mkdirs() }, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined,
+        now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+    )
+
+    private fun firstEntry(zip: ByteArray): Pair<String, String> = ZipInputStream(ByteArrayInputStream(zip)).use { z ->
+        val e = z.nextEntry!!
+        e.name to z.readBytes().decodeToString()
+    }
+
+    private fun zipOf(vararg entries: Pair<String, ByteArray>): ByteArray = ByteArrayOutputStream().also { out ->
+        ZipOutputStream(out).use { z ->
+            for ((name, bytes) in entries) {
+                z.putNextEntry(ZipEntry(name))
+                z.write(bytes)
+                z.closeEntry()
+            }
+        }
+    }.toByteArray()
+
+    private fun readFails(zip: ByteArray): String? = try {
+        BackupReader().read(ByteArrayInputStream(zip), File(tmp.root, "lectura"))
+        null
+    } catch (e: CryptoFailure) {
+        e.message
+    }
+
+    private suspend fun v4Copy(): ByteArray {
+        val s = store("origen").apply { load(); create(master.toCharArray()) }
+        s.upsert(VaultEntry("1", EntryType.NOTE, "Nota", notes = "secreto", createdAt = 0, updatedAt = 0))
+        val id = s.entries().single().id
+        assertTrue(s.addAttachment(id, "hola".byteInputStream(), "hola.txt"))
+        return ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
+    }
+
+    private fun VaultStore.entries() = (state.value as VaultState.Unlocked).entries
+
+    @Test fun v4VaultWritesMarker3() = runTest {
+        assertEquals(BACKUP_MARKER to "3\n", firstEntry(v4Copy()))
+        assertEquals(3, BACKUP_NEWEST)
+    }
+
+    @Test fun v3VaultWritesMarker2() {
+        val v3 = javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString()
+        val out = ByteArrayOutputStream()
+        writeBackup(out, v3, emptyMap())
+        assertEquals(BACKUP_MARKER to "2\n", firstEntry(out.toByteArray()))
+        // A text that is not a vault file at all keeps the marker of before too.
+        val other = ByteArrayOutputStream()
+        writeBackup(other, "{}", emptyMap())
+        assertEquals(BACKUP_MARKER to "2\n", firstEntry(other.toByteArray()))
+    }
+
+    @Test fun marker3ReadsBack() = runTest {
+        val copy = v4Copy()
+        val report = checkBackup(ByteArrayInputStream(copy), master.toCharArray(), File(tmp.root, "comprobar"))
+        assertEquals(3, report.version)
+        assertEquals(emptyList<String>(), report.problems)
+        assertEquals(1, report.attachmentsOk)
+        val s = store("destino").apply { load() }
+        s.importReplace(ByteArrayInputStream(copy), master.toCharArray())
+        val e = s.entries().single()
+        assertEquals("secreto", e.notes)
+        assertEquals("hola", s.openAttachment(e.id, e.attachments.single().id)!!.decodeToString())
+        assertEquals(4, VaultCrypto.decodeFile(File(tmp.root, "destino/vault.bin").readText()).version)
+    }
+
+    @Test fun marker4IsNewer() {
+        assertEquals(BACKUP_NEWER, readFails(zipOf(BACKUP_MARKER to "4\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray())))
+        assertEquals(null, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray())))
+    }
+
+    @Test fun marker3EntryLimitIs33MiB() {
+        // 2.0, ruling T1-1: 33 MiB, so a vault at its 24 MiB of data always fits (Base64 and the file around it).
+        assertEquals(33L * 1024 * 1024, BACKUP_V3_MAX_ENTRY_BYTES)
+        assertEquals("Un archivo de la copia pasa de 33 MB", BACKUP_ENTRY_TOO_BIG_V3)
+        assertEquals("La bóveda no cabe en una copia (100 MB en total, 33 MB por archivo y 2 000 archivos)", BACKUP_DOES_NOT_FIT_V3)
+        val seven = ByteArray(7 * 1024 * 1024) { 'a'.code.toByte() }
+        assertEquals(null, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to seven)))
+        val over = ByteArray((BACKUP_V3_MAX_ENTRY_BYTES + 1).toInt()) { 'a'.code.toByte() }
+        assertEquals(BACKUP_ENTRY_TOO_BIG_V3, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to over)))
+        assertEquals(40 * 1024 * 1024, VAULT_IMPORT_MAX_BYTES)
+    }
+
+    /** 2.0, ruling T1-1: a vault at exactly [VaultLimits.VAULT_MAX_DATA_BYTES] of data is saved, copied and read back. */
+    @Test fun aVaultAtTheDataLimitFitsInACopy() = runTest {
+        val tag = "0".repeat(32) // As long as any vaultTag: the size does not depend on its value.
+        val entries = (0 until 400).map { VaultEntry("id%03d".format(it), EntryType.NOTE, "E%03d".format(it), notes = "x".repeat(60_000), createdAt = 0, updatedAt = 0) }.toMutableList()
+        var deficit = VaultLimits.VAULT_MAX_DATA_BYTES - jsonBytes(VaultData(entries = entries, vaultTag = tag))
+        var i = 0
+        while (deficit > 0) {
+            val more = minOf(deficit, 4_000L).toInt()
+            entries[i] = entries[i].copy(notes = entries[i].notes + "x".repeat(more))
+            deficit -= more
+            i++
+        }
+        assertEquals(VaultLimits.VAULT_MAX_DATA_BYTES.toLong(), jsonBytes(VaultData(entries = entries, vaultTag = tag)))
+        val s = store("limite").apply { load(); create(master.toCharArray()) }
+        s.addAll(entries)
+        val saved = (s.state.value as VaultState.Unlocked).data
+        assertEquals(VaultLimits.VAULT_MAX_DATA_BYTES.toLong(), jsonBytes(saved))
+        val copy = ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
+        // The vault file in the copy passes 32 MiB: the old cap would have refused it.
+        val vaultJson = ZipInputStream(ByteArrayInputStream(copy)).use { z ->
+            generateSequence { z.nextEntry }.first { it.name == BACKUP_VAULT }.let { z.readBytes() }
+        }
+        assertTrue("${vaultJson.size}", vaultJson.size > 32L * 1024 * 1024 && vaultJson.size <= BACKUP_V3_MAX_ENTRY_BYTES)
+        val back = store("vuelta").apply { load() }
+        back.importReplace(ByteArrayInputStream(copy), master.toCharArray())
+        assertEquals(400, back.entries().size)
+        assertEquals(saved.entries.map { it.notes.length }, (back.state.value as VaultState.Unlocked).data.entries.map { it.notes.length })
+    }
+
+    /** Review M-2: the copy takes the vault's version from the caller, without decoding the file again. */
+    @Test fun writeBackupTakesTheVaultVersion() {
+        fun marker(json: String, version: Int?): String =
+            firstEntry(ByteArrayOutputStream().also { writeBackup(it, json, emptyMap(), vaultVersion = version) }.toByteArray()).second
+        // «{}» is no vault file: with the version given, the marker follows it all the same.
+        assertEquals("3\n", marker("{}", VaultFile.VERSION))
+        assertEquals("2\n", marker("{}", VaultFile.VERSION_3))
+        assertEquals("2\n", marker("{}", VaultFile.VERSION_2))
+        assertEquals("2\n", marker("{}", null)) // Not given (the tests): read from the file.
+    }
+
+    /** Review M-7: with marker 3 only `vault.json` gets 33 MiB; an attachment keeps the 6 MB of a copy's other files. */
+    @Test fun marker3KeepsTheAttachmentCap() {
+        val over = ByteArray((BACKUP_MAX_ENTRY_BYTES + 1).toInt()) { 7 }
+        val att = "att/" + "a".repeat(32) + ".bin"
+        assertEquals(BACKUP_ENTRY_TOO_BIG, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray(), att to over)))
+        assertEquals(BACKUP_ENTRY_TOO_BIG, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray(), "otro" to over)))
+        assertEquals(null, readFails(zipOf(BACKUP_MARKER to "3\n".toByteArray(), BACKUP_VAULT to "{}".toByteArray(), att to over.copyOf(BACKUP_MAX_ENTRY_BYTES.toInt()))))
+        // And the writer never makes one.
+        val file = File(tmp.root, "grande.bin").apply { writeBytes(over) }
+        try {
+            writeBackup(ByteArrayOutputStream(), "{}", mapOf("a".repeat(32) to file), vaultVersion = VaultFile.VERSION)
+            fail("an attachment over 6 MB is never written, whatever the marker")
+        } catch (e: CryptoFailure) {
+            assertEquals(BACKUP_DOES_NOT_FIT_V3, e.message)
+        }
+    }
+
+    @Test fun marker2EntryLimitStays6MB() {
+        val over = ByteArray((BACKUP_MAX_ENTRY_BYTES + 1).toInt()) { 'a'.code.toByte() }
+        assertEquals(BACKUP_ENTRY_TOO_BIG, readFails(zipOf(BACKUP_MARKER to "2\n".toByteArray(), BACKUP_VAULT to over)))
+        assertEquals(BACKUP_ENTRY_TOO_BIG, readFails(zipOf(BACKUP_MARKER to "1\n".toByteArray(), BACKUP_VAULT to over)))
+        assertEquals(6L * 1024 * 1024, BACKUP_MAX_ENTRY_BYTES)
+        try {
+            writeBackup(ByteArrayOutputStream(), "x".repeat((BACKUP_MAX_ENTRY_BYTES + 1).toInt()), emptyMap())
+            fail("a copy with marker 2 over 6 MB is never written")
+        } catch (e: CryptoFailure) {
+            assertEquals(BACKUP_DOES_NOT_FIT, e.message)
+        }
+    }
+
+    /**
+     * Audit A-3: the check of the marker of the copy reader of Clavero 1.4.3, copied from its own code (commit `a3ac942`,
+     * `app/src/main/java/app/seguridad/vault/Backup.kt:262-276`, with its `BACKUP_NEWEST = 2` of `:37` and its texts of
+     * `:58-59`). That version is published and never changes: this is what it does with the first entry of a copy. Null
+     * when it accepts the marker; otherwise the text it shows.
+     */
+    private fun reader143Marker(name: String, version: ByteArray): String? {
+        val backupNewest143 = 2
+        val backupVersion143 = "2\n".toByteArray(Charsets.US_ASCII)
+        val backupVersion1143 = "1\n".toByteArray(Charsets.US_ASCII)
+        val backupNewer143 = "La copia es de una versión más nueva de Clavero"
+        val backupDamaged143 = "La copia está dañada o no es una copia de Clavero"
+        // From a3ac942, Backup.kt:268-275 (the marker comes first, with exactly this version).
+        if (name != "seguridad-backup") return backupDamaged143
+        if (!version.contentEquals(backupVersion143) && !version.contentEquals(backupVersion1143)) {
+            val number = version.decodeToString().trim().toIntOrNull()
+            return if (number != null && number > backupNewest143) backupNewer143 else backupDamaged143
+        }
+        return null
+    }
+
+    /**
+     * Audit A-3 (design «Formato v4»: «se comprueba con un test contra el lector de la 1.4.3»): a copy of a v4 vault, as
+     * the app exports it, is refused by the reader of 1.4.3 with its «más nueva» text before it reads anything else; a
+     * copy of the vault of 1.4.3 (marker 2) is accepted.
+     */
+    @Test fun aCopyOfAV4IsRefusedByThe143Reader() = runTest {
+        val (name, marker) = firstEntry(v4Copy())
+        assertEquals("3\n", marker)
+        assertEquals("La copia es de una versión más nueva de Clavero", reader143Marker(name, marker.toByteArray(Charsets.US_ASCII)))
+        val text143 = javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString()
+        val copy143 = ByteArrayOutputStream().also { writeBackup(it, text143, emptyMap()) }.toByteArray()
+        val (name143, marker143) = firstEntry(copy143)
+        assertEquals(null, reader143Marker(name143, marker143.toByteArray(Charsets.US_ASCII)))
+    }
+}

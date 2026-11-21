@@ -1,5 +1,6 @@
 package app.seguridad.ui.screens
 
+import app.seguridad.vault.storeSaveErrorText
 import android.content.res.AssetManager
 import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +36,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import app.seguridad.ui.theme.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -183,15 +184,18 @@ private class CodesViewModel(
     fun write(save: PendingSave) {
         if (!session.beginWrite(save)) return
         viewModelScope.launch {
+            var failure = CODES_SAVE_FAILED
             val saved = try {
                 store.upsert(save.entry)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                false // Nothing is logged: the note holds the secrets.
+                // Nothing is logged: the note holds the secrets. Review fixes, CR-6: only the store's own fixed texts.
+                failure = storeSaveErrorText(e, fallback = CODES_SAVE_FAILED)
+                false
             }
             session.endWrite(save, saved)
-            saveMessage = if (saved) CODES_SAVED else CODES_SAVE_FAILED
+            saveMessage = if (saved) CODES_SAVED else failure
         }
     }
 

@@ -75,3 +75,72 @@ const val BACKUP_CHECK_NOT_PROVEN =
 const val BACKUP_CHECK_STOPS_NOTE =
     "La contraseña se borra del campo al pulsar «Comprobar». Si sales de la app, vuelves atrás o se bloquea la bóveda " +
         "mientras se comprueba, la comprobación se detiene en cuanto puede y no se muestra su resultado."
+
+/** 2.0, task 8: [backupCheckNotice] when no copy of this vault was ever checked. */
+const val BACKUP_CHECK_NEVER = "Aún no has comprobado ninguna copia."
+
+/** 2.0, task 8: [backupCheckNotice] once [days] (30 or more) have passed since the last check. */
+fun backupCheckDaysAgo(days: Long) = "Comprobaste una copia por última vez hace $days días."
+
+/**
+ * 2.0, task 8 (review M-6): [backupCheckNotice] when the date of the last check is more than a day ahead of the phone's
+ * clock (checked with the clock set forward): it cannot be counted from, so it does not silence the reminder for years.
+ */
+const val BACKUP_CHECK_DATE_AHEAD = "La fecha de tu última comprobación de una copia es posterior a hoy. Comprueba una copia otra vez."
+
+/**
+ * 2.0, task 8 (O-5 of the Abogado Digital): after a check without problems of a copy that does not count for the reminder
+ * of [backupCheckNotice].
+ */
+const val BACKUP_CHECK_NOT_COUNTED =
+    "Esta comprobación no cuenta para el aviso «Comprobaste una copia por última vez»: la copia es de otra bóveda o de " +
+        "antes de la 2.0."
+
+/** 2.0, task 8 (O-5): under «Más información», next to [backupCheckNotice] in Ajustes. */
+const val BACKUP_CHECK_NOTICE_MORE =
+    "Los días se cuentan desde que comprobaste con «Comprobar una copia» una copia de esta bóveda, no desde que se hizo la " +
+        "copia. Las copias de antes de la 2.0 y las de otra bóveda no cuentan."
+
+/**
+ * RT-21, part c: the phone ran out of memory reading a copy («Importar copia», «Importar como bóveda nueva», «Comprobar una
+ * copia»): nothing was changed (it happens before anything is written). [copyFailureText] says it as it is.
+ */
+const val COPY_NO_MEMORY =
+    "Este móvil no tiene memoria suficiente para leer esta copia. No se ha cambiado nada. Cierra Clavero del todo, vuelve " +
+        "a abrirlo e inténtalo otra vez; si sigue igual, este móvil no puede leerla."
+
+/**
+ * Round 2 of the fixes of the attack, informative 3: what reads a copy before its checks (the bytes of a JSON export and
+ * their text, a `.sgbak` read into its folder, and [VaultCrypto.decodeFile]), a step of [copyRead].
+ */
+internal enum class CopyReadStep { READ, TEXT, DECODE_FILE }
+
+/** Runs right before each [CopyReadStep]; only tests change it (an [OutOfMemoryError] made by hand). */
+@Volatile internal var beforeCopyRead: (CopyReadStep) -> Unit = {}
+
+/**
+ * Round 2 of the fixes of the attack, informative 3: [block], the [step] that reads a copy, with running out of memory as
+ * [COPY_NO_MEMORY] (true there: it runs before anything is written). Inside the caller's `withContext(io)` or
+ * `withContext(compute)`, so the error never leaves that block as an Error.
+ */
+internal inline fun <T> copyRead(step: CopyReadStep, block: () -> T): T = try {
+    beforeCopyRead(step)
+    block()
+} catch (e: OutOfMemoryError) {
+    throw app.seguridad.crypto.CryptoFailure(COPY_NO_MEMORY)
+}
+
+/** Branch review, row 42: a copy that its password does not open, or damaged (AES-GCM cannot tell them apart). */
+const val COPY_WRONG_PASSWORD_OR_DAMAGED = "Contraseña incorrecta o copia dañada. Vuelve a elegir la copia y escribe su contraseña."
+
+/** Branch review, row 42: a copy whose header asks for Argon2id parameters out of bounds ([app.seguridad.crypto.KDF_PARAMS_INVALID]). */
+const val COPY_KDF_PARAMS_INVALID = "La copia pide unos parámetros de cifrado que Clavero no admite. Elige otra copia."
+
+/**
+ * Branch review, row 42: what «Importar copia», «Importar como bóveda nueva» and «Comprobar una copia» say of [e]; pure.
+ */
+fun copyFailureText(e: app.seguridad.crypto.CryptoFailure): String = when (val m = e.message) {
+    null, app.seguridad.crypto.CryptoFailure().message -> COPY_WRONG_PASSWORD_OR_DAMAGED
+    app.seguridad.crypto.KDF_PARAMS_INVALID -> COPY_KDF_PARAMS_INVALID
+    else -> m
+}

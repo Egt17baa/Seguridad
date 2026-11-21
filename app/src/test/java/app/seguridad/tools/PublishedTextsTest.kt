@@ -76,9 +76,24 @@ class PublishedTextsTest {
         for (fact in listOf("copia temporal sin cifrar", "almacenamiento privado", "carpeta que elijas", "5 primeros caracteres", "portapapeles del sistema", "solo en este móvil")) {
             assertTrue("privacidad.html: $fact", fact in policy)
         }
-        val listing = ForbiddenWords.normalise(read("docs/ficha-google-play.md"))
-        for (fact in listOf("carpeta que elijas", "5 primeros caracteres", "copias al portapapeles")) assertTrue("ficha: $fact", fact in listing)
+        // 2.0, O-3 of the Abogado Digital: the text that is pasted in Play is the short full description (annex A).
+        val listing = ForbiddenWords.normalise(playFullDescription())
+        for (fact in listOf("donde elijas", "5 primeros caracteres", "exportas, guardas, copias o compartes")) assertTrue("ficha: $fact", fact in listing)
     }
+
+    /** 2.0, O-3 and R-8 of the Abogado Digital: the full description fits Play's 4 000, also if a line break counted twice. */
+    @Test
+    fun theFullPlayDescriptionFits() {
+        val full = playFullDescription()
+        assertTrue(full.length.toString(), full.length in 1000..4000)
+        assertTrue((full.length + full.count { it == '\n' }).toString(), full.length + full.count { it == '\n' } <= 4000)
+        assertTrue("Sin recuperación" in full && "Sin auditoría independiente" in full)
+        assertFalse("**" in full)
+    }
+
+    /** What is pasted in Play as the full description: from «## Descripción completa» to the next heading. */
+    private fun playFullDescription(): String =
+        read("docs/ficha-google-play.md").substringAfter("## Descripción completa\n").substringBefore("\n## ").trim()
 
     @Test
     fun theShortPlayDescriptionFits() {
@@ -130,4 +145,29 @@ class PublishedTextsTest {
         .replace(Regex("<style[\\s\\S]*?</style>"), " ")
         .replace(Regex("<[^>]+>"), " ")
         .replace("&laquo;", "«").replace("&raquo;", "»").replace("&nbsp;", " ").replace("&amp;", "&")
+    /**
+     * Audit B-4 (a): the offer of «Copiar contraseña» is said where it happens, in split screen or a floating window;
+     * full screen, leaving Clavero locks the vault and ends it. Never «al volver a la app ofrece».
+     */
+    @Test
+    fun theTwoStepCopyIsSaidWhereItHappens() {
+        val readme = read("README.md")
+        assertTrue(
+            "tras «Copiar usuario», si Clavero comparte la pantalla con otra app (pantalla dividida o ventana flotante), " +
+                "ofrece «Copiar contraseña» durante 30 segundos; a pantalla completa, salir de Clavero bloquea la bóveda y la " +
+                "oferta se acaba." in readme,
+        )
+        assertTrue(
+            "Tras «Copiar usuario», con Clavero en pantalla dividida, tocar la otra app antes de 30 s: Clavero ofrece " +
+                "«Copiar contraseña». A pantalla completa, salir y volver: la bóveda está bloqueada y no se ofrece." in readme,
+        )
+        val notes = read("docs/superpowers/handoff/2026-11-15-clavero-2.0-notas.md")
+        assertTrue("tras «Copiar usuario», en pantalla dividida o en una ventana flotante, ofrece «Copiar contraseña» durante 30 segundos" in notes)
+        for ((doc, text) in listOf("README.md" to readme, "notas" to notes, "ficha" to read("docs/ficha-google-play.md"))) {
+            val t = ForbiddenWords.normalise(text)
+            for (old in listOf("al volver a la app ofrece", "al volver ofrece «copiar contraseña»", "ir a otra app y volver antes de 30 s")) {
+                assertFalse("$doc: $old", ForbiddenWords.normalise(old) in t)
+            }
+        }
+    }
 }

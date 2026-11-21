@@ -103,6 +103,24 @@ class AttachmentsTest {
         assertDamaged { a.open(x) }
     }
 
+    /**
+     * Audit C-5 (CWE-22, defence in depth): [AttachmentStore.fileOf] refuses an id that is not an attachment id, so no
+     * caller can name a file outside the attachments folder, whatever it checked before.
+     */
+    @Test fun fileOfRefusesAnIdThatIsNotAnAttachmentId() {
+        val a = attachments()
+        val good = "0123456789abcdef0123456789abcdef"
+        assertEquals(File(attDir, "$good.bin"), a.fileOf(good))
+        for (bad in listOf("../vault", "../../shared_prefs/x", "", "0123456789ABCDEF0123456789ABCDEF", "$good/..", "${good}0", "a/b")) {
+            try {
+                a.fileOf(bad)
+                fail("Debía rechazar «$bad»")
+            } catch (e: IllegalArgumentException) {
+                // Refused: it fails closed, before any file is named.
+            }
+        }
+    }
+
     @Test fun over5MbRejected() {
         val a = attachments()
         val max = 5 * 1024 * 1024
@@ -111,7 +129,7 @@ class AttachmentsTest {
             a.add(ByteArrayInputStream(ByteArray(max + 1)), "grande.bin")
             fail("Debía rechazarlo")
         } catch (e: AttachmentLimit) {
-            assertEquals("El adjunto pasa de 5 MB", e.message)
+            assertEquals("El adjunto pasa de 5 MB. Elige un archivo más pequeño.", e.message)
         }
         assertEquals(1, attDir.listFiles()!!.size) // Nothing written for the rejected one.
     }
@@ -127,7 +145,8 @@ class AttachmentsTest {
             s.addAttachment("b", ByteArrayInputStream(ByteArray(1)), "uno-más.bin")
             fail("Debía rechazarlo")
         } catch (e: AttachmentLimit) {
-            assertEquals("Los adjuntos de la bóveda pasan de 50 MB en total", e.message)
+            // Branch review, row 37: it would pass, it does not yet; the trash counts.
+            assertEquals(ATTACHMENTS_TOTAL_WOULD_PASS, e.message)
         }
         assertEquals(5, s.entry("b").attachments.size)
         assertEquals(10, attDir.listFiles()!!.size) // The rejected file is not left behind.
@@ -135,6 +154,84 @@ class AttachmentsTest {
         // Removing one makes room again.
         assertTrue(s.removeAttachment("b", s.entry("b").attachments.first().id))
         assertTrue(s.addAttachment("b", ByteArrayInputStream(ByteArray(1)), "uno-más.bin"))
+    }
+
+    private fun declared(id: Int, size: Long) = AttachmentRef("%032x".format(id), "a.bin", size, "00".repeat(32), "AA".repeat(22))
+
+    /** Branch review, C-1, P-C1a: 45 MB alive and 10 MB in the trash leave no room for 1 MB more; without the trash, there is. */
+    @Test fun attachmentsFitCountsTheTrash() {
+        val mb = 1024L * 1024
+        val alive = VaultEntry("a", EntryType.NOTE, "A", createdAt = 0, updatedAt = 0, attachments = (0 until 9).map { declared(it, 5 * mb) })
+        val trashed = VaultEntry("b", EntryType.NOTE, "B", createdAt = 0, updatedAt = 0, deletedAt = 1, attachments = (9 until 11).map { declared(it, 5 * mb) })
+        assertFalse(attachmentsFit(VaultData(listOf(alive, trashed)), mb))
+        assertTrue(attachmentsFit(VaultData(listOf(alive)), mb))
+        assertTrue(attachmentsFit(VaultData(listOf(alive, trashed.copy(attachments = listOf(declared(9, 4 * mb))))), mb))
+        assertFalse(attachmentsFit(VaultData(listOf(alive, trashed.copy(attachments = listOf(declared(9, 4 * mb))))), mb + 1))
+    }
+
+    /**
+     * Audit, row 84: a copy holds at most [BACKUP_MAX_ENTRIES] files (the vault, the marker and the attachments, the trash
+     * too), so with 1 997 attachments one more fits and with 1 998 it does not.
+     */
+    @Test fun theCountOfACopyLimitsTheAttachments() {
+        fun vault(n: Int) = VaultData(
+            listOf(
+                VaultEntry("a", EntryType.NOTE, "A", createdAt = 0, updatedAt = 0, attachments = (0 until n - 1).map { declared(it, 1) }),
+                VaultEntry("b", EntryType.NOTE, "B", createdAt = 0, updatedAt = 0, deletedAt = 1, attachments = listOf(declared(n, 1))),
+            ),
+        )
+        assertTrue(attachmentCountFits(vault(1_997)))
+        assertFalse(attachmentCountFits(vault(1_998)))
+        assertFalse("the trash counts", attachmentCountFits(vault(1_998).let { it.copy(entries = it.entries.map { e -> e.copy(deletedAt = 1) }) }))
+        assertEquals(
+            "Con este adjunto, la bóveda tendría más adjuntos de los que caben en una copia (como mucho 1 998, también los de la " +
+                "papelera). Quita algún adjunto o vacía la papelera para añadir otro.",
+            ATTACHMENTS_COUNT_WOULD_PASS,
+        )
+        assertTrue("1 998 = BACKUP_MAX_ENTRIES - 2", "%,d".format(java.util.Locale.ROOT, BACKUP_MAX_ENTRIES - 2).replace(',', ' ') in ATTACHMENTS_COUNT_WOULD_PASS)
+        assertTrue(app.seguridad.tools.ForbiddenWords.problems(ATTACHMENTS_COUNT_WOULD_PASS).isEmpty())
+    }
+
+    /** Branch review, C-1, P-C1b: [VaultStore.addAttachment] counts with [attachmentsFit], not over the live entries of `modify`. */
+    @Test fun addAttachmentCountsEveryEntry() {
+        val src = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "app/src/main/java/app/seguridad/vault/VaultStore.kt") }.first { it.isFile }.readText()
+        val start = src.indexOf("suspend fun addAttachment(")
+        val body = src.substring(start, src.indexOf("\n    }\n", start))
+        assertTrue(body, "attachmentsFit(" in body)
+        assertFalse(body, "modify(" in body)
+        assertFalse(body, "totalBytes(" in body)
+    }
+
+    /**
+     * Branch review, C-1, P-C1c: every vault the trash and the attachments leave passes the copy's check
+     * ([checkCopyEntries] over [VaultData.entries]): 25 MB alive and 25 MB in the trash take no byte more until the trash is
+     * emptied, and restoring does not take it over.
+     */
+    @Test fun whatTheTrashLeavesAlwaysPassesTheCopyCheck() = runTest {
+        val s = store().apply { load(); create("maestra-larga".toCharArray()) }
+        fun data() = (s.state.value as VaultState.Unlocked).data
+        fun check() = checkCopyEntries(data().entries)
+        s.upsert(note("a"))
+        s.upsert(note("b"))
+        val five = 5 * 1024 * 1024
+        repeat(5) { assertTrue(s.addAttachment("a", ByteArrayInputStream(ByteArray(five)), "a$it.bin")); check() }
+        repeat(5) { assertTrue(s.addAttachment("b", ByteArrayInputStream(ByteArray(five)), "b$it.bin")); check() }
+        assertEquals(1, s.moveToTrash(setOf("b")))
+        check()
+        try {
+            s.addAttachment("a", ByteArrayInputStream(ByteArray(1)), "uno-más.bin")
+            fail("Debía rechazarlo: la papelera cuenta")
+        } catch (e: AttachmentLimit) {
+            assertEquals(ATTACHMENTS_TOTAL_WOULD_PASS, e.message)
+        }
+        check()
+        assertEquals(1, s.restore(setOf("b")))
+        check()
+        assertEquals(1, s.moveToTrash(setOf("b")))
+        assertEquals(1, s.emptyTrash())
+        assertTrue(s.addAttachment("a", ByteArrayInputStream(ByteArray(1)), "uno-más.bin"))
+        check()
     }
 
     @Test fun garbageCollectionKeepsLiveRemovesDead() = runTest {
@@ -178,7 +275,10 @@ class AttachmentsTest {
         s.addAttachment("b", ByteArrayInputStream(bytes(10)), "b")
         val fa = fileOf(s.entry("a").attachments.single())
         val fb = fileOf(s.entry("b").attachments.single())
+        // 2.0, task 3: deleting sends it to the trash, with its files; they go when it is deleted for good.
         s.delete("a")
+        assertTrue(fa.exists())
+        assertEquals(1, s.deleteForever(setOf("a")))
         assertFalse(fa.exists())
         assertTrue(fb.exists())
         assertArrayEquals(bytes(10), s.openAttachment("b", s.entry("b").attachments.single().id))
@@ -277,7 +377,7 @@ class AttachmentsTest {
         }
         val adding = async(Dispatchers.Default) { s.addAttachment("n", slow, "lento.txt") }
         assertTrue(started.await(5, TimeUnit.SECONDS))
-        // While the read hangs, saving, locking and unlocking all go through.
+        // While the read hangs, saving, locking and unlocking all go through (the read never holds the mutex).
         try {
             withTimeout(10_000) {
                 s.upsert(note("m"))
@@ -288,9 +388,43 @@ class AttachmentsTest {
             release.countDown() // Also on failure, or the hung read would keep the test from ending.
         }
         assertEquals(2, (s.state.value as VaultState.Unlocked).entries.size)
+        // 2.0, re-review 2 of task 7 (M-A): asked for before the lock, it is not saved after it, although the vault was
+        // opened again before the read ended (decision (b) of 1.4.0): false, no reference and no file.
+        assertFalse(adding.await())
+        assertTrue(s.entry("n").attachments.isEmpty())
+        assertTrue(attDir.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun anAttachmentReadWhileOnlyOtherSavesHappenIsSaved() = runBlocking {
+        // Re-review 2 of task 7: only a lock refuses it; other saves while the document is read do not.
+        val s = VaultStore(File(tmp.root, "vault.bin"), Dispatchers.IO, Dispatchers.Unconfined, now = { 5_000L }, kdf = { KdfParams(1024, 1, 1) })
+        s.load()
+        s.create("maestra-larga".toCharArray())
+        s.upsert(note("n"))
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val slow = object : InputStream() {
+            private var sent = false
+            override fun read(): Int = throw UnsupportedOperationException()
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                started.countDown()
+                release.await()
+                if (sent) return -1
+                sent = true
+                b[off] = 7
+                return 1
+            }
+        }
+        val adding = async(Dispatchers.Default) { s.addAttachment("n", slow, "lento.txt") }
+        assertTrue(started.await(5, TimeUnit.SECONDS))
+        try {
+            withTimeout(10_000) { s.upsert(note("m")) }
+        } finally {
+            release.countDown()
+        }
         assertTrue(adding.await())
         val ref = s.entry("n").attachments.single()
-        assertTrue(fileOf(ref).exists()) // Written and saved after the unlock: never collected.
+        assertTrue(fileOf(ref).exists())
         assertArrayEquals(byteArrayOf(7), s.openAttachment("n", ref.id))
     }
 
@@ -316,7 +450,8 @@ class AttachmentsTest {
             s.addAttachment("a", ByteArrayInputStream(ByteArray(1)), "uno-más.bin")
             fail("Debía rechazarlo")
         } catch (e: AttachmentLimit) {
-            assertEquals("Los adjuntos de la bóveda pasan de 50 MB en total", e.message)
+            // Branch review, row 37: it would pass, it does not yet; the trash counts.
+            assertEquals(ATTACHMENTS_TOTAL_WOULD_PASS, e.message)
         }
         assertEquals(10, s.entry("a").attachments.size)
     }

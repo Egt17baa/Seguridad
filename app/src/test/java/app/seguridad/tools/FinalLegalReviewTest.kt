@@ -83,9 +83,10 @@ class FinalLegalReviewTest {
     fun o2AndR6TheA6TextsAreTheProposedOnes() {
         assertEquals(
             // R15 (1.4.0, Task 8): the import copies listed in the folder are replaced too.
-            "Se hizo una copia nueva y se borraron las copias automáticas y las de antes de importar hechas antes del " +
-                "cambio de contraseña: las que la app tenía apuntadas en esta carpeta. Las que se hayan copiado a otro sitio " +
-                "(otra carpeta, la nube o su papelera) no se borran.",
+            // Branch review, B I-2: and those made before the upgrade to 2.0.
+            "Se hizo una copia nueva y se borraron las copias automáticas, las de antes de importar y las de antes de la 2.0 " +
+                "hechas antes del cambio de contraseña: las que la app tenía apuntadas en esta carpeta. Las que se hayan " +
+                "copiado a otro sitio (otra carpeta, la nube o su papelera) no se borran.",
             AUTO_BACKUP_REPLACED,
         )
         assertEquals(
@@ -147,7 +148,7 @@ class FinalLegalReviewTest {
         val src = flat(read("app/src/main/java/app/seguridad/ui/screens/ToolsScreen.kt"))
         assertTrue(
             src,
-            "\"Tu contraseña se convierte en clave con Argon2id (\${settings.kdf.label}), que hace muy lento cada intento de " +
+            "\"Tu contraseña se convierte en clave con Argon2id (\${kdf.label}), que hace muy lento cada intento de " +
                 "adivinarla por fuerza bruta. Una contraseña corta sigue siendo débil.\"" in src,
         )
         assertFalse(texts.any { it.startsWith("Todo se hace en tu móvil") })
@@ -157,7 +158,9 @@ class FinalLegalReviewTest {
     fun r7TheListingNamesNoMessagingBrand() {
         val listing = read("docs/ficha-google-play.md").substringAfter("## Descripción breve")
         assertFalse("WhatsApp" in listing || "Telegram" in listing)
-        assertTrue("envíalo por el canal que quieras (una app de mensajería o el correo)" in listing)
+        // 2.0, O-3 of the Abogado Digital: the short full description (annex A) says it without naming any app.
+        val full = listing.substringAfter("## Descripción completa\n").substringBefore("\n## ")
+        assertTrue("envíalos por el canal que quieras" in full)
     }
 
     @Test
@@ -173,8 +176,10 @@ class FinalLegalReviewTest {
         )
         val readme = flat(read("README.md"))
         assertTrue(
-            ("**Nombre.** La licencia Apache-2.0 no da permiso para usar el nombre «Clavero» ni el icono (§6). Si publicas " +
-                "una versión modificada, usa otro nombre y otro icono, para que nadie la confunda con esta.") in readme,
+            // 2.0, O-C7 and R-C4 of the Abogado (abogado-2.0-cristal.md): the current icon and the earlier ones.
+            ("**Nombre.** La licencia Apache-2.0 no da permiso para usar el nombre «Clavero» ni sus iconos, el actual y los " +
+                "anteriores (§6). Los archivos del icono se publican con la Apache-2.0, pero su dibujo identifica a Clavero. " +
+                "Si publicas una versión modificada, usa otro nombre y otro icono, para que nadie la confunda con esta.") in readme,
         )
         assertFalse("®" in readme)
     }

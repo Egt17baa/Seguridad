@@ -2,6 +2,7 @@ package app.seguridad.imports
 
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.vault.EntryType
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultEntry
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -355,16 +356,16 @@ class ImportStateTest {
     @Test fun theEstimateGivesTheNewTagsOfWhatEnters() {
         // M-1: from the merged entries; the tags of duplicates kept or replaced count, «casa» is already in the vault.
         val p = plan()
-        assertEquals(setOf(ORIGIN_TAG_BITWARDEN, "compras"), previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), existing, 1L).newTags)
+        assertEquals(setOf(ORIGIN_TAG_BITWARDEN, "compras"), previewEstimate(p, DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L).newTags)
         assertEquals(
             setOf(ORIGIN_TAG_BITWARDEN, "compras", "trabajo"),
-            previewEstimate(p, DuplicateChoice.SKIP, mapOf(5 to DuplicateChoice.KEEP_BOTH), existing, 1L).newTags,
+            previewEstimate(p, DuplicateChoice.SKIP, mapOf(5 to DuplicateChoice.KEEP_BOTH), existing, VaultData(), 1L).newTags,
         )
         assertEquals(
             setOf(ORIGIN_TAG_BITWARDEN, "compras", "trabajo", "dinero"),
-            previewEstimate(p, DuplicateChoice.REPLACE, emptyMap(), existing, 1L).newTags,
+            previewEstimate(p, DuplicateChoice.REPLACE, emptyMap(), existing, VaultData(), 1L).newTags,
         )
-        assertEquals(0L, previewEstimate(p, DuplicateChoice.KEEP_BOTH, emptyMap(), existing, 1L).overBytes)
+        assertEquals(0L, previewEstimate(p, DuplicateChoice.KEEP_BOTH, emptyMap(), existing, VaultData(), 1L).overBytes)
     }
 
     @Test fun theSessionShowsTheTagsOfTheEstimateForTheChoicesShown() {
@@ -537,6 +538,19 @@ class ImportStateTest {
         assertTrue(s.canConfirm)
     }
 
+    /** 2.0: «Reemplazar» that would pass the 64 KiB of an entry: back to the preview with its own text, to choose again. */
+    @Test fun aReplacePastTheEntryLimitSaysSoAndKeepsThePreview() {
+        val (s, run) = saving()
+        s.onOutcome(run, ImportOutcome.NotApplied(ApplyResult.EntryTooBig), inAutoFolder = true)
+        assertEquals(ImportStep.Preview, s.step)
+        assertEquals(IMPORT_REPLACE_TOO_BIG, s.error)
+        assertEquals(
+            "Al reemplazar, una entrada pasaría de 64 KB. Elige «Conservar los dos» o «Saltar» para ella. No se ha importado nada.",
+            IMPORT_REPLACE_TOO_BIG,
+        )
+        assertTrue(s.plan != null)
+    }
+
     @Test fun aWipeWhileSavingSaysTheImportMayHaveHappened() {
         // M-4: the save is not cut; the screen, still shown, must not look as if nothing happened.
         val (s, run) = saving()
@@ -614,5 +628,93 @@ class ImportStateTest {
         val many = importNewTagsText((1..25).map { "t$it" })
         assertTrue(many, many.endsWith("#t20 y 5 más."))
         assertFalse("#t21" in many)
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Round 3 of the fixes of the attack, RT-27: running out of memory working out the plan or the estimate.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /** The plan ran out of memory: back to «Elegir» with IMPORT_NO_MEMORY, nothing held and nothing saved. */
+    @Test fun aPlanWithoutMemoryHoldsNothingAndSaysSo() {
+        val s = ImportSession()
+        val run = s.begin(uri)
+        val bytes = byteArrayOf(1, 2, 3)
+        s.hold(run, bytes)
+        s.onRead(run, ReadResult.Ok(read))
+        s.planNoMemory(run)
+        assertEquals(ImportStep.Pick, s.step)
+        assertEquals(IMPORT_NO_MEMORY, s.error)
+        assertNull(s.plan)
+        assertTrue(s.existing.isEmpty() && s.skipped.isEmpty() && s.fileName == null && s.password.isEmpty())
+        assertArrayEquals(byteArrayOf(0, 0, 0), bytes)
+        assertFalse(s.canConfirm)
+        assertNull(s.startSaving())
+    }
+
+    /** A lock or «Cancelar» while the plan was worked out: the late «no memory» is dropped, its text never shows. */
+    @Test fun aLockOrACancelMeanwhileNeverShowsTheText() {
+        for (stop in listOf<(ImportSession) -> Unit>({ it.vaultStateIs(false) }, { it.cancel() })) {
+            val s = ImportSession()
+            val run = s.begin(uri)
+            s.hold(run, byteArrayOf(1))
+            s.onRead(run, ReadResult.Ok(read))
+            stop(s)
+            s.planNoMemory(run)
+            assertEquals(ImportStep.Pick, s.step)
+            assertEquals(null, s.error)
+        }
+        // Another file picked meanwhile: the old run's «no memory» does not touch the new one.
+        val s = ImportSession()
+        val old = s.begin(uri)
+        s.hold(old, byteArrayOf(1))
+        s.onRead(old, ReadResult.Ok(read))
+        val next = s.begin(uri)
+        s.planNoMemory(old)
+        assertEquals(ImportStep.Reading, s.step)
+        assertEquals(null, s.error)
+        assertTrue(s.isRun(next))
+    }
+
+    /** The estimate ran out of memory: its text, «Importar» off; an old estimate's «no memory» does not mark the one shown. */
+    @Test fun anEstimateWithoutMemoryKeepsImportOffAndAnOldOneDoesNotMarkTheCurrent() {
+        val (s, _) = atPreview()
+        // For other choices than those shown: ignored.
+        s.estimateNoMemory(s.plan!!, DuplicateChoice.REPLACE, emptyMap())
+        assertFalse(s.estimateNoMemory)
+        s.estimateNoMemory(s.plan!!, s.default, s.overrides)
+        assertTrue(s.estimateNoMemory)
+        assertNull(s.overBytes)
+        assertFalse(s.canConfirm)
+        assertNull(s.startSaving())
+        assertEquals(ImportStep.Preview, s.step)
+    }
+
+    /** Changing an option tries again (the flag goes, a new estimate is asked for); a lock drops it with the rest. */
+    @Test fun changingAnOptionTriesAgain() {
+        val (s, _) = atPreview()
+        s.estimateNoMemory(s.plan!!, s.default, s.overrides)
+        assertTrue(s.estimateNoMemory)
+        s.chooseAll(DuplicateChoice.KEEP_BOTH)
+        assertFalse(s.estimateNoMemory)
+        assertNull(s.overBytes)
+        s.estimated(s.plan!!, s.default, s.overrides, est(0))
+        assertTrue(s.canConfirm)
+        s.estimateNoMemory(s.plan!!, s.default, s.overrides)
+        s.vaultStateIs(false)
+        assertFalse(s.estimateNoMemory)
+        assertEquals(ImportStep.Pick, s.step)
+    }
+
+    /** The two wrappers: null when out of memory (made by hand), and the same as planMerge and previewEstimate otherwise. */
+    @Test fun theWrappersGiveNullWithoutMemory() {
+        try {
+            beforeImportWork = { throw OutOfMemoryError() }
+            assertNull(planMergeOrNoMemory(read, existing, 9))
+            assertNull(previewEstimateOrNoMemory(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L))
+        } finally {
+            beforeImportWork = {}
+        }
+        assertEquals(plan(), planMergeOrNoMemory(read, existing, 9))
+        assertEquals(previewEstimate(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L), previewEstimateOrNoMemory(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L))
     }
 }

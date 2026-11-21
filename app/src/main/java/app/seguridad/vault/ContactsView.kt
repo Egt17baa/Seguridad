@@ -40,13 +40,38 @@ const val TOO_BIG_CARD = "La tarjeta es demasiado grande"
 const val DELETE_IDENTITY_WARNING =
     "Los contactos tendrán que volver a añadirte y lo que te enviaron a esta identidad ya no se podrá abrir. Esto no se puede deshacer."
 
-/** Segunda confirmación al borrar la identidad. */
+/** Segunda confirmación al borrar la identidad (O-1 del Abogado Digital, revisión final de la 2.0). */
 const val DELETE_IDENTITY_CONFIRMATION =
-    "Se borrará tu identidad de esta bóveda y no hay forma de recuperarla. Las copias que ya hayas exportado conservan la identidad que tenían."
+    "Se borrará tu identidad de esta bóveda: no pasa por la papelera ni se puede deshacer. Las copias ya hechas " +
+        "(automáticas o exportadas) pueden conservar la identidad que tenían."
 
-/** La bóveda es de la versión 2 (abierta con la huella): hace falta la maestra una vez antes de guardar identidad o contactos. */
+/**
+ * Revisión, CR-3: qué enseña un marco de «Contactos» con la bóveda abierta. Una bóveda de la versión 2 abierta con la
+ * maestra deja la subida a la 4 pendiente, y entonces pedir la maestra no serviría de nada ([VaultStore.confirmMaster] no
+ * la pasa a la 3): con la subida pendiente se enseña lo que espera, sin campo de contraseña. [ContactsGate.Master] queda
+ * solo para [VaultStore.needsMasterForContacts] sin subida pendiente.
+ */
+sealed interface ContactsGate {
+    data object Content : ContactsGate
+    data object Master : ContactsGate
+    data class Notice(val text: String) : ContactsGate
+}
+
+/** [needsMaster], [asking] y [copying]: `needsMasterForContacts`, `pendingUpgrade` y `upgradeCopying` del almacén. */
+fun contactsGate(needsMaster: Boolean, asking: Boolean, copying: Boolean): ContactsGate = when {
+    !needsMaster -> ContactsGate.Content
+    asking -> ContactsGate.Notice(UPGRADE_PENDING)
+    copying -> ContactsGate.Notice(UPGRADE_COPYING)
+    else -> ContactsGate.Master
+}
+
+/**
+ * La bóveda es de la versión 2 (abierta con la huella): hace falta la maestra una vez antes de guardar identidad o contactos.
+ * R-4 del Abogado Digital (revisión final de la 2.0): sin «La bóveda se abrió con la huella», que no sería cierto si un
+ * cambio futuro lo enseñara por otro camino.
+ */
 const val NEEDS_MASTER_NOTICE =
-    "Para guardar tu identidad y tus contactos hace falta tu contraseña maestra, una sola vez. La bóveda se abrió con la huella."
+    "Para guardar tu identidad y tus contactos hace falta tu contraseña maestra, una sola vez."
 
 /** Debajo de la huella de un contacto. */
 const val FINGERPRINT_HELP = "Compárala con la que ve tu contacto en su móvil"
@@ -70,10 +95,9 @@ const val VERIFY_QUESTION =
 const val VAULT_CLOSED = "La bóveda está cerrada"
 
 private const val UNKNOWN_CARD = "No se pudo leer la tarjeta"
-private const val WRONG_MASTER = "Contraseña incorrecta"
 private const val NOT_OPENED = "No se pudo abrir la bóveda"
 private const val NOT_SAVED = "No se pudo guardar"
-private const val NOT_SAVED_STATE = "No se pudo guardar: hace falta la contraseña maestra o ya existe una identidad"
+internal const val NOT_SAVED_STATE = "No se pudo guardar: hace falta la contraseña maestra o ya existe una identidad"
 private const val NAME_EMPTY = "Escribe un nombre"
 private const val NAME_NOT_TEXT = "El nombre no es texto válido"
 private const val NAME_FORBIDDEN = "El nombre tiene caracteres de control, de dirección del texto, invisibles o no permitidos"
@@ -404,7 +428,7 @@ fun VaultEntry.myCard(): MyCard = openIdentity().use { id ->
  * de la bóveda), por orden de nombre. Nunca la identidad ni otros tipos.
  */
 fun contactsList(entries: List<VaultEntry>, text: String): List<VaultEntry> =
-    entries.query(EntryFilter(text = text, type = EntryType.CONTACT))
+    entries.query(ListQuery(text = text, type = EntryType.CONTACT))
 
 /** Lo que se escribe junto al nombre en la lista y en el detalle. */
 fun verificationMark(entry: VaultEntry): String = when {
@@ -439,13 +463,18 @@ fun renamedContact(entry: VaultEntry, name: String, now: Long): VaultEntry {
 /** El mensaje de una tarjeta que no se pudo leer: el de la [CryptoFailure] (ya en español) o uno genérico. */
 fun cardReadErrorMessage(e: Throwable): String = (e as? CryptoFailure)?.message?.takeIf { it.isNotBlank() } ?: UNKNOWN_CARD
 
-/** Lo mismo que dice la pantalla de desbloqueo cuando falla la contraseña maestra. */
-fun masterFailureMessage(e: Throwable): String = if (e is CryptoFailure) WRONG_MASTER else NOT_OPENED
+/**
+ * Lo mismo que dice la pantalla de desbloqueo cuando falla la contraseña maestra ([masterUnlockErrorText]: lo que el
+ * almacén distingue, tal cual; lo demás, «Contraseña incorrecta»), y un texto genérico para cualquier otro fallo.
+ */
+fun masterFailureMessage(e: Throwable): String = if (e is CryptoFailure) masterUnlockErrorText(e) else NOT_OPENED
 
 /**
  * Qué decir de lo que devolvió `upsert` o `delete` (true si guardó; false si la bóveda estaba bloqueada), o `null` si todo fue bien.
  */
 fun saveFailureMessage(result: Result<Boolean>): String? {
     val e = result.exceptionOrNull() ?: return if (result.getOrNull() == true) null else VAULT_CLOSED
-    return if (e is IllegalStateException) NOT_SAVED_STATE else NOT_SAVED
+    // Revisión, CR-6: los textos fijos del almacén (la subida pendiente, un tope, la maestra, una sola identidad) dicen
+    // qué pasó; lo demás, como antes.
+    return storeSaveErrorText(e, fallback = if (e is IllegalStateException) NOT_SAVED_STATE else NOT_SAVED)
 }

@@ -1,0 +1,173 @@
+package app.seguridad.settings
+
+import app.seguridad.tools.ForbiddenWords
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/** 2.0, tarea 10: el buscador de Ajustes, sobre los textos fijos que pintan sus pantallas. */
+class SettingsSearchTest {
+    private val main: File = generateSequence(File(".").absoluteFile) { it.parentFile }
+        .map { File(it, "app/src/main/java/app/seguridad") }.first { it.isDirectory }
+
+    private fun code(path: String) = File(main, path).readText().lines()
+        .filterNot { it.trimStart().let { l -> l.startsWith("//") || l.startsWith("*") || l.startsWith("/*") } }.joinToString("\n")
+
+    @Test fun findsByTitleAndLine() {
+        assertEquals(SettingItem.CLIPBOARD, SettingsSearch.find("portapapeles").first())
+        assertEquals(SettingItem.KDF, SettingsSearch.find("argon2id").first())
+        assertEquals(SettingItem.SIMPLE_MODE, SettingsSearch.find("Modo sencillo").first())
+        // By a line or a button under the title.
+        assertEquals(SettingItem.VAULT_COPY, SettingsSearch.find("exportar").first())
+        assertEquals(SettingItem.VAULT_COPY, SettingsSearch.find("contraseña maestra").first())
+        assertEquals(SettingItem.HISTORY, SettingsSearch.find("historial").first())
+        assertEquals(SettingItem.TRANSPARENCY, SettingsSearch.find("alto contraste").first())
+        assertEquals(SettingItem.PRIVACY, SettingsSearch.find("privacidad").first())
+        // Accents and case do not count.
+        assertEquals(SettingItem.KDF, SettingsSearch.find("COSTE").first())
+        assertEquals(SettingItem.VAULT_COPY, SettingsSearch.find("boveda copia").first())
+    }
+
+    @Test fun toleratesTypo() {
+        assertEquals(SettingItem.CLIPBOARD, SettingsSearch.find("portapapels").first())
+        assertEquals(SettingItem.SIMPLE_MODE, SettingsSearch.find("sencilo").first())
+        assertEquals(SettingItem.HISTORY, SettingsSearch.find("hsitorial").first())
+        assertTrue(SettingsSearch.find("zzzzqqqq").isEmpty())
+    }
+
+    @Test fun aBlankQueryFindsNothing() {
+        for (q in listOf("", " ", "\t\n", "​")) assertTrue("«$q»", SettingsSearch.find(q).isEmpty())
+    }
+
+    /** The query is cut before FuzzySearch sees it: a paste of a whole text costs no more than [SettingsSearch.QUERY_MAX]. */
+    @Test fun aHugeQueryIsCut() {
+        assertEquals(SettingsSearch.QUERY_MAX, SettingsSearch.cut("a".repeat(1_000_000)).length)
+        val emoji = "😀".repeat(100)
+        assertEquals(SettingsSearch.QUERY_MAX, SettingsSearch.cut(emoji).codePointCount(0, SettingsSearch.cut(emoji).length))
+        assertEquals("Never half a pair", 0, SettingsSearch.cut(emoji).length % 2)
+        assertEquals("portapapeles", SettingsSearch.cut("portapapeles"))
+        val started = System.nanoTime()
+        SettingsSearch.find("portapapeles " + "x".repeat(2_000_000))
+        assertTrue((System.nanoTime() - started) < 2_000_000_000L)
+        assertEquals(SettingItem.CLIPBOARD, SettingsSearch.find("portapapeles" + " ".repeat(SettingsSearch.QUERY_MAX) + "qqqqqqqq").first())
+    }
+
+    /**
+     * Every section that Ajustes, «Aspecto» and «Acerca de» draw takes its title from the index, so a setting added
+     * without its entry makes this fail; and every entry of the index is drawn (the reverse). Only the sections of each
+     * folder of the copies (their title is «Carpeta N», under «Copia automática») and «Personalizado» (a palette, under
+     * «Paleta») are not entries of their own.
+     */
+    @Test fun everySectionIsIndexed() {
+        val allowed = setOf("autoBackupTargetTitle(index + 1)", "PaletteId.CUSTOM.label()")
+        val screens = listOf("ui/screens/SettingsScreen.kt", "ui/screens/AppearanceScreen.kt")
+        val used = HashSet<String>()
+        var sections = 0
+        for (path in screens) {
+            val src = code(path)
+            for (m in Regex("""(?<![A-Za-z_])Section\(([^{]*?)\)\s*\{""").findAll(src)) {
+                val arg = m.groupValues[1].substringBefore(", anchor(").trim()
+                if (arg.startsWith("title: String")) continue // The definition itself.
+                sections++
+                val item = Regex("""^SettingItem\.(\w+)\.title$""").find(arg)?.groupValues?.get(1)
+                assertTrue("$path: Section($arg) has no entry in SettingsSearch", item != null || arg in allowed)
+                item?.let { used += it }
+            }
+        }
+        assertTrue("The scan found the sections", sections >= SettingItem.entries.size)
+        assertEquals("Entries no screen draws", emptySet<String>(), SettingItem.entries.map { it.name }.toSet() - used)
+        // Each entry where the screen scrolls to it is also its anchor there.
+        val settings = code("ui/screens/SettingsScreen.kt")
+        for (item in SettingItem.entries.filter { it.place == SettingPlace.SETTINGS }) {
+            assertTrue("${item.name} has no anchor", Regex("""anchor\(SettingItem\.${item.name}\)""").containsMatchIn(settings))
+        }
+    }
+
+    /**
+     * The reverse for the lines: every constant an entry indexes under its title is drawn by Ajustes or «Aspecto» (a line
+     * the screen no longer shows makes this fail). Limit: a control added inside an existing section, with a text that is
+     * not in the index, is not caught here; [everySectionIsIndexed] only sees the sections.
+     */
+    @Test fun everyIndexedLineIsDrawn() {
+        val index = code("settings/SettingsSearch.kt")
+        val screens = code("ui/screens/SettingsScreen.kt") + "\n" + code("ui/screens/AppearanceScreen.kt")
+        val entries = Regex("""^\s*([A-Z_]+)\(([A-Z_0-9]+), (?:listOf\(([^)]*)\)|emptyList\(\)), SettingPlace""", RegexOption.MULTILINE).findAll(index).toList()
+        assertEquals("Every entry read", SettingItem.entries.size, entries.size)
+        for (m in entries) {
+            val lines = m.groupValues[3].split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            for (id in lines) assertTrue("${m.groupValues[1]}: $id is not drawn", Regex("""\b$id\b""").containsMatchIn(screens))
+        }
+    }
+
+    /** The new texts of Ajustes, word for word (what the Abogado Digital reviews is what is shown). */
+    @Test fun theNewTextsWordForWord() {
+        assertEquals("Buscar en Ajustes", SettingsSearch.HINT)
+        assertEquals("Ningún ajuste coincide.", SettingsSearch.NOTHING)
+        assertEquals("Salud de la bóveda", app.seguridad.tools.HEALTH_TOOL_TITLE)
+        assertEquals("Contraseñas repetidas, débiles o antiguas, y accesos sin 2FA", app.seguridad.tools.HEALTH_TOOL_SUBTITLE)
+        assertEquals("Modo sencillo", app.seguridad.tools.SIMPLE_MODE_TITLE)
+        assertEquals(
+            "Encendido, Herramientas enseña solo cifrar texto, cifrar archivo, el generador y la salud de la bóveda. No oculta avisos ni ajustes.",
+            app.seguridad.tools.SIMPLE_MODE_SHORT,
+        )
+        assertEquals("Hay más herramientas. Para verlas, apaga «Modo sencillo» en Ajustes.", app.seguridad.tools.SIMPLE_MODE_MORE_TOOLS)
+        assertEquals("Historial de las entradas", app.seguridad.vault.HISTORY_ALL_TITLE)
+        assertEquals("Al cambiar una entrada se guarda su versión anterior. Aquí puedes borrar las de todas a la vez.", app.seguridad.vault.HISTORY_ALL_SHORT)
+        // Ronda 1, m-5: the line of the section by the state of the vault (a new install has no vault to open).
+        assertEquals("Aún no tienes bóveda.", app.seguridad.vault.historyAllHint(app.seguridad.vault.VaultState.NoVault))
+        assertEquals("Abre la bóveda (pestaña Bóveda) para borrar el historial.", app.seguridad.vault.historyAllHint(app.seguridad.vault.VaultState.Locked))
+        assertEquals(null, app.seguridad.vault.historyAllHint(app.seguridad.vault.VaultState.Unlocked(app.seguridad.vault.VaultData())))
+        assertEquals("Still reading the vault: no line yet", null, app.seguridad.vault.historyAllHint(app.seguridad.vault.VaultState.Loading))
+        assertEquals("Borrar todo el historial", app.seguridad.vault.HISTORY_ALL_CLEAR)
+        assertEquals("¿Borrar el historial de todas las entradas?", app.seguridad.vault.HISTORY_ALL_CONFIRM_TITLE)
+        assertEquals(
+            "Se quitan las versiones y las contraseñas anteriores de todas las entradas, también de las de la papelera. " +
+                "Las copias ya hechas (automáticas o exportadas) pueden conservarlas; la copia automática quita las más antiguas.",
+            app.seguridad.vault.HISTORY_ALL_CONFIRM_TEXT,
+        )
+        assertEquals("La bóveda se bloqueó: no se ha borrado nada.", app.seguridad.vault.historyAllClearedText(null))
+        assertEquals("Ninguna entrada tenía historial.", app.seguridad.vault.historyAllClearedText(0))
+        assertEquals("Historial borrado de 1 entrada.", app.seguridad.vault.historyAllClearedText(1))
+        assertEquals("Historial borrado de 2 entradas.", app.seguridad.vault.historyAllClearedText(2))
+    }
+
+    /** Only fixed texts: no template, nothing of a folder, a vault or an entry. */
+    @Test fun indexesFixedTextsOnly() {
+        val src = File(main, "settings/SettingsSearch.kt").readText()
+        for (literal in Regex("\"([^\"\\\\]|\\\\.)*\"").findAll(src)) assertFalse("A template in ${literal.value}", "$" in literal.value)
+        for (word in listOf("VaultData", "VaultEntry", "VaultStore", "displayName", "SafBackupTarget", "appearanceSummary", "Folder", "plainReportText")) {
+            assertFalse("The index reads $word", Regex("""\b$word\b""").containsMatchIn(src))
+        }
+        for (item in SettingItem.entries) {
+            for (t in listOf(item.title) + item.lines) assertEquals(t, emptyList<String>(), ForbiddenWords.problems(t))
+            assertTrue(item.title.isNotBlank())
+        }
+        assertEquals("Titles are unique", SettingItem.entries.size, SettingItem.entries.map { it.title }.toSet().size)
+    }
+
+    /**
+     * «La letra sigue la escala del sistema» (R-1, letra al 200 %): nothing in the app sets its own font scale or density,
+     * and the screens of this task (Ajustes, «Aspecto», Herramientas) never cut a text to a number of lines: at 200 % a
+     * text wraps and the screen scrolls. The check on the phone is a row of pendientes.md.
+     */
+    @Test fun textFollowsTheSystemScale() {
+        val ui = File(main, "ui")
+        for (f in ui.walkTopDown().filter { it.isFile && it.extension == "kt" }) {
+            val src = f.readText()
+            assertFalse("${f.name} sets the font scale", "fontScale" in src)
+            assertFalse("${f.name} sets the density", "LocalDensity provides" in src)
+        }
+        for (path in listOf("ui/screens/SettingsScreen.kt", "ui/screens/AppearanceScreen.kt", "ui/screens/ToolsScreen.kt")) {
+            val src = code(path)
+            assertFalse("$path cuts a text", "maxLines" in src || "TextOverflow" in src)
+        }
+        assertTrue("Ajustes scrolls", "verticalScroll(" in code("ui/screens/SettingsScreen.kt"))
+        // The cards of Herramientas grow with their text: a minimum height, never a fixed one.
+        val tools = code("ui/screens/ToolsScreen.kt")
+        assertTrue("heightIn(min" in tools)
+        assertFalse(Regex("""\.height\(""").containsMatchIn(tools))
+    }
+}
+

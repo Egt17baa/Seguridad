@@ -1,6 +1,6 @@
 # Informe de la última tanda de la 1.3.1 (1-11-2026)
 
-Rama `ccr-a1a6eabb-765f9g`. Dos commits, los dos subidos a `origin` sin `amend`, `rebase` ni `force`. Autor `Claude <noreply@anthropic.com>`; el mensaje termina solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` y `git log -1 --format=%B | grep -cE "Claude-Session|claude\.ai"` da 0 en los dos.
+Rama `ccr-a1a6eabb-765f9g`. Dos commits, los dos subidos a `origin` sin `amend`, `rebase` ni `force`. Autor `Claude <noreply@anthropic.com>`; el mensaje termina solo en `Co-Authored-By: Claude <noreply@anthropic.com>` y `git log -1 --format=%B | grep -cE "Claude-Session|claude\.ai"` da 0 en los dos.
 
 | Commit | Asunto | Qué lleva |
 |---|---|---|

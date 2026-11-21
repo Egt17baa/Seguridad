@@ -17,12 +17,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Seguridad">
         <!-- configChanges (1.4.2, F-5): a turn or a resize is redrawn by Compose, not a re-created activity. Some phones'
-             fingerprint dialog is portrait-only and turned the screen upright and back, which ended «Activar huella». -->
+             fingerprint dialog is portrait-only and turned the screen upright and back, which ended «Activar huella».
+             taskAffinity="" (2.0, audit B-2, the owner's decision of 21-11-2026): no other app's activity can join
+             Clavero's task by taking its package name as affinity. -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:taskAffinity="">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

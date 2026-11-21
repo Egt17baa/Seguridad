@@ -2,6 +2,8 @@ package app.seguridad.health
 
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.lastPasswordChange
+import app.seguridad.vault.passwordForHealth
 import java.net.URI
 import java.text.Normalizer
 import java.util.Locale
@@ -23,35 +25,61 @@ private val KEYBOARD_ROWS = listOf("qwertyuiop", "asdfghjkl", "zxcvbnm", "123456
 /** The most used passwords that [estimateBits] gives 0 bits (as typed in the list, before any normalization). */
 internal fun commonPasswords(): Set<String> = COMMON
 
-/** LOGIN entries with a non-empty password, grouped by password: password -> entry ids (in vault order). */
+/**
+ * LOGIN entries with a non-empty password, grouped by password: password -> entry ids (in vault order). 2.0, task 3:
+ * not those in the trash.
+ */
 fun uniquePasswords(entries: List<VaultEntry>): Map<String, List<String>> =
-    entries.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }
+    entries.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() && it.deletedAt == null }
         .groupBy({ it.password }, { it.id })
 
 /**
- * Problems of each LOGIN that has a password; entries with none are left out. [breached] maps entry id to the
+ * Problems of each LOGIN that has a password, and (2.0, task 5) of each wifi's password: reused or weak, never old,
+ * without 2FA or leaked (the check of leaks reads only the logins, [uniquePasswords]); entries with none are left out. [breached] maps entry id to the
  * number of times its password appeared in leaks (filled in memory by the user-triggered check; empty otherwise).
+ * Round 3 of the fixes of the attack («Salud»): [active] runs between entries, every [HEALTH_ACTIVE_EVERY] of them, so a
+ * caller can stop a long computation (`job.ensureActive()`, decision (a)); whatever it throws goes out as it is.
  */
-fun vaultHealth(entries: List<VaultEntry>, now: Long, breached: Map<String, Int> = emptyMap()): List<HealthItem> {
-    val logins = entries.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }
-    val counts = logins.groupingBy { it.password }.eachCount()
-    val totpNames = entries.filter { it.type == EntryType.TOTP }
-        .flatMap { listOfNotNull(it.totp?.issuer, it.title) }
-        .map { normalizeName(it) }
-        .filter { it.isNotEmpty() }
-        .toSet()
+fun vaultHealth(entries: List<VaultEntry>, now: Long, breached: Map<String, Int> = emptyMap(), active: () -> Unit = {}): List<HealthItem> {
+    var seen = 0
+    fun step() {
+        if (seen++ % HEALTH_ACTIVE_EVERY == 0) active()
+    }
+    // 2.0, task 3: what is in the trash is not in «Salud», nor a 2FA that counts for another entry.
+    val live = entries.filter { it.deletedAt == null }
+    val logins = live.filter { it.type == EntryType.LOGIN && it.password.isNotEmpty() }
+    // 2.0, task 5: a wifi's password counts as a password too (reused with a login or another wifi, or weak); the other
+    // secrets of the templates (a card's number, a CVV, a licence's key) are no passwords one reuses.
+    val wifis = live.filter { it.type == EntryType.WIFI && it.passwordForHealth().isNotEmpty() }
+    val counts = (logins + wifis).groupingBy { it.passwordForHealth() }.eachCount()
+    val totpNames = totpServiceNames(live)
+    val wifiItems = wifis.mapNotNull { e ->
+        step()
+        val p = e.passwordForHealth()
+        val issues = buildSet {
+            if ((counts[p] ?: 0) >= 2) add(Issue.REUSED)
+            if (estimateBits(p) < WEAK_BITS) add(Issue.WEAK)
+        }
+        if (issues.isEmpty()) null else HealthItem(e.id, issues)
+    }
     return logins.mapNotNull { e ->
+        step()
         val issues = buildSet {
             if ((counts[e.password] ?: 0) >= 2) add(Issue.REUSED)
             if (estimateBits(e.password) < WEAK_BITS) add(Issue.WEAK)
-            val changed = e.passwordHistory.firstOrNull()?.changedAt ?: e.updatedAt
+            // The last change of the password: the store's mark, or the history and the list of 1.4.3 (task 3, M-4), as the
+            // reminder to change it reads it (task 5, review M-1).
+            val changed = lastPasswordChange(e)
             if (now - changed > OLD_DAYS * DAY_MS) add(Issue.OLD)
             if (!has2fa(e, totpNames)) add(Issue.NO_2FA)
             if ((breached[e.id] ?: 0) > 0) add(Issue.BREACHED)
         }
         if (issues.isEmpty()) null else HealthItem(e.id, issues)
-    }
+    } + wifiItems
 }
+
+/** How many entries [vaultHealth] works on between two calls of its `active` (round 3, «Salud»). */
+const val HEALTH_ACTIVE_EVERY = 256
 
 /** Lowercase, without `www.` and without the TLD (`Google.com` -> `google`). Names that are not domains stay as they are. */
 internal fun normalizeName(s: String): String {
@@ -70,7 +98,26 @@ private fun hostOf(url: String): String {
     }
 }
 
+/**
+ * 2.0, task 4: the ids of the logins (out of the trash) with no 2FA, as «Salud» reads it ([Issue.NO_2FA]): no code of
+ * their own and none in the vault for their service. The list's filter «Sin 2FA» uses it, with or without a password.
+ */
+fun loginsWithout2fa(entries: List<VaultEntry>): Set<String> {
+    val live = entries.filter { it.deletedAt == null }
+    val names = totpServiceNames(live)
+    return live.filter { it.type == EntryType.LOGIN && !has2fa(it, names) }.mapTo(HashSet()) { it.id }
+}
+
+private fun totpServiceNames(live: List<VaultEntry>): Set<String> =
+    live.filter { it.type == EntryType.TOTP }
+        .flatMap { listOfNotNull(it.totp?.issuer, it.title) }
+        .map { normalizeName(it) }
+        .filter { it.isNotEmpty() }
+        .toSet()
+
 private fun has2fa(e: VaultEntry, totpNames: Set<String>): Boolean {
+    // 2.0, task 4: a login with a code of its own (R67 of 1.4.0) has 2FA.
+    if (e.totp != null) return true
     if (totpNames.isEmpty()) return false
     val host = normalizeName(hostOf(e.url))
     // accounts.google.com -> "accounts.google": its whole form or any of its labels may be the service name.

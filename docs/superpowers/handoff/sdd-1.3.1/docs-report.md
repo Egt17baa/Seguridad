@@ -204,5 +204,5 @@ Y, sin tocar, para su revisión: `docs/privacidad.html:46` («Clavero/1.3.0», �
 ## Commit
 
 - `adbba00` «docs: auditoría, pruebas en el móvil, estado y traspaso de la 1.3.1»: 8 archivos (+577 −25), solo los de este paso, con pathspecs y sin nada de `.superpowers/`.
-- Autor `Claude <noreply@anthropic.com>`; el mensaje acaba solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; `git log -1 --format=%B | grep -cE "Claude-Session|claude\.ai"` → `0`.
+- Autor `Claude <noreply@anthropic.com>`; el mensaje acaba solo en `Co-Authored-By: Claude <noreply@anthropic.com>`; `git log -1 --format=%B | grep -cE "Claude-Session|claude\.ai"` → `0`.
 - Push: `95ddc44..adbba00  ccr-a1a6eabb-765f9g -> ccr-a1a6eabb-765f9g`. Sin `amend`, `rebase` ni `force`.

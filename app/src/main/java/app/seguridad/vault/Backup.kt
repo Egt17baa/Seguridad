@@ -19,11 +19,15 @@ import java.util.zip.ZipOutputStream
 /*
  * Format `seguridad-backup` v2 (.sgbak), never to change: a ZIP (java.util.zip) with, in this order,
  *  - `seguridad-backup`: the text "2\n" (version 1, written by 1.1, has "1\n" and is read the same way: only this marker
- *    differs; a number above 2 is a copy from a newer version, [BACKUP_NEWER], and 1.1 says the same about a 2);
+ *    differs; a number above [BACKUP_NEWEST] is a copy from a newer version, [BACKUP_NEWER], and 1.1 says the same
+ *    about a 2). 2.0 writes "3\n" for the copy of a version-4 vault, the same layout with a larger limit per entry
+ *    ([BACKUP_V3_MAX_ENTRY_BYTES]): 1.2 to 1.4.3 refuse it with their [BACKUP_NEWER] and touch nothing. The copy of a
+ *    vault still of version 2 or 3 (2.0 before the upgrade) keeps "2\n";
  *  - `vault.json`: the vault file exactly as on disk (`VaultFile`, still encrypted);
  *  - `att/<id>.bin`: each attachment file exactly as stored (still encrypted), ids in ascending order.
  * Reading ignores any other name; the valid ones are checked with exact patterns (no zip-slip). Limits on the bytes
- * really read: 100 MB in all, 6 MB per entry and 2 000 entries, and [BACKUP_MAX_READ_BYTES] of the file itself.
+ * really read: 100 MB in all, 6 MB per entry (33 MiB for `vault.json` with marker 3) and 2 000 entries, and [BACKUP_MAX_READ_BYTES] of
+ * the file itself.
  */
 
 internal const val BACKUP_MARKER = "seguridad-backup"
@@ -33,8 +37,25 @@ private val BACKUP_VERSION = "2\n".toByteArray(Charsets.US_ASCII)
 /** What version 1 (1.1.x) wrote as its marker: still read, never written. */
 private val BACKUP_VERSION_1 = "1\n".toByteArray(Charsets.US_ASCII)
 
-/** The newest copy version this app reads. */
-private const val BACKUP_NEWEST = 2
+/** 2.0: the marker of the copy of a version-4 vault. */
+private val BACKUP_VERSION_3 = "3\n".toByteArray(Charsets.US_ASCII)
+
+/** The newest copy version this app reads (and writes, for a version-4 vault). */
+internal const val BACKUP_NEWEST = 3
+
+/**
+ * 2.0: the most a file of a copy with marker 3 may take. The vault of up to [VaultLimits.VAULT_MAX_DATA_BYTES] of data,
+ * encrypted and in Base64 with the file around it, is just over 32 MiB: 33 MiB leaves it room (ruling T1-1;
+ * BackupV3Test.aVaultAtTheDataLimitFitsInACopy).
+ */
+const val BACKUP_V3_MAX_ENTRY_BYTES = 33L * 1024 * 1024
+
+/**
+ * The most the vault file may take in the copy a vault of [vaultVersion] gets: marker 3 for a version-4 vault
+ * ([BACKUP_V3_MAX_ENTRY_BYTES]), marker 2 for any other ([BACKUP_MAX_ENTRY_BYTES]). What «Importar de otra app» checks
+ * the vault it would save against (ruling T1-2).
+ */
+fun backupMaxEntryBytes(vaultVersion: Int): Long = if (vaultVersion == VaultFile.VERSION) BACKUP_V3_MAX_ENTRY_BYTES else BACKUP_MAX_ENTRY_BYTES
 
 const val BACKUP_MAX_TOTAL_BYTES = 100L * 1024 * 1024
 const val BACKUP_MAX_ENTRY_BYTES = 6L * 1024 * 1024
@@ -55,12 +76,23 @@ const val BACKUP_HEAD_BYTES = 64
 private val ATTACHMENT_ENTRY = Regex("att/([0-9a-f]{32})\\.bin")
 private val ATTACHMENT_ID = Regex("[0-9a-f]{32}")
 
-internal const val BACKUP_DAMAGED = "La copia está dañada o no es una copia de Clavero"
-internal const val BACKUP_NEWER = "La copia es de una versión más nueva de Clavero"
+internal const val BACKUP_DAMAGED = "La copia está dañada o no es una copia de Clavero. Elige otra copia."
+// 2.0, task 10 (phase C): its first sentence stays as it was, to say the same as 1.4.3 (whose own copy of it, in its APK,
+// is what it shows for a copy with the new marker); ronda 1 (m-2): what to do after it, with no promise («para abrirla»).
+internal const val BACKUP_NEWER = "La copia es de una versión más nueva de Clavero. Actualiza Clavero."
 internal const val BACKUP_TOO_BIG = "La copia pasa de 100 MB"
 internal const val BACKUP_ENTRY_TOO_BIG = "Un archivo de la copia pasa de 6 MB"
+internal const val BACKUP_ENTRY_TOO_BIG_V3 = "Un archivo de la copia pasa de 33 MB"
 internal const val BACKUP_TOO_MANY = "La copia tiene más de 2 000 archivos"
 internal const val BACKUP_DOES_NOT_FIT = "La bóveda no cabe en una copia (100 MB en total, 6 MB por archivo y 2 000 archivos)"
+internal const val BACKUP_DOES_NOT_FIT_V3 = "La bóveda no cabe en una copia (100 MB en total, 33 MB por archivo y 2 000 archivos)"
+
+/** Whether [vaultJson] is a version-4 vault file, whose copy gets the marker 3; anything else keeps the marker 2. */
+private fun isV4(vaultJson: String): Boolean = try {
+    VaultCrypto.decodeFile(vaultJson).let { it.format == VaultFile.FORMAT && it.version == VaultFile.VERSION }
+} catch (e: CryptoFailure) {
+    false
+}
 
 /** Name offered when exporting: seguridad-boveda-AAAAMMDD.sgbak. */
 fun backupFileName(date: LocalDate): String = "seguridad-boveda-%04d%02d%02d.sgbak".format(date.year, date.monthValue, date.dayOfMonth)
@@ -97,19 +129,32 @@ fun isBackup(head: ByteArray): Boolean {
 internal class BackupAttachmentMismatch(val id: String) : Exception()
 
 /**
- * Writes the copy to [out] (left open: the caller closes it). [attachments] maps each attachment id to its file;
+ * Writes the copy to [out] (left open: the caller closes it), with the marker 3 when [vaultJson] is a version-4 vault and
+ * the marker 2 otherwise: [vaultVersion] says which (review M-2: the caller has the file, so it is not decoded again);
+ * without it (the tests), the version is read from [vaultJson]. With the marker 3 only the vault file gets
+ * [BACKUP_V3_MAX_ENTRY_BYTES]; an attachment keeps [BACKUP_MAX_ENTRY_BYTES] with either (review M-7). [attachments] maps each attachment id to its file;
  * with [expectedSha256] (id to hex), every file is checked while it is written and a missing or different one throws
  * [BackupAttachmentMismatch], so a copy that could never be restored is never finished. For the same reason a vault
  * over the limits [BackupReader] applies throws [CryptoFailure] with [BACKUP_DOES_NOT_FIT].
  */
-fun writeBackup(out: OutputStream, vaultJson: String, attachments: Map<String, File>, expectedSha256: Map<String, String> = emptyMap()) {
+fun writeBackup(
+    out: OutputStream,
+    vaultJson: String,
+    attachments: Map<String, File>,
+    expectedSha256: Map<String, String> = emptyMap(),
+    vaultVersion: Int? = null,
+) {
     require(attachments.keys.all { ATTACHMENT_ID.matches(it) }) { "Id de adjunto no válido" }
     val json = vaultJson.toByteArray(Charsets.UTF_8)
-    if (json.size > BACKUP_MAX_ENTRY_BYTES || attachments.size + 2 > BACKUP_MAX_ENTRIES) throw CryptoFailure(BACKUP_DOES_NOT_FIT)
-    var total = (BACKUP_VERSION.size + json.size).toLong()
+    val v4 = if (vaultVersion != null) vaultVersion == VaultFile.VERSION else isV4(vaultJson)
+    val marker = if (v4) BACKUP_VERSION_3 else BACKUP_VERSION
+    val entryMax = if (v4) BACKUP_V3_MAX_ENTRY_BYTES else BACKUP_MAX_ENTRY_BYTES
+    val doesNotFit = if (v4) BACKUP_DOES_NOT_FIT_V3 else BACKUP_DOES_NOT_FIT
+    if (json.size > entryMax || attachments.size + 2 > BACKUP_MAX_ENTRIES) throw CryptoFailure(doesNotFit)
+    var total = (marker.size + json.size).toLong()
     val zip = ZipOutputStream(out)
     zip.putNextEntry(ZipEntry(BACKUP_MARKER))
-    zip.write(BACKUP_VERSION)
+    zip.write(marker)
     zip.closeEntry()
     zip.putNextEntry(ZipEntry(BACKUP_VAULT))
     zip.write(json)
@@ -132,7 +177,7 @@ fun writeBackup(out: OutputStream, vaultJson: String, attachments: Map<String, F
                 if (n < 0) break
                 size += n
                 total += n
-                if (size > BACKUP_MAX_ENTRY_BYTES || total > BACKUP_MAX_TOTAL_BYTES) throw CryptoFailure(BACKUP_DOES_NOT_FIT)
+                if (size > BACKUP_MAX_ENTRY_BYTES || total > BACKUP_MAX_TOTAL_BYTES) throw CryptoFailure(doesNotFit)
                 digest.update(buf, 0, n)
                 zip.write(buf, 0, n)
             }
@@ -175,7 +220,7 @@ internal fun fileMatchesSha256(file: File, hex: String, maxBytes: Long): Boolean
 
 /**
  * What a copy holds: the vault file as text, each attachment id with its file in the temporary folder, and the copy's
- * [version] (1 or 2, from its marker).
+ * [version] (1, 2 or 3, from its marker).
  */
 class BackupContents(val vaultJson: String, val attachments: Map<String, File>, val version: Int = BACKUP_NEWEST)
 
@@ -211,7 +256,7 @@ private class BoundedInput(input: InputStream, private val max: Long, private va
     override fun markSupported(): Boolean = false
 }
 
-/** Reads a `seguridad-backup` copy, version 1 or 2. */
+/** Reads a `seguridad-backup` copy, version 1, 2 or 3. */
 class BackupReader {
     /**
      * Reads the copy from [input] (left open), writing each attachment to `<id>.bin` in [tempDir] as it comes, never
@@ -242,23 +287,28 @@ class BackupReader {
         var total = 0L
         var vaultJson: String? = null
         var copyVersion = BACKUP_NEWEST
+        // The marker comes first, so the vault file is read with its version's limit; every other entry (an attachment,
+        // a name this version ignores) keeps BACKUP_MAX_ENTRY_BYTES with either marker (review M-7).
+        var vaultMax = BACKUP_MAX_ENTRY_BYTES
+        var vaultTooBig = BACKUP_ENTRY_TOO_BIG
         val attachments = LinkedHashMap<String, File>()
 
         /** Copies the current entry to [sink] (or nowhere), counting the bytes really read against every limit. */
-        fun copy(sink: OutputStream?) {
+        fun copy(sink: OutputStream?, entryMax: Long = BACKUP_MAX_ENTRY_BYTES, entryTooBig: String = BACKUP_ENTRY_TOO_BIG) {
             var size = 0L
             while (true) {
                 val n = zip.read(buf)
                 if (n < 0) break
                 size += n
                 total += n
-                if (size > BACKUP_MAX_ENTRY_BYTES) throw CryptoFailure(BACKUP_ENTRY_TOO_BIG)
+                if (size > entryMax) throw CryptoFailure(entryTooBig)
                 if (total > BACKUP_MAX_TOTAL_BYTES) throw CryptoFailure(BACKUP_TOO_BIG)
                 sink?.write(buf, 0, n)
             }
         }
 
-        fun bytes(): ByteArray = java.io.ByteArrayOutputStream().also { copy(it) }.toByteArray()
+        fun bytes(max: Long = BACKUP_MAX_ENTRY_BYTES, tooBig: String = BACKUP_ENTRY_TOO_BIG): ByteArray =
+            java.io.ByteArrayOutputStream().also { copy(it, max, tooBig) }.toByteArray()
 
         while (true) {
             val entry = zip.nextEntry ?: break
@@ -268,11 +318,19 @@ class BackupReader {
                 // The marker comes first, with exactly this version.
                 if (name != BACKUP_MARKER) throw CryptoFailure(BACKUP_DAMAGED)
                 val version = bytes()
-                if (!version.contentEquals(BACKUP_VERSION) && !version.contentEquals(BACKUP_VERSION_1)) {
-                    val number = version.decodeToString().trim().toIntOrNull()
-                    throw CryptoFailure(if (number != null && number > BACKUP_NEWEST) BACKUP_NEWER else BACKUP_DAMAGED)
+                copyVersion = when {
+                    version.contentEquals(BACKUP_VERSION_1) -> 1
+                    version.contentEquals(BACKUP_VERSION) -> 2
+                    version.contentEquals(BACKUP_VERSION_3) -> 3
+                    else -> {
+                        val number = version.decodeToString().trim().toIntOrNull()
+                        throw CryptoFailure(if (number != null && number > BACKUP_NEWEST) BACKUP_NEWER else BACKUP_DAMAGED)
+                    }
                 }
-                copyVersion = if (version.contentEquals(BACKUP_VERSION_1)) 1 else BACKUP_NEWEST
+                if (copyVersion == 3) {
+                    vaultMax = BACKUP_V3_MAX_ENTRY_BYTES
+                    vaultTooBig = BACKUP_ENTRY_TOO_BIG_V3
+                }
                 continue
             }
             val att = ATTACHMENT_ENTRY.matchEntire(name)
@@ -280,7 +338,7 @@ class BackupReader {
                 name == BACKUP_MARKER -> throw CryptoFailure(BACKUP_DAMAGED) // Twice.
                 name == BACKUP_VAULT -> {
                     if (vaultJson != null) throw CryptoFailure(BACKUP_DAMAGED) // Twice.
-                    vaultJson = bytes().decodeToString()
+                    vaultJson = bytes(vaultMax, vaultTooBig).decodeToString()
                 }
                 att != null -> {
                     val id = att.groupValues[1]

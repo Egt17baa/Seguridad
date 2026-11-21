@@ -26,8 +26,30 @@ sealed interface QrKind {
         val signals: List<Signal>,
     ) : QrKind
 
-    /** [security] is «nopass» (open) or the type in capitals («WPA», «WEP»…). */
-    data class Wifi(val ssid: String, val security: String, val password: String?, val hidden: Boolean) : QrKind
+    /**
+     * [security] is «nopass» (open) or the type in capitals («WPA», «WEP»…). [notKept] null: the vault's form can hold it
+     * ([WifiRead.Usable]); otherwise it is only shown, for that reason ([WifiRead.Unsupported]). 2.0, task 9: read by [WifiQr].
+     */
+    data class Wifi(
+        val ssid: String,
+        val security: String,
+        val password: String?,
+        val hidden: Boolean,
+        val notKept: WifiNotKept? = null,
+        /** The type as the code says it when it is not [security] (ronda 2, n-2: «WPA2», kept as WPA). */
+        val written: String? = null,
+    ) : QrKind {
+        val addable: Boolean get() = notKept == null
+        override fun toString() = "Wifi(security=$security, hidden=$hidden, notKept=$notKept)"
+    }
+
+    /**
+     * 2.0, task 9: a text that starts with `WIFI:` and cannot be read without guessing ([WifiRead.Malformed]). Not plain
+     * text, because it may carry a password: the screen hides it and drops it as it does a wifi with one.
+     */
+    data class WifiUnreadable(val text: String) : QrKind {
+        override fun toString() = "WifiUnreadable"
+    }
     data class Sepa(val name: String, val iban: String, val amount: String?, val reference: String?) : QrKind
     data class Crypto(val scheme: String, val address: String, val amount: String?) : QrKind
     data class Contact(val name: String, val phones: List<String>, val emails: List<String>) : QrKind
@@ -43,8 +65,9 @@ sealed interface QrKind {
 
 /**
  * Decides what [text] is. Throws [IllegalArgumentException] ([QR_TOO_BIG]) if it is over [MAX_QR_TEXT_BYTES] in UTF-8,
- * and nothing else: a malformed Wi-Fi, payment, contact or link falls back to [QrKind.PlainText] (or a [QrKind.Link]
- * with the fields that could be read).
+ * and nothing else: a malformed payment, contact or link falls back to [QrKind.PlainText] (or a [QrKind.Link] with the
+ * fields that could be read); a text that starts like a wifi code is a [QrKind.Wifi] or a [QrKind.WifiUnreadable],
+ * never plain text (2.0, task 9: it may carry a password), also if a reader ever threw ([qrKindAfterAFailure]).
  */
 fun classifyQr(text: String): QrKind {
     // A char is at least one byte, so a longer string is too big without encoding it.
@@ -55,14 +78,20 @@ fun classifyQr(text: String): QrKind {
         classifyQrUnguarded(text)
     } catch (e: Exception) {
         // Second line of defence: the parsers below are written not to throw (a fuzz test checks it).
-        QrKind.PlainText(text)
+        qrKindAfterAFailure(text)
     }
 }
+
+/**
+ * What [classifyQr] gives when a reader threw: plain text, except a text that starts like a wifi code, which stays a
+ * secret ([QrKind.WifiUnreadable], 2.0, task 9, ronda 1, m-4).
+ */
+internal fun qrKindAfterAFailure(text: String): QrKind = if (WifiQr.startsLikeWifi(text)) QrKind.WifiUnreadable(text) else QrKind.PlainText(text)
 
 /** [classifyQr] without the guard, for the tests that check the parsers themselves never throw. */
 internal fun classifyQrUnguarded(text: String): QrKind {
     val t = text.trim()
-    return otpAuth(t) ?: seguridadAtStart(t) ?: wifi(t) ?: sepa(t) ?: vcard(t) ?: mecard(t) ?: matmsg(t) ?: sms(t) ?: phone(t) ?:
+    return otpAuth(t) ?: seguridadAtStart(t) ?: wifi(text) ?: sepa(t) ?: vcard(t) ?: mecard(t) ?: matmsg(t) ?: sms(t) ?: phone(t) ?:
         email(t) ?: geo(t) ?: crypto(t, text) ?: link(t) ?: seguridadInside(t) ?: QrKind.PlainText(text)
 }
 
@@ -90,21 +119,19 @@ private fun seguridadInside(t: String): QrKind? {
     }
 }
 
-// ---- Wi-Fi ----
+// ---- Wifi ----
 
-private fun wifi(t: String): QrKind? {
-    if (!t.startsWithIgnoreCase("WIFI:")) return null
-    val fields = splitFields(t.substring(5))
-    fun field(key: String) = fields.firstOrNull { it.first.equals(key, ignoreCase = true) }?.second
-    val ssid = field("S")?.let(::unquote)?.takeIf { it.isNotEmpty() } ?: return null
-    val type = field("T")?.trim().orEmpty()
-    val security = if (type.isEmpty() || type.equals("nopass", ignoreCase = true)) "nopass" else type.uppercase(Locale.ROOT)
-    val password = field("P")?.let(::unquote)?.takeIf { it.isNotEmpty() }
-    return QrKind.Wifi(ssid, security, password, field("H")?.trim().equals("true", ignoreCase = true))
+/**
+ * 2.0, task 9: one reader of wifi codes for what the inspector shows and what the vault keeps ([WifiQr]), on the text as
+ * it came (not trimmed: ZXing does not trim it either). A text that starts like a wifi code ([WifiQr.startsLikeWifi]) is
+ * a wifi code or [QrKind.WifiUnreadable], never anything else (not a link, not plain text).
+ */
+private fun wifi(text: String): QrKind? = when (val read = WifiQr.read(text)) {
+    null -> null
+    is WifiRead.Usable -> read.config.let { QrKind.Wifi(it.ssid, it.security, it.password.ifEmpty { null }, it.hidden, written = read.written) }
+    is WifiRead.Unsupported -> QrKind.Wifi(read.ssid, read.security, read.password.ifEmpty { null }, read.hidden, read.why)
+    WifiRead.Malformed -> QrKind.WifiUnreadable(text)
 }
-
-/** A value in double quotes (the format's way to say «text, not hexadecimal») without them. */
-private fun unquote(v: String): String = if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) v.substring(1, v.length - 1) else v
 
 // ---- Payments ----
 
@@ -301,7 +328,7 @@ private val LINE_END = Regex("\r\n|\n|\r")
 private fun String.startsWithIgnoreCase(prefix: String) = regionMatches(0, prefix, 0, prefix.length, ignoreCase = true)
 
 /**
- * The «KEY:value» fields of a «;»-separated list as WIFI:, MECARD: and MATMSG: write them: «\» escapes the next
+ * The «KEY:value» fields of a «;»-separated list as MECARD: and MATMSG: write them (WIFI: has its own reader, [WifiQr]): «\» escapes the next
  * character (so «\;», «\,», «\:» and «\\» are literal), the key ends at the first «:», and the value is unescaped.
  */
 internal fun splitFields(s: String): List<Pair<String, String>> {

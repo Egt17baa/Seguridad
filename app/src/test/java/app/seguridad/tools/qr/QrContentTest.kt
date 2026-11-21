@@ -29,14 +29,18 @@ class QrContentTest {
         assertEquals(QrKind.Wifi("Bar", "nopass", null, false), classifyQr("WIFI:T:nopass;S:Bar;;"))
         assertEquals(QrKind.Wifi("Bar", "nopass", null, false), classifyQr("WIFI:S:Bar;;"))
         assertEquals(QrKind.Wifi("Viejo", "WEP", "12345", false), classifyQr("WIFI:T:WEP;S:Viejo;P:12345;;"))
-        assertEquals(QrKind.Wifi("x", "WPA", "y", false), classifyQr("wifi:t:wpa;S:x;P:y;;"))
+        // 2.0, task 9, ronda 1: ZXing reads only «WIFI:» and the keys in capitals, so another case cannot be read safely.
+        assertEquals(QrKind.WifiUnreadable("wifi:t:wpa;S:x;P:y;;"), classifyQr("wifi:t:wpa;S:x;P:y;;"))
+        assertEquals(QrKind.Wifi("x", "WPA", "y", false), classifyQr("WIFI:T:wpa;S:x;P:y;;"))
     }
 
     @Test
     fun wifiQuotedValuesAndMissingSsid() {
         assertEquals(QrKind.Wifi("1234", "WPA", "5678", false), classifyQr("WIFI:T:WPA;S:\"1234\";P:\"5678\";;"))
-        assertEquals(QrKind.PlainText("WIFI:T:WPA;P:abc;;"), classifyQr("WIFI:T:WPA;P:abc;;"))
-        assertEquals(QrKind.PlainText("WIFI:"), classifyQr("WIFI:"))
+        // 2.0, task 9: a text that starts like a wifi code and cannot be read is kept apart from plain text, because it
+        // may carry a password (WifiQrInspectTest).
+        assertEquals(QrKind.WifiUnreadable("WIFI:T:WPA;P:abc;;"), classifyQr("WIFI:T:WPA;P:abc;;"))
+        assertEquals(QrKind.WifiUnreadable("WIFI:"), classifyQr("WIFI:"))
     }
 
     @Test

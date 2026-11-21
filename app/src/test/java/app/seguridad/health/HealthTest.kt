@@ -8,6 +8,7 @@ import app.seguridad.vault.MASTER_TOO_WEAK
 import app.seguridad.vault.MIN_MASTER
 import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.newMasterProblem
+import app.seguridad.vault.withVersion
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -37,6 +38,26 @@ class HealthTest {
         assertTrue(Issue.REUSED in issues(r, "a"))
         assertTrue(Issue.REUSED in issues(r, "b"))
         assertFalse(Issue.REUSED in issues(r, "c"))
+    }
+
+    /** 2.0, task 5: a wifi's password counts as a password (reused, weak); the other secrets of the templates do not. */
+    @Test fun wifiPasswordCountsOtherSecretsDoNot() {
+        fun wifi(id: String, pw: String) = VaultEntry(
+            id, EntryType.WIFI, id, createdAt = 0, updatedAt = 0,
+            fields = listOf(app.seguridad.vault.CustomField("password", "Contraseña", app.seguridad.vault.FieldKind.HIDDEN, pw)),
+        )
+        val card = VaultEntry(
+            "card", EntryType.CARD, "card", createdAt = 0, updatedAt = 0,
+            fields = listOf(app.seguridad.vault.CustomField("pin", "PIN", app.seguridad.vault.FieldKind.HIDDEN, "1234")),
+        )
+        val r = vaultHealth(listOf(login("a"), wifi("casa", strong), wifi("bar", "1234"), card), now)
+        assertEquals(setOf(Issue.REUSED), issues(r, "casa"))
+        assertTrue(Issue.REUSED in issues(r, "a"))
+        assertEquals(setOf(Issue.WEAK), issues(r, "bar")) // Never «sin 2FA» nor «antigua» for a wifi.
+        assertTrue(issues(r, "card").isEmpty())
+        // The leak check sends only the logins' passwords.
+        assertEquals(listOf(strong), uniquePasswords(listOf(login("a"), wifi("casa", strong), card)).keys.toList())
+        assertEquals(listOf("a"), uniquePasswords(listOf(login("a"), wifi("casa", strong))).getValue(strong))
     }
 
     @Test fun weakVsStrong() {
@@ -97,6 +118,14 @@ class HealthTest {
         assertFalse(Issue.NO_2FA in issues(r, "gh"))
         assertFalse(Issue.NO_2FA in issues(r, "t"))
         assertTrue(Issue.NO_2FA in issues(r, "x"))
+    }
+
+    /** 2.0, task 4: a login with a 2FA code of its own (R67 of 1.4.0) has 2FA, for «Salud» and for the filter «Sin 2FA». */
+    @Test fun loginWithItsOwnCodeHas2fa() {
+        val own = login("own").copy(totp = TotpSecret(secret = "JBSWY3DPEHPK3PXP"))
+        val r = vaultHealth(listOf(own, login("none")), now)
+        assertFalse(Issue.NO_2FA in issues(r, "own"))
+        assertTrue(Issue.NO_2FA in issues(r, "none"))
     }
 
     @Test fun breachedFromMap() {
@@ -285,5 +314,25 @@ class HealthTest {
 
     @Test fun `F3 the copy of the old function uses the same common list`() {
         assertEquals(commonPasswords(), oldCommon)
+    }
+
+    /** 2.0, task 3: what is in the trash is not in «Salud». */
+    @Test fun trashNotCounted() {
+        val trashed = login("t", "hola1").copy(deletedAt = now - day)
+        val r = vaultHealth(listOf(login("a", strong), trashed, login("b", "hola2")), now)
+        assertEquals(setOf("a", "b"), r.map { it.entryId }.toSet())
+        assertTrue(Issue.WEAK in issues(r, "b"))
+        // Its password is not one more use of the same one.
+        val same = vaultHealth(listOf(login("a", strong), login("t2", strong).copy(deletedAt = now - day)), now)
+        assertFalse(Issue.REUSED in issues(same, "a"))
+        assertEquals(mapOf(strong to listOf("a")), uniquePasswords(listOf(login("a", strong), login("t2", strong).copy(deletedAt = now))))
+    }
+
+    /** 2.0, task 3 (M-4): the age of a password reads the history too, not only the list of 1.4.3. */
+    @Test fun oldReadsTheHistory() {
+        val old = now - 400 * day
+        val before = login("h", "otra-clave-larga-de-prueba-1", updatedAt = old)
+        val changed = login("h", strong, updatedAt = old).withVersion(before, now - day)
+        assertFalse(Issue.OLD in issues(vaultHealth(listOf(changed), now), "h"))
     }
 }

@@ -1,7 +1,7 @@
 # Informe de la tarea 3: CRY-A02, la huella que guarda la clave de otra bóveda se desactiva y lo dice
 
 **Estado:** DONE (con las observaciones de «Preocupaciones»).
-**Commit:** `e435a96` «vault: la huella con la clave de otra bóveda se desactiva y lo dice (CRY-A02)», en `ccr-a1a6eabb-765f9g`, ya subido (`1430a1d..e435a96`). Autor `Claude <noreply@anthropic.com>`; el mensaje acaba solo en `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
+**Commit:** `e435a96` «vault: la huella con la clave de otra bóveda se desactiva y lo dice (CRY-A02)», en `ccr-a1a6eabb-765f9g`, ya subido (`1430a1d..e435a96`). Autor `Claude <noreply@anthropic.com>`; el mensaje acaba solo en `Co-Authored-By: Claude <noreply@anthropic.com>` (`grep -cE "Claude-Session|claude\.ai"` da 0).
 
 ## Qué se ha implementado
 

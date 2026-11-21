@@ -4,13 +4,16 @@ import app.seguridad.core.appJson
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
+import app.seguridad.vault.VaultData
 import app.seguridad.vault.AttachmentRef
-import app.seguridad.vault.BACKUP_MAX_ENTRY_BYTES
+import app.seguridad.vault.BACKUP_V3_MAX_ENTRY_BYTES
+import app.seguridad.vault.VaultLimits
 import app.seguridad.vault.EntryType
 import app.seguridad.vault.MAX_TAGS
 import app.seguridad.vault.PasswordChange
 import app.seguridad.vault.VaultCrypto
 import app.seguridad.vault.VaultEntry
+import app.seguridad.vault.oldPasswords
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -716,7 +719,9 @@ class MergePlanTest {
         // Taken from the file, as they are not empty there.
         assertEquals("https://banco.es/entrar", r.url)
         assertEquals("nueva", r.password)
-        // The old password goes to the history (withNewPassword).
+        // The old password goes to the history (2.0, task 3: the entry as it was, as a version).
+        assertEquals(listOf(PasswordChange("vieja", now)), r.oldPasswords())
+        assertEquals(bank.password, r.history.single().entry.password)
         assertEquals(listOf(PasswordChange("vieja", now)), r.passwordHistory)
         // Both have notes and they differ: the vault's, then the file's under the heading.
         assertEquals("nota de la bóveda\n\nImportado el 4-11-2026:\nnota del archivo", r.notes)
@@ -738,7 +743,7 @@ class MergePlanTest {
         assertEquals("del archivo", replaceWith(noNotes, importedEntry(EntryType.LOGIN, "Banco", notes = "del archivo"), now, ZoneOffset.UTC).notes)
         assertEquals(bank.notes, replaceWith(bank, importedEntry(EntryType.LOGIN, "Banco", notes = bank.notes), now, ZoneOffset.UTC).notes)
         // The same password: nothing goes to the history.
-        assertTrue(replaceWith(bank, importedEntry(EntryType.LOGIN, "Banco", password = "vieja"), now, ZoneOffset.UTC).passwordHistory.isEmpty())
+        assertTrue(replaceWith(bank, importedEntry(EntryType.LOGIN, "Banco", password = "vieja"), now, ZoneOffset.UTC).oldPasswords().isEmpty())
     }
 
     @Test fun replaceTakesTheCodeOfATotp() {
@@ -754,7 +759,7 @@ class MergePlanTest {
         val renamed = replaceWith(code, importedEntry(EntryType.TOTP, "C", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Otro", account = "eva")), now, ZoneOffset.UTC)
         val renamedTotp = checkNotNull(renamed.totp)
         assertEquals("Otro" to "eva", renamedTotp.issuer to renamedTotp.account)
-        assertTrue(r.passwordHistory.isEmpty())
+        assertTrue(r.oldPasswords().isEmpty())
     }
 
     /** M-2: the same file replaced twice changes the entry once: no second notes block, no new date. */
@@ -831,7 +836,7 @@ class MergePlanTest {
         val r = mergedEntries(p, DuplicateChoice.REPLACE, emptyMap(), listOf(hostless), now, newId).single()
         assertEquals("3", r.password)
         assertEquals("https://b.es", r.url)
-        assertEquals(listOf("2", "1"), r.passwordHistory.map { it.password })
+        assertEquals(listOf("2", "1"), r.oldPasswords().map { it.password })
     }
 
     // ---- Tags ----
@@ -968,7 +973,7 @@ class MergePlanTest {
         val json = appJson.encodeToString(entries).toByteArray(Charsets.UTF_8).size.toLong()
         assertEquals((json * 4 + 2) / 3 + 4096, estimatedVaultFileBytes(entries))
         val (file, key) = VaultCrypto.create("m".toCharArray(), now, app.seguridad.crypto.KdfParams(1024, 1, 1))
-        val real = VaultCrypto.encodeFile(VaultCrypto.write(file, key, entries)).toByteArray(Charsets.UTF_8).size.toLong()
+        val real = VaultCrypto.encodeFile(VaultCrypto.write(file, key, VaultData(entries = entries))).toByteArray(Charsets.UTF_8).size.toLong()
         assertTrue("$real > estimate", real <= estimatedVaultFileBytes(entries))
         assertEquals(0, estimatedOverBytes(entries))
     }
@@ -996,10 +1001,62 @@ class MergePlanTest {
     }
 
     @Test fun anEstimateOverTheLimitSaysByHowMuch() {
-        val big = (0 until 100).map { saved("id$it", EntryType.NOTE, "N$it", notes = "x".repeat(64 * 1024)) }
+        // 2.0: against the cap of the copy a v4 vault gets (marker 3, 33 MiB), each entry within its own 64 KiB.
+        val big = (0 until 600).map { saved("id$it", EntryType.NOTE, "N$it", notes = "x".repeat(60_000)) }
         val over = estimatedOverBytes(big)
         assertTrue(over > 0)
-        assertEquals(estimatedVaultFileBytes(big) - BACKUP_MAX_ENTRY_BYTES, over)
+        assertEquals(estimatedVaultFileBytes(big) - BACKUP_V3_MAX_ENTRY_BYTES, over)
         assertNotEquals(0L, over)
+        // What passed the 6 MB of marker 2 fits now.
+        assertEquals(0, estimatedOverBytes((0 until 120).map { saved("id$it", EntryType.NOTE, "N$it", notes = "x".repeat(60_000)) }))
+    }
+
+    /** 2.0, ruling T1-3: an item over the 64 KiB of one entry is in the plan as not fitting, with its own text. */
+    @Test fun anItemOverTheEntryLimitIsSkippedInThePlan() {
+        // Quotes take two bytes each in JSON: 40 000 of them are 80 KB, though the note has 40 000 characters.
+        val big = item(3, importedEntry(EntryType.NOTE, "Grande", notes = "\"".repeat(40_000)))
+        val bigDuplicate = item(4, importedEntry(EntryType.NOTE, "Nota", notes = "x".repeat(66_000)))
+        val small = item(5, importedEntry(EntryType.NOTE, "Pequeña", notes = "x".repeat(60_000)))
+        val p = plan(read(big, bigDuplicate, small), listOf(saved("n", EntryType.NOTE, "Nota", notes = "x".repeat(66_000))))
+        assertEquals(listOf(5), p.newItems.map { it.index })
+        assertEquals(emptyList<Duplicate>(), p.duplicates)
+        assertEquals(
+            listOf(Skipped(3, "Grande", SkipReason.ENTRY_TOO_BIG), Skipped(4, "Nota", SkipReason.ENTRY_TOO_BIG), Skipped(99, "Passkey", SkipReason.PASSKEY)),
+            p.skipped,
+        )
+        assertEquals(SKIP_ENTRY_TOO_BIG, SkipReason.ENTRY_TOO_BIG.text)
+        assertEquals("Pasa de 64 KB, el máximo de una entrada", SKIP_ENTRY_TOO_BIG)
+        // The limit is the vault's own: what the import keeps is within it, the stored form (tags and dates) included.
+        assertTrue(VaultLimits.ENTRY_MAX_JSON_BYTES == 64 * 1024)
+        assertTrue(entryFitsImported(small.entry, listOf("una-carpeta"), ImportFormat.BITWARDEN))
+        assertFalse(entryFitsImported(big.entry, emptyList(), ImportFormat.BITWARDEN))
+    }
+
+    // ---- 2.0, task 3: the trash (focus 5) ----
+
+    @Test fun trashIsNotADuplicate() {
+        val trashed = saved("t", EntryType.LOGIN, "Banco", user = "ana", url = "https://banco.es/", tags = listOf("solo-en-papelera"))
+            .copy(deletedAt = now - 1)
+        val code = saved("c", EntryType.TOTP, "Correo", totp = TotpSecret("JBSWY3DPEHPK3PXP", issuer = "Correo")).copy(deletedAt = now - 1)
+        val live = saved("v", EntryType.NOTE, "Lista", notes = "pan")
+        val p = plan(
+            read(
+                login(0, "Banco", user = "ana", url = "https://banco.es/", folders = listOf("solo-en-papelera")),
+                totp(1, "Correo", "JBSWY3DPEHPK3PXP"),
+                note(2, "Lista", "pan"),
+            ),
+            listOf(trashed, code, live),
+        )
+        // What is in the trash is no duplicate: the items enter as new.
+        assertEquals(listOf(0, 1), p.newItems.map { it.index })
+        assertEquals(listOf(2), p.duplicates.map { it.item.index })
+        assertEquals("v", p.duplicates.single().existingId)
+        // A tag only an entry in the trash has is a new one: it spends the budget as any other.
+        assertTrue("solo-en-papelera" in p.newTags)
+        val merged = mergeImport(p, DuplicateChoice.SKIP, emptyMap(), listOf(trashed, code, live), now, newId, ZoneOffset.UTC)
+        assertTrue("solo-en-papelera" in merged.newTags)
+        // The trash is kept as it is.
+        assertEquals(listOf(trashed, code, live), merged.entries.take(3))
+        assertEquals(5, merged.entries.size)
     }
 }

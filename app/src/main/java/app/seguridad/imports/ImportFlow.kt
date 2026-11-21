@@ -11,7 +11,7 @@ sealed interface ImportOutcome {
     /** No copy, so nothing was imported; [message] is a fixed Spanish text. */
     data class CopyFailed(val message: String) : ImportOutcome
 
-    /** The copy was made, but the import was not saved ([result]: [ApplyResult.Stale] or [ApplyResult.TooBig]). */
+    /** The copy was made, but the import was not saved ([result]: [ApplyResult.Stale], [ApplyResult.TooBig] or [ApplyResult.EntryTooBig]). */
     data class NotApplied(val result: ApplyResult) : ImportOutcome
 
     /**

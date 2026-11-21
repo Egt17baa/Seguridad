@@ -1,7 +1,9 @@
 package app.seguridad.tools.qr
 
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -78,5 +80,87 @@ class QrHandoffTest {
         QrHandoff.put(QrTarget.CARD, "SGK1:abc")
         assertNull(QrPendingText(QrTarget.OTP).text)
         assertNull("Another screen's text goes too, as take() always does", QrHandoff.take(QrTarget.CARD))
+    }
+
+    // 2.0, task 9, ronda 1 (I-1): leaving the app drops every QR text still waiting for a vault screen (a wifi password
+    // or a 2FA key at the locked gate), and the screen goes back to the inspector; a text already handed to the form is
+    // the form's, which its own rules clear.
+    @Test
+    fun leavingTheAppDropsEveryPendingTextAndSaysSo() {
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:Casa;P:clave;;")
+        val wifi = QrPendingText(QrTarget.WIFI)
+        QrHandoff.put(QrTarget.OTP, "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP")
+        val otp = QrPendingText(QrTarget.OTP)
+        QrHandoff.put(QrTarget.CARD, "SGK1:abc") // Not taken yet: it goes too.
+        assertFalse(wifi.left || otp.left)
+        val seen = wifi.leftState
+        QrHandoff.appLeft()
+        // Ronda 2 (n-1): a state the screen collects, so it goes back as soon as it is on screen again.
+        assertTrue(seen.value)
+        assertNull(wifi.text)
+        assertNull(otp.text)
+        assertTrue(wifi.left && otp.left)
+        assertNull(QrHandoff.take(QrTarget.CARD))
+        // Once gone it never comes back, and a later unlock does not bring it.
+        wifi.vaultStateIs(unlocked = true)
+        assertNull(wifi.text)
+    }
+
+    @Test
+    fun aTextAlreadyHandedOverOrClearedIsNotMarkedAsLeft() {
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:Casa;P:clave;;")
+        val handed = QrPendingText(QrTarget.WIFI)
+        handed.clear() // Handed to the form (onWifiQrTaken), or saved, or back.
+        val never = QrPendingText(QrTarget.WIFI) // Nothing was waiting for it.
+        QrHandoff.appLeft()
+        assertFalse(handed.left)
+        assertFalse(never.left)
+    }
+
+    // Ronda 2 (n-1): the import screens collect [QrPendingText.leftState]; a collector hears the change at once, so the
+    // screen goes back to the inspector on the return to the app, with no other change of state (the vault was locked).
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun aCollectorHearsThatTheAppWasLeft() = kotlinx.coroutines.test.runTest {
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:Casa;P:clave;;")
+        val pending = QrPendingText(QrTarget.WIFI)
+        val seen = mutableListOf<Boolean>()
+        val job = launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) { pending.leftState.collect { seen += it } }
+        QrHandoff.appLeft()
+        assertEquals(listOf(false, true), seen)
+        job.cancel()
+    }
+
+    /**
+     * 2.0, tarea 10 (fase B, ronda 1, m-8): whether something is on its way is a state the screen observes, kept right by
+     * every way in and out: [QrHandoff.put], [QrHandoff.take], [QrHandoff.clear], a screen holding a text
+     * ([QrPendingText]), its [QrPendingText.clear] and [QrHandoff.appLeft]. Nothing depends on the garbage collector.
+     */
+    @Test
+    fun pendingIsObservable() {
+        QrHandoff.clear()
+        assertFalse(QrHandoff.pendingState.value)
+        QrHandoff.put(QrTarget.OTP, "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP")
+        assertTrue(QrHandoff.pendingState.value)
+        QrHandoff.clear()
+        assertFalse(QrHandoff.pendingState.value)
+        QrHandoff.put(QrTarget.OTP, "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP")
+        val held = QrPendingText(QrTarget.OTP) // takes it from the handoff and holds it
+        assertTrue("Held by a screen", QrHandoff.pendingState.value)
+        held.clear()
+        assertFalse(QrHandoff.pendingState.value)
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:red;P:clave-de-prueba;;")
+        assertEquals(null, QrHandoff.take(QrTarget.OTP))
+        assertFalse("A take for another target empties it too", QrHandoff.pendingState.value)
+        QrHandoff.put(QrTarget.WIFI, "WIFI:T:WPA;S:red;P:clave-de-prueba;;")
+        QrPendingText(QrTarget.WIFI)
+        assertTrue(QrHandoff.pendingState.value)
+        QrHandoff.appLeft()
+        assertFalse(QrHandoff.pendingState.value)
+        // The picker's mark, observable too, and set as before.
+        app.seguridad.vault.VaultLock.keepOpenOnce = true
+        assertTrue(app.seguridad.vault.VaultLock.keepOpenOnceState.value)
+        app.seguridad.vault.VaultLock.keepOpenOnce = false
+        assertFalse(app.seguridad.vault.VaultLock.keepOpenOnceState.value)
     }
 }

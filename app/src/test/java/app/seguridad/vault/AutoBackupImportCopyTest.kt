@@ -1,5 +1,15 @@
 package app.seguridad.vault
 
+import app.seguridad.settings.oneTarget
+import app.seguridad.settings.autoBackupUri
+import app.seguridad.settings.autoBackupCopies
+import app.seguridad.settings.autoBackupReplacePending
+import app.seguridad.settings.autoBackupReplaceTargets
+import app.seguridad.settings.autoBackupReplaceTold
+import app.seguridad.settings.importCopies
+import app.seguridad.settings.importCopiesFolder
+import app.seguridad.settings.principal
+import app.seguridad.settings.updatePrincipal
 import app.seguridad.crypto.KdfParams
 import app.seguridad.imports.ApplyResult
 import app.seguridad.imports.DuplicateChoice
@@ -118,23 +128,23 @@ class AutoBackupImportCopyTest {
     private suspend fun setup(): VaultStore {
         settings = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined).apply {
             load()
-            update { it.copy(autoBackupUri = folder) }
+            updatePrincipal { it.oneTarget(autoBackupUri = folder) }
         }
         return VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
             .apply { load(); create("maestra".toCharArray()) }
     }
 
     /** Wired as AppContainer wires it. */
-    private fun TestScope.auto(s: VaultStore, target: BackupTarget?, keep: Int = 5) = AutoBackup(
-        s, folder = { settings.settings.value.autoBackupUri }, open = { target }, backgroundScope, now = { clock },
-        keep = { keep }, lastCopyAt = { Long.MAX_VALUE }, copies = { settings.settings.value.currentAutoBackupCopies },
-        replacePending = { settings.settings.value.autoBackupReplacePending },
-        replaceTargets = { settings.settings.value.autoBackupReplaceTargets },
-        replaceTold = { settings.settings.value.autoBackupReplaceTold },
-        onResult = { r -> settings.update { it.withAutoBackupResult(r, s.generation) } },
+    private fun TestScope.auto(s: VaultStore, target: BackupTarget?, keep: Int = 5) = oneTargetBackup(
+        s, folder = { settings.settings.value.principal.autoBackupUri }, open = { target }, backgroundScope, now = { clock },
+        keep = { keep }, lastCopyAt = { Long.MAX_VALUE }, copies = { settings.settings.value.principal.currentAutoBackupCopies },
+        replacePending = { settings.settings.value.principal.autoBackupReplacePending },
+        replaceTargets = { settings.settings.value.principal.autoBackupReplaceTargets },
+        replaceTold = { settings.settings.value.principal.autoBackupReplaceTold },
+        onResult = { r -> settings.updatePrincipal { it.withAutoBackupResult(r, s.generation) } },
         zone = ZoneOffset.UTC,
-        importCopies = { settings.settings.value.currentImportCopies },
-        onImportCopy = { f, id, generation -> settings.update { it.withImportCopy(f, id, generation, s.generation) } },
+        importCopies = { settings.settings.value.principal.currentImportCopies },
+        onImportCopy = { f, id, generation -> settings.updatePrincipal { it.withImportCopy(f, id, generation, s.generation) } },
     ).also { runCurrent() }
 
     private fun note(id: String) = VaultEntry(id, EntryType.NOTE, "Nota $id", notes = "s $id", createdAt = 0, updatedAt = 0)
@@ -159,14 +169,63 @@ class AutoBackupImportCopyTest {
         assertEquals(CopyResult.Saved("seguridad-antes-de-importar-20261026-100001.sgbak"), auto(s, t).copyBeforeImport())
     }
 
+    /** A store with the real vault of 1.4.3 opened with its master, its upgrade to v4 waiting for the user. */
+    private suspend fun waitingUpgrade(): VaultStore {
+        File(tmp.root, "vault.bin").writeBytes(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() })
+        settings = SettingsStore(File(tmp.root, "settings.json"), Dispatchers.Unconfined).apply {
+            load()
+            updatePrincipal { it.oneTarget(autoBackupUri = folder) }
+        }
+        return VaultStore(File(tmp.root, "vault.bin"), Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) })
+            .apply { load(); unlock("maestra-de-prueba-143".toCharArray()) }
+    }
+
+    /** 2.0, tarea 1: the copy before the upgrade to v4 ([AutoBackup.copyBeforeUpgrade]) is written as the import one. */
+    @Test fun theUpgradeCopyHasItsOwnNameAndIsListedForA6() = runTest {
+        val s = waitingUpgrade()
+        assertTrue(s.pendingUpgrade.value)
+        val t = ImportCopyTarget()
+        assertEquals(CopyResult.Saved("seguridad-antes-de-2-0-20261026-100000.sgbak"), auto(s, t).copyBeforeUpgrade())
+        assertEquals(listOf("seguridad-antes-de-2-0-20261026-100000.sgbak.tmp"), t.created)
+        val bytes = t.files.values.single()
+        assertTrue(isBackup(bytes.copyOf(BACKUP_HEAD_BYTES)))
+        // The file still on disk, with marker 2: what earlier versions open.
+        java.util.zip.ZipInputStream(bytes.inputStream()).use { z ->
+            z.nextEntry
+            assertEquals("2\n", z.readBytes().decodeToString())
+        }
+        assertEquals(listOf(t.idOfName(t.files.keys.single())), settings.settings.value.principal.importCopies)
+        // No folder: null, so the store waits for the user's choice.
+        settings.updatePrincipal { it.oneTarget(autoBackupUri = null) }
+        assertNull(auto(s, t).copyBeforeUpgrade())
+        settings.updatePrincipal { it.oneTarget(autoBackupUri = folder) }
+        // Review I-1: once the upgrade is saved there is no copy «de antes» to make: refused, and no file left behind.
+        assertTrue(s.completeUpgrade())
+        val before = t.files.keys.toList()
+        assertTrue(auto(s, t).copyBeforeUpgrade() is CopyResult.Failed)
+        assertEquals(before, t.files.keys.toList())
+    }
+
+    @Test fun aCutUpgradeCopyGoesWithTheNextRotation() = runTest {
+        val s = setup()
+        val t = ImportCopyTarget()
+        t.put("seguridad-antes-de-2-0-20200101-000000.sgbak.tmp")
+        t.put("seguridad-antes-de-2-0-20200101-000000.sgbak") // Complete and not listed: counted, never deleted.
+        auto(s, t)
+        s.upsert(note("1"))
+        settle()
+        assertFalse("seguridad-antes-de-2-0-20200101-000000.sgbak.tmp" in t.files.keys)
+        assertTrue("seguridad-antes-de-2-0-20200101-000000.sgbak" in t.files.keys)
+    }
+
     @Test fun itIsListedInImportCopiesAndNotInTheAutomaticOnes() = runTest {
         val s = setup()
         val t = ImportCopyTarget()
         auto(s, t).copyBeforeImport()
         val id = t.idOfName(t.files.keys.single())
-        assertEquals(listOf(id), settings.settings.value.importCopies)
-        assertEquals(folder, settings.settings.value.importCopiesFolder)
-        assertTrue(settings.settings.value.autoBackupCopies.isEmpty())
+        assertEquals(listOf(id), settings.settings.value.principal.importCopies)
+        assertEquals(folder, settings.settings.value.principal.importCopiesFolder)
+        assertTrue(settings.settings.value.principal.autoBackupCopies.isEmpty())
     }
 
     @Test fun itIsNeverRotated() = runTest {
@@ -182,9 +241,9 @@ class AutoBackupImportCopyTest {
         }
         assertTrue(mine in t.files)
         assertEquals(3, t.files.keys.count { it.startsWith(AUTO_BACKUP_PREFIX) })
-        assertEquals(3, settings.settings.value.autoBackupCopies.size)
-        assertFalse(t.idOfName(mine) in settings.settings.value.autoBackupCopies)
-        assertEquals(listOf(t.idOfName(mine)), settings.settings.value.importCopies)
+        assertEquals(3, settings.settings.value.principal.autoBackupCopies.size)
+        assertFalse(t.idOfName(mine) in settings.settings.value.principal.autoBackupCopies)
+        assertEquals(listOf(t.idOfName(mine)), settings.settings.value.principal.importCopies)
     }
 
     @Test fun theChangeOfMasterPasswordReplacesItWhenTheFolderMatches() = runTest {
@@ -197,19 +256,19 @@ class AutoBackupImportCopyTest {
         clock += 60_000
         a.copyBeforeImport()
         val imported = t.idOfName(t.files.keys.first { copyName.matches(it) })
-        val auto = settings.settings.value.autoBackupCopies.single()
+        val auto = settings.settings.value.principal.autoBackupCopies.single()
         // As after «Cambiar contraseña maestra»: locked, the request waits, with the import copy among its targets.
         s.lock()
         runCurrent()
         assertEquals(AUTO_BACKUP_REPLACE_WAITS, a.replaceOldCopies(listOf(auto)).error)
-        assertEquals(setOf(auto, imported), settings.settings.value.autoBackupReplaceTargets!!.toSet())
+        assertEquals(setOf(auto, imported), settings.settings.value.principal.autoBackupReplaceTargets!!.toSet())
         clock += 60_000
         s.unlock("maestra".toCharArray())
         runCurrent()
-        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertFalse(settings.settings.value.principal.autoBackupReplacePending)
         assertTrue(t.files.keys.none { copyName.matches(it) })
         assertEquals(1, t.files.size)
-        assertTrue("Forgotten once deleted", settings.settings.value.importCopies.isEmpty())
+        assertTrue("Forgotten once deleted", settings.settings.value.principal.importCopies.isEmpty())
     }
 
     @Test fun theReplacementAskedWithTheVaultOpenTakesItToo() = runTest {
@@ -217,13 +276,13 @@ class AutoBackupImportCopyTest {
         val t = ImportCopyTarget()
         val a = auto(s, t)
         a.copyBeforeImport()
-        val imported = settings.settings.value.importCopies.single()
+        val imported = settings.settings.value.principal.importCopies.single()
         clock += 60_000
         val r = a.replaceOldCopies(listOf(imported)) // MasterChanged's list holds the import copies too (AppContainer).
         assertNull(r.error)
         assertTrue(r.replaced)
         assertTrue(t.files.keys.none { copyName.matches(it) })
-        assertTrue(settings.settings.value.importCopies.isEmpty())
+        assertTrue(settings.settings.value.principal.importCopies.isEmpty())
     }
 
     @Test fun anotherFolderKeepsItOutOfTheTargets() = runTest {
@@ -232,11 +291,11 @@ class AutoBackupImportCopyTest {
         val a = auto(s, t)
         a.copyBeforeImport()
         // The import copy was made in another folder than the one chosen now.
-        settings.update { it.copy(importCopiesFolder = "content://x/tree/primary%3AOtra") }
+        settings.updatePrincipal { it.oneTarget(importCopiesFolder = "content://x/tree/primary%3AOtra") }
         s.lock()
         runCurrent()
         a.replaceOldCopies(emptyList())
-        assertEquals(emptyList<String>(), settings.settings.value.autoBackupReplaceTargets)
+        assertEquals(emptyList<String>(), settings.settings.value.principal.autoBackupReplaceTargets)
     }
 
     @Test fun theUnlistedNoticeCountsCopiesWithItsName() = runTest {
@@ -247,7 +306,7 @@ class AutoBackupImportCopyTest {
         t.put("seguridad-antes-de-importar-20200101-000000.sgbak") // not listed: counted, never deleted
         t.put("seguridad-antes-de-importar-2020.sgbak") // not exactly the name: neither
         clock += 60_000
-        val r = a.replaceOldCopies(settings.settings.value.importCopies)
+        val r = a.replaceOldCopies(settings.settings.value.principal.importCopies)
         assertTrue(r.replaced)
         assertEquals(1, r.unlistedLeft)
         assertTrue("seguridad-antes-de-importar-20200101-000000.sgbak" in t.files)
@@ -264,7 +323,7 @@ class AutoBackupImportCopyTest {
         assertTrue("Complete under its final name", isBackup(t.files.getValue(name).copyOf(BACKUP_HEAD_BYTES)))
         val inMemory = java.io.ByteArrayOutputStream().also { s.exportBackup(it) }.toByteArray()
         assertEquals(inMemory.size, t.files.getValue(name).size)
-        assertEquals(listOf(t.idOfName(name)), settings.settings.value.importCopies)
+        assertEquals(listOf(t.idOfName(name)), settings.settings.value.principal.importCopies)
     }
 
     /** M-3: a request saved before 1.3.0 (no targets) predates every import copy, which is under today's password: kept. */
@@ -273,16 +332,16 @@ class AutoBackupImportCopyTest {
         val t = ImportCopyTarget()
         val a = auto(s, t)
         a.copyBeforeImport()
-        val imported = settings.settings.value.importCopies.single()
+        val imported = settings.settings.value.principal.importCopies.single()
         s.lock()
         runCurrent()
-        settings.update { it.copy(autoBackupReplacePending = true, autoBackupReplaceTargets = null) }
+        settings.updatePrincipal { it.oneTarget(autoBackupReplacePending = true, autoBackupReplaceTargets = null) }
         clock += 60_000
         s.unlock("maestra".toCharArray())
         runCurrent()
-        assertFalse(settings.settings.value.autoBackupReplacePending)
+        assertFalse(settings.settings.value.principal.autoBackupReplacePending)
         assertTrue(t.files.keys.any { copyName.matches(it) })
-        assertEquals(listOf(imported), settings.settings.value.importCopies)
+        assertEquals(listOf(imported), settings.settings.value.principal.importCopies)
     }
 
     /** M-6: the vault replaced or deleted while its copy was written: said as such, the copy left there, not listed. */
@@ -298,7 +357,7 @@ class AutoBackupImportCopyTest {
         runCurrent()
         assertEquals(CopyResult.Failed(IMPORT_COPY_VAULT_CHANGED), r.await())
         assertTrue(t.files.keys.any { copyName.matches(it) })
-        assertTrue(settings.settings.value.importCopies.isEmpty())
+        assertTrue(settings.settings.value.principal.importCopies.isEmpty())
     }
 
     /** M-9: a lock that refuses the import copy schedules no automatic copy for the next unlock (nothing changed). */
@@ -335,7 +394,7 @@ class AutoBackupImportCopyTest {
         assertArrayEquals("Nothing saved", vaultBytes, File(tmp.root, "vault.bin").readBytes())
         assertEquals(revision, s.revision.value)
         assertTrue(t.files.keys.single().let { copyName.matches(it) })
-        assertEquals(1, settings.settings.value.importCopies.size)
+        assertEquals(1, settings.settings.value.principal.importCopies.size)
         // Opened again, the vault has only what it had before the import.
         s.unlock("maestra".toCharArray())
         assertEquals(listOf("a"), (s.state.value as VaultState.Unlocked).entries.map { it.id })
@@ -343,7 +402,7 @@ class AutoBackupImportCopyTest {
 
     @Test fun noFolderGivesNull() = runTest {
         val s = setup()
-        settings.update { it.copy(autoBackupUri = null) }
+        settings.updatePrincipal { it.oneTarget(autoBackupUri = null) }
         assertNull(auto(s, ImportCopyTarget()).copyBeforeImport())
     }
 
@@ -353,7 +412,7 @@ class AutoBackupImportCopyTest {
         val r = auto(s, t).copyBeforeImport()
         assertEquals(CopyResult.Failed(IMPORT_COPY_WRITE_FAILED), r)
         assertTrue(t.files.isEmpty())
-        assertTrue(settings.settings.value.importCopies.isEmpty())
+        assertTrue(settings.settings.value.principal.importCopies.isEmpty())
         // A folder that cannot be opened, and a locked vault.
         assertEquals(CopyResult.Failed(IMPORT_COPY_NO_FOLDER), auto(s, null).copyBeforeImport())
         s.lock()
@@ -364,9 +423,9 @@ class AutoBackupImportCopyTest {
         val s = setup()
         val t = ImportCopyTarget()
         auto(s, t).copyBeforeImport()
-        assertEquals(1, settings.settings.value.importCopies.size)
-        settings.turnOffAutoBackupForNewVault()
-        assertTrue(settings.settings.value.importCopies.isEmpty())
-        assertNull(settings.settings.value.importCopiesFolder)
+        assertEquals(1, settings.settings.value.principal.importCopies.size)
+        settings.turnOffAutoBackupForNewVault(PRIMARY_VAULT_ID)
+        assertTrue(settings.settings.value.principal.importCopies.isEmpty())
+        assertNull(settings.settings.value.principal.importCopiesFolder)
     }
 }

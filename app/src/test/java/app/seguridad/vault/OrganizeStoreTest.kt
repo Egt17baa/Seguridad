@@ -1,0 +1,230 @@
+package app.seguridad.vault
+
+import app.seguridad.core.writeTextAtomically
+import app.seguridad.crypto.KdfParams
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+
+/** 2.0, tarea 4: vistas guardadas, colores de etiquetas y `markUsed` en la tienda (sin versión ni copia automática). */
+class OrganizeStoreTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    private var clock = 1_800_000_000_000L
+    private val master = "maestra-de-prueba-organizar"
+    private val file get() = File(tmp.root, "vault.bin")
+
+    private fun store(writeFile: (File, String) -> Unit = { f, t -> f.writeTextAtomically(t) }) = VaultStore(
+        file, Dispatchers.Unconfined, Dispatchers.Unconfined, now = { clock }, kdf = { KdfParams(1024, 1, 1) },
+        elapsed = { clock }, clockHighWater = { clock }, trashClockMark = { clock }, writeFile = writeFile,
+    )
+
+    private fun login(id: String, title: String = "Acceso $id", tags: List<String> = emptyList()) =
+        VaultEntry(id, EntryType.LOGIN, title, password = "clave-$id", createdAt = 0, updatedAt = 0, tags = tags)
+
+    private fun VaultStore.data() = (state.value as VaultState.Unlocked).data
+
+    private suspend fun open(): VaultStore = store().apply {
+        load()
+        create(master.toCharArray())
+    }
+
+    @Test fun markUsedIsNoVersionNorChange() = runTest {
+        val s = open()
+        assertTrue(s.upsert(login("a")))
+        val revision = s.revision.value
+        val changedAt = file.lastModified()
+        clock += 3_600_000
+        assertTrue(s.markUsed("a"))
+        val used = s.data().live.single()
+        assertEquals(clock, used.lastUsedAt)
+        assertTrue(used.history.isEmpty()) // No version.
+        assertEquals(0L, used.updatedAt) // Not a modification.
+        assertEquals(revision, s.revision.value) // Not a change for the copy on every change.
+        assertEquals(changedAt, file.lastModified()) // Nor for the copy due when the vault opens.
+        // Saved: it is there after locking and opening again.
+        s.lock()
+        s.unlock(master.toCharArray())
+        assertEquals(clock, s.data().live.single().lastUsedAt)
+        // Used again within a minute: nothing written.
+        clock += 30_000
+        assertFalse(s.markUsed("a"))
+        assertFalse(s.markUsed("no-existe"))
+        // In the trash: never.
+        clock += 120_000
+        s.moveToTrash(setOf("a"))
+        assertFalse(s.markUsed("a"))
+        s.lock()
+        assertFalse(s.markUsed("a"))
+    }
+
+    @Test fun viewsSavedReplacedAndDeleted() = runTest {
+        val s = open()
+        val v = SavedView("v1", " Trabajo ", EntryFilter(text = "banco", sort = SortOrder.USED))
+        assertTrue(s.saveView(v))
+        assertEquals("Trabajo", s.data().views.single().name)
+        // The same id replaces it; another view with the same name (as compareKey reads it) is refused.
+        assertTrue(s.saveView(v.copy(name = "Trabajo", filter = EntryFilter(favorites = true))))
+        assertEquals(EntryFilter(favorites = true), s.data().views.single().filter)
+        assertEquals(VIEW_NAME_TAKEN, assertThrows(OrganizeRefused::class.java) { runBlocking { s.saveView(SavedView("v2", "TRABAJO", EntryFilter())) } }.message)
+        assertEquals(VIEW_NAME_EMPTY, assertThrows(OrganizeRefused::class.java) { runBlocking { s.saveView(SavedView("v2", " ", EntryFilter())) } }.message)
+        // A view of a folder that is not in the vault is refused.
+        assertThrows(OrganizeRefused::class.java) { runBlocking { s.saveView(SavedView("v3", "X", EntryFilter(folderId = "falta"))) } }
+        // 50 views at most.
+        repeat(VaultLimits.VIEWS_MAX - 1) { assertTrue(s.saveView(SavedView("n$it", "Vista $it", EntryFilter()))) }
+        assertEquals(TOO_MANY_VIEWS, assertThrows(VaultLimitExceeded::class.java) { runBlocking { s.saveView(SavedView("over", "Otra", EntryFilter())) } }.message)
+        assertTrue(s.deleteView("v1"))
+        assertFalse(s.deleteView("v1"))
+        assertEquals(VaultLimits.VIEWS_MAX - 1, s.data().views.size)
+    }
+
+    @Test fun tagColors() = runTest {
+        val s = open()
+        assertTrue(s.upsert(login("a", tags = listOf("banco"))))
+        assertTrue(s.setTagColor("Banco", TagColor.GREEN)) // As the tags are stored: lowercase.
+        assertEquals(mapOf("banco" to TagColor.GREEN), s.data().tagColors)
+        assertFalse(s.setTagColor("banco", TagColor.GREEN))
+        assertTrue(s.setTagColor("banco", null))
+        assertTrue(s.data().tagColors.isEmpty())
+        assertThrows(OrganizeRefused::class.java) { runBlocking { s.setTagColor(" , ", TagColor.RED) } }
+        // 200 at most; at the limit, the colours of tags no entry has (not even in the trash) go first.
+        repeat(VaultLimits.TAG_COLORS_MAX) { assertTrue(s.setTagColor("t$it", TagColor.BLUE)) }
+        assertEquals(200, s.data().tagColors.size)
+        assertTrue(s.setTagColor("banco", TagColor.RED))
+        assertEquals(mapOf("banco" to TagColor.RED), s.data().tagColors)
+        assertTrue(s.upsert(login("b", tags = (0 until 10).map { "u$it" })))
+        val many = (0 until 20).map { i -> login("m$i", tags = (0 until 10).map { "m$i-$it" }) }
+        assertTrue(s.addAll(many))
+        val used = listOf("banco") + (0 until 10).map { "u$it" } + many.flatMap { it.tags }
+        used.drop(1).take(VaultLimits.TAG_COLORS_MAX - 1).forEach { assertTrue(s.setTagColor(it, TagColor.TEAL)) }
+        assertEquals(TOO_MANY_TAG_COLORS, assertThrows(VaultLimitExceeded::class.java) { runBlocking { s.setTagColor(used.last(), TagColor.TEAL) } }.message)
+        assertNull(s.data().tagColors[used.last()])
+    }
+
+    /** An entry of 1.4.3 over 64 KiB (its notes had no limit) can still be moved, used and sent to the trash. */
+    @Test fun oldBigEntryCanMoveAndBeUsed() {
+        val big = VaultEntry("big", EntryType.NOTE, "Grande", notes = "x".repeat(70_000), createdAt = 0, updatedAt = 0)
+        val before = VaultData(entries = listOf(big), folders = listOf(Folder("f", "F")))
+        before.copy(entries = listOf(big.copy(folderId = "f"))).fittedForSave(before)
+        before.copy(entries = listOf(big.copy(lastUsedAt = 5, deletedAt = 6))).fittedForSave(before)
+        assertEquals(ENTRY_TOO_BIG, assertThrows(VaultLimitExceeded::class.java) { before.copy(entries = listOf(big.copy(notes = big.notes + "y"))).fittedForSave(before) }.message)
+    }
+
+    /**
+     * Review I-2: a save (an edit, a move, [VaultStore.markUsed]) opens what it wrote, without decrypting and decoding the
+     * vault again on the caller's thread: an entry it did not change is still the same object (a decoding makes new ones).
+     */
+    @Test fun savesOpenWhatTheyWroteWithoutDecodingAgain() = runTest {
+        val s = open()
+        assertTrue(s.addAll(listOf(login("a"), login("b"))))
+        val a = s.data().live.single { it.id == "a" }
+        assertTrue(s.upsert(login("b", title = "Otra")))
+        assertSame(a, s.data().live.single { it.id == "a" })
+        val f = s.createFolder("F", null)!!
+        assertEquals(1, s.moveEntries(setOf("b"), f.id))
+        assertSame(a, s.data().live.single { it.id == "a" })
+        clock += 120_000
+        assertTrue(s.markUsed("b"))
+        assertSame(a, s.data().live.single { it.id == "a" })
+        // And what it opened is what is on disk.
+        s.lock()
+        s.unlock(master.toCharArray())
+        assertEquals(clock, s.data().live.single { it.id == "b" }.lastUsedAt)
+        assertEquals(f.id, s.data().live.single { it.id == "b" }.folderId)
+        assertEquals("Otra", s.data().live.single { it.id == "b" }.title)
+    }
+
+    /**
+     * Review M-6: a write that fails leaves the vault open and the use in memory, as the last master check does; the next
+     * save that works (here the unlock's own) writes it out.
+     */
+    @Test fun markUsedWithAFailedWrite() = runTest {
+        var fail = false
+        val s = store { f, t -> if (fail) throw java.io.IOException("lleno") else f.writeTextAtomically(t) }.apply {
+            load()
+            create(master.toCharArray())
+        }
+        assertTrue(s.upsert(login("a")))
+        val before = file.readText()
+        fail = true
+        clock += 120_000
+        assertTrue(s.markUsed("a")) // No exception reaches the card.
+        assertTrue(s.state.value is VaultState.Unlocked)
+        assertEquals(clock, s.data().live.single().lastUsedAt)
+        assertEquals(before, file.readText())
+        val usedAt = clock
+        fail = false
+        s.lock()
+        clock += 1_000
+        s.unlock(master.toCharArray())
+        assertEquals(usedAt, s.data().live.single().lastUsedAt)
+        // Now on disk: another store on the same file sees it.
+        val again = store().apply { load() }
+        again.unlock(master.toCharArray())
+        assertEquals(usedAt, again.data().live.single().lastUsedAt)
+    }
+
+    /** Review M-6: a lock while the use is being written leaves the vault locked; the next unlock sees it saved. */
+    @Test fun markUsedCutByALock() = runTest {
+        var lockWhileWriting = false
+        lateinit var s: VaultStore
+        s = store { f, t ->
+            f.writeTextAtomically(t)
+            if (lockWhileWriting) s.lock()
+        }
+        s.load()
+        s.create(master.toCharArray())
+        assertTrue(s.upsert(login("a")))
+        lockWhileWriting = true
+        clock += 120_000
+        s.markUsed("a")
+        assertEquals(VaultState.Locked, s.state.value)
+        lockWhileWriting = false
+        s.unlock(master.toCharArray())
+        assertEquals(clock, s.data().live.single().lastUsedAt)
+    }
+
+    /** Review M-1: the search text and a view's text are cut to 200 code points. */
+    @Test fun searchAndViewTextsAreCapped() = runTest {
+        val long = "😀" + "a".repeat(500)
+        assertEquals(SEARCH_TEXT_MAX, searchText(long).codePointCount(0, searchText(long).length))
+        assertTrue(searchText(long).startsWith("😀"))
+        assertEquals("corto", searchText("corto"))
+        assertEquals(SEARCH_TEXT_MAX, FuzzySearch.prepare("b".repeat(5_000)).normalized.length)
+        val s = open()
+        assertTrue(s.saveView(SavedView("v", "Larga", EntryFilter(text = long))))
+        assertEquals(searchText(long), s.data().views.single().filter.text)
+    }
+    /** 2.0, task 6: the selection bar's «Favorita» and «Etiquetar», one save for all, with a version each, never the trash. */
+    @Test fun selectionFavoriteAndTagSaveOnce() = runTest {
+        val s = open()
+        assertTrue(s.addAll(listOf(login("a"), login("b"), login("c"))))
+        s.moveToTrash(setOf("c"))
+        val revision = s.revision.value
+        clock += 60_000
+        assertEquals(2, s.setFavorite(setOf("a", "b", "c", "nope"), favorite = true))
+        assertEquals(revision + 1, s.revision.value) // One save, and a change for the copies.
+        assertEquals(setOf("a", "b"), s.data().live.filter { it.favorite }.mapTo(HashSet()) { it.id })
+        assertFalse(s.data().trash.single().favorite)
+        assertEquals(0, s.setFavorite(setOf("a", "b"), favorite = true)) // Nothing to change: nothing saved.
+        assertEquals(revision + 1, s.revision.value)
+        assertEquals(2, s.addTag(setOf("a", "b", "c"), "Viajes"))
+        assertEquals(listOf("viajes"), s.data().live.first { it.id == "a" }.tags)
+        assertEquals(2, s.data().live.first { it.id == "a" }.history.size)
+        assertEquals(0, s.addTag(setOf("a"), " , "))
+        s.lock()
+        assertEquals(0, s.setFavorite(setOf("a"), favorite = false))
+        assertEquals(0, s.addTag(setOf("a"), "otra"))
+    }
+}
+

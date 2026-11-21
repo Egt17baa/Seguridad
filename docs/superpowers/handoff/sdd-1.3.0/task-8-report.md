@@ -58,7 +58,7 @@ Modificar: `tools/ToolTexts.kt`, `ToolTextsTest.kt`, `ToolsScreen.kt`, `AppNavHo
 4. Una respuesta son 4 palabras independientes de 2048 (44 bits); puede repetirse una palabra (probabilidad ~0,3 %). No se excluyen repeticiones para no sesgar la distribución; no se muestran los 44 bits porque el anexo no tiene texto para ello.
 5. 8 cifras tardan 2,2 s en la JVM de escritorio; en un móvil lento será más. El texto «Calculando cuántos PIN quedan…» cubre la espera y el cálculo no bloquea el hilo principal. No hay cancelación a mitad del bucle (el resultado se guarda igualmente).
 6. La parte de Compose (`CodesScreen`) compila y pasa lint, pero no se ha ejecutado en un dispositivo ni con tests instrumentados: sin probar a mano el flujo de bóveda bloqueada, rotar el móvil (se vuelve a sortear) y guardar.
-7. Atribución del commit: usé el pie de `context.md` («Claude Opus 5.5»), como el resto de commits de la rama, no el del recordatorio de la sesión.
+7. Atribución del commit: usé el pie de `context.md` («Claude»), como el resto de commits de la rama, no el del recordatorio de la sesión.
 
 ## Revisión experto-seguridad-cripto
 
