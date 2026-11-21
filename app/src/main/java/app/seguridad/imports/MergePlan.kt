@@ -412,11 +412,12 @@ fun estimatedOverBytes(entries: List<VaultEntry>, cap: Long = IMPORT_COPY_CAP): 
     (estimatedVaultFileBytes(entries, cap) - cap).coerceAtLeast(0)
 
 /**
- * Review fixes, CR-5: what the vault [data] (the merged entries with the trash, and the folders, views, colours and name)
- * passes, with the same two limits as [app.seguridad.vault.VaultStore.applyImport]: the copy's ([IMPORT_COPY_CAP], the
- * file estimated as [estimatedVaultFileBytes] does) and [VaultLimits.VAULT_MAX_DATA_BYTES] (the JSON of the data once
- * [fitted], measured as the save does); 0 when both fit. Each allows [PREVIEW_UNSEEN_BYTES] for what the snapshot leaves
- * out. As in [estimatedVaultFileBytes], texts already over the copy's limit by their count alone are never encoded.
+ * Review fixes, CR-5: what the vault [data] (the whole vault, as in [app.seguridad.vault.VaultSnapshot], with the merged
+ * entries and the trash) passes, with the same two limits as [app.seguridad.vault.VaultStore.applyImport]: the copy's
+ * ([IMPORT_COPY_CAP], the file estimated as [estimatedVaultFileBytes] does) and [VaultLimits.VAULT_MAX_DATA_BYTES] (the
+ * JSON of the data once [fitted], measured as the save does); 0 when both fit. Each allows [PREVIEW_UNSEEN_BYTES] for
+ * what the accounting may change between the snapshot and the save. As in [estimatedVaultFileBytes], texts already over
+ * the copy's limit by their count alone are never encoded.
  */
 fun estimatedOverBytes(data: VaultData): Long {
     val low = base64Estimate(escapedTextBytes(data.entries))
@@ -428,8 +429,9 @@ fun estimatedOverBytes(data: VaultData): Long {
 /**
  * The JSON bytes [estimatedOverBytes] counts for [data]: as the save measures it, plus [PREVIEW_UNSEEN_BYTES]. Audit
  * RC-1: the history is trimmed to the cap less that margin ([fitted] with a limit), so the margin is inside the target of
- * the trim: a save that fits by trimming has a preview of 0, and a save that does not fit even without any history has a
- * preview over 0.
+ * the trim. The guarantee goes one way: a preview of 0 always saves, and a save refused even without any history has a
+ * preview over 0; a vault with no history left within the margin under the cap is told it would not fit, on the safe
+ * side.
  */
 internal fun previewDataBytes(data: VaultData): Long =
     jsonBytes(data.fitted(VaultLimits.VAULT_MAX_DATA_BYTES - PREVIEW_UNSEEN_BYTES)) + PREVIEW_UNSEEN_BYTES
