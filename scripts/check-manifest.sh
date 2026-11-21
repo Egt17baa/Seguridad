@@ -11,7 +11,7 @@
 #   - app.seguridad.MainActivity is missing or has no empty android:taskAffinity (2.0, audit B-2, the owner's decision
 #     of 21-11-2026: in aapt2 dump xmltree, A: android:taskAffinity(0x01010012)="" inside its E: activity), so no other
 #     app's activity can join Clavero's task. It is the only difference of the manifest from Clavero 1.4.3 besides
-#     versionName;
+#     versionName and versionCode (the CI sets it, the run's number);
 #   - the permissions (aapt2 dump permissions) are not exactly those of Seguridad 1.2.2 (EXPECTED_PERMISSIONS);
 #   - with --release, the APK is debuggable.
 # A debuggable APK (android:debuggable="true", the local debug APK) also may export
