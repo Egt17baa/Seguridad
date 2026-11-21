@@ -1377,6 +1377,8 @@ class VaultStore(
             // Branch review, C-1: the total counts the trash too (a copy holds it), so no copy the app writes is refused.
             return modifyData(sinceLock = sinceLock) { data ->
                 val entry = data.live.firstOrNull { it.id == entryId && !it.type.isPersonal } ?: return@modifyData null
+                // Audit, row 84: the number of files of a copy first, the trash counted too.
+                if (!attachmentCountFits(data)) throw AttachmentLimit(ATTACHMENTS_COUNT_WOULD_PASS)
                 if (!attachmentsFit(data, plain.size.toLong())) throw AttachmentLimit(ATTACHMENTS_TOTAL_WOULD_PASS)
                 val ref = withContext(io) { attachments.add(plain, name) }
                 data.copy(entries = data.entries.map { if (it === entry) it.copy(attachments = it.attachments + ref, updatedAt = now(), passwordChangedAt = frozenPasswordMark(it)) else it })

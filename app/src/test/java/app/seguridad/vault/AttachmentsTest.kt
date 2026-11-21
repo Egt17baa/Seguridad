@@ -151,6 +151,29 @@ class AttachmentsTest {
         assertFalse(attachmentsFit(VaultData(listOf(alive, trashed.copy(attachments = listOf(declared(9, 4 * mb))))), mb + 1))
     }
 
+    /**
+     * Audit, row 84: a copy holds at most [BACKUP_MAX_ENTRIES] files (the vault, the marker and the attachments, the trash
+     * too), so with 1 997 attachments one more fits and with 1 998 it does not.
+     */
+    @Test fun theCountOfACopyLimitsTheAttachments() {
+        fun vault(n: Int) = VaultData(
+            listOf(
+                VaultEntry("a", EntryType.NOTE, "A", createdAt = 0, updatedAt = 0, attachments = (0 until n - 1).map { declared(it, 1) }),
+                VaultEntry("b", EntryType.NOTE, "B", createdAt = 0, updatedAt = 0, deletedAt = 1, attachments = listOf(declared(n, 1))),
+            ),
+        )
+        assertTrue(attachmentCountFits(vault(1_997)))
+        assertFalse(attachmentCountFits(vault(1_998)))
+        assertFalse("the trash counts", attachmentCountFits(vault(1_998).let { it.copy(entries = it.entries.map { e -> e.copy(deletedAt = 1) }) }))
+        assertEquals(
+            "Con este adjunto, la bóveda tendría más adjuntos de los que caben en una copia (como mucho 1 998, también los de la " +
+                "papelera). Quita algún adjunto o vacía la papelera para añadir otro.",
+            ATTACHMENTS_COUNT_WOULD_PASS,
+        )
+        assertTrue("1 998 = BACKUP_MAX_ENTRIES - 2", "%,d".format(java.util.Locale.ROOT, BACKUP_MAX_ENTRIES - 2).replace(',', ' ') in ATTACHMENTS_COUNT_WOULD_PASS)
+        assertTrue(app.seguridad.tools.ForbiddenWords.problems(ATTACHMENTS_COUNT_WOULD_PASS).isEmpty())
+    }
+
     /** Branch review, C-1, P-C1b: [VaultStore.addAttachment] counts with [attachmentsFit], not over the live entries of `modify`. */
     @Test fun addAttachmentCountsEveryEntry() {
         val src = generateSequence(File(".").absoluteFile) { it.parentFile }

@@ -1338,4 +1338,35 @@ class VaultStoreTest {
         assertTrue(errors.isEmpty())
         assertTrue(foreign.all { it == 0.toByte() })
     }
+    /**
+     * Audit, row 84: adding an attachment to a vault that already has as many as a copy holds (1 998, the trash too) is
+     * refused before its file is written: the text, nothing saved, the vault file as it was.
+     */
+    @Test fun anAttachmentPastTheCopysFileCountIsRefused() = runTest {
+        val s = store().apply { load(); create("maestra".toCharArray()) }
+        val key = s.dataKeyCopy()!!
+        val file = File(tmp.root, "vault.bin")
+        val vf = VaultCrypto.decodeFile(file.readText())
+        val refs = (0 until 1_998).map { AttachmentRef("%032x".format(it), "a.bin", 1, "00".repeat(32), "AA".repeat(22)) }
+        val data = VaultCrypto.read(vf, key).copy(
+            // 100 per entry (an entry stays under its 64 KiB); the last two entries are in the trash.
+            entries = refs.chunked(100).mapIndexed { i, part ->
+                VaultEntry("e$i", EntryType.NOTE, "E$i", createdAt = 0, updatedAt = 0, deletedAt = if (i >= 18) clock else null, attachments = part)
+            },
+        )
+        file.writeText(VaultCrypto.encodeFile(VaultCrypto.write(vf, key, data)))
+        val again = store().apply { load(); unlockWithKey(key) }
+        val before = file.readBytes()
+        val att = File(tmp.root, "att")
+        val filesBefore = att.list()?.toSet().orEmpty()
+        try {
+            again.addAttachment("e0", java.io.ByteArrayInputStream(ByteArray(10)), "uno-más.bin")
+            fail("Debía rechazarlo")
+        } catch (e: AttachmentLimit) {
+            assertEquals(ATTACHMENTS_COUNT_WOULD_PASS, e.message)
+        }
+        assertArrayEquals(before, file.readBytes())
+        assertEquals(filesBefore, att.list()?.toSet().orEmpty())
+        assertEquals(100, (again.state.value as VaultState.Unlocked).data.entries.single { it.id == "e0" }.attachments.size)
+    }
 }

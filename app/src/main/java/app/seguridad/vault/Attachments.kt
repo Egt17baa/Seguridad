@@ -44,6 +44,22 @@ internal const val ATTACHMENTS_TOTAL_WOULD_PASS =
  */
 internal fun attachmentsFit(data: VaultData, adding: Long): Boolean =
     data.entries.sumOf { e -> e.attachments.sumOf { it.size } } + adding <= MAX_ATTACHMENTS_TOTAL_BYTES
+
+/**
+ * Audit, row 84: adding an attachment that would take the vault past what a copy holds ([BACKUP_MAX_ENTRIES] files: the
+ * vault, the marker and one per attachment, the trash too).
+ */
+internal const val ATTACHMENTS_COUNT_WOULD_PASS =
+    "Con este adjunto, la bóveda tendría más adjuntos de los que caben en una copia (como mucho 1 998, también los de la " +
+        "papelera). Quita algún adjunto o vacía la papelera para añadir otro."
+
+/**
+ * Audit, row 84: whether one attachment more fits in a copy of [data] ([writeBackup] refuses more than
+ * [BACKUP_MAX_ENTRIES] files: the attachments, the vault and the marker), counting every entry, the trash too; pure.
+ */
+internal fun attachmentCountFits(data: VaultData): Boolean =
+    data.entries.sumOf { it.attachments.size } + 1 + 2 <= BACKUP_MAX_ENTRIES
+
 internal const val ATTACHMENT_DAMAGED = "El adjunto está dañado o se ha cambiado"
 
 /** Associated data prefix of format v1; the id follows it, so a file cannot be moved under another id. */
