@@ -10,7 +10,7 @@ Paso 5 del §3 del parte del 20-11-2026 (`2026-11-20-clavero-2.0-parte.md`) y pu
 | `README.md:397` | «Pruebas de la 2.0» dice que las pruebas salen también de la §10 de la auditoría. |
 | `README.md:407` | Tras la frase de B-4 que fija `PublishedTextsTest.theTwoStepCopyIsSaidWhereItHappens` (sin tocarla), «Lo mismo con Clavero en una ventana flotante: la oferta sale en su ventana (auditoría, B-4).» (fila 12 y fila 106). |
 | `README.md:416-423` (nuevas) | Ocho pruebas en el móvil: memoria con una bóveda grande (filas 55, 58 y 62, con AC-E1 de la 83), la copia lenta de leer (fila 67), B-2 (fila 85), B-1 (fila 86), A-1 y B-3 (`run-as … ls shared_prefs`), D-1 con una carpeta que no contesta (fila 89), D-2 (fila 95) y «Añadir adjunto» cerca de 1 998 (fila 84). Cubren toda la fila 106 y las filas 85, 86 y 12. Los textos citados salen tal cual de `vault/Vault.kt:301-303`, `vault/BackupCheckTexts.kt:108-110`, `vault/Vault.kt:291-293`, `vault/VaultStore.kt:1757-1758`, `ui/screens/VaultUpgrade.kt:58-60`, `vault/VaultsTexts.kt:28` y `vault/Attachments.kt:52-54`. |
-| `docs/superpowers/handoff/2026-11-15-clavero-2.0-notas.md` | Cabecera con la pasada del 21-11 (las líneas nuevas llevan entre corchetes el hallazgo de la auditoría que las respalda). Líneas nuevas: «Seguridad: … otra app ya no puede poner una pantalla suya en lugar de la de Clavero (sobre todo en Android 8 a 10).» (B-2); el tope de 1 998 adjuntos en «Errores que dicen qué hacer» (fila 84); la espera de 2 minutos del paso al formato nuevo (D-1). B-4 ya estaba (`:28`). «Novedades» de Play sin cambios (mide menos de 500). |
+| `docs/superpowers/handoff/2026-11-15-clavero-2.0-notas.md` | Cabecera con la pasada del 21-11 (las líneas nuevas llevan entre corchetes el hallazgo de la auditoría que las respalda). Líneas nuevas: «Seguridad: … otra app ya no puede poner una pantalla suya en lugar de la de Clavero (sobre todo en Android 8 a 10).» (B-2); el tope de 1 998 adjuntos en «Errores que dicen qué hacer» (fila 84); la espera de 2 minutos del paso al formato nuevo (D-1). B-4 ya estaba (`:30`). «Novedades» de Play sin cambios (mide menos de 500). |
 | `docs/superpowers/handoff/2026-11-12-clavero-2.0-traspaso.md` | Apunta al parte del 20-11; tareas 8, 10, 11 y 12 al día; últimas suites (2 603 y 2 538 en `53809e3`); «Siguiente paso» con los pasos 6 a 10 del parte (y el `versionCode` en la puerta); C-3 y las pruebas del móvil en «Pendiente del dueño». |
 | `docs/superpowers/handoff/sdd-2.0/pendientes.md` | Cada fila abierta dice su destino: en el móvil (con la línea del README que la cubre), para el Abogado, Maestro (tarea 11) o el controlador. **Fila 80 cerrada** (parte D, `9926a32`; D-1 a D-4 en las filas 89, 95, 94 y 96). **Fila 53 medida:** la descripción completa de la ficha mide 6 980 caracteres con el Markdown y 6 948 sin las negritas; Play admite 4 000. No la acorto (ver §2). |
 | `CLAUDE.md` | El estado pasa a «la 2.0 casi terminada (21-11-2026)»; la línea de la 2.0 nombra el parte vigente, `pendientes.md`, la auditoría y el informe del ataque; tabla «Paso de la 2.0» y «Decisiones de la 2.0» (las del dueño y los Rulings del director), antes de lo de la 1.4.0, sin borrar nada de versiones anteriores. |
@@ -52,3 +52,31 @@ Comprobado: `:app:testDebugUnitTest` con `*Text*`, `*Name*`, `*Readme*`, `*Doc*`
 - **README:** `:28` (el tope de 1 998 adjuntos); `:407` (la frase añadida de la ventana flotante); `:416-423` (las pruebas nuevas, que citan `UPGRADE_COPYING`, `UPGRADE_AUTO_COPY_NOT_DONE`, `VAULT_NEW_NEEDS_OPEN`, `ATTACHMENTS_COUNT_WOULD_PASS`, `LIST_NO_MEMORY`, `COPY_NO_MEMORY` y `VAULT_NO_MEMORY`).
 - **La ficha de Play (fila 53):** 6 948 caracteres sin Markdown frente a 4 000; hay que acortarla.
 - **La nota de corrección de B-4 del diseño** y la puerta del APK de la auditoría son documentos técnicos, no textos para el usuario.
+
+## Cambios del director aplicados
+
+Revisión del director: `sdd-2.0/advisor-t12-docs-review.md` (`c896129`), «aprobado con cambios». Todos con el texto exacto que pide.
+
+| Cambio | Dónde | Commit |
+|---|---|---|
+| O-1: B-2, «declarando su misma afinidad (la otra variante… solo la cierran los parches de seguridad de Android)» | `README.md:424` | `1138dc4` |
+| O-2: B-2 en las notas, «se cierra una forma conocida…» y su condición para el Abogado | `2026-11-15-clavero-2.0-notas.md:24`, `:55` | `1138dc4` |
+| O-3: el parte vale salvo lo decidido después en el registro (B-2 y la puerta del APK) | `2026-11-12-clavero-2.0-traspaso.md:3` | `1138dc4` |
+| O-4: «2.0 casi terminada», precedencia del registro y los nombres de las dos secciones | `CLAUDE.md:39` | `fe049f1` |
+| O-5: «sin hallazgos nuevos», los rangos `a94455a` y `56d5751`, `UPGRADE_COPYING` rechaza un guardado, R5 con la fila 61, riesgos 54 y 57 | `CLAUDE.md`, tabla y «Decisiones de la 2.0» | `fe049f1` |
+| O-6: la ronda son 23 commits (comprobado con `git rev-list --count 7505281^..a94455a`) | `progress.md:287` | `fe049f1` |
+| O-7: la fila 69 en «memoria con una bóveda grande» y la fila 56 en «rendimiento»; sus estados en `pendientes.md` | `README.md:415`, `:416`; `pendientes.md` filas 56 y 69 | `1138dc4` |
+| O-8: la cita de las notas de B-4, `:28` → `:30` | `docs/auditorias/2026-11-21-auditoria-2.0.md` §11 | `fe049f1` |
+| M-1: B-2 también con el bloqueo «Al salir» | `README.md:418` | `1138dc4` |
+| M-2: «(auditoría, A-1 y B-3, fila 87)» | `README.md:420` | `1138dc4` |
+| M-3: la prueba de adjuntos con 1 997 y cómo montar la bóveda | `README.md:423` | `1138dc4` |
+| M-4: «Añadir adjunto» no deja pasar de 1 998 | `README.md:28` | `1138dc4` |
+| M-5: la lista de la ronda con A-2, D-3, E-2 y E-3 | traspaso, fila de la tarea 12 | `1138dc4` |
+| M-6: el punto 4 de «Siguiente paso», con la CI en verde y la copia con la 1.4.3 antes de instalar | traspaso | `1138dc4` |
+| M-7: la fecha del 15-11 del director y la decisión del logo y el aspecto | `CLAUDE.md`, «Decisiones de la 2.0» | `fe049f1` |
+| R-2: la frase de las líneas de Kotlin de la §11 (`69c967b`) | auditoría, §11 | `fe049f1` |
+| R-3: «B-4 ya estaba (`:30`)» | este informe, §1 | este commit |
+
+R-1 (el ancla del enlace a la §10) y R-4 (un punto 12 de la 2.0 en «Pendientes, del dueño» de `CLAUDE.md`) no se aplican: quedan a juicio del controlador.
+
+Comprobado antes de los commits, con el cerrojo: `:app:testDebugUnitTest` con los filtros de textos y documentos, 342 tests, 0 fallos, 0 omitidos; `-p jvm-check test` con los mismos filtros (los documentos son entradas de sus tests), 326 tests, 0 fallos, 0 omitidos. La búsqueda de nombres de modelo sobre el diff, vacía.
