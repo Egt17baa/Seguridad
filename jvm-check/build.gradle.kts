@@ -69,4 +69,9 @@ tasks.test {
     // Audit C-1: PublishedFilesNameNoModelTest reads every document and the advisor skill's table of names.
     inputs.dir("../docs").withPropertyName("docsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files("../.claude/skills/advisor/SKILL.md").withPropertyName("modelNamesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    // Recheck C-1.m1: the rest of what that test walks (without any build/), so a change in only one of them reruns it.
+    inputs.files("../CLAUDE.md", "../build.gradle.kts", "../settings.gradle.kts", "build.gradle.kts", "settings.gradle.kts")
+        .withPropertyName("rootFilesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(listOf("../.maestro", "../scripts", "../gradle", "../.github", "src", "../app/src").map { fileTree(it) { exclude("**/build/**") } })
+        .withPropertyName("treesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
 }
