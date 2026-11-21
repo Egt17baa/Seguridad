@@ -128,6 +128,7 @@ class PasswordMarkTest {
         // The other entries, untouched.
         assertEquals(listOf("e2", "e3", "e4").map { s.entry(it).passwordChangedAt }, listOf(null, null, null))
     }
+
     /** A login of before 2.0 (no mark) whose JSON without history is [VaultLimits.ENTRY_MAX_JSON_BYTES] - 10 bytes. */
     private fun entryJustUnderTheCap(favorite: Boolean = false): VaultEntry {
         val base = login().copy(favorite = favorite, notes = "x")

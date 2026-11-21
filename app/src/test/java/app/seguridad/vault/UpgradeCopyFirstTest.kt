@@ -320,6 +320,7 @@ class UpgradeCopyFirstTest {
         runCurrent()
         withTimeout(5_000) { unlocking.await() }
     }
+
     /**
      * Audit RC-2: a pass that got past the wait while no upgrade's copy ran, and queued on the lock behind a slow copy,
      * gets the lock after the vault was opened again (still a 3): its copy is deferred until the upgrade's copy, never
@@ -418,8 +419,9 @@ class UpgradeCopyFirstTest {
         runCurrent()
         withTimeout(5_000) { unlocking.join() }
         withTimeout(5_000) { s.upgradeCopying.first { !it } }
-        assertTrue("the copy ended: ${t.files.keys}", t.files.keys.any { it.startsWith("seguridad-antes-de-2-0-") })
+        assertTrue("the copy ended: ${t.files.keys}", t.files.keys.any { it.startsWith("seguridad-antes-de-2-0-") && !it.endsWith(".tmp") })
     }
+
     /**
      * Audit RC-3: the wait of CR-2 is in the two passes, each right before its lock: [AutoBackup.runChanged]'s (a defence
      * with one collector, no behaviour test turns red without it) and [AutoBackup.runDue]'s; never in copyBeforeUpgrade,
@@ -437,6 +439,7 @@ class UpgradeCopyFirstTest {
         val upgrade = code.single { it.startsWith("suspend fun copyBeforeUpgrade()") }
         assertFalse(upgrade, "upgradeCopying" in upgrade)
     }
+
     /**
      * Audit D-1: a folder that never answers (the upgrade's copy held in its write, with the lock) does not hold the
      * vault: after [UPGRADE_COPY_WAIT_MS] the user is asked, saying the copy has not finished ([VaultStore.upgradeAutoCopyNotDone]),

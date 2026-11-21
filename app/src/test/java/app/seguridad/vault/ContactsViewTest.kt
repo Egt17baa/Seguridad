@@ -624,6 +624,7 @@ class ContactsViewTest {
         assertEquals(NOT_SAVED_STATE, saveFailureMessage(Result.failure(IllegalStateException("x"))))
         assertEquals("No se pudo guardar", saveFailureMessage(Result.failure(java.io.IOException("disco lleno"))))
     }
+
     /**
      * Audit E-3 and RC-6: in 2.0 a vault of version 2 open with the master always has its upgrade waiting or saved, so
      * [contactsGate] never gives [ContactsGate.Master] with the vault open: not while the copy before the upgrade runs,
