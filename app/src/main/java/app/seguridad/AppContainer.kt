@@ -703,17 +703,20 @@ class AppContainer(
     }
 
     /**
-     * 2.0, task 2 (ruling 3): deletes the vault [id] from this phone. It is opened with [master] (a wrong one throws
-     * [app.seguridad.crypto.CryptoFailure], nothing deleted) and so shows its name; [typedName] must be that name as it is
-     * shown ([displayName]), compared as the import compares titles ([compareKey]): an invisible character, or spaces at
-     * the ends, do not count, the case does. A vault with no file (nothing to protect) needs neither. What happened is the
-     * result ([VaultDeletion]); nothing is deleted unless it is [VaultDeletion.DELETED]: not when the name is not its own,
-     * the vault locked meanwhile, a file of it is kept for recovery, or it is the only vault (the existing «He olvidado la
-     * contraseña» is for that).
+     * 2.0, task 2 (ruling 3): deletes the vault [id] from this phone. A locked vault is not opened (review fixes, CR-7;
+     * audit E-3): its [master] is only checked ([VaultStore.checkMasterToDelete]), and [typedName] is compared with the
+     * name its data hold; an open one is checked with [VaultStore.confirmMaster]. A wrong master throws
+     * [app.seguridad.crypto.CryptoFailure], nothing deleted. [typedName] must be that name as it is shown ([displayName]),
+     * compared as the import compares titles ([compareKey]): an invisible character, or spaces at the ends, do not count,
+     * the case does. A vault with no file (nothing to protect) needs neither. What happened is the result
+     * ([VaultDeletion]); nothing is deleted unless it is [VaultDeletion.DELETED]: not when the name is not its own, the
+     * open vault locked during that check or it is no longer the active one ([VaultDeletion.LOCKED]), a file of it is kept
+     * for recovery, or it is the only vault (the existing «He olvidado la contraseña» is for that). A vault that locked
+     * between the dialog and the confirmation is deleted if its master and its name are its own.
      * It switches to [id] first if it was not the active one (locking the one open). Forgets its fingerprint key first
-     * (audit A-1), then deletes its folder (its file and attachments) and its settings, and gives back its copies' folder if no other vault uses it; it
-     * never touches the copies already made (R-9, O-2: the confirmation says so). Then the first vault left is active,
-     * locked.
+     * (audit A-1), then deletes its folder (its file and attachments) and its settings, and gives back its copies' folder
+     * if no other vault uses it; it never touches the copies already made (R-9, O-2: the confirmation says so). Then the
+     * first vault left is active, locked.
      */
     suspend fun deleteVault(id: String, master: CharArray, typedName: String): VaultDeletion = changingVaults.withLock {
         require(registry.vaults.value.any { it.id == id }) { "Unknown vault" }

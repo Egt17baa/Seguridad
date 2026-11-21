@@ -77,9 +77,10 @@ internal const val ROUTE_OPEN = "contacts/open"
 
 /**
  * The frame of every `contacts/…` screen: top bar (with «Bloquear» while open), snackbar, and the vault gate. [content]
- * is drawn only with the vault open and, if it is still version 2, after the master password was typed once
- * ([MasterPrompt]), or with the upgrade to 4 waiting, its text ([contactsGate]): until then no identity or contact can be
- * saved. When the vault locks with a screen open,
+ * is drawn only with the vault open and able to hold an identity ([contactsGate]). In 2.0 a vault of version 2 open with
+ * the master always has its upgrade to 4 waiting or saved (audit E-3, RC-6), so while it waits the gate shows its text
+ * ([app.seguridad.vault.UPGRADE_PENDING] or [app.seguridad.vault.UPGRADE_COPYING]) and no identity or contact can be
+ * saved; [MasterPrompt] stays only as a defence that 2.0 does not reach. When the vault locks with a screen open,
  * [content] leaves the composition at once: the gate shows, never data. Any touch counts as use for the idle lock.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,11 +128,11 @@ internal fun ContactsFrame(
 }
 
 /**
- * The vault is open but still version 2 and no upgrade waits ([contactsGate]; review fixes, CR-3): one master password
- * check wraps it as version 3 and the screens show up. With the upgrade to 4 waiting (a version 2 opened with the master
- * password), this prompt could do nothing, and the frame shows [app.seguridad.vault.UPGRADE_PENDING] or
- * [app.seguridad.vault.UPGRADE_COPYING] instead. A wrong password says what the unlock screen says; the characters are
- * wiped after.
+ * The vault is open but still version 2 and no upgrade waits ([contactsGate]; review fixes, CR-3). Audit E-3 and RC-6:
+ * a defence that 2.0 does not reach: a version 2 opens only with the master (the fingerprint refuses it), and that
+ * unlock always leaves the upgrade to 4 waiting or saved; a lock drops it and shows the lock screen. If it were reached,
+ * the check ([VaultStore.confirmMaster]) only checks the master: it does not pass the vault to version 3, so the screens
+ * would not show up. A wrong password says what the unlock screen says; the characters are wiped after.
  */
 @Composable
 private fun MasterPrompt(store: VaultStore) {

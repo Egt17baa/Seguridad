@@ -15,6 +15,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 
 /**
  * La lógica de la pestaña «Contactos» que no es de pantalla: el aviso de cada `CardCheck`, la validación del nombre, el
@@ -621,5 +623,54 @@ class ContactsViewTest {
         assertEquals(ENTRY_TOO_BIG, saveFailureMessage(Result.failure(VaultLimitExceeded(ENTRY_TOO_BIG))))
         assertEquals(NOT_SAVED_STATE, saveFailureMessage(Result.failure(IllegalStateException("x"))))
         assertEquals("No se pudo guardar", saveFailureMessage(Result.failure(java.io.IOException("disco lleno"))))
+    }
+    /**
+     * Audit E-3 and RC-6: in 2.0 a vault of version 2 open with the master always has its upgrade waiting or saved, so
+     * [contactsGate] never gives [ContactsGate.Master] with the vault open: not while the copy before the upgrade runs,
+     * not with the dialog asking (the copy failed, and then a save of the upgrade that fails), not after it is saved.
+     * Every value of the four flows is looked at, from the unlock to the v4 saved.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun theMasterGateIsNeverReachedWithAnOpenVault() = kotlinx.coroutines.test.runTest {
+        for (copyMade in listOf(true, false)) {
+            val dir = java.nio.file.Files.createTempDirectory("contacts-gate").toFile()
+            try {
+                java.io.File(dir, "vault.bin").writeBytes(javaClass.getResourceAsStream("/seguridad/vault-1.1.json")!!.use { it.readBytes() })
+                val hold = kotlinx.coroutines.CompletableDeferred<Unit>()
+                var failSave = !copyMade
+                val s = VaultStore(
+                    java.io.File(dir, "vault.bin"), kotlinx.coroutines.Dispatchers.Unconfined, kotlinx.coroutines.Dispatchers.Unconfined,
+                    now = { 1_790_000_001_000L }, kdf = { app.seguridad.crypto.KdfParams(1024, 1, 1) },
+                    beforeUpgrade = { hold.await(); if (copyMade) CopyResult.Saved("seguridad-antes-de-2-0-x.sgbak") else CopyResult.Failed(AUTO_BACKUP_FAILED) },
+                    writeFile = { f, t -> if (failSave && t.contains("\"version\":4")) throw java.io.IOException("disco lleno") else f.writeText(t) },
+                )
+                s.load()
+                val seen = mutableListOf<Pair<Boolean, ContactsGate>>()
+                val watching = backgroundScope.launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) {
+                    kotlinx.coroutines.flow.combine(s.state, s.needsMasterForContacts, s.pendingUpgrade, s.upgradeCopying) { st, n, a, c ->
+                        (st is VaultState.Unlocked) to contactsGate(n, a, c)
+                    }.collect { seen += it }
+                }
+                val unlocking = async { s.unlock("maestra-de-prueba".toCharArray()) }
+                testScheduler.runCurrent()
+                assertTrue("the copy runs", s.upgradeCopying.value)
+                hold.complete(Unit)
+                testScheduler.runCurrent()
+                kotlinx.coroutines.withTimeout(5_000) { unlocking.await() }
+                if (!copyMade) {
+                    assertTrue("the dialog asks", s.pendingUpgrade.value)
+                    assertFalse("a save of the upgrade that fails", runCatching { s.completeUpgrade() }.getOrDefault(false))
+                    failSave = false
+                    assertTrue(s.completeUpgrade())
+                }
+                testScheduler.runCurrent()
+                assertEquals(4, VaultCrypto.decodeFile(java.io.File(dir, "vault.bin").readText()).version)
+                watching.cancel()
+                assertTrue("$copyMade: open at some point: $seen", seen.any { it.first })
+                assertTrue("$copyMade: $seen", seen.none { (open, gate) -> open && gate == ContactsGate.Master })
+            } finally {
+                dir.deleteRecursively()
+            }
+        }
     }
 }
