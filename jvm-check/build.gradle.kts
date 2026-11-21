@@ -66,4 +66,7 @@ tasks.test {
     inputs.dir("../app/src/main/res")
         .withPropertyName("appRes")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // Audit C-1: PublishedFilesNameNoModelTest reads every document and the advisor skill's table of names.
+    inputs.dir("../docs").withPropertyName("docsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files("../.claude/skills/advisor/SKILL.md").withPropertyName("modelNamesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
 }

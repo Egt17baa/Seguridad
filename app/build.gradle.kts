@@ -244,4 +244,7 @@ tasks.withType<Test>().configureEach {
     inputs.dir("src/main/res").withPropertyName("resReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("src/main/assets").withPropertyName("assetsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("src/main/java").withPropertyName("sourcesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    // Audit C-1: PublishedFilesNameNoModelTest reads every document and the advisor skill's table of names.
+    inputs.dir("../docs").withPropertyName("docsReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files("../.claude/skills/advisor/SKILL.md").withPropertyName("modelNamesReadByTests").withPathSensitivity(PathSensitivity.RELATIVE)
 }
