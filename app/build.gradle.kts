@@ -232,6 +232,10 @@ tasks.named("check") { dependsOn(checkAssets) }
 // the sources read without their comments, and the assets. The same list is in jvm-check/build.gradle.kts. Plain files,
 // resolved at configuration time: configuration-cache safe.
 tasks.withType<Test>().configureEach {
+    // The tests that build a vault at its data limit (24 MiB) hold the vault, its copy and the vault read back at the
+    // same time: with Gradle's default 512 MiB they run out of memory on JDK 17, the one CI uses (PR #22). This is the
+    // test JVM only; the app's own memory limits are the named risks of rows 51, 55 and 58 of pendientes.md.
+    maxHeapSize = "1g"
     inputs.files(
         "../README.md", "../NOTICE", "../SECURITY.md",
         "../docs/privacidad.html", "../docs/ficha-google-play.md", "../docs/PUBLICAR.md",
