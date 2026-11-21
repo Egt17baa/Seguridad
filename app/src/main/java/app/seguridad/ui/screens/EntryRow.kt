@@ -354,16 +354,19 @@ private fun DragHandle(e: VaultEntry, actions: RowActions) {
 }
 
 /**
- * The copy in two steps (design «Copiar usuario y luego contraseña»): back in the app from outside it after «Copiar
- * usuario» (MainActivity.onStop marks the leaving, [TwoStepCopy.markLeft]), within its 30 s, the screen on top offers
- * «Copiar contraseña» of that entry for what is left of them, once (review m-1 of task 6). Never when a screen is
+ * The copy in two steps (design «Copiar usuario y luego contraseña»): after «Copiar usuario», within its 30 s, another
+ * app taking the focus in split screen or a floating window marks the leaving (AppContainer.leftForAnotherApp,
+ * [TwoStepCopy.markLeft]); the screen stays started there, so the screen on top offers «Copiar contraseña» of that entry
+ * at once, in Clavero's part, for what is left of them, once (review m-1 of task 6; audit B-4). Full screen, leaving
+ * locks the vault and ends the offer (MainActivity.onStop). Never when a screen is
  * composed or reached inside the app: what was already there when this screen came is not a return. The message goes as
  * soon as the offer ends (another copy, a lock: [TwoStepCopy.changes], review m-2). Only the id comes from [twoStep]:
  * the password is read from the open vault at the tap ([liveEntry]).
  */
 @Composable
 internal fun PasswordOfferOnReturn(store: VaultStore, twoStep: TwoStepCopy, snackbar: SnackbarHostState, copyPassword: (VaultEntry) -> Unit) {
-    // Collected only while the screen is started: the leaving, marked while the app is away, arrives on the return.
+    // Collected only while the screen is started; in split screen or a floating window it stays started when another
+    // app takes the focus, so the leaving marked then arrives at once.
     val changes by twoStep.changes.collectAsStateWithLifecycle()
     val atStart = remember { twoStep.changes.value }
     LaunchedEffect(changes) {

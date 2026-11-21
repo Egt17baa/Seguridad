@@ -217,7 +217,8 @@ class AppContainer(
     /**
      * Another app took the focus in multi-window. With «Al salir» the vault's backstop counts from now
      * ([VaultStore.leftForAnotherWindow], M1); a repeat while already away changes nothing. Audit B-4 (c): the offer of
-     * «Copiar contraseña» counts this as leaving ([TwoStepCopy.markLeft]); the vault stays open here, so the return offers it.
+     * «Copiar contraseña» counts this as leaving ([TwoStepCopy.markLeft]); the vault stays open and the screen started here,
+     * so the offer shows at once, in Clavero's part of the screen.
      */
     fun leftForAnotherApp() {
         if (_awayInOtherApp.value) return
@@ -774,7 +775,8 @@ class AppContainer(
      * (a deletion cut between the registry and the settings, or a full disk): an id of [Settings.perVault] goes only when
      * it is not in the registry **and** its folder (`files/vaults/<id>/`, or `files/vault/`) does not exist, so a registry
      * that could not be read never takes the settings (nor the A11 marks) of a vault still on the disk. Its fingerprint key
-     * is forgotten first (audit A-1 + B-3). Then the copies' folders no vault uses any more are given back. Best effort: a failure leaves everything as it was.
+     * is forgotten first (audit A-1 + B-3). Then the copies' folders no vault uses any more are given back. Best effort: a
+     * failure to forget a fingerprint key does not stop the rest; a failure to write the settings leaves them as they were.
      */
     suspend fun forgetOrphanVaults() = changingVaults.withLock {
         val listed = registry.vaults.value.map { it.id }.toSet()
@@ -787,7 +789,9 @@ class AppContainer(
             try {
                 forgetBiometric(id)
             } catch (e: Exception) {
-                // The next start does not see it again once the settings are gone: a key that opens nothing on the disk.
+                // Best effort: the settings go below, so the next start does not see it again; the key left in the
+                // Keystore wraps this vault's data key, which also opens the copies made before (it needs the
+                // fingerprint; audit A-1).
             }
         }
         try {
