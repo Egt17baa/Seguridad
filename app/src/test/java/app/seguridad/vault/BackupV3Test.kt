@@ -177,4 +177,39 @@ class BackupV3Test {
             assertEquals(BACKUP_DOES_NOT_FIT, e.message)
         }
     }
+    /**
+     * Audit A-3: the check of the marker of the copy reader of Clavero 1.4.3, copied from its own code (commit `a3ac942`,
+     * `app/src/main/java/app/seguridad/vault/Backup.kt:262-276`, with its `BACKUP_NEWEST = 2` of `:37` and its text of
+     * `:59`). That version is published and never changes: this is what it does with the first entry of a copy. Null
+     * when it accepts the marker; otherwise the text it shows.
+     */
+    private fun reader143Marker(name: String, version: ByteArray): String? {
+        val backupNewest143 = 2
+        val backupVersion143 = "2\n".toByteArray(Charsets.US_ASCII)
+        val backupVersion1143 = "1\n".toByteArray(Charsets.US_ASCII)
+        val backupNewer143 = "La copia es de una versión más nueva de Clavero"
+        val backupDamaged143 = BACKUP_DAMAGED
+        // From a3ac942, Backup.kt:268-275 (the marker comes first, with exactly this version).
+        if (name != "seguridad-backup") return backupDamaged143
+        if (!version.contentEquals(backupVersion143) && !version.contentEquals(backupVersion1143)) {
+            val number = version.decodeToString().trim().toIntOrNull()
+            return if (number != null && number > backupNewest143) backupNewer143 else backupDamaged143
+        }
+        return null
+    }
+
+    /**
+     * Audit A-3 (design «Formato v4»: «se comprueba con un test contra el lector de la 1.4.3»): a copy of a v4 vault, as
+     * the app exports it, is refused by the reader of 1.4.3 with its «más nueva» text before it reads anything else; a
+     * copy of the vault of 1.4.3 (marker 2) is accepted.
+     */
+    @Test fun aCopyOfAV4IsRefusedByThe143Reader() = runTest {
+        val (name, marker) = firstEntry(v4Copy())
+        assertEquals("3\n", marker)
+        assertEquals("La copia es de una versión más nueva de Clavero", reader143Marker(name, marker.toByteArray(Charsets.US_ASCII)))
+        val text143 = javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString()
+        val copy143 = ByteArrayOutputStream().also { writeBackup(it, text143, emptyMap()) }.toByteArray()
+        val (name143, marker143) = firstEntry(copy143)
+        assertEquals(null, reader143Marker(name143, marker143.toByteArray(Charsets.US_ASCII)))
+    }
 }
