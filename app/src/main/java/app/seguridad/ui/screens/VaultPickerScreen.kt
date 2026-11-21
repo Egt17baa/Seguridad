@@ -197,8 +197,9 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
     val canAdd by produceState(false, activeState, vaults) { value = withContext(Dispatchers.IO) { container.canAddVault() } }
     VaultIdleLock(active)
     // Branch review, C I-1: a lock (idle, or leaving the app) closes what a dialog shows or holds of the vault, or a typed
-    // master; from the active vault's state, which is synchronous (canAdd is read off the main thread).
-    LaunchedEffect(active, activeState) {
+    // master; from the active vault's state, which is synchronous (canAdd is read off the main thread). Audit D-2: also
+    // when a dialog opens, so one opened with the vault already locked closes in the same step.
+    LaunchedEffect(active, activeState, dialog) {
         dialog?.let { if (!pickerDialogKept(it.kind, activeState)) dialog = null }
     }
 
@@ -218,7 +219,8 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
             when {
                 head == null -> snackbar.showSnackbar("No se pudo leer el archivo")
                 !mayBeVaultImport(head) -> snackbar.showSnackbar(BACKUP_DAMAGED)
-                else -> dialog = PickerDialog.ImportNew(uri)
+                // Audit D-2: back from the picker after a lock, the copy's master is not asked for.
+                else -> if (pickerDialogKept(PickerDialogKind.IMPORT_NEW, active.state.value)) dialog = PickerDialog.ImportNew(uri) else snackbar.showSnackbar(VAULT_NEW_NEEDS_OPEN)
             }
         }
     }

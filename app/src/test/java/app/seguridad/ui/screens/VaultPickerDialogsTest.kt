@@ -32,8 +32,27 @@ class VaultPickerDialogsTest {
         val src = generateSequence(File(".").absoluteFile) { it.parentFile }
             .map { File(it, "app/src/main/java/app/seguridad/ui/screens/VaultPickerScreen.kt") }.first { it.isFile }.readText()
         assertTrue(
-            Regex("""LaunchedEffect\(active, activeState\) \{\s*dialog\?\.let \{ if \(!pickerDialogKept\(it\.kind, activeState\)\) dialog = null \}""")
+            Regex("""LaunchedEffect\(active, activeState(?:, dialog)?\) \{\s*dialog\?\.let \{ if \(!pickerDialogKept\(it\.kind, activeState\)\) dialog = null \}""")
                 .containsMatchIn(src),
         )
+    }
+    private fun screen() = generateSequence(File(".").absoluteFile) { it.parentFile }
+        .map { File(it, "app/src/main/java/app/seguridad/ui/screens/VaultPickerScreen.kt") }.first { it.isFile }.readText()
+
+    /**
+     * Audit D-2: the effect looks again when a dialog opens, not only when the state changes, so a dialog opened with the
+     * vault already locked (the result of a picker, back after the lock) closes in the same step.
+     */
+    @Test fun aDialogOpenedAfterTheLockClosesToo() {
+        assertTrue(Regex("""LaunchedEffect\(active, activeState, dialog\) \{\s*dialog\?\.let \{ if \(!pickerDialogKept\(it\.kind, activeState\)\) dialog = null \}""").containsMatchIn(screen()))
+    }
+
+    /** Audit D-2: «Importar como bóveda nueva» asks for the copy's master only with the vault open (or none), else it says why. */
+    @Test fun theImporterAsksOnlyWithTheVaultOpen() {
+        assertTrue(
+            "else -> if (pickerDialogKept(PickerDialogKind.IMPORT_NEW, active.state.value)) dialog = PickerDialog.ImportNew(uri) " +
+                "else snackbar.showSnackbar(VAULT_NEW_NEEDS_OPEN)" in screen(),
+        )
+        assertEquals(1, Regex("""PickerDialog\.ImportNew\(uri\)""").findAll(screen()).count())
     }
 }
