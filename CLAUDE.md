@@ -55,7 +55,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 | `code-review` (alto, CR-1 a CR-7) y `security-review` (ninguna vulnerabilidad), con su ronda única (`77e6a51` … `69c967b`) y su cierre (RC-1 a RC-6) | Hechos |
 | Auditoría completa en cinco partes (A cripto y formatos, B MASVS, C método, D las zonas de `security-review`, E el diff de la ronda) | Hecha y aprobada por el director; ronda de arreglos (`7505281` … `a94455a`), sus repasos y sus menores (`a76d355` … `56d5751`) |
 | Repaso final de documentos | Hecho (`sdd-2.0/docs-review-report.md`) |
-| Revisión final del Abogado Digital, fecha de la política (fila 49), último clon limpio y puerta del APK | Pendientes |
+| Revisión final del Abogado Digital, fecha de la política (fila 49), último clon limpio y puerta del APK | Revisión del Abogado hecha: dictamen `sdd-2.0/abogado-2.0.md` («se puede publicar, con cambios»), O-1 a O-4 y R-1 a R-8 aplicados (`3f65f92` … `d41f73b`, `sdd-2.0/abogado-2.0-applied-report.md`); O-5 (anterioridades del logo), del dueño. Pendientes: la fecha de la política, el último clon limpio y la puerta del APK |
 | PR a `main` (con el OK del dueño), APK firmado desde `main` y pruebas en el móvil (README, «Pruebas de la 2.0») | Pendientes; la tarea 11 (Maestro), en un segundo PR; la etiqueta `v2.0.0`, cuando la prueba salga bien |
 
 **Decisiones de la 2.0** (el detalle, en `sdd-2.0/progress.md`, líneas «Owner decision» y «Ruling»):
@@ -78,6 +78,7 @@ Todo trabajo en este repositorio sigue el traspaso vigente en `docs/superpowers/
 - **B-4 (Ruling):** «Copiar contraseña» tras «Copiar usuario» sale en pantalla dividida o ventana flotante; a pantalla completa salir bloquea y no sale. La opción (b) se descarta en la 2.0.
 - **Adjuntos:** como mucho 1 998 por bóveda, contando la papelera (lo que cabe en una copia, `ATTACHMENTS_COUNT_WOULD_PASS`); una bóveda de la 1.4.3 con más sigue sin poder copiarse (riesgo con nombre, fila 104).
 - **Riesgos con nombre aceptados:** C-2 (dos asuntos de commits nombran un modelo; arreglarlo exige *force push*, dueño 20-11-2026), **C-3** (los cuatro `SEGURIDAD_*` siguen en *Repository secrets* hasta que el dueño recupere la contraseña del almacén; no se borran, y el dueño no aprueba ninguna firma que no haya lanzado él), C-6 (sin `networkSecurityConfig` propio) y las filas 51, 54, 57, 58, 62, 67, 69, 83 y 104 de `pendientes.md` (la tabla de la §6 de la auditoría de la 2.0).
+- **Abogado final (dueño, 21-11-2026):** R-7 sí: tras la huella, unos datos que autentican y no se decodifican dicen `FINGERPRINT_DATA_UNREADABLE` en lugar de «Contraseña incorrecta o datos dañados», y la huella se conserva (CRY-A02 solo cambia en ese texto). La descripción completa de la ficha es la corta del anexo A (3 927 de 4 000 caracteres, `PublishedTextsTest.theFullPlayDescriptionFits`); la larga queda en la ficha como «Versión larga (no cabe en Play)».
 - **Velocidad (dueño, 19-11-2026):** ir más rápido, pero lo que más importa es `code-review`, `security-review` y la auditoría completa, a fondo.
 
 | Paso de la 1.4.0 | Estado |
