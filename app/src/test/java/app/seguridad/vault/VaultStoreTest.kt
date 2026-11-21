@@ -999,6 +999,13 @@ class VaultStoreTest {
         assertEquals(BIOMETRIC_UNLOCK_FAILED, biometricUnlockError(java.io.IOException("/data/user/0/app/files/vault: ENOSPC")))
         assertEquals(BIOMETRIC_UNLOCK_FAILED, biometricUnlockError(IllegalStateException()))
         assertEquals("No se pudo abrir la bóveda con la huella. Escribe la contraseña maestra.", BIOMETRIC_UNLOCK_FAILED)
+        // R-7: the store's own text for entries that authenticate but do not decode reaches the screen as it is.
+        assertEquals(FINGERPRINT_DATA_UNREADABLE, biometricUnlockError(CryptoFailure(FINGERPRINT_DATA_UNREADABLE)))
+        assertEquals(
+            "La huella funcionó, pero los datos de la bóveda no se pudieron leer: pueden estar dañados. Prueba con la " +
+                "contraseña maestra.",
+            FINGERPRINT_DATA_UNREADABLE,
+        )
     }
 
     @Test fun `BOV-3 a fingerprint key handed over from a scope already gone opens the vault`() = runTest {
@@ -1237,7 +1244,7 @@ class VaultStoreTest {
         return dek
     }
 
-    @Test fun `F1 entries that authenticate but do not decode give the usual error, fingerprint kept`() = runTest {
+    @Test fun `F1 entries that authenticate but do not decode give their own text, fingerprint kept`() = runTest {
         for (version in listOf(VaultFile.VERSION, VaultFile.VERSION_UNKNOWN)) {
             val key = undecodableVault(version)
             val s = store().apply { load() }
@@ -1245,9 +1252,10 @@ class VaultStoreTest {
             val errors = mutableListOf<String>()
             launchUnlockWithKey(s, key, onWrongKey = { off++ }) { errors += it }.join()
             assertEquals("version $version", 0, off)
-            // «Contraseña incorrecta o datos dañados», the text a damaged vault always had: not FINGERPRINT_STALE. 2.0: a
-            // file without a version is asked to upgrade first, without trying the key.
-            val expected = if (version == VaultFile.VERSION) CryptoFailure().message!! else UPGRADE_NEEDS_MASTER
+            // 2.0, R-7 of the Abogado Digital (owner, 21-11-2026): no password was typed, so not «Contraseña incorrecta o
+            // datos dañados»; and not FINGERPRINT_STALE either (the fingerprint stays). 2.0: a file without a version is
+            // asked to upgrade first, without trying the key.
+            val expected = if (version == VaultFile.VERSION) FINGERPRINT_DATA_UNREADABLE else UPGRADE_NEEDS_MASTER
             assertEquals("version $version", listOf(expected), errors)
             assertEquals(VaultState.Locked, s.state.value)
             assertTrue(key.all { it == 0.toByte() })

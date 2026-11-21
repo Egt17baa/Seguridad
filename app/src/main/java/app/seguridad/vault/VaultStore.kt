@@ -91,6 +91,15 @@ const val FINGERPRINT_STALE =
         "datos dañados. Entra con la contraseña maestra y vuelve a activarla si quieres."
 
 /**
+ * 2.0, R-7 of the Abogado Digital (owner, 21-11-2026; fila 41): after the fingerprint, a key that authenticates the
+ * entries but whose entries do not decode. No password was typed, so not the usual «Contraseña incorrecta o datos
+ * dañados». Only this text changes: the fingerprint stays on, as CRY-A02 decided ([VaultStore.unlockWithKey]).
+ */
+const val FINGERPRINT_DATA_UNREADABLE =
+    "La huella funcionó, pero los datos de la bóveda no se pudieron leer: pueden estar dañados. Prueba con la " +
+        "contraseña maestra."
+
+/**
  * What the unlock screen shows when [VaultStore.unlockWithKey] throws [e]: the store's own Spanish texts (a stale key,
  * damaged or undecodable entries, the master password due, the clock gone back, a file this version cannot open) and a
  * fixed text for anything else, so an unexpected exception (in English, maybe with a path) is never shown as it is.
@@ -701,7 +710,7 @@ class VaultStore(
      *    passes to 4 with the master password), without trying the key either;
      * 3. [MasterRequired] when the 7-day recheck is due or the clock went back, before the key is used at all;
      * 4. [StaleBiometricKey] when the key does not authenticate the entries;
-     * 5. [CryptoFailure] when the entries authenticate but do not decode.
+     * 5. [CryptoFailure] with [FINGERPRINT_DATA_UNREADABLE] when the entries authenticate but do not decode (R-7).
      *
      * 2.0, task 10 (i-6, n-1): a vault that is not the active one (a switch came first, or during the work) returns
      * without throwing and without writing anything, its key wiped and the vault locked; checked at the start and again
@@ -748,7 +757,16 @@ class VaultStore(
         // Decrypted once (review M-5): what is written is what opens.
         // RT-21, part c: out of memory, locked and saved as it was, and the fingerprint stays on (not a stale key).
         val (next, shown) = try {
-            val data = withContext(compute) { VaultCrypto.read(known, key).purgedTrash(at, mark) }
+            // R-7: the key authenticated the entries just above, so a CryptoFailure of [VaultCrypto.read] is entries
+            // that do not decode: their own text ([FINGERPRINT_DATA_UNREADABLE]), still a CryptoFailure (fingerprint kept).
+            val data = withContext(compute) {
+                val read = try {
+                    VaultCrypto.read(known, key)
+                } catch (e: CryptoFailure) {
+                    throw CryptoFailure(FINGERPRINT_DATA_UNREADABLE)
+                }
+                read.purgedTrash(at, mark)
+            }
             withContext(compute) { VaultCrypto.write(known, key, data) } to withContext(compute) { data.sortedForShow() }
         } catch (e: OutOfMemoryError) {
             key.fill(0)
