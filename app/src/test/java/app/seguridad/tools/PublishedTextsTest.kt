@@ -130,4 +130,29 @@ class PublishedTextsTest {
         .replace(Regex("<style[\\s\\S]*?</style>"), " ")
         .replace(Regex("<[^>]+>"), " ")
         .replace("&laquo;", "«").replace("&raquo;", "»").replace("&nbsp;", " ").replace("&amp;", "&")
+    /**
+     * Audit B-4 (a): the offer of «Copiar contraseña» is said where it happens, in split screen or a floating window;
+     * full screen, leaving Clavero locks the vault and ends it. Never «al volver a la app ofrece».
+     */
+    @Test
+    fun theTwoStepCopyIsSaidWhereItHappens() {
+        val readme = read("README.md")
+        assertTrue(
+            "tras «Copiar usuario», si Clavero comparte la pantalla con otra app (pantalla dividida o ventana flotante), " +
+                "ofrece «Copiar contraseña» durante 30 segundos; a pantalla completa, salir de Clavero bloquea la bóveda y la " +
+                "oferta se acaba." in readme,
+        )
+        assertTrue(
+            "Tras «Copiar usuario», con Clavero en pantalla dividida, tocar la otra app antes de 30 s: Clavero ofrece " +
+                "«Copiar contraseña». A pantalla completa, salir y volver: la bóveda está bloqueada y no se ofrece." in readme,
+        )
+        val notes = read("docs/superpowers/handoff/2026-11-15-clavero-2.0-notas.md")
+        assertTrue("tras «Copiar usuario», en pantalla dividida o en una ventana flotante, ofrece «Copiar contraseña» durante 30 segundos" in notes)
+        for ((doc, text) in listOf("README.md" to readme, "notas" to notes, "ficha" to read("docs/ficha-google-play.md"))) {
+            val t = ForbiddenWords.normalise(text)
+            for (old in listOf("al volver a la app ofrece", "al volver ofrece «copiar contraseña»", "ir a otra app y volver antes de 30 s")) {
+                assertFalse("$doc: $old", ForbiddenWords.normalise(old) in t)
+            }
+        }
+    }
 }

@@ -120,8 +120,9 @@ class MainActivity : FragmentActivity() {
         if (!isChangingConfigurations) container.foreground = false
         // A14: a copy waiting for the notice is dropped on leaving the app, whether or not the vault was open.
         if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.clipboardNotice.drop()
-        // 2.0, task 6 (review m-1): the copy in two steps offers the password on the return from outside the app. Before
-        // the lock: with «Al salir» the lock ends the offer anyway.
+        // 2.0, task 6 (review m-1): the copy in two steps offers the password on the return from outside the app. Audit
+        // B-4: here the lock below ends the offer anyway (leaving always locks); the offer lives only in split screen or a
+        // floating window, where another app taking the focus marks it (container.leftForAnotherApp).
         if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.twoStepCopy.markLeft()
         // 2.0, task 9, ronda 1 (I-1): a QR text waiting at the vault's gate (a wifi password, a 2FA key) goes too.
         if (!isChangingConfigurations) container.leftApp(VaultLock.keepOpenOnce)

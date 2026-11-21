@@ -12,7 +12,9 @@ const val TWO_STEP_COPY_MS = 30_000L
 /**
  * 2.0, task 6: after «Copiar usuario», the app offers «Copiar contraseña» of the same entry for [TWO_STEP_COPY_MS].
  * One per process (in AppContainer), so the offer is there when the user comes back to the app from wherever the user
- * was pasted. It keeps only the entry's id, the time and the lock counter: the password is read from the open vault at
+ * was pasted. Audit B-4: that only happens with the vault still open, so in split screen or a floating window, where
+ * another app taking the focus counts as leaving ([markLeft], from AppContainer.leftForAnotherApp). Full screen, leaving
+ * the app locks the vault (MainActivity.onStop, whatever the lock setting), and the lock ends the offer. It keeps only the entry's id, the time and the lock counter: the password is read from the open vault at
  * the tap, so nothing secret is ever held here. [clock] only moves forward (elapsed realtime): a value lower than the
  * one of the offer ends it. [lockEpoch] is the app's lock counter (it goes up with every lock and every switch of
  * vault): a lock since the offer ends it, even if the vault opened again; the app also calls [clear] at every lock.
@@ -40,7 +42,11 @@ class TwoStepCopy(private val clock: () -> Long, private val lockEpoch: () -> In
         _changes.value += 1
     }
 
-    /** The app went to the background (MainActivity.onStop): the next return offers the password, once. */
+    /**
+     * The app was left: another app took the focus in split screen or a floating window (AppContainer.leftForAnotherApp),
+     * or it went to the background (MainActivity.onStop, where the lock that follows ends the offer): the next return
+     * offers the password, once.
+     */
     fun markLeft() {
         if (live() == null) return
         left = true

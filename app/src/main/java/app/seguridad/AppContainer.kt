@@ -216,11 +216,13 @@ class AppContainer(
 
     /**
      * Another app took the focus in multi-window. With «Al salir» the vault's backstop counts from now
-     * ([VaultStore.leftForAnotherWindow], M1); a repeat while already away changes nothing.
+     * ([VaultStore.leftForAnotherWindow], M1); a repeat while already away changes nothing. Audit B-4 (c): the offer of
+     * «Copiar contraseña» counts this as leaving ([TwoStepCopy.markLeft]); the vault stays open here, so the return offers it.
      */
     fun leftForAnotherApp() {
         if (_awayInOtherApp.value) return
         vault.leftForAnotherWindow()
+        twoStepCopy.markLeft()
         _awayInOtherApp.value = true
     }
 

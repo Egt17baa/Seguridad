@@ -102,6 +102,27 @@ class AppContainerTest {
         assertFalse(c.awayInOtherApp.value)
     }
 
+    /**
+     * Audit B-4 (c): in split screen or a floating window the vault stays open while another app has the focus, so the
+     * offer of «Copiar contraseña» is there on the return; a lock (here, leaving the app) still ends it.
+     */
+    @Test fun theOfferIsShownInSplitScreen() = runTest {
+        val elapsed = 0L
+        val c = AppContainer(tmp.root, cache, appVersion = "test", appScope = backgroundScope, elapsedRealtime = { elapsed })
+        c.settings.load()
+        c.vault.load()
+        c.vault.create("maestra-larga".toCharArray())
+        c.twoStepCopy.offerPassword("e")
+        c.leftForAnotherApp()
+        assertEquals("e", c.twoStepCopy.takeReturnOffer())
+        c.backFromAnotherApp()
+        c.twoStepCopy.offerPassword("e")
+        c.leftForAnotherApp()
+        c.vault.lock(app.seguridad.vault.LockReason.LEFT_APP)
+        assertNull(c.twoStepCopy.takeReturnOffer())
+        assertNull(c.twoStepCopy.pending())
+    }
+
     @Test fun newVaultWithAutoBackupOffReleasesNothing() = runTest {
         val released = mutableListOf<String>()
         val c = AppContainer(tmp.root, cache, appVersion = "test", releaseFolder = { released += it }, appScope = backgroundScope)
