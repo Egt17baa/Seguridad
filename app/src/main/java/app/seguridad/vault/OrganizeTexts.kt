@@ -56,8 +56,11 @@ fun folderCrumb(path: List<String>): String = "📁 " + path.joinToString(" › 
 
 fun folderDeleteTitle(name: String): String = "¿Borrar la carpeta «$name»?"
 
-/** The choices of deleting a folder ([FolderDeletion]): the first for one at the top, the second for one inside another. */
-const val FOLDER_DELETE_TO_NONE = "Sus entradas y sus subcarpetas se quedan sin carpeta"
+/**
+ * The choices of deleting a folder ([FolderDeletion]): the first for one at the top, the second for one inside another.
+ * Audit RC-5: with the app's own words for each place, entries «Sin carpeta» and folders «Arriba del todo».
+ */
+const val FOLDER_DELETE_TO_NONE = "Sus entradas pasan a «$FOLDER_NONE» y sus subcarpetas, a «$FOLDER_TOP»"
 fun folderDeleteToParent(parent: String): String = "Sus entradas y sus subcarpetas pasan a «$parent»"
 const val FOLDER_DELETE_TO_TRASH = "Sus entradas, y las de sus subcarpetas, van a la papelera; las subcarpetas se borran"
 const val FOLDER_DELETE_TRASH_NOTE = "Desde la papelera se pueden restaurar durante 30 días, sin carpeta."
