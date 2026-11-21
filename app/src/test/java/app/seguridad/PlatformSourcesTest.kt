@@ -40,6 +40,26 @@ class PlatformSourcesTest {
     }
 
     /**
+     * 2.0, audit B-2 (the owner's decision, 21-11-2026): the launcher activity has an empty task affinity, so another
+     * app's activity with Clavero's package name as its affinity can never join Clavero's task (a fake «Contraseña
+     * maestra» screen on Android 8 to 10). Only MainActivity: neither <application> nor any other activity has one.
+     */
+    @Test fun theLauncherActivityHasAnEmptyTaskAffinity() {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/AndroidManifest.xml").isFile) dir = dir.parentFile
+        val manifest = File(dir, "app/src/main/AndroidManifest.xml").readText()
+            .replace(Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL), "")
+        val main = Regex("""<activity\s+android:name="\.MainActivity"[^>]*>""").find(manifest)?.value ?: error("MainActivity")
+        assertEquals(listOf(""), Regex("""android:taskAffinity="([^"]*)"""").findAll(main).map { it.groupValues[1] }.toList())
+        val application = Regex("""<application\b[^>]*>""").find(manifest)?.value ?: error("application")
+        assertFalse("<application> has no taskAffinity", "taskAffinity" in application)
+        val others = Regex("""<activity(?:-alias)?\b[^>]*>""").findAll(manifest).map { it.value }.filterNot { it == main }.toList()
+        assertTrue("another activity", others.isNotEmpty())
+        for (a in others) assertFalse(a, "taskAffinity" in a)
+        assertEquals(1, Regex("""taskAffinity""").findAll(manifest).count())
+    }
+
+    /**
      * 1.4.2, the owner's request: every file picker says which place it is ([PickerPlace]), so it opens where it was
      * used last; «Importar de otra app» is the place kept only while the app runs; the folder of the automatic copies
      * opens on that folder; deleting the vault forgets every place.
