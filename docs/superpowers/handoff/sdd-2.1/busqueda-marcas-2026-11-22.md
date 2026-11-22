@@ -35,3 +35,13 @@ Misma base de la OMPI: búsqueda «contiene» y búsqueda difusa (marcas escrita
 | Sigilda | SIGILDA (Reino Unido, 9 y 42, 2026) | — | Descartado |
 | Velarca, Arcanel, Arqueta, Veludo | existen | — | Descartados |
 | Clavelium | ninguna | sin datos: la base dejó de responder | Sin terminar |
+
+## «Clavero»: marcas parecidas (búsqueda difusa y fonética), clases 9 y 42
+
+- CLAVEROL: Reino Unido y EE. UU., clases 9, 16, 41 y 42 (la de EE. UU. terminada en 2003; la otra, sin estado en la lista).
+- CLAVERR: Reino Unido, clases 9, 35 y 42, registrada en abril de 2026.
+- CLAVEO: Francia (solicitud de 2023 en la 9 y otra registrada en la 35, 36 y 42), México (42, registrada en 2026) y EE. UU. (9, terminada).
+- CLAVETO: India, 42. Claviora: Alemania, 9, 41 y 42 (2026). CAVERO: Bulgaria, 9 y otras.
+- GABINET CLAVERA: España, 42 (1997).
+
+Ninguna es «Clavero» en las clases 9 o 42.
