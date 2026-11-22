@@ -15,3 +15,23 @@ Base de datos mundial de marcas de la OMPI (Global Brand Database, `branddb.wipo
 
 - 24 marcas que contienen «Clavero»; **ninguna en las clases 9 ni 42**. Las de «CLAVERO» a secas son de España en las clases 37 (construcción, 1997) y 29 (alimentación, 1995); las demás son nombres y apellidos en otras clases.
 - `clavero.ai` es un servicio de IA para supervisar agentes de programación (software, clases 9 y 42 si la registrara); no aparece ninguna marca registrada suya. `clavero.app` no respondió.
+
+## Nombres nuevos probados (22-11-2026)
+
+Misma base de la OMPI: búsqueda «contiene» y búsqueda difusa (marcas escritas parecido), mirando sobre todo las clases 9 y 42. Más una búsqueda web y la resolución DNS del `.com`.
+
+| Nombre | Marcas que lo contienen | Parecidas en 9/42 | Resultado |
+|---|---|---|---|
+| **Cofrelia** | ninguna | CORELIA (Francia, 9, caducadas), COFRELIS (Francia, caducada) | Finalista: la más limpia; `.com` sin DNS |
+| **Cerrojal** | ninguna | FERREJAL (México, 42), PERROPAL (9) | Finalista; palabra cercana a «cerrojo», más descriptiva |
+| **Llaverum** | ninguna | DIAVERUM (salud, 42, varios países); app «Llavero.io» (blogs, 2FA) | Finalista con reservas; `.com` registrado (sin web) |
+| Clavorio | ninguna | CLEVERIO (Suecia y Noruega, 9), CLAVORUS (caducada) | Descartado |
+| Bovedix | ninguna | BOVIDIX (9) | Descartado |
+| Custovia | ninguna | CUSTODIA y CUSTOPIA (9, 42, 45) | Descartado |
+| Cofrix | ninguna | COBRIX, CORFIX, CONRIX (9, 42) | Descartado |
+| Sigelia | ninguna | SIPELIA (9, 42, 45; empresa de seguridad) | Descartado |
+| Bovelia | ninguna | BOVEILA (9), SOVELIA (9, 42) | Descartado |
+| Arcavelo | ninguna | ArCAVeLA (42), KARAVELO (9) | Descartado |
+| Sigilda | SIGILDA (Reino Unido, 9 y 42, 2026) | — | Descartado |
+| Velarca, Arcanel, Arqueta, Veludo | existen | — | Descartados |
+| Clavelium | ninguna | sin datos: la base dejó de responder | Sin terminar |
