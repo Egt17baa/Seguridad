@@ -154,6 +154,30 @@ class WifiQrInspectTest {
             assertEquals(type, opened, type.count { it == '\u27E9' })
             if (opened == 1) assertTrue(type, mark in type)
         }
+        // A supplementary character (a surrogate pair) at the edge is never split: no lone surrogate is left.
+        for (before in 26..33) {
+            val shown = wifiNotKeptText(WifiNotKept.SECURITY, "A".repeat(before) + "\uD83D\uDE00" + "B".repeat(10))
+            val type = shown.substringAfter("«").substringBefore("»")
+            assertTrue(type, type.length <= 32)
+            assertTrue(type, type.endsWith("\u2026"))
+            for ((i, ch) in type.withIndex()) {
+                if (Character.isHighSurrogate(ch)) assertTrue(type, i + 1 < type.length && Character.isLowSurrogate(type[i + 1]))
+                if (Character.isLowSurrogate(ch)) assertTrue(type, i > 0 && Character.isHighSurrogate(type[i - 1]))
+            }
+        }
+        // A «⟨» that came in the code is not a mark: it does not shorten the cut.
+        assertEquals(
+            qrWifiOtherSecurity("\u27E8" + "A".repeat(30) + "\u2026"),
+            wifiNotKeptText(WifiNotKept.SECURITY, "\u27E8" + "A".repeat(40)),
+        )
+        assertEquals(
+            qrWifiOtherSecurity("\u27E8" + "A".repeat(30) + "\u2026"),
+            wifiNotKeptText(WifiNotKept.SECURITY, "\u27E8" + "A".repeat(40) + "\u27E9"),
+        )
+        assertEquals(
+            qrWifiOtherSecurity("X\u27E8U+" + "Z".repeat(27) + "\u2026"),
+            wifiNotKeptText(WifiNotKept.SECURITY, "X\u27E8U+" + "Z".repeat(40) + "\u27E9"),
+        )
         // The inspector says the same.
         assertEquals(listOf(qrWifiOtherSecurity("A".repeat(31) + "\u2026")), qrView("WIFI:T:${"A".repeat(200)};S:Casa;P:clave;;").notes)
     }

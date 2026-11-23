@@ -427,7 +427,7 @@ private const val WIFI_SECURITY_SHOWN_MAX = 32
 
 /**
  * [security] as [wifiNotKeptText] shows it: whole when it fits in [WIFI_SECURITY_SHOWN_MAX] characters; otherwise cut,
- * at the end of a code point and never inside a mark of [visibleText] (`⟨U+…⟩`, left out whole when it does not fit),
+ * at the end of a code point and never inside a mark of [visibleText] ([MARK], left out whole when it does not fit),
  * and ended with «…». The text read is bounded ([WIFI_QR_MAX_CHARS]) before it gets here.
  */
 private fun shownSecurity(security: String): String {
@@ -435,10 +435,13 @@ private fun shownSecurity(security: String): String {
     if (v.length <= WIFI_SECURITY_SHOWN_MAX) return v
     var end = WIFI_SECURITY_SHOWN_MAX - 1
     if (Character.isHighSurrogate(v[end - 1])) end--
-    val open = v.lastIndexOf('\u27E8', end - 1)
-    if (open >= 0 && v.indexOf('\u27E9', open) >= end) end = open
+    // Only a real mark (⟨U+ and 4 to 6 hexadecimal digits, then ⟩) that the cut would split; a «⟨» of the code is text.
+    MARK.findAll(v).firstOrNull { it.range.first < end && it.range.last >= end }?.let { end = it.range.first }
     return v.substring(0, end) + "\u2026"
 }
+
+/** A mark of [visibleText]: `⟨U+` and the code point in 4 to 6 capital hexadecimal digits, then `⟩`. */
+private val MARK = Regex("\u27E8U\\+[0-9A-F]{4,6}\u27E9")
 
 /**
  * 2.1, «Añadir → Red WiFi»: a code read there that is not a wifi code ([WifiQr.read] null). Nothing of it is shown,
