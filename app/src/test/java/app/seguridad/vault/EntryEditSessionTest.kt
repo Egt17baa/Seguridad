@@ -760,4 +760,72 @@ class EntryEditSessionTest {
         assertEquals("Mía", s.wifi(WIFI_SSID_KEY))
         assertNull(s.wifiReplace.value)
     }
+
+    // 2.1, task 2: a reading counts only for the form it started in (the carried requirement of the review of task 1).
+
+    @Test fun aReadingStartsOnlyOnALoadedForm() {
+        val s = session(type = EntryType.WIFI)
+        assertNull(s.startWifiRead())
+        s.load(emptyList())
+        assertNotNull(s.startWifiRead())
+        s.clear()
+        assertNull(s.startWifiRead())
+    }
+
+    @Test fun aReadingFillsTheFormItStartedIn() {
+        val s = newWifi()
+        val since = s.startWifiRead()!!
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
+        val failed = s.startWifiRead()!!
+        s.wifiReadFailed("no se pudo", failed)
+        assertEquals("no se pudo", s.error.value)
+    }
+
+    @Test fun aLateReadingAfterALockAndAQuickUnlockFillsNothing() {
+        var epoch = 3
+        val s = EntryEditSession(PlainCells, null, EntryType.WIFI, newId = "nuevo-1", lockEpoch = { epoch }).also { it.load(emptyList()) }
+        val since = s.startWifiRead()!!
+        // The lock clears the form; the next unlock loads a new, empty one before the result lands.
+        epoch++
+        s.vaultStateIs(unlocked = false, emptyList())
+        s.vaultStateIs(unlocked = true, emptyList())
+        assertTrue(s.loaded)
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        s.wifiReadFailed("tarde", since)
+        assertEquals(untouched, s.wifiFields())
+        assertNull(s.wifiReplace.value)
+        assertNull(s.error.value)
+    }
+
+    @Test fun aLateReadingFillsNothingEvenIfTheLockWasNotSeen() {
+        // The collector may see only the last state (a lock and an unlock conflated): the vault's lock epoch still moved.
+        var epoch = 0
+        val s = EntryEditSession(PlainCells, null, EntryType.WIFI, newId = "nuevo-1", lockEpoch = { epoch }).also { it.load(emptyList()) }
+        val since = s.startWifiRead()!!
+        epoch++
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        s.wifiReadFailed("tarde", since)
+        assertEquals(untouched, s.wifiFields())
+        assertNull(s.error.value)
+    }
+
+    @Test fun aLateReadingAfterLeavingTheFormFillsNothing() {
+        // Left (not a rotation) and back: a new form, the same session and the same lock epoch.
+        val s = newWifi()
+        val since = s.startWifiRead()!!
+        s.left(changingConfigurations = false)
+        s.load(emptyList())
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        assertEquals(untouched, s.wifiFields())
+        // A rotation keeps the form, and the reading counts.
+        val kept = s.startWifiRead()!!
+        s.left(changingConfigurations = true)
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = kept)
+        assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
+    }
+
+    @Test fun aReadingStartToStringShowsNothing() {
+        assertEquals("WifiReadStart", newWifi().startWifiRead().toString())
+    }
 }

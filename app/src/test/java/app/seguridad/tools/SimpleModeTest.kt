@@ -56,6 +56,8 @@ class SimpleModeTest {
             // 2.1, O-1 of the Abogado Digital: a code that is not wifi, read in «Añadir → Red WiFi», says where the
             // inspector is, which depends on whether the list shows it. Only that text, in [EntryEditSession.scanWifi].
             "vault/EntryForm.kt",
+            // 2.1, task 2: the form's screen reads it for that text only, when a code read there is handed to the session.
+            "ui/screens/VaultEntryScreen.kt",
         )
         val readers = main.walkTopDown().filter { it.isFile && it.extension == "kt" }
             .filter { f -> Regex("""\b(simpleMode|simpleOn|visibleTools)\b""").containsMatchIn(f.readText()) }
@@ -67,8 +69,18 @@ class SimpleModeTest {
             listOf(
                 "fun scanWifi(raw: String, simpleMode: Boolean) {",
                 "null -> error.value = if (simpleMode) WIFI_SCAN_NOT_WIFI_SIMPLE else WIFI_SCAN_NOT_WIFI",
+                "fun scanWifi(raw: String, simpleMode: Boolean, since: WifiReadStart) {",
+                "if (isCurrent(since)) scanWifi(raw, simpleMode)",
             ),
             form,
+        )
+        val screen = code("ui/screens/VaultEntryScreen.kt").lines().filterNot { it.startsWith("import ") }.filter { Regex("""\b(simpleMode|simpleOn|visibleTools)\b""").containsMatchIn(it) }.map { it.trim() }
+        assertEquals(
+            "The form's screen reads it only to hand a code read there to the session",
+            listOf(
+                "val scanWifi: (String, WifiReadStart) -> Unit = { raw, since -> form.scanWifi(raw, simpleMode = (context.applicationContext as? SeguridadApp)?.container?.settings?.settings?.value?.simpleOn == true, since = since) }",
+            ),
+            screen,
         )
         val settings = code("ui/screens/SettingsScreen.kt").lines().filterNot { it.startsWith("import ") }.joinToString("\n")
         assertEquals("Ajustes only reads it for its own switch", 2, Regex("""\bsimpleOn\b|\bsimpleMode\b""").findAll(settings).count())

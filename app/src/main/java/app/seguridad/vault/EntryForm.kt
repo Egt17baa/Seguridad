@@ -164,6 +164,15 @@ class WifiReplace(val config: WifiConfig, val typed: Boolean) {
     override fun toString() = "WifiReplace(typed=$typed)"
 }
 
+/**
+ * 2.1, task 2: when a reading of a wifi code (the camera or an image) started in the form ([EntryEditSession.startWifiRead]):
+ * which loading of the form it was ([generation], up with every clear) and the vault's lock epoch then. A result that
+ * comes back with another one, after a lock (also one quickly opened again) or after the form was left, fills nothing.
+ */
+class WifiReadStart internal constructor(internal val generation: Long, internal val epoch: Int) {
+    override fun toString() = "WifiReadStart"
+}
+
 /** The four network fields of a wifi entry as the form holds them; its [toString] shows none (the password is one). */
 private data class WifiFormValues(val ssid: String, val password: String, val security: String, val hidden: String) {
     override fun toString() = "WifiFormValues"
@@ -189,6 +198,8 @@ class EntryEditSession(
     private val initialType: EntryType,
     private val newId: String,
     private val newFieldId: () -> String = { UUID.randomUUID().toString() },
+    /** The vault's lock epoch (VaultStore.lockEpoch): a reading of a wifi code counts only within one ([startWifiRead]). */
+    private val lockEpoch: () -> Int = { 0 },
 ) {
     val existing = cells.cell<VaultEntry?>(null)
     val type = cells.cell(initialType)
@@ -215,6 +226,9 @@ class EntryEditSession(
 
     /** 2.1: the four network fields as the last code read in the form left them ([scanWifi]); null before one. */
     @Volatile private var lastWifiScan: WifiFormValues? = null
+
+    /** 2.1, task 2: up with every [clear], so a reading started before it knows it is late ([WifiReadStart]). */
+    @Volatile private var generation = 0L
 
     /** What was typed in each template field, by [templateValueKey] (dates as the user writes them). */
     val templateValues = cells.cell<Map<String, String>>(emptyMap())
@@ -654,6 +668,28 @@ class EntryEditSession(
     }
 
     /**
+     * 2.1, task 2: the start of a reading with the camera or from an image, taken when the scanner or the picker opens;
+     * null when the form is not loaded (nothing to fill). Its result goes to [scanWifi] or [wifiReadFailed] with it.
+     */
+    fun startWifiRead(): WifiReadStart? = if (loaded) WifiReadStart(generation, lockEpoch()) else null
+
+    /** The form a reading started in ([since]) is still this one: loaded, not cleared since, and no lock since. */
+    private fun isCurrent(since: WifiReadStart) = loaded && since.generation == generation && since.epoch == lockEpoch()
+
+    /**
+     * The code a reading brought ([raw]) as [scanWifi] reads it, only in the form the reading started in ([since]): a
+     * result that comes late (after a lock, also one quickly opened again, or after the form was left) fills nothing.
+     */
+    fun scanWifi(raw: String, simpleMode: Boolean, since: WifiReadStart) {
+        if (isCurrent(since)) scanWifi(raw, simpleMode)
+    }
+
+    /** Why a reading failed ([message], a fixed text), where the form says its errors; nothing when it comes late ([since]). */
+    fun wifiReadFailed(message: String, since: WifiReadStart) {
+        if (isCurrent(since)) error.value = message
+    }
+
+    /**
      * «Sustituir» in the dialog: the code waiting in [wifiReplace] fills the fields. Nothing once a lock cleared it, nor
      * (as in [scanWifi]) on an existing entry or a type other than wifi.
      */
@@ -696,6 +732,7 @@ class EntryEditSession(
         pasteOffer.value = null
         wifiReplace.value = null
         lastWifiScan = null
+        generation++
         askingToLeave.value = false
         pendingLeave = null
         autoTitle.value = null
