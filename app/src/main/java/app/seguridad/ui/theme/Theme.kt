@@ -51,13 +51,13 @@ fun ThemeMode.isDark(): Boolean = when (this) {
 /**
  * The app's theme from [settings]: the mode, the style, the palette (the wallpaper's colours from Android 12, read from
  * the dynamic colour Android works out), «Reducir transparencias» and «Alto contraste»; and the background behind it all.
+ * [wallpaperBlur]: the phone blurs between windows now (MainActivity reads it from the window manager, task 3 of the 2.1
+ * Aspecto), so the window blurs the wallpaper behind «Transparente» and its layer can be a little less opaque.
  */
 @Composable
-fun SeguridadTheme(settings: Settings, content: @Composable () -> Unit) {
+fun SeguridadTheme(settings: Settings, wallpaperBlur: Boolean, content: @Composable () -> Unit) {
     val dark = settings.theme.isDark()
     val wallpaper = wallpaperFromSystem(settings.palette, dark)
-    // 2.1, Aspecto: whether the window blurs the wallpaper behind «Transparente»; task 3 reads it from the window.
-    val wallpaperBlur = false
     val look = remember(settings.style, settings.palette, settings.custom, settings.reduceTransparency, settings.highContrast, dark, wallpaper, wallpaperBlur) {
         lookFor(
             settings.style, settings.palette, settings.custom, settings.reduceTransparency, settings.highContrast, dark,

@@ -17,7 +17,12 @@ import app.seguridad.ui.AppNavHost
 import app.seguridad.ui.ClipboardHistoryNotice
 import app.seguridad.ui.NoLearningInput
 import app.seguridad.ui.theme.SeguridadTheme
+import app.seguridad.ui.theme.applyWindowLook
+import app.seguridad.ui.theme.crossWindowBlurEnabled
+import app.seguridad.ui.theme.currentLook
 import app.seguridad.ui.theme.isDark
+import app.seguridad.ui.theme.showsWallpaper
+import app.seguridad.ui.theme.windowLookFor
 import app.seguridad.vault.AWAY_BACKSTOP_MS
 import app.seguridad.vault.LockReason
 import app.seguridad.vault.VaultLock
@@ -39,16 +44,27 @@ class MainActivity : FragmentActivity() {
         intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, MainActivity::class.java)
         // Before anything is drawn, for every screen, dialog and menu of the app.
         secureWindow()
+        // 2.1, Aspecto (task 3): the window's own background, put back when «Transparente» stops showing the wallpaper.
+        val opaqueBackground = window.decorView.background
         setContent {
             val settings by container.settings.settings.collectAsStateWithLifecycle()
             val dark = settings.theme.isDark()
+            // Whether the phone blurs between windows now (Android 12+): the window blurs the wallpaper with it.
+            val blurOn = crossWindowBlurEnabled()
             // System bar icons follow the app's theme, not the phone's.
             DisposableEffect(dark) {
                 val style = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            SeguridadTheme(settings) {
+            SeguridadTheme(settings, wallpaperBlur = blurOn) {
+                // «Transparente»: the window shows the wallpaper (blurred when it can) and stops when the look is opaque or
+                // another style; the next effect puts its own, so nothing to undo on dispose (ui/theme/WallpaperWindow.kt).
+                val showWallpaper = showsWallpaper(currentLook)
+                DisposableEffect(showWallpaper, blurOn) {
+                    applyWindowLook(window, windowLookFor(showWallpaper, Build.VERSION.SDK_INT, blurOn), opaqueBackground)
+                    onDispose { }
+                }
                 // A7: no keyboard learns from any field, dialogs included. A14: the clipboard notice, for every screen.
                 NoLearningInput {
                     AppNavHost(container)

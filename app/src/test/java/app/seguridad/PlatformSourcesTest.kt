@@ -1391,4 +1391,45 @@ class PlatformSourcesTest {
             helper.trim().lines().map { it.trim() },
         )
     }
+
+    /**
+     * 2.1, Aspecto (task 3; O-A3, O-A4, B-2): «Transparente» asks Android to draw the wallpaper behind the activity's own
+     * window, at run time, and blurs it there from Android 12. The window stays secure (secureWindow() before any
+     * content, and the wallpaper's switch never touches FLAG_SECURE), no window or theme of the app is see-through to
+     * other apps, nothing reads the wallpaper's image and the manifest asks for nothing new.
+     */
+    @Test fun `2_1 the window shows the wallpaper at run time and stays secure`() {
+        val activity = code("MainActivity.kt")
+        val content = activity.indexOf("setContent {")
+        assertTrue(activity.indexOf("secureWindow()") in 0 until content)
+        assertTrue(activity.indexOf("val opaqueBackground = window.decorView.background") in 0 until content)
+        assertTrue("val blurOn = crossWindowBlurEnabled()" in activity)
+        assertTrue("SeguridadTheme(settings, wallpaperBlur = blurOn) {" in activity)
+        assertTrue("DisposableEffect(showWallpaper, blurOn) {" in activity)
+        assertTrue("applyWindowLook(window, windowLookFor(showWallpaper, Build.VERSION.SDK_INT, blurOn), opaqueBackground)" in activity)
+        assertFalse("val wallpaperBlur = false" in code("ui/theme/Theme.kt"))
+        val window = code("ui/theme/WallpaperWindow.kt")
+        val apply = window.substringAfter("fun applyWindowLook(").substringBefore("\n}\n")
+        assertFalse(apply, "FLAG_SECURE" in apply || "setFlags" in apply)
+        assertTrue(apply, "window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
+        assertTrue(apply, "window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
+        assertTrue(apply, "window.setBackgroundDrawable(opaqueBackground)" in apply)
+        val listener = window.substringAfter("fun crossWindowBlurEnabled(): Boolean {")
+        assertTrue("addCrossWindowBlurEnabledListener" in listener && "removeCrossWindowBlurEnabledListener" in listener)
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/AndroidManifest.xml").isFile) dir = dir.parentFile
+        val mainSrc = File(dir, "app/src/main")
+        for (f in mainSrc.walkTopDown().filter { it.isFile && it.extension in setOf("kt", "xml") }) {
+            val text = f.readText()
+            for (bad in listOf("windowIsTranslucent", "Theme.Translucent", "setTranslucent", "WallpaperManager", "windowShowWallpaper")) {
+                assertFalse("$bad in ${f.path}", bad in text)
+            }
+        }
+        val manifest = File(mainSrc, "AndroidManifest.xml").readText()
+        assertFalse("SHOW_WALLPAPER" in manifest || "Wallpaper" in manifest)
+        assertEquals(
+            listOf("android.permission.INTERNET", "android.permission.CAMERA"),
+            Regex("""<uses-permission android:name="([^"]+)"""").findAll(manifest).map { it.groupValues[1] }.toList(),
+        )
+    }
 }
