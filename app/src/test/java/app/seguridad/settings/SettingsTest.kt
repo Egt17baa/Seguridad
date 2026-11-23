@@ -106,6 +106,32 @@ class SettingsTest {
         }
     }
 
+    /**
+     * 2.1, Aspecto: un estilo que esta versión no conoce (uno de una versión posterior) se lee como «Cristal», y los demás
+     * ajustes se quedan (así lee la 2.0 los estilos nuevos de la 2.1).
+     */
+    @Test fun anUnknownStyleIsReadAsCristal() = runTest {
+        file().writeText("""{"lockAfter":"MIN_1","style":"SOMETHING_LATER","palette":"OCEAN"}""")
+        val s = store().apply { load() }.settings.value
+        assertEquals(ThemeStyle.GLASS, s.style)
+        assertEquals(LockAfter.MIN_1, s.lockAfter)
+        assertEquals(PaletteId.OCEAN, s.palette)
+        assertEquals(ThemeStyle.GLASS, decodeSettings("""{"style":"SOMETHING_LATER","theme":"LIGHT"}""").style)
+        assertEquals(ThemeMode.LIGHT, decodeSettings("""{"style":"SOMETHING_LATER","theme":"LIGHT"}""").theme)
+    }
+
+    /** 2.1, Aspecto: los tres estilos nuevos se guardan con su nombre y se leen igual. */
+    @Test fun everyNewStyleIsSavedAndReadBack() = runTest {
+        for (style in listOf(ThemeStyle.GRADIENT, ThemeStyle.GLASS_STRONG, ThemeStyle.TRANSPARENT)) {
+            store().apply {
+                load()
+                update { it.copy(style = style) }
+            }
+            assertTrue(file().readText(), file().readText().contains("\"style\":\"${style.name}\""))
+            assertEquals(style, store().apply { load() }.settings.value.style)
+        }
+    }
+
     /** Review M-5: «Personalizado» saved without its tones reads as «Noche»; with them it stays. */
     @Test fun aCustomWithoutTonesIsNight() = runTest {
         file().writeText("""{"palette":"CUSTOM"}""")

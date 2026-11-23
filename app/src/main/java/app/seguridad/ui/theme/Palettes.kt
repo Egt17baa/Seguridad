@@ -27,6 +27,10 @@ import kotlin.math.roundToLong
  * - the opacity of each kind of panel is raised until that holds on the panel blended with the darkest and the lightest
  *   point of the background, and, for a bar, a dialog or a menu that does not blur, over pure white and pure black too
  *   (what scrolls behind it, R-C5).
+ * 2.1, Aspecto: «Vidrio» starts its panels more see-through, and «Transparente» first finds how opaque the layer of the
+ * background over the wallpaper must be for every text to read on it over pure white and pure black ([AppColors.scrimAlpha]),
+ * and then measures its panels over that layer instead of over the background. «Sólido» and «Degradado» take the colours of
+ * «Cristal» (their panels are opaque, ui/theme/Glass.kt).
  * The six palettes are chosen for Clavero (R-C9). «Personalizado» and the colours of the wallpaper go through the same
  * steps (R-C6). The tests measure the result on their own (PalettesTest, GlassContrastTest, TagPaletteThemeTest).
  */
@@ -49,7 +53,8 @@ data class WallpaperSeeds(val accentHue: Float, val backgroundHue: Float, val sa
 /**
  * The colours of a theme: the Material [scheme] (its surfaces are the opaque colours of the panels), the [status]
  * colours, the [background] with its blobs and how opaque each kind of panel is ([panelAlpha]). [highlightAlpha] is the
- * white of the highlight at the top of a panel; [border] and [borderWidth] (dp) its edge.
+ * white of the highlight at the top of a panel; [border] and [borderWidth] (dp) its edge. [scrimAlpha] is how opaque the
+ * layer of the background is over the wallpaper in «Transparente» (1 in the other styles).
  */
 @Immutable
 data class AppColors(
@@ -66,6 +71,7 @@ data class AppColors(
     val highlightAlpha: Float,
     val border: Color,
     val borderWidth: Float,
+    val scrimAlpha: Float,
 )
 
 /** The colour of a panel of [level], before its opacity. */
@@ -100,24 +106,41 @@ private const val UNBLURRED_EXTRA = 0.1f
  * not be corrected to every target (the builder says so, [Built.met]), «Noche» is shown instead: what is drawn always
  * reads. The same for «Personalizado», whose 432 choices the tests measure all.
  */
-fun colorsFor(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highContrast: Boolean, wallpaper: WallpaperSeeds? = null): AppColors =
-    builtFor(palette, custom, dark, highContrast, wallpaper).colors
+fun colorsFor(
+    palette: PaletteId,
+    custom: CustomPalette?,
+    dark: Boolean,
+    highContrast: Boolean,
+    wallpaper: WallpaperSeeds? = null,
+    style: ThemeStyle = ThemeStyle.GLASS,
+): AppColors = builtFor(palette, custom, dark, highContrast, wallpaper, style).colors
 
 /** Whether the colors of [colorsFor] reached every target themselves, without falling back to «Noche». */
-internal fun paletteMeets(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highContrast: Boolean, wallpaper: WallpaperSeeds? = null): Boolean {
-    val spec = specFor(palette, custom, wallpaper)
-    return cached(spec, dark, highContrast).met
+internal fun paletteMeets(
+    palette: PaletteId,
+    custom: CustomPalette?,
+    dark: Boolean,
+    highContrast: Boolean,
+    wallpaper: WallpaperSeeds? = null,
+    style: ThemeStyle = ThemeStyle.GLASS,
+): Boolean = cached(specFor(palette, custom, wallpaper, style), dark, highContrast).met
+
+/** What the colours of [style] are worked out as: «Sólido» and «Degradado» as «Cristal» (their panels are opaque anyway). */
+private fun kindOf(style: ThemeStyle): ThemeStyle = when (style) {
+    ThemeStyle.GLASS, ThemeStyle.SOLID, ThemeStyle.GRADIENT -> ThemeStyle.GLASS
+    ThemeStyle.GLASS_STRONG -> ThemeStyle.GLASS_STRONG
+    ThemeStyle.TRANSPARENT -> ThemeStyle.TRANSPARENT
 }
 
-private fun specFor(palette: PaletteId, custom: CustomPalette?, wallpaper: WallpaperSeeds?): Spec = when (palette) {
+private fun specFor(palette: PaletteId, custom: CustomPalette?, wallpaper: WallpaperSeeds?, style: ThemeStyle): Spec = when (palette) {
     PaletteId.WALLPAPER -> wallpaper?.let(::wallpaperSpec) ?: NAMED.getValue(PaletteId.NIGHT)
     PaletteId.CUSTOM -> custom?.let { customSpec(fixContrast(it)) } ?: NAMED.getValue(PaletteId.NIGHT)
     else -> NAMED.getValue(palette)
-}
+}.copy(kind = kindOf(style))
 
-private fun builtFor(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highContrast: Boolean, wallpaper: WallpaperSeeds?): Built {
-    val built = cached(specFor(palette, custom, wallpaper), dark, highContrast)
-    return if (built.met) built else cached(NAMED.getValue(PaletteId.NIGHT), dark, highContrast)
+private fun builtFor(palette: PaletteId, custom: CustomPalette?, dark: Boolean, highContrast: Boolean, wallpaper: WallpaperSeeds?, style: ThemeStyle): Built {
+    val built = cached(specFor(palette, custom, wallpaper, style), dark, highContrast)
+    return if (built.met) built else cached(NAMED.getValue(PaletteId.NIGHT).copy(kind = kindOf(style)), dark, highContrast)
 }
 
 /**
@@ -155,9 +178,13 @@ fun PaletteId.label(): String = when (this) {
     PaletteId.CUSTOM -> "Personalizado"
 }
 
+/** The names of the styles in Ajustes → Aspecto (O-A1, O-C4: none is the name of another system's or app's look). */
 fun ThemeStyle.label(): String = when (this) {
-    ThemeStyle.GLASS -> "Cristal"
     ThemeStyle.SOLID -> "Sólido"
+    ThemeStyle.GRADIENT -> "Degradado"
+    ThemeStyle.GLASS -> "Cristal"
+    ThemeStyle.GLASS_STRONG -> "Vidrio"
+    ThemeStyle.TRANSPARENT -> "Transparente"
 }
 
 fun GlassLevel.label(): String = when (this) {
@@ -186,7 +213,15 @@ fun wallpaperSeeds(accent: Color, background: Color): WallpaperSeeds {
 /** A hue (degrees) and a saturation (0 to 1) of HSL: the lightness is found for each use. */
 private data class Tone(val h: Double, val s: Double)
 
-private data class Spec(val accent: Tone, val bg: Tone, val bg2: Tone, val blobs: List<Tone>, val glass: GlassLevel)
+/** The tones of a palette and the [kind] of panels it is worked out for (GLASS, GLASS_STRONG or TRANSPARENT, [kindOf]). */
+private data class Spec(
+    val accent: Tone,
+    val bg: Tone,
+    val bg2: Tone,
+    val blobs: List<Tone>,
+    val glass: GlassLevel,
+    val kind: ThemeStyle = ThemeStyle.GLASS,
+)
 
 private val NAMED: Map<PaletteId, Spec> = mapOf(
     // Añil y oro, the logo's (the default).
@@ -220,6 +255,9 @@ private val BLOB_PLACES = listOf(Triple(0.18f, 0.10f, 0.55f), Triple(0.92f, 0.42
 
 private class Built(val colors: AppColors, val met: Boolean)
 
+/** A text colour to be found: its [tone], the luminance its lightness starts from and the [ratio] it must reach. */
+private class TextTone(val tone: Tone, val start: Double, val ratio: Double)
+
 /** The last palettes worked out (each takes about a millisecond): a theme, its preview and «Personalizado» ask again often. */
 private val cache = object : LinkedHashMap<Triple<Spec, Boolean, Boolean>, Built>(64, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Triple<Spec, Boolean, Boolean>, Built>?) = size > 64
@@ -236,12 +274,26 @@ private fun cached(spec: Spec, dark: Boolean, highContrast: Boolean): Built {
 private const val WHITE = 0xFFFFFFFFL
 private const val BLACK = 0xFF000000L
 
-/** The nominal opacity of a card, a bar and an overlay for each intensity of the glass, before the correction. */
-private fun nominal(level: PanelLevel, glass: GlassLevel): Double = when (level) {
-    PanelLevel.CARD -> when (glass) { GlassLevel.LOW -> 0.78; GlassLevel.MEDIUM -> 0.60; GlassLevel.HIGH -> 0.42 }
-    PanelLevel.BAR -> when (glass) { GlassLevel.LOW -> 0.86; GlassLevel.MEDIUM -> 0.76; GlassLevel.HIGH -> 0.66 }
-    PanelLevel.OVERLAY -> when (glass) { GlassLevel.LOW -> 0.92; GlassLevel.MEDIUM -> 0.85; GlassLevel.HIGH -> 0.78 }
+/**
+ * The nominal opacity of a card, a bar and an overlay for each intensity of the glass, before the correction. «Vidrio»
+ * ([ThemeStyle.GLASS_STRONG]) starts lower; the correction raises it as far as every text needs, as for «Cristal».
+ */
+private fun nominal(level: PanelLevel, glass: GlassLevel, kind: ThemeStyle): Double {
+    val base = when (level) {
+        PanelLevel.CARD -> when (glass) { GlassLevel.LOW -> 0.78; GlassLevel.MEDIUM -> 0.60; GlassLevel.HIGH -> 0.42 }
+        PanelLevel.BAR -> when (glass) { GlassLevel.LOW -> 0.86; GlassLevel.MEDIUM -> 0.76; GlassLevel.HIGH -> 0.66 }
+        PanelLevel.OVERLAY -> when (glass) { GlassLevel.LOW -> 0.92; GlassLevel.MEDIUM -> 0.85; GlassLevel.HIGH -> 0.78 }
+    }
+    if (kind != ThemeStyle.GLASS_STRONG) return base
+    return base - when (level) {
+        PanelLevel.CARD -> 0.12
+        PanelLevel.BAR -> 0.08
+        PanelLevel.OVERLAY -> 0.06
+    }
 }
+
+/** The least opacity of the layer of «Transparente», in hundredths. */
+private const val SCRIM_FROM = 80
 
 private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
     var met = true
@@ -290,18 +342,48 @@ private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
     for (c in listOf(sContainer, sHigh, bgDarkest, bgLightest)) against += blend(WHITE, highlight, c)
     for (c in against) if (!withinTags(c)) met = false
 
-    fun text(t: Tone, start: Double, ratio: Double = textRatio, on: List<Long> = against): Long =
-        t.reaching(start, lighter = dark, ratio, on).also { if (!meets(it, ratio, on)) met = false }
+    // The colours a text is written in on the panels and the background: the tone, where its lightness starts, its ratio.
+    val onSurfaceTone = TextTone(Tone(spec.bg.h, 0.12), l(0.80, 0.015), textRatio)
+    val onSurfaceVariantTone = TextTone(Tone(spec.bg.h, 0.12), l(0.36, 0.10), textRatio)
+    val primaryTone = TextTone(spec.accent, l(0.42, 0.10), textRatio)
+    val secondaryTone = TextTone(Tone(spec.bg.h, 0.25), l(0.36, 0.10), textRatio)
+    val tertiaryTone = TextTone(Tone(spec.accent.h + 40, 0.60), l(0.40, 0.10), textRatio)
+    val errorTone = TextTone(Tone(0.0, l(0.85, 0.75)), l(0.30, 0.10), textRatio)
+    val positiveTone = TextTone(Tone(140.0, l(0.60, 0.70)), l(0.36, 0.09), textRatio)
+    val cautionTone = TextTone(Tone(l(44.0, 32.0), 0.90), l(0.45, 0.09), textRatio)
+    val outlineTone = TextTone(Tone(spec.bg.h, 0.12), l(0.16, 0.24), 3.0)
+    val textTones = listOf(
+        onSurfaceTone, onSurfaceVariantTone, primaryTone, secondaryTone, tertiaryTone, errorTone, positiveTone, cautionTone, outlineTone,
+    )
+    fun TextTone.on(on: List<Long>): Long = tone.reaching(start, lighter = dark, ratio, on)
 
-    val onSurface = text(Tone(spec.bg.h, 0.12), l(0.80, 0.015))
-    val onSurfaceVariant = text(Tone(spec.bg.h, 0.12), l(0.36, 0.10))
-    val primary = text(spec.accent, l(0.42, 0.10))
-    val secondary = text(Tone(spec.bg.h, 0.25), l(0.36, 0.10))
-    val tertiary = text(Tone(spec.accent.h + 40, 0.60), l(0.40, 0.10))
-    val error = text(Tone(0.0, l(0.85, 0.75)), l(0.30, 0.10))
-    val positive = text(Tone(140.0, l(0.60, 0.70)), l(0.36, 0.09))
-    val caution = text(Tone(l(44.0, 32.0), 0.90), l(0.45, 0.09))
-    val outline = text(Tone(spec.bg.h, 0.12), l(0.16, 0.24), ratio = 3.0)
+    // «Transparente»: the background is a layer over the wallpaper, which can be any colour, so pure white and pure black
+    // under each end of the gradient. The layer is the least opacity, in hundredths from SCRIM_FROM, on which every text
+    // can be corrected to read (opaque in «Alto contraste»); its four colours are then what a text and a panel sit on.
+    // The tag bound is not asked of the bare layer: tags sit on the panels, and every panel over it is checked below.
+    val transparent = spec.kind == ThemeStyle.TRANSPARENT
+    fun layerAt(a: Float): List<Long> = listOf(top, bottom).flatMap { e -> listOf(blend(e, a.toDouble(), WHITE), blend(e, a.toDouble(), BLACK)) }
+    var scrim = 1f
+    if (transparent && !hc) {
+        fun readsOn(a: Float) = (against + layerAt(a)).let { on -> textTones.all { t -> meets(t.on(on), t.ratio, on) } }
+        var hundredths = SCRIM_FROM
+        while (hundredths < 100 && !readsOn(hundredths / 100f)) hundredths++
+        // Not even opaque: met is false through the texts below, and «Noche» is shown.
+        scrim = min(100, hundredths) / 100f
+    }
+    if (transparent) against += layerAt(scrim)
+
+    fun text(t: TextTone): Long = t.on(against).also { if (!meets(it, t.ratio, against)) met = false }
+
+    val onSurface = text(onSurfaceTone)
+    val onSurfaceVariant = text(onSurfaceVariantTone)
+    val primary = text(primaryTone)
+    val secondary = text(secondaryTone)
+    val tertiary = text(tertiaryTone)
+    val error = text(errorTone)
+    val positive = text(positiveTone)
+    val caution = text(cautionTone)
+    val outline = text(outlineTone)
 
     // A text on its own container: dark on the accent in a dark theme, light on it in a light one.
     fun onColour(t: Tone, start: Double, under: Long) =
@@ -334,11 +416,12 @@ private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
         if (hundredths >= 100 && !ok(1f)) met = false
         return min(100, hundredths) / 100f
     }
-    val ends = listOf(bgDarkest, bgLightest)
+    // What is behind a panel: the background's ends, or in «Transparente» its layer over white and over black.
+    val ends = if (transparent) layerAt(scrim) else listOf(bgDarkest, bgLightest)
     val anything = ends + listOf(WHITE, BLACK)
-    val card = if (hc) 1f else opacity(nominal(PanelLevel.CARD, spec.glass), sContainer, ends)
-    val bar = if (hc) 1f else opacity(nominal(PanelLevel.BAR, spec.glass), sContainer, ends)
-    val overlay = if (hc) 1f else opacity(nominal(PanelLevel.OVERLAY, spec.glass), sHigh, ends)
+    val card = if (hc) 1f else opacity(nominal(PanelLevel.CARD, spec.glass, spec.kind), sContainer, ends)
+    val bar = if (hc) 1f else opacity(nominal(PanelLevel.BAR, spec.glass, spec.kind), sContainer, ends)
+    val overlay = if (hc) 1f else opacity(nominal(PanelLevel.OVERLAY, spec.glass, spec.kind), sHigh, ends)
     val floor = if (hc) 1f else max(opacity(0.5, sContainer, anything), opacity(0.5, sHigh, anything))
     if (!reads(sContainer) || !reads(sHigh)) met = false
 
@@ -385,6 +468,7 @@ private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
         highlightAlpha = highlight.toFloat(),
         border = if (hc) c(onSurfaceVariant) else Color.White.copy(alpha = if (dark) 0.14f else 0.75f),
         borderWidth = if (hc) 2f else 1f,
+        scrimAlpha = scrim,
     )
     return Built(colors, met)
 }
