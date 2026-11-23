@@ -328,6 +328,8 @@ class EntryEditSession(
      */
     fun changeType(to: EntryType) {
         type.value = to
+        // 2.1: a code waiting to replace a wifi's fields goes when the entry stops being a wifi.
+        if (to != EntryType.WIFI) wifiReplace.value = null
         val field = Templates.fieldsFor(to).firstOrNull { it.expires } ?: return
         val typed = expiresText.value.trim()
         if (typed.isNotEmpty() && templateValue(to, field.key).isBlank()) setTemplateValue(to, field.key, typed)
@@ -651,11 +653,14 @@ class EntryEditSession(
         }
     }
 
-    /** «Sustituir» in the dialog: the code waiting in [wifiReplace] fills the fields. Nothing once a lock cleared it. */
+    /**
+     * «Sustituir» in the dialog: the code waiting in [wifiReplace] fills the fields. Nothing once a lock cleared it, nor
+     * (as in [scanWifi]) on an existing entry or a type other than wifi.
+     */
     fun confirmWifiReplace() {
         val r = wifiReplace.value ?: return
         wifiReplace.value = null
-        if (!loaded) return
+        if (!loaded || existing.value != null || type.value != EntryType.WIFI) return
         fillWifi(r.config)
     }
 

@@ -61,7 +61,7 @@ class SimpleModeTest {
             .filter { f -> Regex("""\b(simpleMode|simpleOn|visibleTools)\b""").containsMatchIn(f.readText()) }
             .map { it.relativeTo(main).invariantSeparatorsPath }.toSet()
         assertTrue("Readers of simple mode: ${readers - allowed}", (readers - allowed).isEmpty())
-        val form = code("vault/EntryForm.kt").lines().filter { Regex("""\bsimpleMode\b""").containsMatchIn(it) }.map { it.trim() }
+        val form = code("vault/EntryForm.kt").lines().filter { Regex("""\b(simpleMode|simpleOn|visibleTools)\b""").containsMatchIn(it) }.map { it.trim() }
         assertEquals(
             "The form reads it only to choose the text of a code that is not wifi",
             listOf(

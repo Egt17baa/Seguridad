@@ -731,4 +731,33 @@ class EntryEditSessionTest {
         assertFalse(shown, "clave-muy-secreta" in shown)
         assertFalse(shown, "RedSecretaNombre" in shown)
     }
+
+    @Test fun aPendingReplaceGoesWhenTheTypeLeavesWifi() {
+        val s = newWifi()
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Mía")
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        assertNotNull(s.wifiReplace.value)
+        s.changeType(EntryType.LOGIN)
+        assertNull(s.wifiReplace.value)
+        s.confirmWifiReplace()
+        assertEquals(EntryType.LOGIN, s.type.value)
+        assertEquals("Mía", s.wifi(WIFI_SSID_KEY))
+        assertEquals("", s.wifi(WIFI_PASSWORD_KEY))
+        assertEquals("", s.title.value)
+        assertNull(s.wifiReplace.value)
+    }
+
+    @Test fun confirmFillsNothingOnAnotherType() {
+        // Even if a replace were pending with the type no longer wifi (the cell set by hand), «Sustituir» fills nothing.
+        val s = newWifi()
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Mía")
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        val pending = s.wifiReplace.value
+        s.type.value = EntryType.LOGIN
+        s.wifiReplace.value = pending
+        s.confirmWifiReplace()
+        assertEquals(EntryType.LOGIN, s.type.value)
+        assertEquals("Mía", s.wifi(WIFI_SSID_KEY))
+        assertNull(s.wifiReplace.value)
+    }
 }

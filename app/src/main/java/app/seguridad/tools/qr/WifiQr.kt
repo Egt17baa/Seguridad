@@ -412,18 +412,33 @@ const val QR_WIFI_UNREADABLE =
 /**
  * What the inspector and the form say about a wifi code that is read but not kept ([WifiRead.Unsupported]), for [why].
  * For [WifiNotKept.SECURITY], [security] is the type as the code says it: shown with what draws nothing marked
- * ([visibleText]) and then through [plainReportText], cut to 32 characters (R-1 of the Abogado Digital, 2.1), so a code
- * cannot fill the screen or turn the line around with it.
+ * ([visibleText]) and then through [plainReportText], at most 32 characters (R-1 of the Abogado Digital, 2.1), so a code
+ * cannot fill the screen or turn the line around with it ([shownSecurity]).
  */
 fun wifiNotKeptText(why: WifiNotKept, security: String): String = when (why) {
-    WifiNotKept.SECURITY -> qrWifiOtherSecurity(plainReportText(visibleText(security), WIFI_SECURITY_SHOWN_MAX))
+    WifiNotKept.SECURITY -> qrWifiOtherSecurity(shownSecurity(security))
     WifiNotKept.PASSWORD_WITHOUT_TYPE -> QR_WIFI_PASSWORD_WITHOUT_TYPE
     WifiNotKept.SETTING -> QR_WIFI_NOT_ADDABLE
     WifiNotKept.NAME_SPACES -> QR_WIFI_NAME_SPACES
 }
 
-/** The most characters of a code's type of security that [wifiNotKeptText] shows. */
+/** The most characters of a code's type of security that [wifiNotKeptText] shows, «…» included. */
 private const val WIFI_SECURITY_SHOWN_MAX = 32
+
+/**
+ * [security] as [wifiNotKeptText] shows it: whole when it fits in [WIFI_SECURITY_SHOWN_MAX] characters; otherwise cut,
+ * at the end of a code point and never inside a mark of [visibleText] (`⟨U+…⟩`, left out whole when it does not fit),
+ * and ended with «…». The text read is bounded ([WIFI_QR_MAX_CHARS]) before it gets here.
+ */
+private fun shownSecurity(security: String): String {
+    val v = plainReportText(visibleText(security), Int.MAX_VALUE)
+    if (v.length <= WIFI_SECURITY_SHOWN_MAX) return v
+    var end = WIFI_SECURITY_SHOWN_MAX - 1
+    if (Character.isHighSurrogate(v[end - 1])) end--
+    val open = v.lastIndexOf('\u27E8', end - 1)
+    if (open >= 0 && v.indexOf('\u27E9', open) >= end) end = open
+    return v.substring(0, end) + "\u2026"
+}
 
 /**
  * 2.1, «Añadir → Red WiFi»: a code read there that is not a wifi code ([WifiQr.read] null). Nothing of it is shown,
@@ -441,6 +456,7 @@ const val WIFI_SCAN_REPLACE_TITLE_TYPED = "¿Sustituir lo escrito?"
 /** The same dialog when those fields hold what an earlier code brought, untouched (O-2). */
 const val WIFI_SCAN_REPLACE_TITLE_FILLED = "¿Sustituir los datos de la red?"
 
+/** The same dialog's text: the four fields it replaces, by the names the form gives them. */
 const val WIFI_SCAN_REPLACE_TEXT = "«Nombre de la red», «Contraseña», «Tipo de seguridad» y «Red oculta» pasarán a ser los del código."
 
 /** The dialog's button that replaces them («Cancelar» is the app's own). */
