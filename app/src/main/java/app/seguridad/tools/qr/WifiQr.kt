@@ -7,6 +7,7 @@ import app.seguridad.vault.WIFI_SECURITY_KEY
 import app.seguridad.vault.WIFI_SECURITY_VALUES
 import app.seguridad.vault.WIFI_SSID_KEY
 import app.seguridad.core.drawsNothing
+import app.seguridad.imports.plainReportText
 import java.util.Locale
 
 /*
@@ -408,6 +409,43 @@ const val QR_WIFI_NAME_SPACES = "El nombre de esta red empieza o termina con un 
 const val QR_WIFI_UNREADABLE =
     "Clavero no puede leer este código de wifi con seguridad: otro lector podría ver en él otra red u otra contraseña. No se añade a la bóveda."
 
+/**
+ * What the inspector and the form say about a wifi code that is read but not kept ([WifiRead.Unsupported]), for [why].
+ * For [WifiNotKept.SECURITY], [security] is the type as the code says it: shown with what draws nothing marked
+ * ([visibleText]) and then through [plainReportText], cut to 32 characters (R-1 of the Abogado Digital, 2.1), so a code
+ * cannot fill the screen or turn the line around with it.
+ */
+fun wifiNotKeptText(why: WifiNotKept, security: String): String = when (why) {
+    WifiNotKept.SECURITY -> qrWifiOtherSecurity(plainReportText(visibleText(security), WIFI_SECURITY_SHOWN_MAX))
+    WifiNotKept.PASSWORD_WITHOUT_TYPE -> QR_WIFI_PASSWORD_WITHOUT_TYPE
+    WifiNotKept.SETTING -> QR_WIFI_NOT_ADDABLE
+    WifiNotKept.NAME_SPACES -> QR_WIFI_NAME_SPACES
+}
+
+/** The most characters of a code's type of security that [wifiNotKeptText] shows. */
+private const val WIFI_SECURITY_SHOWN_MAX = 32
+
+/**
+ * 2.1, «Añadir → Red WiFi»: a code read there that is not a wifi code ([WifiQr.read] null). Nothing of it is shown,
+ * copied or passed on (R-5): the inspector, which says what may be harmful, is where to look at it.
+ */
+const val WIFI_SCAN_NOT_WIFI = "Este código no es de una red wifi. Para ver qué contiene, usa el Inspector de QR de Herramientas."
+
+/** The same with «Modo sencillo» on, where the inspector is not in «Herramientas» (O-1 of the Abogado Digital, 2.1). */
+const val WIFI_SCAN_NOT_WIFI_SIMPLE =
+    "Este código no es de una red wifi. Para ver qué contiene, apaga «Modo sencillo» en Ajustes y usa el Inspector de QR de Herramientas."
+
+/** The dialog before a code replaces what the person typed in the four fields of the network (O-2). */
+const val WIFI_SCAN_REPLACE_TITLE_TYPED = "¿Sustituir lo escrito?"
+
+/** The same dialog when those fields hold what an earlier code brought, untouched (O-2). */
+const val WIFI_SCAN_REPLACE_TITLE_FILLED = "¿Sustituir los datos de la red?"
+
+const val WIFI_SCAN_REPLACE_TEXT = "«Nombre de la red», «Contraseña», «Tipo de seguridad» y «Red oculta» pasarán a ser los del código."
+
+/** The dialog's button that replaces them («Cancelar» is the app's own). */
+const val WIFI_SCAN_REPLACE = "Sustituir"
+
 /** The inspector, in place of the full text of any wifi code while it is hidden: it may carry a password. */
 const val QR_TEXT_HIDDEN_WIFI = "El texto completo puede llevar una contraseña: toca «Mostrar» para verlo."
 
@@ -417,4 +455,6 @@ val WIFI_QR_TEXTS: List<String> = listOf(
     WIFI_QR_IMAGE, WIFI_QR_NO_NAME, WIFI_QR_NO_SECURITY, WIFI_QR_NO_PASSWORD, WIFI_QR_TOO_BIG, WIFI_QR_FAILED, WIFI_QR_NOT_ADDED,
     QR_WIFI_NOT_ADDABLE, qrWifiOtherSecurity("WPA3"), QR_WIFI_PASSWORD_WITHOUT_TYPE, QR_WIFI_NAME_SPACES, QR_WIFI_UNREADABLE,
     QR_TEXT_HIDDEN_WIFI, wifiQrNameHidden("\u27E8U+200B\u27E9"),
+    WIFI_SCAN_NOT_WIFI, WIFI_SCAN_NOT_WIFI_SIMPLE, WIFI_SCAN_REPLACE_TITLE_TYPED, WIFI_SCAN_REPLACE_TITLE_FILLED,
+    WIFI_SCAN_REPLACE_TEXT, WIFI_SCAN_REPLACE,
 )

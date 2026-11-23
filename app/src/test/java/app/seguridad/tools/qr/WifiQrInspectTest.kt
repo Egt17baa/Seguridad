@@ -129,4 +129,19 @@ class WifiQrInspectTest {
             assertEquals(t, v.textHidden, v.hiddenLine != null)
         }
     }
+
+    @Test fun wifiNotKeptTextShortensAndShowsTheType() {
+        // R-1 of the Abogado (2.1): the type that comes from the code is cut and shown with what draws nothing marked.
+        val long = "A".repeat(100) + "\u202E" + "A".repeat(100)
+        val text = wifiNotKeptText(WifiNotKept.SECURITY, long)
+        assertEquals(qrWifiOtherSecurity("A".repeat(32)), text)
+        assertTrue('\u202E' !in text)
+        assertEquals(qrWifiOtherSecurity("WPA\u27E8U+202E\u27E93"), wifiNotKeptText(WifiNotKept.SECURITY, "WPA\u202E3"))
+        assertEquals(qrWifiOtherSecurity("WPA3"), wifiNotKeptText(WifiNotKept.SECURITY, "WPA3"))
+        assertEquals(QR_WIFI_PASSWORD_WITHOUT_TYPE, wifiNotKeptText(WifiNotKept.PASSWORD_WITHOUT_TYPE, "WPA"))
+        assertEquals(QR_WIFI_NOT_ADDABLE, wifiNotKeptText(WifiNotKept.SETTING, "WPA"))
+        assertEquals(QR_WIFI_NAME_SPACES, wifiNotKeptText(WifiNotKept.NAME_SPACES, "WPA"))
+        // The inspector says the same.
+        assertEquals(listOf(qrWifiOtherSecurity("A".repeat(32))), qrView("WIFI:T:${"A".repeat(200)};S:Casa;P:clave;;").notes)
+    }
 }

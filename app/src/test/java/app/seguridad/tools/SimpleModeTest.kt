@@ -53,11 +53,23 @@ class SimpleModeTest {
         val allowed = setOf(
             "settings/Settings.kt", "settings/SettingsStore.kt", "settings/SettingsSearch.kt",
             "tools/ToolCatalog.kt", "ui/screens/ToolsScreen.kt", "ui/screens/SettingsScreen.kt",
+            // 2.1, O-1 of the Abogado Digital: a code that is not wifi, read in «Añadir → Red WiFi», says where the
+            // inspector is, which depends on whether the list shows it. Only that text, in [EntryEditSession.scanWifi].
+            "vault/EntryForm.kt",
         )
         val readers = main.walkTopDown().filter { it.isFile && it.extension == "kt" }
             .filter { f -> Regex("""\b(simpleMode|simpleOn|visibleTools)\b""").containsMatchIn(f.readText()) }
             .map { it.relativeTo(main).invariantSeparatorsPath }.toSet()
         assertTrue("Readers of simple mode: ${readers - allowed}", (readers - allowed).isEmpty())
+        val form = code("vault/EntryForm.kt").lines().filter { Regex("""\bsimpleMode\b""").containsMatchIn(it) }.map { it.trim() }
+        assertEquals(
+            "The form reads it only to choose the text of a code that is not wifi",
+            listOf(
+                "fun scanWifi(raw: String, simpleMode: Boolean) {",
+                "null -> error.value = if (simpleMode) WIFI_SCAN_NOT_WIFI_SIMPLE else WIFI_SCAN_NOT_WIFI",
+            ),
+            form,
+        )
         val settings = code("ui/screens/SettingsScreen.kt").lines().filterNot { it.startsWith("import ") }.joinToString("\n")
         assertEquals("Ajustes only reads it for its own switch", 2, Regex("""\bsimpleOn\b|\bsimpleMode\b""").findAll(settings).count())
         val tools = code("ui/screens/ToolsScreen.kt")
