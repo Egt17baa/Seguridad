@@ -110,8 +110,9 @@ class PlatformSourcesTest {
             Regex("""rememberDocumentPicker\(([^\n]*)""").findAll(f.readText()).map { f.name to it.groupValues[1] }
         }.filterNot { (_, args) -> args.isBlank() }.toList()
         // 2.0, task 1: +1, the copy before the upgrade to format v4 (VaultUpgrade.kt); task 2: +1, «Importar como bóveda
-        // nueva» (VaultPickerScreen.kt, PickerPlace.IMPORT_COPY).
-        assertEquals(30, calls.size)
+        // nueva» (VaultPickerScreen.kt, PickerPlace.IMPORT_COPY). 2.1, task 2 of the QR de wifi: +1, «Elegir imagen» in
+        // «Añadir → Red WiFi» (VaultEntryScreen.kt, PickerPlace.QR_IMAGE, in memory only).
+        assertEquals(31, calls.size)
         for ((file, args) in calls) assertTrue("$file: $args", Regex("""place = (PickerPlace\.[A-Z_]+|null)""").containsMatchIn(args))
         assertTrue("place = PickerPlace.IMPORT_OTHER" in code("ui/screens/ImportScreen.kt"))
         val settings = code("ui/screens/SettingsScreen.kt")
@@ -1265,5 +1266,35 @@ class PlatformSourcesTest {
         assertTrue(dialog, Regex("""FilterObscuredTouches\(\)\s*Column\(Modifier\.verticalScroll\(rememberScrollState\(\)\)\) \{ Text\(shown\) \}""").containsMatchIn(dialog))
         assertFalse(dialog, "rememberSaveable" in dialog)
     }
-}
 
+    /**
+     * 2.1, QR de wifi (task 2): «Añadir → Red WiFi» reads a network's code with the camera or from an image, as the
+     * inspector does (one reader of images for both, [readQrFromImage]), and hands it to the session with the start of the
+     * reading, so a late result fills only the form it started in. Nothing of the code in saved state, copied or handed to
+     * the inspector (R-5); the image picker is remembered in memory only (O-5).
+     */
+    @Test fun `2_1 the wifi form reads a QR with the camera or an image and never keeps it`() {
+        val src = code("ui/screens/VaultEntryScreen.kt")
+        val screen = src.substringAfter("fun VaultEntryEditScreen(")
+        assertTrue("existing == null && type == EntryType.WIFI" in screen)
+        assertTrue("place = PickerPlace.QR_IMAGE" in screen)
+        assertTrue("readQrFromImage(context, uri)" in screen)
+        assertTrue("form.startWifiRead()" in screen && "form.wifiReadFailed(" in screen)
+        assertTrue("QR_NO_CAMERA_PERMISSION" in screen && "QR_CAMERA_FAILED" in screen && "QR_READING_IMAGE" in screen)
+        assertTrue("form::confirmWifiReplace" in screen && "form::cancelWifiReplace" in screen && "Text(WIFI_SCAN_REPLACE)" in screen)
+        assertTrue("WIFI_SCAN_REPLACE_TITLE_TYPED" in screen && "WIFI_SCAN_REPLACE_TITLE_FILLED" in screen && "WIFI_SCAN_REPLACE_TEXT" in screen)
+        // Two scanners, one launcher each: the 2FA one and the wifi one.
+        assertEquals(2, Regex("""rememberLauncherForActivityResult\(ScanContract\(\)\)""").findAll(screen).count())
+        // Both buttons keep the vault open while the camera or the picker is on top (with the 2FA scanner, three).
+        assertEquals(3, Regex("""VaultLock\.keepOpenOnce = true""").findAll(screen).count())
+        assertEquals(0, Regex("""rememberSaveable|SavedStateHandle|Bundle""").findAll(src).count())
+        assertFalse("copySensitive" in screen || "QrHandoff" in screen || "Log." in screen)
+        val qr = code("ui/screens/QrInspectScreen.kt")
+        assertTrue("readQrFromImage(context, uri)" in qr)
+        assertFalse("decodeQrFromImage" in qr || "readPhoto(" in qr)
+        val read = code("ui/screens/QrImageRead.kt")
+        for (s in listOf("withContext(Dispatchers.IO) { readPhoto(context, uri) }", "withContext(Dispatchers.Default)", "bytes.fill(0)", "QR_NOT_FOUND", "QR_IMAGE_TOO_BIG", "QR_IMAGE_TOO_LARGE", "QR_IMAGE_DAMAGED", "catch (e: OutOfMemoryError)", "catch (e: CancellationException)")) {
+            assertTrue(s, s in read)
+        }
+    }
+}

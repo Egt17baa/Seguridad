@@ -122,6 +122,23 @@ import androidx.compose.foundation.layout.FlowRow
 import com.journeyapps.barcodescanner.ScanContract
 import app.seguridad.android.scanQrOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import android.content.Context
+import app.seguridad.SeguridadApp
+import app.seguridad.core.PickerPlace
+import app.seguridad.settings.simpleOn
+import app.seguridad.tools.QR_CAMERA_FAILED
+import app.seguridad.tools.QR_NO_CAMERA_PERMISSION
+import app.seguridad.tools.QR_PICK_IMAGE
+import app.seguridad.tools.QR_READING_IMAGE
+import app.seguridad.tools.qr.WIFI_SCAN_REPLACE
+import app.seguridad.tools.qr.WIFI_SCAN_REPLACE_TEXT
+import app.seguridad.tools.qr.WIFI_SCAN_REPLACE_TITLE_FILLED
+import app.seguridad.tools.qr.WIFI_SCAN_REPLACE_TITLE_TYPED
+import app.seguridad.vault.WifiReadStart
+import app.seguridad.vault.CANCEL
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
@@ -389,7 +406,14 @@ fun VaultEntryDetailScreen(
  * background. When the entry is gone for good ([onCleared]), everything goes.
  */
 private class EntryEditViewModel(private val store: VaultStore, wordLists: WordLists, id: String?, initialType: EntryType) : ViewModel() {
-    val form = EntryEditSession(ComposeCells, id, initialType, newId = UUID.randomUUID().toString())
+    val form = EntryEditSession(ComposeCells, id, initialType, newId = UUID.randomUUID().toString(), lockEpoch = { store.lockEpoch })
+
+    /**
+     * 2.1, task 2: when the wifi scanner or the image picker of «Añadir → Red WiFi» was opened ([EntryEditSession.startWifiRead]),
+     * here so a re-created activity still has it; its result fills only that form. Taken back when the result comes.
+     */
+    var wifiScanSince: WifiReadStart? = null
+    var wifiPickSince: WifiReadStart? = null
 
     init {
         (store.state.value as? VaultState.Unlocked)?.let { form.load(it.entries) }
@@ -571,6 +595,13 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
 }
 
 /**
+ * 2.1, O-1 of the Abogado Digital: whether «Modo sencillo» is on now, only to choose the text of a code read in «Añadir →
+ * Red WiFi» that is not wifi (where the inspector is). Read when the result comes, from the app's settings.
+ */
+private fun simpleModeOn(context: Context): Boolean =
+    (context.applicationContext as? SeguridadApp)?.container?.settings?.settings?.value?.simpleOn == true
+
+/**
  * A new entry ([id] null) or an existing one. Its state lives in [EntryEditViewModel] (a rotation keeps it). [otpAuthText]
  * is a 2FA text the QR inspector read (`otpauth://` or a Google Authenticator export): applied once per session, exactly
  * as a scan here would be; [onOtpAuthTaken] then lets the caller drop its own copy. [wifiQrText] (2.0, task 9) is a wifi
@@ -650,6 +681,41 @@ fun VaultEntryEditScreen(
         }
     }
 
+    // 2.1, task 2: «Añadir → Red WiFi» reads the network's code with the camera or from an image. Only the session reads
+    // it ([EntryEditSession.scanWifi]), and only in the form the reading started in (a lock or leaving meanwhile: nothing).
+    val scanWifi: (String, WifiReadStart) -> Unit = { raw, since -> form.scanWifi(raw, simpleMode = simpleModeOn(context), since = since) }
+    val wifiScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
+        val since = vm.wifiScanSince.also { vm.wifiScanSince = null } ?: return@rememberLauncherForActivityResult
+        val raw = result.contents
+        when {
+            raw != null -> scanWifi(raw, since)
+            result.originalIntent?.getBooleanExtra(com.google.zxing.client.android.Intents.Scan.MISSING_CAMERA_PERMISSION, false) == true ->
+                form.wifiReadFailed(QR_NO_CAMERA_PERMISSION, since)
+            // Otherwise the user cancelled: nothing to say.
+        }
+    }
+    // The image is read in this screen's scope: leaving the screen cancels it, and nothing of it is kept.
+    val scope = rememberCoroutineScope()
+    var readingImage by remember { mutableStateOf(false) }
+    val pickWifiImage = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.QR_IMAGE) { uri ->
+        VaultLock.keepOpenOnce = false // Back in the app (MainActivity.onStart takes it back too).
+        val since = vm.wifiPickSince.also { vm.wifiPickSince = null } ?: return@rememberDocumentPicker
+        if (uri == null) return@rememberDocumentPicker
+        form.wifiReadBegan(since)
+        readingImage = true
+        scope.launch {
+            try {
+                when (val read = readQrFromImage(context, uri)) {
+                    is QrImageRead.Text -> scanWifi(read.text, since)
+                    is QrImageRead.Error -> form.wifiReadFailed(read.message, since)
+                }
+            } finally {
+                readingImage = false
+            }
+        }
+    }
+
     // 2.0, task 7: «Atrás» with changes asks first (the bar's arrow, the system's back and its predictive gesture); with
     // none, the system's back goes as always (and leaving clears the form, [left]).
     BackHandler(enabled = form.hasUnsavedChanges) { form.back() }
@@ -692,7 +758,45 @@ fun VaultEntryEditScreen(
                     }
                     EntryType.NOTE, EntryType.IDENTITY, EntryType.CONTACT -> Unit // The last two have their own tab.
                     // 2.0, task 5: the fixed fields of their template.
-                    EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> TemplateFieldsEditor(form, type)
+                    EntryType.CARD, EntryType.WIFI, EntryType.LICENSE, EntryType.PASSPORT -> {
+                        // 2.1, task 2: only when adding a wifi, above its fields.
+                        if (existing == null && type == EntryType.WIFI) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                                FilledTonalButton(enabled = !readingImage, onClick = {
+                                    val since = form.startWifiRead() ?: return@FilledTonalButton
+                                    vm.wifiScanSince = since
+                                    VaultLock.keepOpenOnce = true
+                                    store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
+                                    try {
+                                        wifiScanner.launch(scanQrOptions())
+                                    } catch (e: Exception) {
+                                        VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
+                                        vm.wifiScanSince = null
+                                        error = QR_CAMERA_FAILED
+                                    }
+                                }) { ScanQrLabel() }
+                                OutlinedButton(enabled = !readingImage, onClick = {
+                                    val since = form.startWifiRead() ?: return@OutlinedButton
+                                    vm.wifiPickSince = since
+                                    // As «Comprobar una copia»: the picker keeps the vault open while it is on top.
+                                    VaultLock.keepOpenOnce = true
+                                    store.touch()
+                                    pickWifiImage.launchOrError(arrayOf("image/*"))?.let {
+                                        VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
+                                        vm.wifiPickSince = null
+                                        error = it
+                                    }
+                                }) { Text(QR_PICK_IMAGE) }
+                            }
+                            if (readingImage) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    Text(QR_READING_IMAGE, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                        TemplateFieldsEditor(form, type)
+                    }
                     EntryType.TOTP -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = {
@@ -787,6 +891,19 @@ fun VaultEntryEditScreen(
                 }
             },
             dismissButton = { if (entries.isNotEmpty()) TextButton(enabled = !saving, onClick = { form.migration.value = null }) { Text("Cancelar") } },
+        )
+    }
+    // 2.1, task 2: a wifi code read over what the fields hold: the question, never the code's values.
+    form.wifiReplace.value?.let { pending ->
+        AlertDialog(
+            onDismissRequest = form::cancelWifiReplace,
+            title = {
+                FilterObscuredTouches()
+                Text(if (pending.typed) WIFI_SCAN_REPLACE_TITLE_TYPED else WIFI_SCAN_REPLACE_TITLE_FILLED)
+            },
+            text = { Text(WIFI_SCAN_REPLACE_TEXT) },
+            confirmButton = { TextButton(onClick = form::confirmWifiReplace) { Text(WIFI_SCAN_REPLACE) } },
+            dismissButton = { TextButton(onClick = form::cancelWifiReplace) { Text(CANCEL) } },
         )
     }
     // 2.0, task 7: a paste that looks like a 2FA link or a seed phrase: the question, never the pasted text.

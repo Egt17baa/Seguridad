@@ -7,6 +7,7 @@ import app.seguridad.vault.WIFI_SECURITY_KEY
 import app.seguridad.vault.WIFI_SECURITY_VALUES
 import app.seguridad.vault.WIFI_SSID_KEY
 import app.seguridad.core.drawsNothing
+import app.seguridad.imports.plainReportText
 import java.util.Locale
 
 /*
@@ -408,6 +409,62 @@ const val QR_WIFI_NAME_SPACES = "El nombre de esta red empieza o termina con un 
 const val QR_WIFI_UNREADABLE =
     "Clavero no puede leer este código de wifi con seguridad: otro lector podría ver en él otra red u otra contraseña. No se añade a la bóveda."
 
+/**
+ * What the inspector and the form say about a wifi code that is read but not kept ([WifiRead.Unsupported]), for [why].
+ * For [WifiNotKept.SECURITY], [security] is the type as the code says it: shown with what draws nothing marked
+ * ([visibleText]) and then through [plainReportText], at most 32 characters (R-1 of the Abogado Digital, 2.1), so a code
+ * cannot fill the screen or turn the line around with it ([shownSecurity]).
+ */
+fun wifiNotKeptText(why: WifiNotKept, security: String): String = when (why) {
+    WifiNotKept.SECURITY -> qrWifiOtherSecurity(shownSecurity(security))
+    WifiNotKept.PASSWORD_WITHOUT_TYPE -> QR_WIFI_PASSWORD_WITHOUT_TYPE
+    WifiNotKept.SETTING -> QR_WIFI_NOT_ADDABLE
+    WifiNotKept.NAME_SPACES -> QR_WIFI_NAME_SPACES
+}
+
+/** The most characters of a code's type of security that [wifiNotKeptText] shows, «…» included. */
+private const val WIFI_SECURITY_SHOWN_MAX = 32
+
+/**
+ * [security] as [wifiNotKeptText] shows it: whole when it fits in [WIFI_SECURITY_SHOWN_MAX] characters; otherwise cut,
+ * at the end of a code point and never inside a mark of [visibleText] ([MARK], left out whole when it does not fit),
+ * and ended with «…». The text read is bounded ([WIFI_QR_MAX_CHARS]) before it gets here.
+ */
+private fun shownSecurity(security: String): String {
+    val v = plainReportText(visibleText(security), Int.MAX_VALUE)
+    if (v.length <= WIFI_SECURITY_SHOWN_MAX) return v
+    var end = WIFI_SECURITY_SHOWN_MAX - 1
+    if (Character.isHighSurrogate(v[end - 1])) end--
+    // Only a real mark (⟨U+ and 4 to 6 hexadecimal digits, then ⟩) that the cut would split; a «⟨» of the code is text.
+    MARK.findAll(v).firstOrNull { it.range.first < end && it.range.last >= end }?.let { end = it.range.first }
+    return v.substring(0, end) + "\u2026"
+}
+
+/** A mark of [visibleText]: `⟨U+` and the code point in 4 to 6 capital hexadecimal digits, then `⟩`. */
+private val MARK = Regex("\u27E8U\\+[0-9A-F]{4,6}\u27E9")
+
+/**
+ * 2.1, «Añadir → Red WiFi»: a code read there that is not a wifi code ([WifiQr.read] null). Nothing of it is shown,
+ * copied or passed on (R-5): the inspector, which says what may be harmful, is where to look at it.
+ */
+const val WIFI_SCAN_NOT_WIFI = "Este código no es de una red wifi. Para ver qué contiene, usa el Inspector de QR de Herramientas."
+
+/** The same with «Modo sencillo» on, where the inspector is not in «Herramientas» (O-1 of the Abogado Digital, 2.1). */
+const val WIFI_SCAN_NOT_WIFI_SIMPLE =
+    "Este código no es de una red wifi. Para ver qué contiene, apaga «Modo sencillo» en Ajustes y usa el Inspector de QR de Herramientas."
+
+/** The dialog before a code replaces what the person typed in the four fields of the network (O-2). */
+const val WIFI_SCAN_REPLACE_TITLE_TYPED = "¿Sustituir lo escrito?"
+
+/** The same dialog when those fields hold what an earlier code brought, untouched (O-2). */
+const val WIFI_SCAN_REPLACE_TITLE_FILLED = "¿Sustituir los datos de la red?"
+
+/** The same dialog's text: the four fields it replaces, by the names the form gives them. */
+const val WIFI_SCAN_REPLACE_TEXT = "«Nombre de la red», «Contraseña», «Tipo de seguridad» y «Red oculta» pasarán a ser los del código."
+
+/** The dialog's button that replaces them («Cancelar» is the app's own). */
+const val WIFI_SCAN_REPLACE = "Sustituir"
+
 /** The inspector, in place of the full text of any wifi code while it is hidden: it may carry a password. */
 const val QR_TEXT_HIDDEN_WIFI = "El texto completo puede llevar una contraseña: toca «Mostrar» para verlo."
 
@@ -417,4 +474,6 @@ val WIFI_QR_TEXTS: List<String> = listOf(
     WIFI_QR_IMAGE, WIFI_QR_NO_NAME, WIFI_QR_NO_SECURITY, WIFI_QR_NO_PASSWORD, WIFI_QR_TOO_BIG, WIFI_QR_FAILED, WIFI_QR_NOT_ADDED,
     QR_WIFI_NOT_ADDABLE, qrWifiOtherSecurity("WPA3"), QR_WIFI_PASSWORD_WITHOUT_TYPE, QR_WIFI_NAME_SPACES, QR_WIFI_UNREADABLE,
     QR_TEXT_HIDDEN_WIFI, wifiQrNameHidden("\u27E8U+200B\u27E9"),
+    WIFI_SCAN_NOT_WIFI, WIFI_SCAN_NOT_WIFI_SIMPLE, WIFI_SCAN_REPLACE_TITLE_TYPED, WIFI_SCAN_REPLACE_TITLE_FILLED,
+    WIFI_SCAN_REPLACE_TEXT, WIFI_SCAN_REPLACE,
 )

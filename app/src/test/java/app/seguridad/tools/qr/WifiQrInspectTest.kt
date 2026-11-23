@@ -129,4 +129,56 @@ class WifiQrInspectTest {
             assertEquals(t, v.textHidden, v.hiddenLine != null)
         }
     }
+
+    @Test fun wifiNotKeptTextShortensAndShowsTheType() {
+        // R-1 of the Abogado (2.1): the type that comes from the code is cut and shown with what draws nothing marked.
+        val long = "A".repeat(100) + "\u202E" + "A".repeat(100)
+        val text = wifiNotKeptText(WifiNotKept.SECURITY, long)
+        assertEquals(qrWifiOtherSecurity("A".repeat(31) + "\u2026"), text)
+        assertTrue('\u202E' !in text)
+        assertEquals(qrWifiOtherSecurity("WPA\u27E8U+202E\u27E93"), wifiNotKeptText(WifiNotKept.SECURITY, "WPA\u202E3"))
+        assertEquals(qrWifiOtherSecurity("WPA3"), wifiNotKeptText(WifiNotKept.SECURITY, "WPA3"))
+        assertEquals(QR_WIFI_PASSWORD_WITHOUT_TYPE, wifiNotKeptText(WifiNotKept.PASSWORD_WITHOUT_TYPE, "WPA"))
+        assertEquals(QR_WIFI_NOT_ADDABLE, wifiNotKeptText(WifiNotKept.SETTING, "WPA"))
+        assertEquals(QR_WIFI_NAME_SPACES, wifiNotKeptText(WifiNotKept.NAME_SPACES, "WPA"))
+        // A type that fits is whole, with no «…».
+        assertEquals(qrWifiOtherSecurity("A".repeat(32)), wifiNotKeptText(WifiNotKept.SECURITY, "A".repeat(32)))
+        // A mark (⟨U+202E⟩, 8 characters) at the edge is whole or absent, never split, and the text ends with «…».
+        val mark = "\u27E8U+202E\u27E9"
+        for (before in 20..34) {
+            val shown = wifiNotKeptText(WifiNotKept.SECURITY, "B".repeat(before) + "\u202E" + "C".repeat(10))
+            val type = shown.substringAfter("«").substringBefore("»")
+            assertTrue(type, type.length <= 32)
+            assertTrue(type, type.endsWith("\u2026"))
+            val opened = type.count { it == '\u27E8' }
+            assertEquals(type, opened, type.count { it == '\u27E9' })
+            if (opened == 1) assertTrue(type, mark in type)
+        }
+        // A supplementary character (a surrogate pair) at the edge is never split: no lone surrogate is left.
+        for (before in 26..33) {
+            val shown = wifiNotKeptText(WifiNotKept.SECURITY, "A".repeat(before) + "\uD83D\uDE00" + "B".repeat(10))
+            val type = shown.substringAfter("«").substringBefore("»")
+            assertTrue(type, type.length <= 32)
+            assertTrue(type, type.endsWith("\u2026"))
+            for ((i, ch) in type.withIndex()) {
+                if (Character.isHighSurrogate(ch)) assertTrue(type, i + 1 < type.length && Character.isLowSurrogate(type[i + 1]))
+                if (Character.isLowSurrogate(ch)) assertTrue(type, i > 0 && Character.isHighSurrogate(type[i - 1]))
+            }
+        }
+        // A «⟨» that came in the code is not a mark: it does not shorten the cut.
+        assertEquals(
+            qrWifiOtherSecurity("\u27E8" + "A".repeat(30) + "\u2026"),
+            wifiNotKeptText(WifiNotKept.SECURITY, "\u27E8" + "A".repeat(40)),
+        )
+        assertEquals(
+            qrWifiOtherSecurity("\u27E8" + "A".repeat(30) + "\u2026"),
+            wifiNotKeptText(WifiNotKept.SECURITY, "\u27E8" + "A".repeat(40) + "\u27E9"),
+        )
+        assertEquals(
+            qrWifiOtherSecurity("X\u27E8U+" + "Z".repeat(27) + "\u2026"),
+            wifiNotKeptText(WifiNotKept.SECURITY, "X\u27E8U+" + "Z".repeat(40) + "\u27E9"),
+        )
+        // The inspector says the same.
+        assertEquals(listOf(qrWifiOtherSecurity("A".repeat(31) + "\u2026")), qrView("WIFI:T:${"A".repeat(200)};S:Casa;P:clave;;").notes)
+    }
 }

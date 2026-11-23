@@ -2,12 +2,17 @@ package app.seguridad.vault
 
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.tools.codes.PlainCells
+import app.seguridad.tools.qr.QR_WIFI_UNREADABLE
+import app.seguridad.tools.qr.WIFI_SCAN_NOT_WIFI
+import app.seguridad.tools.qr.WIFI_SCAN_NOT_WIFI_SIMPLE
+import app.seguridad.tools.qr.qrWifiOtherSecurity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -553,5 +558,302 @@ class EntryEditSessionTest {
         offT()
         guard.leave { went++ }
         assertEquals(4, went)
+    }
+
+    // 2.1, QR de wifi (task 1): «Añadir → Red WiFi» reads the network's code and decides in the session.
+
+    private fun newWifi() = session(type = EntryType.WIFI).also { it.load(emptyList()) }
+
+    private fun EntryEditSession.wifi(key: String) = templateValue(EntryType.WIFI, key)
+
+    private fun EntryEditSession.wifiFields() =
+        listOf(wifi(WIFI_SSID_KEY), wifi(WIFI_PASSWORD_KEY), wifi(WIFI_SECURITY_KEY), wifi(WIFI_HIDDEN_KEY), title.value)
+
+    private val untouched = listOf("", "", "WPA", "false", "")
+
+    @Test fun scanWifiFillsAnEmptyNewWifi() {
+        val s = newWifi()
+        s.scanWifi("WIFI:T:WPA2;S:Casa;P:clave1234;H:false;;", simpleMode = false)
+        assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
+        assertEquals("clave1234", s.wifi(WIFI_PASSWORD_KEY))
+        assertEquals("WPA", s.wifi(WIFI_SECURITY_KEY))
+        assertEquals("false", s.wifi(WIFI_HIDDEN_KEY))
+        assertEquals("Casa", s.title.value)
+        assertNull(s.wifiReplace.value)
+        assertNull(s.error.value)
+        // Nothing is saved: only «Guardar» does, and «Atrás» asks before dropping it.
+        assertTrue(s.hasUnsavedChanges)
+        assertFalse(s.finished.value)
+    }
+
+    @Test fun scanWifiAcceptsWepAndOpen() {
+        val wep = newWifi()
+        wep.scanWifi("WIFI:T:WEP;S:Viejo;P:12345;H:true;;", simpleMode = false)
+        assertEquals("WEP", wep.wifi(WIFI_SECURITY_KEY))
+        assertEquals("12345", wep.wifi(WIFI_PASSWORD_KEY))
+        assertEquals("true", wep.wifi(WIFI_HIDDEN_KEY))
+        val open = newWifi()
+        open.scanWifi("WIFI:T:nopass;S:Bar;;", simpleMode = false)
+        assertEquals("nopass", open.wifi(WIFI_SECURITY_KEY))
+        assertEquals("", open.wifi(WIFI_PASSWORD_KEY))
+        assertEquals("Bar", open.wifi(WIFI_SSID_KEY))
+        assertNull(open.error.value)
+    }
+
+    @Test fun scanWifiRefusesWpa3AndSae() {
+        for (t in listOf("WPA3", "SAE")) {
+            val s = newWifi()
+            s.scanWifi("WIFI:T:$t;S:Casa;P:clave1234;;", simpleMode = false)
+            assertEquals(t, qrWifiOtherSecurity(t), s.error.value)
+            assertEquals(t, untouched, s.wifiFields())
+            assertNull(t, s.wifiReplace.value)
+        }
+    }
+
+    @Test fun scanWifiRefusesWhatIsNotWifi() {
+        for (simple in listOf(false, true)) {
+            val s = newWifi()
+            s.scanWifi("https://ejemplo.com", simpleMode = simple)
+            assertEquals(if (simple) WIFI_SCAN_NOT_WIFI_SIMPLE else WIFI_SCAN_NOT_WIFI, s.error.value)
+            assertEquals(untouched, s.wifiFields())
+            assertNull(s.wifiReplace.value)
+        }
+    }
+
+    @Test fun scanWifiMalformed() {
+        val s = newWifi()
+        // The last field has no «;» after it: WifiQr.read gives Malformed (WifiQrTest).
+        s.scanWifi("WIFI:S:a;P:b", simpleMode = false)
+        assertEquals(QR_WIFI_UNREADABLE, s.error.value)
+        assertEquals(untouched, s.wifiFields())
+        assertNull(s.wifiReplace.value)
+    }
+
+    @Test fun scanWifiTheOtherReasonsSayWhy() {
+        val s = newWifi()
+        s.scanWifi("WIFI:T:nopass;S:Casa;P:clave;;", simpleMode = false)
+        assertEquals(app.seguridad.tools.qr.QR_WIFI_PASSWORD_WITHOUT_TYPE, s.error.value)
+        assertEquals(untouched, s.wifiFields())
+    }
+
+    @Test fun scanWifiAsksBeforeReplacingTyped() {
+        val code = "WIFI:T:WEP;S:Casa;P:clave1234;H:true;;"
+        val s = newWifi()
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Mía")
+        val before = s.wifiFields()
+        s.scanWifi(code, simpleMode = false)
+        assertEquals(before, s.wifiFields())
+        assertTrue(s.wifiReplace.value!!.typed)
+        s.confirmWifiReplace()
+        assertEquals(listOf("Casa", "clave1234", "WEP", "true", "Casa"), s.wifiFields())
+        assertNull(s.wifiReplace.value)
+        assertNull(s.error.value)
+
+        val c = newWifi()
+        c.setTemplateValue(EntryType.WIFI, WIFI_PASSWORD_KEY, "escrita")
+        val typed = c.wifiFields()
+        c.scanWifi(code, simpleMode = false)
+        assertNotNull(c.wifiReplace.value)
+        c.cancelWifiReplace()
+        assertEquals(typed, c.wifiFields())
+        assertNull(c.wifiReplace.value)
+        // A confirm with nothing pending does nothing.
+        c.confirmWifiReplace()
+        assertEquals(typed, c.wifiFields())
+    }
+
+    @Test fun scanWifiTwiceAsksAsFilled() {
+        val s = newWifi()
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        s.scanWifi("WIFI:T:WPA;S:Otra;P:otra-clave;;", simpleMode = false)
+        assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
+        assertFalse(s.wifiReplace.value!!.typed)
+        // A field changed after the first reading: what is there now was typed.
+        s.cancelWifiReplace()
+        s.setTemplateValue(EntryType.WIFI, WIFI_HIDDEN_KEY, "true")
+        s.scanWifi("WIFI:T:WPA;S:Otra;P:otra-clave;;", simpleMode = false)
+        assertTrue(s.wifiReplace.value!!.typed)
+        // Confirmed, the title already there stays.
+        s.confirmWifiReplace()
+        assertEquals("Otra", s.wifi(WIFI_SSID_KEY))
+        assertEquals("Casa", s.title.value)
+    }
+
+    @Test fun scanWifiAfterClearDoesNothing() {
+        val s = newWifi()
+        s.clear()
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        assertTrue(s.templateValues.value.isEmpty())
+        assertEquals("", s.title.value)
+        assertNull(s.wifiReplace.value)
+        assertNull(s.error.value)
+        // The next unlock loads an empty new wifi: the last reading is forgotten, so a code fills it without asking.
+        s.load(emptyList())
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
+        assertNull(s.wifiReplace.value)
+    }
+
+    @Test fun clearDropsAPendingReplace() {
+        val s = newWifi()
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Mía")
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        assertNotNull(s.wifiReplace.value)
+        s.vaultStateIs(unlocked = false, emptyList())
+        assertNull(s.wifiReplace.value)
+        // A confirm that comes late (the dialog after the lock) fills nothing.
+        s.confirmWifiReplace()
+        assertTrue(s.templateValues.value.isEmpty())
+        // Nor after the next unlock: the pending code went with the lock.
+        s.load(emptyList())
+        s.confirmWifiReplace()
+        assertEquals(untouched, s.wifiFields())
+    }
+
+    @Test fun scanWifiOnlyOnANewWifi() {
+        val login = session().also { it.load(emptyList()) }
+        login.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        assertEquals(EntryType.LOGIN, login.type.value)
+        assertTrue(login.templateValues.value.isEmpty())
+        assertNull(login.wifiReplace.value)
+        val stored = VaultEntry(id = "w1", type = EntryType.WIFI, title = "Casa", createdAt = 1, updatedAt = 1)
+        val edit = session(id = "w1", type = EntryType.WIFI).also { it.load(listOf(stored)) }
+        edit.scanWifi("WIFI:T:WPA;S:Otra;P:clave1234;;", simpleMode = false)
+        assertEquals("", edit.wifi(WIFI_SSID_KEY))
+        assertNull(edit.wifiReplace.value)
+    }
+
+    @Test fun wifiReplaceToStringHidesValues() {
+        val s = newWifi()
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Mía")
+        s.scanWifi("WIFI:T:WPA;S:RedSecretaNombre;P:clave-muy-secreta;;", simpleMode = false)
+        val shown = s.wifiReplace.value.toString()
+        assertFalse(shown, "clave-muy-secreta" in shown)
+        assertFalse(shown, "RedSecretaNombre" in shown)
+    }
+
+    @Test fun aPendingReplaceGoesWhenTheTypeLeavesWifi() {
+        val s = newWifi()
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Mía")
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        assertNotNull(s.wifiReplace.value)
+        s.changeType(EntryType.LOGIN)
+        assertNull(s.wifiReplace.value)
+        s.confirmWifiReplace()
+        assertEquals(EntryType.LOGIN, s.type.value)
+        assertEquals("Mía", s.wifi(WIFI_SSID_KEY))
+        assertEquals("", s.wifi(WIFI_PASSWORD_KEY))
+        assertEquals("", s.title.value)
+        assertNull(s.wifiReplace.value)
+    }
+
+    @Test fun confirmFillsNothingOnAnotherType() {
+        // Even if a replace were pending with the type no longer wifi (the cell set by hand), «Sustituir» fills nothing.
+        val s = newWifi()
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Mía")
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        val pending = s.wifiReplace.value
+        s.type.value = EntryType.LOGIN
+        s.wifiReplace.value = pending
+        s.confirmWifiReplace()
+        assertEquals(EntryType.LOGIN, s.type.value)
+        assertEquals("Mía", s.wifi(WIFI_SSID_KEY))
+        assertNull(s.wifiReplace.value)
+    }
+
+    // 2.1, task 2: a reading counts only for the form it started in (the carried requirement of the review of task 1).
+
+    @Test fun aReadingStartsOnlyOnALoadedForm() {
+        val s = session(type = EntryType.WIFI)
+        assertNull(s.startWifiRead())
+        s.load(emptyList())
+        assertNotNull(s.startWifiRead())
+        s.clear()
+        assertNull(s.startWifiRead())
+    }
+
+    @Test fun aReadingFillsTheFormItStartedIn() {
+        val s = newWifi()
+        val since = s.startWifiRead()!!
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
+        val failed = s.startWifiRead()!!
+        s.wifiReadFailed("no se pudo", failed)
+        assertEquals("no se pudo", s.error.value)
+    }
+
+    @Test fun aLateReadingAfterALockAndAQuickUnlockFillsNothing() {
+        var epoch = 3
+        val s = EntryEditSession(PlainCells, null, EntryType.WIFI, newId = "nuevo-1", lockEpoch = { epoch }).also { it.load(emptyList()) }
+        val since = s.startWifiRead()!!
+        // The lock clears the form; the next unlock loads a new, empty one before the result lands.
+        epoch++
+        s.vaultStateIs(unlocked = false, emptyList())
+        s.vaultStateIs(unlocked = true, emptyList())
+        assertTrue(s.loaded)
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        s.wifiReadFailed("tarde", since)
+        assertEquals(untouched, s.wifiFields())
+        assertNull(s.wifiReplace.value)
+        assertNull(s.error.value)
+    }
+
+    @Test fun aLateReadingFillsNothingEvenIfTheLockWasNotSeen() {
+        // The collector may see only the last state (a lock and an unlock conflated): the vault's lock epoch still moved.
+        var epoch = 0
+        val s = EntryEditSession(PlainCells, null, EntryType.WIFI, newId = "nuevo-1", lockEpoch = { epoch }).also { it.load(emptyList()) }
+        val since = s.startWifiRead()!!
+        epoch++
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        s.wifiReadFailed("tarde", since)
+        assertEquals(untouched, s.wifiFields())
+        assertNull(s.error.value)
+    }
+
+    @Test fun aLateReadingAfterLeavingTheFormFillsNothing() {
+        // Left (not a rotation) and back: a new form, the same session and the same lock epoch.
+        val s = newWifi()
+        val since = s.startWifiRead()!!
+        s.left(changingConfigurations = false)
+        s.load(emptyList())
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        assertEquals(untouched, s.wifiFields())
+        // A rotation keeps the form, and the reading counts.
+        val kept = s.startWifiRead()!!
+        s.left(changingConfigurations = true)
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = kept)
+        assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
+    }
+
+    @Test fun aReadingStartToStringShowsNothing() {
+        assertEquals("WifiReadStart", newWifi().startWifiRead().toString())
+    }
+
+    // Review of task 2 (minors 1 and 2): the error clears and is shown only for the form the reading started in.
+
+    @Test fun aStaleImageReadLeavesAFreshFormsErrorAlone() {
+        val s = newWifi()
+        val since = s.startWifiRead()!!
+        s.clear()
+        s.load(emptyList())
+        s.error.value = "error del formulario nuevo"
+        s.wifiReadBegan(since)
+        assertEquals("error del formulario nuevo", s.error.value)
+        // The current reading does clear it.
+        val now = s.startWifiRead()!!
+        s.wifiReadBegan(now)
+        assertNull(s.error.value)
+    }
+
+    @Test fun aFailedReadSaysNothingOnceTheTypeLeftWifi() {
+        val s = newWifi()
+        val since = s.startWifiRead()!!
+        s.changeType(EntryType.LOGIN)
+        s.wifiReadFailed("no se pudo", since)
+        s.wifiReadBegan(since)
+        assertNull(s.error.value)
+        s.error.value = "otro"
+        s.wifiReadBegan(since)
+        assertEquals("otro", s.error.value)
     }
 }
