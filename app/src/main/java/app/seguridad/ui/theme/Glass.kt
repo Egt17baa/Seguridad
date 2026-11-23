@@ -276,7 +276,17 @@ internal fun Modifier.pressSignal(interaction: InteractionSource, shape: Shape, 
     }
 }
 
-/** The shape of each kind of panel; «Vidrio» ([strong]) rounds the cards and the overlays more. The bars stay straight. */
+/**
+ * Whether a panel draws «Vidrio»'s lit edge (white at the top left fading to [AppColors.border]). Never with «Alto
+ * contraste»: its edge is the plain [AppColors.border] at its own width (R-C5), in every style. «Reducir transparencias»
+ * alone keeps it (the panel is opaque; the edge is still decoration).
+ */
+internal fun litEdge(look: Look): Boolean = look.strong && !look.highContrast
+
+/**
+ * The shape of each kind of panel; «Vidrio» ([strong]) rounds the cards and the overlays more. The bars stay straight,
+ * and the rows of the list keep their own RowShape (12 dp) in every style.
+ */
 fun panelShape(level: PanelLevel, strong: Boolean = false): Shape = when (level) {
     PanelLevel.CARD -> if (strong) StrongCardShape else SectionShape
     PanelLevel.BAR -> RectangleShape
@@ -301,8 +311,8 @@ fun GlassPanel(modifier: Modifier = Modifier, level: PanelLevel = PanelLevel.CAR
  * background again, blurred and cut to the panel; until it knows where it is (the first frame), and on Android 8 to 11,
  * it is more opaque instead ([Look.alpha]). Nothing in «Sólido» and «Degradado»: the Material component keeps its own
  * colour. «Vidrio» ([Look.strong]) draws its highlight down to 0.7 of the height, its edge as a fixed gradient from the
- * top left (white) to the bottom right ([AppColors.border]), and a soft shadow only outside the panel, so the panel's
- * measured colour is never touched.
+ * top left (white) to the bottom right ([AppColors.border]; not with «Alto contraste», [litEdge]), and a soft shadow only
+ * outside the panel (not on the bars), so the panel's measured colour is never touched.
  */
 @Composable
 fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
@@ -329,7 +339,7 @@ fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
             endY = size.height,
         )
         val edge = colors.borderWidth.dp.toPx()
-        val edgeBrush = if (strong) {
+        val edgeBrush = if (litEdge(look)) {
             Brush.linearGradient(
                 listOf(Color.White.copy(alpha = if (look.dark) 0.30f else 0.90f), colors.border),
                 start = Offset.Zero,
@@ -338,7 +348,9 @@ fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
         } else {
             null
         }
-        // «Vidrio»: the panel's outline 2 dp lower, in faint black, drawn only where the panel is not (ClipOp.Difference).
+        // «Vidrio»: the panel's outline 2 dp lower, in faint black, drawn only where the panel is not (ClipOp.Difference),
+        // so the panel's measured colour is never touched. It does cover a strip of 2 dp of the background under the panel:
+        // no text may sit closer than that to a panel. Not on the bars, which run edge to edge and have their own lines.
         val shadowDrop = 2.dp.toPx()
         val shadow = Color.Black.copy(alpha = if (look.dark) 0.10f else 0.06f)
         onDrawBehind {
@@ -362,8 +374,9 @@ fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
 
 /**
  * The app's background as it is behind the panel at [at], blurred: a layer of the panel's size. Android 12+ only. In
- * «Transparente» it is the layer alone ([drawAppBackground]): a dialog never sees the wallpaper, and the panel's opacity
- * over that layer is the one the colours measure.
+ * «Transparente» it is the layer alone at [Look.layerAlpha] ([drawAppBackground]), not the wallpaper: what shows through
+ * it is the wallpaper already under the app's layer, so it is dimmed twice (this layer and the app's); the panel's
+ * opacity over that layer is the one the colours measure.
  */
 @RequiresApi(Build.VERSION_CODES.S)
 private fun blurredBackdrop(scope: CacheDrawScope, look: Look, backdrop: Backdrop, at: Offset): GraphicsLayer {

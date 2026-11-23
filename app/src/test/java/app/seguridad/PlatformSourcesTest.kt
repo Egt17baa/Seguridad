@@ -1345,4 +1345,42 @@ class PlatformSourcesTest {
         assertFalse(Regex("""animate\w*AsState""").containsMatchIn(main("ui/theme/Glass.kt")))
         for ((path, src) in mainDir("")) assertFalse("WallpaperManager in $path", "WallpaperManager" in src)
     }
+
+    /**
+     * Review m-4 of task 2: what each style draws. «Vidrio»'s shadow is cut out of the panel (ClipOp.Difference) and drawn
+     * before the fill; «Transparente» draws its layer at [app.seguridad.ui.theme.Look.layerAlpha]; «Degradado» stops before
+     * the blobs.
+     */
+    @Test fun `2_1 the shadow, the layer and the gradient are drawn as designed`() {
+        val src = code("ui/theme/Glass.kt")
+        val shadow = src.indexOf("clipPath(clip, ClipOp.Difference)")
+        assertTrue(shadow >= 0 && shadow < src.indexOf("drawOutline(outline, fill)"))
+        assertTrue("drawRect(gradient, size = area, alpha = look.layerAlpha)" in src)
+        val gradientStop = src.indexOf("if (look.style == ThemeStyle.GRADIENT) return")
+        assertTrue(gradientStop >= 0 && gradientStop < src.indexOf("for (b in bg.blobs)"))
+        assertTrue("if (litEdge(look))" in src)
+    }
+
+    /**
+     * Review I-1 of task 2 (M-1): a tag colour is only painted on a panel. Each use of tagTextColor is one of these, and a
+     * new one fails here until it is checked: a row of the list (RowPanel), the tag colours dialog (AlertDialog) and the
+     * unselected tag chips of the list's filters, which in a translucent style get a card panel under them.
+     */
+    @Test fun `2_1 every tag colour is painted on a panel`() {
+        val uses = mainDir("").flatMap { (path, src) ->
+            val code = src.lines().filterNot { it.trimStart().let { l -> l.startsWith("//") || l.startsWith("*") || l.startsWith("/*") } }.joinToString("\n")
+            Regex("""tagTextColor\(""").findAll(code).map { path.substringAfter("app/seguridad/") }.toList()
+        }.groupingBy { it }.eachCount()
+        assertEquals(mapOf("ui/screens/EntryRow.kt" to 1, "ui/screens/VaultOrganize.kt" to 2, "ui/screens/VaultList.kt" to 2), uses)
+        val row = code("ui/screens/EntryRow.kt")
+        assertTrue(row.indexOf("RowPanel(") in 0 until row.indexOf("color = tagTextColor(tagColors[t])"))
+        val organize = code("ui/screens/VaultOrganize.kt").substringAfter("private fun TagColorsDialog(")
+        assertTrue(organize.indexOf("AlertDialog(") in 0 until organize.indexOf("tagTextColor(current)"))
+        val chips = code("ui/screens/VaultList.kt").substringAfter("item(key = \"tags\")").substringBefore("item(key = \"colors\")")
+        assertTrue(chips, "label = { Text(\"#\${plainReportText(t)}\", color = tagTextColor(tagColors[t])) }" in chips)
+        assertTrue(chips, "modifier = Modifier.tagChipPanel(selected = on)," in chips)
+        assertTrue(chips, "colors = FilterChipDefaults.filterChipColors(containerColor = Color.Transparent)," in chips)
+        val panel = code("ui/theme/Components.kt").substringAfter("fun Modifier.tagChipPanel(selected: Boolean): Modifier =").substringBefore("\n\n")
+        assertTrue(panel, "if (LocalLook.current.translucent && !selected) glass(PanelLevel.CARD, FilterChipDefaults.shape) else this" in panel)
+    }
 }

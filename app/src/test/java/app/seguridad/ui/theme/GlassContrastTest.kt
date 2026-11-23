@@ -7,6 +7,7 @@ import app.seguridad.settings.ThemeStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import androidx.compose.ui.unit.dp
 import org.junit.Test
 
 /**
@@ -210,27 +211,78 @@ class GlassContrastTest {
      * «Transparente»: the layer is drawn at [AppColors.scrimAlpha] when the window blurs the wallpaper and a little more
      * opaque when it does not; the other styles have no layer (1). Every text still reads on the layer at that opacity,
      * over pure white and pure black, at every point of the background (the measure of task 1, at [Look.layerAlpha]).
+     * With «Alto contraste» (or «Reducir transparencias») there is no wallpaper and no layer: it is opaque.
      */
     @Test fun theTransparentLayerIsMoreOpaqueWithoutTheWindowBlur() {
-        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (high in listOf(false, true)) {
-            val blurred = look(p, custom, style = ThemeStyle.TRANSPARENT, high = high, dark = dark, wallpaperBlur = true)
-            val plain = look(p, custom, style = ThemeStyle.TRANSPARENT, high = high, dark = dark, wallpaperBlur = false)
+        for ((p, custom) in palettes) for (dark in listOf(true, false)) {
+            val blurred = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark, wallpaperBlur = true)
+            val plain = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark, wallpaperBlur = false)
             assertEquals(blurred.colors.scrimAlpha, blurred.layerAlpha)
             if (blurred.layerAlpha < 1f) assertTrue("$p dark=$dark", plain.layerAlpha > blurred.layerAlpha) else assertEquals(1f, plain.layerAlpha)
             assertTrue(plain.layerAlpha <= 1f)
-            val ratio = if (high) 7.0 else 4.5
             for (l in listOf(blurred, plain)) {
-                val a = l.layerAlpha.toDouble()
-                val (darkest, lightest) = bgBounds(l.colors.background)
-                val layer = listOf(l.colors.background.top, l.colors.background.bottom, darkest, lightest).flatMap { e -> listOf(over(e, a, WHITE), over(e, a, BLACK)) }
-                for ((name, fg) in textColors(l.colors)) for (under in layer) {
+                for ((name, fg) in textColors(l.colors)) for (under in layerPoints(l)) {
                     val r = app.seguridad.vault.TagPalette.contrast(fg, under)
-                    assertTrue("$p $name dark=$dark alto=$high a=$a sobre ${under.toString(16)}: $r", r >= ratio)
+                    assertTrue("$p $name dark=$dark a=${l.layerAlpha} sobre ${under.toString(16)}: $r", r >= 4.5)
                 }
+            }
+            for (wallpaperBlur in listOf(false, true)) for ((reduce, high) in listOf(false to true, true to false, true to true)) {
+                val opaque = look(p, custom, style = ThemeStyle.TRANSPARENT, reduce = reduce, high = high, dark = dark, wallpaperBlur = wallpaperBlur)
+                assertFalse("$p dark=$dark reduce=$reduce high=$high", opaque.wallpaperBehind)
+                assertEquals("$p dark=$dark reduce=$reduce high=$high", 1f, opaque.layerAlpha)
             }
         }
         for (style in ThemeStyle.entries - ThemeStyle.TRANSPARENT) for (wallpaperBlur in listOf(false, true)) {
             assertEquals(1f, look(style = style, wallpaperBlur = wallpaperBlur).layerAlpha)
         }
+    }
+
+    /** The layer of «Transparente» at [Look.layerAlpha] over pure white and pure black, at the four points of the background. */
+    private fun layerPoints(l: Look): List<Long> {
+        val a = l.layerAlpha.toDouble()
+        val (darkest, lightest) = bgBounds(l.colors.background)
+        return listOf(l.colors.background.top, l.colors.background.bottom, darkest, lightest).flatMap { e -> listOf(over(e, a, WHITE), over(e, a, BLACK)) }
+    }
+
+    /**
+     * Review I-1 of task 2 (M-1): in «Transparente» a tag never sits on the bare layer. The unselected tag chips of the
+     * list's filters have a card panel under them, and every tag colour reads at 4.5:1 on that panel (at its opacity
+     * without blur) over the layer at [Look.layerAlpha] over pure white and pure black, at every point of the background.
+     */
+    @Test fun tagsReadOnACardOverTheTransparentLayer() {
+        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (wallpaperBlur in listOf(false, true)) {
+            val l = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark, wallpaperBlur = wallpaperBlur)
+            val fill = argb(l.colors.panelColor(PanelLevel.CARD))
+            val alpha = l.alpha(PanelLevel.CARD, blurNow = false).toDouble()
+            for (under in layerPoints(l)) {
+                val panel = over(fill, alpha, under)
+                for (c in app.seguridad.vault.TagColor.entries) {
+                    val fg = if (dark) app.seguridad.vault.TagPalette.dark(c) else app.seguridad.vault.TagPalette.light(c)
+                    val r = app.seguridad.vault.TagPalette.contrast(fg, panel)
+                    assertTrue("$p dark=$dark blur=$wallpaperBlur $c sobre ${panel.toString(16)}: $r", r >= 4.5)
+                }
+            }
+        }
+    }
+
+    /** Review I-2 of task 2: «Vidrio»'s lit edge never replaces the edge of «Alto contraste» (R-C5), in any style. */
+    @Test fun theLitEdgeIsOnlyForVidrioWithoutHighContrast() {
+        for (style in ThemeStyle.entries) for (dark in listOf(true, false)) {
+            assertFalse("$style", litEdge(look(style = style, high = true, dark = dark)))
+            assertFalse("$style", litEdge(look(style = style, high = true, reduce = true, dark = dark)))
+            assertEquals("$style", style == ThemeStyle.GLASS_STRONG, litEdge(look(style = style, dark = dark)))
+            // «Reducir transparencias» alone keeps it: the panel is opaque, the edge is still decoration.
+            assertEquals("$style", style == ThemeStyle.GLASS_STRONG, litEdge(look(style = style, reduce = true, dark = dark)))
+        }
+    }
+
+    /** Review m-4 of task 2: «Vidrio» rounds its cards (22 dp) and its overlays (32 dp); the bars stay straight. */
+    @Test fun vidrioShapes() {
+        assertEquals(androidx.compose.foundation.shape.RoundedCornerShape(22.dp), panelShape(PanelLevel.CARD, strong = true))
+        assertEquals(androidx.compose.foundation.shape.RoundedCornerShape(32.dp), panelShape(PanelLevel.OVERLAY, strong = true))
+        assertEquals(androidx.compose.ui.graphics.RectangleShape, panelShape(PanelLevel.BAR, strong = true))
+        assertEquals(SectionShape, panelShape(PanelLevel.CARD))
+        assertEquals(androidx.compose.foundation.shape.RoundedCornerShape(28.dp), panelShape(PanelLevel.OVERLAY))
+        assertEquals(androidx.compose.ui.graphics.RectangleShape, panelShape(PanelLevel.BAR))
     }
 }
