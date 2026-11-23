@@ -68,7 +68,7 @@ class SimpleModeTest {
             "The form reads it only to choose the text of a code that is not wifi",
             listOf(
                 "fun scanWifi(raw: String, simpleMode: Boolean) {",
-                "null -> error.value = if (simpleMode) WIFI_SCAN_NOT_WIFI_SIMPLE else WIFI_SCAN_NOT_WIFI",
+                "null -> wifiReadMessage.value = if (simpleMode) WIFI_SCAN_NOT_WIFI_SIMPLE else WIFI_SCAN_NOT_WIFI",
                 "fun scanWifi(raw: String, simpleMode: Boolean, since: WifiReadStart) {",
                 "if (isCurrent(since)) scanWifi(raw, simpleMode)",
             ),

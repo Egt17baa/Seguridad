@@ -1279,7 +1279,18 @@ class PlatformSourcesTest {
         assertTrue("existing == null && type == EntryType.WIFI" in screen)
         assertTrue("place = PickerPlace.QR_IMAGE" in screen)
         assertTrue("readQrFromImage(context, uri)" in screen)
-        assertTrue("form.startWifiRead()" in screen && "form.wifiReadFailed(" in screen)
+        assertTrue("form.wifiReadFailed(" in screen)
+        // Review of the branch, M-3: the start of a reading is kept in the session when the camera or the picker opens
+        // (one beginWifiRead in each onClick), and a result only takes it back (one finishWifiRead in each callback): it
+        // cannot take a new one when it arrives. Nothing of it in the ViewModel of the screen.
+        assertEquals(2, Regex("""form\.beginWifiRead\(WifiReadKind\.(CAMERA|IMAGE)\)""").findAll(screen).count())
+        assertEquals(2, Regex("""form\.finishWifiRead\(WifiReadKind\.(CAMERA|IMAGE)\)""").findAll(screen).count())
+        assertFalse("startWifiRead" in src || "wifiScanSince" in src || "wifiPickSince" in src)
+        // M-2: an image picked with a stale start is not read.
+        assertTrue("if (!form.wifiReadBegan(since)) return@rememberDocumentPicker" in screen)
+        // I-2: the reading's message under the two buttons, apart from «Guardar»'s error.
+        assertTrue("form.wifiReadMessage" in screen && "form.wifiNameAlert()" in screen)
+        assertTrue(screen.indexOf("wifiReadMessage") > screen.indexOf("Text(QR_PICK_IMAGE)") && screen.indexOf("wifiReadMessage") < screen.indexOf("TemplateFieldsEditor(form, type)"))
         assertTrue("QR_NO_CAMERA_PERMISSION" in screen && "QR_CAMERA_FAILED" in screen && "QR_READING_IMAGE" in screen)
         assertTrue("form::confirmWifiReplace" in screen && "form::cancelWifiReplace" in screen && "Text(WIFI_SCAN_REPLACE)" in screen)
         assertTrue("WIFI_SCAN_REPLACE_TITLE_TYPED" in screen && "WIFI_SCAN_REPLACE_TITLE_FILLED" in screen && "WIFI_SCAN_REPLACE_TEXT" in screen)
@@ -1293,7 +1304,7 @@ class PlatformSourcesTest {
         assertTrue("readQrFromImage(context, uri)" in qr)
         assertFalse("decodeQrFromImage" in qr || "readPhoto(" in qr)
         val read = code("ui/screens/QrImageRead.kt")
-        for (s in listOf("withContext(Dispatchers.IO) { readPhoto(context, uri) }", "withContext(Dispatchers.Default)", "bytes.fill(0)", "QR_NOT_FOUND", "QR_IMAGE_TOO_BIG", "QR_IMAGE_TOO_LARGE", "QR_IMAGE_DAMAGED", "catch (e: OutOfMemoryError)", "catch (e: CancellationException)")) {
+        for (s in listOf("withContext(Dispatchers.IO) { readPhoto(context, uri).also { bytes = it } }", "withContext(Dispatchers.Default)", "finally {\n        bytes?.fill(0)", "QR_NOT_FOUND", "QR_IMAGE_TOO_BIG", "QR_IMAGE_TOO_LARGE", "QR_IMAGE_DAMAGED", "catch (e: OutOfMemoryError)", "catch (e: CancellationException)")) {
             assertTrue(s, s in read)
         }
     }

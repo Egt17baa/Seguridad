@@ -137,6 +137,7 @@ import app.seguridad.tools.qr.WIFI_SCAN_REPLACE
 import app.seguridad.tools.qr.WIFI_SCAN_REPLACE_TEXT
 import app.seguridad.tools.qr.WIFI_SCAN_REPLACE_TITLE_FILLED
 import app.seguridad.tools.qr.WIFI_SCAN_REPLACE_TITLE_TYPED
+import app.seguridad.vault.WifiReadKind
 import app.seguridad.vault.WifiReadStart
 import app.seguridad.vault.CANCEL
 import androidx.compose.foundation.text.KeyboardOptions
@@ -407,13 +408,6 @@ fun VaultEntryDetailScreen(
  */
 private class EntryEditViewModel(private val store: VaultStore, wordLists: WordLists, id: String?, initialType: EntryType) : ViewModel() {
     val form = EntryEditSession(ComposeCells, id, initialType, newId = UUID.randomUUID().toString(), lockEpoch = { store.lockEpoch })
-
-    /**
-     * 2.1, task 2: when the wifi scanner or the image picker of «Añadir → Red WiFi» was opened ([EntryEditSession.startWifiRead]),
-     * here so a re-created activity still has it; its result fills only that form. Taken back when the result comes.
-     */
-    var wifiScanSince: WifiReadStart? = null
-    var wifiPickSince: WifiReadStart? = null
 
     init {
         (store.state.value as? VaultState.Unlocked)?.let { form.load(it.entries) }
@@ -686,7 +680,7 @@ fun VaultEntryEditScreen(
     val scanWifi: (String, WifiReadStart) -> Unit = { raw, since -> form.scanWifi(raw, simpleMode = simpleModeOn(context), since = since) }
     val wifiScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
-        val since = vm.wifiScanSince.also { vm.wifiScanSince = null } ?: return@rememberLauncherForActivityResult
+        val since = form.finishWifiRead(WifiReadKind.CAMERA) ?: return@rememberLauncherForActivityResult
         val raw = result.contents
         when {
             raw != null -> scanWifi(raw, since)
@@ -700,9 +694,10 @@ fun VaultEntryEditScreen(
     var readingImage by remember { mutableStateOf(false) }
     val pickWifiImage = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.QR_IMAGE) { uri ->
         VaultLock.keepOpenOnce = false // Back in the app (MainActivity.onStart takes it back too).
-        val since = vm.wifiPickSince.also { vm.wifiPickSince = null } ?: return@rememberDocumentPicker
+        val since = form.finishWifiRead(WifiReadKind.IMAGE) ?: return@rememberDocumentPicker
         if (uri == null) return@rememberDocumentPicker
-        form.wifiReadBegan(since)
+        // M-2 of the review of the branch: a start gone stale (a lock, the form left) reads nothing of the image.
+        if (!form.wifiReadBegan(since)) return@rememberDocumentPicker
         readingImage = true
         scope.launch {
             try {
@@ -763,28 +758,24 @@ fun VaultEntryEditScreen(
                         if (existing == null && type == EntryType.WIFI) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                                 FilledTonalButton(enabled = !readingImage, onClick = {
-                                    val since = form.startWifiRead() ?: return@FilledTonalButton
-                                    vm.wifiScanSince = since
+                                    if (!form.beginWifiRead(WifiReadKind.CAMERA)) return@FilledTonalButton
                                     VaultLock.keepOpenOnce = true
                                     store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
                                     try {
                                         wifiScanner.launch(scanQrOptions())
                                     } catch (e: Exception) {
                                         VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
-                                        vm.wifiScanSince = null
-                                        error = QR_CAMERA_FAILED
+                                        form.wifiReadNotOpened(WifiReadKind.CAMERA, QR_CAMERA_FAILED)
                                     }
                                 }) { ScanQrLabel() }
                                 OutlinedButton(enabled = !readingImage, onClick = {
-                                    val since = form.startWifiRead() ?: return@OutlinedButton
-                                    vm.wifiPickSince = since
+                                    if (!form.beginWifiRead(WifiReadKind.IMAGE)) return@OutlinedButton
                                     // As «Comprobar una copia»: the picker keeps the vault open while it is on top.
                                     VaultLock.keepOpenOnce = true
                                     store.touch()
                                     pickWifiImage.launchOrError(arrayOf("image/*"))?.let {
                                         VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
-                                        vm.wifiPickSince = null
-                                        error = it
+                                        form.wifiReadNotOpened(WifiReadKind.IMAGE, it)
                                     }
                                 }) { Text(QR_PICK_IMAGE) }
                             }
@@ -794,7 +785,11 @@ fun VaultEntryEditScreen(
                                     Text(QR_READING_IMAGE, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
+                            // I-2 of the review of the branch: what the reading said, right under its buttons.
+                            form.wifiReadMessage.value?.let { Text(it, color = NegativeColor) }
                         }
+                        // M-5: the inspector's alert while the network's name has characters that are not seen.
+                        if (type == EntryType.WIFI) form.wifiNameAlert()?.let { Text(it, color = NegativeColor) }
                         TemplateFieldsEditor(form, type)
                     }
                     EntryType.TOTP -> {

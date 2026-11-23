@@ -6,6 +6,7 @@ import app.seguridad.tools.qr.QR_WIFI_UNREADABLE
 import app.seguridad.tools.qr.WIFI_SCAN_NOT_WIFI
 import app.seguridad.tools.qr.WIFI_SCAN_NOT_WIFI_SIMPLE
 import app.seguridad.tools.qr.qrWifiOtherSecurity
+import app.seguridad.tools.qrBidi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
@@ -604,7 +605,7 @@ class EntryEditSessionTest {
         for (t in listOf("WPA3", "SAE")) {
             val s = newWifi()
             s.scanWifi("WIFI:T:$t;S:Casa;P:clave1234;;", simpleMode = false)
-            assertEquals(t, qrWifiOtherSecurity(t), s.error.value)
+            assertEquals(t, qrWifiOtherSecurity(t), s.wifiReadMessage.value)
             assertEquals(t, untouched, s.wifiFields())
             assertNull(t, s.wifiReplace.value)
         }
@@ -614,7 +615,7 @@ class EntryEditSessionTest {
         for (simple in listOf(false, true)) {
             val s = newWifi()
             s.scanWifi("https://ejemplo.com", simpleMode = simple)
-            assertEquals(if (simple) WIFI_SCAN_NOT_WIFI_SIMPLE else WIFI_SCAN_NOT_WIFI, s.error.value)
+            assertEquals(if (simple) WIFI_SCAN_NOT_WIFI_SIMPLE else WIFI_SCAN_NOT_WIFI, s.wifiReadMessage.value)
             assertEquals(untouched, s.wifiFields())
             assertNull(s.wifiReplace.value)
         }
@@ -624,7 +625,7 @@ class EntryEditSessionTest {
         val s = newWifi()
         // The last field has no «;» after it: WifiQr.read gives Malformed (WifiQrTest).
         s.scanWifi("WIFI:S:a;P:b", simpleMode = false)
-        assertEquals(QR_WIFI_UNREADABLE, s.error.value)
+        assertEquals(QR_WIFI_UNREADABLE, s.wifiReadMessage.value)
         assertEquals(untouched, s.wifiFields())
         assertNull(s.wifiReplace.value)
     }
@@ -632,7 +633,7 @@ class EntryEditSessionTest {
     @Test fun scanWifiTheOtherReasonsSayWhy() {
         val s = newWifi()
         s.scanWifi("WIFI:T:nopass;S:Casa;P:clave;;", simpleMode = false)
-        assertEquals(app.seguridad.tools.qr.QR_WIFI_PASSWORD_WITHOUT_TYPE, s.error.value)
+        assertEquals(app.seguridad.tools.qr.QR_WIFI_PASSWORD_WITHOUT_TYPE, s.wifiReadMessage.value)
         assertEquals(untouched, s.wifiFields())
     }
 
@@ -762,30 +763,75 @@ class EntryEditSessionTest {
     }
 
     // 2.1, task 2: a reading counts only for the form it started in (the carried requirement of the review of task 1).
+    // Review of the branch, M-3: the start is kept in the session when the camera or the picker opens
+    // ([EntryEditSession.beginWifiRead]); the result only takes it back ([EntryEditSession.finishWifiRead]), so it can
+    // never take a new one when it arrives.
 
     @Test fun aReadingStartsOnlyOnALoadedForm() {
         val s = session(type = EntryType.WIFI)
-        assertNull(s.startWifiRead())
+        assertFalse(s.beginWifiRead(WifiReadKind.CAMERA))
+        assertNull(s.finishWifiRead(WifiReadKind.CAMERA))
         s.load(emptyList())
-        assertNotNull(s.startWifiRead())
+        assertTrue(s.beginWifiRead(WifiReadKind.CAMERA))
+        assertNotNull(s.finishWifiRead(WifiReadKind.CAMERA))
         s.clear()
-        assertNull(s.startWifiRead())
+        assertFalse(s.beginWifiRead(WifiReadKind.IMAGE))
+    }
+
+    @Test fun aResultTakesTheStartOnceAndOnlyItsOwn() {
+        val s = newWifi()
+        // No reading opened: a result that comes has no start, and takes none.
+        assertNull(s.finishWifiRead(WifiReadKind.CAMERA))
+        s.beginWifiRead(WifiReadKind.CAMERA)
+        assertNull(s.finishWifiRead(WifiReadKind.IMAGE))
+        assertNotNull(s.finishWifiRead(WifiReadKind.CAMERA))
+        assertNull(s.finishWifiRead(WifiReadKind.CAMERA))
+        // A clear drops a reading still open.
+        s.beginWifiRead(WifiReadKind.IMAGE)
+        s.clear()
+        s.load(emptyList())
+        assertNull(s.finishWifiRead(WifiReadKind.IMAGE))
+        // One that could not open drops its start, and says why under the buttons.
+        s.beginWifiRead(WifiReadKind.CAMERA)
+        s.wifiReadNotOpened(WifiReadKind.CAMERA, "no se abrió")
+        assertNull(s.finishWifiRead(WifiReadKind.CAMERA))
+        assertEquals("no se abrió", s.wifiReadMessage.value)
+        assertNull(s.error.value)
+    }
+
+    @Test fun aReadingStartedBeforeALockIsNotTakenAsANewOne() {
+        // The start is the one kept when the camera opened: a lock (and a quick unlock) before the result makes it late,
+        // whatever the form is when it arrives.
+        var epoch = 0
+        val s = EntryEditSession(PlainCells, null, EntryType.WIFI, newId = "nuevo-1", lockEpoch = { epoch }).also { it.load(emptyList()) }
+        s.beginWifiRead(WifiReadKind.CAMERA)
+        epoch++
+        val since = s.finishWifiRead(WifiReadKind.CAMERA)!!
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
+        assertEquals(untouched, s.wifiFields())
+    }
+
+    private fun EntryEditSession.read(kind: WifiReadKind = WifiReadKind.CAMERA): WifiReadStart {
+        assertTrue(beginWifiRead(kind))
+        return finishWifiRead(kind)!!
     }
 
     @Test fun aReadingFillsTheFormItStartedIn() {
         val s = newWifi()
-        val since = s.startWifiRead()!!
+        val since = s.read()
         s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
         assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
-        val failed = s.startWifiRead()!!
+        val failed = s.read(WifiReadKind.IMAGE)
         s.wifiReadFailed("no se pudo", failed)
-        assertEquals("no se pudo", s.error.value)
+        assertEquals("no se pudo", s.wifiReadMessage.value)
+        // Never mixed with «Guardar»'s error.
+        assertNull(s.error.value)
     }
 
     @Test fun aLateReadingAfterALockAndAQuickUnlockFillsNothing() {
         var epoch = 3
         val s = EntryEditSession(PlainCells, null, EntryType.WIFI, newId = "nuevo-1", lockEpoch = { epoch }).also { it.load(emptyList()) }
-        val since = s.startWifiRead()!!
+        val since = s.read()
         // The lock clears the form; the next unlock loads a new, empty one before the result lands.
         epoch++
         s.vaultStateIs(unlocked = false, emptyList())
@@ -795,6 +841,7 @@ class EntryEditSessionTest {
         s.wifiReadFailed("tarde", since)
         assertEquals(untouched, s.wifiFields())
         assertNull(s.wifiReplace.value)
+        assertNull(s.wifiReadMessage.value)
         assertNull(s.error.value)
     }
 
@@ -802,58 +849,141 @@ class EntryEditSessionTest {
         // The collector may see only the last state (a lock and an unlock conflated): the vault's lock epoch still moved.
         var epoch = 0
         val s = EntryEditSession(PlainCells, null, EntryType.WIFI, newId = "nuevo-1", lockEpoch = { epoch }).also { it.load(emptyList()) }
-        val since = s.startWifiRead()!!
+        val since = s.read()
         epoch++
         s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
         s.wifiReadFailed("tarde", since)
         assertEquals(untouched, s.wifiFields())
-        assertNull(s.error.value)
+        assertNull(s.wifiReadMessage.value)
     }
 
     @Test fun aLateReadingAfterLeavingTheFormFillsNothing() {
         // Left (not a rotation) and back: a new form, the same session and the same lock epoch.
         val s = newWifi()
-        val since = s.startWifiRead()!!
+        val since = s.read()
         s.left(changingConfigurations = false)
         s.load(emptyList())
         s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = since)
         assertEquals(untouched, s.wifiFields())
-        // A rotation keeps the form, and the reading counts.
-        val kept = s.startWifiRead()!!
+        // A rotation keeps the form and the reading opened before it.
+        assertTrue(s.beginWifiRead(WifiReadKind.CAMERA))
         s.left(changingConfigurations = true)
+        val kept = s.finishWifiRead(WifiReadKind.CAMERA)!!
         s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false, since = kept)
         assertEquals("Casa", s.wifi(WIFI_SSID_KEY))
     }
 
     @Test fun aReadingStartToStringShowsNothing() {
-        assertEquals("WifiReadStart", newWifi().startWifiRead().toString())
+        assertEquals("WifiReadStart", newWifi().read().toString())
     }
 
-    // Review of task 2 (minors 1 and 2): the error clears and is shown only for the form the reading started in.
+    // Review of task 2 (minors 1 and 2): the message clears and is shown only for the form the reading started in.
 
-    @Test fun aStaleImageReadLeavesAFreshFormsErrorAlone() {
+    @Test fun aStaleImageReadLeavesAFreshFormsMessageAlone() {
         val s = newWifi()
-        val since = s.startWifiRead()!!
+        val since = s.read(WifiReadKind.IMAGE)
         s.clear()
         s.load(emptyList())
-        s.error.value = "error del formulario nuevo"
-        s.wifiReadBegan(since)
-        assertEquals("error del formulario nuevo", s.error.value)
-        // The current reading does clear it.
-        val now = s.startWifiRead()!!
-        s.wifiReadBegan(now)
-        assertNull(s.error.value)
+        s.wifiReadMessage.value = "mensaje del formulario nuevo"
+        // M-2: a stale start says so, and the picker's answer goes without reading the image.
+        assertFalse(s.wifiReadBegan(since))
+        assertEquals("mensaje del formulario nuevo", s.wifiReadMessage.value)
+        // The current reading does clear it (already when it opens), and «Guardar»'s error stays.
+        s.error.value = "error de Guardar"
+        val now = s.read(WifiReadKind.IMAGE)
+        assertNull(s.wifiReadMessage.value)
+        s.wifiReadMessage.value = "otra"
+        assertTrue(s.wifiReadBegan(now))
+        assertNull(s.wifiReadMessage.value)
+        assertEquals("error de Guardar", s.error.value)
     }
 
     @Test fun aFailedReadSaysNothingOnceTheTypeLeftWifi() {
         val s = newWifi()
-        val since = s.startWifiRead()!!
+        val since = s.read(WifiReadKind.IMAGE)
         s.changeType(EntryType.LOGIN)
         s.wifiReadFailed("no se pudo", since)
-        s.wifiReadBegan(since)
+        assertFalse(s.wifiReadBegan(since))
+        assertNull(s.wifiReadMessage.value)
+    }
+
+    // Review of the branch, I-2: the reading's message has its own cell, shown under «Escanear QR» and «Elegir imagen».
+
+    @Test fun theReadingsMessageGoesWithAFillAReadAndAClear() {
+        val s = newWifi()
+        s.scanWifi("https://ejemplo.com", simpleMode = false)
+        assertEquals(WIFI_SCAN_NOT_WIFI, s.wifiReadMessage.value)
         assertNull(s.error.value)
-        s.error.value = "otro"
-        s.wifiReadBegan(since)
-        assertEquals("otro", s.error.value)
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        assertNull(s.wifiReadMessage.value)
+        s.scanWifi("https://ejemplo.com", simpleMode = false)
+        s.beginWifiRead(WifiReadKind.CAMERA)
+        assertNull(s.wifiReadMessage.value)
+        s.wifiReadMessage.value = "algo"
+        s.clear()
+        assertNull(s.wifiReadMessage.value)
+        // Leaving wifi drops it too, so it is not there if the type comes back.
+        s.load(emptyList())
+        s.scanWifi("https://ejemplo.com", simpleMode = false)
+        s.changeType(EntryType.LOGIN)
+        assertNull(s.wifiReadMessage.value)
+    }
+
+    // Review of the branch, I-1: a form reached as wifi through the row of types, untouched, is filled without asking.
+
+    @Test fun anUntouchedWifiReachedFromAnotherTypeIsFilledWithoutAsking() {
+        for (from in listOf(EntryType.LOGIN, EntryType.TOTP)) {
+            val s = session(type = from).also { it.load(emptyList()) }
+            s.changeType(EntryType.WIFI)
+            s.scanWifi("WIFI:T:WEP;S:Casa;P:clave1234;H:true;;", simpleMode = false)
+            assertNull("$from", s.wifiReplace.value)
+            assertEquals("$from", listOf("Casa", "clave1234", "WEP", "true", "Casa"), s.wifiFields())
+        }
+    }
+
+    @Test fun aWifiReachedFromAnotherTypeWithSomethingTypedStillAsks() {
+        val s = session(type = EntryType.LOGIN).also { it.load(emptyList()) }
+        s.changeType(EntryType.WIFI)
+        s.setTemplateValue(EntryType.WIFI, WIFI_PASSWORD_KEY, "escrita")
+        s.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+        assertTrue(s.wifiReplace.value!!.typed)
+        assertEquals("escrita", s.wifi(WIFI_PASSWORD_KEY))
+        // A security other than WPA, or hidden on, counts as typed too.
+        for ((key, value) in listOf(WIFI_SECURITY_KEY to "WEP", WIFI_HIDDEN_KEY to "true")) {
+            val t = session(type = EntryType.LOGIN).also { it.load(emptyList()) }
+            t.changeType(EntryType.WIFI)
+            t.setTemplateValue(EntryType.WIFI, key, value)
+            t.scanWifi("WIFI:T:WPA;S:Casa;P:clave1234;;", simpleMode = false)
+            assertNotNull(key, t.wifiReplace.value)
+        }
+    }
+
+    // Review of the branch, M-4: R-1 of the Abogado Digital in the form. The bidi mark is past the 31 characters kept
+    // before «…», so the cut leaves it out whole.
+
+    @Test fun aLongTypeOfSecurityWithABidiMarkIsCutInTheForm() {
+        val s = newWifi()
+        s.scanWifi("WIFI:T:${"A".repeat(100)}‮;S:Casa;P:clave1234;;", simpleMode = false)
+        assertEquals(qrWifiOtherSecurity("A".repeat(31) + "…"), s.wifiReadMessage.value)
+        assertEquals(untouched, s.wifiFields())
+    }
+
+    // Review of the branch, M-5: a name of a network with characters that are not seen gets the inspector's alert.
+
+    @Test fun aNameWithHiddenCharactersGetsTheInspectorsAlert() {
+        val s = newWifi()
+        assertNull(s.wifiNameAlert())
+        s.scanWifi("WIFI:T:WPA;S:Ca​sa‮;P:clave1234;;", simpleMode = false)
+        assertEquals(qrBidi("⟨U+200B⟩, ⟨U+202E⟩"), s.wifiNameAlert())
+        // It follows the field: written again without them, it goes.
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Casa")
+        assertNull(s.wifiNameAlert())
+        // An emoji with its presentation selector is not hidden (as in the inspector).
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Casa ❤️")
+        assertNull(s.wifiNameAlert())
+        // Only on a wifi.
+        s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Ca​sa")
+        s.changeType(EntryType.LOGIN)
+        assertNull(s.wifiNameAlert())
     }
 }

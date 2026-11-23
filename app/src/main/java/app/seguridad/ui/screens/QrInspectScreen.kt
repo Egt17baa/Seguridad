@@ -50,7 +50,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import app.seguridad.android.QrImageUnreadable
 import app.seguridad.android.copySensitive
 import app.seguridad.android.scanQrOptions
 import app.seguridad.core.PickerPlace
