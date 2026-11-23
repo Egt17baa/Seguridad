@@ -41,14 +41,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.FilterObscuredTouches
@@ -187,7 +189,8 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
             }
             Section(SettingItem.STYLE.title) {
                 Choices(STYLE_ORDER, settings.style, { it.label() }) { v -> change { it.copy(style = v) } }
-                Hint(styleShort(settings.style))
+                // TalkBack reads the new line when a style is chosen (review of task 4); the Box does not change its look.
+                Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Hint(styleShort(settings.style)) }
                 MoreInfo { styleMore(settings.style).forEach { Hint(it) } }
             }
             Section(SettingItem.PALETTE.title) {
@@ -292,7 +295,10 @@ private fun Preview(settings: Settings, custom: CustomPalette?) {
         // underneath; nothing behind the window shows through the preview.
         Box(
             Modifier.fillMaxWidth().height(196.dp).clip(SectionShape)
-                .drawBehind { if (look.wallpaperBehind) drawPreviewUnderlay(look, size) }
+                .drawWithCache {
+                    val underlay = if (look.wallpaperBehind) previewUnderlay(look, size) else null
+                    onDrawBehind { underlay?.let { drawRect(it, size = size) } }
+                }
                 .clearAndSetSemantics { contentDescription = PREVIEW_DESCRIPTION },
         ) {
             ProvideLook(look) {
@@ -319,9 +325,9 @@ private fun Preview(settings: Settings, custom: CustomPalette?) {
 }
 
 /** Under the preview of «Transparente»: the gradient of the app, opaque, where the wallpaper would be. */
-private fun DrawScope.drawPreviewUnderlay(look: Look, area: Size) {
+private fun previewUnderlay(look: Look, area: Size): Brush {
     val bg = look.colors.background
-    drawRect(Brush.verticalGradient(listOf(Color(bg.top), Color(bg.bottom)), startY = 0f, endY = area.height), size = area)
+    return Brush.verticalGradient(listOf(Color(bg.top), Color(bg.bottom)), startY = 0f, endY = area.height)
 }
 
 /** R-C8: «Aspecto nuevo…», once after updating, closed with «Entendido». */

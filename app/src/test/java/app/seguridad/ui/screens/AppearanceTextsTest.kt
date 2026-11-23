@@ -77,7 +77,8 @@ class AppearanceTextsTest {
     @Test fun theScreenUsesTheOrderTheLineAndTheFoldedTexts() {
         val screen = code("ui/screens/AppearanceScreen.kt")
         assertTrue(screen, "Choices(STYLE_ORDER, settings.style" in screen)
-        assertTrue(screen, "Hint(styleShort(settings.style))" in screen)
+        // TalkBack reads the new line when a style is chosen (review of task 4), without changing how it looks.
+        assertTrue(screen, "Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Hint(styleShort(settings.style)) }" in screen)
         assertTrue(screen, "MoreInfo { styleMore(settings.style).forEach { Hint(it) } }" in screen)
         assertTrue(screen, "Choices(ThemeStyle.entries" !in screen)
     }
@@ -88,7 +89,11 @@ class AppearanceTextsTest {
      */
     @Test fun thePreviewOfTransparentIsTheLayerOverTheGradient() {
         val screen = code("ui/screens/AppearanceScreen.kt")
-        assertTrue(screen, ".drawBehind { if (look.wallpaperBehind) drawPreviewUnderlay(look, size) }" in screen)
+        // Review of task 4: the brush is made once per size and look (drawWithCache), not on every frame.
+        assertTrue(screen, ".drawWithCache {" in screen)
+        assertTrue(screen, "val underlay = if (look.wallpaperBehind) previewUnderlay(look, size) else null" in screen)
+        assertTrue(screen, "onDrawBehind { underlay?.let { drawRect(it, size = size) } }" in screen)
+        assertTrue(screen, ".drawBehind {" !in screen)
         assertTrue(screen, "wallpaperBlur = current.wallpaperBlur" in screen)
     }
 }

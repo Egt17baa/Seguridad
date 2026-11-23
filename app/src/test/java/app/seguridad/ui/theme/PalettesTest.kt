@@ -202,6 +202,24 @@ class PalettesTest {
     }
 
     /**
+     * 2.1, Aspecto, review of task 4: «Vidrio» says «con paneles más translúcidos» (STYLE_GLASS_STRONG_SHORT), so in every
+     * palette, light and dark (the named ones, «Personalizado» at every intensity, the wallpaper's colours), at least one
+     * level of its panels is strictly more see-through than in «Cristal».
+     */
+    @Test fun glassStrongIsMoreSeeThroughThanGlassEverywhere() {
+        val cases = styleCases + ALL_CUSTOM.map { Case(PaletteId.CUSTOM, it, null) }
+        val bad = mutableListOf<String>()
+        for (case in cases) for (dark in listOf(true, false)) {
+            val g = case.colors(dark, false, ThemeStyle.GLASS)
+            val s = case.colors(dark, false, ThemeStyle.GLASS_STRONG)
+            if (!(s.cardAlpha < g.cardAlpha || s.barAlpha < g.barAlpha || s.overlayAlpha < g.overlayAlpha)) {
+                bad += "$case dark=$dark card ${s.cardAlpha}/${g.cardAlpha} bar ${s.barAlpha}/${g.barAlpha} overlay ${s.overlayAlpha}/${g.overlayAlpha}"
+            }
+        }
+        assertTrue("${bad.size} cases:\n" + bad.take(40).joinToString("\n"), bad.isEmpty())
+    }
+
+    /**
      * «Transparente»: the app's background is drawn at [AppColors.scrimAlpha] over the wallpaper, which can be anything,
      * so every text reads on that layer over pure white and pure black, at both ends of the gradient; and every panel,
      * at its opacity over that layer (with its highlight), keeps every text, the outline and the accent reading. The
