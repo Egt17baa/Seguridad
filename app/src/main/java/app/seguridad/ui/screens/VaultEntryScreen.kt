@@ -125,6 +125,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
+import android.content.Context
 import app.seguridad.SeguridadApp
 import app.seguridad.core.PickerPlace
 import app.seguridad.settings.simpleOn
@@ -594,6 +595,13 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
 }
 
 /**
+ * 2.1, O-1 of the Abogado Digital: whether «Modo sencillo» is on now, only to choose the text of a code read in «Añadir →
+ * Red WiFi» that is not wifi (where the inspector is). Read when the result comes, from the app's settings.
+ */
+private fun simpleModeOn(context: Context): Boolean =
+    (context.applicationContext as? SeguridadApp)?.container?.settings?.settings?.value?.simpleOn == true
+
+/**
  * A new entry ([id] null) or an existing one. Its state lives in [EntryEditViewModel] (a rotation keeps it). [otpAuthText]
  * is a 2FA text the QR inspector read (`otpauth://` or a Google Authenticator export): applied once per session, exactly
  * as a scan here would be; [onOtpAuthTaken] then lets the caller drop its own copy. [wifiQrText] (2.0, task 9) is a wifi
@@ -675,7 +683,7 @@ fun VaultEntryEditScreen(
 
     // 2.1, task 2: «Añadir → Red WiFi» reads the network's code with the camera or from an image. Only the session reads
     // it ([EntryEditSession.scanWifi]), and only in the form the reading started in (a lock or leaving meanwhile: nothing).
-    val scanWifi: (String, WifiReadStart) -> Unit = { raw, since -> form.scanWifi(raw, simpleMode = (context.applicationContext as? SeguridadApp)?.container?.settings?.settings?.value?.simpleOn == true, since = since) }
+    val scanWifi: (String, WifiReadStart) -> Unit = { raw, since -> form.scanWifi(raw, simpleMode = simpleModeOn(context), since = since) }
     val wifiScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
         val since = vm.wifiScanSince.also { vm.wifiScanSince = null } ?: return@rememberLauncherForActivityResult
@@ -694,7 +702,7 @@ fun VaultEntryEditScreen(
         VaultLock.keepOpenOnce = false // Back in the app (MainActivity.onStart takes it back too).
         val since = vm.wifiPickSince.also { vm.wifiPickSince = null } ?: return@rememberDocumentPicker
         if (uri == null) return@rememberDocumentPicker
-        form.error.value = null
+        form.wifiReadBegan(since)
         readingImage = true
         scope.launch {
             try {

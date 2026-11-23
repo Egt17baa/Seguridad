@@ -78,7 +78,8 @@ class SimpleModeTest {
         assertEquals(
             "The form's screen reads it only to hand a code read there to the session",
             listOf(
-                "val scanWifi: (String, WifiReadStart) -> Unit = { raw, since -> form.scanWifi(raw, simpleMode = (context.applicationContext as? SeguridadApp)?.container?.settings?.settings?.value?.simpleOn == true, since = since) }",
+                "(context.applicationContext as? SeguridadApp)?.container?.settings?.settings?.value?.simpleOn == true",
+                "val scanWifi: (String, WifiReadStart) -> Unit = { raw, since -> form.scanWifi(raw, simpleMode = simpleModeOn(context), since = since) }",
             ),
             screen,
         )

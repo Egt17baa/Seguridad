@@ -828,4 +828,32 @@ class EntryEditSessionTest {
     @Test fun aReadingStartToStringShowsNothing() {
         assertEquals("WifiReadStart", newWifi().startWifiRead().toString())
     }
+
+    // Review of task 2 (minors 1 and 2): the error clears and is shown only for the form the reading started in.
+
+    @Test fun aStaleImageReadLeavesAFreshFormsErrorAlone() {
+        val s = newWifi()
+        val since = s.startWifiRead()!!
+        s.clear()
+        s.load(emptyList())
+        s.error.value = "error del formulario nuevo"
+        s.wifiReadBegan(since)
+        assertEquals("error del formulario nuevo", s.error.value)
+        // The current reading does clear it.
+        val now = s.startWifiRead()!!
+        s.wifiReadBegan(now)
+        assertNull(s.error.value)
+    }
+
+    @Test fun aFailedReadSaysNothingOnceTheTypeLeftWifi() {
+        val s = newWifi()
+        val since = s.startWifiRead()!!
+        s.changeType(EntryType.LOGIN)
+        s.wifiReadFailed("no se pudo", since)
+        s.wifiReadBegan(since)
+        assertNull(s.error.value)
+        s.error.value = "otro"
+        s.wifiReadBegan(since)
+        assertEquals("otro", s.error.value)
+    }
 }

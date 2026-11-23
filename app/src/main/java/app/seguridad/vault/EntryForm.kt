@@ -673,8 +673,17 @@ class EntryEditSession(
      */
     fun startWifiRead(): WifiReadStart? = if (loaded) WifiReadStart(generation, lockEpoch()) else null
 
-    /** The form a reading started in ([since]) is still this one: loaded, not cleared since, and no lock since. */
-    private fun isCurrent(since: WifiReadStart) = loaded && since.generation == generation && since.epoch == lockEpoch()
+    /**
+     * The form a reading started in ([since]) is still this one: loaded, not cleared since, no lock since, and still a
+     * new wifi (as [scanWifi] asks), so a reading whose type was changed meanwhile says nothing.
+     */
+    private fun isCurrent(since: WifiReadStart) =
+        loaded && since.generation == generation && since.epoch == lockEpoch() && existing.value == null && type.value == EntryType.WIFI
+
+    /** An image is being read for [since]: the error on screen goes, only in the form the reading started in. */
+    fun wifiReadBegan(since: WifiReadStart) {
+        if (isCurrent(since)) error.value = null
+    }
 
     /**
      * The code a reading brought ([raw]) as [scanWifi] reads it, only in the form the reading started in ([since]): a
