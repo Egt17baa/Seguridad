@@ -80,7 +80,8 @@ val SectionShape = RoundedCornerShape(16.dp)
 @Composable
 fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val look = LocalLook.current
-    val glass = look.glass
+    val glass = look.translucent
+    val shape = panelShape(PanelLevel.CARD, look.strong) // «Vidrio» rounds its cards more; otherwise SectionShape
     val colors = CardDefaults.cardColors(containerColor = if (glass) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer)
     // «Alto contraste» marks the edge in «Sólido» too (the glass draws its own).
     val border = when {
@@ -88,7 +89,7 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
         look.highContrast -> BorderStroke(look.colors.borderWidth.dp, look.colors.border)
         else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     }
-    val m = if (glass) modifier.glass(PanelLevel.CARD, SectionShape) else modifier
+    val m = if (glass) modifier.glass(PanelLevel.CARD, shape) else modifier
     if (onClick != null) {
         // Review M-8: the brief glow of a pressed panel (Material's ripple), and none when Android removes animations;
         // then a still mark while it is pressed (re-review N-2), in «Cristal» and in «Sólido».
@@ -97,8 +98,8 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
         CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn)) {
             Card(
                 onClick = onClick,
-                modifier = m.pressSignal(interaction, SectionShape, animationsOn),
-                shape = SectionShape,
+                modifier = m.pressSignal(interaction, shape, animationsOn),
+                shape = shape,
                 colors = colors,
                 border = border,
                 interactionSource = interaction,
@@ -106,7 +107,7 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
             )
         }
     } else {
-        Card(modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
+        Card(modifier = m, shape = shape, colors = colors, border = border, content = content)
     }
 }
 
@@ -135,7 +136,7 @@ fun RowPanel(
     val animationsOn = LocalAnimationsOn.current
     val interaction = remember { MutableInteractionSource() }
     val surface = when {
-        look.glass -> modifier.glass(PanelLevel.CARD, RowShape)
+        look.translucent -> modifier.glass(PanelLevel.CARD, RowShape)
         else -> modifier.background(MaterialTheme.colorScheme.surfaceContainer, RowShape)
             .border(if (look.highContrast) look.colors.borderWidth.dp else 1.dp, if (look.highContrast) look.colors.border else MaterialTheme.colorScheme.outlineVariant, RowShape)
     }
@@ -204,7 +205,7 @@ fun BackScaffold(title: String, onBack: () -> Unit, snackbarHost: @Composable ()
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TopAppBar(title: @Composable () -> Unit, navigationIcon: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {}) {
-    if (!LocalLook.current.glass) {
+    if (!LocalLook.current.translucent) {
         androidx.compose.material3.TopAppBar(title = title, navigationIcon = navigationIcon, actions = actions)
         return
     }
@@ -220,7 +221,7 @@ fun TopAppBar(title: @Composable () -> Unit, navigationIcon: @Composable () -> U
 /** 2.0, task 5 bis: the app's bottom bar, glass in «Cristal» as [TopAppBar]. */
 @Composable
 fun NavigationBar(content: @Composable RowScope.() -> Unit) {
-    if (!LocalLook.current.glass) {
+    if (!LocalLook.current.translucent) {
         androidx.compose.material3.NavigationBar(content = content)
         return
     }
@@ -248,8 +249,9 @@ fun AlertDialog(
     text: @Composable (() -> Unit)? = null,
     properties: DialogProperties = DialogProperties(),
 ) {
-    val glass = LocalLook.current.glass
-    val shape = panelShape(PanelLevel.OVERLAY)
+    val look = LocalLook.current
+    val glass = look.translucent
+    val shape = panelShape(PanelLevel.OVERLAY, look.strong)
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismissRequest,
         confirmButton = {
@@ -276,7 +278,7 @@ fun AlertDialog(
 @Composable
 fun DropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val look = LocalLook.current
-    if (!look.glass) {
+    if (!look.translucent) {
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest, modifier = modifier) {
             FilterObscuredTouches()
             content()

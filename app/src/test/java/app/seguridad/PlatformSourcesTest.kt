@@ -1007,7 +1007,7 @@ class PlatformSourcesTest {
         assertTrue("LocalRippleConfiguration provides panelRipple(animationsOn)" in components)
         assertTrue(insideCall(main("ui/theme/Components.kt"), "CompositionLocalProvider", main("ui/theme/Components.kt").indexOf("Card(\n                onClick = onClick")))
         // Re-review N-2: a still mark while pressed, with the card's own presses.
-        assertTrue("modifier = m.pressSignal(interaction, SectionShape, animationsOn)" in components && "interactionSource = interaction," in components)
+        assertTrue("modifier = m.pressSignal(interaction, shape, animationsOn)" in components && "interactionSource = interaction," in components)
         // Re-review N-1: the system is read as state, on start and on every return to the app, never on a recomposition.
         assertFalse("areAnimatorsEnabled" in components)
         assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { on = ValueAnimator.areAnimatorsEnabled() }" in code("ui/theme/Glass.kt"))
@@ -1101,7 +1101,8 @@ class PlatformSourcesTest {
     @Test fun `the highlight of a panel fades white`() {
         val src = code("ui/theme/Glass.kt")
         val highlight = src.substring(src.indexOf("val highlight = Brush.verticalGradient("), src.indexOf("val edge ="))
-        assertTrue(highlight, "0f to Color.White.copy(alpha = colors.highlightAlpha)" in highlight && "0.5f to Color.White.copy(alpha = 0f)" in highlight)
+        // 2.1, Aspecto: «Vidrio» fades it out at 0.7 of the height instead of 0.5, from the same white.
+        assertTrue(highlight, "0f to Color.White.copy(alpha = colors.highlightAlpha)" in highlight && "(if (strong) 0.7f else 0.5f) to Color.White.copy(alpha = 0f)" in highlight)
         assertFalse(highlight, "Transparent" in highlight)
     }
 
@@ -1318,5 +1319,30 @@ class PlatformSourcesTest {
         for (s in listOf("withContext(Dispatchers.IO) { readPhoto(context, uri).also { bytes = it } }", "withContext(Dispatchers.Default)", "finally {\n        bytes?.fill(0)", "QR_NOT_FOUND", "QR_IMAGE_TOO_BIG", "QR_IMAGE_TOO_LARGE", "QR_IMAGE_DAMAGED", "catch (e: OutOfMemoryError)", "catch (e: CancellationException)")) {
             assertTrue(s, s in read)
         }
+    }
+
+    /** Every Kotlin file under app/src/main/java/app/seguridad/[dir], with its path. */
+    private fun mainDir(dir: String): List<Pair<String, String>> {
+        var d: File? = File(".").absoluteFile
+        while (d != null) {
+            val f = File(d, "app/src/main/java/app/seguridad/$dir")
+            if (f.isDirectory) return f.walkTopDown().filter { it.isFile && it.extension == "kt" }.map { it.path to it.readText() }.toList()
+            d = d.parentFile
+        }
+        error("$dir not found")
+    }
+
+    /**
+     * 2.1, Aspecto (O-A2 and the design): the styles are drawn with gradients, translucency, edges and the blur only. No
+     * refraction shader, no sensors, nothing that follows the finger or the scroll and nothing that animates on its own in
+     * the theme; and no API that gives the wallpaper's image anywhere in the app (O-A3): «Transparente» lets the system
+     * draw it behind the window.
+     */
+    @Test fun `2_1 the styles are still drawings and the app never reads the wallpaper`() {
+        for ((path, src) in mainDir("ui/theme")) {
+            for (api in listOf("RuntimeShader", "SensorManager", "pointerInput", "rememberInfiniteTransition")) assertFalse("$api in $path", api in src)
+        }
+        assertFalse(Regex("""animate\w*AsState""").containsMatchIn(main("ui/theme/Glass.kt")))
+        for ((path, src) in mainDir("")) assertFalse("WallpaperManager in $path", "WallpaperManager" in src)
     }
 }

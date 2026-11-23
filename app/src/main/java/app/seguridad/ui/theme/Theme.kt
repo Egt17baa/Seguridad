@@ -56,10 +56,12 @@ fun ThemeMode.isDark(): Boolean = when (this) {
 fun SeguridadTheme(settings: Settings, content: @Composable () -> Unit) {
     val dark = settings.theme.isDark()
     val wallpaper = wallpaperFromSystem(settings.palette, dark)
-    val look = remember(settings.style, settings.palette, settings.custom, settings.reduceTransparency, settings.highContrast, dark, wallpaper) {
+    // 2.1, Aspecto: whether the window blurs the wallpaper behind «Transparente»; task 3 reads it from the window.
+    val wallpaperBlur = false
+    val look = remember(settings.style, settings.palette, settings.custom, settings.reduceTransparency, settings.highContrast, dark, wallpaper, wallpaperBlur) {
         lookFor(
             settings.style, settings.palette, settings.custom, settings.reduceTransparency, settings.highContrast, dark,
-            sdk = Build.VERSION.SDK_INT, wallpaper = wallpaper,
+            sdk = Build.VERSION.SDK_INT, wallpaper = wallpaper, wallpaperBlur = wallpaperBlur,
         )
     }
     // Re-review N-1: Android's animations setting, read on start and on every return to the app.
