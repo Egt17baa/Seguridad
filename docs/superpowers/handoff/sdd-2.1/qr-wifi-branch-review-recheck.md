@@ -36,3 +36,7 @@ El inicio vive en la sesión y sobrevive a la recreación; la imagen se lee en `
 ## Textos para el Abogado Digital (revisión final)
 
 `qrBidi` en el formulario de wifi (nueva o existente), con el nombre enseñado con sus marcas; debajo de los botones `QR_CAMERA_FAILED`, `NO_FILE_PICKER`, `PICKER_FAILED`, `QR_NO_CAMERA_PERMISSION` y los demás de la lectura; README `:65`, `:429` y `:433` (N-M4). Siguen los textos y las comillas anidadas de `qr-wifi-branch-review.md`.
+
+## Repaso corto de la segunda ronda (`6a6c2d8`, `fd2412c`)
+
+Director, 23-11-2026. **Veredicto: cerrado.** N-I1 (`vault/EntryForm.kt:755-766`, `ui/screens/VaultEntryScreen.kt:797-803`, tests `EntryEditSessionTest.kt:977-989`), N-M1 (`PlatformSourcesTest.kt:1289-1292`), N-M2 (`PhotoCleanScreen.kt:109-112`), N-M3 (`VaultEntryScreen.kt:793`), N-M4 (`README.md:433`) y N-M5 (`EntryForm.kt:244-249`), cerrados. El nombre con marcas sale también al editar, no es secreto (`Templates.kt:58`), se recompone al escribir y su coste es lineal y acotado. Sin problemas nuevos; detalle estético sin cambio pedido: el nombre en `titleMedium`, como `WifiQrScreen`. Sin textos nuevos.
