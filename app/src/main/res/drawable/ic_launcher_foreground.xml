@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  2.0: Clavero's own mark, a «C» whose lower end turns into the blade of a key, in gold, on a glass disc.
-  No shield, padlock or keyhole. Scaled to 0.9 so all of it stays inside the 66 dp safe zone.
+  2.1: Clavero's mark, a gold serif «C» with a blue «L» inside and an old gold key that crosses the «L»
+  and leaves through the opening of the «C». No shield, padlock or keyhole, and no text besides the monogram.
+  The «C» and the «L» are the outlines of Liberation Serif Bold 2.1.5 (SIL Open Font License 1.1),
+  turned into paths; the font file is not in the repository or in the APK.
+  Scaled to 0.95 so all of it stays inside the 66 dp safe zone.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -9,38 +12,44 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.9" android:scaleY="0.9">
-        <path
-            android:pathData="M54,24 A30,30 0 1 1 53.99,24 Z"
-            android:strokeColor="#47FFFFFF"
-            android:strokeWidth="1">
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.95" android:scaleY="0.95">
+        <path android:pathData="M49.51 79.57Q38.32 79.57 32.04 73.63Q25.77 67.69 25.77 57.16Q25.77 45.74 31.76 39.81Q37.75 33.88 49.47 33.88Q57.21 33.88 65.51 36.11L65.71 46.8H62.72L61.79 40.36Q57.41 37.37 51.6 37.37Q43.89 37.37 40.34 42.17Q36.79 46.97 36.79 57.06Q36.79 66.39 40.51 71.27Q44.23 76.15 51.33 76.15Q55.08 76.15 57.89 75.16Q60.7 74.16 62.29 72.8L63.35 65.49H66.37L66.17 76.78Q63.19 77.95 58.4 78.76Q53.62 79.57 49.51 79.57Z">
             <aapt:attr name="android:fillColor">
-                <gradient android:type="radial" android:centerX="44" android:centerY="42" android:gradientRadius="48">
-                    <item android:offset="0" android:color="#38FFFFFF" />
-                    <item android:offset="1" android:color="#05FFFFFF" />
+                <gradient android:type="linear" android:startX="26" android:startY="34" android:endX="88" android:endY="80">
+                    <item android:offset="0" android:color="#FFFFF0BE" />
+                    <item android:offset="0.45" android:color="#FFF2BE55" />
+                    <item android:offset="1" android:color="#FFB8741E" />
                 </gradient>
             </aapt:attr>
         </path>
         <path
-            android:pathData="M68.5,41.5 A19,19 0 1 0 54,73 H80"
-            android:strokeWidth="8"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round">
-            <aapt:attr name="android:strokeColor">
-                <gradient android:type="linear" android:startX="35" android:startY="35" android:endX="80" android:endY="80">
-                    <item android:offset="0" android:color="#FFFFE3A3" />
-                    <item android:offset="1" android:color="#FFF0A23A" />
+            android:pathData="M61.81 47.89 58.17 48.35V68.32H62.97Q66.71 68.32 68.47 67.97L69.91 63.06H71.49L70.83 70.18H49.61V68.9L52.63 68.42V48.35L49.63 47.89V46.61H61.81Z"
+            android:strokeColor="#FFF2BE55"
+            android:strokeWidth="0.8">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="49.6" android:startY="46.6" android:endX="71.5" android:endY="70.2">
+                    <item android:offset="0" android:color="#FF8FD0FF" />
+                    <item android:offset="1" android:color="#FF1E5BE0" />
                 </gradient>
             </aapt:attr>
         </path>
         <path
-            android:pathData="M69,73 V81.5 M77.5,73 V80"
-            android:strokeWidth="6"
-            android:strokeLineCap="round">
+            android:pathData="M76.22,52 A3.78,3.78 0 1 1 83.78,52 A3.78,3.78 0 1 1 76.22,52 Z"
+            android:strokeWidth="2.34">
             <aapt:attr name="android:strokeColor">
-                <gradient android:type="linear" android:startX="35" android:startY="35" android:endX="80" android:endY="80">
-                    <item android:offset="0" android:color="#FFFFE3A3" />
-                    <item android:offset="1" android:color="#FFF0A23A" />
+                <gradient android:type="linear" android:startX="26" android:startY="34" android:endX="88" android:endY="80">
+                    <item android:offset="0" android:color="#FFFFF0BE" />
+                    <item android:offset="0.45" android:color="#FFF2BE55" />
+                    <item android:offset="1" android:color="#FFB8741E" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M81.67,55.56 A1.89,1.89 0 1 1 85.45,55.56 A1.89,1.89 0 1 1 81.67,55.56 Z M74.55,55.56 A1.89,1.89 0 1 1 78.33,55.56 A1.89,1.89 0 1 1 74.55,55.56 Z M74.55,48.44 A1.89,1.89 0 1 1 78.33,48.44 A1.89,1.89 0 1 1 74.55,48.44 Z M81.67,48.44 A1.89,1.89 0 1 1 85.45,48.44 A1.89,1.89 0 1 1 81.67,48.44 Z M57.14,50.56 H74.96 A1.44,1.44 0 0 1 76.4,52 V52 A1.44,1.44 0 0 1 74.96,53.44 H57.14 A1.44,1.44 0 0 1 55.7,52 V52 A1.44,1.44 0 0 1 57.14,50.56 Z M56.6,52.9 H57.5 A0.9,0.9 0 0 1 58.4,53.8 V56.95 A0.9,0.9 0 0 1 57.5,57.85 H56.6 A0.9,0.9 0 0 1 55.7,56.95 V53.8 A0.9,0.9 0 0 1 56.6,52.9 Z M61.1,52.9 H62 A0.9,0.9 0 0 1 62.9,53.8 V55.6 A0.9,0.9 0 0 1 62,56.5 H61.1 A0.9,0.9 0 0 1 60.2,55.6 V53.8 A0.9,0.9 0 0 1 61.1,52.9 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="26" android:startY="34" android:endX="88" android:endY="80">
+                    <item android:offset="0" android:color="#FFFFF0BE" />
+                    <item android:offset="0.45" android:color="#FFF2BE55" />
+                    <item android:offset="1" android:color="#FFB8741E" />
                 </gradient>
             </aapt:attr>
         </path>
