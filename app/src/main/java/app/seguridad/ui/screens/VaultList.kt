@@ -76,7 +76,7 @@ import androidx.compose.material3.Checkbox
 import app.seguridad.ui.theme.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import app.seguridad.ui.theme.tagChipPanel
+import app.seguridad.ui.theme.tagChipContainer
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -604,9 +604,9 @@ internal fun EntryList(
             if (result.tags.isNotEmpty()) {
                 item(key = "tags") {
                     // R18: lazy, so a vault with many tags composes only the chips on screen.
-                    // 2.1, review I-1 of task 2: an unselected chip is see-through, so in a translucent style it gets a card
-                    // panel under it (tagChipPanel) and its tag colour never sits on the bare background (the layer of
-                    // «Transparente»); a selected one keeps Material's opaque container.
+                    // 2.1, review I-1 and I-3 of task 2: an unselected chip is see-through, so in a translucent style its
+                    // container is a card panel's fill (tagChipContainer) and its tag colour never sits on the bare
+                    // background (the layer of «Transparente»); a selected one keeps Material's opaque container.
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(result.tags, key = { lazyKey('t', it) }) { t ->
                             val on = t in f.tags
@@ -614,8 +614,7 @@ internal fun EntryList(
                                 selected = on,
                                 onClick = { list.filter = f.copy(tags = if (on) f.tags - t else f.tags + t) },
                                 label = { Text("#${plainReportText(t)}", color = tagTextColor(tagColors[t])) },
-                                modifier = Modifier.tagChipPanel(selected = on),
-                                colors = FilterChipDefaults.filterChipColors(containerColor = Color.Transparent),
+                                colors = FilterChipDefaults.filterChipColors(containerColor = tagChipContainer()),
                             )
                         }
                         if (!totpOnly) item(key = "colors") { FilterChip(selected = false, onClick = { dialog = OrganizeDialog.TagColors }, label = { Text(TAG_COLORS_OPEN) }) }

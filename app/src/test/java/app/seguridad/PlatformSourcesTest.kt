@@ -1364,7 +1364,7 @@ class PlatformSourcesTest {
     /**
      * Review I-1 of task 2 (M-1): a tag colour is only painted on a panel. Each use of tagTextColor is one of these, and a
      * new one fails here until it is checked: a row of the list (RowPanel), the tag colours dialog (AlertDialog) and the
-     * unselected tag chips of the list's filters, which in a translucent style get a card panel under them.
+     * unselected tag chips of the list's filters, whose container in a translucent style is a card panel's fill.
      */
     @Test fun `2_1 every tag colour is painted on a panel`() {
         val uses = mainDir("").flatMap { (path, src) ->
@@ -1378,9 +1378,17 @@ class PlatformSourcesTest {
         assertTrue(organize.indexOf("AlertDialog(") in 0 until organize.indexOf("tagTextColor(current)"))
         val chips = code("ui/screens/VaultList.kt").substringAfter("item(key = \"tags\")").substringBefore("item(key = \"colors\")")
         assertTrue(chips, "label = { Text(\"#\${plainReportText(t)}\", color = tagTextColor(tagColors[t])) }" in chips)
-        assertTrue(chips, "modifier = Modifier.tagChipPanel(selected = on)," in chips)
-        assertTrue(chips, "colors = FilterChipDefaults.filterChipColors(containerColor = Color.Transparent)," in chips)
-        val panel = code("ui/theme/Components.kt").substringAfter("fun Modifier.tagChipPanel(selected: Boolean): Modifier =").substringBefore("\n\n")
-        assertTrue(panel, "if (LocalLook.current.translucent && !selected) glass(PanelLevel.CARD, FilterChipDefaults.shape) else this" in panel)
+        // Review I-3 of task 2: the panel is the chip's own container (a wrapper would sit outside its 48 dp touch target).
+        assertTrue(chips, "colors = FilterChipDefaults.filterChipColors(containerColor = tagChipContainer())," in chips)
+        assertFalse(chips, "tagChipPanel" in chips || "glass(" in chips || "modifier =" in chips)
+        assertFalse("tagChipPanel" in main("ui/theme/Components.kt"))
+        val helper = code("ui/theme/Components.kt").substringAfter("fun tagChipContainer(): Color {").substringBefore("\n}\n")
+        assertEquals(
+            listOf(
+                "val look = LocalLook.current",
+                "return if (look.translucent) look.colors.panelColor(PanelLevel.CARD).copy(alpha = look.alpha(PanelLevel.CARD, blurNow = false)) else Color.Transparent",
+            ),
+            helper.trim().lines().map { it.trim() },
+        )
     }
 }

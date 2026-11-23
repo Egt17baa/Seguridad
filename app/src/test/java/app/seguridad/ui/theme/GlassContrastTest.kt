@@ -245,9 +245,11 @@ class GlassContrastTest {
     }
 
     /**
-     * Review I-1 of task 2 (M-1): in «Transparente» a tag never sits on the bare layer. The unselected tag chips of the
-     * list's filters have a card panel under them, and every tag colour reads at 4.5:1 on that panel (at its opacity
-     * without blur) over the layer at [Look.layerAlpha] over pure white and pure black, at every point of the background.
+     * Review I-1 and I-3 of task 2 (M-1): in «Transparente» a tag never sits on the bare layer. The container of an
+     * unselected tag chip of the list's filters is [tagChipContainer], the card panel's fill at its opacity without blur
+     * (no highlight, no edge of its own: Material's outline is the chip's only edge); every tag colour reads at 4.5:1 on
+     * exactly that fill over the layer at [Look.layerAlpha] over pure white and pure black, at every point of the
+     * background.
      */
     @Test fun tagsReadOnACardOverTheTransparentLayer() {
         for ((p, custom) in palettes) for (dark in listOf(true, false)) for (wallpaperBlur in listOf(false, true)) {

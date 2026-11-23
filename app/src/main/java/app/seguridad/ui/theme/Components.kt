@@ -36,7 +36,6 @@ import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalRippleConfiguration
@@ -117,15 +116,18 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
 val RowShape = RoundedCornerShape(12.dp)
 
 /**
- * 2.1, review I-1 of task 2: the panel under a tag chip of the list's filters. An unselected FilterChip is see-through,
- * so in the translucent styles ([Look.translucent]) it gets a card panel ([PanelLevel.CARD], never blurred) of the
- * chip's shape, and its tag colour reads on that panel (GlassContrastTest measures it over the layer of «Transparente»),
- * never on the bare background. A selected chip keeps Material's opaque container, and the opaque styles add nothing.
- * The panel is only a backing: the chip itself keeps Material's press.
+ * 2.1, review I-1 and I-3 of task 2: the container of an unselected tag chip of the list's filters. Material's is
+ * see-through, so in the translucent styles ([Look.translucent]) it is the card panel's fill ([PanelLevel.CARD]) at its
+ * opacity without blur, and the tag colour reads on it (GlassContrastTest measures exactly that fill over the layer of
+ * «Transparente»), never on the bare background. It is the chip's own container, inside its touch target, with no
+ * highlight and no edge of its own: Material's outline stays the chip's only edge. The opaque styles keep Material's
+ * transparent one, and a selected chip keeps Material's opaque selected container.
  */
 @Composable
-fun Modifier.tagChipPanel(selected: Boolean): Modifier =
-    if (LocalLook.current.translucent && !selected) glass(PanelLevel.CARD, FilterChipDefaults.shape) else this
+fun tagChipContainer(): Color {
+    val look = LocalLook.current
+    return if (look.translucent) look.colors.panelColor(PanelLevel.CARD).copy(alpha = look.alpha(PanelLevel.CARD, blurNow = false)) else Color.Transparent
+}
 
 /**
  * 2.0, task 6: a row of the vault list. In the translucent styles ([Look.translucent]) a glass panel that never blurs
