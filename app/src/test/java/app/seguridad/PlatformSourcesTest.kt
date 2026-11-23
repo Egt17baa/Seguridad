@@ -1414,8 +1414,13 @@ class PlatformSourcesTest {
         assertTrue(apply, "window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
         assertTrue(apply, "window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
         assertTrue(apply, "window.setBackgroundDrawable(opaqueBackground)" in apply)
-        val listener = window.substringAfter("fun crossWindowBlurEnabled(): Boolean {")
-        assertTrue("addCrossWindowBlurEnabledListener" in listener && "removeCrossWindowBlurEnabledListener" in listener)
+        // Review of task 3 (minor 1): the listener is taken away in the very effect that adds it.
+        val listener = window.substringAfter("private fun crossWindowBlurNow(): Boolean {").substringBefore("\n}\n")
+        val effect = listener.substringAfter("DisposableEffect(windowManager) {")
+        assertTrue(listener, "windowManager.addCrossWindowBlurEnabledListener(listener)" in effect)
+        assertTrue(listener, "onDispose { windowManager.removeCrossWindowBlurEnabledListener(listener) }" in effect)
+        assertTrue(effect.indexOf("addCrossWindowBlurEnabledListener") < effect.indexOf("onDispose {"))
+        assertTrue("return crossWindowBlurNow()" in window.substringAfter("fun crossWindowBlurEnabled(): Boolean {").substringBefore("\n}\n"))
         var dir: File? = File(".").absoluteFile
         while (dir != null && !File(dir, "app/src/main/AndroidManifest.xml").isFile) dir = dir.parentFile
         val mainSrc = File(dir, "app/src/main")

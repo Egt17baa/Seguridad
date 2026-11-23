@@ -132,7 +132,7 @@ class Look(
 /**
  * The [Look] for these settings on a phone with Android [sdk]. «Alto contraste» turns «Reducir transparencias» on; either
  * makes «Transparente» opaque, without the wallpaper (it is then «Cristal» opaque). [wallpaperBlur]: the window blurs the
- * wallpaper behind «Transparente» (task 3).
+ * wallpaper behind «Transparente» (task 3), only from Android 12.
  */
 fun lookFor(
     style: ThemeStyle,
@@ -152,7 +152,8 @@ fun lookFor(
         colors, style, opaque,
         blur = !opaque && sdk >= Build.VERSION_CODES.S,
         wallpaperBehind = wallpaperBehind,
-        wallpaperBlur = wallpaperBehind && wallpaperBlur,
+        // As the window (windowLookFor): no blur between windows before Android 12, whatever the caller says.
+        wallpaperBlur = wallpaperBehind && wallpaperBlur && sdk >= Build.VERSION_CODES.S,
     )
 }
 
