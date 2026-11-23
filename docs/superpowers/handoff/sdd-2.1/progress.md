@@ -1,6 +1,6 @@
 # Clavero 2.1: registro
 
-Rama `ccr-5066a9d8-e0t3z9`, desde `main` en `10dbdb7` (PR #22, la 2.0). Por orden del dueño (22-11-2026), nada se sube a GitHub hasta que él lo diga.
+Rama `ccr-5066a9d8-e0t3z9`, desde `main` en `10dbdb7` (PR #22, la 2.0). Por orden del dueño (22-11-2026), nada se subía a GitHub hasta que él lo dijera; el 23-11-2026 dijo que ya se suba.
 
 - Owner decision (22-11-2026): pensó en llamar a la app «Llavion»; el Abogado dio su dictamen (`abogado-2.1-nombre-logo.md`) y la búsqueda en la base de la OMPI (`busqueda-marcas-2026-11-22.md`) encontró la marca española LLAVIO (clase 42). «Clavero» no tiene ninguna marca igual en las clases 9 y 42. El dueño no registra la marca por ahora (coste) y **sigue con «Clavero»**; el cambio de nombre queda sin hacer.
 - Owner decision (22-11-2026): pide un logo nuevo para la 2.1. De las propuestas (`logo/`) eligió primero la «1 B» (dictamen `abogado-2.1-logo-1B.md`, «vale con cambios») y después la adaptación «Fiel a la imagen» de una imagen de referencia suya (dictamen `abogado-2.1-logo-CL.md`, «vale con cambios»), que es la que se usa.
