@@ -11,6 +11,7 @@ import app.seguridad.tools.qr.WifiConfig
 import app.seguridad.tools.qr.WifiQr
 import app.seguridad.tools.qr.WifiRead
 import app.seguridad.tools.qr.hiddenMarks
+import app.seguridad.tools.qr.visibleText
 import app.seguridad.tools.qr.wifiNotKeptText
 import app.seguridad.tools.qrBidi
 import kotlinx.coroutines.CoroutineScope
@@ -243,7 +244,8 @@ class EntryEditSession(
     /**
      * 2.1, review of the branch (I-2): what the last reading of a wifi code said (refused, not wifi, no permission, no
      * code, an image too big or damaged…), shown under «Escanear QR» and «Elegir imagen»; never «Guardar»'s [error].
-     * A fixed text: nothing of the code. Goes with a fill, a new reading, leaving wifi and [clear].
+     * Fixed texts; only [qrWifiOtherSecurity] carries something of the code, its type of security, cleaned and cut
+     * ([wifiNotKeptText]). Goes with a fill, a new reading, leaving wifi and [clear].
      */
     val wifiReadMessage = cells.cell<String?>(null)
 
@@ -750,14 +752,17 @@ class EntryEditSession(
     }
 
     /**
-     * 2.1, review of the branch (M-5): the inspector's alert ([qrBidi], with the marks of [hiddenMarks]) while the name
-     * of a wifi network has characters that are not seen or that change the order of the text, read or typed; null
-     * otherwise. It follows the field, so it goes once the name is written again without them.
+     * 2.1, review of the branch (M-5) and N-I1 of the director's recheck: while the name of a wifi network has characters
+     * that are not seen or that change the order of the text, read or typed, the name as the inspector shows it, with
+     * each of them marked ([visibleText]), and the inspector's alert ([qrBidi], with the marks of [hiddenMarks]), which
+     * names those marks; the screen shows the name right above the alert (as RT-24 in the wifi QR screen). Null
+     * otherwise, and on any other type. It follows the field, so it goes once the name is written again without them.
      */
-    fun wifiNameAlert(): String? {
+    fun wifiNameAlert(): Pair<String, String>? {
         if (type.value != EntryType.WIFI) return null
-        val marks = hiddenMarks(templateValue(EntryType.WIFI, WIFI_SSID_KEY))
-        return if (marks.isEmpty()) null else qrBidi(marks.joinToString(", "))
+        val name = templateValue(EntryType.WIFI, WIFI_SSID_KEY)
+        val marks = hiddenMarks(name)
+        return if (marks.isEmpty()) null else visibleText(name) to qrBidi(marks.joinToString(", "))
     }
 
     /**

@@ -974,13 +974,19 @@ class EntryEditSessionTest {
         val s = newWifi()
         assertNull(s.wifiNameAlert())
         s.scanWifi("WIFI:T:WPA;S:Ca​sa‮;P:clave1234;;", simpleMode = false)
-        assertEquals(qrBidi("⟨U+200B⟩, ⟨U+202E⟩"), s.wifiNameAlert())
+        // N-I1 of the director's recheck: the alert says «marcados como …», so the name comes with its marks to show.
+        assertEquals("Ca\u27E8U+200B\u27E9sa\u27E8U+202E\u27E9" to qrBidi("\u27E8U+200B\u27E9, \u27E8U+202E\u27E9"), s.wifiNameAlert())
         // It follows the field: written again without them, it goes.
         s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Casa")
         assertNull(s.wifiNameAlert())
         // An emoji with its presentation selector is not hidden (as in the inspector).
         s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Casa ❤️")
         assertNull(s.wifiNameAlert())
+        // Also when editing a saved wifi (RT-24).
+        val stored = VaultEntry(id = "w1", type = EntryType.WIFI, title = "Casa", createdAt = 1, updatedAt = 1)
+        val edit = session(id = "w1", type = EntryType.WIFI).also { it.load(listOf(stored)) }
+        edit.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Ca\u200Bsa")
+        assertEquals("Ca\u27E8U+200B\u27E9sa" to qrBidi("\u27E8U+200B\u27E9"), edit.wifiNameAlert())
         // Only on a wifi.
         s.setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, "Ca​sa")
         s.changeType(EntryType.LOGIN)

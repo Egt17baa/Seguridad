@@ -141,6 +141,9 @@ import app.seguridad.vault.WifiReadKind
 import app.seguridad.vault.WifiReadStart
 import app.seguridad.vault.CANCEL
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
@@ -786,10 +789,17 @@ fun VaultEntryEditScreen(
                                 }
                             }
                             // I-2 of the review of the branch: what the reading said, right under its buttons.
-                            form.wifiReadMessage.value?.let { Text(it, color = NegativeColor) }
+                            // N-M3 of the director's recheck: a polite live region, so TalkBack announces it.
+                            form.wifiReadMessage.value?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                         }
-                        // M-5: the inspector's alert while the network's name has characters that are not seen.
-                        if (type == EntryType.WIFI) form.wifiNameAlert()?.let { Text(it, color = NegativeColor) }
+                        // M-5 and N-I1: while the network's name has characters that are not seen, the name with them marked
+                        // (as the inspector shows it, RT-24) right above the inspector's alert, which names those marks.
+                        if (type == EntryType.WIFI) {
+                            form.wifiNameAlert()?.let { (name, alert) ->
+                                Text(name, style = MaterialTheme.typography.titleMedium)
+                                Text(alert, color = NegativeColor)
+                            }
+                        }
                         TemplateFieldsEditor(form, type)
                     }
                     EntryType.TOTP -> {

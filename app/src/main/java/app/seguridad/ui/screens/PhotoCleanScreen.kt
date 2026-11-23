@@ -106,7 +106,10 @@ internal fun readPhoto(context: Context, uri: Uri): ByteArray {
     }.getOrNull()
     if (size != null && size > MAX_IMAGE_BYTES) throw ImageTooBig()
     val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readAtMost(MAX_IMAGE_BYTES + 1, expected = size) }
-    if (bytes.size > MAX_IMAGE_BYTES) throw ImageTooBig()
+    if (bytes.size > MAX_IMAGE_BYTES) {
+        bytes.fill(0)
+        throw ImageTooBig()
+    }
     return bytes
 }
 

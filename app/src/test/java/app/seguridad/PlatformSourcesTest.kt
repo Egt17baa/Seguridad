@@ -1286,6 +1286,17 @@ class PlatformSourcesTest {
         assertEquals(2, Regex("""form\.beginWifiRead\(WifiReadKind\.(CAMERA|IMAGE)\)""").findAll(screen).count())
         assertEquals(2, Regex("""form\.finishWifiRead\(WifiReadKind\.(CAMERA|IMAGE)\)""").findAll(screen).count())
         assertFalse("startWifiRead" in src || "wifiScanSince" in src || "wifiPickSince" in src)
+        // N-M1 of the director's recheck: the two «could not open» go under the buttons, through the session.
+        assertEquals(2, Regex("""form\.wifiReadNotOpened\(WifiReadKind\.(CAMERA|IMAGE), """).findAll(screen).count())
+        assertTrue("form.wifiReadNotOpened(WifiReadKind.CAMERA, QR_CAMERA_FAILED)" in screen)
+        assertTrue("form.wifiReadNotOpened(WifiReadKind.IMAGE, it)" in screen)
+        // N-I1: the name with its marks right above the inspector's alert (as RT-24 in WifiQrScreen); N-M3: the reading's
+        // message is a polite live region, so TalkBack announces it.
+        assertTrue("form.wifiNameAlert()?.let { (name, alert) ->" in screen)
+        assertTrue(Regex("""Text\(name[^\n]*\)\s*Text\(alert, color = NegativeColor\)""").containsMatchIn(screen))
+        assertTrue("form.wifiReadMessage.value?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }" in screen)
+        // N-M2: the bytes of a photo over the limit are set to zero before it is refused.
+        assertTrue("if (bytes.size > MAX_IMAGE_BYTES) {\n        bytes.fill(0)\n        throw ImageTooBig()\n    }" in code("ui/screens/PhotoCleanScreen.kt"))
         // M-2: an image picked with a stale start is not read.
         assertTrue("if (!form.wifiReadBegan(since)) return@rememberDocumentPicker" in screen)
         // I-2: the reading's message under the two buttons, apart from «Guardar»'s error.
