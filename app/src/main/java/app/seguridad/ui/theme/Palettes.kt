@@ -28,7 +28,7 @@ import kotlin.math.roundToLong
  *   point of the background, and, for a bar, a dialog or a menu that does not blur, over pure white and pure black too
  *   (what scrolls behind it, R-C5).
  * 2.1, Aspecto: «Vidrio» starts its panels more see-through, and «Transparente» first finds how opaque the layer of the
- * background over the wallpaper must be for every text to read on it over pure white and pure black ([AppColors.scrimAlpha]),
+ * background over the wallpaper must be for every text to read on it, at every point of the background, over pure white and pure black ([AppColors.scrimAlpha]),
  * and then measures its panels over that layer instead of over the background. «Sólido» and «Degradado» take the colours of
  * «Cristal» (their panels are opaque, ui/theme/Glass.kt).
  * The six palettes are chosen for Clavero (R-C9). «Personalizado» and the colours of the wallpaper go through the same
@@ -357,12 +357,12 @@ private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
     )
     fun TextTone.on(on: List<Long>): Long = tone.reaching(start, lighter = dark, ratio, on)
 
-    // «Transparente»: the background is a layer over the wallpaper, which can be any colour, so pure white and pure black
-    // under each end of the gradient. The layer is the least opacity, in hundredths from SCRIM_FROM, on which every text
+    // «Transparente»: the background (the gradient and its blobs) is a layer over the wallpaper, which can be any colour,
+    // so pure white and pure black under each end of the gradient and under its darkest and lightest point. The layer is the least opacity, in hundredths from SCRIM_FROM, on which every text
     // can be corrected to read (opaque in «Alto contraste»); its four colours are then what a text and a panel sit on.
     // The tag bound is not asked of the bare layer: tags sit on the panels, and every panel over it is checked below.
     val transparent = spec.kind == ThemeStyle.TRANSPARENT
-    fun layerAt(a: Float): List<Long> = listOf(top, bottom).flatMap { e -> listOf(blend(e, a.toDouble(), WHITE), blend(e, a.toDouble(), BLACK)) }
+    fun layerAt(a: Float): List<Long> = listOf(top, bottom, bgDarkest, bgLightest).flatMap { e -> listOf(blend(e, a.toDouble(), WHITE), blend(e, a.toDouble(), BLACK)) }
     var scrim = 1f
     if (transparent && !hc) {
         fun readsOn(a: Float) = (against + layerAt(a)).let { on -> textTones.all { t -> meets(t.on(on), t.ratio, on) } }

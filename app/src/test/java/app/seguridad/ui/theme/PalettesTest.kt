@@ -159,13 +159,13 @@ class PalettesTest {
     /**
      * The cases every style is measured in: the six palettes, a sample of «Personalizado» (five pairs of tones, each with
      * the three intensities: the 432 are measured with «Cristal» above, and the styles only change the opacities) and
-     * one seed of the wallpaper.
+     * three seeds of the wallpaper (a middle one, a grey one and a fully saturated one).
      */
     private data class Case(val palette: PaletteId, val custom: CustomPalette?, val wallpaper: WallpaperSeeds?)
 
     private val styleCases: List<Case> = NAMED_PALETTES.map { Case(it, null, null) } +
         listOf(0 to 0, 1 to 8, 4 to 9, 6 to 3, 11 to 5).flatMap { (a, b) -> GlassLevel.entries.map { Case(PaletteId.CUSTOM, CustomPalette(a, b, it), null) } } +
-        Case(PaletteId.WALLPAPER, null, WallpaperSeeds(200f, 30f, 0.6f))
+        listOf(WallpaperSeeds(200f, 30f, 0.6f), WallpaperSeeds(120f, 300f, 0f), WallpaperSeeds(30f, 210f, 1f)).map { Case(PaletteId.WALLPAPER, null, it) }
 
     private fun Case.colors(dark: Boolean, high: Boolean, style: ThemeStyle) = colorsFor(palette, custom, dark, high, wallpaper, style)
 
@@ -214,7 +214,9 @@ class PalettesTest {
             val ratio = if (high) 7.0 else 4.5
             assertTrue("$what scrim ${c.scrimAlpha}", c.scrimAlpha >= 0.80f && c.scrimAlpha <= 1f)
             val a = c.scrimAlpha.toDouble()
-            val layer = listOf(c.background.top, c.background.bottom).flatMap { e -> listOf(over(e, a, WHITE), over(e, a, BLACK)) }
+            // The layer is the whole background (the gradient and its blobs): its ends and its darkest and lightest point.
+            val (darkest, lightest) = bgBounds(c.background)
+            val layer = listOf(c.background.top, c.background.bottom, darkest, lightest).flatMap { e -> listOf(over(e, a, WHITE), over(e, a, BLACK)) }
             val texts = with(c.scheme) { listOf(onSurface, onSurfaceVariant, primary, secondary, tertiary, error) }.map(::argb) +
                 listOf(c.status.positive, c.status.negative, c.status.caution).map(::argb)
             for (t in texts) for (l in layer) {
