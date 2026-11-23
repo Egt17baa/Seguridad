@@ -1,6 +1,6 @@
 # Ficha de Google Play (borrador)
 
-Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal», «anónimo», «garantiza» salvo «no garantiza», «limpio», «sospechoso»), sin las palabras «wallet», «cartera» ni «monedero» (O-11 de la 2.0), sin decir que la app o su aspecto son «accesibles», que «cumplen WCAG» o que el contraste está garantizado (O-C6), sin nombrar ni describir el aspecto «Cristal» con el nombre del de ningún sistema o app (O-C4), sin marcas de tarjetas, bancos ni otras apps (O-9), y con los avisos de «sin recuperación» y «sin auditoría independiente». La app se llamaba «Seguridad» hasta la 1.2.2; desde la 1.3.0 su nombre visible es «Clavero» (decisión del dueño del 31-10-2026; el identificador `io.github.egt17baa.seguridad` no cambia).
+Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal», «anónimo», «garantiza» salvo «no garantiza», «limpio», «sospechoso»), sin las palabras «wallet», «cartera» ni «monedero» (O-11 de la 2.0), sin decir que la app o su aspecto son «accesibles», que «cumplen WCAG» o que el contraste está garantizado (O-C6), sin nombrar ni describir los estilos del aspecto con el nombre del de ningún sistema o app (O-C4 de la 2.0 y O-A6 de la 2.1), sin marcas de tarjetas, bancos ni otras apps (O-9), y con los avisos de «sin recuperación» y «sin auditoría independiente». La app se llamaba «Seguridad» hasta la 1.2.2; desde la 1.3.0 su nombre visible es «Clavero» (decisión del dueño del 31-10-2026; el identificador `io.github.egt17baa.seguridad` no cambia).
 
 Al publicarla (decisiones del dueño del 31-10-2026, con la revisión final del Abogado Digital; detalle en [`PUBLICAR.md`](PUBLICAR.md), apartados 3.5 a 3.7): en todos los países menos Francia (con sus departamentos y territorios de ultramar, si Play los lista aparte), Rusia y Bielorrusia; Seguridad de los datos, «No recoge ni comparte datos»; desarrollador «Egt17baa», no comerciante. Las capturas de pantalla no muestran «wallet» ni datos reales.
 
@@ -47,7 +47,7 @@ Herramientas
 • Repartir un secreto (SLIP-0039): las partes no son una copia de recuperación SLIP-39 para un dispositivo hardware.
 
 Aspecto
-• Estilo «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app), o «Sólido», y varias paletas. Modo sencillo y guía al empezar.
+• Cinco estilos («Sólido», «Degradado», «Cristal», «Vidrio» y «Transparente») y varias paletas. Modo sencillo y guía al empezar.
 
 Privacidad
 Las bóvedas se quedan cifradas en tu móvil. Sale lo que tú exportas, guardas, copias o compartes, y las copias cifradas que la app hace donde elijas. La única conexión a Internet es opcional: al pulsar «¿Filtrada?» o «Comprobar filtraciones», consulta Pwned Passwords de Have I Been Pwned con solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña.
@@ -107,7 +107,9 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Comprobación de contraseñas filtradas.
 
 **Aspecto**
-• El aspecto «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás), o «Sólido», sin transparencias. Seis paletas, una personalizada y, desde Android 12, los colores del fondo de pantalla. «Reducir transparencias» y «Alto contraste» en Ajustes.
+• Los estilos «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás), y «Sólido», sin transparencias.
+• Tres estilos más en Ajustes → Aspecto: «Degradado» (paneles opacos sobre un fondo en degradado), «Vidrio» (como «Cristal», más translúcido y con bordes iluminados) y «Transparente» (deja ver, atenuado, el fondo de pantalla del móvil; la app no lee su imagen ni pide permisos).
+• Seis paletas, una personalizada y, desde Android 12, los colores del fondo de pantalla. «Reducir transparencias» y «Alto contraste» en Ajustes.
 • Modo sencillo y una guía al empezar.
 
 **Privacidad**
