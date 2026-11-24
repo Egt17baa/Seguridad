@@ -435,7 +435,7 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
                     }
                     composable("vault/health") {
                         HealthScreen(
-                            vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = backOnce(nav),
+                            vault, container.pwned, container.leakResults, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = backOnce(nav),
                             missionsOff = settings.missionsOff,
                             postponements = container.missionPostponements,
                             // 2.0, task 10 (phase B): a mission only navigates (MissionAction.routeBase).

@@ -473,9 +473,11 @@ class RedTeam20Recheck2Test {
      */
     @Test fun resistsWhatSaludMakesOnTheMainThreadIsSmallBesideWhatItCatches() {
         val src = File(main, "ui/screens/HealthScreen.kt").readText()
-        for (anchor in listOf("val byId = entries.associateBy { it.id }", "items(items.orEmpty().sortedByDescending { it.issues.size }", "val groups = uniquePasswords(entries)")) {
+        for (anchor in listOf("val byId = entries.associateBy { it.id }", "items(items.orEmpty().sortedByDescending { it.issues.size }", "leaks.start(")) {
             assertTrue(anchor, anchor in src)
         }
+        // 2.1.1, task 5: the tap's grouping moved to the session object the screen calls (LeakResults.start).
+        assertTrue("val groups = uniquePasswords(entries)" in File(main, "health/LeakResults.kt").readText())
         val data = bigVault(20_000)
         val entries = data.entries
         val a0 = allocated()
@@ -496,19 +498,20 @@ class RedTeam20Recheck2Test {
     /**
      * Attack 5, informative, inverted in round 3 (the director's ruling, authorised): with NO_MEMORY, «Salud» still returns
      * before its leak check (HealthScreen.kt, `return@BackScaffold` before the progress and «Cancelar»), but first stops
-     * the check that runs (`LaunchedEffect(Unit) { job?.cancel() }`): no request goes after the one in flight. Leaving the
-     * screen stops it too (`DisposableEffect(Unit) { onDispose { job?.cancel() } }`).
+     * the check that runs (`LaunchedEffect(Unit) { leaks.cancel() }`): no request goes after the one in flight. 2.1.1,
+     * task 5 (owner, 24-11-2026): leaving the screen no longer stops it (it goes on while a login is edited, in the
+     * session object [app.seguridad.health.LeakResults]); a lock does.
      */
     @Test fun informativeSaludWithoutMemoryHidesTheCancelOfARunningCheck() {
         val src = File(main, "ui/screens/HealthScreen.kt").readText()
         val noMemory = src.indexOf("if (health?.noMemory == true)")
         val back = src.indexOf("return@BackScaffold", noMemory)
-        val cancel = src.indexOf("OutlinedButton(onClick = { job?.cancel() }")
+        val cancel = src.indexOf("OutlinedButton(onClick = { leaks.cancel() }")
         assertTrue(noMemory in 0 until back && back < cancel)
         assertTrue("produceState keyed by the leaks found", "produceState<HealthView?>(null, data, breached, day, missionsOff)" in src)
-        assertTrue("leaving stops it", "DisposableEffect(Unit) { onDispose { job?.cancel() } }" in src)
-        assertTrue("NO_MEMORY stops the running check", "LaunchedEffect(Unit) { job?.cancel() }" in src.substring(noMemory, back))
-        assertFalse("without dropping its results (which would change the key)", "dropResults()" in src.substring(noMemory, back))
+        assertFalse("leaving does not stop it (2.1.1, task 5)", "onDispose" in src)
+        assertTrue("NO_MEMORY stops the running check", "LaunchedEffect(Unit) { leaks.cancel() }" in src.substring(noMemory, back))
+        assertFalse("without dropping its results (which would change the key)", "forget()" in src.substring(noMemory, back))
     }
 
     // ---------------------------------------------------------------------------------------------------------------

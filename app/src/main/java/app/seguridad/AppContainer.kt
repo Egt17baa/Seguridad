@@ -19,6 +19,7 @@ import app.seguridad.settings.CLOCK_WRITE_STEP_MS
 import app.seguridad.settings.AppearanceNotice
 import app.seguridad.settings.GuideHolder
 import app.seguridad.health.MissionPostponements
+import app.seguridad.health.LeakResults
 import app.seguridad.settings.RenameNotice
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.clockMarkWorthWriting
@@ -953,6 +954,17 @@ class AppContainer(
     val twoStepCopy = TwoStepCopy(elapsedRealtime, lockEpoch = { lockEpoch }).also { offer ->
         appScope.launch {
             vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) offer.clear() }
+        }
+    }
+
+    /**
+     * 2.1.1, task 5: the result of «Comprobar filtraciones de los accesos» of «Salud», in memory only, until the vault
+     * locks or another one opens ([lockEpoch]); its check runs in [appScope], so it goes on while a login is edited. It
+     * is also dropped here at every lock, as [clipboardNotice] is.
+     */
+    val leakResults = LeakResults(appScope, lockEpoch = { lockEpoch }).also { leaks ->
+        appScope.launch {
+            vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) leaks.forget() }
         }
     }
 

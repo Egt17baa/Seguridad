@@ -458,8 +458,8 @@ class RedTeam20Recheck3Test {
     // ---------------------------------------------------------------------------------------------------------------
 
     /**
-     * «Salud»: the stop of NO_MEMORY is `job?.cancel()` on the check (HealthScreen.kt), whose only network call is
-     * `pwned.times(…)` in its loop. That call is a prompt cancellation point: cancelled while its request is in flight,
+     * «Salud»: the stop of NO_MEMORY is `leaks.cancel()` on the check (HealthScreen.kt; since 2.1.1 it runs in
+     * health/LeakResults.kt), whose only network call is `pwned.times(…)`, in its loop. That call is a prompt cancellation point: cancelled while its request is in flight,
      * the loop sends nothing more (MockWebServer: exactly 1 request of 5). The screen itself is anchored by source
      * (RedTeam20Recheck2Test.informativeSaludWithoutMemoryHidesTheCancelOfARunningCheck): none after the cancel, which
      * runs in a LaunchedEffect once NO_MEMORY is composed.
@@ -496,7 +496,7 @@ class RedTeam20Recheck3Test {
         val src = code("ui/screens/HealthScreen.kt")
         assertEquals("one network call in the screen", 1, Regex("""pwned\.times\(""").findAll(src).count())
         val noMemory = src.indexOf("if (health?.noMemory == true)")
-        assertTrue("LaunchedEffect(Unit) { job?.cancel() }" in src.substring(noMemory, src.indexOf("return@BackScaffold", noMemory)))
+        assertTrue("LaunchedEffect(Unit) { leaks.cancel() }" in src.substring(noMemory, src.indexOf("return@BackScaffold", noMemory)))
     }
 
     /**

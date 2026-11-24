@@ -111,8 +111,16 @@ class PublishedTextsTest {
         val line = "La barra de abajo flota, redondeada, en «Degradado», «Cristal», «Vidrio» y «Transparente». En los tres " +
             "últimos, desde Android 12, deja ver más el fondo de la app; con «Personalizado» y con la paleta «Colores del " +
             "fondo de pantalla», al menos tanto como antes. «Sólido» no cambia."
-        assertEquals(line, texts.getValue("Novedades"))
+        // 2.1.1, task 5 (R-3 of the Abogado's ruling on the leaks of «Salud»): one more line, the same in GitHub.
+        val leaks = "En «Salud», el resultado de «Comprobar filtraciones» se mantiene mientras la bóveda está abierta, para ir " +
+            "arreglando los accesos uno a uno. No se guarda en el móvil."
+        assertEquals("$line\n$leaks", texts.getValue("Novedades"))
         assertTrue(line in texts.getValue("GitHub") && texts.getValue("README, Aspecto (2.1.1)").endsWith(line))
+        assertTrue(leaks in texts.getValue("GitHub"))
+        for (t in listOf(leaks, texts.getValue("README, La 2.1.1"))) {
+            val n = ForbiddenWords.normalise(t)
+            for (b in listOf("protegid", "borrado segur")) assertFalse("«$b»", b in n)
+        }
         val news = texts.getValue("Novedades")
         assertTrue(news.length.toString(), news.length < 500 && news.codePointCount(0, news.length) < 500)
     }
