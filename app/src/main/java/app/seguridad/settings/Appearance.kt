@@ -13,7 +13,23 @@ enum class ThemeStyle {
 
     /** «Sólido»: opaque panels on a plain background, without transparencies (the look of 1.4.x, with the palette's colours). */
     SOLID,
+
+    // 2.1, Aspecto: added at the end; the names are what is saved. A version that does not know one reads it as GLASS
+    // (`coerceInputValues` of appJson, SettingsTest.anUnknownStyleIsReadAsCristal).
+
+    /** «Degradado»: opaque panels, without transparencies, over the background in a gradient. */
+    GRADIENT,
+
+    /** «Vidrio»: like «Cristal», with more see-through panels and lit edges. */
+    GLASS_STRONG,
+
+    /** «Transparente»: the wallpaper of the phone shows, dimmed by a layer of the background, behind the app. */
+    TRANSPARENT,
 }
+
+/** The order of the styles in Ajustes → Aspecto. */
+val STYLE_ORDER: List<ThemeStyle> =
+    listOf(ThemeStyle.SOLID, ThemeStyle.GRADIENT, ThemeStyle.GLASS, ThemeStyle.GLASS_STRONG, ThemeStyle.TRANSPARENT)
 
 /** The palette: the six with a name, the colours Android takes from the wallpaper (Android 12+) and «Personalizado». */
 @Serializable

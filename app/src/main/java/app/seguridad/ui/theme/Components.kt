@@ -73,14 +73,16 @@ import app.seguridad.tools.QR_SCAN
 val SectionShape = RoundedCornerShape(16.dp)
 
 /**
- * A card that groups one result or one block of settings: in «Cristal» a glass panel ([glass], never blurred), in «Sólido»
- * the surface colour with a thin outline, as in 1.4.x. Every screen's cards are these, so they all take the look.
+ * A card that groups one result or one block of settings: in the translucent styles ([Look.translucent]) a glass panel
+ * ([Modifier.glass], never blurred; rounder in «Vidrio»), in the opaque ones («Sólido», «Degradado») the surface colour
+ * with a thin outline, as in 1.4.x. Every screen's cards are these, so they all take the look.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val look = LocalLook.current
-    val glass = look.glass
+    val glass = look.translucent
+    val shape = panelShape(PanelLevel.CARD, look.strong) // «Vidrio» rounds its cards more; otherwise SectionShape
     val colors = CardDefaults.cardColors(containerColor = if (glass) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer)
     // «Alto contraste» marks the edge in «Sólido» too (the glass draws its own).
     val border = when {
@@ -88,7 +90,7 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
         look.highContrast -> BorderStroke(look.colors.borderWidth.dp, look.colors.border)
         else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     }
-    val m = if (glass) modifier.glass(PanelLevel.CARD, SectionShape) else modifier
+    val m = if (glass) modifier.glass(PanelLevel.CARD, shape) else modifier
     if (onClick != null) {
         // Review M-8: the brief glow of a pressed panel (Material's ripple), and none when Android removes animations;
         // then a still mark while it is pressed (re-review N-2), in «Cristal» and in «Sólido».
@@ -97,8 +99,8 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
         CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn)) {
             Card(
                 onClick = onClick,
-                modifier = m.pressSignal(interaction, SectionShape, animationsOn),
-                shape = SectionShape,
+                modifier = m.pressSignal(interaction, shape, animationsOn),
+                shape = shape,
                 colors = colors,
                 border = border,
                 interactionSource = interaction,
@@ -106,7 +108,7 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
             )
         }
     } else {
-        Card(modifier = m, shape = SectionShape, colors = colors, border = border, content = content)
+        Card(modifier = m, shape = shape, colors = colors, border = border, content = content)
     }
 }
 
@@ -114,8 +116,23 @@ fun SectionCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, co
 val RowShape = RoundedCornerShape(12.dp)
 
 /**
- * 2.0, task 6: a row of the vault list. In «Cristal» a glass panel that never blurs ([PanelLevel.CARD]: the list scrolls
- * smoothly), in «Sólido» the surface colour with a thin outline, as [SectionCard]. Pressed, it gives the same signs as
+ * 2.1, review I-1 and I-3 of task 2: the container of an unselected tag chip of the list's filters. Material's is
+ * see-through, so in the translucent styles ([Look.translucent]) it is the card panel's fill ([PanelLevel.CARD]) at its
+ * opacity without blur, and the tag colour reads on it (GlassContrastTest measures exactly that fill over the layer of
+ * «Transparente»), never on the bare background. It is the chip's own container, inside its touch target, with no
+ * highlight and no edge of its own: Material's outline stays the chip's only edge. The opaque styles keep Material's
+ * transparent one, and a selected chip keeps Material's opaque selected container.
+ */
+@Composable
+fun tagChipContainer(): Color {
+    val look = LocalLook.current
+    return if (look.translucent) look.colors.panelColor(PanelLevel.CARD).copy(alpha = look.alpha(PanelLevel.CARD, blurNow = false)) else Color.Transparent
+}
+
+/**
+ * 2.0, task 6: a row of the vault list. In the translucent styles ([Look.translucent]) a glass panel that never blurs
+ * ([PanelLevel.CARD]: the list scrolls smoothly), with [RowShape] in every style (also in «Vidrio»); in the opaque ones
+ * («Sólido», «Degradado») the surface colour with a thin outline, as [SectionCard]. Pressed, it gives the same signs as
  * [SectionCard]: Material's brief glow while Android has animations on, and the still mark of [pressSignal] when it asks
  * to remove them. [onLongClick] is «mantener pulsado» (the selection). [selected] is null while the list is not selecting;
  * a selected row is filled with the secondary container (never the press's outline) and says so to TalkBack.
@@ -135,7 +152,7 @@ fun RowPanel(
     val animationsOn = LocalAnimationsOn.current
     val interaction = remember { MutableInteractionSource() }
     val surface = when {
-        look.glass -> modifier.glass(PanelLevel.CARD, RowShape)
+        look.translucent -> modifier.glass(PanelLevel.CARD, RowShape)
         else -> modifier.background(MaterialTheme.colorScheme.surfaceContainer, RowShape)
             .border(if (look.highContrast) look.colors.borderWidth.dp else 1.dp, if (look.highContrast) look.colors.border else MaterialTheme.colorScheme.outlineVariant, RowShape)
     }
@@ -197,14 +214,15 @@ fun BackScaffold(title: String, onBack: () -> Unit, snackbarHost: @Composable ()
 }
 
 /**
- * 2.0, task 5 bis: the app's top bar. In «Cristal» a glass bar ([PanelLevel.BAR]: blurred from Android 12, more opaque
- * before); in «Sólido» Material's. The content of the screen is laid out below it (the Scaffold's padding), so nothing
+ * 2.0, task 5 bis: the app's top bar. In the translucent styles ([Look.translucent]) a glass bar ([PanelLevel.BAR]:
+ * blurred from Android 12, more opaque before; straight and without «Vidrio»'s shadow); in the opaque ones («Sólido»,
+ * «Degradado») Material's. The content of the screen is laid out below it (the Scaffold's padding), so nothing
  * with the focus is ever under it (R-C7).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TopAppBar(title: @Composable () -> Unit, navigationIcon: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {}) {
-    if (!LocalLook.current.glass) {
+    if (!LocalLook.current.translucent) {
         androidx.compose.material3.TopAppBar(title = title, navigationIcon = navigationIcon, actions = actions)
         return
     }
@@ -217,10 +235,10 @@ fun TopAppBar(title: @Composable () -> Unit, navigationIcon: @Composable () -> U
     )
 }
 
-/** 2.0, task 5 bis: the app's bottom bar, glass in «Cristal» as [TopAppBar]. */
+/** 2.0, task 5 bis: the app's bottom bar, glass in the translucent styles ([Look.translucent]) as [TopAppBar]. */
 @Composable
 fun NavigationBar(content: @Composable RowScope.() -> Unit) {
-    if (!LocalLook.current.glass) {
+    if (!LocalLook.current.translucent) {
         androidx.compose.material3.NavigationBar(content = content)
         return
     }
@@ -233,8 +251,9 @@ fun NavigationBar(content: @Composable RowScope.() -> Unit) {
 }
 
 /**
- * 2.0, task 5 bis: every dialog of the app. In «Cristal» a glass panel ([PanelLevel.OVERLAY]: blurred from Android 12);
- * in «Sólido» Material's. The same name and the same parameters as Material's, so a screen only imports this one; it
+ * 2.0, task 5 bis: every dialog of the app. In the translucent styles ([Look.translucent]) a glass panel
+ * ([PanelLevel.OVERLAY]: blurred from Android 12; rounder in «Vidrio»); in the opaque ones («Sólido», «Degradado»)
+ * Material's. The same name and the same parameters as Material's, so a screen only imports this one; it
  * filters obscured touches in its window like every dialog (ANDROID-3), and the caller still does so in its own text.
  */
 @Composable
@@ -248,8 +267,9 @@ fun AlertDialog(
     text: @Composable (() -> Unit)? = null,
     properties: DialogProperties = DialogProperties(),
 ) {
-    val glass = LocalLook.current.glass
-    val shape = panelShape(PanelLevel.OVERLAY)
+    val look = LocalLook.current
+    val glass = look.translucent
+    val shape = panelShape(PanelLevel.OVERLAY, look.strong)
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismissRequest,
         confirmButton = {
@@ -269,14 +289,15 @@ fun AlertDialog(
 }
 
 /**
- * 2.0, task 5 bis: every menu of the app. In «Cristal» translucent with the glass edge, never blurred, and opaque enough
- * to read over anything under it ([AppColors.floorAlpha]); in «Sólido» Material's. As [AlertDialog], the same name and
+ * 2.0, task 5 bis: every menu of the app. In the translucent styles ([Look.translucent]) translucent with the glass edge,
+ * never blurred, and opaque enough to read over anything under it ([AppColors.floorAlpha]); in the opaque ones («Sólido»,
+ * «Degradado») Material's. As [AlertDialog], the same name and
  * parameters as Material's.
  */
 @Composable
 fun DropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val look = LocalLook.current
-    if (!look.glass) {
+    if (!look.translucent) {
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest, modifier = modifier) {
             FilterObscuredTouches()
             content()

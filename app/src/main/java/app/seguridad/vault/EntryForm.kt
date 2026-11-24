@@ -3,8 +3,17 @@ package app.seguridad.vault
 import app.seguridad.crypto.MigrationResult
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.tools.codes.CellFactory
+import app.seguridad.tools.qr.QR_WIFI_UNREADABLE
 import app.seguridad.tools.qr.WIFI_QR_NOT_ADDED
+import app.seguridad.tools.qr.WIFI_SCAN_NOT_WIFI
+import app.seguridad.tools.qr.WIFI_SCAN_NOT_WIFI_SIMPLE
+import app.seguridad.tools.qr.WifiConfig
 import app.seguridad.tools.qr.WifiQr
+import app.seguridad.tools.qr.WifiRead
+import app.seguridad.tools.qr.hiddenMarks
+import app.seguridad.tools.qr.visibleText
+import app.seguridad.tools.qr.wifiNotKeptText
+import app.seguridad.tools.qrBidi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -149,6 +158,41 @@ private data class FormSnapshot(
 data class PendingMigration(val result: MigrationResult, val entries: List<VaultEntry>, val leftOut: List<String>)
 
 /**
+ * 2.1, «Añadir → Red wifi»: a code read in the form that would replace what its four network fields hold, waiting for
+ * the dialog ([EntryEditSession.confirmWifiReplace] or [EntryEditSession.cancelWifiReplace]). [typed]: the person
+ * typed in those fields (the dialog says «¿Sustituir lo escrito?»); otherwise they hold what an earlier code brought.
+ * Only in the session, in memory; its [toString] shows neither the name nor the password.
+ */
+class WifiReplace(val config: WifiConfig, val typed: Boolean) {
+    override fun toString() = "WifiReplace(typed=$typed)"
+}
+
+/**
+ * 2.1, task 2: when a reading of a wifi code (the camera or an image) started in the form ([EntryEditSession.beginWifiRead]):
+ * which loading of the form it was ([generation], up with every clear) and the vault's lock epoch then. A result that
+ * comes back with another one, after a lock (also one quickly opened again) or after the form was left, fills nothing.
+ */
+class WifiReadStart internal constructor(internal val generation: Long, internal val epoch: Int) {
+    override fun toString() = "WifiReadStart"
+}
+
+/** The four network fields of a wifi entry as the form holds them; its [toString] shows none (the password is one). */
+private data class WifiFormValues(val ssid: String, val password: String, val security: String, val hidden: String) {
+    override fun toString() = "WifiFormValues"
+}
+
+/**
+ * The four network fields as a new wifi starts: no name, no password, and the security and «hidden» either as
+ * [EntryEditSession.load] sets them (WPA, not hidden) or empty, as they are when the wifi was reached through the row of
+ * types (review of the branch, I-1: [EntryEditSession.changeType] leaves them empty, and what is saved does not change).
+ */
+private fun WifiFormValues.untouched() =
+    ssid.isEmpty() && password.isEmpty() && (security == "" || security == "WPA") && (hidden == "" || hidden == "false")
+
+/** 2.1, review of the branch (M-3): the two ways the form reads a wifi code, each with its own start. */
+enum class WifiReadKind { CAMERA, IMAGE }
+
+/**
  * The entry editor's state (M6 and concern 3 of the CR review), held by the screen's ViewModel for its navigation entry:
  * a rotation keeps every field (both passwords, the seed phrase and the 2FA secret included), the pending Google
  * Authenticator import, the texts on screen and one id for a new entry ([entryId], so a save cut short and tapped again
@@ -165,6 +209,8 @@ class EntryEditSession(
     private val initialType: EntryType,
     private val newId: String,
     private val newFieldId: () -> String = { UUID.randomUUID().toString() },
+    /** The vault's lock epoch (VaultStore.lockEpoch): a reading of a wifi code counts only within one ([beginWifiRead]). */
+    private val lockEpoch: () -> Int = { 0 },
 ) {
     val existing = cells.cell<VaultEntry?>(null)
     val type = cells.cell(initialType)
@@ -185,6 +231,29 @@ class EntryEditSession(
 
     // 2.0, task 5. Secrets too (the hidden fields): only here, in memory, and gone with [clear].
     val notesFormat = cells.cell(NotesFormat.PLAIN)
+
+    /** 2.1: a code read in «Añadir → Red wifi» that waits for the dialog before it replaces the fields ([scanWifi]). */
+    val wifiReplace = cells.cell<WifiReplace?>(null)
+
+    /** 2.1: the four network fields as the last code read in the form left them ([scanWifi]); null before one. */
+    @Volatile private var lastWifiScan: WifiFormValues? = null
+
+    /** 2.1, task 2: up with every [clear], so a reading started before it knows it is late ([WifiReadStart]). */
+    @Volatile private var generation = 0L
+
+    /**
+     * 2.1, review of the branch (I-2): what the last reading of a wifi code said (refused, not wifi, no permission, no
+     * code, an image too big or damaged…), shown under «Escanear QR» and «Elegir imagen»; never «Guardar»'s [error].
+     * Fixed texts; only [qrWifiOtherSecurity] carries something of the code, its type of security, cleaned and cut
+     * ([wifiNotKeptText]). Goes with a fill, a new reading, leaving wifi and [clear].
+     */
+    val wifiReadMessage = cells.cell<String?>(null)
+
+    /**
+     * 2.1, review of the branch (M-3): when the camera and the picker were opened ([beginWifiRead]), here in the session
+     * (which outlives a re-created activity), so a result only takes back the start kept then ([finishWifiRead]).
+     */
+    private val wifiReads = java.util.concurrent.ConcurrentHashMap<WifiReadKind, WifiReadStart>()
 
     /** What was typed in each template field, by [templateValueKey] (dates as the user writes them). */
     val templateValues = cells.cell<Map<String, String>>(emptyMap())
@@ -298,6 +367,11 @@ class EntryEditSession(
      */
     fun changeType(to: EntryType) {
         type.value = to
+        // 2.1: a code waiting to replace a wifi's fields goes when the entry stops being a wifi.
+        if (to != EntryType.WIFI) {
+            wifiReplace.value = null
+            wifiReadMessage.value = null
+        }
         val field = Templates.fieldsFor(to).firstOrNull { it.expires } ?: return
         val typed = expiresText.value.trim()
         if (typed.isNotEmpty() && templateValue(to, field.key).isBlank()) setTemplateValue(to, field.key, typed)
@@ -567,6 +641,14 @@ class EntryEditSession(
             error.value = WIFI_QR_NOT_ADDED
             return
         }
+        fillWifi(c)
+    }
+
+    /**
+     * The network [c] in a wifi's four fields, and the title when it has none (with the name, as it came); remembered
+     * as the last reading ([lastWifiScan]), so a second code knows those fields were not typed.
+     */
+    private fun fillWifi(c: WifiConfig) {
         if (existing.value == null) changeType(EntryType.WIFI)
         setTemplateValue(EntryType.WIFI, WIFI_SSID_KEY, c.ssid)
         setTemplateValue(EntryType.WIFI, WIFI_PASSWORD_KEY, c.password)
@@ -574,6 +656,129 @@ class EntryEditSession(
         setTemplateValue(EntryType.WIFI, WIFI_HIDDEN_KEY, if (c.hidden) "true" else "false")
         if (title.value.isBlank()) title.value = c.ssid
         error.value = null
+        wifiReadMessage.value = null
+        lastWifiScan = wifiFormValues()
+    }
+
+    private fun wifiFormValues() = WifiFormValues(
+        templateValue(EntryType.WIFI, WIFI_SSID_KEY), templateValue(EntryType.WIFI, WIFI_PASSWORD_KEY),
+        templateValue(EntryType.WIFI, WIFI_SECURITY_KEY), templateValue(EntryType.WIFI, WIFI_HIDDEN_KEY),
+    )
+
+    /**
+     * 2.1, «Añadir → Red wifi»: the text of a code read with the camera or from an image ([raw]), analysed here and never
+     * kept: only the values it gives stay, in the fields. Through [WifiQr.read], the inspector's reader, with its rules:
+     * - not a wifi code: nothing of it is shown, only [WIFI_SCAN_NOT_WIFI] (or [WIFI_SCAN_NOT_WIFI_SIMPLE] with
+     *   «Modo sencillo» on, [simpleMode], where the inspector is not in «Herramientas»);
+     * - one that cannot be read safely: [QR_WIFI_UNREADABLE]; one the vault does not keep (WPA3, SAE, …): why
+     *   ([wifiNotKeptText]);
+     * - one the form can hold fills the four network fields and the title when it has none ([fillWifi]) if they are as
+     *   a new wifi starts; otherwise it waits in [wifiReplace] for the dialog, which says whether what is there was typed
+     *   (it is not what the last code left).
+     * Nothing is saved: only the form's «Guardar». Nothing before the form is loaded (a lock cleared it), and nothing on
+     * an existing entry or a type other than wifi (the reader is only in «Añadir → Red wifi»).
+     */
+    fun scanWifi(raw: String, simpleMode: Boolean) {
+        if (!loaded || existing.value != null || type.value != EntryType.WIFI) return
+        when (val r = WifiQr.read(raw)) {
+            null -> wifiReadMessage.value = if (simpleMode) WIFI_SCAN_NOT_WIFI_SIMPLE else WIFI_SCAN_NOT_WIFI
+            WifiRead.Malformed -> wifiReadMessage.value = QR_WIFI_UNREADABLE
+            is WifiRead.Unsupported -> wifiReadMessage.value = wifiNotKeptText(r.why, r.security)
+            is WifiRead.Usable -> {
+                val now = wifiFormValues()
+                if (now.untouched()) {
+                    fillWifi(r.config)
+                } else {
+                    error.value = null
+                    wifiReadMessage.value = null
+                    wifiReplace.value = WifiReplace(r.config, typed = now != lastWifiScan)
+                }
+            }
+        }
+    }
+
+    /**
+     * 2.1, task 2, and M-3 of the review of the branch: the camera or the picker ([kind]) opens, and the start of its
+     * reading is kept here; false when the form is not loaded (nothing to fill, nothing opens). The message of an earlier
+     * reading goes. Its result takes the start back with [finishWifiRead] and goes to [scanWifi] or [wifiReadFailed].
+     */
+    fun beginWifiRead(kind: WifiReadKind): Boolean {
+        if (!loaded) return false
+        wifiReads[kind] = WifiReadStart(generation, lockEpoch())
+        wifiReadMessage.value = null
+        return true
+    }
+
+    /**
+     * The result of the reading [kind] arrived: the start kept when it opened, once; null when none is open (none began,
+     * or a [clear] dropped it). The only way to a [WifiReadStart], so a result never takes a new one.
+     */
+    fun finishWifiRead(kind: WifiReadKind): WifiReadStart? = wifiReads.remove(kind)
+
+    /** The camera or the picker ([kind]) could not open: its start goes, and [message] (a fixed text) says why. */
+    fun wifiReadNotOpened(kind: WifiReadKind, message: String) {
+        wifiReads.remove(kind)
+        if (loaded) wifiReadMessage.value = message
+    }
+
+    /**
+     * The form a reading started in ([since]) is still this one: loaded, not cleared since, no lock since, and still a
+     * new wifi (as [scanWifi] asks), so a reading whose type was changed meanwhile says nothing.
+     */
+    private fun isCurrent(since: WifiReadStart) =
+        loaded && since.generation == generation && since.epoch == lockEpoch() && existing.value == null && type.value == EntryType.WIFI
+
+    /**
+     * An image is about to be read for [since]: true, and the reading's message goes, only in the form the reading
+     * started in; false otherwise (M-2: then the image is not read at all).
+     */
+    fun wifiReadBegan(since: WifiReadStart): Boolean {
+        if (!isCurrent(since)) return false
+        wifiReadMessage.value = null
+        return true
+    }
+
+    /**
+     * The code a reading brought ([raw]) as [scanWifi] reads it, only in the form the reading started in ([since]): a
+     * result that comes late (after a lock, also one quickly opened again, or after the form was left) fills nothing.
+     */
+    fun scanWifi(raw: String, simpleMode: Boolean, since: WifiReadStart) {
+        if (isCurrent(since)) scanWifi(raw, simpleMode)
+    }
+
+    /** Why a reading failed ([message], a fixed text), under the buttons ([wifiReadMessage]); nothing when it comes late ([since]). */
+    fun wifiReadFailed(message: String, since: WifiReadStart) {
+        if (isCurrent(since)) wifiReadMessage.value = message
+    }
+
+    /**
+     * 2.1, review of the branch (M-5) and N-I1 of the director's recheck: while the name of a wifi network has characters
+     * that are not seen or that change the order of the text, read or typed, the name as the inspector shows it, with
+     * each of them marked ([visibleText]), and the inspector's alert ([qrBidi], with the marks of [hiddenMarks]), which
+     * names those marks; the screen shows the name right above the alert (as RT-24 in the wifi QR screen). Null
+     * otherwise, and on any other type. It follows the field, so it goes once the name is written again without them.
+     */
+    fun wifiNameAlert(): Pair<String, String>? {
+        if (type.value != EntryType.WIFI) return null
+        val name = templateValue(EntryType.WIFI, WIFI_SSID_KEY)
+        val marks = hiddenMarks(name)
+        return if (marks.isEmpty()) null else visibleText(name) to qrBidi(marks.joinToString(", "))
+    }
+
+    /**
+     * «Sustituir» in the dialog: the code waiting in [wifiReplace] fills the fields. Nothing once a lock cleared it, nor
+     * (as in [scanWifi]) on an existing entry or a type other than wifi.
+     */
+    fun confirmWifiReplace() {
+        val r = wifiReplace.value ?: return
+        wifiReplace.value = null
+        if (!loaded || existing.value != null || type.value != EntryType.WIFI) return
+        fillWifi(r.config)
+    }
+
+    /** «Cancelar» in the dialog: the code is dropped, and the fields stay as they were. */
+    fun cancelWifiReplace() {
+        wifiReplace.value = null
     }
 
     /** Everything typed, the pending import and the texts go; [load] fills the form again from the vault. */
@@ -601,6 +806,11 @@ class EntryEditSession(
         saving.value = false
         migration.value = null
         pasteOffer.value = null
+        wifiReplace.value = null
+        wifiReadMessage.value = null
+        wifiReads.clear()
+        lastWifiScan = null
+        generation++
         askingToLeave.value = false
         pendingLeave = null
         autoTitle.value = null

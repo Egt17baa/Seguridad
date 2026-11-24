@@ -32,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
@@ -55,6 +56,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import app.seguridad.settings.CustomPalette
 import app.seguridad.settings.PaletteId
 import app.seguridad.settings.ThemeStyle
+import kotlin.math.min
 
 /*
  * 2.0, task 5 bis: «Cristal» (design «Aspecto «Cristal», temas y logo»). Only the general technique (O-C3): the app draws
@@ -63,17 +65,51 @@ import app.seguridad.settings.ThemeStyle
  * that background again under themselves, blurred and cut to the panel. No refraction, no lens, no shapes that melt.
  */
 
+/*
+ * 2.1, Aspecto: five styles with the same technique. «Sólido»: a plain colour and Material's opaque surfaces.
+ * «Degradado»: the gradient of «Cristal» without its blobs, and the opaque surfaces. «Cristal»: as in 2.0. «Vidrio»:
+ * «Cristal» with rounder panels, a wider highlight, an edge lit from the top left and a soft shadow outside the panel,
+ * all fixed (O-A2: nothing follows a sensor, the finger or the scroll). «Transparente»: the gradient as a layer at
+ * [Look.layerAlpha] over the wallpaper the system draws behind the window (task 3), and the panels of «Cristal» on it.
+ */
+
 /**
- * The look on screen: the [colors] of the palette, the [style], whether the panels are [opaque] («Sólido», «Reducir
- * transparencias» or «Alto contraste») and whether the bars and overlays [blur] (Android 12+ and not opaque).
+ * The look on screen: the [colors] of the palette, the [style], whether the panels are [opaque] («Sólido», «Degradado»,
+ * «Reducir transparencias» or «Alto contraste»), whether the bars and overlays [blur] (Android 12+ and not opaque) and
+ * whether the wallpaper is behind the app ([wallpaperBehind]: «Transparente» only, not opaque and not in split screen or
+ * a floating window); [multiWindow] when the activity is in one of those (the preview of Ajustes asks it again).
  */
 @Immutable
-class Look(val colors: AppColors, val style: ThemeStyle, val opaque: Boolean, val blur: Boolean) {
+class Look(
+    val colors: AppColors,
+    val style: ThemeStyle,
+    val opaque: Boolean,
+    val blur: Boolean,
+    val wallpaperBehind: Boolean,
+    val multiWindow: Boolean = false,
+) {
     val dark: Boolean get() = colors.dark
     val highContrast: Boolean get() = colors.highContrast
 
-    /** «Cristal»: the background with blobs and the glass panels. «Sólido» keeps Material's opaque surfaces. */
-    val glass: Boolean get() = style == ThemeStyle.GLASS
+    /** The app draws its own background: every style but «Sólido», whose screens keep Material's plain colour. */
+    val drawsBackground: Boolean get() = style != ThemeStyle.SOLID
+
+    /**
+     * «Cristal», «Vidrio» and «Transparente»: the glass panels (opaque with «Reducir transparencias» or «Alto contraste»).
+     * «Sólido» and «Degradado» keep Material's opaque surfaces.
+     */
+    val translucent: Boolean
+        get() = style == ThemeStyle.GLASS || style == ThemeStyle.GLASS_STRONG || style == ThemeStyle.TRANSPARENT
+
+    /** «Vidrio»: rounder panels, the wider highlight, the lit edge and the shadow. */
+    val strong: Boolean get() = style == ThemeStyle.GLASS_STRONG
+
+    /**
+     * How opaque the background is drawn: in «Transparente» over the wallpaper, a little more than [AppColors.scrimAlpha]
+     * (owner, 24-11-2026: the wallpaper is never blurred, so the image behind is always sharp); 1 in every other case.
+     */
+    val layerAlpha: Float
+        get() = if (wallpaperBehind) min(1f, colors.scrimAlpha + SHARP_WALLPAPER_EXTRA) else 1f
 
     /** Whether a panel of [level] blurs: only bars and overlays, never a card or a row of a list. */
     fun blurs(level: PanelLevel): Boolean = blur && level != PanelLevel.CARD
@@ -82,14 +118,33 @@ class Look(val colors: AppColors, val style: ThemeStyle, val opaque: Boolean, va
     fun alpha(level: PanelLevel, blurNow: Boolean): Float = colors.panelAlpha(level, opaque, blurNow && blurs(level))
 
     /**
-     * The Material colours: in «Cristal» the background is the app's drawing, so the screens' own is transparent.
+     * The Material colours: when the app draws its background ([drawsBackground]), the screens' own is transparent.
      * Material's contentColorFor(Transparent) finds it as `background` and gives `onBackground`, which is how the
      * transparent Scaffolds, cards and bars keep the right text colour: keep `background` the only transparent role.
      */
-    val scheme: ColorScheme = if (glass) colors.scheme.copy(background = Color.Transparent) else colors.scheme
+    val scheme: ColorScheme = if (drawsBackground) colors.scheme.copy(background = Color.Transparent) else colors.scheme
 }
 
-/** The [Look] for these settings on a phone with Android [sdk]. «Alto contraste» turns «Reducir transparencias» on. */
+/**
+ * F-1 of the final audit of 2.1 (owner decision (b), 24-11-2026): «Transparente» shows the wallpaper only from Android 14,
+ * where the window can ask Android not to pass the app's taps to the wallpaper's app (secureWindow). Before it, there is
+ * no public way to stop that, so the style is drawn as «Cristal» ([lookFor]) and not offered ([offeredStyles]).
+ */
+const val TRANSPARENT_MIN_SDK: Int = Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
+/** How much more opaque than [AppColors.scrimAlpha] the layer of «Transparente» is drawn, over a sharp wallpaper. */
+private const val SHARP_WALLPAPER_EXTRA = 0.06f
+
+/**
+ * The [Look] for these settings on a phone with Android [sdk]. «Alto contraste» turns «Reducir transparencias» on; either
+ * makes «Transparente» opaque, without the wallpaper (it is then «Cristal» opaque). [multiWindow]: the activity is in
+ * split screen or in a floating or desktop window, where what is under its window is another app, not only the wallpaper
+ * (branch review I-1, O-A4): «Transparente» is then «Cristal», translucent over the app's own background. Whenever the
+ * wallpaper is not behind it, «Transparente» takes the colours of «Cristal» (branch review M-1): those of its layer are
+ * corrected for a layer that is not drawn then. Before Android 14 ([TRANSPARENT_MIN_SDK]) the wallpaper is never shown
+ * either (F-1 of the final audit, owner decision (b)): «Transparente» is then «Cristal» too. The gate is here, so the
+ * theme, the window ([windowLookFor]) and the preview of Ajustes always agree.
+ */
 fun lookFor(
     style: ThemeStyle,
     palette: PaletteId,
@@ -99,10 +154,18 @@ fun lookFor(
     dark: Boolean,
     sdk: Int,
     wallpaper: WallpaperSeeds? = null,
+    multiWindow: Boolean = false,
 ): Look {
-    val colors = colorsFor(palette, custom, dark, highContrast, wallpaper)
-    val opaque = style == ThemeStyle.SOLID || reduceTransparency || highContrast
-    return Look(colors, style, opaque, blur = !opaque && sdk >= Build.VERSION_CODES.S)
+    val opaque = style == ThemeStyle.SOLID || style == ThemeStyle.GRADIENT || reduceTransparency || highContrast
+    val wallpaperBehind = style == ThemeStyle.TRANSPARENT && !opaque && !multiWindow && sdk >= TRANSPARENT_MIN_SDK
+    val colorStyle = if (style == ThemeStyle.TRANSPARENT && !wallpaperBehind) ThemeStyle.GLASS else style
+    val colors = colorsFor(palette, custom, dark, highContrast, wallpaper, colorStyle)
+    return Look(
+        colors, style, opaque,
+        blur = !opaque && sdk >= Build.VERSION_CODES.S,
+        wallpaperBehind = wallpaperBehind,
+        multiWindow = multiWindow,
+    )
 }
 
 internal val LocalLook = staticCompositionLocalOf {
@@ -132,8 +195,8 @@ private class PanelPlace {
 }
 
 /**
- * The background the app draws behind every screen: in «Cristal» the gradient with its three blobs, which never move
- * (R-C7); in «Sólido» a plain colour. It tells the panels inside where it is ([LocalBackdrop]).
+ * The background the app draws behind every screen ([drawAppBackground]), which never moves (R-C7). It tells the panels
+ * inside where it is ([LocalBackdrop]).
  */
 @Composable
 fun GlassBackground(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -152,14 +215,31 @@ fun GlassBackground(modifier: Modifier = Modifier, content: @Composable () -> Un
     }
 }
 
-/** The background of [look] on an area of [area]. */
+/**
+ * Whether the background of [look] has its three blobs: «Cristal», «Vidrio» and «Transparente» without the wallpaper
+ * (made opaque, or in split screen or a floating window). Not «Sólido» (a plain colour), «Degradado» (the gradient
+ * alone) nor «Transparente» over the wallpaper (the layer alone).
+ */
+internal fun drawsBlobs(look: Look): Boolean = look.drawsBackground && !look.wallpaperBehind && look.style != ThemeStyle.GRADIENT
+
+/**
+ * The background of [look] on an area of [area]: «Sólido», a plain colour; «Degradado», the gradient without blobs;
+ * «Cristal», «Vidrio» and «Transparente» made opaque, the gradient with its three blobs; «Transparente» over the
+ * wallpaper, the gradient alone at [Look.layerAlpha] (the wallpaper is under it, and the layer is what was measured).
+ */
 internal fun DrawScope.drawAppBackground(look: Look, area: Size) {
     val bg = look.colors.background
-    if (!look.glass) {
+    if (!look.drawsBackground) {
         drawRect(Color(bg.top), size = area)
         return
     }
-    drawRect(Brush.verticalGradient(listOf(Color(bg.top), Color(bg.bottom)), startY = 0f, endY = area.height), size = area)
+    val gradient = Brush.verticalGradient(listOf(Color(bg.top), Color(bg.bottom)), startY = 0f, endY = area.height)
+    if (look.wallpaperBehind) {
+        drawRect(gradient, size = area, alpha = look.layerAlpha)
+        return
+    }
+    drawRect(gradient, size = area)
+    if (!drawsBlobs(look)) return
     val reach = maxOf(area.width, area.height)
     for (b in bg.blobs) {
         val center = Offset(b.x * area.width, b.y * area.height)
@@ -212,20 +292,32 @@ internal fun Modifier.pressSignal(interaction: InteractionSource, shape: Shape, 
     }
 }
 
-/** The shape of each kind of panel. */
-fun panelShape(level: PanelLevel): Shape = when (level) {
-    PanelLevel.CARD -> SectionShape
+/**
+ * Whether a panel draws «Vidrio»'s lit edge (white at the top left fading to [AppColors.border]). Never with «Alto
+ * contraste»: its edge is the plain [AppColors.border] at its own width (R-C5), in every style. «Reducir transparencias»
+ * alone keeps it (the panel is opaque; the edge is still decoration).
+ */
+internal fun litEdge(look: Look): Boolean = look.strong && !look.highContrast
+
+/**
+ * The shape of each kind of panel; «Vidrio» ([strong]) rounds the cards and the overlays more. The bars stay straight,
+ * and the rows of the list keep their own RowShape (12 dp) in every style.
+ */
+fun panelShape(level: PanelLevel, strong: Boolean = false): Shape = when (level) {
+    PanelLevel.CARD -> if (strong) StrongCardShape else SectionShape
     PanelLevel.BAR -> RectangleShape
-    PanelLevel.OVERLAY -> RoundedCornerShape(28.dp)
+    PanelLevel.OVERLAY -> RoundedCornerShape(if (strong) 32.dp else 28.dp)
 }
 
-/** A glass panel of [level] around [content] (in «Sólido», the opaque surface colour). */
+private val StrongCardShape = RoundedCornerShape(22.dp)
+
+/** A glass panel of [level] around [content] (in «Sólido» and «Degradado», the opaque surface colour). */
 @Composable
 fun GlassPanel(modifier: Modifier = Modifier, level: PanelLevel = PanelLevel.CARD, content: @Composable BoxScope.() -> Unit) {
     val look = LocalLook.current
-    val shape = panelShape(level)
+    val shape = panelShape(level, look.strong)
     CompositionLocalProvider(LocalContentColor provides look.colors.scheme.onSurface) {
-        Box(if (look.glass) modifier.glass(level, shape) else modifier.background(look.colors.panelColor(level), shape), content = content)
+        Box(if (look.translucent) modifier.glass(level, shape) else modifier.background(look.colors.panelColor(level), shape), content = content)
     }
 }
 
@@ -233,12 +325,15 @@ fun GlassPanel(modifier: Modifier = Modifier, level: PanelLevel = PanelLevel.CAR
  * Draws a glass panel of [level] with [shape] behind what this modifies: its translucent colour, the highlight at the top
  * and the edge (the bars, a thin line above and below). A bar or an overlay on Android 12+ first draws the app's
  * background again, blurred and cut to the panel; until it knows where it is (the first frame), and on Android 8 to 11,
- * it is more opaque instead ([Look.alpha]). Nothing in «Sólido»: the Material component keeps its own colour.
+ * it is more opaque instead ([Look.alpha]). Nothing in «Sólido» and «Degradado»: the Material component keeps its own
+ * colour. «Vidrio» ([Look.strong]) draws its highlight down to 0.7 of the height, its edge as a fixed gradient from the
+ * top left (white) to the bottom right ([AppColors.border]; not with «Alto contraste», [litEdge]), and a soft shadow only
+ * outside the panel (not on the bars), so the panel's measured colour is never touched.
  */
 @Composable
 fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
     val look = LocalLook.current
-    if (!look.glass) return this
+    if (!look.translucent) return this
     val colors = look.colors
     val backdrop = LocalBackdrop.current
     val blurs = look.blurs(level) && backdrop != null
@@ -252,20 +347,40 @@ fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
         val layer = if (ready && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) blurredBackdrop(this, look, backdrop, at) else null
         val clip = Path().apply { addOutline(outline) }
         val fill = colors.panelColor(level).copy(alpha = alpha)
+        val strong = look.strong
         val highlight = Brush.verticalGradient(
             0f to Color.White.copy(alpha = colors.highlightAlpha),
-            0.5f to Color.White.copy(alpha = 0f), // white fading out (review M-2), as PalettesTest measures it
+            (if (strong) 0.7f else 0.5f) to Color.White.copy(alpha = 0f), // white fading out (review M-2), as PalettesTest measures it
             startY = 0f,
             endY = size.height,
         )
         val edge = colors.borderWidth.dp.toPx()
+        val edgeBrush = if (litEdge(look)) {
+            Brush.linearGradient(
+                listOf(Color.White.copy(alpha = if (look.dark) 0.30f else 0.90f), colors.border),
+                start = Offset.Zero,
+                end = Offset(size.width, size.height),
+            )
+        } else {
+            null
+        }
+        // «Vidrio»: the panel's outline 2 dp lower, in faint black, drawn only where the panel is not (ClipOp.Difference),
+        // so the panel's measured colour is never touched. It does cover a strip of 2 dp of the background under the panel:
+        // no text may sit closer than that to a panel. Not on the bars, which run edge to edge and have their own lines.
+        val shadowDrop = 2.dp.toPx()
+        val shadow = Color.Black.copy(alpha = if (look.dark) 0.10f else 0.06f)
         onDrawBehind {
+            if (strong && level != PanelLevel.BAR) {
+                clipPath(clip, ClipOp.Difference) { translate(0f, shadowDrop) { drawOutline(outline, shadow) } }
+            }
             if (layer != null) clipPath(clip) { drawLayer(layer) }
             drawOutline(outline, fill)
             if (colors.highlightAlpha > 0f) drawOutline(outline, highlight)
             if (level == PanelLevel.BAR) {
                 drawRect(colors.border, size = Size(size.width, edge))
                 drawRect(colors.border, topLeft = Offset(0f, size.height - edge), size = Size(size.width, edge))
+            } else if (edgeBrush != null) {
+                drawOutline(outline, edgeBrush, style = Stroke(edge))
             } else {
                 drawOutline(outline, colors.border, style = Stroke(edge))
             }
@@ -273,7 +388,13 @@ fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
     }
 }
 
-/** The app's background as it is behind the panel at [at], blurred: a layer of the panel's size. Android 12+ only. */
+/**
+ * The app's background as it is behind the panel at [at], blurred: a layer of the panel's size. Android 12+ only. In
+ * «Transparente» it is the layer alone at [Look.layerAlpha] ([drawAppBackground]), not the wallpaper: what shows through
+ * it is whatever is already under the panel, the app's layer over the wallpaper and, behind a dialog or a sheet, the
+ * screen's own content too, so it is dimmed again by this layer; the panel's opacity over that is the one the colours
+ * measure (over the layer on pure white and pure black, and for a bar or an overlay, over anything).
+ */
 @RequiresApi(Build.VERSION_CODES.S)
 private fun blurredBackdrop(scope: CacheDrawScope, look: Look, backdrop: Backdrop, at: Offset): GraphicsLayer {
     val layer = scope.obtainGraphicsLayer()

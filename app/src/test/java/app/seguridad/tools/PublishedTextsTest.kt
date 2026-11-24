@@ -114,6 +114,24 @@ class PublishedTextsTest {
         }
     }
 
+    /**
+     * 2.1, Aspecto, R-A2 (O-A1): the README, the Play listing and the policy never name a style after another system's
+     * look. The listing's header states the rule (it names «™» to forbid it): only what goes to Play is checked.
+     */
+    @Test
+    fun theReadmeTheListingAndThePolicyNameNoLookAfterAnotherOne() {
+        val texts = mapOf(
+            "README.md" to read("README.md"),
+            "ficha-google-play.md" to read("docs/ficha-google-play.md").substringAfter("## Descripción breve"),
+            "privacidad.html" to htmlText(read("docs/privacidad.html")),
+        )
+        for ((name, text) in texts) {
+            assertTrue(name, text.length > 1000)
+            val p = lookNameProblems(text)
+            assertTrue("$name: $p", p.isEmpty())
+        }
+    }
+
     @Test
     fun theEffListIsSaidToBeAdaptedEverywhere() {
         // LIBRE-3: the same words in the same order, without the dice-number column. BIP-39 is used without changes.

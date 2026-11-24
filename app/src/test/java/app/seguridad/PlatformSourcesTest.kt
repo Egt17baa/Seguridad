@@ -110,8 +110,9 @@ class PlatformSourcesTest {
             Regex("""rememberDocumentPicker\(([^\n]*)""").findAll(f.readText()).map { f.name to it.groupValues[1] }
         }.filterNot { (_, args) -> args.isBlank() }.toList()
         // 2.0, task 1: +1, the copy before the upgrade to format v4 (VaultUpgrade.kt); task 2: +1, «Importar como bóveda
-        // nueva» (VaultPickerScreen.kt, PickerPlace.IMPORT_COPY).
-        assertEquals(30, calls.size)
+        // nueva» (VaultPickerScreen.kt, PickerPlace.IMPORT_COPY). 2.1, task 2 of the QR de wifi: +1, «Elegir imagen» in
+        // «Añadir → Red WiFi» (VaultEntryScreen.kt, PickerPlace.QR_IMAGE, in memory only).
+        assertEquals(31, calls.size)
         for ((file, args) in calls) assertTrue("$file: $args", Regex("""place = (PickerPlace\.[A-Z_]+|null)""").containsMatchIn(args))
         assertTrue("place = PickerPlace.IMPORT_OTHER" in code("ui/screens/ImportScreen.kt"))
         val settings = code("ui/screens/SettingsScreen.kt")
@@ -250,6 +251,31 @@ class PlatformSourcesTest {
         val marks = Regex("""setAccessibilityDataSensitive\(View\.ACCESSIBILITY_DATA_SENSITIVE_YES\)""").findAll(src).count()
         assertTrue("secureWindow() and FilterObscuredTouches() must both set it", marks >= 2)
         assertTrue("guarded by API 34", "Build.VERSION_CODES.UPSIDE_DOWN_CAKE" in src)
+    }
+
+    /**
+     * F-1 of the final audit (owner decision, 24-11-2026): from Android 14 the window asks Android not to pass the taps on
+     * the app to the wallpaper's app, whatever the look, in secureWindow() (once, before any content). Nothing turns them
+     * back on, and the switch of «Transparente» (applyWindowLook) does not touch them.
+     */
+    @Test fun `F-1 the window never passes its taps to the wallpaper on Android 14+`() {
+        val secure = code("android/SecureWindow.kt")
+        val fn = secure.substringAfter("fun Activity.secureWindow() {").substringBefore("\n}\n")
+        val call = "window.attributes = window.attributes.apply { setWallpaperTouchEventsEnabled(false) }"
+        assertTrue(fn, "cutWallpaperTouches()" in fn)
+        val cut = secure.substringAfter("private fun Activity.cutWallpaperTouches() {").substringBefore("\n}\n")
+        val guard = cut.indexOf("if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {")
+        assertTrue(cut, guard >= 0 && guard < cut.indexOf(call))
+        // Nothing in the app turns them back on, and the wallpaper's switch leaves them alone.
+        for ((path, src) in mainDir("")) {
+            assertFalse(path, Regex("""setWallpaperTouchEventsEnabled\(\s*true""").containsMatchIn(src))
+            if (!path.endsWith("android/SecureWindow.kt")) assertFalse(path, "WallpaperTouchEvents" in src)
+        }
+        val apply = code("ui/theme/WallpaperWindow.kt").substringAfter("fun applyWindowLook(").substringBefore("\n}\n")
+        assertFalse(apply, "WallpaperTouch" in apply || "window.attributes" in apply)
+        // Before setContent, as FLAG_SECURE.
+        val activity = code("MainActivity.kt")
+        assertTrue(activity.indexOf("secureWindow()") in 0 until activity.indexOf("setContent {"))
     }
 
     @Test fun `COV2-3 MainActivity tells the vault when another app has the focus in multi-window`() {
@@ -1006,7 +1032,7 @@ class PlatformSourcesTest {
         assertTrue("LocalRippleConfiguration provides panelRipple(animationsOn)" in components)
         assertTrue(insideCall(main("ui/theme/Components.kt"), "CompositionLocalProvider", main("ui/theme/Components.kt").indexOf("Card(\n                onClick = onClick")))
         // Re-review N-2: a still mark while pressed, with the card's own presses.
-        assertTrue("modifier = m.pressSignal(interaction, SectionShape, animationsOn)" in components && "interactionSource = interaction," in components)
+        assertTrue("modifier = m.pressSignal(interaction, shape, animationsOn)" in components && "interactionSource = interaction," in components)
         // Re-review N-1: the system is read as state, on start and on every return to the app, never on a recomposition.
         assertFalse("areAnimatorsEnabled" in components)
         assertTrue("LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { on = ValueAnimator.areAnimatorsEnabled() }" in code("ui/theme/Glass.kt"))
@@ -1100,7 +1126,8 @@ class PlatformSourcesTest {
     @Test fun `the highlight of a panel fades white`() {
         val src = code("ui/theme/Glass.kt")
         val highlight = src.substring(src.indexOf("val highlight = Brush.verticalGradient("), src.indexOf("val edge ="))
-        assertTrue(highlight, "0f to Color.White.copy(alpha = colors.highlightAlpha)" in highlight && "0.5f to Color.White.copy(alpha = 0f)" in highlight)
+        // 2.1, Aspecto: «Vidrio» fades it out at 0.7 of the height instead of 0.5, from the same white.
+        assertTrue(highlight, "0f to Color.White.copy(alpha = colors.highlightAlpha)" in highlight && "(if (strong) 0.7f else 0.5f) to Color.White.copy(alpha = 0f)" in highlight)
         assertFalse(highlight, "Transparent" in highlight)
     }
 
@@ -1265,5 +1292,190 @@ class PlatformSourcesTest {
         assertTrue(dialog, Regex("""FilterObscuredTouches\(\)\s*Column\(Modifier\.verticalScroll\(rememberScrollState\(\)\)\) \{ Text\(shown\) \}""").containsMatchIn(dialog))
         assertFalse(dialog, "rememberSaveable" in dialog)
     }
-}
 
+    /**
+     * 2.1, QR de wifi (task 2): «Añadir → Red WiFi» reads a network's code with the camera or from an image, as the
+     * inspector does (one reader of images for both, [readQrFromImage]), and hands it to the session with the start of the
+     * reading, so a late result fills only the form it started in. Nothing of the code in saved state, copied or handed to
+     * the inspector (R-5); the image picker is remembered in memory only (O-5).
+     */
+    @Test fun `2_1 the wifi form reads a QR with the camera or an image and never keeps it`() {
+        val src = code("ui/screens/VaultEntryScreen.kt")
+        val screen = src.substringAfter("fun VaultEntryEditScreen(")
+        assertTrue("existing == null && type == EntryType.WIFI" in screen)
+        assertTrue("place = PickerPlace.QR_IMAGE" in screen)
+        assertTrue("readQrFromImage(context, uri)" in screen)
+        assertTrue("form.wifiReadFailed(" in screen)
+        // Review of the branch, M-3: the start of a reading is kept in the session when the camera or the picker opens
+        // (one beginWifiRead in each onClick), and a result only takes it back (one finishWifiRead in each callback): it
+        // cannot take a new one when it arrives. Nothing of it in the ViewModel of the screen.
+        assertEquals(2, Regex("""form\.beginWifiRead\(WifiReadKind\.(CAMERA|IMAGE)\)""").findAll(screen).count())
+        assertEquals(2, Regex("""form\.finishWifiRead\(WifiReadKind\.(CAMERA|IMAGE)\)""").findAll(screen).count())
+        assertFalse("startWifiRead" in src || "wifiScanSince" in src || "wifiPickSince" in src)
+        // N-M1 of the director's recheck: the two «could not open» go under the buttons, through the session.
+        assertEquals(2, Regex("""form\.wifiReadNotOpened\(WifiReadKind\.(CAMERA|IMAGE), """).findAll(screen).count())
+        assertTrue("form.wifiReadNotOpened(WifiReadKind.CAMERA, QR_CAMERA_FAILED)" in screen)
+        assertTrue("form.wifiReadNotOpened(WifiReadKind.IMAGE, it)" in screen)
+        // N-I1: the name with its marks right above the inspector's alert (as RT-24 in WifiQrScreen); N-M3: the reading's
+        // message is a polite live region, so TalkBack announces it.
+        assertTrue("form.wifiNameAlert()?.let { (name, alert) ->" in screen)
+        assertTrue(Regex("""Text\(name[^\n]*\)\s*Text\(alert, color = NegativeColor\)""").containsMatchIn(screen))
+        assertTrue("form.wifiReadMessage.value?.let { Text(it, color = NegativeColor, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }" in screen)
+        // N-M2: the bytes of a photo over the limit are set to zero before it is refused.
+        assertTrue("if (bytes.size > MAX_IMAGE_BYTES) {\n        bytes.fill(0)\n        throw ImageTooBig()\n    }" in code("ui/screens/PhotoCleanScreen.kt"))
+        // M-2: an image picked with a stale start is not read.
+        assertTrue("if (!form.wifiReadBegan(since)) return@rememberDocumentPicker" in screen)
+        // I-2: the reading's message under the two buttons, apart from «Guardar»'s error.
+        assertTrue("form.wifiReadMessage" in screen && "form.wifiNameAlert()" in screen)
+        assertTrue(screen.indexOf("wifiReadMessage") > screen.indexOf("Text(QR_PICK_IMAGE)") && screen.indexOf("wifiReadMessage") < screen.indexOf("TemplateFieldsEditor(form, type)"))
+        assertTrue("QR_NO_CAMERA_PERMISSION" in screen && "QR_CAMERA_FAILED" in screen && "QR_READING_IMAGE" in screen)
+        assertTrue("form::confirmWifiReplace" in screen && "form::cancelWifiReplace" in screen && "Text(WIFI_SCAN_REPLACE)" in screen)
+        assertTrue("WIFI_SCAN_REPLACE_TITLE_TYPED" in screen && "WIFI_SCAN_REPLACE_TITLE_FILLED" in screen && "WIFI_SCAN_REPLACE_TEXT" in screen)
+        // Two scanners, one launcher each: the 2FA one and the wifi one.
+        assertEquals(2, Regex("""rememberLauncherForActivityResult\(ScanContract\(\)\)""").findAll(screen).count())
+        // Both buttons keep the vault open while the camera or the picker is on top (with the 2FA scanner, three).
+        assertEquals(3, Regex("""VaultLock\.keepOpenOnce = true""").findAll(screen).count())
+        assertEquals(0, Regex("""rememberSaveable|SavedStateHandle|Bundle""").findAll(src).count())
+        assertFalse("copySensitive" in screen || "QrHandoff" in screen || "Log." in screen)
+        val qr = code("ui/screens/QrInspectScreen.kt")
+        assertTrue("readQrFromImage(context, uri)" in qr)
+        assertFalse("decodeQrFromImage" in qr || "readPhoto(" in qr)
+        val read = code("ui/screens/QrImageRead.kt")
+        for (s in listOf("withContext(Dispatchers.IO) { readPhoto(context, uri).also { bytes = it } }", "withContext(Dispatchers.Default)", "finally {\n        bytes?.fill(0)", "QR_NOT_FOUND", "QR_IMAGE_TOO_BIG", "QR_IMAGE_TOO_LARGE", "QR_IMAGE_DAMAGED", "catch (e: OutOfMemoryError)", "catch (e: CancellationException)")) {
+            assertTrue(s, s in read)
+        }
+    }
+
+    /** Every Kotlin file under app/src/main/java/app/seguridad/[dir], with its path. */
+    private fun mainDir(dir: String): List<Pair<String, String>> {
+        var d: File? = File(".").absoluteFile
+        while (d != null) {
+            val f = File(d, "app/src/main/java/app/seguridad/$dir")
+            if (f.isDirectory) return f.walkTopDown().filter { it.isFile && it.extension == "kt" }.map { it.path to it.readText() }.toList()
+            d = d.parentFile
+        }
+        error("$dir not found")
+    }
+
+    /**
+     * 2.1, Aspecto (O-A2 and the design): the styles are drawn with gradients, translucency, edges and the blur only. No
+     * refraction shader, no sensors, nothing that follows the finger or the scroll and nothing that animates on its own in
+     * the theme; and no API that gives the wallpaper's image anywhere in the app (O-A3): «Transparente» lets the system
+     * draw it behind the window.
+     */
+    @Test fun `2_1 the styles are still drawings and the app never reads the wallpaper`() {
+        for ((path, src) in mainDir("ui/theme")) {
+            for (api in listOf("RuntimeShader", "SensorManager", "pointerInput", "rememberInfiniteTransition")) assertFalse("$api in $path", api in src)
+        }
+        assertFalse(Regex("""animate\w*AsState""").containsMatchIn(main("ui/theme/Glass.kt")))
+        // Branch review M-3: nor by the name of its service.
+        for ((path, src) in mainDir("")) {
+            for (api in listOf("WallpaperManager", "WALLPAPER_SERVICE", "\"wallpaper\"")) assertFalse("$api in $path", api in src)
+        }
+    }
+
+    /**
+     * Review m-4 of task 2: what each style draws. «Vidrio»'s shadow is cut out of the panel (ClipOp.Difference) and drawn
+     * before the fill; «Transparente» draws its layer at [app.seguridad.ui.theme.Look.layerAlpha]; «Degradado» stops before
+     * the blobs.
+     */
+    @Test fun `2_1 the shadow, the layer and the gradient are drawn as designed`() {
+        val src = code("ui/theme/Glass.kt")
+        val shadow = src.indexOf("clipPath(clip, ClipOp.Difference)")
+        assertTrue(shadow >= 0 && shadow < src.indexOf("drawOutline(outline, fill)"))
+        assertTrue("drawRect(gradient, size = area, alpha = look.layerAlpha)" in src)
+        // Review of task 5 (minor 3): the rule is drawsBlobs, which AspectoCapturesTest checks for every style.
+        val gradientStop = src.indexOf("if (!drawsBlobs(look)) return")
+        assertTrue(gradientStop >= 0 && gradientStop < src.indexOf("for (b in bg.blobs)"))
+        assertTrue("look.style != ThemeStyle.GRADIENT" in src.substringAfter("internal fun drawsBlobs(look: Look)").substringBefore("\n"))
+        assertTrue("if (litEdge(look))" in src)
+    }
+
+    /**
+     * Review I-1 of task 2 (M-1): a tag colour is only painted on a panel. Each use of tagTextColor is one of these, and a
+     * new one fails here until it is checked: a row of the list (RowPanel), the tag colours dialog (AlertDialog) and the
+     * unselected tag chips of the list's filters, whose container in a translucent style is a card panel's fill.
+     */
+    @Test fun `2_1 every tag colour is painted on a panel`() {
+        val uses = mainDir("").flatMap { (path, src) ->
+            val code = src.lines().filterNot { it.trimStart().let { l -> l.startsWith("//") || l.startsWith("*") || l.startsWith("/*") } }.joinToString("\n")
+            Regex("""tagTextColor\(""").findAll(code).map { path.substringAfter("app/seguridad/") }.toList()
+        }.groupingBy { it }.eachCount()
+        assertEquals(mapOf("ui/screens/EntryRow.kt" to 1, "ui/screens/VaultOrganize.kt" to 2, "ui/screens/VaultList.kt" to 2), uses)
+        val row = code("ui/screens/EntryRow.kt")
+        assertTrue(row.indexOf("RowPanel(") in 0 until row.indexOf("color = tagTextColor(tagColors[t])"))
+        val organize = code("ui/screens/VaultOrganize.kt").substringAfter("private fun TagColorsDialog(")
+        assertTrue(organize.indexOf("AlertDialog(") in 0 until organize.indexOf("tagTextColor(current)"))
+        val chips = code("ui/screens/VaultList.kt").substringAfter("item(key = \"tags\")").substringBefore("item(key = \"colors\")")
+        assertTrue(chips, "label = { Text(\"#\${plainReportText(t)}\", color = tagTextColor(tagColors[t])) }" in chips)
+        // Review I-3 of task 2: the panel is the chip's own container (a wrapper would sit outside its 48 dp touch target).
+        assertTrue(chips, "colors = FilterChipDefaults.filterChipColors(containerColor = tagChipContainer())," in chips)
+        assertFalse(chips, "tagChipPanel" in chips || "glass(" in chips || "modifier =" in chips)
+        assertFalse("tagChipPanel" in main("ui/theme/Components.kt"))
+        val helper = code("ui/theme/Components.kt").substringAfter("fun tagChipContainer(): Color {").substringBefore("\n}\n")
+        assertEquals(
+            listOf(
+                "val look = LocalLook.current",
+                "return if (look.translucent) look.colors.panelColor(PanelLevel.CARD).copy(alpha = look.alpha(PanelLevel.CARD, blurNow = false)) else Color.Transparent",
+            ),
+            helper.trim().lines().map { it.trim() },
+        )
+    }
+
+    /**
+     * 2.1, Aspecto (task 3; O-A3, O-A4, B-2): «Transparente» asks Android to draw the wallpaper behind the activity's own
+     * window, at run time, never blurred (owner, 24-11-2026: the blur behind a window needs a translucent one, which O-A4
+     * forbids) and never in multi-window (branch review I-1). The window stays secure (secureWindow() before any content,
+     * and the wallpaper's switch never touches FLAG_SECURE), no window or theme of the app is see-through to other apps,
+     * nothing reads the wallpaper's image and the manifest asks for nothing new.
+     */
+    @Test fun `2_1 the window shows the wallpaper at run time and stays secure`() {
+        val activity = code("MainActivity.kt")
+        val content = activity.indexOf("setContent {")
+        assertTrue(activity.indexOf("secureWindow()") in 0 until content)
+        assertTrue(activity.indexOf("val opaqueBackground = themeWindowBackground(this)") in 0 until content)
+        assertTrue("val multiWindow = multiWindowNow(this)" in activity)
+        assertTrue("SeguridadTheme(settings, multiWindow = multiWindow) {" in activity)
+        assertTrue("val windowLook = windowLookFor(currentLook)" in activity)
+        assertTrue("DisposableEffect(windowLook) {" in activity)
+        assertTrue("applyWindowLook(window, windowLook, opaqueBackground)" in activity)
+        val window = code("ui/theme/WallpaperWindow.kt")
+        val apply = window.substringAfter("fun applyWindowLook(").substringBefore("\n}\n")
+        assertFalse(apply, "FLAG_SECURE" in apply || "setFlags" in apply)
+        assertTrue(apply, "window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
+        assertTrue(apply, "window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
+        assertTrue(apply, "window.setBackgroundDrawable(opaqueBackground)" in apply)
+        // code-review (2.1): the theme's background, never the decor view's (which Android may have wrapped).
+        assertFalse("decorView.background" in activity)
+        assertTrue("obtainStyledAttributes(intArrayOf(android.R.attr.windowBackground))" in window)
+        // The multi-window listener is taken away in the very effect that adds it.
+        val multi = window.substringAfter("fun multiWindowNow(activity: ComponentActivity): Boolean {").substringBefore("\n}\n")
+        val effect = multi.substringAfter("DisposableEffect(activity) {")
+        assertTrue(multi, "activity.addOnMultiWindowModeChangedListener(listener)" in effect)
+        assertTrue(multi, "onDispose { activity.removeOnMultiWindowModeChangedListener(listener) }" in effect)
+        assertTrue(effect.indexOf("addOnMultiWindowModeChangedListener") < effect.indexOf("onDispose {"))
+        // The theme and the window both come from lookFor with multiWindow (WallpaperWindowTest checks they agree).
+        assertTrue("multiWindow = multiWindow," in code("ui/theme/Theme.kt"))
+        // Owner decision (24-11-2026): nothing blurs behind the window, anywhere in the app.
+        for ((path, src) in mainDir("")) {
+            for (api in listOf("setBackgroundBlurRadius", "CrossWindowBlur", "crossWindowBlur", "wallpaperBlur", "FLAG_BLUR_BEHIND", "setBlurBehindRadius")) {
+                assertFalse("$api in $path", api in src)
+            }
+        }
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/AndroidManifest.xml").isFile) dir = dir.parentFile
+        val mainSrc = File(dir, "app/src/main")
+        for (f in mainSrc.walkTopDown().filter { it.isFile && it.extension in setOf("kt", "xml") }) {
+            val text = f.readText()
+            for (bad in listOf("windowIsTranslucent", "Theme.Translucent", "setTranslucent", "WallpaperManager", "windowShowWallpaper")) {
+                assertFalse("$bad in ${f.path}", bad in text)
+            }
+        }
+        val manifest = File(mainSrc, "AndroidManifest.xml").readText()
+        assertFalse("SHOW_WALLPAPER" in manifest || "Wallpaper" in manifest)
+        assertEquals(
+            listOf("android.permission.INTERNET", "android.permission.CAMERA"),
+            Regex("""<uses-permission android:name="([^"]+)"""").findAll(manifest).map { it.groupValues[1] }.toList(),
+        )
+    }
+}

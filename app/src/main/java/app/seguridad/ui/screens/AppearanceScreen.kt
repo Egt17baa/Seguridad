@@ -41,9 +41,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.android.FilterObscuredTouches
@@ -58,6 +65,7 @@ import app.seguridad.settings.ThemeStyle
 import app.seguridad.ui.theme.AlertDialog
 import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.GlassPanel
+import app.seguridad.ui.theme.Look
 import app.seguridad.ui.theme.currentLook
 import app.seguridad.ui.theme.PanelLevel
 import app.seguridad.ui.theme.ProvideLook
@@ -68,7 +76,10 @@ import app.seguridad.ui.theme.hueSwatch
 import app.seguridad.ui.theme.isDarkTheme
 import app.seguridad.ui.theme.label
 import app.seguridad.ui.theme.lookFor
+import app.seguridad.ui.theme.TRANSPARENT_MIN_SDK
+import app.seguridad.ui.theme.offeredStyles
 import app.seguridad.ui.theme.shownPalette
+import app.seguridad.ui.theme.shownStyle
 import app.seguridad.vault.TagColor
 import app.seguridad.vault.TagPalette
 import kotlinx.coroutines.launch
@@ -76,15 +87,33 @@ import kotlinx.coroutines.launch
 // 2.0, task 5 bis: the texts of Ajustes → «Aspecto» (minimal text, M-3: a line on view, the rest under «Más información»).
 // «Cristal» is only the name of a style here (O-C4); the blur is said to work from Android 12; nothing promises contrast
 // as a guarantee (O-C6); the wallpaper's colours as O-C5 words them.
-internal const val STYLE_GLASS_SHORT = "Cristal: paneles translúcidos sobre un fondo de color."
+// 2.1, Aspecto (task 4): the five lines and the folded texts are the §4 of the Abogado's opinion, word for word
+// (sdd-2.1/abogado-2.1-aspecto.md): the blur only of the three translucent styles (O-A5), «la imagen del fondo de
+// pantalla» and «atenuado» for «Transparente», no promise of contrast, no other system's look named (O-A1).
+// Branch review (24-11-2026), for truth: the wallpaper is never blurred (owner decision), it is not shown in multi-window
+// (I-1), and STYLE_MORE says again what 2.0 said («el fondo de la app que tienen detrás»); for the Abogado's final review.
 internal const val STYLE_SOLID_SHORT = "Sólido: paneles opacos sobre un fondo liso, sin transparencias."
-internal const val STYLE_MORE = "Desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás. En Android 8 a 11 son más opacos. " +
-    "«Reducir transparencias» los hace opacos."
+internal const val STYLE_GRADIENT_SHORT = "Degradado: paneles opacos, sin transparencias, sobre un fondo de color en degradado."
+internal const val STYLE_GLASS_SHORT = "Cristal: paneles translúcidos sobre un fondo de color."
+internal const val STYLE_GLASS_STRONG_SHORT = "Vidrio: como «Cristal», con paneles más translúcidos y bordes iluminados."
+internal const val STYLE_TRANSPARENT_SHORT = "Transparente: deja ver, atenuado, el fondo de pantalla del móvil detrás de la app."
+internal const val STYLE_MORE = "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan el fondo de " +
+    "la app que tienen detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. «Reducir transparencias» " +
+    "y «Alto contraste» hacen opacos todos los paneles, y «Alto contraste» quita también los bordes iluminados de «Vidrio»."
+internal const val STYLE_TRANSPARENT_MORE = "La app no lee la imagen del fondo de pantalla ni pide permisos: Android la dibuja detrás " +
+    "de la app. Se ve nítida, atenuada por una capa de color. Quien mire la pantalla verá también tu fondo de pantalla. " +
+    "Con un fondo de pantalla animado, el móvil puede gastar algo más de batería. En pantalla dividida o en una ventana " +
+    "flotante, el fondo de pantalla no se ve. Como en toda la app, sin capturas de pantalla. Con «Reducir transparencias» " +
+    "o «Alto contraste», el fondo de pantalla deja de verse."
 internal const val WALLPAPER_SHORT = "Usa los colores que Android calcula del fondo de pantalla (desde Android 12)."
 internal const val WALLPAPER_MORE = "La app no lee la imagen del fondo de pantalla ni pide permisos. Ajusta los tonos para que el texto tenga contraste suficiente."
 internal const val WALLPAPER_FROM_12 = "«Colores del fondo de pantalla», desde Android 12."
+// F-1 of the final audit (owner decision (b), 24-11-2026): «Transparente» only from Android 14; for the Abogado's final review.
+internal const val TRANSPARENT_FROM_14 = "«Transparente», desde Android 14."
 internal const val CUSTOM_SHORT = "Elige el acento, el fondo y la intensidad del cristal, y pulsa «Aplicar»."
-internal const val CUSTOM_MORE = "La app ajusta los tonos para que el texto tenga contraste suficiente. La vista previa enseña el cambio antes de aplicarlo."
+// R-A5: the intensity of the glass sets the panels of the three translucent styles (Palettes.kt, `nominal`).
+internal const val CUSTOM_MORE = "La app ajusta los tonos para que el texto tenga contraste suficiente. La vista previa enseña el cambio antes de aplicarlo. " +
+    "La intensidad del cristal se aplica a «Cristal», «Vidrio» y «Transparente»."
 internal const val CUSTOM_ACCENT = "Acento"
 internal const val CUSTOM_BACKGROUND = "Fondo"
 internal const val CUSTOM_GLASS = "Intensidad del cristal"
@@ -101,6 +130,19 @@ internal const val PREVIEW_BUTTON = "Botón"
 internal const val APPEARANCE_NOTICE = "Aspecto nuevo. Para volver a uno sin transparencias: Ajustes → Aspecto → «Sólido»."
 internal const val APPEARANCE_NOTICE_OK = "Entendido"
 
+/** The line on view under the styles: the one of [style]. */
+internal fun styleShort(style: ThemeStyle): String = when (style) {
+    ThemeStyle.SOLID -> STYLE_SOLID_SHORT
+    ThemeStyle.GRADIENT -> STYLE_GRADIENT_SHORT
+    ThemeStyle.GLASS -> STYLE_GLASS_SHORT
+    ThemeStyle.GLASS_STRONG -> STYLE_GLASS_STRONG_SHORT
+    ThemeStyle.TRANSPARENT -> STYLE_TRANSPARENT_SHORT
+}
+
+/** What «Más información» under the styles holds with [style] chosen (M-3): the blur, and with «Transparente» its own text. */
+internal fun styleMore(style: ThemeStyle): List<String> =
+    if (style == ThemeStyle.TRANSPARENT) listOf(STYLE_MORE, STYLE_TRANSPARENT_MORE) else listOf(STYLE_MORE)
+
 private fun ThemeMode.modeLabel() = when (this) {
     ThemeMode.DARK -> "Oscuro"
     ThemeMode.LIGHT -> "Claro"
@@ -109,7 +151,7 @@ private fun ThemeMode.modeLabel() = when (this) {
 
 /** The line of Ajustes that sums up the look: «Cristal · Noche · Oscuro». */
 internal fun appearanceSummary(s: Settings, sdk: Int = Build.VERSION.SDK_INT): String =
-    "${s.style.label()} · ${shownPalette(s.palette, s.custom, sdk).label()} · ${s.theme.modeLabel()}"
+    "${shownStyle(s.style, sdk).label()} · ${shownPalette(s.palette, s.custom, sdk).label()} · ${s.theme.modeLabel()}"
 
 /**
  * Ajustes → «Aspecto»: the mode, the style, the palette («Personalizado» with its preview before it is applied),
@@ -153,9 +195,14 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
                 Choices(ThemeMode.entries, settings.theme, { it.modeLabel() }) { v -> change { it.copy(theme = v) } }
             }
             Section(SettingItem.STYLE.title) {
-                Choices(ThemeStyle.entries, settings.style, { it.label() }) { v -> change { it.copy(style = v) } }
-                Hint(if (settings.style == ThemeStyle.GLASS) STYLE_GLASS_SHORT else STYLE_SOLID_SHORT)
-                MoreInfo { Hint(STYLE_MORE) }
+                // F-1, owner decision (b): «Transparente» only from Android 14; a saved one is shown as it is drawn
+                // («Cristal») before it, and stays saved until another style is chosen here.
+                val shownStyle = shownStyle(settings.style, Build.VERSION.SDK_INT)
+                Choices(offeredStyles(Build.VERSION.SDK_INT), shownStyle, { it.label() }) { v -> change { it.copy(style = v) } }
+                // TalkBack reads the new line when a style is chosen (review of task 4); the Box does not change its look.
+                Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Hint(styleShort(shownStyle)) }
+                MoreInfo { styleMore(shownStyle).forEach { Hint(it) } }
+                if (Build.VERSION.SDK_INT < TRANSPARENT_MIN_SDK) Hint(TRANSPARENT_FROM_14)
             }
             Section(SettingItem.PALETTE.title) {
                 val offered = PaletteId.entries.filter { it != PaletteId.WALLPAPER || wallpaperOffered }
@@ -248,12 +295,22 @@ private fun Preview(settings: Settings, custom: CustomPalette?) {
     val dark = current.dark
     val look = remember(current, custom) {
         if (custom == null) current
-        else lookFor(settings.style, PaletteId.CUSTOM, custom, settings.reduceTransparency, settings.highContrast, dark, sdk = Build.VERSION.SDK_INT)
+        else lookFor(
+            settings.style, PaletteId.CUSTOM, custom, settings.reduceTransparency, settings.highContrast, dark,
+            sdk = Build.VERSION.SDK_INT, multiWindow = current.multiWindow,
+        )
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(PREVIEW_TITLE, style = MaterialTheme.typography.titleSmall)
+        // «Transparente»: the preview cannot show the wallpaper, so its layer is drawn over the app's own gradient, opaque
+        // underneath; nothing behind the window shows through the preview.
         Box(
-            Modifier.fillMaxWidth().height(196.dp).clip(SectionShape).clearAndSetSemantics { contentDescription = PREVIEW_DESCRIPTION },
+            Modifier.fillMaxWidth().height(196.dp).clip(SectionShape)
+                .drawWithCache {
+                    val underlay = if (look.wallpaperBehind) previewUnderlay(look, size) else null
+                    onDrawBehind { underlay?.let { drawRect(it, size = size) } }
+                }
+                .clearAndSetSemantics { contentDescription = PREVIEW_DESCRIPTION },
         ) {
             ProvideLook(look) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -267,7 +324,7 @@ private fun Preview(settings: Settings, custom: CustomPalette?) {
                             Text(
                                 PREVIEW_TAG,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = androidx.compose.ui.graphics.Color(if (look.dark) TagPalette.dark(TagColor.BLUE) else TagPalette.light(TagColor.BLUE)),
+                                color = Color(if (look.dark) TagPalette.dark(TagColor.BLUE) else TagPalette.light(TagColor.BLUE)),
                             )
                         }
                     }
@@ -276,6 +333,12 @@ private fun Preview(settings: Settings, custom: CustomPalette?) {
             }
         }
     }
+}
+
+/** Under the preview of «Transparente»: the gradient of the app, opaque, where the wallpaper would be. */
+private fun previewUnderlay(look: Look, area: Size): Brush {
+    val bg = look.colors.background
+    return Brush.verticalGradient(listOf(Color(bg.top), Color(bg.bottom)), startY = 0f, endY = area.height)
 }
 
 /** R-C8: «Aspecto nuevo…», once after updating, closed with «Entendido». */

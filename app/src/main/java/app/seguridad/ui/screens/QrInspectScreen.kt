@@ -50,9 +50,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import app.seguridad.android.QrImageUnreadable
 import app.seguridad.android.copySensitive
-import app.seguridad.android.decodeQrFromImage
 import app.seguridad.android.scanQrOptions
 import app.seguridad.core.PickerPlace
 import app.seguridad.tools.LatestOnly
@@ -66,10 +64,6 @@ import app.seguridad.tools.QR_FIELD_PASSWORD
 import app.seguridad.tools.QR_FIELD_WEB
 import app.seguridad.tools.QR_FULL_TEXT
 import app.seguridad.tools.QR_HIDE
-import app.seguridad.tools.QR_IMAGE_DAMAGED
-import app.seguridad.tools.QR_IMAGE_TOO_BIG
-import app.seguridad.tools.QR_IMAGE_TOO_LARGE
-import app.seguridad.tools.QR_NOT_FOUND
 import app.seguridad.tools.QR_NO_ALERTS
 import app.seguridad.tools.QR_NO_CAMERA_PERMISSION
 import app.seguridad.tools.QR_OPEN_RECEIVED
@@ -80,7 +74,6 @@ import app.seguridad.tools.QR_SHOW
 import app.seguridad.tools.QR_TOOL_TITLE
 import app.seguridad.tools.QR_TOO_BIG
 import app.seguridad.tools.codes.ScreenAway
-import app.seguridad.tools.imageOpenFailureText
 import app.seguridad.tools.qr.QrAction
 import app.seguridad.tools.qr.QrHandoff
 import app.seguridad.tools.qr.QrPendingText
@@ -101,15 +94,11 @@ import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
 import com.google.zxing.client.android.Intents
 import com.journeyapps.barcodescanner.ScanContract
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * «Inspector de QR» (`tools/qr`): reads a QR with the camera or from a picked image and shows what it holds, with the
@@ -203,24 +192,10 @@ fun QrInspectScreen(
         busy = true
         scope.launch {
             try {
-                val bytes = withContext(Dispatchers.IO) { readPhoto(context, uri) }
-                ensureActive()
-                val text = withContext(Dispatchers.Default) {
-                    try {
-                        decodeQrFromImage(bytes)
-                    } finally {
-                        bytes.fill(0) // The picture of a 2FA QR is that key too: it goes as soon as it is read.
-                    }
+                when (val read = readQrFromImage(context, uri)) {
+                    is QrImageRead.Text -> show(read.text)
+                    is QrImageRead.Error -> error = read.message
                 }
-                ensureActive()
-                if (text == null) error = QR_NOT_FOUND else show(text)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                error = imageOpenFailureText(e, QR_IMAGE_TOO_BIG, QR_IMAGE_TOO_LARGE) { QR_IMAGE_DAMAGED }
-            } catch (e: OutOfMemoryError) {
-                // Up to 50 MB read: on a small heap this is the error to show (M-7), not a crash.
-                error = imageOpenFailureText(e, QR_IMAGE_TOO_BIG, QR_IMAGE_TOO_LARGE) { QR_IMAGE_DAMAGED }
             } finally {
                 busy = false
             }

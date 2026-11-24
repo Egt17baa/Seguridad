@@ -67,6 +67,36 @@ class SourceTextsTest {
         assertTrue("Forbidden words in screen texts:\n" + bad.joinToString("\n"), bad.isEmpty())
     }
 
+    /** 2.1, Aspecto, R-A2 (O-A1): no string of the app names a style after another system's look. */
+    @Test
+    fun noLiteralNamesALookAfterAnotherOne() {
+        val java = mainRoot()
+        val files = java.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        assertTrue("Too few sources: ${files.size}", files.size > 50)
+        val bad = files.flatMap { f -> kotlinLiterals(f.readText()).filter { lookNameProblems(it.second).isNotEmpty() }.map { "${f.name}:${it.first} «${it.second}»" } }
+        assertTrue("Look named after another one:\n" + bad.joinToString("\n"), bad.isEmpty())
+    }
+
+    @Test
+    fun theLookNameRuleCatchesWhatItMust() {
+        for (t in listOf(
+            "Vidrio líquido", "LIQUID GLASS", "un cristal que parece líquido", "Cristal Líquida", "liquido, como el vidrio",
+            "Clavero Vidrio", "Clavero  vidrio", "Vidrio™", "al estilo de otro sistema", "Inspirado en otra app", "Al Estilo De",
+            "inspirada en", "Inspirados en", "inspiradas en", "inspirado\u00A0en", "al\u202Festilo\u2009de", "Clavero\u00A0Vidrio",
+            // A gap of 29 characters is near.
+            "vidrio" + "x".repeat(29) + "liquido", "liquid" + "x".repeat(29) + "glass",
+        )) assertTrue(t, lookNameProblems(t).isNotEmpty())
+        // A gap of 30 is not.
+        assertTrue(lookNameProblems("vidrio" + "x".repeat(30) + "liquido").isEmpty())
+        assertTrue(lookNameProblems("liquid" + "x".repeat(30) + "glass").isEmpty())
+        for (t in listOf(
+            "Vidrio: como «Cristal», con paneles más translúcidos y bordes iluminados.",
+            "Cristal: paneles translúcidos sobre un fondo de color.",
+            // «líquido» 30 characters or more away from the names is not this rule's matter.
+            "Un vidrio. " + "x".repeat(30) + " líquido",
+        )) assertTrue(t, lookNameProblems(t).isEmpty())
+    }
+
     @Test
     fun theLexerFindsLiteralsAndSkipsComments() {
         val src = "val a = \"uno \\\"dos\\\"\" // \"seguro\"\n/* \"seguro\" /* \"x\" */ */ val b = \"\"\"raw \"q\" \n y\"\"\" + 'x' + '\"' + \"t \${f(\"in ner\")} fin \$v\""
@@ -189,6 +219,26 @@ class SourceTextsTest {
         // A label written in the manifest itself (not a @string reference) is a text too.
         assertEquals(listOf("Abrir seguro"), xmlTexts("<activity android:label=\"Abrir seguro\" android:icon=\"@x\"/>\n<a android:label=\"@string/app_name\"/>").map { it.second })
     }
+}
+
+/**
+ * 2.1, Aspecto, R-A2 (O-A1 of the Abogado Digital): what in [text] names a look after another system's. Case and accents
+ * do not count, and any run of spaces (any Unicode space, the no-break one too) is one. «liquid» («líquido», «liquida»,
+ * «liquid») less than 30 characters from «vidrio», «cristal» or «glass»; and, anywhere, «clavero vidrio», «™», «al estilo
+ * de» or «inspirado en» in any gender and number.
+ */
+internal fun lookNameProblems(text: String): List<String> {
+    val t = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
+        .lowercase(java.util.Locale.ROOT).replace(Regex("[\\p{Z}\\s]+"), " ")
+    val found = mutableListOf<String>()
+    val names = Regex("vidrio|cristal|glass").findAll(t).map { it.range }.toList()
+    for (l in Regex("liquid").findAll(t)) {
+        val near = names.any { n -> maxOf(n.first - l.range.last, l.range.first - n.last) - 1 < 30 }
+        if (near) found += "liquid junto a vidrio, cristal o glass"
+    }
+    for (w in listOf("clavero vidrio", "\u2122", "al estilo de")) if (w in t) found += w
+    if (Regex("inspirad[oa]s? en").containsMatchIn(t)) found += "inspirado en"
+    return found.distinct()
 }
 
 /**

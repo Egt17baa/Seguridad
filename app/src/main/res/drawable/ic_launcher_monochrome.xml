@@ -1,21 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 2.0: the same «C» with a key blade, in one colour, for the system's themed icons. -->
+<!--
+  2.1: the same «C», «L» and key in one colour, for the system's themed icons. The «C» leaves a thin gap
+  around the «L» so the two letters stay apart in one colour.
+  The «C» and the «L» are the outlines of Liberation Serif Bold 2.1.5 (SIL Open Font License 1.1),
+  turned into paths; the font file is not in the repository or in the APK.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.9" android:scaleY="0.9">
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.95" android:scaleY="0.95">
         <path
-            android:pathData="M68.5,41.5 A19,19 0 1 0 54,73 H80"
-            android:strokeColor="#FF000000"
-            android:strokeWidth="8"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
+            android:pathData="M50.55,79.56 L53.79,79.37 L58.40,78.76 L62.74,77.86 L64.57,77.34 L66.17,76.78 L66.27,71.48 L62.48,71.48 L62.29,72.80 L61.42,73.46 L59.82,74.36 L57.89,75.16 L56.43,75.59 L54.85,75.90 L53.15,76.09 L51.33,76.15 L49.61,76.08 L47.99,75.85 L46.48,75.47 L45.07,74.93 L43.77,74.25 L42.58,73.41 L41.49,72.42 L40.51,71.27 L39.64,69.98 L38.88,68.55 L38.24,66.99 L37.72,65.28 L37.31,63.43 L37.02,61.45 L36.85,59.32 L36.79,57.06 L36.84,54.62 L37.01,52.34 L37.29,50.23 L37.68,48.29 L38.18,46.51 L38.79,44.90 L39.51,43.45 L40.34,42.17 L41.30,41.04 L42.38,40.07 L43.59,39.25 L44.93,38.57 L46.40,38.05 L48.01,37.67 L49.74,37.45 L51.60,37.37 L54.41,37.56 L55.76,37.79 L57.05,38.12 L58.30,38.54 L59.51,39.05 L60.67,39.66 L61.79,40.36 L62.54,45.53 L62.81,45.78 L63.01,46.11 L63.11,46.80 L65.71,46.80 L65.51,36.11 L63.44,35.59 L59.36,34.75 L55.35,34.20 L51.42,33.92 L49.47,33.88 L46.63,33.98 L43.97,34.26 L41.49,34.72 L39.18,35.37 L37.06,36.20 L35.11,37.22 L33.35,38.42 L31.76,39.81 L30.35,41.38 L29.14,43.12 L28.11,45.03 L27.26,47.11 L26.61,49.37 L26.14,51.79 L25.86,54.39 L25.77,57.16 L25.86,59.72 L26.16,62.14 L26.65,64.41 L27.33,66.54 L28.22,68.53 L29.30,70.37 L30.57,72.07 L32.04,73.63 L33.69,75.02 L35.49,76.23 L37.44,77.25 L39.55,78.09 L41.81,78.74 L44.22,79.20 L46.79,79.48 Z M66.37,65.49 L63.35,65.49 L63.13,67.02 L66.35,66.92 Z"
+            android:fillColor="#FF000000"
+            android:fillType="evenOdd" />
         <path
-            android:pathData="M69,73 V81.5 M77.5,73 V80"
+            android:pathData="M61.81 47.89 58.17 48.35V68.32H62.97Q66.71 68.32 68.47 67.97L69.91 63.06H71.49L70.83 70.18H49.61V68.9L52.63 68.42V48.35L49.63 47.89V46.61H61.81Z"
+            android:fillColor="#FF000000" />
+        <path
+            android:pathData="M76.22,52 A3.78,3.78 0 1 1 83.78,52 A3.78,3.78 0 1 1 76.22,52 Z"
             android:strokeColor="#FF000000"
-            android:strokeWidth="6"
-            android:strokeLineCap="round" />
+            android:strokeWidth="2.34" />
+        <path
+            android:pathData="M81.67,55.56 A1.89,1.89 0 1 1 85.45,55.56 A1.89,1.89 0 1 1 81.67,55.56 Z M74.55,55.56 A1.89,1.89 0 1 1 78.33,55.56 A1.89,1.89 0 1 1 74.55,55.56 Z M74.55,48.44 A1.89,1.89 0 1 1 78.33,48.44 A1.89,1.89 0 1 1 74.55,48.44 Z M81.67,48.44 A1.89,1.89 0 1 1 85.45,48.44 A1.89,1.89 0 1 1 81.67,48.44 Z M57.14,50.56 H74.96 A1.44,1.44 0 0 1 76.4,52 V52 A1.44,1.44 0 0 1 74.96,53.44 H57.14 A1.44,1.44 0 0 1 55.7,52 V52 A1.44,1.44 0 0 1 57.14,50.56 Z M56.6,52.9 H57.5 A0.9,0.9 0 0 1 58.4,53.8 V56.95 A0.9,0.9 0 0 1 57.5,57.85 H56.6 A0.9,0.9 0 0 1 55.7,56.95 V53.8 A0.9,0.9 0 0 1 56.6,52.9 Z M61.1,52.9 H62 A0.9,0.9 0 0 1 62.9,53.8 V55.6 A0.9,0.9 0 0 1 62,56.5 H61.1 A0.9,0.9 0 0 1 60.2,55.6 V53.8 A0.9,0.9 0 0 1 61.1,52.9 Z"
+            android:fillColor="#FF000000" />
     </group>
 </vector>

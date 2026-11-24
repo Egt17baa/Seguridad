@@ -128,8 +128,9 @@ fun qrView(text: String): QrView {
             val cipher = when {
                 open -> QR_CIPHER_NONE
                 kind.security == "nopass" -> QR_CIPHER_UNKNOWN
-                // Ronda 2 (n-2): what the code says («WPA2»), though the vault keeps it as WPA.
-                else -> kind.written ?: kind.security
+                // Ronda 2 (n-2): what the code says («WPA2»), though the vault keeps it as WPA; cut like the note under it
+                // (2.1, code-review; R-1 of the Abogado), so a hostile type cannot fill the screen here either.
+                else -> shownSecurity(kind.written ?: kind.security)
             }
             val alerts = listOfNotNull(QR_WIFI_OPEN.takeIf { open }, QR_WIFI_WEP.takeIf { kind.security == "WEP" })
             base.copy(
@@ -141,15 +142,7 @@ fun qrView(text: String): QrView {
                 ),
                 alerts = alerts + hidden,
                 // 2.0, task 9: only what the vault's form can hold is offered; the rest says why not.
-                notes = listOfNotNull(
-                    when (kind.notKept) {
-                        null -> null
-                        WifiNotKept.SECURITY -> qrWifiOtherSecurity(visibleText(kind.security))
-                        WifiNotKept.PASSWORD_WITHOUT_TYPE -> QR_WIFI_PASSWORD_WITHOUT_TYPE
-                        WifiNotKept.SETTING -> QR_WIFI_NOT_ADDABLE
-                        WifiNotKept.NAME_SPACES -> QR_WIFI_NAME_SPACES
-                    },
-                ),
+                notes = listOfNotNull(kind.notKept?.let { wifiNotKeptText(it, kind.security) }),
                 action = if (kind.addable) QrAction.ADD_WIFI else QrAction.NONE,
                 secret = kind.password,
                 // Ronda 1 (I-2): any wifi code is hidden and dropped on leaving, whatever password was read in it.

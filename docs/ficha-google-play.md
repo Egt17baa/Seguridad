@@ -1,10 +1,10 @@
 # Ficha de Google Play (borrador)
 
-Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal», «anónimo», «garantiza» salvo «no garantiza», «limpio», «sospechoso»), sin las palabras «wallet», «cartera» ni «monedero» (O-11 de la 2.0), sin decir que la app o su aspecto son «accesibles», que «cumplen WCAG» o que el contraste está garantizado (O-C6), sin nombrar ni describir el aspecto «Cristal» con el nombre del de ningún sistema o app (O-C4), sin marcas de tarjetas, bancos ni otras apps (O-9), y con los avisos de «sin recuperación» y «sin auditoría independiente». La app se llamaba «Seguridad» hasta la 1.2.2; desde la 1.3.0 su nombre visible es «Clavero» (decisión del dueño del 31-10-2026; el identificador `io.github.egt17baa.seguridad` no cambia).
+Textos para *Play Console → Presencia en la tienda → Ficha principal*. Reglas: descripción exacta, sin superlativos de seguridad («segura», «auditada», «inviolable», «grado militar») ni promesas absolutas («imposible de descifrar», «a prueba de cuánticos», «100 %», «como Signal», «con validez legal», «anónimo», «garantiza» salvo «no garantiza», «limpio», «sospechoso»), sin las palabras «wallet», «cartera» ni «monedero» (O-11 de la 2.0), sin decir que la app o su aspecto son «accesibles», que «cumplen WCAG» o que el contraste está garantizado (O-C6), sin nombrar ni describir los estilos del aspecto con el nombre del de ningún sistema o app (O-C4 de la 2.0 y O-A6 de la 2.1), sin marcas de tarjetas, bancos ni otras apps (O-9), y con los avisos de «sin recuperación» y «sin auditoría independiente». La app se llamaba «Seguridad» hasta la 1.2.2; desde la 1.3.0 su nombre visible es «Clavero» (decisión del dueño del 31-10-2026; el identificador `io.github.egt17baa.seguridad` no cambia).
 
 Al publicarla (decisiones del dueño del 31-10-2026, con la revisión final del Abogado Digital; detalle en [`PUBLICAR.md`](PUBLICAR.md), apartados 3.5 a 3.7): en todos los países menos Francia (con sus departamentos y territorios de ultramar, si Play los lista aparte), Rusia y Bielorrusia; Seguridad de los datos, «No recoge ni comparte datos»; desarrollador «Egt17baa», no comerciante. Las capturas de pantalla no muestran «wallet» ni datos reales.
 
-**Recursos gráficos (2.0, O-C2 del Abogado):** el icono de la ficha es [`docs/play/icono-512.png`](play/icono-512.png), el icono nuevo de la 2.0. Las capturas se hacen de nuevo con la 2.0, con el aspecto «Cristal» y solo datos inventados: sin texto de clasificación, precio ni promoción («n.º 1», «gratis», «nuevo», «2.0»), sin marcos de un móvil de una marca concreta y sin la barra de estado con notificaciones o datos de nadie. Del logo no se dice que sea «único», «original», «registrado» o «protegido», ni lleva ® ni ™; las «Novedades» dicen solo «Icono nuevo».
+**Recursos gráficos (2.0, O-C2 del Abogado; icono de la 2.1):** el icono de la ficha es [`docs/play/icono-512.png`](play/icono-512.png), el icono nuevo de la 2.1 (la «C» dorada, la «L» azul y la llave antigua; dictamen `docs/superpowers/handoff/sdd-2.1/abogado-2.1-logo-CL.md`). La «C» y la «L» del icono son contornos de Liberation Serif Bold 2.1.5 (SIL Open Font License 1.1); «CL» no es un nombre de la app ni se usa como tal. Las capturas se hacen de nuevo con la 2.1, con el aspecto «Cristal» y solo datos inventados: sin texto de clasificación, precio ni promoción («n.º 1», «gratis», «nuevo», «2.0»), sin marcos de un móvil de una marca concreta y sin la barra de estado con notificaciones o datos de nadie. Una captura que enseñe el estilo «Transparente» lleva detrás un fondo de pantalla inventado o liso, sin personas, sin nada del dueño y sin texto promocional (R-A7 de la 2.1). Del logo no se dice que sea «único», «original», «registrado» o «protegido», ni lleva ® ni ™; las «Novedades» dicen solo «Icono nuevo».
 
 **Longitud (R-8 del Abogado, revisión final de la 2.0):** la descripción completa no puede pasar de 4 000 caracteres (contador de Play Console).
 
@@ -47,14 +47,14 @@ Herramientas
 • Repartir un secreto (SLIP-0039): las partes no son una copia de recuperación SLIP-39 para un dispositivo hardware.
 
 Aspecto
-• Estilo «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app), o «Sólido», y varias paletas. Modo sencillo y guía al empezar.
+• Cinco estilos («Sólido», «Degradado», «Cristal», «Vidrio» y, desde Android 14, «Transparente») y varias paletas. Modo sencillo y guía al empezar.
 
 Privacidad
 Las bóvedas se quedan cifradas en tu móvil. Sale lo que tú exportas, guardas, copias o compartes, y las copias cifradas que la app hace donde elijas. La única conexión a Internet es opcional: al pulsar «¿Filtrada?» o «Comprobar filtraciones», consulta Pwned Passwords de Have I Been Pwned con solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña.
 
 Antes de usarla, ten en cuenta
 • Sin recuperación: si olvidas la contraseña maestra, nadie puede recuperar lo guardado. Exporta copias.
-• Al actualizar, la bóveda pasa a un formato nuevo la primera vez que la abres con la contraseña maestra, y las versiones anteriores ya no abren la bóveda ni sus copias nuevas. Exporta antes una copia.
+• Al actualizar desde una versión 1.x, la bóveda pasa a un formato nuevo la primera vez que la abres con la contraseña maestra, y las versiones 1.x ya no abren la bóveda ni sus copias nuevas. Exporta antes una copia.
 • La copia con calendario solo se hace con la bóveda abierta: si no abres la app, no hay copia.
 • Borrar algo no lo borra de las copias ya hechas, y cambiar la contraseña maestra no las cambia: se siguen abriendo con la anterior.
 • Si alguien roba tu identidad (por ejemplo, con una copia y tu contraseña maestra), podrá leer lo que te enviaron antes y firmar como tú. El canal ve los metadatos.
@@ -66,7 +66,7 @@ Gratuita y sin compras. Código fuente: https://github.com/Egt17baa/Seguridad
 
 ## Versión larga (no cabe en Play)
 
-No se pega en Play: pasa de 4 000 caracteres (6 948 sin Markdown). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
+No se pega en Play: pasa de 4 000 caracteres (7 203 sin Markdown, con las líneas del Aspecto de la 2.1, «desde Android 14» de F-1 y los cambios de la revisión final del Abogado Digital de la 2.1). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
 
 Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semilla, notas, tarjetas bancarias, redes wifi, licencias y pasaportes en bóvedas cifradas en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
 
@@ -107,7 +107,8 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Comprobación de contraseñas filtradas.
 
 **Aspecto**
-• El aspecto «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás), o «Sólido», sin transparencias. Seis paletas, una personalizada y, desde Android 12, los colores del fondo de pantalla. «Reducir transparencias» y «Alto contraste» en Ajustes.
+• Cinco estilos: «Sólido», sin transparencias; «Degradado», con paneles opacos sobre un fondo en degradado; «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás); «Vidrio», como «Cristal», más translúcido y con bordes iluminados; y «Transparente» (desde Android 14), que deja ver, atenuado, el fondo de pantalla del móvil: la app no lee su imagen ni pide permisos.
+• Seis paletas, una personalizada y, desde Android 12, los colores del fondo de pantalla. «Reducir transparencias» y «Alto contraste» en Ajustes.
 • Modo sencillo y una guía al empezar.
 
 **Privacidad**
@@ -119,7 +120,7 @@ Las bóvedas se quedan cifradas en tu móvil. De la app sale lo que tú exportas
 • Limpiar foto no cambia lo que se ve, y Tachar solo tapa lo que marcas tú. Ninguna cambia el original: comparte la copia.
 • Cambiar la contraseña maestra no cambia las copias que ya existen: se siguen abriendo con la contraseña anterior.
 • La copia automática con calendario solo se hace con la bóveda abierta, al abrir la app o al desbloquearla: si no la abres, no hay copia.
-• Al actualizar desde una versión anterior, la bóveda pasa a un formato nuevo la primera vez que la abres con la contraseña maestra: después, las versiones anteriores de Clavero no abren la bóveda ni sus copias nuevas. Exporta antes una copia.
+• Al actualizar desde una versión 1.x, la bóveda pasa a un formato nuevo la primera vez que la abres con la contraseña maestra: después, las versiones 1.x de Clavero no abren la bóveda ni sus copias nuevas. Exporta antes una copia.
 • Borrar algo de la bóveda o de su papelera no lo borra de las copias que ya hiciste.
 • El archivo que exportas de otra app para importarlo suele estar sin cifrar, salvo si lo proteges con contraseña. Quitarlo con Clavero no borra sus copias en la nube, en la papelera ni en otras apps.
 • Sin auditoría independiente: la app no ha pasado una auditoría de seguridad externa. Para fondos importantes, usa un dispositivo hardware dedicado.

@@ -106,6 +106,51 @@ class SettingsTest {
         }
     }
 
+    /**
+     * 2.1, Aspecto: un estilo que esta versión no conoce (uno de una versión posterior) se lee como «Cristal», y los demás
+     * ajustes se quedan (así lee la 2.0 los estilos nuevos de la 2.1).
+     */
+    @Test fun anUnknownStyleIsReadAsCristal() = runTest {
+        file().writeText("""{"lockAfter":"MIN_1","style":"SOMETHING_LATER","palette":"OCEAN"}""")
+        val s = store().apply { load() }.settings.value
+        assertEquals(ThemeStyle.GLASS, s.style)
+        assertEquals(LockAfter.MIN_1, s.lockAfter)
+        assertEquals(PaletteId.OCEAN, s.palette)
+        assertEquals(ThemeStyle.GLASS, decodeSettings("""{"style":"SOMETHING_LATER","theme":"LIGHT"}""").style)
+        assertEquals(ThemeMode.LIGHT, decodeSettings("""{"style":"SOMETHING_LATER","theme":"LIGHT"}""").theme)
+    }
+
+    /** 2.1, Aspecto: los tres estilos nuevos se guardan con su nombre y se leen igual. */
+    @Test fun everyNewStyleIsSavedAndReadBack() = runTest {
+        for (style in listOf(ThemeStyle.GRADIENT, ThemeStyle.GLASS_STRONG, ThemeStyle.TRANSPARENT)) {
+            store().apply {
+                load()
+                update { it.copy(style = style) }
+            }
+            assertTrue(file().readText(), file().readText().contains("\"style\":\"${style.name}\""))
+            assertEquals(style, store().apply { load() }.settings.value.style)
+        }
+    }
+
+    /**
+     * F-1 of the final audit, owner decision (b): «Transparente» saved (on Android 14, or in a copy restored on an older
+     * phone) is read as it is and kept; before Android 14 it is only drawn and shown as «Cristal». Nothing migrates it:
+     * the only place in the app that changes the saved style is the user's choice in Ajustes → Aspecto.
+     */
+    @Test fun aSavedTransparentIsReadAsItIsAndNeverMigrated() = runTest {
+        file().writeText("""{"style":"TRANSPARENT","palette":"OCEAN"}""")
+        val s = store().apply { load() }.settings.value
+        assertEquals(ThemeStyle.TRANSPARENT, s.style)
+        assertEquals(ThemeStyle.TRANSPARENT, decodeSettings("""{"style":"TRANSPARENT"}""").style)
+        var root: File? = File(".").absoluteFile
+        while (root != null && !File(root, "app/src/main/java/app/seguridad").isDirectory) root = root.parentFile
+        val main = File(root, "app/src/main/java/app/seguridad")
+        val writers = main.walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .filter { f -> Regex("""copy\([^)]*\bstyle\s*=""").containsMatchIn(f.readText()) }
+            .map { it.relativeTo(main).path }.toList()
+        assertEquals(listOf("ui/screens/AppearanceScreen.kt"), writers)
+    }
+
     /** Review M-5: «Personalizado» saved without its tones reads as «Noche»; with them it stays. */
     @Test fun aCustomWithoutTonesIsNight() = runTest {
         file().writeText("""{"palette":"CUSTOM"}""")

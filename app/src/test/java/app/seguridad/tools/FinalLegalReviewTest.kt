@@ -177,8 +177,11 @@ class FinalLegalReviewTest {
         val readme = flat(read("README.md"))
         assertTrue(
             // 2.0, O-C7 and R-C4 of the Abogado (abogado-2.0-cristal.md): the current icon and the earlier ones.
+            // 2.1, R-5 of the Abogado's final review (abogado-2.1-final.md): the icon's letters and their font.
             ("**Nombre.** La licencia Apache-2.0 no da permiso para usar el nombre «Clavero» ni sus iconos, el actual y los " +
                 "anteriores (§6). Los archivos del icono se publican con la Apache-2.0, pero su dibujo identifica a Clavero. " +
+                "Las letras «C» y «L» del icono son contornos de Liberation Serif Bold (SIL Open Font License 1.1); la app " +
+                "no incluye la fuente. " +
                 "Si publicas una versión modificada, usa otro nombre y otro icono, para que nadie la confunda con esta.") in readme,
         )
         assertFalse("®" in readme)
