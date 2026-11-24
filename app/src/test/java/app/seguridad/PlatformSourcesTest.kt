@@ -1365,7 +1365,15 @@ class PlatformSourcesTest {
      */
     @Test fun `2_1 the styles are still drawings and the app never reads the wallpaper`() {
         for ((path, src) in mainDir("ui/theme")) {
-            for (api in listOf("RuntimeShader", "SensorManager", "pointerInput", "rememberInfiniteTransition")) assertFalse("$api in $path", api in src)
+            // 2.1.1, task 2: the one exception is the capsule's strip, which only takes the taps on it so that none reaches
+            // what is under it (O-4, FloatingBarTest); nothing it draws follows the finger.
+            val checked = if (path.endsWith("FloatingBar.kt")) {
+                assertEquals(1, Regex("""\.pointerInput\(""").findAll(src).count())
+                src.replace("import androidx.compose.ui.input.pointer.pointerInput\n", "").replace(".pointerInput(Unit) { swallowTaps() }", "")
+            } else {
+                src
+            }
+            for (api in listOf("RuntimeShader", "SensorManager", "pointerInput", "rememberInfiniteTransition")) assertFalse("$api in $path", api in checked)
         }
         assertFalse(Regex("""animate\w*AsState""").containsMatchIn(main("ui/theme/Glass.kt")))
         // Branch review M-3: nor by the name of its service.
