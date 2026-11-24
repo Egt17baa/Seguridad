@@ -130,6 +130,15 @@ class WifiQrInspectTest {
         }
     }
 
+    /** 2.1, code-review: the «Cifrado» field cuts a hostile type as the note under it does (R-1 of the Abogado). */
+    @Test fun theCipherFieldIsCutLikeTheNote() {
+        val long = "A".repeat(100) + "\u202E" + "A".repeat(300)
+        val shown = qrView("WIFI:T:$long;S:Casa;P:clave;;").field("Cifrado")!!
+        assertEquals("A".repeat(31) + "\u2026", shown)
+        assertEquals("WPA\u27E8U+202E\u27E93", qrView("WIFI:T:WPA\u202E3;S:Casa;P:clave;;").field("Cifrado"))
+        assertEquals("WPA3", qrView("WIFI:T:WPA3;S:Casa;P:clave;;").field("Cifrado"))
+    }
+
     @Test fun wifiNotKeptTextShortensAndShowsTheType() {
         // R-1 of the Abogado (2.1): the type that comes from the code is cut and shown with what draws nothing marked.
         val long = "A".repeat(100) + "\u202E" + "A".repeat(100)

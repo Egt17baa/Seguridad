@@ -77,9 +77,10 @@ class RedTeam20CopyTest {
     private val threads = ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
 
     /**
-     * Bytes allocated while [block] runs (garbage included): an upper bound of its peak. Counted thread by thread (2.1,
-     * branch re-review N-4): for each thread alive after the block, what it allocated since before it (all of it if it
-     * started inside), so a thread that ends inside the block never makes the sum smaller.
+     * Bytes allocated while [block] runs (garbage included) by the threads alive after it: what it allocated since before
+     * (all of it if it started inside). Counted thread by thread (2.1, branch re-review N-4), so a thread that ends inside
+     * the block never makes the sum smaller; such a thread's own bytes are not counted either. The stores here run on
+     * Dispatchers.Unconfined, so the work measured is on the test's own thread and this is an upper bound of its peak.
      */
     private fun allocatedBy(block: () -> Unit): Long {
         fun perThread(): Map<Long, Long> {

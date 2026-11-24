@@ -426,11 +426,11 @@ fun wifiNotKeptText(why: WifiNotKept, security: String): String = when (why) {
 private const val WIFI_SECURITY_SHOWN_MAX = 32
 
 /**
- * [security] as [wifiNotKeptText] shows it: whole when it fits in [WIFI_SECURITY_SHOWN_MAX] characters; otherwise cut,
+ * [security] as [wifiNotKeptText] and the inspector's «Cifrado» field show it: whole when it fits in [WIFI_SECURITY_SHOWN_MAX] characters; otherwise cut,
  * at the end of a code point and never inside a mark of [visibleText] ([MARK], left out whole when it does not fit),
  * and ended with «…». The text read is bounded ([WIFI_QR_MAX_CHARS]) before it gets here.
  */
-private fun shownSecurity(security: String): String {
+internal fun shownSecurity(security: String): String {
     val v = plainReportText(visibleText(security), Int.MAX_VALUE)
     if (v.length <= WIFI_SECURITY_SHOWN_MAX) return v
     var end = WIFI_SECURITY_SHOWN_MAX - 1

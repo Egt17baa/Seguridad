@@ -1,5 +1,6 @@
 package app.seguridad.ui.theme
 
+import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
@@ -43,7 +44,7 @@ fun windowLookFor(look: Look): WindowLook = WindowLook(showWallpaper = look.wall
 /**
  * Puts [look] on [window]. With the wallpaper, the flag and a transparent background (its opacity is what makes Android
  * give the window's surface an alpha channel, so the wallpaper shows where the app's layer lets it); without it, the
- * flag cleared and [opaqueBackground], the background the window had when the activity was created (the surface is
+ * flag cleared and [opaqueBackground], the theme's window background ([themeWindowBackground]) (the surface is
  * opaque again). Each call sets everything, so the last look wins whatever came before.
  */
 fun applyWindowLook(window: Window, look: WindowLook, opaqueBackground: Drawable?) {
@@ -53,6 +54,19 @@ fun applyWindowLook(window: Window, look: WindowLook, opaqueBackground: Drawable
     } else {
         window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         window.setBackgroundDrawable(opaqueBackground)
+    }
+}
+
+/**
+ * The window background [context]'s theme sets (`android:windowBackground`), as the theme gives it: the decor view's own
+ * background may be that drawable wrapped by Android (insets), and passing it back would wrap it again.
+ */
+fun themeWindowBackground(context: Context): Drawable? {
+    val attrs = context.obtainStyledAttributes(intArrayOf(android.R.attr.windowBackground))
+    try {
+        return attrs.getDrawable(0)
+    } finally {
+        attrs.recycle()
     }
 }
 

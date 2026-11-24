@@ -1408,7 +1408,7 @@ class PlatformSourcesTest {
         val activity = code("MainActivity.kt")
         val content = activity.indexOf("setContent {")
         assertTrue(activity.indexOf("secureWindow()") in 0 until content)
-        assertTrue(activity.indexOf("val opaqueBackground = window.decorView.background") in 0 until content)
+        assertTrue(activity.indexOf("val opaqueBackground = themeWindowBackground(this)") in 0 until content)
         assertTrue("val multiWindow = multiWindowNow(this)" in activity)
         assertTrue("SeguridadTheme(settings, multiWindow = multiWindow) {" in activity)
         assertTrue("val windowLook = windowLookFor(currentLook)" in activity)
@@ -1420,6 +1420,9 @@ class PlatformSourcesTest {
         assertTrue(apply, "window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
         assertTrue(apply, "window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
         assertTrue(apply, "window.setBackgroundDrawable(opaqueBackground)" in apply)
+        // code-review (2.1): the theme's background, never the decor view's (which Android may have wrapped).
+        assertFalse("decorView.background" in activity)
+        assertTrue("obtainStyledAttributes(intArrayOf(android.R.attr.windowBackground))" in window)
         // The multi-window listener is taken away in the very effect that adds it.
         val multi = window.substringAfter("fun multiWindowNow(activity: ComponentActivity): Boolean {").substringBefore("\n}\n")
         val effect = multi.substringAfter("DisposableEffect(activity) {")

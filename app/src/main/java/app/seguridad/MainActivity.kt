@@ -21,6 +21,7 @@ import app.seguridad.ui.theme.applyWindowLook
 import app.seguridad.ui.theme.currentLook
 import app.seguridad.ui.theme.isDark
 import app.seguridad.ui.theme.multiWindowNow
+import app.seguridad.ui.theme.themeWindowBackground
 import app.seguridad.ui.theme.windowLookFor
 import app.seguridad.vault.AWAY_BACKSTOP_MS
 import app.seguridad.vault.LockReason
@@ -43,8 +44,9 @@ class MainActivity : FragmentActivity() {
         intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, MainActivity::class.java)
         // Before anything is drawn, for every screen, dialog and menu of the app.
         secureWindow()
-        // 2.1, Aspecto (task 3): the window's own background, put back when «Transparente» stops showing the wallpaper.
-        val opaqueBackground = window.decorView.background
+        // 2.1, Aspecto (task 3): the theme's window background, put back when «Transparente» stops showing the wallpaper
+        // (code-review: the theme's drawable, not the decor view's, which Android may have wrapped).
+        val opaqueBackground = themeWindowBackground(this)
         setContent {
             val settings by container.settings.settings.collectAsStateWithLifecycle()
             val dark = settings.theme.isDark()
