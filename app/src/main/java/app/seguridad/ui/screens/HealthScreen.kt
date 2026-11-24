@@ -65,8 +65,8 @@ private fun Issue.label() = when (this) {
  * Vault health: repeated, weak, old and no-2FA passwords, plus an on-demand leak check against HIBP (k-anonymity).
  * 2.1.1, task 5 (O-3 of the Abogado): leak results live only in memory, in the session object of AppContainer
  * ([LeakResults]), never on disk, in saved state or in any log; leaving this screen to edit a login keeps them (and a
- * check running goes on), and they are forgotten when the vault locks, when another vault is opened, or when the
- * process dies.
+ * check running goes on), and they are forgotten when the vault locks, when another vault is opened, when «Importar
+ * copia» replaces the open vault (branch review, BR-1), or when the process dies.
  */
 @Composable
 fun HealthScreen(

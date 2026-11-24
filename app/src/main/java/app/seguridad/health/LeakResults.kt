@@ -7,6 +7,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,15 +20,23 @@ import kotlinx.coroutines.launch
  * memory: never on disk, in the settings, in a Bundle or in saved state, and never logged. It keeps, per entry id, the
  * times its password was seen in leaks and the mark of its last password change when it was checked
  * ([lastPasswordChange]): never the password nor its hash. It holds for one [lockEpoch] (the app's lock counter, which
- * goes up with every lock of the active vault and every switch of vault): with another, it is forgotten, and the app
- * also calls [forget] at every lock (AppContainer). A process that dies takes it with it.
+ * goes up with every lock of the active vault and every switch of vault) and one vault in memory ([vaultIdentity], the
+ * store's generation, which goes up when «Importar copia» replaces the open vault without locking it: branch review,
+ * BR-1): with another, it is forgotten, and the app also calls [forget] at every lock and right before an import
+ * replaces the vault (AppContainer). A process that dies takes it with it.
  *
  * The check runs in [scope] (the app's, outside any screen), so it goes on while «Salud» is left to edit a login and
  * shows its progress when the user comes back. It stops at a lock ([start]'s `awaitClosed`, and the epoch read before
  * every request): nothing more is sent, the chars handed to the request are wiped, and everything is dropped. A new
  * check starts from zero and replaces the result. A cancelled or failed one keeps what it found, and says so ([message]).
+ * One check at a time (BR-3): a new one waits for the one before (stopped, but maybe with its last request in flight,
+ * which cannot be interrupted) to end before it sends its first request.
  */
-class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -> Int) {
+class LeakResults(
+    private val scope: CoroutineScope,
+    private val lockEpoch: () -> Int,
+    private val vaultIdentity: () -> Long = { 0L },
+) {
     /** One leaked login: [times] seen in leaks, and the [lastPasswordChange] of its entry when it was checked. */
     data class Found(val times: Int, val mark: Long)
 
@@ -35,28 +44,41 @@ class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -
     enum class End { NONE, DONE, CANCELLED, FAILED }
 
     /**
-     * The last check of [epoch]: the logins it found leaked ([found], by entry id), whether it is [running], and how far
-     * it went ([done] of [total] distinct passwords).
+     * The last check of [epoch] and of the vault [vault] ([vaultIdentity] when it started): the logins it found leaked
+     * ([found], by entry id), whether it is [running], and how far it went ([done] of [total] distinct passwords).
      */
-    data class Check(val epoch: Int, val found: Map<String, Found>, val running: Boolean, val done: Int, val total: Int, val end: End)
+    data class Check(
+        val epoch: Int,
+        val found: Map<String, Found>,
+        val running: Boolean,
+        val done: Int,
+        val total: Int,
+        val end: End,
+        val vault: Long = 0L,
+    )
 
     private val lock = Any()
 
     /** Goes up with every [start] and [forget]: a check of before never writes after them. */
     private var run = 0
     private var job: Job? = null
+
+    /** The last check started, kept after [forget] or its end: the next one joins it before its first request (BR-3). */
+    private var last: Job? = null
     private val _state = MutableStateFlow(EMPTY)
 
     /** What the screen follows; read it through [valid] (or [current]), which drop a result of another epoch. */
     val state: StateFlow<Check> = _state.asStateFlow()
 
-    /** [s] if it is of the app's lock epoch now; else nothing (a lock or a switch since). */
-    fun valid(s: Check): Check = if (s.epoch == lockEpoch()) s else EMPTY
+    /** [s] if it is of the app's lock epoch and of the vault in memory now; else nothing (a lock, a switch or an import since). */
+    fun valid(s: Check): Check = if (isNow(s)) s else EMPTY
 
-    /** The last check, if it is of this epoch; one of another epoch is dropped here. */
+    private fun isNow(s: Check) = s.epoch == lockEpoch() && s.vault == vaultIdentity()
+
+    /** The last check, if it is of this epoch and vault; one of another is dropped here. */
     fun current(): Check = synchronized(lock) {
         val s = _state.value
-        if (s !== EMPTY && s.epoch != lockEpoch()) dropLocked()
+        if (s !== EMPTY && !isNow(s)) dropLocked()
         _state.value
     }
 
@@ -92,9 +114,11 @@ class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -
         for (e in entries) if (e.id in checked) marks[e.id] = lastPasswordChange(e)
         synchronized(lock) {
             job?.cancel()
+            val before = last
             val r = ++run
             val epoch = lockEpoch()
-            _state.value = Check(epoch, emptyMap(), running = true, done = 0, total = groups.size, end = End.NONE)
+            val vault = vaultIdentity()
+            _state.value = Check(epoch, emptyMap(), running = true, done = 0, total = groups.size, end = End.NONE, vault = vault)
             job = scope.launch {
                 val check = coroutineContext.job
                 // The vault locks (idle, leaving the app, by hand, or a switch): the check stops at once, nothing more is
@@ -107,9 +131,11 @@ class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -
                 var done = 0
                 // Review M-1: whatever the end (a step, done, failed, cancelled), a lock or a switch since drops it all,
                 // even if neither the watcher nor AppContainer saw it (a lock and unlock quicker than both).
-                fun stillOpen() = isOpen() && lockEpoch() == epoch
+                fun stillOpen() = isOpen() && lockEpoch() == epoch && vaultIdentity() == vault
                 try {
+                    before?.join() // BR-3: the check of before (cancelled) ends first, its last request included.
                     for ((password, ids) in groups) {
+                        check.ensureActive() // Stopped («Cancelar», a lock, a new check): nothing more is sent.
                         if (!stillOpen()) throw CancellationException()
                         val chars = password.toCharArray()
                         val n = try {
@@ -117,6 +143,7 @@ class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -
                         } finally {
                             chars.fill('\u0000')
                         }
+                        check.ensureActive()
                         if (!stillOpen()) throw CancellationException() // Locked while the request was in flight.
                         if (n > 0) ids.forEach { found[it] = Found(n, marks.getValue(it)) }
                         done++
@@ -135,6 +162,7 @@ class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -
                     synchronized(lock) { if (r == run) job = null }
                 }
             }
+            last = job
         }
     }
 
@@ -143,7 +171,7 @@ class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -
         synchronized(lock) { job }?.cancel()
     }
 
-    /** A lock or a switch of vault (AppContainer): the check stops and its result is gone. */
+    /** A lock, a switch of vault or an import that replaces it (AppContainer): the check stops and its result is gone. */
     fun forget() = synchronized(lock) { dropLocked() }
 
     private fun dropLocked() {

@@ -135,10 +135,25 @@ class FloatingBarTest {
      * Review m-3 of task 2: on the chosen tab's pill (primary), the ripple and the press mark without animations are
      * onPrimary, so pressing it shows; on the others, Material's ripple and the accent, as on every panel.
      */
+    /**
+     * Branch review BR-4: the bar of «Sólido» (the only style without the capsule, never translucent) is Material's, as in
+     * 2.1, with no glass branch left; and BR-5: the capsule's measures are said to be own, with nothing of the guide's.
+     */
+    @Test fun theSolidBarIsMaterialsAndTheMeasuresAreOwn() {
+        val components = File(File(".").absoluteFile.let { var d: File? = it; while (d != null && !File(d, "app/src/main/java/app/seguridad").isDirectory) d = d.parentFile; d }, "app/src/main/java/app/seguridad/ui/theme/Components.kt").readText()
+        val bar = components.substringAfter("fun NavigationBar(content: @Composable RowScope.() -> Unit) {").substringBefore("\n}\n")
+        assertEquals("androidx.compose.material3.NavigationBar(content = content)", bar.trim())
+        for (gone in listOf("about 64 dp", "follow the floating toolbar", "the report of task 2")) assertFalse(gone, gone in source)
+        assertTrue("Own code (R-2) and own measures" in source)
+    }
+
     @Test fun pressingTheChosenTabShows() {
         val item = body("fun CapsuleScope.FloatingNavigationItem(")
         assertTrue(item, "ripple(color = if (selected) scheme.onPrimary else Color.Unspecified)" in item)
         assertTrue(item, "pressSignal(interaction, pillShape, animationsOn, mark = if (selected) scheme.onPrimary else scheme.primary)" in item)
+        // Branch review BR-2 (as review M-8): Material's ripple only with animations on; without them, only the still mark.
+        assertTrue(item, "CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn)) { Column(" in item)
+        assertTrue(item.indexOf("LocalRippleConfiguration provides panelRipple(animationsOn)") < item.indexOf(".indication(interaction, ripple("))
         for (p in NAMED_PALETTES) for (dark in listOf(true, false)) for (high in listOf(false, true)) {
             val s = look(ThemeStyle.GLASS, p, dark, high).colors.scheme
             assertTrue("$p", TagPalette.contrast(argb(s.onPrimary), argb(s.primary)) >= 3.0)

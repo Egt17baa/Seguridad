@@ -431,6 +431,9 @@ class AppContainer(
             // vault is told apart by the vault's generation (CADENAS-3, see [recordAutoBackup]).
             beforeReplace = {
                 firstVaultMade(created = false) // 2.0, task 10: a first vault from a copy leaves «Modo sencillo» off.
+                // 2.1.1, branch review BR-1: the leaks of «Salud» are the replaced vault's (the vault stays open, so no lock
+                // forgets them): gone now, and a check running stops. If the import then fails, only they are lost.
+                leakResults.forget()
                 settings.forgetAutoBackupCopiesForImport(id)
             },
             // A11, each vault's own mark: every time seen raises them all, its master password lowers only its own.
@@ -959,10 +962,11 @@ class AppContainer(
 
     /**
      * 2.1.1, task 5: the result of «Comprobar filtraciones de los accesos» of «Salud», in memory only, until the vault
-     * locks or another one opens ([lockEpoch]); its check runs in [appScope], so it goes on while a login is edited. It
-     * is also dropped here at every lock, as [clipboardNotice] is.
+     * locks or another one opens ([lockEpoch]), or «Importar copia» replaces the open vault (branch review, BR-1: the
+     * store's [VaultStore.generation], and [LeakResults.forget] in `beforeReplace`); its check runs in [appScope], so it
+     * goes on while a login is edited. It is also dropped here at every lock, as [clipboardNotice] is.
      */
-    val leakResults = LeakResults(appScope, lockEpoch = { lockEpoch }).also { leaks ->
+    val leakResults = LeakResults(appScope, lockEpoch = { lockEpoch }, vaultIdentity = { vault.generation }).also { leaks ->
         appScope.launch {
             vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) leaks.forget() }
         }

@@ -30,6 +30,7 @@ import java.io.File
 class LeakResultsTest {
     private var epoch = 0
     private var open = true
+    private var generation = 0L
 
     private fun login(id: String, password: String, changed: Long = 1_000L) =
         VaultEntry(id, EntryType.LOGIN, "t-$id", password = password, createdAt = 1, updatedAt = 1, passwordChangedAt = changed)
@@ -49,7 +50,7 @@ class LeakResultsTest {
     }
 
     /** The app's scope, on the test's clock (backgroundScope would not run on advanceUntilIdle). */
-    private fun TestScope.newLeaks() = LeakResults(CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob()), lockEpoch = { epoch })
+    private fun TestScope.newLeaks() = LeakResults(CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob()), lockEpoch = { epoch }, vaultIdentity = { generation })
 
     private fun TestScope.check(leaks: LeakResults, entries: List<VaultEntry>, hibp: FakeHibp, closed: CompletableDeferred<Unit> = CompletableDeferred()) {
         leaks.start(entries, hibp::times, isOpen = { open }, awaitClosed = { closed.await() })
@@ -263,6 +264,68 @@ class LeakResultsTest {
         assertTrue("LeakResults.message(check, left = breached.size)" in code("ui/screens/HealthScreen.kt"))
     }
 
+    /**
+     * Branch review BR-1: «Importar copia» replaces the open vault without a lock (the same epoch); the store's generation
+     * goes up, and the result of the replaced vault is never shown again, nor kept.
+     */
+    @Test fun anotherVaultInMemoryForgetsIt() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        check(leaks, vault, FakeHibp(table))
+        advanceUntilIdle()
+        assertEquals(3, leaks.breached(vault).size)
+        generation++
+        assertTrue(leaks.breached(vault).isEmpty())
+        assertNull(LeakResults.message(leaks.valid(leaks.state.value)))
+        assertTrue(leaks.current() === LeakResults.EMPTY)
+        assertTrue(leaks.state.value === LeakResults.EMPTY)
+    }
+
+    /** BR-1: a check running when the vault is replaced stops before its next request and drops everything. */
+    @Test fun aReplacedVaultStopsTheRunningCheck() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        val gate = CompletableDeferred<Unit>()
+        var calls = 0
+        leaks.start(vault, { calls++; if (calls == 1) { generation++; gate.await() }; 7 }, isOpen = { open }, awaitClosed = { awaitCancellation() })
+        advanceUntilIdle()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("no request after the replacement", 1, calls)
+        assertTrue(leaks.state.value === LeakResults.EMPTY)
+    }
+
+    /**
+     * Branch review BR-3, «una a la vez»: the request in flight of a check that was stopped cannot be interrupted
+     * (OkHttp's execute); a new check sends nothing until it ends.
+     */
+    @Test fun aNewCheckWaitsForTheOneBeforeToEnd() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        val gate = CompletableDeferred<Unit>()
+        var now = 0
+        var most = 0
+        var calls = 0
+        val slow: suspend (CharArray) -> Int = {
+            calls++
+            now++
+            most = maxOf(most, now)
+            // As a blocking request: a cancel does not cut it.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { gate.await() }
+            now--
+            0
+        }
+        leaks.start(vault, slow, isOpen = { open }, awaitClosed = { awaitCancellation() })
+        advanceUntilIdle()
+        assertEquals(1, calls)
+        leaks.forget()
+        leaks.start(vault, slow, isOpen = { open }, awaitClosed = { awaitCancellation() })
+        advanceUntilIdle()
+        assertEquals("the new check waits for the old request", 1, calls)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(1, most)
+        assertEquals("the old one stopped; the new one sent its 3", 4, calls)
+        assertEquals(LeakResults.End.DONE, leaks.current().end)
+    }
+
     /** What it keeps: ids, counts and marks; nothing of the password, its hash or the entry. */
     @Test fun itKeepsNoPasswordNorHash() {
         // The code, without its comments (which say where it never goes).
@@ -287,7 +350,7 @@ class LeakResultsTest {
         assertTrue("from the session object", "leaks.breached(entries" in src)
         assertFalse("leaving the screen does not stop it", "onDispose { job?.cancel() }" in src)
         val container = code("AppContainer.kt")
-        assertTrue("one per process, with the app's lock epoch", "val leakResults = LeakResults(appScope, lockEpoch = { lockEpoch })" in container)
+        assertTrue("one per process, with the app's lock epoch and the vault's generation", "val leakResults = LeakResults(appScope, lockEpoch = { lockEpoch }, vaultIdentity = { vault.generation })" in container)
         assertTrue("dropped at a lock", Regex("""if \(!open\) leaks\.forget\(\)""").containsMatchIn(container))
     }
 

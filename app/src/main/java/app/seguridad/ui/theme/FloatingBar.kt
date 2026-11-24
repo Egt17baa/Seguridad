@@ -30,6 +30,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -72,10 +74,11 @@ import kotlin.math.sqrt
  * 2.1.1, task 2 (design «Barra de abajo en cápsula», option B; Abogado O-1, O-2, O-4): the bottom bar of every style but
  * «Sólido» is a capsule that floats over the app's background, with the five tabs and a pill behind the chosen one's icon.
  *
- * Own code (R-2). The measures follow the floating toolbar of Material 3 Expressive, Google's public design guide for
- * Android (a container about 64 dp high, rounded right round, away from the edges of the screen): 64 dp high, 16 dp from
- * each side and 12 dp above Android's navigation bar, as the design fixes them. Nothing is measured from pictures of any
- * other app (R-1; where they come from, in the report of task 2).
+ * Own code (R-2) and own measures: 64 dp high, 16 dp from each side and 12 dp above Android's navigation bar, rounded
+ * right round, as the design fixes them. They were chosen with the public guide of the floating toolbar of Material 3
+ * Expressive as an orientation only (consulted on 24-11-2026; its page of measures could not be read, and no figure here
+ * is taken from it). Nothing is measured from pictures of any other app, and no code of Material is copied (R-1; the
+ * record is in docs/superpowers/handoff/2026-11-24-clavero-2.1.1-notas.md, «De dónde salen las medidas»).
  *
  * A still panel (O-2): it never shrinks, hides or changes its shape while it is used; its opacity is the palette's
  * ([AppColors.capsuleAlpha]), never worked out per frame; no lens, no refraction, no shader. The pill only fades from one
@@ -281,6 +284,7 @@ fun FloatingNavigationBar(modifier: Modifier = Modifier, content: @Composable Ca
  * measured against the capsule, task 1). The keyboard focus draws a 2 dp ring around the pill in onSurfaceVariant (3:1 or
  * more against the capsule, O-5).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CapsuleScope.FloatingNavigationItem(selected: Boolean, onClick: () -> Unit, icon: @Composable () -> Unit, label: String) {
     val scheme = LocalLook.current.colors.scheme
@@ -292,7 +296,9 @@ fun CapsuleScope.FloatingNavigationItem(selected: Boolean, onClick: () -> Unit, 
     val nameColour by animateColorAsState(if (selected) scheme.primary else scheme.onSurfaceVariant, pillAnimation(animationsOn), label = "name")
     val ring = scheme.onSurfaceVariant
     val pillShape = RoundedCornerShape(percent = 50)
-    Column(
+    // Branch review BR-2 (as review M-8, Components.kt): Material's ripple only while Android has animations on; without
+    // them, only the still press mark.
+    CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn)) { Column(
         Modifier
             .fillMaxSize()
             .selectable(selected = selected, onClick = onClick, role = Role.Tab, interactionSource = interaction, indication = null)
@@ -327,5 +333,5 @@ fun CapsuleScope.FloatingNavigationItem(selected: Boolean, onClick: () -> Unit, 
         }
         Spacer(Modifier.height(NAME_GAP))
         Text(label, style = NAME_STYLE, color = nameColour, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-    }
+    } }
 }

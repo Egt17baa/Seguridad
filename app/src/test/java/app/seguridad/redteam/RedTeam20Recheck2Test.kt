@@ -9,6 +9,7 @@ import app.seguridad.crypto.KdfLock
 import app.seguridad.crypto.NONCE_BYTES
 import app.seguridad.crypto.aead
 import app.seguridad.crypto.randomBytes
+import app.seguridad.health.LeakResults
 import app.seguridad.health.healthView
 import app.seguridad.health.uniquePasswords
 import app.seguridad.imports.ImportFormat
@@ -35,7 +36,9 @@ import app.seguridad.vault.copyTreeEstimate
 import app.seguridad.vault.dataAad
 import app.seguridad.vault.jsonBytes
 import app.seguridad.vault.writeBackup
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -468,29 +471,40 @@ class RedTeam20Recheck2Test {
 
     /**
      * What «Salud» works out on the main thread, outside the catch of point 9 (HealthScreen.kt: `entries.associateBy`,
-     * the rows `sortedByDescending`, the counts per issue and, on a tap, `uniquePasswords`), is small beside what the
-     * catch covers (healthView): measured as bytes allocated, it resists. The texts are anchored.
+     * the rows `sortedByDescending`, the counts per issue and, since 2.1.1, `leaks.breached(entries, check)` on every
+     * composition; and, on a tap, `LeakResults.start`: `uniquePasswords` and the marks of the logins checked), is small
+     * beside what the catch covers (healthView): measured as bytes allocated, with every login leaked (branch review of
+     * 2.1.1, BR-7 a), it resists. The texts are anchored.
      */
     @Test fun resistsWhatSaludMakesOnTheMainThreadIsSmallBesideWhatItCatches() {
         val src = File(main, "ui/screens/HealthScreen.kt").readText()
-        for (anchor in listOf("val byId = entries.associateBy { it.id }", "items(items.orEmpty().sortedByDescending { it.issues.size }", "leaks.start(")) {
+        for (anchor in listOf("val byId = entries.associateBy { it.id }", "items(items.orEmpty().sortedByDescending { it.issues.size }", "leaks.start(", "val breached = leaks.breached(entries, check)")) {
             assertTrue(anchor, anchor in src)
         }
         // 2.1.1, task 5: the tap's grouping moved to the session object the screen calls (LeakResults.start).
         assertTrue("val groups = uniquePasswords(entries)" in File(main, "health/LeakResults.kt").readText())
         val data = bigVault(20_000)
         val entries = data.entries
+        // A finished check that found every login leaked, run at once (Unconfined, no network).
+        val done = LeakResults(CoroutineScope(Dispatchers.Unconfined), lockEpoch = { 0 })
+        done.start(entries, { 3 }, isOpen = { true }, awaitClosed = { kotlinx.coroutines.awaitCancellation() })
+        val check = done.current()
+        check(check.end == LeakResults.End.DONE && check.found.size == entries.size)
+        val leaked = done.breached(entries, check)
         val a0 = allocated()
-        val view = healthView(data, 1_800_000_000_000L, emptyMap(), missionsOff = false)
+        val view = healthView(data, 1_800_000_000_000L, leaked, missionsOff = false)
         val a1 = allocated()
         val byId = entries.associateBy { it.id }
         val rows = view.items.sortedByDescending { it.issues.size }
         val counts = app.seguridad.health.Issue.entries.map { issue -> view.items.count { issue in it.issues } }
+        val breached = done.breached(entries, check)
         val a2 = allocated()
-        val groups = uniquePasswords(entries)
+        // The tap: LeakResults.start up to its launch (a scope already ended runs nothing, so no request).
+        val tap = LeakResults(CoroutineScope(Job().apply { cancel() }), lockEpoch = { 0 })
+        tap.start(entries, { 0 }, isOpen = { true }, awaitClosed = {})
         val a3 = allocated()
-        check(!view.noMemory && byId.size == entries.size && rows.isNotEmpty() && counts.isNotEmpty() && groups.isNotEmpty())
-        println("«Salud», 20 000 logins: healthView allocates ${a1 - a0} B; the main thread ${a2 - a1} B per composition and ${a3 - a2} B on a tap of the check")
+        check(!view.noMemory && byId.size == entries.size && rows.isNotEmpty() && counts.isNotEmpty() && breached.size == entries.size && tap.current().running)
+        println("«Salud», 20 000 logins, all leaked: healthView allocates ${a1 - a0} B; the main thread ${a2 - a1} B per composition and ${a3 - a2} B on a tap of the check")
         assertTrue(a2 - a1 <= (a1 - a0) / 2)
         assertTrue(a3 - a2 <= (a1 - a0) / 2)
     }

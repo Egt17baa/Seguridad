@@ -235,19 +235,13 @@ fun TopAppBar(title: @Composable () -> Unit, navigationIcon: @Composable () -> U
     )
 }
 
-/** 2.0, task 5 bis: the app's bottom bar, glass in the translucent styles ([Look.translucent]) as [TopAppBar]. */
+/**
+ * The bottom bar of «Sólido», Material's as in 2.1 (opaque, at the bottom). 2.1.1 (branch review BR-4): every other
+ * style shows the capsule ([FloatingNavigationBar]), so this one is never translucent and has no glass.
+ */
 @Composable
 fun NavigationBar(content: @Composable RowScope.() -> Unit) {
-    if (!LocalLook.current.translucent) {
-        androidx.compose.material3.NavigationBar(content = content)
-        return
-    }
-    androidx.compose.material3.NavigationBar(
-        modifier = Modifier.glass(PanelLevel.BAR, panelShape(PanelLevel.BAR)),
-        containerColor = Color.Transparent,
-        tonalElevation = 0.dp,
-        content = content,
-    )
+    androidx.compose.material3.NavigationBar(content = content)
 }
 
 /**
