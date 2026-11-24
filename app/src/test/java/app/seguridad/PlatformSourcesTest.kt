@@ -1486,4 +1486,50 @@ class PlatformSourcesTest {
             Regex("""<uses-permission android:name="([^"]+)"""").findAll(manifest).map { it.groupValues[1] }.toList(),
         )
     }
+
+    /**
+     * 2.1.1, task 3 (design, option B; review m-4 of task 2): «Sólido» keeps the bar of 2.1 (Material's, in the Scaffold's
+     * bottom slot) and every other style the floating capsule, drawn over the content as a sibling of the NavHost in a Box
+     * of the Scaffold's content (no Scaffold slot and no consumeWindowInsets above it, so its own navigation-bar inset is
+     * the one capsuleSpace() counts). The NavHost always takes the bottom padding (navHostPadding): the content ends above
+     * either bar. The capsule's five tabs navigate as the bar's do (one lambda for both, through the leave guard), with no
+     * description on their icons (the label is read), and nothing above the capsule takes a drag (it only swallows downs).
+     */
+    @Test fun solidKeepsMaterialsBarAndTheOthersTheCapsule() {
+        val src = code("ui/AppNavHost.kt")
+        val b = blank(src)
+        val scaffold = callRange(b, b.indexOf("Scaffold("))
+        val body = src.substring(scaffold.first, scaffold.last + 1)
+        val bottom = body.substringAfter("bottomBar = {").substringBefore("NavigationBarItem(")
+        assertTrue(bottom, "if (!look.floatingBar) {" in bottom && "NavigationBar {" in bottom)
+        assertTrue("val look = currentLook" in src)
+        assertTrue(body, "val padding = navHostPadding(scaffoldPadding, look.floatingBar, capsuleSpace(), LocalLayoutDirection.current)" in body)
+        assertTrue(body, "Box(Modifier.fillMaxSize()) {" in body)
+        assertTrue(body, "NavHost(nav, startDestination = \"vault\", modifier = Modifier.padding(padding).consumeWindowInsets(padding))" in body)
+        // The capsule comes after the whole NavHost call (a sibling over it), inside the Box, only when the bar floats.
+        val navHost = callRange(b, b.indexOf("NavHost(nav,"))
+        val capsule = b.indexOf("FloatingNavigationBar(")
+        assertTrue(capsule > navHost.last)
+        assertTrue(src.substring(navHost.last + 1, capsule).contains("if (look.floatingBar) {"))
+        assertTrue(src.substring(capsule).startsWith("FloatingNavigationBar(Modifier.align(Alignment.BottomCenter)) {"))
+        assertEquals(1, Regex("""consumeWindowInsets\(""").findAll(body).count())
+        assertEquals(1, Regex("""\bNavigationBar \{""").findAll(b).count())
+        assertEquals(1, Regex("""\bFloatingNavigationBar\(""").findAll(b).count())
+        // The same five tabs and the same navigation, for the bar and the capsule.
+        val item = src.substring(capsule, callRange(b, capsule).last + 1)
+        assertTrue(item, "FloatingNavigationItem(\n" in item)
+        assertTrue(item, "selected = currentTab == tab.route," in item && "onClick = { goToTab(tab) }," in item)
+        assertTrue(item, "icon = { Icon(tab.icon, contentDescription = null) }," in item && "label = tab.label," in item)
+        assertTrue(body, "onClick = { goToTab(tab) }," in body.substringAfter("NavigationBarItem("))
+        val go = src.substringAfter("val goToTab: (Tab) -> Unit = { tab ->").substringBefore("\n    }\n")
+        assertTrue(go, "leaveGuard.leave {" in go && "popUpTo(nav.graph.findStartDestination().id) { saveState = true }" in go)
+        assertTrue(go, "launchSingleTop = true" in go && "restoreState = true" in go)
+        // Nothing above the capsule takes a drag: a drag that starts on it reaches no ancestor (review m-4 of task 2).
+        for (path in listOf("ui/AppNavHost.kt", "MainActivity.kt", "ui/NoLearningInput.kt", "ui/theme/Theme.kt")) {
+            val c = code(path)
+            for (api in listOf("pointerInput", "draggable", "scrollable(", "nestedScroll", "Pager", "detectDrag", "detectTransform", "swipeable")) {
+                assertFalse("$api in $path", api in c)
+            }
+        }
+    }
 }

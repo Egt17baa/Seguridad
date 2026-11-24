@@ -6,6 +6,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import android.net.Uri
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import app.seguridad.ui.theme.FloatingNavigationBar
+import app.seguridad.ui.theme.FloatingNavigationItem
+import app.seguridad.ui.theme.capsuleSpace
+import app.seguridad.ui.theme.currentLook
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
@@ -330,6 +343,18 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
     }
     val switcher: @Composable () -> Unit = { VaultSwitcher(container, onOpen = { nav.navigate("vaults") }) }
     val leaveGuard = remember { LeaveGuard() }
+    // The same navigation for Material's bar («Sólido») and the capsule (the other styles). Review I-1 of task 7: an
+    // entry being edited with changes asks first («¿Guardar los cambios?»).
+    val goToTab: (Tab) -> Unit = { tab ->
+        leaveGuard.leave {
+            nav.navigate(tab.route) {
+                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+    val look = currentLook
     CompositionLocalProvider(
         LocalOnMasterChanged provides container::onMasterChanged,
         LocalEmptySlotGuard provides container::mayFillEmptySlot,
@@ -338,171 +363,186 @@ private fun VaultNav(container: AppContainer, vault: VaultStore) {
         LocalOpeningBusy provides (showing != null),
     ) {
         Scaffold(
+            // 2.1.1: «Sólido» keeps the bar of 2.1; the other styles draw the capsule below, over the content.
             bottomBar = {
-                NavigationBar {
-                    tabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = currentTab == tab.route,
-                            // Review I-1 of task 7: an entry being edited with changes asks first («¿Guardar los cambios?»).
-                            onClick = {
-                                leaveGuard.leave {
-                                    nav.navigate(tab.route) {
-                                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            },
-                            icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label) },
-                        )
+                if (!look.floatingBar) {
+                    NavigationBar {
+                        tabs.forEach { tab ->
+                            NavigationBarItem(
+                                selected = currentTab == tab.route,
+                                onClick = { goToTab(tab) },
+                                icon = { Icon(tab.icon, contentDescription = null) },
+                                label = { Text(tab.label) },
+                            )
+                        }
                     }
                 }
             },
-        ) { padding ->
-            NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
-                composable("vault") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = false, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash, autoBackup = container.autoBackup) }
-                composable("codes") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = true, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
-                // 2.0, task 3: the trash and the versions of an entry (the id encoded, LIBRE-1).
-                composable("vault/trash") { TrashScreen(vault, onBack = backOnce(nav)) }
-                composable("vault/entry/{id}/history") { entry ->
-                    EntryHistoryScreen(vault, container.twoStepCopy, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
+        ) { scaffoldPadding ->
+            // 2.1.1, task 3: with the capsule, the NavHost ends right above it (navHostPadding), so no content, button or
+            // notice of a screen ever passes under it. The NavHost stays in the same place of the tree in every style, so
+            // a change of style keeps each screen and its place.
+            val padding = navHostPadding(scaffoldPadding, look.floatingBar, capsuleSpace(), LocalLayoutDirection.current)
+            Box(Modifier.fillMaxSize()) {
+                NavHost(nav, startDestination = "vault", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
+                    composable("vault") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = false, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash, autoBackup = container.autoBackup) }
+                    composable("codes") { VaultScreen(vault, container.undoTrash, container.twoStepCopy, totpOnly = true, onOpen = onOpen, onEdit = onEdit, onNew = onNew, onHealth = onHealth, onImportOther = onImportOther, onTrash = onTrash) }
+                    // 2.0, task 3: the trash and the versions of an entry (the id encoded, LIBRE-1).
+                    composable("vault/trash") { TrashScreen(vault, onBack = backOnce(nav)) }
+                    composable("vault/entry/{id}/history") { entry ->
+                        EntryHistoryScreen(vault, container.twoStepCopy, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
+                    }
+                    composable("vault/entry/{id}") { entry ->
+                        val id = entry.arguments?.getString("id").orEmpty()
+                        VaultEntryDetailScreen(
+                            vault, container.undoTrash, container.twoStepCopy, id,
+                            onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") },
+                            // 2.0, task 6: only ids in the route; the secret is read from the open vault (BigPasswordScreen).
+                            onBig = { field -> nav.navigate("vault/entry/${Uri.encode(id)}/big" + (field?.let { "?field=${Uri.encode(it)}" } ?: "")) },
+                            onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") },
+                            onHistory = { nav.navigate("vault/entry/${Uri.encode(id)}/history") },
+                            onBack = backOnce(nav),
+                            onOpenEntry = { copy -> nav.navigate("vault/entry/${Uri.encode(copy)}") },
+                            // 2.0, task 9: only the id in the route; the network is read from the open vault (WifiQrScreen).
+                            onShowWifiQr = { nav.navigate("vault/entry/${Uri.encode(id)}/wifi-qr") },
+                        )
+                    }
+                    composable(
+                        "vault/entry/{id}/big?field={field}",
+                        arguments = listOf(navArgument("field") { type = NavType.StringType; nullable = true; defaultValue = null }),
+                    ) { entry ->
+                        BigPasswordScreen(vault, entry.arguments?.getString("id").orEmpty(), entry.arguments?.getString("field"), onBack = backOnce(nav))
+                    }
+                    composable("vault/entry/{id}/qr") { entry ->
+                        OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
+                    }
+                    composable("vault/entry/{id}/wifi-qr") { entry ->
+                        WifiQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
+                    }
+                    composable(
+                        "vault/edit?id={id}&type={type}",
+                        arguments = listOf(
+                            navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null },
+                            navArgument("type") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        ),
+                    ) { entry ->
+                        VaultEntryEditScreen(
+                            vault,
+                            id = entry.arguments?.getString("id"),
+                            initialType = VAULT_ENTRY_TYPES.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
+                            onDone = backOnce(nav),
+                        )
+                    }
+                    composable("vault/health") {
+                        HealthScreen(
+                            vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = backOnce(nav),
+                            missionsOff = settings.missionsOff,
+                            postponements = container.missionPostponements,
+                            // 2.0, task 10 (phase B): a mission only navigates (MissionAction.routeBase).
+                            onMission = { action ->
+                                when (action) {
+                                    is MissionAction.EditEntry -> nav.navigate("${action.routeBase}?id=${Uri.encode(action.entryId)}")
+                                    MissionAction.CheckBackup -> nav.navigate(action.routeBase)
+                                }
+                            },
+                        )
+                    }
+                    // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
+                    // A contact's own screen is under contacts/c/, so no id (an imported copy brings any) can ever be taken for one
+                    // of the fixed routes (me, add, encrypt, sign, open); the id is encoded, so it stays one path segment (LIBRE-1).
+                    composable("contacts") {
+                        ContactsScreen(
+                            vault,
+                            onIdentity = { nav.navigate("contacts/me") },
+                            onAdd = { nav.navigate("contacts/add") },
+                            onContact = { id -> nav.navigate("contacts/c/${Uri.encode(id)}") },
+                            onAction = { route -> nav.navigate(route) },
+                        )
+                    }
+                    composable("contacts/me") { IdentityScreen(vault, onBack = backOnce(nav)) }
+                    composable("contacts/add") { ContactAddScreen(vault, onBack = backOnce(nav)) }
+                    composable("contacts/encrypt") { EncryptForScreen(vault, onBack = backOnce(nav)) }
+                    composable("contacts/sign") { SignScreen(vault, onBack = backOnce(nav)) }
+                    composable("contacts/open") { OpenReceivedScreen(vault, onBack = backOnce(nav), onOpenSymmetric = { nav.navigate("tools/file") }) }
+                    composable("contacts/c/{id}") { entry ->
+                        ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
+                    }
+                    composable("tools") { ToolsScreen(settings, vaultSettings.kdf, onTool = { route -> nav.navigate(route) }) }
+                    // COV1-1: what is typed there and the result go by the «PIN y códigos» rule (lock time, multi-window, locks).
+                    val lockAfterMs = { settingsStore.settings.value.lockAfter.ms }
+                    // «Importar de otra app»: what it reads is dropped on any lock, on back and by the «PIN y códigos» rule.
+                    composable("vault/import") {
+                        ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
+                    }
+                    composable("tools/text") {
+                        TextCryptoScreen(vaultSettings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
+                    }
+                    composable("tools/file") {
+                        FileCryptoScreen(
+                            vaultSettings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp,
+                            onBack = backOnce(nav), onOpenReceived = { nav.navigate("contacts/open") },
+                        )
+                    }
+                    composable("tools/generator") { GeneratorScreen(onBack = backOnce(nav)) }
+                    composable("tools/breach") {
+                        BreachScreen(container.pwned, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
+                    }
+                    composable("tools/hash") { HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
+                    composable("tools/classic") { ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
+                    composable("tools/share-secret") { SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
+                    composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = backOnce(nav)) }
+                    composable("tools/redact") { RedactScreen(container.shareTemp, onBack = backOnce(nav)) }
+                    // The QR's text never goes in a route: it is handed over through QrHandoff.
+                    composable("tools/qr") {
+                        QrInspectScreen(
+                            vault,
+                            lockAfterMs = lockAfterMs,
+                            awayInOtherApp = container.awayInOtherApp,
+                            onAddContact = { nav.navigate("contacts/add") },
+                            onOpenReceived = { nav.navigate("contacts/open") },
+                            onAddTotp = { nav.navigate("tools/qr/totp") },
+                            onAddWifi = { nav.navigate("tools/qr/wifi") },
+                            onBack = backOnce(nav),
+                        )
+                    }
+                    composable("tools/codes") { CodesScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
+                    composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = backOnce(nav)) }
+                    composable("tools/qr/wifi") { QrWifiImportScreen(vault, onDone = backOnce(nav)) }
+                    composable("settings") {
+                        SettingsScreen(
+                            settingsStore, vault, container.autoBackup, container::releaseIfUnused,
+                            onAbout = { nav.navigate("settings/about") },
+                            onCheckBackup = { nav.navigate("settings/check-backup") },
+                            onAppearance = { nav.navigate("settings/appearance") },
+                            onGuide = container.guide::request,
+                            editableNow = container::settingsEditableNow,
+                        )
+                    }
+                    // 2.0, task 5 bis: the look (mode, style, palette, «Personalizado», transparencies, contrast).
+                    composable("settings/appearance") { AppearanceScreen(settingsStore, onBack = backOnce(nav)) }
+                    composable("settings/check-backup") {
+                        BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
+                    }
+                    // 2.0, task 2: the vaults of the phone (choose, create, rename, order, delete, import as a new one).
+                    composable("vaults") { VaultPickerScreen(container, onBack = backOnce(nav)) }
+                    composable("settings/about") { AboutScreen(onBack = backOnce(nav), onLicenses = { nav.navigate("settings/licenses") }) }
+                    composable("settings/licenses") { LicensesScreen(onBack = backOnce(nav)) }
                 }
-                composable("vault/entry/{id}") { entry ->
-                    val id = entry.arguments?.getString("id").orEmpty()
-                    VaultEntryDetailScreen(
-                        vault, container.undoTrash, container.twoStepCopy, id,
-                        onEdit = { nav.navigate("vault/edit?id=${Uri.encode(id)}") },
-                        // 2.0, task 6: only ids in the route; the secret is read from the open vault (BigPasswordScreen).
-                        onBig = { field -> nav.navigate("vault/entry/${Uri.encode(id)}/big" + (field?.let { "?field=${Uri.encode(it)}" } ?: "")) },
-                        onShowQr = { nav.navigate("vault/entry/${Uri.encode(id)}/qr") },
-                        onHistory = { nav.navigate("vault/entry/${Uri.encode(id)}/history") },
-                        onBack = backOnce(nav),
-                        onOpenEntry = { copy -> nav.navigate("vault/entry/${Uri.encode(copy)}") },
-                        // 2.0, task 9: only the id in the route; the network is read from the open vault (WifiQrScreen).
-                        onShowWifiQr = { nav.navigate("vault/entry/${Uri.encode(id)}/wifi-qr") },
-                    )
+                // The capsule: a sibling over the content, never in a slot of the Scaffold nor under a consumeWindowInsets,
+                // so the navigation bar it stands on is the one capsuleSpace() counts (review m-4 of task 2). Nothing above it
+                // takes a drag, and it swallows every tap on it and its margins (O-4).
+                if (look.floatingBar) {
+                    FloatingNavigationBar(Modifier.align(Alignment.BottomCenter)) {
+                        tabs.forEach { tab ->
+                            FloatingNavigationItem(
+                                selected = currentTab == tab.route,
+                                onClick = { goToTab(tab) },
+                                icon = { Icon(tab.icon, contentDescription = null) },
+                                label = tab.label,
+                            )
+                        }
+                    }
                 }
-                composable(
-                    "vault/entry/{id}/big?field={field}",
-                    arguments = listOf(navArgument("field") { type = NavType.StringType; nullable = true; defaultValue = null }),
-                ) { entry ->
-                    BigPasswordScreen(vault, entry.arguments?.getString("id").orEmpty(), entry.arguments?.getString("field"), onBack = backOnce(nav))
-                }
-                composable("vault/entry/{id}/qr") { entry ->
-                    OtpQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
-                }
-                composable("vault/entry/{id}/wifi-qr") { entry ->
-                    WifiQrScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
-                }
-                composable(
-                    "vault/edit?id={id}&type={type}",
-                    arguments = listOf(
-                        navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null },
-                        navArgument("type") { type = NavType.StringType; nullable = true; defaultValue = null },
-                    ),
-                ) { entry ->
-                    VaultEntryEditScreen(
-                        vault,
-                        id = entry.arguments?.getString("id"),
-                        initialType = VAULT_ENTRY_TYPES.firstOrNull { it.name == entry.arguments?.getString("type") } ?: EntryType.LOGIN,
-                        onDone = backOnce(nav),
-                    )
-                }
-                composable("vault/health") {
-                    HealthScreen(
-                        vault, container.pwned, onEdit = { id -> nav.navigate("vault/edit?id=${Uri.encode(id)}") }, onBack = backOnce(nav),
-                        missionsOff = settings.missionsOff,
-                        postponements = container.missionPostponements,
-                        // 2.0, task 10 (phase B): a mission only navigates (MissionAction.routeBase).
-                        onMission = { action ->
-                            when (action) {
-                                is MissionAction.EditEntry -> nav.navigate("${action.routeBase}?id=${Uri.encode(action.entryId)}")
-                                MissionAction.CheckBackup -> nav.navigate(action.routeBase)
-                            }
-                        },
-                    )
-                }
-                // Every contacts/… screen goes through VaultGate (inside ContactsFrame): with the vault locked it shows the gate, never data.
-                // A contact's own screen is under contacts/c/, so no id (an imported copy brings any) can ever be taken for one
-                // of the fixed routes (me, add, encrypt, sign, open); the id is encoded, so it stays one path segment (LIBRE-1).
-                composable("contacts") {
-                    ContactsScreen(
-                        vault,
-                        onIdentity = { nav.navigate("contacts/me") },
-                        onAdd = { nav.navigate("contacts/add") },
-                        onContact = { id -> nav.navigate("contacts/c/${Uri.encode(id)}") },
-                        onAction = { route -> nav.navigate(route) },
-                    )
-                }
-                composable("contacts/me") { IdentityScreen(vault, onBack = backOnce(nav)) }
-                composable("contacts/add") { ContactAddScreen(vault, onBack = backOnce(nav)) }
-                composable("contacts/encrypt") { EncryptForScreen(vault, onBack = backOnce(nav)) }
-                composable("contacts/sign") { SignScreen(vault, onBack = backOnce(nav)) }
-                composable("contacts/open") { OpenReceivedScreen(vault, onBack = backOnce(nav), onOpenSymmetric = { nav.navigate("tools/file") }) }
-                composable("contacts/c/{id}") { entry ->
-                    ContactDetailScreen(vault, entry.arguments?.getString("id").orEmpty(), onBack = backOnce(nav))
-                }
-                composable("tools") { ToolsScreen(settings, vaultSettings.kdf, onTool = { route -> nav.navigate(route) }) }
-                // COV1-1: what is typed there and the result go by the «PIN y códigos» rule (lock time, multi-window, locks).
-                val lockAfterMs = { settingsStore.settings.value.lockAfter.ms }
-                // «Importar de otra app»: what it reads is dropped on any lock, on back and by the «PIN y códigos» rule.
-                composable("vault/import") {
-                    ImportScreen(vault, container.autoBackup::copyBeforeImport, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
-                }
-                composable("tools/text") {
-                    TextCryptoScreen(vaultSettings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
-                }
-                composable("tools/file") {
-                    FileCryptoScreen(
-                        vaultSettings.kdf.params, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp,
-                        onBack = backOnce(nav), onOpenReceived = { nav.navigate("contacts/open") },
-                    )
-                }
-                composable("tools/generator") { GeneratorScreen(onBack = backOnce(nav)) }
-                composable("tools/breach") {
-                    BreachScreen(container.pwned, vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
-                }
-                composable("tools/hash") { HashLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
-                composable("tools/classic") { ClassicLabScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
-                composable("tools/share-secret") { SecretShareScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
-                composable("tools/photo") { PhotoCleanScreen(container.shareTemp, onBack = backOnce(nav)) }
-                composable("tools/redact") { RedactScreen(container.shareTemp, onBack = backOnce(nav)) }
-                // The QR's text never goes in a route: it is handed over through QrHandoff.
-                composable("tools/qr") {
-                    QrInspectScreen(
-                        vault,
-                        lockAfterMs = lockAfterMs,
-                        awayInOtherApp = container.awayInOtherApp,
-                        onAddContact = { nav.navigate("contacts/add") },
-                        onOpenReceived = { nav.navigate("contacts/open") },
-                        onAddTotp = { nav.navigate("tools/qr/totp") },
-                        onAddWifi = { nav.navigate("tools/qr/wifi") },
-                        onBack = backOnce(nav),
-                    )
-                }
-                composable("tools/codes") { CodesScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav)) }
-                composable("tools/qr/totp") { QrTotpImportScreen(vault, onDone = backOnce(nav)) }
-                composable("tools/qr/wifi") { QrWifiImportScreen(vault, onDone = backOnce(nav)) }
-                composable("settings") {
-                    SettingsScreen(
-                        settingsStore, vault, container.autoBackup, container::releaseIfUnused,
-                        onAbout = { nav.navigate("settings/about") },
-                        onCheckBackup = { nav.navigate("settings/check-backup") },
-                        onAppearance = { nav.navigate("settings/appearance") },
-                        onGuide = container.guide::request,
-                        editableNow = container::settingsEditableNow,
-                    )
-                }
-                // 2.0, task 5 bis: the look (mode, style, palette, «Personalizado», transparencies, contrast).
-                composable("settings/appearance") { AppearanceScreen(settingsStore, onBack = backOnce(nav)) }
-                composable("settings/check-backup") {
-                    BackupCheckScreen(vault, lockAfterMs = lockAfterMs, awayInOtherApp = container.awayInOtherApp, onBack = backOnce(nav))
-                }
-                // 2.0, task 2: the vaults of the phone (choose, create, rename, order, delete, import as a new one).
-                composable("vaults") { VaultPickerScreen(container, onBack = backOnce(nav)) }
-                composable("settings/about") { AboutScreen(onBack = backOnce(nav), onLicenses = { nav.navigate("settings/licenses") }) }
-                composable("settings/licenses") { LicensesScreen(onBack = backOnce(nav)) }
             }
         }
     }
@@ -556,3 +596,21 @@ private fun backOnce(nav: NavHostController): () -> Unit {
         }
     }
 }
+
+/**
+ * 2.1.1, task 3 (design, option B): the padding of the NavHost. «Sólido» ([floatingBar] false): the Scaffold's of 2.1,
+ * untouched (Material's bar and Android's navigation bar). The capsule styles: the Scaffold's top and sides, and at the
+ * bottom [capsuleSpace] (the capsule, its margin and Android's navigation bar) in place of the Scaffold's (which is only
+ * the navigation bar, already counted in it): the content ends right above the capsule and never passes under it.
+ */
+internal fun navHostPadding(scaffold: PaddingValues, floatingBar: Boolean, capsuleSpace: Dp, layoutDirection: LayoutDirection): PaddingValues =
+    if (!floatingBar) {
+        scaffold
+    } else {
+        PaddingValues(
+            start = scaffold.calculateStartPadding(layoutDirection),
+            top = scaffold.calculateTopPadding(),
+            end = scaffold.calculateEndPadding(layoutDirection),
+            bottom = capsuleSpace,
+        )
+    }
