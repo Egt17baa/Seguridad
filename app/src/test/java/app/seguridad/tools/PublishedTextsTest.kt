@@ -81,6 +81,53 @@ class PublishedTextsTest {
         for (fact in listOf("donde elijas", "5 primeros caracteres", "exportas, guardas, copias o compartes")) assertTrue("ficha: $fact", fact in listing)
     }
 
+    /**
+     * 2.1.1, tarea 4 (O-7 y R-4 del dictamen del principio; Ruling del registro: «Google Play» y los textos anteriores no
+     * cuentan): los textos nuevos de la 2.1.1 no nombran a nadie más ni prometen de más. Son las notas de GitHub y las
+     * «Novedades» (los bloques de código de las notas), «La 2.1.1», la línea «Aspecto (2.1.1)» y «Pruebas de la 2.1.1» del
+     * README, la línea de los estilos de la ficha y `STYLE_MORE`. Además: nada de «siempre» más translúcida (m-2 de la
+     * tarea 1), de una pastilla que «se funde» (m-5 de la tarea 2) ni de medidas «de la guía» (m-6 de la tarea 2).
+     */
+    @Test
+    fun the211TextsNameNoOneElse() {
+        val texts = the211Texts()
+        assertEquals(texts.keys.toString(), 7, texts.size)
+        val banned = listOf(
+            "material 3", "expressive", "de google", "como en", "líquid", "liquid", "accesible", "se funde", "siempre",
+            "de la guía", "guía pública", "nuevo diseño", "exclusiv", "único", "única",
+        )
+        for ((name, text) in texts) {
+            assertTrue(name, text.length > 40)
+            val t = ForbiddenWords.normalise(text)
+            for (b in banned) assertFalse("$name: «$b»", b in t)
+            // «Google» only as «Google Play».
+            assertFalse("$name: Google", Regex("google(?! play)").containsMatchIn(t))
+            assertTrue("$name: ${ForbiddenWords.problems(text)}", ForbiddenWords.problems(text).isEmpty())
+            assertTrue("$name: ${lookNameProblems(text)}", lookNameProblems(text).isEmpty())
+        }
+        val news = texts.getValue("Novedades")
+        assertTrue(news.length.toString(), news.length < 500 && news.codePointCount(0, news.length) < 500)
+    }
+
+    private fun the211Texts(): Map<String, String> {
+        val notes = read("docs/superpowers/handoff/2026-11-24-clavero-2.1.1-notas.md")
+        fun block(after: String) = notes.substringAfter(after).substringAfter("```\n").substringBefore("\n```").trim()
+        val readme = read("README.md")
+        assertTrue("**Pruebas de la 2.1.1.**" in readme && "## Google Play, «Novedades»" in notes)
+        fun line(prefix: String) = readme.lines().single { it.startsWith(prefix) }
+        return mapOf(
+            "GitHub" to block("## GitHub"),
+            "Novedades" to block("## Google Play, «Novedades»"),
+            "README, La 2.1.1" to line("**La 2.1.1**"),
+            "README, Aspecto (2.1.1)" to line("- **Aspecto (2.1.1):**"),
+            "README, Pruebas de la 2.1.1" to readme.substringAfter("**Pruebas de la 2.1.1.**").substringBefore("\n## "),
+            "ficha" to read("docs/ficha-google-play.md").lines().single { it.startsWith("• Cinco estilos:") },
+            // From the source: jvm-check leaves `ui` out; AppearanceTextsTest fixes the same text word for word.
+            "STYLE_MORE" to kotlinLiterals(read("app/src/main/java/app/seguridad/ui/screens/AppearanceScreen.kt"))
+                .map { it.second }.single { it.startsWith("En «Cristal», «Vidrio» y «Transparente», la barra de abajo") },
+        )
+    }
+
     /** 2.0, O-3 and R-8 of the Abogado Digital: the full description fits Play's 4 000, also if a line break counted twice. */
     @Test
     fun theFullPlayDescriptionFits() {
