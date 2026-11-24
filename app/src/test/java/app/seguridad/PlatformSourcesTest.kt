@@ -253,6 +253,31 @@ class PlatformSourcesTest {
         assertTrue("guarded by API 34", "Build.VERSION_CODES.UPSIDE_DOWN_CAKE" in src)
     }
 
+    /**
+     * F-1 of the final audit (owner decision, 24-11-2026): from Android 14 the window asks Android not to pass the taps on
+     * the app to the wallpaper's app, whatever the look, in secureWindow() (once, before any content). Nothing turns them
+     * back on, and the switch of «Transparente» (applyWindowLook) does not touch them.
+     */
+    @Test fun `F-1 the window never passes its taps to the wallpaper on Android 14+`() {
+        val secure = code("android/SecureWindow.kt")
+        val fn = secure.substringAfter("fun Activity.secureWindow() {").substringBefore("\n}\n")
+        val call = "window.attributes = window.attributes.apply { setWallpaperTouchEventsEnabled(false) }"
+        assertTrue(fn, "cutWallpaperTouches()" in fn)
+        val cut = secure.substringAfter("private fun Activity.cutWallpaperTouches() {").substringBefore("\n}\n")
+        val guard = cut.indexOf("if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {")
+        assertTrue(cut, guard >= 0 && guard < cut.indexOf(call))
+        // Nothing in the app turns them back on, and the wallpaper's switch leaves them alone.
+        for ((path, src) in mainDir("")) {
+            assertFalse(path, Regex("""setWallpaperTouchEventsEnabled\(\s*true""").containsMatchIn(src))
+            if (!path.endsWith("android/SecureWindow.kt")) assertFalse(path, "WallpaperTouchEvents" in src)
+        }
+        val apply = code("ui/theme/WallpaperWindow.kt").substringAfter("fun applyWindowLook(").substringBefore("\n}\n")
+        assertFalse(apply, "WallpaperTouch" in apply || "window.attributes" in apply)
+        // Before setContent, as FLAG_SECURE.
+        val activity = code("MainActivity.kt")
+        assertTrue(activity.indexOf("secureWindow()") in 0 until activity.indexOf("setContent {"))
+    }
+
     @Test fun `COV2-3 MainActivity tells the vault when another app has the focus in multi-window`() {
         val src = code("MainActivity.kt")
         assertTrue("onTopResumedActivityChanged" in src)

@@ -58,7 +58,6 @@ import app.seguridad.settings.CUSTOM_HUES
 import app.seguridad.settings.CustomPalette
 import app.seguridad.settings.GlassLevel
 import app.seguridad.settings.PaletteId
-import app.seguridad.settings.STYLE_ORDER
 import app.seguridad.settings.Settings
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.ThemeMode
@@ -77,7 +76,10 @@ import app.seguridad.ui.theme.hueSwatch
 import app.seguridad.ui.theme.isDarkTheme
 import app.seguridad.ui.theme.label
 import app.seguridad.ui.theme.lookFor
+import app.seguridad.ui.theme.TRANSPARENT_MIN_SDK
+import app.seguridad.ui.theme.offeredStyles
 import app.seguridad.ui.theme.shownPalette
+import app.seguridad.ui.theme.shownStyle
 import app.seguridad.vault.TagColor
 import app.seguridad.vault.TagPalette
 import kotlinx.coroutines.launch
@@ -106,6 +108,8 @@ internal const val STYLE_TRANSPARENT_MORE = "La app no lee la imagen del fondo d
 internal const val WALLPAPER_SHORT = "Usa los colores que Android calcula del fondo de pantalla (desde Android 12)."
 internal const val WALLPAPER_MORE = "La app no lee la imagen del fondo de pantalla ni pide permisos. Ajusta los tonos para que el texto tenga contraste suficiente."
 internal const val WALLPAPER_FROM_12 = "«Colores del fondo de pantalla», desde Android 12."
+// F-1 of the final audit (owner decision (b), 24-11-2026): «Transparente» only from Android 14; for the Abogado's final review.
+internal const val TRANSPARENT_FROM_14 = "«Transparente», desde Android 14."
 internal const val CUSTOM_SHORT = "Elige el acento, el fondo y la intensidad del cristal, y pulsa «Aplicar»."
 // R-A5: the intensity of the glass sets the panels of the three translucent styles (Palettes.kt, `nominal`).
 internal const val CUSTOM_MORE = "La app ajusta los tonos para que el texto tenga contraste suficiente. La vista previa enseña el cambio antes de aplicarlo. " +
@@ -147,7 +151,7 @@ private fun ThemeMode.modeLabel() = when (this) {
 
 /** The line of Ajustes that sums up the look: «Cristal · Noche · Oscuro». */
 internal fun appearanceSummary(s: Settings, sdk: Int = Build.VERSION.SDK_INT): String =
-    "${s.style.label()} · ${shownPalette(s.palette, s.custom, sdk).label()} · ${s.theme.modeLabel()}"
+    "${shownStyle(s.style, sdk).label()} · ${shownPalette(s.palette, s.custom, sdk).label()} · ${s.theme.modeLabel()}"
 
 /**
  * Ajustes → «Aspecto»: the mode, the style, the palette («Personalizado» with its preview before it is applied),
@@ -191,10 +195,14 @@ fun AppearanceScreen(store: SettingsStore, onBack: () -> Unit) {
                 Choices(ThemeMode.entries, settings.theme, { it.modeLabel() }) { v -> change { it.copy(theme = v) } }
             }
             Section(SettingItem.STYLE.title) {
-                Choices(STYLE_ORDER, settings.style, { it.label() }) { v -> change { it.copy(style = v) } }
+                // F-1, owner decision (b): «Transparente» only from Android 14; a saved one is shown as it is drawn
+                // («Cristal») before it, and stays saved until another style is chosen here.
+                val shownStyle = shownStyle(settings.style, Build.VERSION.SDK_INT)
+                Choices(offeredStyles(Build.VERSION.SDK_INT), shownStyle, { it.label() }) { v -> change { it.copy(style = v) } }
                 // TalkBack reads the new line when a style is chosen (review of task 4); the Box does not change its look.
-                Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Hint(styleShort(settings.style)) }
-                MoreInfo { styleMore(settings.style).forEach { Hint(it) } }
+                Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Hint(styleShort(shownStyle)) }
+                MoreInfo { styleMore(shownStyle).forEach { Hint(it) } }
+                if (Build.VERSION.SDK_INT < TRANSPARENT_MIN_SDK) Hint(TRANSPARENT_FROM_14)
             }
             Section(SettingItem.PALETTE.title) {
                 val offered = PaletteId.entries.filter { it != PaletteId.WALLPAPER || wallpaperOffered }

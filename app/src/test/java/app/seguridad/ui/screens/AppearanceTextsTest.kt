@@ -1,6 +1,7 @@
 package app.seguridad.ui.screens
 
 import app.seguridad.settings.STYLE_ORDER
+import app.seguridad.settings.Settings
 import app.seguridad.settings.ThemeStyle
 import app.seguridad.tools.ForbiddenWords
 import app.seguridad.tools.lookNameProblems
@@ -79,11 +80,32 @@ class AppearanceTextsTest {
     /** The screen offers the five styles in their order, the line of the chosen one and its folded texts (M-3). */
     @Test fun theScreenUsesTheOrderTheLineAndTheFoldedTexts() {
         val screen = code("ui/screens/AppearanceScreen.kt")
-        assertTrue(screen, "Choices(STYLE_ORDER, settings.style" in screen)
+        // F-1, owner decision (b): the styles on offer and the one marked follow Android 14 (offeredStyles, shownStyle).
+        assertTrue(screen, "val shownStyle = shownStyle(settings.style, Build.VERSION.SDK_INT)" in screen)
+        assertTrue(screen, "Choices(offeredStyles(Build.VERSION.SDK_INT), shownStyle" in screen)
         // TalkBack reads the new line when a style is chosen (review of task 4), without changing how it looks.
-        assertTrue(screen, "Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Hint(styleShort(settings.style)) }" in screen)
-        assertTrue(screen, "MoreInfo { styleMore(settings.style).forEach { Hint(it) } }" in screen)
+        assertTrue(screen, "Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) { Hint(styleShort(shownStyle)) }" in screen)
+        assertTrue(screen, "MoreInfo { styleMore(shownStyle).forEach { Hint(it) } }" in screen)
+        assertTrue(screen, "if (Build.VERSION.SDK_INT < TRANSPARENT_MIN_SDK) Hint(TRANSPARENT_FROM_14)" in screen)
         assertTrue(screen, "Choices(ThemeStyle.entries" !in screen)
+        assertTrue(screen, "Choices(STYLE_ORDER" !in screen)
+        assertTrue(screen, "styleShort(settings.style)" !in screen && "styleMore(settings.style)" !in screen)
+    }
+
+    /** F-1, owner decision (b): the line before Android 14, like the one of the wallpaper's colours before Android 12. */
+    @Test fun theLineOfTransparentBeforeAndroid14() {
+        assertEquals("«Transparente», desde Android 14.", TRANSPARENT_FROM_14)
+        assertTrue(ForbiddenWords.problems(TRANSPARENT_FROM_14).isEmpty())
+        assertTrue(lookNameProblems(TRANSPARENT_FROM_14).isEmpty())
+    }
+
+    /** F-1, owner decision (b): Ajustes sums up the look as it is drawn; a saved «Transparente» is «Cristal» before 14. */
+    @Test fun theSummaryNamesTheStyleAsItIsDrawn() {
+        val s = Settings(style = ThemeStyle.TRANSPARENT)
+        assertTrue(appearanceSummary(s, 33), appearanceSummary(s, 33).startsWith("Cristal · "))
+        assertTrue(appearanceSummary(s, 26), appearanceSummary(s, 26).startsWith("Cristal · "))
+        assertTrue(appearanceSummary(s, 34), appearanceSummary(s, 34).startsWith("Transparente · "))
+        assertTrue(appearanceSummary(s.copy(style = ThemeStyle.GLASS_STRONG), 33).startsWith("Vidrio · "))
     }
 
     /**

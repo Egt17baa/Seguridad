@@ -47,7 +47,7 @@ Herramientas
 • Repartir un secreto (SLIP-0039): las partes no son una copia de recuperación SLIP-39 para un dispositivo hardware.
 
 Aspecto
-• Cinco estilos («Sólido», «Degradado», «Cristal», «Vidrio» y «Transparente») y varias paletas. Modo sencillo y guía al empezar.
+• Cinco estilos («Sólido», «Degradado», «Cristal», «Vidrio» y, desde Android 14, «Transparente») y varias paletas. Modo sencillo y guía al empezar.
 
 Privacidad
 Las bóvedas se quedan cifradas en tu móvil. Sale lo que tú exportas, guardas, copias o compartes, y las copias cifradas que la app hace donde elijas. La única conexión a Internet es opcional: al pulsar «¿Filtrada?» o «Comprobar filtraciones», consulta Pwned Passwords de Have I Been Pwned con solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña.
@@ -66,7 +66,7 @@ Gratuita y sin compras. Código fuente: https://github.com/Egt17baa/Seguridad
 
 ## Versión larga (no cabe en Play)
 
-No se pega en Play: pasa de 4 000 caracteres (7 230 sin Markdown, con las líneas del Aspecto de la 2.1). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
+No se pega en Play: pasa de 4 000 caracteres (7 248 sin Markdown, con las líneas del Aspecto de la 2.1 y «desde Android 14» de F-1). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
 
 Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semilla, notas, tarjetas bancarias, redes wifi, licencias y pasaportes en bóvedas cifradas en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
 
@@ -108,7 +108,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 
 **Aspecto**
 • Los estilos «Cristal», con paneles translúcidos (desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás), y «Sólido», sin transparencias.
-• Tres estilos más en Ajustes → Aspecto: «Degradado» (paneles opacos sobre un fondo en degradado), «Vidrio» (como «Cristal», más translúcido y con bordes iluminados) y «Transparente» (deja ver, atenuado, el fondo de pantalla del móvil; la app no lee su imagen ni pide permisos).
+• Tres estilos más en Ajustes → Aspecto: «Degradado» (paneles opacos sobre un fondo en degradado), «Vidrio» (como «Cristal», más translúcido y con bordes iluminados) y «Transparente» (desde Android 14; deja ver, atenuado, el fondo de pantalla del móvil; la app no lee su imagen ni pide permisos).
 • Seis paletas, una personalizada y, desde Android 12, los colores del fondo de pantalla. «Reducir transparencias» y «Alto contraste» en Ajustes.
 • Modo sencillo y una guía al empezar.
 

@@ -30,6 +30,10 @@ import androidx.core.util.Consumer
  * Branch review I-1: in split screen or in a floating or desktop window, what is under the activity's window is another
  * app, so the wallpaper is not shown then ([multiWindowNow], Look.wallpaperBehind).
  *
+ * F-1 of the final audit (owner decision (b), 24-11-2026): only from Android 14 (Look.wallpaperBehind, TRANSPARENT_MIN_SDK),
+ * where secureWindow() asks Android, for every look, not to pass the taps on the window to the wallpaper's app. This
+ * switch never touches that.
+ *
  * Ruling R-A4: Android's setting to remove animations does not take the wallpaper away. The app adds no movement of its
  * own; a live wallpaper is the system's, and the system usually stops it with that setting. «Reducir transparencias» and
  * «Alto contraste» do take it away (the look is then opaque, [Look.wallpaperBehind] is false).

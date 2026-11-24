@@ -25,6 +25,22 @@ fun Activity.secureWindow() {
     window.decorView.filterTouchesWhenObscured = true
     window.decorView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
     markAccessibilitySensitive(window.decorView)
+    cutWallpaperTouches()
+}
+
+/**
+ * F-1 of the final audit of 2.1 (owner decision, 24-11-2026): a window that shows the wallpaper («Transparente») has
+ * every tap on it passed on by Android to the wallpaper's window too, and a live wallpaper is a service of any installed
+ * app, which would get where and when each tap on Clavero falls. From Android 14 the window asks Android not to, whatever
+ * the look (the switch of «Transparente», applyWindowLook, never touches it, and nothing turns it back on). Before Android
+ * 14 there is no public way, so «Transparente» does not show the wallpaper there (Glass.kt, TRANSPARENT_MIN_SDK). Dialogs,
+ * menus, sheets, the keyboard and the fingerprint prompt are windows of their own that never show the wallpaper, so
+ * Android does not pass their taps on.
+ */
+private fun Activity.cutWallpaperTouches() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        window.attributes = window.attributes.apply { setWallpaperTouchEventsEnabled(false) }
+    }
 }
 
 /** COV2-4: see [secureWindow]. Descendants left on AUTO (Compose's view and its virtual nodes) inherit it. */

@@ -132,6 +132,25 @@ class SettingsTest {
         }
     }
 
+    /**
+     * F-1 of the final audit, owner decision (b): «Transparente» saved (on Android 14, or in a copy restored on an older
+     * phone) is read as it is and kept; before Android 14 it is only drawn and shown as «Cristal». Nothing migrates it:
+     * the only place in the app that changes the saved style is the user's choice in Ajustes → Aspecto.
+     */
+    @Test fun aSavedTransparentIsReadAsItIsAndNeverMigrated() = runTest {
+        file().writeText("""{"style":"TRANSPARENT","palette":"OCEAN"}""")
+        val s = store().apply { load() }.settings.value
+        assertEquals(ThemeStyle.TRANSPARENT, s.style)
+        assertEquals(ThemeStyle.TRANSPARENT, decodeSettings("""{"style":"TRANSPARENT"}""").style)
+        var root: File? = File(".").absoluteFile
+        while (root != null && !File(root, "app/src/main/java/app/seguridad").isDirectory) root = root.parentFile
+        val main = File(root, "app/src/main/java/app/seguridad")
+        val writers = main.walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .filter { f -> Regex("""copy\([^)]*\bstyle\s*=""").containsMatchIn(f.readText()) }
+            .map { it.relativeTo(main).path }.toList()
+        assertEquals(listOf("ui/screens/AppearanceScreen.kt"), writers)
+    }
+
     /** Review M-5: «Personalizado» saved without its tones reads as «Noche»; with them it stays. */
     @Test fun aCustomWithoutTonesIsNight() = runTest {
         file().writeText("""{"palette":"CUSTOM"}""")

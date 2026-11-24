@@ -125,6 +125,13 @@ class Look(
     val scheme: ColorScheme = if (drawsBackground) colors.scheme.copy(background = Color.Transparent) else colors.scheme
 }
 
+/**
+ * F-1 of the final audit of 2.1 (owner decision (b), 24-11-2026): «Transparente» shows the wallpaper only from Android 14,
+ * where the window can ask Android not to pass the app's taps to the wallpaper's app (secureWindow). Before it, there is
+ * no public way to stop that, so the style is drawn as «Cristal» ([lookFor]) and not offered ([offeredStyles]).
+ */
+const val TRANSPARENT_MIN_SDK: Int = Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
 /** How much more opaque than [AppColors.scrimAlpha] the layer of «Transparente» is drawn, over a sharp wallpaper. */
 private const val SHARP_WALLPAPER_EXTRA = 0.06f
 
@@ -134,7 +141,9 @@ private const val SHARP_WALLPAPER_EXTRA = 0.06f
  * split screen or in a floating or desktop window, where what is under its window is another app, not only the wallpaper
  * (branch review I-1, O-A4): «Transparente» is then «Cristal», translucent over the app's own background. Whenever the
  * wallpaper is not behind it, «Transparente» takes the colours of «Cristal» (branch review M-1): those of its layer are
- * corrected for a layer that is not drawn then.
+ * corrected for a layer that is not drawn then. Before Android 14 ([TRANSPARENT_MIN_SDK]) the wallpaper is never shown
+ * either (F-1 of the final audit, owner decision (b)): «Transparente» is then «Cristal» too. The gate is here, so the
+ * theme, the window ([windowLookFor]) and the preview of Ajustes always agree.
  */
 fun lookFor(
     style: ThemeStyle,
@@ -148,7 +157,7 @@ fun lookFor(
     multiWindow: Boolean = false,
 ): Look {
     val opaque = style == ThemeStyle.SOLID || style == ThemeStyle.GRADIENT || reduceTransparency || highContrast
-    val wallpaperBehind = style == ThemeStyle.TRANSPARENT && !opaque && !multiWindow
+    val wallpaperBehind = style == ThemeStyle.TRANSPARENT && !opaque && !multiWindow && sdk >= TRANSPARENT_MIN_SDK
     val colorStyle = if (style == ThemeStyle.TRANSPARENT && !wallpaperBehind) ThemeStyle.GLASS else style
     val colors = colorsFor(palette, custom, dark, highContrast, wallpaper, colorStyle)
     return Look(

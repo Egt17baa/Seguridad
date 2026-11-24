@@ -173,8 +173,9 @@ class GlassContrastTest {
                 assertTrue("$style", l.translucent)
                 assertTrue("$style", l.drawsBackground)
                 assertFalse("$style", l.opaque)
-                assertEquals("$style", style == ThemeStyle.TRANSPARENT, l.wallpaperBehind)
-                assertEquals("$style", style == ThemeStyle.TRANSPARENT, windowLookFor(l).showWallpaper)
+                // F-1, owner decision (b): the wallpaper only from Android 14.
+                assertEquals("$style $sdk", style == ThemeStyle.TRANSPARENT && sdk >= 34, l.wallpaperBehind)
+                assertEquals("$style $sdk", style == ThemeStyle.TRANSPARENT && sdk >= 34, windowLookFor(l).showWallpaper)
                 assertEquals("$style", style == ThemeStyle.GLASS_STRONG, l.strong)
             }
             for ((reduce, high) in listOf(true to false, false to true, true to true)) {
@@ -229,7 +230,8 @@ class GlassContrastTest {
      * «Reducir transparencias», or in multi-window, there is no wallpaper and no layer.
      */
     @Test fun theTransparentLayerReadsAtTheOpacityItIsDrawnWith() {
-        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (sdk in sdks) {
+        // F-1, owner decision (b): the layer is only drawn from Android 14 (WallpaperWindowTest.transparentNeedsAndroid14).
+        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (sdk in listOf(34, 35)) {
             val l = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark, sdk = sdk)
             assertEquals(minOf(1f, l.colors.scrimAlpha + 0.06f), l.layerAlpha)
             for ((name, fg) in textColors(l.colors)) for (under in layerPoints(l)) {

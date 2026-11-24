@@ -9,6 +9,7 @@ import app.seguridad.settings.CUSTOM_HUES
 import app.seguridad.settings.CustomPalette
 import app.seguridad.settings.GlassLevel
 import app.seguridad.settings.PaletteId
+import app.seguridad.settings.STYLE_ORDER
 import app.seguridad.settings.ThemeStyle
 import app.seguridad.settings.saneCustom
 import app.seguridad.vault.TagPalette
@@ -153,6 +154,16 @@ fun shownPalette(palette: PaletteId, custom: CustomPalette?, sdk: Int): PaletteI
     palette == PaletteId.CUSTOM && custom == null -> PaletteId.NIGHT
     else -> palette
 }
+
+/**
+ * The style Ajustes shows as chosen (F-1, owner decision (b)): «Transparente» before Android 14 is drawn as «Cristal»
+ * ([lookFor]), so it is named «Cristal» too. What is saved does not change (as [shownPalette]).
+ */
+fun shownStyle(style: ThemeStyle, sdk: Int): ThemeStyle =
+    if (style == ThemeStyle.TRANSPARENT && sdk < TRANSPARENT_MIN_SDK) ThemeStyle.GLASS else style
+
+/** The styles Ajustes offers on Android [sdk], in their order: «Transparente» only from Android 14 (F-1, option (b)). */
+fun offeredStyles(sdk: Int): List<ThemeStyle> = STYLE_ORDER.filter { it != ThemeStyle.TRANSPARENT || sdk >= TRANSPARENT_MIN_SDK }
 
 /**
  * «Personalizado» as it is saved and shown: its tones brought into the twelve, and its glass lowered (more opaque) if
