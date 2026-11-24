@@ -99,7 +99,7 @@ internal const val STYLE_GLASS_STRONG_SHORT = "Vidrio: como «Cristal», con pan
 internal const val STYLE_TRANSPARENT_SHORT = "Transparente: deja ver, atenuado, el fondo de pantalla del móvil detrás de la app."
 internal const val STYLE_MORE = "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan el fondo de " +
     "la app que tienen detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. «Reducir transparencias» " +
-    "y «Alto contraste» hacen opacos todos los paneles."
+    "y «Alto contraste» hacen opacos todos los paneles, y «Alto contraste» quita también los bordes iluminados de «Vidrio»."
 internal const val STYLE_TRANSPARENT_MORE = "La app no lee la imagen del fondo de pantalla ni pide permisos: Android la dibuja detrás " +
     "de la app. Se ve nítida, atenuada por una capa de color. Quien mire la pantalla verá también tu fondo de pantalla. " +
     "Con un fondo de pantalla animado, el móvil puede gastar algo más de batería. En pantalla dividida o en una ventana " +

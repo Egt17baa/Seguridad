@@ -1,6 +1,6 @@
 # Clavero 2.1: auditoría completa (revisión final)
 
-Fecha: 24-11-2026. Rama `ccr-0aa27f95-u038cd`, HEAD `c44e2a4`. Punto 6 de `CLAUDE.md`, después del `code-review` y del `security-review` de hoy (`sdd-2.1/progress.md`, al final).
+Fecha: 24-11-2026. Rama `ccr-0aa27f95-u038cd`, HEAD `c44e2a4` (las líneas de código citadas, puestas al día con el arreglo de F-1, en `f52e783`; M-3 del repaso del director, `advisor-f1-recheck.md`). Punto 6 de `CLAUDE.md`, después del `code-review` y del `security-review` de hoy (`sdd-2.1/progress.md`, al final).
 
 ## 1. Alcance y método
 
@@ -27,8 +27,8 @@ Y la comprobación de que nada de la 2.0 se ha roto: formatos, manifiesto, `FLAG
 
 | ID | Severidad | Hallazgo | Dónde |
 |---|---|---|---|
-| F-1 | Medio | En «Transparente», Android duplica cada toque de Clavero a la app del fondo de pantalla, que puede ser de otro. **Decidido (b)** (dueño, 24-11-2026) y arreglado: «Transparente» solo desde Android 14, y desde Android 14 la ventana corta esos toques con cualquier aspecto | `ui/theme/WallpaperWindow.kt:50-58` |
-| F-2 | Info | Los textos de «Transparente» y la política no lo dicen. **Resuelto** con «desde Android 14» | `ui/screens/AppearanceScreen.kt:101-105`, `docs/privacidad.html:37` |
+| F-1 | Medio | En «Transparente», Android duplica cada toque de Clavero a la app del fondo de pantalla, que puede ser de otro. **Decidido (b)** (dueño, 24-11-2026) y arreglado: «Transparente» solo desde Android 14, y desde Android 14 la ventana corta esos toques con cualquier aspecto | `ui/theme/WallpaperWindow.kt:54-62` |
+| F-2 | Info | Los textos de «Transparente» y la política no lo dicen. **Resuelto** con «desde Android 14» | `ui/screens/AppearanceScreen.kt:103-107`, `docs/privacidad.html:37` |
 
 Ningún hallazgo Crítico ni Alto. El arreglo de F-1 y F-2 está en `sdd-2.1/f1-fix-report.md`, con la opinión del director en `sdd-2.1/advisor-f1.md`. El resto de la 2.1 cumple las reglas duras (§5).
 
@@ -36,13 +36,13 @@ Ningún hallazgo Crítico ni Alto. El arreglo de F-1 y F-2 está en `sdd-2.1/f1-
 
 ### F-1 [Medio] «Transparente» manda los toques de Clavero a la app del fondo de pantalla
 
-- **Dónde:** `app/src/main/java/app/seguridad/ui/theme/WallpaperWindow.kt:50-58` (`applyWindowLook` pone `FLAG_SHOW_WALLPAPER` y no toca nada más), llamado desde `MainActivity.kt:65-66`.
+- **Dónde:** `app/src/main/java/app/seguridad/ui/theme/WallpaperWindow.kt:54-62` (`applyWindowLook` pone `FLAG_SHOW_WALLPAPER` y no toca nada más), llamado desde `MainActivity.kt:65-66`.
 - **Qué pasa:** una ventana con `FLAG_SHOW_WALLPAPER` es el «objetivo del fondo de pantalla». Para ella, Android duplica cada toque a la ventana del fondo de pantalla. Un fondo animado es un `WallpaperService` de cualquier app instalada; si su `Engine` llama a `setTouchEventsEnabled(true)`, recibe en `onTouchEvent` las coordenadas y la hora de cada toque sobre Clavero. Desde Android 14 (API 34), `WindowManager.LayoutParams.setWallpaperTouchEventsEnabled(false)` lo corta; la documentación de Android dice que por defecto está activado y que el fondo «puede ser de una app de terceros». Clavero no lo llama (`grep WallpaperTouch`: nada en `app/`).
 - **Qué no pasa:** el fondo no ve la pantalla (`FLAG_SECURE`, y él está debajo). Lo que se escribe con el teclado tampoco: el teclado es otra ventana, que no es el objetivo del fondo. Lo mismo los diálogos, los menús, las hojas y el diálogo de la huella: son ventanas propias, sin `FLAG_SHOW_WALLPAPER`, y Android no duplica sus toques (opinión del director, `advisor-f1.md`). Clavero no tiene teclado propio (`grep Keypad|PinPad`: solo la lista de `tools/codes/Pin.kt`, que no es un teclado).
 - **Impacto:** metadatos de uso dentro de un gestor de contraseñas. Con la disposición de la pantalla, la app del fondo puede deducir qué se toca y cuándo: qué fila de la lista se abre, cuándo se pulsa «Copiar contraseña», «Mostrar», el ritmo de uso, los recuadros que se tachan en «Tachar». No da contenidos.
 - **Probabilidad:** baja. Hace falta elegir «Transparente» (no viene por defecto) y tener puesto un fondo animado de una app que lo aproveche. CVSS ≈2,5; Medio porque abre un canal nuevo hacia otra app dentro de un gestor de contraseñas, no porque el arreglo sea corto (corrección del director, `advisor-f1.md`).
 - **Arreglo propuesto:**
-  1. En `applyWindowLook`, con el fondo, desde API 34:
+  1. (Propuesta sustituida: el corte se hizo en `secureWindow()`, `android/SecureWindow.kt:28` y `:40-44`, con cualquier aspecto y antes de `setContent`; véase «Decisión y arreglo», abajo.) En `applyWindowLook`, con el fondo, desde API 34:
      ```kotlin
      if (look.showWallpaper) {
          window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
@@ -60,7 +60,7 @@ Ningún hallazgo Crítico ni Alto. El arreglo de F-1 y F-2 está en `sdd-2.1/f1-
 
 ### F-2 [Info] Los textos de «Transparente» no dicen lo de F-1
 
-- **Dónde:** `STYLE_TRANSPARENT_MORE` en `ui/screens/AppearanceScreen.kt:101-105`; `docs/privacidad.html:37`.
+- **Dónde:** `STYLE_TRANSPARENT_MORE` en `ui/screens/AppearanceScreen.kt:103-107`; `docs/privacidad.html:37`.
 - **Qué pasa:** dicen, con verdad, que la app no lee la imagen ni pide permisos y que quien mire la pantalla verá el fondo. No dicen que, mientras F-1 siga abierto en alguna versión de Android, la app del fondo animado recibe los toques.
 - **Arreglo propuesto:** depende de la decisión de F-1. Con (a), una frase del tipo «Con un fondo de pantalla animado, la app que lo pone puede recibir tus toques sobre Clavero (hasta Android 13).», para el Abogado. Con (b) o con (c), no hace falta texto nuevo más allá de «desde Android 14» o de que se ve como «Cristal».
 - **Resuelto (opción (b)):** «desde Android 14» en la línea nueva de Aspecto (`TRANSPARENT_FROM_14`), la política (`docs/privacidad.html:37`, con la frase de los toques), el README, la ficha, las notas y el borrador de «Novedades». `STYLE_TRANSPARENT_MORE` no cambia: solo se ve desde Android 14, donde los toques ya no pasan.
@@ -73,20 +73,20 @@ Ningún hallazgo Crítico ni Alto. El arreglo de F-1 y F-2 está en `sdd-2.1/f1-
 | CRYPTO | Sin cambios | Ningún archivo de `crypto/`, `backup/`, `net/` ni `VaultStore.kt` cambia; los formatos (`SG1:`, `.sgenc`, `seguridad-vault`, `seguridad-backup`, v4) siguen igual. El nuevo `ThemeStyle` se añade al final y uno desconocido se lee como «Cristal» (`Appearance.kt:17-26`). |
 | AUTH | Cumple | Una lectura empezada antes de un bloqueo, de un desbloqueo rápido o de salir no rellena nada: `isCurrent` con `generation` y `lockEpoch` (`EntryForm.kt:728`, `VaultEntryViewModel` en `VaultEntryScreen.kt:413`). `keepOpenOnce` y `touch()` como el escáner del 2FA de la 2.0. |
 | NETWORK | Sin cambios | Ningún host nuevo; solo `api.pwnedpasswords.com` (`net/PwnedPasswords.kt:24`, `net/HttpClient.kt:24`). |
-| PLATFORM | Cumple (F-1 arreglado) | Manifiesto igual que la 2.0 (`check-manifest.sh` «OK»; solo `versionName`). `FLAG_SECURE` antes de `setContent` (`MainActivity.kt:46` y `:50`; `SecureWindow.kt:23-24`) y en el escáner (`QrScanner.kt:13`). `FLAG_SHOW_WALLPAPER` en tiempo de ejecución, sin ventana translúcida (ningún `windowIsTranslucent` en `res/` ni en el manifiesto) y apagado en multiventana (`Glass.kt:151`, `WallpaperWindow.kt:77-88`). F-1, arreglado: desde Android 14, `setWallpaperTouchEventsEnabled(false)` en `secureWindow()`; antes, nunca `FLAG_SHOW_WALLPAPER`. |
+| PLATFORM | Cumple (F-1 arreglado) | Manifiesto igual que la 2.0 (`check-manifest.sh` «OK»; solo `versionName`). `FLAG_SECURE` antes de `setContent` (`MainActivity.kt:46` y `:50`; `SecureWindow.kt:23-24`) y en el escáner (`QrScanner.kt:13`). `FLAG_SHOW_WALLPAPER` en tiempo de ejecución, sin ventana translúcida (ningún `windowIsTranslucent` en `res/` ni en el manifiesto) y apagado en multiventana (`Glass.kt:160`, `WallpaperWindow.kt:81-92`). F-1, arreglado: desde Android 14, `setWallpaperTouchEventsEnabled(false)` en `secureWindow()`; antes, nunca `FLAG_SHOW_WALLPAPER`. |
 | CODE | Cumple | Lo leído de un QR es dato hostil: `WifiQr.read` corta a 4 096 caracteres (`WifiQr.kt:112`), solo se enseñan textos fijos o el tipo limpio y cortado a 32 (`shownSecurity`, `WifiQr.kt:433`; `QrView.kt:133`); un QR que no es de wifi no se enseña. La imagen se lee con sus topes, fuera del hilo principal y cancelable (`QrImageRead.kt:40-56`). Sin dependencias nuevas (`gradle/` sin cambios). |
 | RESILIENCE | Sin cambios | Fuera del perfil (como en la 2.0). |
 | PRIVACY | Cumple (F-1 y F-2 resueltos) | No se lee la imagen del fondo (ningún `WallpaperManager`; los colores, de `dynamicColorScheme`, `Theme.kt:81-88`, de la 2.0). Sin permisos nuevos; la cámara es la de la 2.0. |
 
 ## 5. Comprobado sin hallazgo
 
-- **`FLAG_SECURE` en toda la app y antes de `setContent`:** `MainActivity.kt:46` (`secureWindow()`) antes de `:50` (`setContent`); `applyWindowLook` solo toca `FLAG_SHOW_WALLPAPER` con `addFlags`/`clearFlags` y el fondo (`WallpaperWindow.kt:50-58`), nunca `FLAG_SECURE`. Los diálogos lo heredan, como en la 2.0.
+- **`FLAG_SECURE` en toda la app y antes de `setContent`:** `MainActivity.kt:46` (`secureWindow()`) antes de `:50` (`setContent`); `applyWindowLook` solo toca `FLAG_SHOW_WALLPAPER` con `addFlags`/`clearFlags` y el fondo (`WallpaperWindow.kt:54-62`), nunca `FLAG_SECURE`. Los diálogos lo heredan, como en la 2.0.
 - **Sin logs con datos:** ninguna línea añadida con `Log.`, `println`, `printStackTrace` ni `Timber` en el diff.
 - **Manifiesto (B-2):** sin cambios en el fuente; `check-manifest.sh` sobre el APK: «OK». El `taskAffinity=""` sigue.
-- **O-A3, la imagen del fondo:** ni `WallpaperManager` ni `getDrawable` del fondo en `app/src/main`; Android lo compone. La vista previa de Ajustes dibuja el degradado de la app, no el fondo (`AppearanceScreen.kt:300-304`, `:331-334`).
-- **O-A4, sin ventanas translúcidas:** la actividad sigue opaca para el gestor de ventanas (tema sin `windowIsTranslucent`). El fondo transparente de la ventana (`WallpaperWindow.kt:53`) solo da canal alfa a su superficie. Al quitar el estilo se devuelve el `android:windowBackground` del tema (`WallpaperWindow.kt:64-71`, `MainActivity.kt:49`).
-- **Multiventana:** `multiWindowNow` sigue `isInMultiWindowMode` con su oyente y lo quita en `onDispose` (`WallpaperWindow.kt:77-88`); el tema y la ventana usan el mismo valor (`MainActivity.kt:54`, `Theme.kt:58-65`).
-- **La capa:** en «Transparente» se dibuja el degradado a `layerAlpha` (0,86 en «Noche») sobre toda la ventana (`Glass.kt:111-112`, `:228-230`).
+- **O-A3, la imagen del fondo:** ni `WallpaperManager` ni `getDrawable` del fondo en `app/src/main`; Android lo compone. La vista previa de Ajustes dibuja el degradado de la app, no el fondo (`AppearanceScreen.kt:308-312`, `:339-342`).
+- **O-A4, sin ventanas translúcidas:** la actividad sigue opaca para el gestor de ventanas (tema sin `windowIsTranslucent`). El fondo transparente de la ventana (`WallpaperWindow.kt:57`) solo da canal alfa a su superficie. Al quitar el estilo se devuelve el `android:windowBackground` del tema (`WallpaperWindow.kt:68-75`, `MainActivity.kt:49`).
+- **Multiventana:** `multiWindowNow` sigue `isInMultiWindowMode` con su oyente y lo quita en `onDispose` (`WallpaperWindow.kt:81-92`); el tema y la ventana usan el mismo valor (`MainActivity.kt:54`, `Theme.kt:58-65`).
+- **La capa:** en «Transparente» se dibuja el degradado a `layerAlpha` (0,86 en «Noche») sobre toda la ventana (`Glass.kt:111-112`, `:237-239`).
 - **El QR, dato hostil:** solo se muestra como texto plano. El SSID entra tal cual en el campo y, si no hay título, en el título; la lista lo enseña con `plainReportText` (R9/R10 de la 1.4.0) y el formulario avisa de los caracteres ocultos con el texto del Inspector (`wifiNameAlert`, `EntryForm.kt` y `VaultEntryScreen.kt:798`). El diálogo «¿Sustituir…?» no enseña valores del código (`VaultEntryScreen.kt:902-912`).
 - **Secretos del wifi al salir y al bloquear:** `clear()` borra `wifiReplace`, `wifiReadMessage`, `wifiReads`, `lastWifiScan` y sube `generation` (`EntryForm.kt:809-813`); un resultado tardío no rellena nada; una lectura de imagen se cancela con la pantalla (`rememberCoroutineScope`, `VaultEntryScreen.kt:696-714`).
 - **Muerte del proceso:** el inicio de la lectura vive en la sesión; un resultado que llega a una sesión nueva no tiene inicio (`finishWifiRead` da `null`) y no hace nada.
@@ -115,10 +115,10 @@ Ningún hallazgo Crítico ni Alto. El arreglo de F-1 y F-2 está en `sdd-2.1/f1-
 
 ## Revisión Ingeniero Móvil Senior
 
-- Ventana: `FLAG_SHOW_WALLPAPER` en tiempo de ejecución es la vía correcta para no tocar el manifiesto (B-2). Devolver el `windowBackground` del tema, no el de `decorView`, evita envolverlo dos veces (`WallpaperWindow.kt:64-71`). `setWallpaperTouchEventsEnabled(false)` en API 34+, puesto en `secureWindow()` antes de `setContent` (F-1, arreglado); la puerta de Android 14 está en `lookFor`, así que el tema, la ventana y la vista previa coinciden.
-- Ciclo de vida: `configChanges` evita recrear la actividad al cambiar de tamaño, así que `multiWindowNow` sigue el modo con el oyente de `ComponentActivity` y lo quita en `onDispose` (`WallpaperWindow.kt:77-88`). `DisposableEffect(windowLook)` aplica todo cada vez, así que el último aspecto gana (`MainActivity.kt:65-68`).
+- Ventana: `FLAG_SHOW_WALLPAPER` en tiempo de ejecución es la vía correcta para no tocar el manifiesto (B-2). Devolver el `windowBackground` del tema, no el de `decorView`, evita envolverlo dos veces (`WallpaperWindow.kt:68-75`). `setWallpaperTouchEventsEnabled(false)` en API 34+, puesto en `secureWindow()` antes de `setContent` (F-1, arreglado); la puerta de Android 14 está en `lookFor`, así que el tema, la ventana y la vista previa coinciden.
+- Ciclo de vida: `configChanges` evita recrear la actividad al cambiar de tamaño, así que `multiWindowNow` sigue el modo con el oyente de `ComponentActivity` y lo quita en `onDispose` (`WallpaperWindow.kt:81-92`). `DisposableEffect(windowLook)` aplica todo cada vez, así que el último aspecto gana (`MainActivity.kt:65-68`).
 - Concurrencia: la imagen se lee en el ámbito de la pantalla (`VaultEntryScreen.kt:696`); `readingImage` desactiva los dos botones mientras dura; `wifiReads` es un `ConcurrentHashMap` y `generation`/`lastWifiScan` son `@Volatile`.
-- Rendimiento: el fondo se dibuja con `drawBehind` y un solo `drawRect` en «Transparente» (`Glass.kt:228-230`); las tarjetas no difuminan. `wifiNameAlert` recorre el nombre en cada recomposición; es corto y no importa.
+- Rendimiento: el fondo se dibuja con `drawBehind` y un solo `drawRect` en «Transparente» (`Glass.kt:237-239`); las tarjetas no difuminan. `wifiNameAlert` recorre el nombre en cada recomposición; es corto y no importa.
 - Accesibilidad: regiones vivas `Polite` en el mensaje de la lectura (`VaultEntryScreen.kt:793`) y en la línea del estilo.
 
 ## Textos para el Abogado Digital (revisión final)

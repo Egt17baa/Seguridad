@@ -32,7 +32,8 @@ class AppearanceTextsTest {
         assertEquals(
             "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan el fondo de la " +
                 "app que tienen detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. " +
-                "«Reducir transparencias» y «Alto contraste» hacen opacos todos los paneles.",
+                "«Reducir transparencias» y «Alto contraste» hacen opacos todos los paneles, y «Alto contraste» quita también " +
+                "los bordes iluminados de «Vidrio».",
             STYLE_MORE,
         )
         // Owner decision (24-11-2026): the wallpaper is sharp; branch review I-1: not in split screen or a floating window.
