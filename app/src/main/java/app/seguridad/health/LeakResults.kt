@@ -105,27 +105,31 @@ class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -
                 }
                 val found = HashMap<String, Found>()
                 var done = 0
+                // Review M-1: whatever the end (a step, done, failed, cancelled), a lock or a switch since drops it all,
+                // even if neither the watcher nor AppContainer saw it (a lock and unlock quicker than both).
+                fun stillOpen() = isOpen() && lockEpoch() == epoch
                 try {
                     for ((password, ids) in groups) {
-                        if (!isOpen() || lockEpoch() != epoch) throw CancellationException()
+                        if (!stillOpen()) throw CancellationException()
                         val chars = password.toCharArray()
                         val n = try {
                             times(chars)
                         } finally {
                             chars.fill('\u0000')
                         }
+                        if (!stillOpen()) throw CancellationException() // Locked while the request was in flight.
                         if (n > 0) ids.forEach { found[it] = Found(n, marks.getValue(it)) }
                         done++
                         val now = HashMap(found)
                         val d = done
                         publish(r) { it.copy(found = now, done = d) }
                     }
-                    publish(r) { it.copy(running = false, end = End.DONE) }
+                    if (stillOpen()) publish(r) { it.copy(running = false, end = End.DONE) } else drop(r)
                 } catch (e: CancellationException) {
-                    if (isOpen() && lockEpoch() == epoch) publish(r) { it.copy(running = false, end = End.CANCELLED) } else drop(r)
+                    if (stillOpen()) publish(r) { it.copy(running = false, end = End.CANCELLED) } else drop(r)
                     throw e
                 } catch (e: Exception) {
-                    publish(r) { it.copy(running = false, end = End.FAILED) }
+                    if (stillOpen()) publish(r) { it.copy(running = false, end = End.FAILED) } else drop(r)
                 } finally {
                     coroutineContext.cancelChildren() // The vault watcher: done with this check.
                     synchronized(lock) { if (r == run) job = null }
@@ -157,12 +161,24 @@ class LeakResults(private val scope: CoroutineScope, private val lockEpoch: () -
         /** No check (none yet, or forgotten). Its epoch is never one of the app's. */
         val EMPTY = Check(Int.MIN_VALUE, emptyMap(), running = false, done = 0, total = 0, end = End.NONE)
 
-        /** The line under the button: how the check of [s] ended (null while there is none or it runs). */
-        fun message(s: Check): String? = when (s.end) {
-            End.NONE -> null
-            End.DONE -> "Comprobación terminada: ${s.found.size} ${if (s.found.size == 1) "acceso filtrado" else "accesos filtrados"}."
-            End.CANCELLED -> "Comprobación cancelada (${s.done} de ${s.total})."
-            End.FAILED -> "No se pudo completar la comprobación (${s.done} de ${s.total}). Revisa la conexión."
+        /**
+         * The line under the button: how the check of [s] ended (null while there is none or it runs). [left] is how many
+         * of the leaked logins it found still count now ([breached]); review M-2: when the user fixed some (or sent them
+         * to the trash), a second sentence says how many are left, so the line and the rows «Filtrada» agree.
+         */
+        fun message(s: Check, left: Int = s.found.size): String? {
+            val base = when (s.end) {
+                End.NONE -> return null
+                End.DONE -> "Comprobación terminada: ${s.found.size} ${if (s.found.size == 1) "acceso filtrado" else "accesos filtrados"}."
+                End.CANCELLED -> "Comprobación cancelada (${s.done} de ${s.total})."
+                End.FAILED -> "No se pudo completar la comprobación (${s.done} de ${s.total}). Revisa la conexión."
+            }
+            if (left == s.found.size) return base
+            return base + " " + when (left) {
+                0 -> "Ya no queda ninguno sin cambiar."
+                1 -> "Queda 1 sin cambiar."
+                else -> "Quedan $left sin cambiar."
+            }
         }
     }
 }

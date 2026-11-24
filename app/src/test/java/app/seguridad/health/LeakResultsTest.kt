@@ -205,6 +205,64 @@ class LeakResultsTest {
         assertEquals("No se pudo completar la comprobación (1 de 3). Revisa la conexión.", LeakResults.message(s))
     }
 
+    /**
+     * Review M-1: a lock (or a switch) while the last request is in flight, that neither the watcher nor AppContainer
+     * saw (a lock and unlock quicker than both): the check ending normally drops everything, never keeps it.
+     */
+    @Test fun aLockDuringTheLastRequestDropsItWhenItEnds() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        var calls = 0
+        leaks.start(vault, { chars -> if (++calls == 3) epoch++; if (String(chars) == "uno") 7 else 0 }, isOpen = { open }, awaitClosed = { awaitCancellation() })
+        advanceUntilIdle()
+        assertEquals(3, calls)
+        assertTrue(leaks.state.value === LeakResults.EMPTY)
+    }
+
+    /** Review M-1: the same with a failure of that last request. */
+    @Test fun aLockDuringAFailedRequestDropsIt() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        var calls = 0
+        leaks.start(vault, { chars -> if (++calls == 3) { epoch++; throw java.io.IOException("x") }; if (String(chars) == "uno") 7 else 0 }, isOpen = { open }, awaitClosed = { awaitCancellation() })
+        advanceUntilIdle()
+        assertTrue(leaks.state.value === LeakResults.EMPTY)
+    }
+
+    /** Review M-1: and a vault no longer open (the epoch the same) at the end. */
+    @Test fun aClosedVaultAtTheEndDropsIt() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        var calls = 0
+        leaks.start(vault, { chars -> if (++calls == 3) open = false; if (String(chars) == "uno") 7 else 0 }, isOpen = { open }, awaitClosed = { awaitCancellation() })
+        advanceUntilIdle()
+        assertTrue(leaks.state.value === LeakResults.EMPTY)
+    }
+
+    /**
+     * Review M-2: once some leaked logins are fixed, the line says how many are left, so it agrees with the rows
+     * «Filtrada»; the sentence of the check itself stays as it was (R-2 of the Abogado).
+     */
+    @Test fun theLineSaysHowManyAreLeftAfterFixingSome() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        check(leaks, vault, FakeHibp(table))
+        advanceUntilIdle()
+        val s = leaks.current()
+        fun line(entries: List<VaultEntry>) = LeakResults.message(s, left = leaks.breached(entries, s).size)
+        assertEquals("Comprobación terminada: 3 accesos filtrados.", line(vault))
+        val a2 = vault[0].copy(password = "nueva-y-larga").withVersion(vault[0], now = 9_000L)
+        assertEquals("Comprobación terminada: 3 accesos filtrados. Quedan 2 sin cambiar.", line(listOf(a2, vault[1], vault[2], vault[3])))
+        val c2 = vault[2].copy(password = "otra-nueva-y-larga").withVersion(vault[2], now = 9_000L)
+        assertEquals("Comprobación terminada: 3 accesos filtrados. Queda 1 sin cambiar.", line(listOf(a2, vault[1], c2, vault[3])))
+        val d2 = vault[3].copy(deletedAt = 9_000L)
+        assertEquals("Comprobación terminada: 3 accesos filtrados. Ya no queda ninguno sin cambiar.", line(listOf(a2, vault[1], c2, d2)))
+        // The cancelled and the failed lines keep their own sentence first.
+        val cancelled = LeakResults.Check(s.epoch, s.found, running = false, done = 2, total = 3, end = LeakResults.End.CANCELLED)
+        assertEquals("Comprobación cancelada (2 de 3). Queda 1 sin cambiar.", LeakResults.message(cancelled, left = 1))
+        assertEquals("Comprobación cancelada (2 de 3).", LeakResults.message(cancelled, left = 3))
+        val failed = cancelled.copy(end = LeakResults.End.FAILED)
+        assertEquals("No se pudo completar la comprobación (2 de 3). Revisa la conexión. Quedan 2 sin cambiar.", LeakResults.message(failed, left = 2))
+        // The screen passes what counts now.
+        assertTrue("LeakResults.message(check, left = breached.size)" in code("ui/screens/HealthScreen.kt"))
+    }
+
     /** What it keeps: ids, counts and marks; nothing of the password, its hash or the entry. */
     @Test fun itKeepsNoPasswordNorHash() {
         // The code, without its comments (which say where it never goes).

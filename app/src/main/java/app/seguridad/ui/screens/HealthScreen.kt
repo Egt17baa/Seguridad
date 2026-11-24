@@ -201,7 +201,7 @@ fun HealthScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Comprobar filtraciones de los accesos (envía solo 5 caracteres del hash de cada contraseña)") }
                     }
-                    val message = LeakResults.message(check)
+                    val message = LeakResults.message(check, left = breached.size)
                     message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     // O-1 of the Abogado (2.1.1): where the result is, under it, while there is one.
                     if (message != null || check.running) {
