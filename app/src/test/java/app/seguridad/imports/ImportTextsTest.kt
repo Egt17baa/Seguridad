@@ -163,6 +163,8 @@ class ImportTextsTest {
         assertTrue("the 1.4.0 «Novedades» draft not found", parts.size >= 2)
         // 2.0 (branch review D, Minor-1): the draft of the release notes of 2.0 lives in its own «-notas.md» file.
         assertTrue("the 2.0 «Novedades» draft not read", parts.any { it.first == "2026-11-15-clavero-2.0-notas.md" })
+        // 2.1: its draft too, in its own «-notas.md» file like that of 2.0.
+        assertTrue("the 2.1 «Novedades» draft not read", parts.any { it.first == "2026-11-24-clavero-2.1-notas.md" })
         val bad = parts.flatMap { (name, text) ->
             text.lines().filter { namesIn(it).isNotEmpty() && it.trim() !in LISTING_ALLOWED }.map { "$name: ${namesIn(it)} «${it.trim()}»" }
         }

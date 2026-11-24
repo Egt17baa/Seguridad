@@ -66,7 +66,7 @@ Gratuita y sin compras. Código fuente: https://github.com/Egt17baa/Seguridad
 
 ## Versión larga (no cabe en Play)
 
-No se pega en Play: pasa de 4 000 caracteres (6 948 sin Markdown). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
+No se pega en Play: pasa de 4 000 caracteres (7 230 sin Markdown, con las líneas del Aspecto de la 2.1). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
 
 Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semilla, notas, tarjetas bancarias, redes wifi, licencias y pasaportes en bóvedas cifradas en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
 
