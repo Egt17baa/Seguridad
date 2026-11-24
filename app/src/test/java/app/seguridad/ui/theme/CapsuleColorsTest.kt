@@ -102,6 +102,25 @@ class CapsuleColorsTest {
         assertTrue(bad.joinToString("\n"), bad.isEmpty())
     }
 
+    /**
+     * Review m-1: the opacity of the capsule with the blur in each fixed palette, light and dark (task 1 report): it starts
+     * at 0.55 («Cristal», «Transparente») and 0.45 («Vidrio»), and only «Transparente» light is raised by the contrast.
+     */
+    @Test fun theCapsuleValuesArePinned() {
+        val transparentLight = mapOf(
+            PaletteId.NIGHT to 0.58f, PaletteId.OCEAN to 0.58f, PaletteId.FOREST to 0.58f,
+            PaletteId.SUNSET to 0.57f, PaletteId.GRAPHITE to 0.58f, PaletteId.SAND to 0.59f,
+        )
+        for (st in translucentStyles) for (p in NAMED_PALETTES) for (dark in listOf(true, false)) {
+            val expected = when {
+                st == ThemeStyle.GLASS_STRONG -> 0.45f
+                st == ThemeStyle.TRANSPARENT && !dark -> transparentLight.getValue(p)
+                else -> 0.55f
+            }
+            assertEquals("$st $p dark=$dark", expected, colorsFor(p, null, dark, highContrast = false, style = st).capsuleAlpha, 0.005f)
+        }
+    }
+
     @Test fun highContrastAndReducedTransparencyMakeTheCapsuleOpaque() {
         for (st in ThemeStyle.entries) for (p in NAMED_PALETTES) for (dark in listOf(true, false)) for (sdk in listOf(30, 35)) {
             for ((high, reduce) in listOf(true to false, false to true, true to true)) {
