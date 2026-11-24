@@ -66,7 +66,7 @@ Gratuita y sin compras. Código fuente: https://github.com/Egt17baa/Seguridad
 
 ## Versión larga (no cabe en Play)
 
-No se pega en Play: pasa de 4 000 caracteres (7 243 sin Markdown, con las líneas del Aspecto de la 2.1, «desde Android 14» de F-1, los cambios de la revisión final del Abogado Digital de la 2.1 y la barra de abajo de la 2.1.1). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
+No se pega en Play: pasa de 4 000 caracteres (7 272 sin Markdown, con las líneas del Aspecto de la 2.1, «desde Android 14» de F-1, los cambios de la revisión final del Abogado Digital de la 2.1 y la barra de abajo de la 2.1.1). Es la descripción de antes de la revisión final del Abogado Digital de la 2.0 (O-3), que se conserva como referencia; la de arriba es la que se pega.
 
 Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semilla, notas, tarjetas bancarias, redes wifi, licencias y pasaportes en bóvedas cifradas en tu móvil, y cifra textos y archivos. No tiene cuentas, nube propia, analítica ni anuncios, y es de código abierto (Apache-2.0).
 
@@ -107,7 +107,7 @@ Clavero (antes «Seguridad») guarda tus contraseñas, códigos 2FA, frases semi
 • Comprobación de contraseñas filtradas.
 
 **Aspecto**
-• Cinco estilos: «Sólido», sin transparencias; «Degradado», con paneles opacos sobre un fondo en degradado; «Cristal», con paneles translúcidos (la barra de abajo flota sobre el fondo; desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás); «Vidrio», como «Cristal», más translúcido y con bordes iluminados; y «Transparente» (desde Android 14), que deja ver, atenuado, el fondo de pantalla del móvil: la app no lee su imagen ni pide permisos.
+• Cinco estilos: «Sólido», sin transparencias; «Degradado», con paneles opacos sobre un fondo en degradado y la barra de abajo flotante; «Cristal», con paneles translúcidos (la barra de abajo flota sobre el fondo; desde Android 12, las barras y los diálogos difuminan el fondo de la app que tienen detrás); «Vidrio», como «Cristal», más translúcido y con bordes iluminados; y «Transparente» (desde Android 14), que deja ver, atenuado, el fondo de pantalla del móvil: la app no lee su imagen ni pide permisos.
 • Seis paletas, una personalizada y, desde Android 12, los colores del fondo de pantalla. «Reducir transparencias» y «Alto contraste» en Ajustes.
 • Modo sencillo y una guía al empezar.
 

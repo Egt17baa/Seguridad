@@ -95,6 +95,8 @@ class PublishedTextsTest {
         val banned = listOf(
             "material 3", "expressive", "de google", "como en", "líquid", "liquid", "accesible", "se funde", "siempre",
             "de la guía", "guía pública", "nuevo diseño", "exclusiv", "único", "única",
+            // M-2 of the task 4 review: in «Transparente» what shows more is the app's layer, never the wallpaper.
+            "fondo de cada estilo", "con los colores del fondo de pantalla",
         )
         for ((name, text) in texts) {
             assertTrue(name, text.length > 40)
@@ -105,6 +107,12 @@ class PublishedTextsTest {
             assertTrue("$name: ${ForbiddenWords.problems(text)}", ForbiddenWords.problems(text).isEmpty())
             assertTrue("$name: ${lookNameProblems(text)}", lookNameProblems(text).isEmpty())
         }
+        // The bar's line is the same in the README, GitHub and «Novedades» (M-2: «el fondo de la app», «la paleta …»).
+        val line = "La barra de abajo flota, redondeada, en «Degradado», «Cristal», «Vidrio» y «Transparente». En los tres " +
+            "últimos, desde Android 12, deja ver más el fondo de la app; con «Personalizado» y con la paleta «Colores del " +
+            "fondo de pantalla», al menos tanto como antes. «Sólido» no cambia."
+        assertEquals(line, texts.getValue("Novedades"))
+        assertTrue(line in texts.getValue("GitHub") && texts.getValue("README, Aspecto (2.1.1)").endsWith(line))
         val news = texts.getValue("Novedades")
         assertTrue(news.length.toString(), news.length < 500 && news.codePointCount(0, news.length) < 500)
     }
@@ -113,7 +121,7 @@ class PublishedTextsTest {
         val notes = read("docs/superpowers/handoff/2026-11-24-clavero-2.1.1-notas.md")
         fun block(after: String) = notes.substringAfter(after).substringAfter("```\n").substringBefore("\n```").trim()
         val readme = read("README.md")
-        assertTrue("**Pruebas de la 2.1.1.**" in readme && "## Google Play, «Novedades»" in notes)
+        assertTrue("**Pruebas de la 2.1.1.**" in readme && "## GitHub" in notes && "## Google Play, «Novedades»" in notes)
         fun line(prefix: String) = readme.lines().single { it.startsWith(prefix) }
         return mapOf(
             "GitHub" to block("## GitHub"),
