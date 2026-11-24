@@ -6,3 +6,5 @@ Rama `ccr-0aa27f95-u038cd`, desde `main` en `a29d88c` (etiqueta `v2.1.0`). Dise�
 - Abogado decision (O-1): O-A2 de la 2.1 se sustituye solo para la barra de abajo, con las condiciones de O-2; lo demás de O-A2 sigue.
 - Ruling (R-6): si Android pide quitar animaciones, la cápsula no hace ninguna transición, tampoco la pastilla.
 - Plan (24-11-2026): `docs/superpowers/plans/2026-11-24-clavero-2.1.1-barra.md`, 4 tareas. Ruling del controlador: el contenido pasa bajo la cápsula solo en las cinco pestañas (`UNDER_BAR_ROUTES`); las demás pantallas terminan encima, como en la 2.1 (objetivo 3, O-4 y O-5 sin riesgo en formularios e imágenes).
+- Task 1 BLOCKED by measurement: over the O-5 list the capsule needs 0.77-0.89 (> 2.1 bar); over the background alone ~0.45-0.55. Owner decision (24-11-2026): option B («B»): the content never passes under the capsule; the capsule floats over the app background, more translucent. Design: «Corrección (dueño, 24-11-2026): opción B».
+- Ruling: pill = `primary` with `onPrimary` (secondaryContainer reaches only 1.2-1.4:1 against the capsule).
