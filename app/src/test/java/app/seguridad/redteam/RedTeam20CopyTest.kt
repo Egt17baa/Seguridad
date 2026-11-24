@@ -76,12 +76,43 @@ class RedTeam20CopyTest {
 
     private val threads = ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
 
-    /** Bytes allocated by every live thread while [block] runs (garbage included): an upper bound of its peak. */
+    /**
+     * Bytes allocated while [block] runs (garbage included): an upper bound of its peak. Counted thread by thread (2.1,
+     * branch re-review N-4): for each thread alive after the block, what it allocated since before it (all of it if it
+     * started inside), so a thread that ends inside the block never makes the sum smaller.
+     */
     private fun allocatedBy(block: () -> Unit): Long {
-        fun total() = threads.getThreadAllocatedBytes(threads.allThreadIds).filter { it > 0 }.sum()
-        val before = total()
+        fun perThread(): Map<Long, Long> {
+            val ids = threads.allThreadIds
+            val bytes = threads.getThreadAllocatedBytes(ids)
+            return ids.indices.filter { bytes[it] >= 0 }.associate { ids[it] to bytes[it] }
+        }
+        val before = perThread()
         block()
-        return total() - before
+        return perThread().entries.sumOf { (id, after) -> (after - (before[id] ?: 0L)).coerceAtLeast(0L) }
+    }
+
+    /**
+     * 2.1, branch re-review N-4: a thread that was alive before [allocatedBy] and ends inside it (here one that allocated
+     * 64 MiB first) must not make the measure negative; nor must it hide what the block itself allocates.
+     */
+    @Test fun allocatedByIsNotFooledByAThreadThatEndsInside() {
+        val release = java.util.concurrent.CountDownLatch(1)
+        val ready = java.util.concurrent.CountDownLatch(1)
+        val sink = java.util.concurrent.atomic.AtomicLong()
+        val worker = Thread {
+            repeat(64) { sink.addAndGet(ByteArray(1 shl 20).size.toLong()) }
+            ready.countDown()
+            release.await()
+        }
+        worker.start()
+        ready.await()
+        val bytes = allocatedBy {
+            release.countDown()
+            worker.join()
+            repeat(4) { sink.addAndGet(ByteArray(1 shl 20).size.toLong()) }
+        }
+        assertTrue("$bytes", bytes >= 4L shl 20)
     }
 
     /** One entry whose tags are [n] distinct short strings: about 7 bytes of JSON each. */
@@ -141,6 +172,7 @@ class RedTeam20CopyTest {
         // The real vault of the same size imports, and is what the hostile copy is measured against.
         val realBytes = allocatedBy { runBlocking { store("real").apply { load() }.importReplace(ByteArrayInputStream(real), RT20_MASTER.toCharArray()) } }
         var refused: String? = null
+        assertTrue("$realBytes", realBytes > 0)
         val hostileBytes = allocatedBy {
             runBlocking {
                 try {
