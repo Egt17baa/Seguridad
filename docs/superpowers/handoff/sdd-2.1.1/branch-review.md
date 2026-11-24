@@ -133,3 +133,87 @@ Modelo de amenaza: quien tiene el móvil desbloqueado, otra app (superposiciones
 - Los KDoc de `HealthScreen` (`:64-70`, O-3) y de la cápsula (`FloatingBar.kt:71-83`, O-7 y R-1; BR-5).
 - La R-5 del dictamen del principio, que la opción B no deja cumplir tal cual (riesgo 3).
 - D-2 frente a O-2 (riesgo 4). Y «una pastilla detrás de la pestaña elegida» (README `:86` y las casillas), cuando la pastilla está detrás del icono (D-3): confirmar que describe bien lo que se ve.
+
+## Repaso de los arreglos (4dd05c6)
+
+- **Fecha:** 24-11-2026. Commit `4dd05c6` sobre `3629fce`; informe `.superpowers/sdd/2026-11-24-clavero-2.1.1-barra/branch-fixes-report.md`.
+- **Método:** solo lectura. Leí el diff `3629fce..4dd05c6` (12 archivos, +359 −76) y el código que queda. No ejecuté Gradle: me apoyo en las cifras del coordinador (2 733 tests y `jvm-check` 2 610, 0 fallos).
+
+### Veredicto del repaso
+
+Con cambios, solo menores. BR-1 a BR-7 están arreglados, y sus tests son reales. Quedan BR-8 y BR-9 (Minor), para antes de `code-review`. Si se arreglan como se propone abajo, no hace falta otro repaso del director.
+
+### BR-1 a BR-7
+
+- **BR-1, arreglado.**
+  - Hay dos guardas. Una es `forget()` en `beforeReplace` (`AppContainer.kt:436`). La otra es la generación del almacén, guardada en `Check.vault` y comparada en `isNow()` y `stillOpen()` (`LeakResults.kt:76`, `:120`, `:134`; `AppContainer.kt:969`).
+  - La generación solo sube al crear, al importar y al borrar (`VaultStore.kt:577`, `:1632`, `:1739`). Nunca sube al abrir, al editar ni al cambiar la maestra, así que no olvida de más.
+  - Una contraseña equivocada falla antes de `nextGeneration()` y de `beforeReplace`: el resultado se queda. Un fallo posterior (disco lleno) solo pierde el resultado, que es el lado seguro.
+  - Sin bloqueos cruzados. `beforeReplace` llama a `forget()` con el `mutex` del almacén tomado, pero `forget()` no espera nada (no hace `join`). Y la comprobación nunca toma ese `mutex`.
+  - Tests reales. `AppContainerTest` (`:215`) importa sobre la bóveda abierta y comprueba tres cosas: la época no cambia, `state.value === EMPTY` en el acto, y una comprobación en marcha no envía más. `LeakResultsTest.anotherVaultInMemoryForgetsIt` (`:271`) y `aReplacedVaultStopsTheRunningCheck` (`:284`) prueban la generación por su cuenta.
+  - La casilla del README (`:494`) y los KDoc (`LeakResults.kt:17-34`, `HealthScreen.kt:64-70`, `AppContainer.kt:963-967`) están al día y son ciertos.
+- **BR-2, arreglado.**
+  - El `Column` de cada pestaña va dentro de `LocalRippleConfiguration provides panelRipple(animationsOn)` (`FloatingBar.kt:301`), como en `Components.kt:99` y `:162`.
+  - El color propio del *ripple* (`onPrimary` en la pestaña elegida) sigue mandando sobre el de la configuración.
+  - Lo fija `FloatingBarTest.pressingTheChosenTabShows`.
+- **BR-3, arreglado en el caso de la revisión, con un hueco (BR-8).**
+  - `before?.join()` va antes de la primera petición (`LeakResults.kt:136`), y `ensureActive()` antes y después de cada una (`:138`, `:146`).
+  - No hay interbloqueo. `before` es siempre una comprobación más vieja, ya cancelada o terminada (`:116`, `:179`). Su petición en vuelo acaba en 15 s como mucho (`HttpClient.kt:21`). El `join` corre en `appScope`, nunca en el hilo principal.
+  - Los `chars` se siguen borrando siempre (`:140-145`): `ensureActive()` va antes de `toCharArray()` y después del `finally`. `last` solo guarda el `Job`, y un `Job` terminado no retiene las contraseñas.
+  - Tests reales: `LeakResultsTest.aNewCheckWaitsForTheOneBeforeToEnd` (`:300`), con una petición que no se deja cortar, y `RedTeam20Recheck3Test.resistsTwoChecksNeverSendAtOnce` (`:558`), con MockWebServer y como mucho una petición en vuelo.
+- **BR-4, arreglado.**
+  - `NavigationBar` es solo `androidx.compose.material3.NavigationBar(content = content)` (`Components.kt:243-245`).
+  - Es la misma llamada que hacía «Sólido» en la 2.1 (la rama `!translucent`), así que «Sólido» queda idéntico.
+  - Lo fija `FloatingBarTest.theSolidBarIsMaterialsAndTheMeasuresAreOwn` (`:142`).
+- **BR-5, arreglado.** El KDoc (`FloatingBar.kt:77-81`) dice lo mismo que las notas y remite a ellas. El mismo test veta las frases viejas.
+- **BR-6, arreglado.** Notas, `:44`.
+- **BR-7, arreglado.**
+  - (a) `RedTeam20Recheck2Test` mide, con todos los accesos filtrados, `breached` en cada composición y el toque entero hasta el `launch`. El toque usa un ámbito ya cancelado: no corre nada y no sale ninguna petición.
+  - (b) `RedTeam20Recheck3Test` (`:507`, `:531`) lleva el bucle real, con el `PwnedPasswords` real y MockWebServer: 1 petición de 5, tras `cancel()` y tras un bloqueo. Sus esperas negativas (200-300 ms) solo podrían dar un falso verde en una máquina muy lenta, nunca un falso rojo.
+  - (c) `AppContainerTest` (`:190`, `:200`, `:215`) prueba el olvido con el contenedor real: al bloquear, al abrir otra bóveda y al importar.
+
+### Hallazgos nuevos
+
+**BR-8 (Minor). «Una a la vez» sigue sin cumplirse si hay una comprobación intermedia cancelada.**
+- **Dónde:** `LeakResults.kt:136` y `:155-163`. La comprobación nueva espera solo a la anterior (`last`). Si esa anterior se cancela mientras espera en `before?.join()`, el `join` se corta y termina en el acto, sin esperar a la suya.
+- **Escenario:**
+  1. Red lenta. La comprobación A tiene su petición en vuelo.
+  2. Un bloqueo (o una importación, BR-1) la olvida.
+  3. Se abre la bóveda y se pulsa «Comprobar»: la comprobación B espera a A («Comprobando 0 de N…»).
+  4. El usuario pulsa «Cancelar» y luego «Comprobar» (C).
+  5. C solo espera a B, que ya terminó, y envía mientras la petición de A sigue en vuelo (hasta 15 s).
+- **Impacto:** el mismo que el de BR-3. Ninguno de privacidad; solo la exactitud de «una a la vez» (README `:27`) y del KDoc (`LeakResults.kt:32-33`).
+- **Arreglo:**
+  - Que cada comprobación termine después de la anterior: en el `finally`, antes de soltar `job`, `withContext(NonCancellable) { before?.join() }`.
+  - No puede haber interbloqueo, porque `before` es siempre más vieja.
+  - Test: A con una petición que no se deja cortar; `forget()`; B; `cancel()` de B; C. C no llama a `times` hasta que acaba A (`most == 1`).
+
+**BR-9 (Minor, de forma). Un KDoc huérfano en `FloatingBarTest`.**
+- **Dónde:** `FloatingBarTest.kt:134-137`. El KDoc de `pressingTheChosenTabShows` (m-3 de la tarea 2) quedó encima del de `theSolidBarIsMaterialsAndTheMeasuresAreOwn` (`:138-141`), y `pressingTheChosenTabShows` se quedó sin el suyo.
+- **Arreglo:** devolverlo encima de `pressingTheChosenTabShows`, añadiendo BR-2. Opcional: sangrar el `Column` dentro del `CompositionLocalProvider` (`FloatingBar.kt:301-336`), que ahora cierra con `} }`.
+
+**Nota, sin hallazgo.**
+- «Importar como bóveda nueva» pasa por el `beforeReplace` del almacén nuevo (`AppContainer.kt:622`), así que olvida el resultado de la bóveda abierta antes del cambio de bóveda.
+- Si la importación sale bien, el cambio de bóveda lo olvidaría igual.
+- Si falla después de comprobar la copia (disco lleno), la bóveda abierta pierde su resultado. Es el lado seguro, y los textos lo permiten: dicen hasta cuándo, como mucho.
+
+### Revisión experto-seguridad-cripto (repaso)
+
+- **Olvido:** tres guardas independientes. La época (`AppContainer.kt:545`), la generación (`LeakResults.kt:76`, `:134`) y los `forget()` (`AppContainer.kt:436`, `:971`). El resultado de otra bóveda en memoria no se enseña (`valid`) ni se queda (`drop`, `current`).
+- **Red:** ninguna consulta nueva. Tras `cancel()`, un bloqueo o una importación no sale ninguna petición más (`LeakResults.kt:138-147`; `RedTeam20Recheck3Test.kt:507`, `:531`; `AppContainerTest.kt:215`). «Una a la vez»: BR-8.
+- **Secretos en memoria:** los `chars` se borran siempre (`LeakResults.kt:140-145`). El `Job` que queda en `last` no retiene `groups` una vez terminado.
+- **Superficie:** no cambian el manifiesto, la red, los formatos, los permisos ni las dependencias (`git show --stat 4dd05c6`). «Sólido» sigue idéntico a la 2.1.
+- **Registros y nombres:** en lo añadido no hay registros ni nombres de modelos.
+
+### Revisión Ingeniero Móvil Senior (repaso)
+
+- **Concurrencia:** el orden de los cerrojos no cambia: primero `LeakResults.lock` y luego `epochLock`, nunca al revés. `forget()` y `cancel()` no esperan. El `join` va dentro de la corrutina, en `IO`.
+- **Compose:** BR-2 no añade nodos (`CompositionLocalProvider` no emite ninguno), así que el `Layout` de la cápsula sigue midiendo cinco pestañas. BR-4 deja «Sólido» con la llamada de la 2.1.
+- **Tests:** `AppContainerTest` usa el contenedor real con `backgroundScope` y avanza con `runCurrent`. Con `kotlinx-coroutines-test` 1.10.2, `runTest` da 60 s, de sobra para sus derivaciones.
+
+### Textos para el Abogado Digital (cambios del repaso)
+
+- README `:494`: la frase nueva de la casilla («Con el resultado a la vista, Ajustes → «Importar copia» … se para.»).
+- Notas, `:44` (BR-6).
+- KDoc, para confirmar que son ciertos: `FloatingBar.kt:73-86` (BR-5), `Components.kt:238-241` (BR-4), `LeakResults.kt:17-34`, `HealthScreen.kt:64-70` y `AppContainer.kt:963-967` (BR-1).
+- `LEAK_RESULT_KEPT`, `privacidad.html:60` y README `:27` siguen siendo ciertos con BR-1, porque dicen hasta cuándo, como mucho. Si el Abogado quiere: «o la sustituyes con una copia».
