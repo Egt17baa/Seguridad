@@ -1343,7 +1343,10 @@ class PlatformSourcesTest {
             for (api in listOf("RuntimeShader", "SensorManager", "pointerInput", "rememberInfiniteTransition")) assertFalse("$api in $path", api in src)
         }
         assertFalse(Regex("""animate\w*AsState""").containsMatchIn(main("ui/theme/Glass.kt")))
-        for ((path, src) in mainDir("")) assertFalse("WallpaperManager in $path", "WallpaperManager" in src)
+        // Branch review M-3: nor by the name of its service.
+        for ((path, src) in mainDir("")) {
+            for (api in listOf("WallpaperManager", "WALLPAPER_SERVICE", "\"wallpaper\"")) assertFalse("$api in $path", api in src)
+        }
     }
 
     /**
@@ -1396,33 +1399,41 @@ class PlatformSourcesTest {
 
     /**
      * 2.1, Aspecto (task 3; O-A3, O-A4, B-2): «Transparente» asks Android to draw the wallpaper behind the activity's own
-     * window, at run time, and blurs it there from Android 12. The window stays secure (secureWindow() before any
-     * content, and the wallpaper's switch never touches FLAG_SECURE), no window or theme of the app is see-through to
-     * other apps, nothing reads the wallpaper's image and the manifest asks for nothing new.
+     * window, at run time, never blurred (owner, 24-11-2026: the blur behind a window needs a translucent one, which O-A4
+     * forbids) and never in multi-window (branch review I-1). The window stays secure (secureWindow() before any content,
+     * and the wallpaper's switch never touches FLAG_SECURE), no window or theme of the app is see-through to other apps,
+     * nothing reads the wallpaper's image and the manifest asks for nothing new.
      */
     @Test fun `2_1 the window shows the wallpaper at run time and stays secure`() {
         val activity = code("MainActivity.kt")
         val content = activity.indexOf("setContent {")
         assertTrue(activity.indexOf("secureWindow()") in 0 until content)
         assertTrue(activity.indexOf("val opaqueBackground = window.decorView.background") in 0 until content)
-        assertTrue("val blurOn = crossWindowBlurEnabled()" in activity)
-        assertTrue("SeguridadTheme(settings, wallpaperBlur = blurOn) {" in activity)
-        assertTrue("DisposableEffect(showWallpaper, blurOn) {" in activity)
-        assertTrue("applyWindowLook(window, windowLookFor(showWallpaper, Build.VERSION.SDK_INT, blurOn), opaqueBackground)" in activity)
-        assertFalse("val wallpaperBlur = false" in code("ui/theme/Theme.kt"))
+        assertTrue("val multiWindow = multiWindowNow(this)" in activity)
+        assertTrue("SeguridadTheme(settings, multiWindow = multiWindow) {" in activity)
+        assertTrue("val windowLook = windowLookFor(currentLook)" in activity)
+        assertTrue("DisposableEffect(windowLook) {" in activity)
+        assertTrue("applyWindowLook(window, windowLook, opaqueBackground)" in activity)
         val window = code("ui/theme/WallpaperWindow.kt")
         val apply = window.substringAfter("fun applyWindowLook(").substringBefore("\n}\n")
         assertFalse(apply, "FLAG_SECURE" in apply || "setFlags" in apply)
         assertTrue(apply, "window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
         assertTrue(apply, "window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)" in apply)
         assertTrue(apply, "window.setBackgroundDrawable(opaqueBackground)" in apply)
-        // Review of task 3 (minor 1): the listener is taken away in the very effect that adds it.
-        val listener = window.substringAfter("private fun crossWindowBlurNow(): Boolean {").substringBefore("\n}\n")
-        val effect = listener.substringAfter("DisposableEffect(windowManager) {")
-        assertTrue(listener, "windowManager.addCrossWindowBlurEnabledListener(listener)" in effect)
-        assertTrue(listener, "onDispose { windowManager.removeCrossWindowBlurEnabledListener(listener) }" in effect)
-        assertTrue(effect.indexOf("addCrossWindowBlurEnabledListener") < effect.indexOf("onDispose {"))
-        assertTrue("return crossWindowBlurNow()" in window.substringAfter("fun crossWindowBlurEnabled(): Boolean {").substringBefore("\n}\n"))
+        // The multi-window listener is taken away in the very effect that adds it.
+        val multi = window.substringAfter("fun multiWindowNow(activity: ComponentActivity): Boolean {").substringBefore("\n}\n")
+        val effect = multi.substringAfter("DisposableEffect(activity) {")
+        assertTrue(multi, "activity.addOnMultiWindowModeChangedListener(listener)" in effect)
+        assertTrue(multi, "onDispose { activity.removeOnMultiWindowModeChangedListener(listener) }" in effect)
+        assertTrue(effect.indexOf("addOnMultiWindowModeChangedListener") < effect.indexOf("onDispose {"))
+        // The theme and the window both come from lookFor with multiWindow (WallpaperWindowTest checks they agree).
+        assertTrue("multiWindow = multiWindow," in code("ui/theme/Theme.kt"))
+        // Owner decision (24-11-2026): nothing blurs behind the window, anywhere in the app.
+        for ((path, src) in mainDir("")) {
+            for (api in listOf("setBackgroundBlurRadius", "CrossWindowBlur", "crossWindowBlur", "wallpaperBlur", "FLAG_BLUR_BEHIND", "setBlurBehindRadius")) {
+                assertFalse("$api in $path", api in src)
+            }
+        }
         var dir: File? = File(".").absoluteFile
         while (dir != null && !File(dir, "app/src/main/AndroidManifest.xml").isFile) dir = dir.parentFile
         val mainSrc = File(dir, "app/src/main")

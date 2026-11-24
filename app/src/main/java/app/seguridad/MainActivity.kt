@@ -18,10 +18,9 @@ import app.seguridad.ui.ClipboardHistoryNotice
 import app.seguridad.ui.NoLearningInput
 import app.seguridad.ui.theme.SeguridadTheme
 import app.seguridad.ui.theme.applyWindowLook
-import app.seguridad.ui.theme.crossWindowBlurEnabled
 import app.seguridad.ui.theme.currentLook
 import app.seguridad.ui.theme.isDark
-import app.seguridad.ui.theme.showsWallpaper
+import app.seguridad.ui.theme.multiWindowNow
 import app.seguridad.ui.theme.windowLookFor
 import app.seguridad.vault.AWAY_BACKSTOP_MS
 import app.seguridad.vault.LockReason
@@ -49,20 +48,20 @@ class MainActivity : FragmentActivity() {
         setContent {
             val settings by container.settings.settings.collectAsStateWithLifecycle()
             val dark = settings.theme.isDark()
-            // Whether the phone blurs between windows now (Android 12+): the window blurs the wallpaper with it.
-            val blurOn = crossWindowBlurEnabled()
+            // Split screen or a floating window: «Transparente» does not show the wallpaper then (another app is behind).
+            val multiWindow = multiWindowNow(this)
             // System bar icons follow the app's theme, not the phone's.
             DisposableEffect(dark) {
                 val style = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            SeguridadTheme(settings, wallpaperBlur = blurOn) {
-                // «Transparente»: the window shows the wallpaper (blurred when it can) and stops when the look is opaque or
-                // another style; the next effect puts its own, so nothing to undo on dispose (ui/theme/WallpaperWindow.kt).
-                val showWallpaper = showsWallpaper(currentLook)
-                DisposableEffect(showWallpaper, blurOn) {
-                    applyWindowLook(window, windowLookFor(showWallpaper, Build.VERSION.SDK_INT, blurOn), opaqueBackground)
+            SeguridadTheme(settings, multiWindow = multiWindow) {
+                // «Transparente»: the window shows the wallpaper (sharp) and stops when the look is opaque, in multi-window
+                // or another style; the next effect puts its own, so nothing to undo on dispose (ui/theme/WallpaperWindow.kt).
+                val windowLook = windowLookFor(currentLook)
+                DisposableEffect(windowLook) {
+                    applyWindowLook(window, windowLook, opaqueBackground)
                     onDispose { }
                 }
                 // A7: no keyboard learns from any field, dialogs included. A14: the clipboard notice, for every screen.

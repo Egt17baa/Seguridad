@@ -65,8 +65,8 @@ def background(s, size, wp=None):
     if not s["drawsBackground"]:
         return Image.new("RGBA", size, rgba(bg["top"]))
     if s["wallpaperBehind"]:
-        under = wp.filter(ImageFilter.GaussianBlur(24))  # Android 12+, si el móvil lo permite
-        return Image.alpha_composite(under, vgradient(size, bg["top"], bg["bottom"], s["layerAlpha"]))
+        # Nítido: Android no difumina el fondo de pantalla detrás de la ventana (decisión del dueño, 24-11-2026).
+        return Image.alpha_composite(wp, vgradient(size, bg["top"], bg["bottom"], s["layerAlpha"]))
     img = vgradient(size, bg["top"], bg["bottom"])
     if s["blobs"]:
         for b in bg["blobs"]:
@@ -84,7 +84,13 @@ def panel(base, s, level, box, radius, blur):
         sh = Image.new("RGBA", (w, h), (0, 0, 0, round(255 * (0.10 if s["dark"] else 0.06))))
         base.paste(Image.alpha_composite(base.crop((x0, y0 + 2, x1, y1 + 2)), sh), (x0, y0 + 2), mask)
     region = base.crop(box)
-    if blur and s["translucent"]:
+    if blur and s["translucent"] and s["wallpaperBehind"]:
+        # La barra o el diálogo redibujan debajo la capa de la app (el degradado, casi liso), no la imagen: el fondo de
+        # pantalla se sigue viendo nítido, atenuado otra vez por esa capa.
+        bg = s["background"]
+        layer = vgradient((W, H), bg["top"], bg["bottom"], s["layerAlpha"]).crop(box)
+        region = Image.alpha_composite(region, layer)
+    elif blur and s["translucent"]:
         region = region.filter(ImageFilter.GaussianBlur(16))
     fill = Image.new("RGBA", (w, h), rgba(p["color"], p["alpha"]))
     region = Image.alpha_composite(region, fill)
@@ -147,7 +153,9 @@ def draw(s, wp=None, wp_name=""):
     # Etiqueta
     modo = "oscuro" if s["dark"] else "claro"
     lab = f"Aproximación · {s['label']} · Noche, {modo}"
-    lines = ["No es una captura: colores exactos, dibujo aproximado.", "Android 12+, con difuminado."]
+    lines = ["No es una captura: colores exactos, dibujo aproximado.", "Android 12+: barras y diálogos difuminan el fondo de la app."]
+    if s["wallpaperBehind"]:
+        lines[1] = "Fondo de pantalla nítido, también bajo la barra y el diálogo."
     if wp_name:
         lines.insert(0, f"Fondo de pantalla {'liso' if wp_name == 'liso' else 'de rayas'}, inventado.")
     top = H - 26 - 16 * len(lines)

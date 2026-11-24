@@ -27,20 +27,23 @@ class AppearanceTextsTest {
     }
 
     @Test fun theFoldedTextsAreTheLawyersOnes() {
+        // Branch review (24-11-2026): the bars and the dialogs blur the app's background, as 2.0 said.
         assertEquals(
-            "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan lo que tienen " +
-                "detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. «Reducir " +
-                "transparencias» y «Alto contraste» hacen opacos todos los paneles.",
+            "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan el fondo de la " +
+                "app que tienen detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. " +
+                "«Reducir transparencias» y «Alto contraste» hacen opacos todos los paneles.",
             STYLE_MORE,
         )
+        // Owner decision (24-11-2026): the wallpaper is sharp; branch review I-1: not in split screen or a floating window.
         assertEquals(
-            "La app no lee la imagen del fondo de pantalla ni pide permisos: Android la dibuja detrás de la app. Desde " +
-                "Android 12, si el móvil lo permite, se ve difuminada. Quien mire la pantalla verá también tu fondo de " +
-                "pantalla. Con un fondo de pantalla animado, el móvil puede gastar algo más de batería. Como en toda la " +
-                "app, sin capturas de pantalla. Con «Reducir transparencias» o «Alto contraste», el fondo de pantalla " +
-                "deja de verse.",
+            "La app no lee la imagen del fondo de pantalla ni pide permisos: Android la dibuja detrás de la app. Se ve " +
+                "nítida, atenuada por una capa de color. Quien mire la pantalla verá también tu fondo de pantalla. Con un " +
+                "fondo de pantalla animado, el móvil puede gastar algo más de batería. En pantalla dividida o en una " +
+                "ventana flotante, el fondo de pantalla no se ve. Como en toda la app, sin capturas de pantalla. Con " +
+                "«Reducir transparencias» o «Alto contraste», el fondo de pantalla deja de verse.",
             STYLE_TRANSPARENT_MORE,
         )
+        assertTrue("difumina" !in STYLE_TRANSPARENT_MORE)
         // R-A5: the intensity of the glass works on the three translucent styles (Palettes.kt, `nominal`), and says so.
         assertEquals(
             "La app ajusta los tonos para que el texto tenga contraste suficiente. La vista previa enseña el cambio antes " +
@@ -94,6 +97,6 @@ class AppearanceTextsTest {
         assertTrue(screen, "val underlay = if (look.wallpaperBehind) previewUnderlay(look, size) else null" in screen)
         assertTrue(screen, "onDrawBehind { underlay?.let { drawRect(it, size = size) } }" in screen)
         assertTrue(screen, ".drawBehind {" !in screen)
-        assertTrue(screen, "wallpaperBlur = current.wallpaperBlur" in screen)
+        assertTrue(screen, "multiWindow = current.multiWindow" in screen)
     }
 }

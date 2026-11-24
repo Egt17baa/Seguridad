@@ -27,10 +27,11 @@ import kotlin.math.roundToLong
  * - the opacity of each kind of panel is raised until that holds on the panel blended with the darkest and the lightest
  *   point of the background, and, for a bar, a dialog or a menu that does not blur, over pure white and pure black too
  *   (what scrolls behind it, R-C5).
- * 2.1, Aspecto: «Vidrio» starts its panels more see-through, and «Transparente» first finds how opaque the layer of the
- * background over the wallpaper must be for every text to read on it, at every point of the background, over pure white
- * and pure black ([AppColors.scrimAlpha]), and then measures its panels over that layer instead of over the background.
- * «Sólido» and «Degradado» take the colours of «Cristal» (their panels are opaque, ui/theme/Glass.kt).
+ * 2.1, Aspecto: «Vidrio» starts its panels more see-through, and «Transparente» first finds how opaque the layer it
+ * draws over the wallpaper (its gradient, without the blobs) must be for every text to read on it, at every point of
+ * that gradient, over pure white and pure black ([AppColors.scrimAlpha]), and then measures its panels over that layer
+ * instead of over the background. «Sólido» and «Degradado» take the colours of «Cristal» (their panels are opaque,
+ * ui/theme/Glass.kt), and so does «Transparente» whenever the wallpaper is not behind it (Glass.kt, lookFor).
  * The six palettes are chosen for Clavero (R-C9). «Personalizado» and the colours of the wallpaper go through the same
  * steps (R-C6). The tests measure the result on their own (PalettesTest, GlassContrastTest, TagPaletteThemeTest).
  */
@@ -53,8 +54,8 @@ data class WallpaperSeeds(val accentHue: Float, val backgroundHue: Float, val sa
 /**
  * The colours of a theme: the Material [scheme] (its surfaces are the opaque colours of the panels), the [status]
  * colours, the [background] with its blobs and how opaque each kind of panel is ([panelAlpha]). [highlightAlpha] is the
- * white of the highlight at the top of a panel; [border] and [borderWidth] (dp) its edge. [scrimAlpha] is how opaque the
- * layer of the background is over the wallpaper in «Transparente» (1 in the other styles).
+ * white of the highlight at the top of a panel; [border] and [borderWidth] (dp) its edge. [scrimAlpha] is the least
+ * opacity the layer of «Transparente» over the wallpaper needs (1 in the other styles); it is drawn at [Look.layerAlpha].
  */
 @Immutable
 data class AppColors(
@@ -81,7 +82,7 @@ fun AppColors.panelColor(level: PanelLevel): Color = when (level) {
 }
 
 /**
- * How opaque a panel of [level] is drawn: 1 with [opaque] panels («Sólido», «Reducir transparencias») or «Alto
+ * How opaque a panel of [level] is drawn: 1 with [opaque] panels («Sólido», «Degradado», «Reducir transparencias») or «Alto
  * contraste». A bar or an overlay that blurs ([blur]) has the background drawn again under it; one that does not (Android
  * 8 to 11, or before it knows where the background is) is more opaque, and at least [AppColors.floorAlpha].
  */
@@ -292,7 +293,7 @@ private fun nominal(level: PanelLevel, glass: GlassLevel, kind: ThemeStyle): Dou
     }
 }
 
-/** The least opacity of the layer of «Transparente», in hundredths. */
+/** The least opacity of the layer of «Transparente», in hundredths (owner, 24-11-2026: kept at 0.80; drawn at +0.06). */
 private const val SCRIM_FROM = 80
 
 private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
@@ -357,13 +358,18 @@ private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
     )
     fun TextTone.on(on: List<Long>): Long = tone.reaching(start, lighter = dark, ratio, on)
 
-    // «Transparente»: the background (the gradient and its blobs) is a layer over the wallpaper, which can be any colour,
-    // so pure white and pure black under each end of the gradient and under its darkest and lightest point. The layer is
-    // the least opacity, in hundredths from SCRIM_FROM, on which every text can be corrected to read (opaque in «Alto
-    // contraste»); its eight colours (those four points over white and over black) are then what a text and a panel sit on.
+    // «Transparente»: over the wallpaper the app draws its gradient alone, without the blobs (Glass.kt, drawsBlobs), as a
+    // layer; the wallpaper can be any colour, so pure white and pure black under each end of the gradient and under its
+    // darkest and lightest point channel by channel (branch review I-2: what is drawn, not the background with blobs).
+    // The layer is the least opacity, in hundredths from SCRIM_FROM, on which every text can be corrected to read
+    // (opaque in «Alto contraste»); its eight colours (those four points over white and over black) are then what a text
+    // and a panel sit on. It is drawn a little more opaque still (Look.layerAlpha), which only brings it nearer the
+    // gradient, also measured. The opaque background with its blobs («Transparente» made opaque) stays in `against`.
     // The tag bound is not asked of the bare layer: tags sit on the panels, and every panel over it is checked below.
     val transparent = spec.kind == ThemeStyle.TRANSPARENT
-    fun layerAt(a: Float): List<Long> = listOf(top, bottom, bgDarkest, bgLightest).flatMap { e -> listOf(blend(e, a.toDouble(), WHITE), blend(e, a.toDouble(), BLACK)) }
+    val (gradientDarkest, gradientLightest) = bounds(BackgroundSpec(top, bottom, emptyList()))
+    fun layerAt(a: Float): List<Long> =
+        listOf(top, bottom, gradientDarkest, gradientLightest).flatMap { e -> listOf(blend(e, a.toDouble(), WHITE), blend(e, a.toDouble(), BLACK)) }
     var scrim = 1f
     if (transparent && !hc) {
         fun readsOn(a: Float) = (against + layerAt(a)).let { on -> textTones.all { t -> meets(t.on(on), t.ratio, on) } }

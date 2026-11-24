@@ -88,18 +88,21 @@ import kotlinx.coroutines.launch
 // 2.1, Aspecto (task 4): the five lines and the folded texts are the §4 of the Abogado's opinion, word for word
 // (sdd-2.1/abogado-2.1-aspecto.md): the blur only of the three translucent styles (O-A5), «la imagen del fondo de
 // pantalla» and «atenuado» for «Transparente», no promise of contrast, no other system's look named (O-A1).
+// Branch review (24-11-2026), for truth: the wallpaper is never blurred (owner decision), it is not shown in multi-window
+// (I-1), and STYLE_MORE says again what 2.0 said («el fondo de la app que tienen detrás»); for the Abogado's final review.
 internal const val STYLE_SOLID_SHORT = "Sólido: paneles opacos sobre un fondo liso, sin transparencias."
 internal const val STYLE_GRADIENT_SHORT = "Degradado: paneles opacos, sin transparencias, sobre un fondo de color en degradado."
 internal const val STYLE_GLASS_SHORT = "Cristal: paneles translúcidos sobre un fondo de color."
 internal const val STYLE_GLASS_STRONG_SHORT = "Vidrio: como «Cristal», con paneles más translúcidos y bordes iluminados."
 internal const val STYLE_TRANSPARENT_SHORT = "Transparente: deja ver, atenuado, el fondo de pantalla del móvil detrás de la app."
-internal const val STYLE_MORE = "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan lo que tienen " +
-    "detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. «Reducir transparencias» " +
+internal const val STYLE_MORE = "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan el fondo de " +
+    "la app que tienen detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. «Reducir transparencias» " +
     "y «Alto contraste» hacen opacos todos los paneles."
 internal const val STYLE_TRANSPARENT_MORE = "La app no lee la imagen del fondo de pantalla ni pide permisos: Android la dibuja detrás " +
-    "de la app. Desde Android 12, si el móvil lo permite, se ve difuminada. Quien mire la pantalla verá también tu fondo de " +
-    "pantalla. Con un fondo de pantalla animado, el móvil puede gastar algo más de batería. Como en toda la app, sin " +
-    "capturas de pantalla. Con «Reducir transparencias» o «Alto contraste», el fondo de pantalla deja de verse."
+    "de la app. Se ve nítida, atenuada por una capa de color. Quien mire la pantalla verá también tu fondo de pantalla. " +
+    "Con un fondo de pantalla animado, el móvil puede gastar algo más de batería. En pantalla dividida o en una ventana " +
+    "flotante, el fondo de pantalla no se ve. Como en toda la app, sin capturas de pantalla. Con «Reducir transparencias» " +
+    "o «Alto contraste», el fondo de pantalla deja de verse."
 internal const val WALLPAPER_SHORT = "Usa los colores que Android calcula del fondo de pantalla (desde Android 12)."
 internal const val WALLPAPER_MORE = "La app no lee la imagen del fondo de pantalla ni pide permisos. Ajusta los tonos para que el texto tenga contraste suficiente."
 internal const val WALLPAPER_FROM_12 = "«Colores del fondo de pantalla», desde Android 12."
@@ -286,7 +289,7 @@ private fun Preview(settings: Settings, custom: CustomPalette?) {
         if (custom == null) current
         else lookFor(
             settings.style, PaletteId.CUSTOM, custom, settings.reduceTransparency, settings.highContrast, dark,
-            sdk = Build.VERSION.SDK_INT, wallpaperBlur = current.wallpaperBlur,
+            sdk = Build.VERSION.SDK_INT, multiWindow = current.multiWindow,
         )
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

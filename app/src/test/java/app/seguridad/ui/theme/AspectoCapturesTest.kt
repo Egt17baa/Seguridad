@@ -10,8 +10,8 @@ import org.junit.Test
 import java.io.File
 
 /**
- * 2.1, Aspecto (task 5): the exact colours and opacities of each style in «Noche», light and dark, on Android 12+ with
- * the blur, as the app works them out. They are what the owner's approximate pictures of each style are drawn from
+ * 2.1, Aspecto (task 5): the exact colours and opacities of each style in «Noche», light and dark, on Android 12+ (the
+ * bars and dialogs blur the app's background; the wallpaper of «Transparente» is never blurred), as the app works them out. They are what the owner's approximate pictures of each style are drawn from
  * (there is no emulator here, and FLAG_SECURE blocks screenshots on the phone). The values go to the folder named by the
  * environment variable ASPECTO_CAPTURAS, only when it is set: a normal run writes nothing.
  */
@@ -21,7 +21,7 @@ class AspectoCapturesTest {
     private fun f(v: Float) = "%.4f".format(java.util.Locale.ROOT, v)
 
     private fun styleJson(style: ThemeStyle, dark: Boolean): String {
-        val look = lookFor(style, PaletteId.NIGHT, null, reduceTransparency = false, highContrast = false, dark = dark, sdk = 31, wallpaperBlur = true)
+        val look = lookFor(style, PaletteId.NIGHT, null, reduceTransparency = false, highContrast = false, dark = dark, sdk = 31)
         val c = look.colors
         val s = c.scheme
         val blobs = c.background.blobs.joinToString(",") {
@@ -46,13 +46,13 @@ class AspectoCapturesTest {
         assertEquals(10, all.size)
         // What the pictures rely on: only «Transparente» lets the wallpaper show, under a layer that is not opaque.
         for (st in STYLE_ORDER) {
-            val look = lookFor(st, PaletteId.NIGHT, null, reduceTransparency = false, highContrast = false, dark = true, sdk = 31, wallpaperBlur = true)
+            val look = lookFor(st, PaletteId.NIGHT, null, reduceTransparency = false, highContrast = false, dark = true, sdk = 31)
             assertEquals(st.name, st == ThemeStyle.TRANSPARENT, look.wallpaperBehind)
             assertTrue(st.name, look.layerAlpha in 0f..1f && (st == ThemeStyle.TRANSPARENT) == (look.layerAlpha < 1f))
         }
         // The blobs: «Cristal» and «Vidrio», and «Transparente» only once it is opaque (without the wallpaper).
         for (st in STYLE_ORDER) for (reduce in listOf(false, true)) {
-            val look = lookFor(st, PaletteId.NIGHT, null, reduceTransparency = reduce, highContrast = false, dark = true, sdk = 31, wallpaperBlur = true)
+            val look = lookFor(st, PaletteId.NIGHT, null, reduceTransparency = reduce, highContrast = false, dark = true, sdk = 31)
             val expected = st == ThemeStyle.GLASS || st == ThemeStyle.GLASS_STRONG || (st == ThemeStyle.TRANSPARENT && reduce)
             assertEquals("$st reduce=$reduce", expected, drawsBlobs(look))
         }

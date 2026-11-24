@@ -91,6 +91,21 @@ class PalettesTest {
         }
     }
 
+    /**
+     * 2.1, Aspecto, branch review M-2 (b): «Vidrio» and «Transparente» reach every target by themselves too, in every
+     * palette: the six, the 432 «Personalizado» and a fixed sample of the wallpaper's sweep (every seventh seed).
+     */
+    @Test fun theNewTranslucentStylesMeetTheirTargetsThemselves() {
+        val sweep = WALLPAPER_SWEEP.filterIndexed { i, _ -> i % 7 == 0 }
+        val bad = mutableListOf<String>()
+        for (style in listOf(ThemeStyle.GLASS_STRONG, ThemeStyle.TRANSPARENT)) for (dark in listOf(true, false)) for (high in listOf(false, true)) {
+            for (p in NAMED_PALETTES) if (!paletteMeets(p, null, dark, high, style = style)) bad += "$style $p dark=$dark alto=$high"
+            for (c in ALL_CUSTOM) if (!paletteMeets(PaletteId.CUSTOM, c, dark, high, style = style)) bad += "$style $c dark=$dark alto=$high"
+            for (w in sweep) if (!paletteMeets(PaletteId.WALLPAPER, null, dark, high, w, style)) bad += "$style $w dark=$dark alto=$high"
+        }
+        assertTrue("${bad.size}:\n" + bad.take(20).joinToString("\n"), bad.isEmpty())
+    }
+
     /** Review M-5: Ajustes names the palette that is drawn. */
     @Test fun theShownPaletteIsTheDrawnOne() {
         assertEquals(PaletteId.NIGHT, shownPalette(PaletteId.WALLPAPER, null, sdk = 30))
@@ -178,11 +193,10 @@ class PalettesTest {
             val c = case.colors(dark, high, style)
             if (!case.meets(dark, high, style)) assertEquals(what, colorsFor(PaletteId.NIGHT, null, dark, high, style = style), c)
             assertTrue(what, paletteMeets(PaletteId.NIGHT, null, dark, high, style = style))
-            // «Transparente» puts its panels over its layer, not over the background: measured in its own test below.
-            if (style != ThemeStyle.TRANSPARENT) {
-                val bad = failures(c, opaque = false)
-                assertTrue("$what:\n" + bad.take(6).joinToString("\n"), bad.isEmpty())
-            }
+            // «Transparente» puts its translucent panels over its layer, not over the background: measured in its own test
+            // below. Branch review M-2 (a): its colours with the panels opaque are measured here like every other style's.
+            val bad = failures(c, opaque = style == ThemeStyle.TRANSPARENT)
+            assertTrue("$what:\n" + bad.take(6).joinToString("\n"), bad.isEmpty())
         }
     }
 
@@ -220,10 +234,12 @@ class PalettesTest {
     }
 
     /**
-     * «Transparente»: the app's background is drawn at [AppColors.scrimAlpha] over the wallpaper, which can be anything,
-     * so every text reads on that layer over pure white and pure black, at both ends of the gradient; and every panel,
-     * at its opacity over that layer (with its highlight), keeps every text, the outline and the accent reading. The
-     * layer alone does it, without counting on the wallpaper. The other styles have no layer (1).
+     * «Transparente»: the app's background is drawn over the wallpaper, which can be anything, as its gradient alone (no
+     * blobs, Glass.kt `drawsBlobs`) at [Look.layerAlpha], never less opaque than [AppColors.scrimAlpha]. So every text
+     * reads on that layer over pure white and pure black, at both ends of the gradient and at its darkest and lightest
+     * point channel by channel, at [AppColors.scrimAlpha] and at the drawn opacity; and every panel, at its opacity over
+     * that layer (with its highlight), keeps every text, the outline and the accent reading. The layer alone does it,
+     * without counting on the wallpaper. The other styles have no layer (1).
      */
     @Test fun transparentLayerReadsOverAnyWallpaper() {
         for (case in styleCases) for (dark in listOf(true, false)) for (high in listOf(false, true)) {
@@ -231,22 +247,21 @@ class PalettesTest {
             val c = case.colors(dark, high, ThemeStyle.TRANSPARENT)
             val ratio = if (high) 7.0 else 4.5
             assertTrue("$what scrim ${c.scrimAlpha}", c.scrimAlpha >= 0.80f && c.scrimAlpha <= 1f)
-            val a = c.scrimAlpha.toDouble()
-            // The layer is the whole background (the gradient and its blobs): its ends and its darkest and lightest point.
-            val (darkest, lightest) = bgBounds(c.background)
-            val layer = listOf(c.background.top, c.background.bottom, darkest, lightest).flatMap { e -> listOf(over(e, a, WHITE), over(e, a, BLACK)) }
-            val texts = with(c.scheme) { listOf(onSurface, onSurfaceVariant, primary, secondary, tertiary, error) }.map(::argb) +
-                listOf(c.status.positive, c.status.negative, c.status.caution).map(::argb)
-            for (t in texts) for (l in layer) {
-                val r = TagPalette.contrast(t, l)
-                assertTrue("$what ${t.toString(16)} sobre la capa ${l.toString(16)}: $r", r >= ratio)
-            }
-            for (level in PanelLevel.entries) for (blur in listOf(true, false)) for (l in layer) {
-                val panel = over(argb(c.panelColor(level)), c.panelAlpha(level, opaque = false, blur = blur).toDouble(), l)
-                for (p in listOf(panel, over(WHITE, c.highlightAlpha.toDouble(), panel))) {
-                    for (t in texts) assertTrue("$what $level blur=$blur ${t.toString(16)} sobre ${p.toString(16)}", TagPalette.contrast(t, p) >= ratio)
-                    for (t in listOf(c.scheme.outline, c.scheme.primary).map(::argb)) {
-                        assertTrue("$what $level no texto ${t.toString(16)} sobre ${p.toString(16)}", TagPalette.contrast(t, p) >= 3.0)
+            for (a in listOf(c.scrimAlpha.toDouble(), minOf(1.0, c.scrimAlpha + 0.06))) {
+                val layer = drawnLayer(c, a)
+                val texts = with(c.scheme) { listOf(onSurface, onSurfaceVariant, primary, secondary, tertiary, error) }.map(::argb) +
+                    listOf(c.status.positive, c.status.negative, c.status.caution).map(::argb)
+                for (t in texts) for (l in layer) {
+                    val r = TagPalette.contrast(t, l)
+                    assertTrue("$what a=$a ${t.toString(16)} sobre la capa ${l.toString(16)}: $r", r >= ratio)
+                }
+                for (level in PanelLevel.entries) for (blur in listOf(true, false)) for (l in layer) {
+                    val panel = over(argb(c.panelColor(level)), c.panelAlpha(level, opaque = false, blur = blur).toDouble(), l)
+                    for (p in listOf(panel, over(WHITE, c.highlightAlpha.toDouble(), panel))) {
+                        for (t in texts) assertTrue("$what a=$a $level blur=$blur ${t.toString(16)} sobre ${p.toString(16)}", TagPalette.contrast(t, p) >= ratio)
+                        for (t in listOf(c.scheme.outline, c.scheme.primary).map(::argb)) {
+                            assertTrue("$what a=$a $level no texto ${t.toString(16)} sobre ${p.toString(16)}", TagPalette.contrast(t, p) >= 3.0)
+                        }
                     }
                 }
             }
@@ -254,6 +269,21 @@ class PalettesTest {
         }
         for (style in ThemeStyle.entries - ThemeStyle.TRANSPARENT) for (dark in listOf(true, false)) {
             assertEquals(1f, colorsFor(PaletteId.NIGHT, null, dark, false, style = style).scrimAlpha)
+        }
+    }
+
+    /**
+     * Branch review I-2: the layer is measured as it is drawn (the gradient alone), not with the blobs it does not have,
+     * so the texts of «Transparente» are corrected no further than that layer needs. In «Noche» dark, the secondary text
+     * stays a grey well below the main text (not almost white) and the accent stays gold (not cream), as in «Cristal».
+     */
+    @Test fun transparentTextsInNightDarkStayNearCristal() {
+        val glass = colorsFor(PaletteId.NIGHT, null, dark = true, highContrast = false, style = ThemeStyle.GLASS)
+        val clear = colorsFor(PaletteId.NIGHT, null, dark = true, highContrast = false, style = ThemeStyle.TRANSPARENT)
+        for (role in listOf("onSurfaceVariant", "primary")) {
+            val g = TagPalette.luminance(textColors(glass).getValue(role))
+            val t = TagPalette.luminance(textColors(clear).getValue(role))
+            assertTrue("$role: Transparente L=$t, Cristal L=$g", t - g <= 0.08)
         }
     }
 

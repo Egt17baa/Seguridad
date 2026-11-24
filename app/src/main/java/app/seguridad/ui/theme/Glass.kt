@@ -76,8 +76,8 @@ import kotlin.math.min
 /**
  * The look on screen: the [colors] of the palette, the [style], whether the panels are [opaque] («Sólido», «Degradado»,
  * «Reducir transparencias» or «Alto contraste»), whether the bars and overlays [blur] (Android 12+ and not opaque) and
- * whether the wallpaper is behind the app ([wallpaperBehind], «Transparente» only and not opaque); [wallpaperBlur] when
- * the window blurs that wallpaper (task 3).
+ * whether the wallpaper is behind the app ([wallpaperBehind]: «Transparente» only, not opaque and not in split screen or
+ * a floating window); [multiWindow] when the activity is in one of those (the preview of Ajustes asks it again).
  */
 @Immutable
 class Look(
@@ -86,7 +86,7 @@ class Look(
     val opaque: Boolean,
     val blur: Boolean,
     val wallpaperBehind: Boolean,
-    val wallpaperBlur: Boolean = false,
+    val multiWindow: Boolean = false,
 ) {
     val dark: Boolean get() = colors.dark
     val highContrast: Boolean get() = colors.highContrast
@@ -105,15 +105,11 @@ class Look(
     val strong: Boolean get() = style == ThemeStyle.GLASS_STRONG
 
     /**
-     * How opaque the background is drawn: in «Transparente» over the wallpaper, [AppColors.scrimAlpha] when the window
-     * blurs it and a little more when it does not (a sharp image behind); 1 in every other case.
+     * How opaque the background is drawn: in «Transparente» over the wallpaper, a little more than [AppColors.scrimAlpha]
+     * (owner, 24-11-2026: the wallpaper is never blurred, so the image behind is always sharp); 1 in every other case.
      */
     val layerAlpha: Float
-        get() = when {
-            !wallpaperBehind -> 1f
-            wallpaperBlur -> colors.scrimAlpha
-            else -> min(1f, colors.scrimAlpha + 0.06f)
-        }
+        get() = if (wallpaperBehind) min(1f, colors.scrimAlpha + SHARP_WALLPAPER_EXTRA) else 1f
 
     /** Whether a panel of [level] blurs: only bars and overlays, never a card or a row of a list. */
     fun blurs(level: PanelLevel): Boolean = blur && level != PanelLevel.CARD
@@ -129,10 +125,16 @@ class Look(
     val scheme: ColorScheme = if (drawsBackground) colors.scheme.copy(background = Color.Transparent) else colors.scheme
 }
 
+/** How much more opaque than [AppColors.scrimAlpha] the layer of «Transparente» is drawn, over a sharp wallpaper. */
+private const val SHARP_WALLPAPER_EXTRA = 0.06f
+
 /**
  * The [Look] for these settings on a phone with Android [sdk]. «Alto contraste» turns «Reducir transparencias» on; either
- * makes «Transparente» opaque, without the wallpaper (it is then «Cristal» opaque). [wallpaperBlur]: the window blurs the
- * wallpaper behind «Transparente» (task 3), only from Android 12.
+ * makes «Transparente» opaque, without the wallpaper (it is then «Cristal» opaque). [multiWindow]: the activity is in
+ * split screen or in a floating or desktop window, where what is under its window is another app, not only the wallpaper
+ * (branch review I-1, O-A4): «Transparente» is then «Cristal», translucent over the app's own background. Whenever the
+ * wallpaper is not behind it, «Transparente» takes the colours of «Cristal» (branch review M-1): those of its layer are
+ * corrected for a layer that is not drawn then.
  */
 fun lookFor(
     style: ThemeStyle,
@@ -143,22 +145,19 @@ fun lookFor(
     dark: Boolean,
     sdk: Int,
     wallpaper: WallpaperSeeds? = null,
-    wallpaperBlur: Boolean = false,
+    multiWindow: Boolean = false,
 ): Look {
-    val colors = colorsFor(palette, custom, dark, highContrast, wallpaper, style)
     val opaque = style == ThemeStyle.SOLID || style == ThemeStyle.GRADIENT || reduceTransparency || highContrast
-    val wallpaperBehind = style == ThemeStyle.TRANSPARENT && !opaque
+    val wallpaperBehind = style == ThemeStyle.TRANSPARENT && !opaque && !multiWindow
+    val colorStyle = if (style == ThemeStyle.TRANSPARENT && !wallpaperBehind) ThemeStyle.GLASS else style
+    val colors = colorsFor(palette, custom, dark, highContrast, wallpaper, colorStyle)
     return Look(
         colors, style, opaque,
         blur = !opaque && sdk >= Build.VERSION_CODES.S,
         wallpaperBehind = wallpaperBehind,
-        // As the window (windowLookFor): no blur between windows before Android 12, whatever the caller says.
-        wallpaperBlur = wallpaperBehind && wallpaperBlur && sdk >= Build.VERSION_CODES.S,
+        multiWindow = multiWindow,
     )
 }
-
-/** Whether the window lets the wallpaper show behind the app (task 3 sets the window from this). */
-fun showsWallpaper(look: Look): Boolean = look.wallpaperBehind
 
 internal val LocalLook = staticCompositionLocalOf {
     lookFor(ThemeStyle.GLASS, PaletteId.NIGHT, null, reduceTransparency = false, highContrast = false, dark = true, sdk = 26)
@@ -208,8 +207,9 @@ fun GlassBackground(modifier: Modifier = Modifier, content: @Composable () -> Un
 }
 
 /**
- * Whether the background of [look] has its three blobs: «Cristal», «Vidrio» and «Transparente» made opaque. Not
- * «Sólido» (a plain colour), «Degradado» (the gradient alone) nor «Transparente» over the wallpaper (the layer alone).
+ * Whether the background of [look] has its three blobs: «Cristal», «Vidrio» and «Transparente» without the wallpaper
+ * (made opaque, or in split screen or a floating window). Not «Sólido» (a plain colour), «Degradado» (the gradient
+ * alone) nor «Transparente» over the wallpaper (the layer alone).
  */
 internal fun drawsBlobs(look: Look): Boolean = look.drawsBackground && !look.wallpaperBehind && look.style != ThemeStyle.GRADIENT
 
@@ -382,8 +382,9 @@ fun Modifier.glass(level: PanelLevel, shape: Shape): Modifier {
 /**
  * The app's background as it is behind the panel at [at], blurred: a layer of the panel's size. Android 12+ only. In
  * «Transparente» it is the layer alone at [Look.layerAlpha] ([drawAppBackground]), not the wallpaper: what shows through
- * it is the wallpaper already under the app's layer, so it is dimmed twice (this layer and the app's); the panel's
- * opacity over that layer is the one the colours measure.
+ * it is whatever is already under the panel, the app's layer over the wallpaper and, behind a dialog or a sheet, the
+ * screen's own content too, so it is dimmed again by this layer; the panel's opacity over that is the one the colours
+ * measure (over the layer on pure white and pure black, and for a bar or an overlay, over anything).
  */
 @RequiresApi(Build.VERSION_CODES.S)
 private fun blurredBackdrop(scope: CacheDrawScope, look: Look, backdrop: Backdrop, at: Offset): GraphicsLayer {

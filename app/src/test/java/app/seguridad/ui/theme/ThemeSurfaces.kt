@@ -43,6 +43,17 @@ internal fun bgBounds(bg: BackgroundSpec): Pair<Long, Long> {
     return pick { it.min() } to pick { it.max() }
 }
 
+/**
+ * 2.1, Aspecto (branch review I-2): the layer of «Transparente» as it is drawn, at [alpha] over the wallpaper: the
+ * gradient alone (no blobs), its two ends and its darkest and lightest point channel by channel, each over pure white
+ * and pure black (any wallpaper lies between them, channel by channel).
+ */
+internal fun drawnLayer(c: AppColors, alpha: Double): List<Long> {
+    val bg = c.background
+    val (darkest, lightest) = bgBounds(BackgroundSpec(bg.top, bg.bottom, emptyList()))
+    return listOf(bg.top, bg.bottom, darkest, lightest).flatMap { e -> listOf(over(e, alpha, WHITE), over(e, alpha, BLACK)) }
+}
+
 internal data class Surface(val name: String, val argb: Long)
 
 /** Every colour a text of [c] can sit on, with panels opaque ([opaque]) or translucent. */

@@ -51,17 +51,17 @@ fun ThemeMode.isDark(): Boolean = when (this) {
 /**
  * The app's theme from [settings]: the mode, the style, the palette (the wallpaper's colours from Android 12, read from
  * the dynamic colour Android works out), «Reducir transparencias» and «Alto contraste»; and the background behind it all.
- * [wallpaperBlur]: the phone blurs between windows now (MainActivity reads it from the window manager, task 3 of the 2.1
- * Aspecto), so the window blurs the wallpaper behind «Transparente» and its layer can be a little less opaque.
+ * [multiWindow]: the activity is in split screen or a floating window (MainActivity follows it), where «Transparente»
+ * does not show the wallpaper (2.1, Aspecto, branch review I-1).
  */
 @Composable
-fun SeguridadTheme(settings: Settings, wallpaperBlur: Boolean, content: @Composable () -> Unit) {
+fun SeguridadTheme(settings: Settings, multiWindow: Boolean, content: @Composable () -> Unit) {
     val dark = settings.theme.isDark()
     val wallpaper = wallpaperFromSystem(settings.palette, dark)
-    val look = remember(settings.style, settings.palette, settings.custom, settings.reduceTransparency, settings.highContrast, dark, wallpaper, wallpaperBlur) {
+    val look = remember(settings.style, settings.palette, settings.custom, settings.reduceTransparency, settings.highContrast, dark, wallpaper, multiWindow) {
         lookFor(
             settings.style, settings.palette, settings.custom, settings.reduceTransparency, settings.highContrast, dark,
-            sdk = Build.VERSION.SDK_INT, wallpaper = wallpaper, wallpaperBlur = wallpaperBlur,
+            sdk = Build.VERSION.SDK_INT, wallpaper = wallpaper, multiWindow = multiWindow,
         )
     }
     // Re-review N-1: Android's animations setting, read on start and on every return to the app.

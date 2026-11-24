@@ -27,20 +27,21 @@ class GlassContrastTest {
         high: Boolean = false,
         dark: Boolean = true,
         sdk: Int = 35,
-        wallpaperBlur: Boolean = false,
-    ) = lookFor(style, palette, custom, reduceTransparency = reduce, highContrast = high, dark = dark, sdk = sdk, wallpaperBlur = wallpaperBlur)
+        multiWindow: Boolean = false,
+    ) = lookFor(style, palette, custom, reduceTransparency = reduce, highContrast = high, dark = dark, sdk = sdk, multiWindow = multiWindow)
 
+    /** Branch review M-2 (a): in every style, «Transparente» included. */
     @Test fun reduceTransparencyMakesPanelsOpaque() {
-        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (sdk in sdks) {
-            val l = look(p, custom, reduce = true, dark = dark, sdk = sdk)
+        for (style in ThemeStyle.entries) for ((p, custom) in palettes) for (dark in listOf(true, false)) for (sdk in sdks) {
+            val l = look(p, custom, style = style, reduce = true, dark = dark, sdk = sdk)
             assertTrue(l.opaque)
             assertFalse(l.blur)
             for (level in PanelLevel.entries) {
                 assertFalse(l.blurs(level))
-                assertEquals("$p $level", 1f, l.alpha(level, blurNow = false))
-                assertEquals("$p $level", 1f, l.alpha(level, blurNow = true))
+                assertEquals("$style $p $level", 1f, l.alpha(level, blurNow = false))
+                assertEquals("$style $p $level", 1f, l.alpha(level, blurNow = true))
             }
-            assertTrue("$p dark=$dark", failures(l.colors, opaque = true).isEmpty())
+            assertTrue("$style $p dark=$dark", failures(l.colors, opaque = true).isEmpty())
         }
     }
 
@@ -165,7 +166,7 @@ class GlassContrastTest {
                 assertFalse(l.strong)
                 assertFalse(l.blur)
                 assertFalse(l.wallpaperBehind)
-                assertFalse(showsWallpaper(l))
+                assertFalse(windowLookFor(l).showWallpaper)
             }
             for (style in listOf(ThemeStyle.GLASS, ThemeStyle.GLASS_STRONG, ThemeStyle.TRANSPARENT)) {
                 val l = look(p, custom, style = style, dark = dark, sdk = sdk)
@@ -173,16 +174,30 @@ class GlassContrastTest {
                 assertTrue("$style", l.drawsBackground)
                 assertFalse("$style", l.opaque)
                 assertEquals("$style", style == ThemeStyle.TRANSPARENT, l.wallpaperBehind)
-                assertEquals("$style", style == ThemeStyle.TRANSPARENT, showsWallpaper(l))
+                assertEquals("$style", style == ThemeStyle.TRANSPARENT, windowLookFor(l).showWallpaper)
                 assertEquals("$style", style == ThemeStyle.GLASS_STRONG, l.strong)
             }
             for ((reduce, high) in listOf(true to false, false to true, true to true)) {
                 val l = look(p, custom, style = ThemeStyle.TRANSPARENT, reduce = reduce, high = high, dark = dark, sdk = sdk)
                 assertTrue(l.opaque)
                 assertFalse(l.wallpaperBehind)
-                assertFalse(showsWallpaper(l))
+                assertFalse(windowLookFor(l).showWallpaper)
                 assertTrue(l.translucent) // drawn as «Cristal» opaque
                 assertTrue(l.drawsBackground)
+            }
+        }
+    }
+
+    /**
+     * Branch review M-1: «Transparente» without the wallpaper behind it («Reducir transparencias» or «Alto contraste»)
+     * draws no layer, so it takes the colours of «Cristal» (corrected for what is drawn), not those of the layer.
+     */
+    @Test fun transparentWithoutTheWallpaperHasTheColoursOfCristal() {
+        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (sdk in sdks) {
+            for ((reduce, high) in listOf(true to false, false to true, true to true)) {
+                val t = look(p, custom, style = ThemeStyle.TRANSPARENT, reduce = reduce, high = high, dark = dark, sdk = sdk)
+                val g = look(p, custom, style = ThemeStyle.GLASS, reduce = reduce, high = high, dark = dark, sdk = sdk)
+                assertEquals("$p dark=$dark sdk=$sdk reduce=$reduce high=$high", g.colors, t.colors)
             }
         }
     }
@@ -208,41 +223,35 @@ class GlassContrastTest {
     }
 
     /**
-     * «Transparente»: the layer is drawn at [AppColors.scrimAlpha] when the window blurs the wallpaper and a little more
-     * opaque when it does not; the other styles have no layer (1). Every text still reads on the layer at that opacity,
-     * over pure white and pure black, at every point of the background (the measure of task 1, at [Look.layerAlpha]).
-     * With «Alto contraste» (or «Reducir transparencias») there is no wallpaper and no layer: it is opaque.
+     * «Transparente»: the layer is drawn a little more opaque than [AppColors.scrimAlpha] (the wallpaper is always sharp,
+     * owner 24-11-2026); the other styles have no layer (1). Every text still reads on the layer at that opacity, over pure
+     * white and pure black, at every point of the gradient it draws (branch review I-2). With «Alto contraste» or
+     * «Reducir transparencias», or in multi-window, there is no wallpaper and no layer.
      */
-    @Test fun theTransparentLayerIsMoreOpaqueWithoutTheWindowBlur() {
-        for ((p, custom) in palettes) for (dark in listOf(true, false)) {
-            val blurred = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark, wallpaperBlur = true)
-            val plain = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark, wallpaperBlur = false)
-            assertEquals(blurred.colors.scrimAlpha, blurred.layerAlpha)
-            if (blurred.layerAlpha < 1f) assertTrue("$p dark=$dark", plain.layerAlpha > blurred.layerAlpha) else assertEquals(1f, plain.layerAlpha)
-            assertTrue(plain.layerAlpha <= 1f)
-            for (l in listOf(blurred, plain)) {
-                for ((name, fg) in textColors(l.colors)) for (under in layerPoints(l)) {
-                    val r = app.seguridad.vault.TagPalette.contrast(fg, under)
-                    assertTrue("$p $name dark=$dark a=${l.layerAlpha} sobre ${under.toString(16)}: $r", r >= 4.5)
-                }
+    @Test fun theTransparentLayerReadsAtTheOpacityItIsDrawnWith() {
+        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (sdk in sdks) {
+            val l = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark, sdk = sdk)
+            assertEquals(minOf(1f, l.colors.scrimAlpha + 0.06f), l.layerAlpha)
+            for ((name, fg) in textColors(l.colors)) for (under in layerPoints(l)) {
+                val r = app.seguridad.vault.TagPalette.contrast(fg, under)
+                assertTrue("$p $name dark=$dark a=${l.layerAlpha} sobre ${under.toString(16)}: $r", r >= 4.5)
             }
-            for (wallpaperBlur in listOf(false, true)) for ((reduce, high) in listOf(false to true, true to false, true to true)) {
-                val opaque = look(p, custom, style = ThemeStyle.TRANSPARENT, reduce = reduce, high = high, dark = dark, wallpaperBlur = wallpaperBlur)
-                assertFalse("$p dark=$dark reduce=$reduce high=$high", opaque.wallpaperBehind)
-                assertEquals("$p dark=$dark reduce=$reduce high=$high", 1f, opaque.layerAlpha)
+            for ((reduce, high, multi) in listOf(Triple(false, true, false), Triple(true, false, false), Triple(true, true, false), Triple(false, false, true))) {
+                val other = look(p, custom, style = ThemeStyle.TRANSPARENT, reduce = reduce, high = high, dark = dark, sdk = sdk, multiWindow = multi)
+                assertFalse("$p dark=$dark reduce=$reduce high=$high multi=$multi", other.wallpaperBehind)
+                assertEquals("$p dark=$dark reduce=$reduce high=$high multi=$multi", 1f, other.layerAlpha)
             }
         }
-        for (style in ThemeStyle.entries - ThemeStyle.TRANSPARENT) for (wallpaperBlur in listOf(false, true)) {
-            assertEquals(1f, look(style = style, wallpaperBlur = wallpaperBlur).layerAlpha)
+        for (style in ThemeStyle.entries - ThemeStyle.TRANSPARENT) for (multi in listOf(false, true)) {
+            assertEquals(1f, look(style = style, multiWindow = multi).layerAlpha)
         }
     }
 
-    /** The layer of «Transparente» at [Look.layerAlpha] over pure white and pure black, at the four points of the background. */
-    private fun layerPoints(l: Look): List<Long> {
-        val a = l.layerAlpha.toDouble()
-        val (darkest, lightest) = bgBounds(l.colors.background)
-        return listOf(l.colors.background.top, l.colors.background.bottom, darkest, lightest).flatMap { e -> listOf(over(e, a, WHITE), over(e, a, BLACK)) }
-    }
+    /**
+     * The layer of «Transparente» as it is drawn, at [Look.layerAlpha] over pure white and pure black: the gradient alone
+     * (branch review I-2), at its ends and at its darkest and lightest point channel by channel ([drawnLayer]).
+     */
+    private fun layerPoints(l: Look): List<Long> = drawnLayer(l.colors, l.layerAlpha.toDouble())
 
     /**
      * Review I-1 and I-3 of task 2 (M-1): in «Transparente» a tag never sits on the bare layer. The container of an
@@ -252,8 +261,8 @@ class GlassContrastTest {
      * background.
      */
     @Test fun tagsReadOnACardOverTheTransparentLayer() {
-        for ((p, custom) in palettes) for (dark in listOf(true, false)) for (wallpaperBlur in listOf(false, true)) {
-            val l = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark, wallpaperBlur = wallpaperBlur)
+        for ((p, custom) in palettes) for (dark in listOf(true, false)) {
+            val l = look(p, custom, style = ThemeStyle.TRANSPARENT, dark = dark)
             val fill = argb(l.colors.panelColor(PanelLevel.CARD))
             val alpha = l.alpha(PanelLevel.CARD, blurNow = false).toDouble()
             for (under in layerPoints(l)) {
@@ -261,7 +270,7 @@ class GlassContrastTest {
                 for (c in app.seguridad.vault.TagColor.entries) {
                     val fg = if (dark) app.seguridad.vault.TagPalette.dark(c) else app.seguridad.vault.TagPalette.light(c)
                     val r = app.seguridad.vault.TagPalette.contrast(fg, panel)
-                    assertTrue("$p dark=$dark blur=$wallpaperBlur $c sobre ${panel.toString(16)}: $r", r >= 4.5)
+                    assertTrue("$p dark=$dark $c sobre ${panel.toString(16)}: $r", r >= 4.5)
                 }
             }
         }
