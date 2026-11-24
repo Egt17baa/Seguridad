@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -91,7 +91,12 @@ val CAPSULE_SIDE_MARGIN: Dp = 16.dp
 /** The space between the capsule and Android's navigation bar (or the bottom of the screen). */
 val CAPSULE_BOTTOM_MARGIN: Dp = 12.dp
 
-/** The pill behind the chosen tab's icon: a fixed size (O-2: it never stretches). */
+/**
+ * The pill behind the chosen tab's icon: always this size (O-2: it never stretches nor narrows). In a window so narrow
+ * (under about 304 dp) that five tabs of [PILL_WIDTH] and [ITEM_SIDE] do not fit, a tab gets less than that and its pill
+ * keeps its size, centred, over the edge of the next tab's space (only the chosen one's pill is drawn); never past the
+ * capsule's rounded ends (FloatingBarTest.thePillNeverNarrows).
+ */
 internal val PILL_WIDTH: Dp = 44.dp
 internal val PILL_HEIGHT: Dp = 32.dp
 
@@ -298,7 +303,7 @@ fun CapsuleScope.FloatingNavigationItem(selected: Boolean, onClick: () -> Unit, 
         Spacer(Modifier.height(PILL_TOP))
         Box(
             Modifier
-                .size(PILL_WIDTH, PILL_HEIGHT)
+                .requiredSize(PILL_WIDTH, PILL_HEIGHT)
                 .drawBehind {
                     if (focused) {
                         val out = 3.dp.toPx()
@@ -313,8 +318,9 @@ fun CapsuleScope.FloatingNavigationItem(selected: Boolean, onClick: () -> Unit, 
                 }
                 .clip(pillShape)
                 .background(pill)
-                .indication(interaction, ripple())
-                .pressSignal(interaction, pillShape, animationsOn),
+                // On the chosen tab's pill (primary), the ripple and the press mark without animations are onPrimary.
+                .indication(interaction, ripple(color = if (selected) scheme.onPrimary else Color.Unspecified))
+                .pressSignal(interaction, pillShape, animationsOn, mark = if (selected) scheme.onPrimary else scheme.primary),
             contentAlignment = Alignment.Center,
         ) {
             CompositionLocalProvider(LocalContentColor provides iconColour) { icon() }

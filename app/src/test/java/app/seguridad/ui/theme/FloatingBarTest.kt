@@ -19,6 +19,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
@@ -85,8 +86,63 @@ class FloatingBarTest {
                 assertTrue("line=$line h=$h y=$y: $inside", inside >= EDGE_CLEARANCE.value)
             }
         }
-        // The pill's focus ring (3 dp out, 2 dp wide) stays inside too: it is a stadium round the pill, at the pill's centre.
         assertEquals(16.dp, capsuleEndPadding(64.dp))
+    }
+
+    /** How far inside the left rounded end of a capsule [h] high a stadium of radius [radius] centred at ([cx], [cy]) is. */
+    private fun insideLeftEnd(h: Float, cx: Float, cy: Float, radius: Float): Float {
+        val r = h / 2
+        val toEnd = if (cx >= r) abs(cy - r) else hypot(r - cx, r - cy) // the stadium's left half-circle against the end
+        return minOf(r - toEnd - radius, cy - radius, h - cy - radius) // and against the straight top and bottom edges
+    }
+
+    /**
+     * Review m-2 of task 2: the focus ring (3 dp out of the pill, 2 dp wide: its outer edge 4 dp out) is a stadium round
+     * the pill and stays inside the capsule by more than the inner half of its edge line (1 dp, Alto contraste), with the
+     * pill of the first tab as near the rounded end as it can be (its tab no wider than it needs), at any font size.
+     */
+    @Test fun theFocusRingStaysInsideTheCapsule() {
+        for (line in 16..40) {
+            val h = capsuleHeight(line.dp).value
+            val pillLeft = (capsuleEndPadding(h.dp) + ITEM_SIDE).value
+            val radius = PILL_HEIGHT.value / 2 + 4f
+            val inside = insideLeftEnd(h, pillLeft + PILL_HEIGHT.value / 2, PILL_TOP.value + PILL_HEIGHT.value / 2, radius)
+            assertTrue("line=$line: $inside", inside >= 1.5f)
+        }
+    }
+
+    /**
+     * Review m-1 of task 2: the pill keeps its 44 × 32 dp in every window (requiredSize). In one too narrow for five tabs of
+     * 48 dp (split screen, a floating window), the slots are narrower and the pill, centred on its slot, goes over its
+     * neighbours' edge, never past the capsule's rounded ends: down to a window of 220 dp.
+     */
+    @Test fun thePillNeverNarrows() {
+        val item = body("fun CapsuleScope.FloatingNavigationItem(")
+        assertTrue(item, ".requiredSize(PILL_WIDTH, PILL_HEIGHT)" in item)
+        assertFalse(item, ".size(" in item || ".width(" in item)
+        for (screen in 220..360 step 4) {
+            val available = capsuleRowWidth(screen.dp, CAPSULE_HEIGHT).value
+            val slots = capsuleSlots(naturalWidths(scale = 1f), available)
+            assertEquals(available, slots.sum(), 0.01f)
+            // The first tab's pill, centred on its slot (it may stick out of it), against the left end; the last mirrors it.
+            val pillLeft = capsuleEndPadding(CAPSULE_HEIGHT).value + slots.first() / 2 - PILL_WIDTH.value / 2
+            val inside = insideLeftEnd(CAPSULE_HEIGHT.value, pillLeft + PILL_HEIGHT.value / 2, PILL_TOP.value + PILL_HEIGHT.value / 2, PILL_HEIGHT.value / 2)
+            assertTrue("$screen dp: $inside", inside >= EDGE_CLEARANCE.value)
+        }
+    }
+
+    /**
+     * Review m-3 of task 2: on the chosen tab's pill (primary), the ripple and the press mark without animations are
+     * onPrimary, so pressing it shows; on the others, Material's ripple and the accent, as on every panel.
+     */
+    @Test fun pressingTheChosenTabShows() {
+        val item = body("fun CapsuleScope.FloatingNavigationItem(")
+        assertTrue(item, "ripple(color = if (selected) scheme.onPrimary else Color.Unspecified)" in item)
+        assertTrue(item, "pressSignal(interaction, pillShape, animationsOn, mark = if (selected) scheme.onPrimary else scheme.primary)" in item)
+        for (p in NAMED_PALETTES) for (dark in listOf(true, false)) for (high in listOf(false, true)) {
+            val s = look(ThemeStyle.GLASS, p, dark, high).colors.scheme
+            assertTrue("$p", TagPalette.contrast(argb(s.onPrimary), argb(s.primary)) >= 3.0)
+        }
     }
 
     /**

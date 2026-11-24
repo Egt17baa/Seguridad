@@ -284,12 +284,20 @@ internal fun animationsOnSetting(): Boolean {
  */
 internal fun staticPressMark(pressed: Boolean, animationsOn: Boolean): Boolean = pressed && !animationsOn
 
-/** Draws [staticPressMark] over a pressable panel of [shape] that reports its presses to [interaction]. */
+/**
+ * Draws [staticPressMark] over a pressable panel of [shape] that reports its presses to [interaction], in [mark] (the
+ * accent; on a panel that is itself the accent, such as the chosen tab's pill of the capsule, its onPrimary).
+ */
 @Composable
-internal fun Modifier.pressSignal(interaction: InteractionSource, shape: Shape, animationsOn: Boolean): Modifier {
+internal fun Modifier.pressSignal(
+    interaction: InteractionSource,
+    shape: Shape,
+    animationsOn: Boolean,
+    mark: Color = LocalLook.current.colors.scheme.primary,
+): Modifier {
     if (animationsOn) return this
     val pressed by interaction.collectIsPressedAsState()
-    val accent = LocalLook.current.colors.scheme.primary
+    val accent = mark
     return drawWithContent {
         drawContent()
         if (staticPressMark(pressed, animationsOn)) {
