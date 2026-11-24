@@ -41,3 +41,17 @@ Recomendaciones del director:
 4. La batería: si el difuminado funcionara, también gasta con un fondo quieto.
 5. Ficha `:111`: «Tres estilos más en Ajustes → Aspecto» suena a notas de versión dentro de una descripción.
 6. Ya apuntada: «bordes iluminados» frente a «Alto contraste».
+
+## Repaso de la ronda de arreglos (24-11-2026)
+
+Arreglos en `d7e669d` y `70c54d8`. **Veredicto del director: con arreglos, solo menores.** I-1, I-2 y M-1 a M-7 están cerrados; cada arreglo de código tiene un test que fallaría sin él. Los colores de «Sólido», «Degradado», «Cristal» y «Vidrio» no cambian; solo cambia «Transparente». En «Noche» oscuro, `onSurfaceVariant` queda en `#C1C3CE` (L 0,548) y `primary` en `#F6B94F`. La retirada del difuminado de la ventana no deja restos y `PlatformSourcesTest` lo vigila. Que «Transparente» en multiventana use los colores de «Cristal» es correcto y además necesario: así lo dibujado es lo medido.
+
+Menores nuevos:
+- **N-1:** la casilla del ahorro de batería (`README.md:450`) prueba algo que no es de la app. El difuminado de barras y diálogos es un `RenderEffect` propio, así que hay que decir que el aspecto no cambia, o quitar la casilla.
+- **N-2:** la casilla de multiventana (`README.md:452`) dice «opaco, como «Cristal»». Mejor: «como «Cristal», sobre su propio fondo de color: no deja ver la otra app ni el fondo de pantalla».
+- **N-3:** al diseño le falta una nota de corrección. Sigue prometiendo el fondo de pantalla difuminado desde Android 12, y lo sustituyen la decisión del dueño del 24-11-2026 e I-1.
+- **N-4:** `RedTeam20CopyTest.rt21`, de la 2.0, es inestable. `allocatedBy` suma lo reservado por los hilos vivos, y un hilo que termina durante el bloque da una diferencia negativa. Hay que restar hilo a hilo (solo los ids vivos después) y añadir `realBytes > 0`, o medir un hilo propio de un solo uso.
+
+Riesgos que siguen en pie: el primer fotograma al entrar en multiventana y las transiciones de O-A4. Los dos tienen su casilla en las pruebas en el móvil.
+
+Textos para el Abogado: `STYLE_MORE` vuelve al texto de la 2.0; `STYLE_TRANSPARENT_MORE` dice «Se ve nítida, atenuada por una capa de color.» y «En pantalla dividida o en una ventana flotante, el fondo de pantalla no se ve.» Las dos son ciertas para el código. También van las casillas del README y las recomendaciones 5 y 6.
