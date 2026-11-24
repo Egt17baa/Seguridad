@@ -1,0 +1,7 @@
+# Clavero 2.1.1: registro
+
+Rama `ccr-0aa27f95-u038cd`, desde `main` en `a29d88c` (etiqueta `v2.1.0`). Diseño `docs/superpowers/specs/2026-11-24-clavero-2.1.1-barra-design.md`. La decisión de hacerla y la aprobación del diseño, en `sdd-2.1/progress.md` (24-11-2026).
+
+- Abogado, principio (24-11-2026): `abogado-2.1.1-diseno.md`, «se puede programar con cambios». O-1 a O-7 y R-1 a R-6 aceptados, sin objeción técnica, y apuntados en el diseño («Dictamen del Abogado al principio»).
+- Abogado decision (O-1): O-A2 de la 2.1 se sustituye solo para la barra de abajo, con las condiciones de O-2; lo demás de O-A2 sigue.
+- Ruling (R-6): si Android pide quitar animaciones, la cápsula no hace ninguna transición, tampoco la pastilla.
