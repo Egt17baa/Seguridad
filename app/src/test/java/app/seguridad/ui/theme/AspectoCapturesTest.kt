@@ -31,7 +31,7 @@ class AspectoCapturesTest {
             """"${it.name}":{"color":${hex(c.panelColor(it))},"alpha":${f(if (look.translucent) look.alpha(it, blurNow = true) else 1f)}}"""
         }
         return """{"style":"${style.name}","label":"${style.label()}","dark":$dark,""" +
-            """"drawsBackground":${look.drawsBackground},"blobs":${style != ThemeStyle.GRADIENT && look.drawsBackground && !look.wallpaperBehind},""" +
+            """"drawsBackground":${look.drawsBackground},"blobs":${drawsBlobs(look)},""" +
             """"translucent":${look.translucent},"strong":${look.strong},"litEdge":${litEdge(look)},""" +
             """"wallpaperBehind":${look.wallpaperBehind},"layerAlpha":${f(look.layerAlpha)},""" +
             """"background":{"top":${hex(c.background.top)},"bottom":${hex(c.background.bottom)},"blobs":[$blobs]},""" +
@@ -49,6 +49,12 @@ class AspectoCapturesTest {
             val look = lookFor(st, PaletteId.NIGHT, null, reduceTransparency = false, highContrast = false, dark = true, sdk = 31, wallpaperBlur = true)
             assertEquals(st.name, st == ThemeStyle.TRANSPARENT, look.wallpaperBehind)
             assertTrue(st.name, look.layerAlpha in 0f..1f && (st == ThemeStyle.TRANSPARENT) == (look.layerAlpha < 1f))
+        }
+        // The blobs: «Cristal» and «Vidrio», and «Transparente» only once it is opaque (without the wallpaper).
+        for (st in STYLE_ORDER) for (reduce in listOf(false, true)) {
+            val look = lookFor(st, PaletteId.NIGHT, null, reduceTransparency = reduce, highContrast = false, dark = true, sdk = 31, wallpaperBlur = true)
+            val expected = st == ThemeStyle.GLASS || st == ThemeStyle.GLASS_STRONG || (st == ThemeStyle.TRANSPARENT && reduce)
+            assertEquals("$st reduce=$reduce", expected, drawsBlobs(look))
         }
         val dir = System.getenv("ASPECTO_CAPTURAS") ?: return
         File(dir).apply { mkdirs() }.resolve("aspecto-colores.json").writeText(all.joinToString(",\n", "[\n", "\n]\n"))

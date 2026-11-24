@@ -208,6 +208,12 @@ fun GlassBackground(modifier: Modifier = Modifier, content: @Composable () -> Un
 }
 
 /**
+ * Whether the background of [look] has its three blobs: «Cristal», «Vidrio» and «Transparente» made opaque. Not
+ * «Sólido» (a plain colour), «Degradado» (the gradient alone) nor «Transparente» over the wallpaper (the layer alone).
+ */
+internal fun drawsBlobs(look: Look): Boolean = look.drawsBackground && !look.wallpaperBehind && look.style != ThemeStyle.GRADIENT
+
+/**
  * The background of [look] on an area of [area]: «Sólido», a plain colour; «Degradado», the gradient without blobs;
  * «Cristal», «Vidrio» and «Transparente» made opaque, the gradient with its three blobs; «Transparente» over the
  * wallpaper, the gradient alone at [Look.layerAlpha] (the wallpaper is under it, and the layer is what was measured).
@@ -224,7 +230,7 @@ internal fun DrawScope.drawAppBackground(look: Look, area: Size) {
         return
     }
     drawRect(gradient, size = area)
-    if (look.style == ThemeStyle.GRADIENT) return
+    if (!drawsBlobs(look)) return
     val reach = maxOf(area.width, area.height)
     for (b in bg.blobs) {
         val center = Offset(b.x * area.width, b.y * area.height)

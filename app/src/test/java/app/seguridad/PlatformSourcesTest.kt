@@ -1356,8 +1356,10 @@ class PlatformSourcesTest {
         val shadow = src.indexOf("clipPath(clip, ClipOp.Difference)")
         assertTrue(shadow >= 0 && shadow < src.indexOf("drawOutline(outline, fill)"))
         assertTrue("drawRect(gradient, size = area, alpha = look.layerAlpha)" in src)
-        val gradientStop = src.indexOf("if (look.style == ThemeStyle.GRADIENT) return")
+        // Review of task 5 (minor 3): the rule is drawsBlobs, which AspectoCapturesTest checks for every style.
+        val gradientStop = src.indexOf("if (!drawsBlobs(look)) return")
         assertTrue(gradientStop >= 0 && gradientStop < src.indexOf("for (b in bg.blobs)"))
+        assertTrue("look.style != ThemeStyle.GRADIENT" in src.substringAfter("internal fun drawsBlobs(look: Look)").substringBefore("\n"))
         assertTrue("if (litEdge(look))" in src)
     }
 
