@@ -19,3 +19,15 @@ Rama `ccr-0aa27f95-u038cd`, desde `main` en `a29d88c` (etiqueta `v2.1.0`). Dise�
 - Hecha en `1b02615`: «Sólido» conserva el `Scaffold` con la barra de la 2.1; en los otros cuatro estilos la cápsula va encima, hermana del `NavHost` en un `Box`, y el `NavHost` toma abajo exactamente `capsuleSpace()` (`navHostPadding`). Las dos barras usan la misma navegación (`goToTab`). Compilación completa: 2 703 tests y `jvm-check` 2 584, 0 fallos.
 - Revisión de la tarea: APROBADA, sin Critical ni Important. Menores: m-1 (un bucle del test que no podía fallar), m-2 (un test de fuente que fije las medidas reales de la cápsula a `capsuleSpace()`) y m-3 (el informe decía que no había `imePadding` dentro del `NavHost`; los hay y restan `capsuleSpace()` bien). Se arreglan en un commit propio.
 - Para la tarea 4 (de m-3): casilla en las pruebas en el móvil: en «Cristal», editar una entrada con el teclado abierto; el último campo y el botón quedan a la vista.
+
+## Tarea 4 (24-11-2026)
+
+- Hecha en `75230eb` (`STYLE_MORE`, `versionName` 2.1.1, la ficha, el README con «Pruebas de la 2.1.1» y las notas). La línea publicada se ajustó a lo que es cierto: «desde Android 12» y, con «Personalizado» y la paleta «Colores del fondo de pantalla», «al menos tanto como antes». Las medidas se dicen propias, con la guía pública como orientación (24-11-2026), lo que corrige el asunto de `537871c`.
+- Revisión: CON CAMBIOS, solo documentos. I-1: en «Transparente», a través de la cápsula el fondo de pantalla casi no se ve; la R-5 del Abogado no se puede cumplir tal como está escrita con la opción B y va a su revisión final. M-1 a M-4, arreglados en `f1cb20a` (2 707 tests, `jvm-check` 2 585, 0 fallos).
+
+## Tarea 5: las filtradas de «Salud» se quedan hasta bloquear (dueño, 24-11-2026)
+
+- Pedida por el dueño: «Hasta bloquear» y «En la 2.1.1». Diseño y plan en `44c311b`. Abogado al principio: «se puede programar, con cambios» (`abogado-2.1.1-filtradas.md`, `f34cd70`), con O-1 a O-3 y R-1 a R-3 aplicados.
+- Hecha en `7e86e18`: `health/LeakResults.kt` en `AppContainer`. Guarda, por acceso, las apariciones y la marca del último cambio de contraseña. Nunca la contraseña ni su hash, y nada en disco. Se olvida con cada bloqueo y al cambiar de bóveda. La comprobación sigue si se sale de «Salud» y se corta al bloquear.
+- Revisión: sin Critical ni Important. Menores M-1 (descartar el resultado si la bóveda se bloquea justo al terminar), M-2 («Quedan N sin cambiar.») y M-3 (la frase de «¿Filtrada?» en la política), arreglados en `748613a` (2 724 tests, `jvm-check` 2 602, 0 fallos).
+- Siguiente: la revisión de toda la rama con el director, `code-review`, `security-review`, la auditoría y el Abogado final.
