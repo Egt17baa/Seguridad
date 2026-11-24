@@ -105,23 +105,73 @@ class BottomBarSpaceTest {
     /**
      * Review Focus 5: the buttons of «Bóveda» and «Contactos» and their notices (Snackbar) are in the Scaffold of their
      * screen, inside the NavHost, which ends above the capsule; they add no inset of their own (it is consumed by the
-     * NavHost) and are not moved down. So a button 16 dp above the NavHost's bottom is above the capsule, at any font.
+     * NavHost) and are not moved down: Material places them at the bottom of that Scaffold, so above the capsule.
      */
     @Test fun fabAndSnackbarSitAboveTheCapsule() {
         for (name in listOf("VaultScreen.kt", "ContactsScreen.kt")) {
             val src = screen(name)
             assertTrue(name, "contentWindowInsets = WindowInsets(0, 0, 0, 0)" in src)
             assertTrue(name, "snackbarHost = { SnackbarHost(snackbar) }" in src)
+            assertTrue(name, "floatingActionButton = {" in src)
             for (bad in listOf("navigationBarsPadding", "WindowInsets.navigationBars", ".offset(", "zIndex", "Popup(")) {
                 assertFalse("$bad in $name", bad in src)
             }
         }
         assertTrue("composable(\"vault\") { VaultScreen(" in navHost && "composable(\"contacts\") {\n                        ContactsScreen(" in navHost)
-        for (fontScale in listOf(1f, 2f)) {
-            for (nav in listOf(0.dp, 48.dp)) {
-                val fabBottom = screenHeight - padding(floating = true, fontScale, nav).calculateBottomPadding() - 16.dp
-                assertTrue(fabBottom < capsuleTop(fontScale, nav))
-            }
+    }
+
+    private val floatingBar: String by lazy {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null && !File(dir, "app/src/main/java/app/seguridad").isDirectory) dir = dir.parentFile
+        File(dir, "app/src/main/java/app/seguridad/ui/theme/FloatingBar.kt").readText()
+    }
+
+    /**
+     * Why [src] (FloatingBar.kt) would lay the capsule out higher or lower than capsuleSpace() counts, or null when the
+     * two agree: capsuleSpace() is capsuleHeight(nameLine()) + CAPSULE_BOTTOM_MARGIN + the navigation bar's bottom, and
+     * FloatingNavigationBar stands on that bar (windowInsetsPadding with Bottom), then CAPSULE_BOTTOM_MARGIN (its only
+     * vertical padding), then a capsule exactly capsuleHeight(nameLine()) high.
+     */
+    private fun capsuleMismatch(src: String): String? {
+        val space = src.substringAfter("fun capsuleSpace(): Dp =").substringBefore("\n\n").replace(Regex("""\s+"""), " ").trim()
+        if (space != "capsuleHeight(nameLine()) + CAPSULE_BOTTOM_MARGIN + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()") return "capsuleSpace: $space"
+        val bar = src.substringAfter("fun FloatingNavigationBar(").substringBefore("\n}\n")
+        if ("    val height = capsuleHeight(nameLine())\n" !in bar) return "the capsule's height"
+        val outer = bar.substringAfter("    Box(\n        modifier\n").substringBefore("    ) {")
+        val expected = listOf(
+            ".fillMaxWidth()",
+            ".pointerInput(Unit) { swallowTaps() }",
+            ".windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))",
+            ".padding(start = CAPSULE_SIDE_MARGIN, end = CAPSULE_SIDE_MARGIN, bottom = CAPSULE_BOTTOM_MARGIN),",
+        )
+        if (outer.lines().map { it.trim() }.filter { it.isNotEmpty() } != expected) return "the strip: $outer"
+        val inner = bar.substringAfter("    ) {\n        Box(\n            Modifier\n").substringBefore("        ) {")
+        val innerLines = inner.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (innerLines.take(2) != listOf(".fillMaxWidth()", ".height(height)")) return "the capsule: $inner"
+        // Only horizontal padding inside (it does not change the height), and nothing else that sizes it.
+        if (innerLines.drop(2) != listOf(".then(surface)", ".padding(horizontal = capsuleEndPadding(height)),")) return "the capsule: $inner"
+        return null
+    }
+
+    /**
+     * Review m-2 of task 3: the space the NavHost leaves (capsuleSpace()) and the place FloatingNavigationBar takes are
+     * written separately; a change of the margin, the height or the inset of one without the other fails here. The
+     * mutations show the check would catch it.
+     */
+    @Test fun theCapsuleTakesExactlyCapsuleSpace() {
+        assertEquals(null, capsuleMismatch(floatingBar))
+        val mutations = listOf(
+            "bottom = CAPSULE_BOTTOM_MARGIN)," to "bottom = CAPSULE_BOTTOM_MARGIN + 4.dp),",
+            "                .height(height)\n" to "                .height(height + 8.dp)\n",
+            "WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom" to "WindowInsetsSides.Horizontal",
+            "    val height = capsuleHeight(nameLine())\n" to "    val height = CAPSULE_HEIGHT\n",
+            "+ CAPSULE_BOTTOM_MARGIN + WindowInsets" to "+ WindowInsets",
+            ".padding(horizontal = capsuleEndPadding(height))," to ".padding(horizontal = capsuleEndPadding(height), vertical = 2.dp),",
+            "            .fillMaxWidth()\n            .pointerInput" to "            .fillMaxWidth()\n            .padding(bottom = 8.dp)\n            .pointerInput",
+        )
+        for ((from, to) in mutations) {
+            assertTrue(from, from in floatingBar)
+            assertTrue(from, capsuleMismatch(floatingBar.replace(from, to)) != null)
         }
     }
 }
