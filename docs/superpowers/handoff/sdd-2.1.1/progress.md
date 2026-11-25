@@ -31,3 +31,9 @@ Rama `ccr-0aa27f95-u038cd`, desde `main` en `a29d88c` (etiqueta `v2.1.0`). Dise�
 - Hecha en `7e86e18`: `health/LeakResults.kt` en `AppContainer`. Guarda, por acceso, las apariciones y la marca del último cambio de contraseña. Nunca la contraseña ni su hash, y nada en disco. Se olvida con cada bloqueo y al cambiar de bóveda. La comprobación sigue si se sale de «Salud» y se corta al bloquear.
 - Revisión: sin Critical ni Important. Menores M-1 (descartar el resultado si la bóveda se bloquea justo al terminar), M-2 («Quedan N sin cambiar.») y M-3 (la frase de «¿Filtrada?» en la política), arreglados en `748613a` (2 724 tests, `jvm-check` 2 602, 0 fallos).
 - Siguiente: la revisión de toda la rama con el director, `code-review`, `security-review`, la auditoría y el Abogado final.
+
+## Revisión de la rama y `code-review` (24 y 25-11-2026)
+
+- Revisión de la rama del director (`3629fce`, `branch-review.md`): BR-1 (Important: «Importar copia» no olvidaba los resultados de «Salud») a BR-7, arreglados en `4dd05c6`; su repaso (`12c7a3a`) dio BR-8 y BR-9, arreglados en `34711e9` (2 734 tests, `jvm-check` 2 611, 0 fallos).
+- `code-review`: dos menores. El 2 (documentos atrasados), en `14682f0`. El 1 (una contraseña cambiada después, aunque sea la misma filtrada, quita «Filtrada» hasta comprobar otra vez), solo con un texto cierto: `LEAK_RECHECK_NEEDED`, sin guardar la contraseña ni su hash, en `272c349` (2 734 tests, `jvm-check` 2 611, 0 fallos). Ese commit también quita del parte el nombre de un modelo en el pie de los commits (`PublishedFilesNameNoModelTest`).
+- Siguiente: `security-review` contra `a29d88c`, la auditoría completa y el Abogado final.
