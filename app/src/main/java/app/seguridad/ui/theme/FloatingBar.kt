@@ -298,40 +298,42 @@ fun CapsuleScope.FloatingNavigationItem(selected: Boolean, onClick: () -> Unit, 
     val pillShape = RoundedCornerShape(percent = 50)
     // Branch review BR-2 (as review M-8, Components.kt): Material's ripple only while Android has animations on; without
     // them, only the still press mark.
-    CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn)) { Column(
-        Modifier
-            .fillMaxSize()
-            .selectable(selected = selected, onClick = onClick, role = Role.Tab, interactionSource = interaction, indication = null)
-            .padding(horizontal = ITEM_SIDE),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top,
-    ) {
-        Spacer(Modifier.height(PILL_TOP))
-        Box(
+    CompositionLocalProvider(LocalRippleConfiguration provides panelRipple(animationsOn)) {
+        Column(
             Modifier
-                .requiredSize(PILL_WIDTH, PILL_HEIGHT)
-                .drawBehind {
-                    if (focused) {
-                        val out = 3.dp.toPx()
-                        drawRoundRect(
-                            ring,
-                            topLeft = Offset(-out, -out),
-                            size = Size(size.width + 2 * out, size.height + 2 * out),
-                            cornerRadius = CornerRadius(size.height / 2 + out),
-                            style = Stroke(2.dp.toPx()),
-                        )
-                    }
-                }
-                .clip(pillShape)
-                .background(pill)
-                // On the chosen tab's pill (primary), the ripple and the press mark without animations are onPrimary.
-                .indication(interaction, ripple(color = if (selected) scheme.onPrimary else Color.Unspecified))
-                .pressSignal(interaction, pillShape, animationsOn, mark = if (selected) scheme.onPrimary else scheme.primary),
-            contentAlignment = Alignment.Center,
+                .fillMaxSize()
+                .selectable(selected = selected, onClick = onClick, role = Role.Tab, interactionSource = interaction, indication = null)
+                .padding(horizontal = ITEM_SIDE),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top,
         ) {
-            CompositionLocalProvider(LocalContentColor provides iconColour) { icon() }
+            Spacer(Modifier.height(PILL_TOP))
+            Box(
+                Modifier
+                    .requiredSize(PILL_WIDTH, PILL_HEIGHT)
+                    .drawBehind {
+                        if (focused) {
+                            val out = 3.dp.toPx()
+                            drawRoundRect(
+                                ring,
+                                topLeft = Offset(-out, -out),
+                                size = Size(size.width + 2 * out, size.height + 2 * out),
+                                cornerRadius = CornerRadius(size.height / 2 + out),
+                                style = Stroke(2.dp.toPx()),
+                            )
+                        }
+                    }
+                    .clip(pillShape)
+                    .background(pill)
+                    // On the chosen tab's pill (primary), the ripple and the press mark without animations are onPrimary.
+                    .indication(interaction, ripple(color = if (selected) scheme.onPrimary else Color.Unspecified))
+                    .pressSignal(interaction, pillShape, animationsOn, mark = if (selected) scheme.onPrimary else scheme.primary),
+                contentAlignment = Alignment.Center,
+            ) {
+                CompositionLocalProvider(LocalContentColor provides iconColour) { icon() }
+            }
+            Spacer(Modifier.height(NAME_GAP))
+            Text(label, style = NAME_STYLE, color = nameColour, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         }
-        Spacer(Modifier.height(NAME_GAP))
-        Text(label, style = NAME_STYLE, color = nameColour, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-    } }
+    }
 }

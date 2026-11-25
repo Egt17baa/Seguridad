@@ -326,6 +326,44 @@ class LeakResultsTest {
         assertEquals(LeakResults.End.DONE, leaks.current().end)
     }
 
+    /**
+     * BR-8 of the re-check: «una a la vez» with a check stopped in between. A has a request in flight that cannot be cut;
+     * forget(), B starts and waits for A; B is cancelled while it waits; C starts: it sends nothing until A ends, because a
+     * check never ends before the one it waited on. The chars of A's request are still wiped.
+     */
+    @Test fun aCheckStoppedWhileWaitingStillHoldsTheNextOne() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        val gate = CompletableDeferred<Unit>()
+        var now = 0
+        var most = 0
+        val asked = mutableListOf<CharArray>()
+        val slow: suspend (CharArray) -> Int = { chars ->
+            asked += chars
+            now++
+            most = maxOf(most, now)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { gate.await() }
+            now--
+            0
+        }
+        leaks.start(vault, slow, isOpen = { open }, awaitClosed = { awaitCancellation() }) // A
+        advanceUntilIdle()
+        assertEquals(1, asked.size)
+        leaks.forget()
+        leaks.start(vault, slow, isOpen = { open }, awaitClosed = { awaitCancellation() }) // B, waiting for A
+        advanceUntilIdle()
+        leaks.cancel()
+        advanceUntilIdle()
+        leaks.start(vault, slow, isOpen = { open }, awaitClosed = { awaitCancellation() }) // C
+        advanceUntilIdle()
+        assertEquals("C waits for A's request", 1, asked.size)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(1, most)
+        assertEquals("A stopped, B sent nothing, C sent its 3", 4, asked.size)
+        assertEquals(LeakResults.End.DONE, leaks.current().end)
+        assertTrue("every request's chars are wiped", asked.all { a -> a.all { it == '\u0000' } })
+    }
+
     /** What it keeps: ids, counts and marks; nothing of the password, its hash or the entry. */
     @Test fun itKeepsNoPasswordNorHash() {
         // The code, without its comments (which say where it never goes).

@@ -5,6 +5,8 @@ import app.seguridad.vault.VaultEntry
 import app.seguridad.vault.lastPasswordChange
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.ensureActive
@@ -159,6 +161,10 @@ class LeakResults(
                     if (stillOpen()) publish(r) { it.copy(running = false, end = End.FAILED) } else drop(r)
                 } finally {
                     coroutineContext.cancelChildren() // The vault watcher: done with this check.
+                    // BR-8: a check never ends before the one it waited on (also when it is stopped while waiting), so the
+                    // next one, which joins only this, still sends nothing while an older request is in flight. The chain
+                    // only goes back (each waits for the one started before it): no deadlock.
+                    withContext(NonCancellable) { before?.join() }
                     synchronized(lock) { if (r == run) job = null }
                 }
             }
