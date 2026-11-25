@@ -37,3 +37,8 @@ Rama `ccr-0aa27f95-u038cd`, desde `main` en `a29d88c` (etiqueta `v2.1.0`). Dise�
 - Revisión de la rama del director (`3629fce`, `branch-review.md`): BR-1 (Important: «Importar copia» no olvidaba los resultados de «Salud») a BR-7, arreglados en `4dd05c6`; su repaso (`12c7a3a`) dio BR-8 y BR-9, arreglados en `34711e9` (2 734 tests, `jvm-check` 2 611, 0 fallos).
 - `code-review`: dos menores. El 2 (documentos atrasados), en `14682f0`. El 1 (una contraseña cambiada después, aunque sea la misma filtrada, quita «Filtrada» hasta comprobar otra vez), solo con un texto cierto: `LEAK_RECHECK_NEEDED`, sin guardar la contraseña ni su hash, en `272c349` (2 734 tests, `jvm-check` 2 611, 0 fallos). Ese commit también quita del parte el nombre de un modelo en el pie de los commits (`PublishedFilesNameNoModelTest`).
 - Siguiente: `security-review` contra `a29d88c`, la auditoría completa y el Abogado final.
+
+## `security-review` y auditoría (25-11-2026)
+
+- `security-review` (`da4edfd`, `security-review.md`): ninguna vulnerabilidad con confianza ≥ 0,8.
+- Auditoría completa (`4bc006d`, `final-audit.md`): «se puede publicar». F-1 a F-3 Info, sin cambios de código; R-211-1 a R-211-3. La aprueba el director (en curso).
