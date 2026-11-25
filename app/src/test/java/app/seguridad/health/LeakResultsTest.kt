@@ -249,17 +249,25 @@ class LeakResultsTest {
         fun line(entries: List<VaultEntry>) = LeakResults.message(s, left = leaks.breached(entries, s).size)
         assertEquals("Comprobación terminada: 3 accesos filtrados.", line(vault))
         val a2 = vault[0].copy(password = "nueva-y-larga").withVersion(vault[0], now = 9_000L)
-        assertEquals("Comprobación terminada: 3 accesos filtrados. Quedan 2 sin cambiar.", line(listOf(a2, vault[1], vault[2], vault[3])))
+        assertEquals("Comprobación terminada: 3 accesos filtrados. Quedan 2 sin cambiar. " + LEAK_RECHECK_NEEDED, line(listOf(a2, vault[1], vault[2], vault[3])))
         val c2 = vault[2].copy(password = "otra-nueva-y-larga").withVersion(vault[2], now = 9_000L)
-        assertEquals("Comprobación terminada: 3 accesos filtrados. Queda 1 sin cambiar.", line(listOf(a2, vault[1], c2, vault[3])))
+        assertEquals("Comprobación terminada: 3 accesos filtrados. Queda 1 sin cambiar. " + LEAK_RECHECK_NEEDED, line(listOf(a2, vault[1], c2, vault[3])))
         val d2 = vault[3].copy(deletedAt = 9_000L)
-        assertEquals("Comprobación terminada: 3 accesos filtrados. Ya no queda ninguno sin cambiar.", line(listOf(a2, vault[1], c2, d2)))
+        assertEquals("Comprobación terminada: 3 accesos filtrados. Ya no queda ninguno sin cambiar. " + LEAK_RECHECK_NEEDED, line(listOf(a2, vault[1], c2, d2)))
+        // Code review of the branch: the mark, not the password, is followed, so a new password (even the leaked one again)
+        // is not checked; the line says so whenever some changed, and only then.
+        assertEquals(
+            "Una contraseña cambiada después no se vuelve a comprobar: pulsa otra vez «Comprobar filtraciones de los accesos» para saber si la nueva está filtrada.",
+            LEAK_RECHECK_NEEDED,
+        )
+        assertTrue(app.seguridad.tools.ForbiddenWords.problems(LEAK_RECHECK_NEEDED).isEmpty())
+        assertFalse(LEAK_RECHECK_NEEDED in line(vault)!!)
         // The cancelled and the failed lines keep their own sentence first.
         val cancelled = LeakResults.Check(s.epoch, s.found, running = false, done = 2, total = 3, end = LeakResults.End.CANCELLED)
-        assertEquals("Comprobación cancelada (2 de 3). Queda 1 sin cambiar.", LeakResults.message(cancelled, left = 1))
+        assertEquals("Comprobación cancelada (2 de 3). Queda 1 sin cambiar. " + LEAK_RECHECK_NEEDED, LeakResults.message(cancelled, left = 1))
         assertEquals("Comprobación cancelada (2 de 3).", LeakResults.message(cancelled, left = 3))
         val failed = cancelled.copy(end = LeakResults.End.FAILED)
-        assertEquals("No se pudo completar la comprobación (2 de 3). Revisa la conexión. Quedan 2 sin cambiar.", LeakResults.message(failed, left = 2))
+        assertEquals("No se pudo completar la comprobación (2 de 3). Revisa la conexión. Quedan 2 sin cambiar. " + LEAK_RECHECK_NEEDED, LeakResults.message(failed, left = 2))
         // The screen passes what counts now.
         assertTrue("LeakResults.message(check, left = breached.size)" in code("ui/screens/HealthScreen.kt"))
     }

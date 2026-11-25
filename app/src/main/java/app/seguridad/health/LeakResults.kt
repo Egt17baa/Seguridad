@@ -17,6 +17,13 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 
 /**
+ * Code review of the branch (2.1.1): said after «Quedan N sin cambiar.» and the like, only when some leaked login changed
+ * since the check ([LeakResults.message]). True: a changed password is not checked again until a new check.
+ */
+const val LEAK_RECHECK_NEEDED =
+    "Una contraseña cambiada después no se vuelve a comprobar: pulsa otra vez «Comprobar filtraciones de los accesos» para saber si la nueva está filtrada."
+
+/**
  * 2.1.1, task 5 (owner, 24-11-2026): the result of «Comprobar filtraciones de los accesos» of «Salud», kept for the
  * session so the leaked logins can be fixed one by one without checking again. One per process (AppContainer), only in
  * memory: never on disk, in the settings, in a Bundle or in saved state, and never logged. It keeps, per entry id, the
@@ -30,7 +37,11 @@ import kotlinx.coroutines.launch
  * The check runs in [scope] (the app's, outside any screen), so it goes on while «Salud» is left to edit a login and
  * shows its progress when the user comes back. It stops at a lock ([start]'s `awaitClosed`, and the epoch read before
  * every request): nothing more is sent, the chars handed to the request are wiped, and everything is dropped. A new
- * check starts from zero and replaces the result. A cancelled or failed one keeps what it found, and says so ([message]).
+ * check starts from zero and replaces the result.
+ * It follows the mark of the last password change, never the password (it keeps neither the password nor its hash): a
+ * login whose password changed after the check leaves «Filtrada», even if its new password is the leaked one again (typed
+ * again, or an old version restored). Nothing tells them apart, so the line under the result says that a changed password
+ * is not checked again ([LEAK_RECHECK_NEEDED]); only a new check says whether the new one is leaked. A cancelled or failed one keeps what it found, and says so ([message]).
  * One check at a time (BR-3): a new one waits for the one before (stopped, but maybe with its last request in flight,
  * which cannot be interrupted) to end before it sends its first request.
  */
@@ -198,7 +209,8 @@ class LeakResults(
         /**
          * The line under the button: how the check of [s] ended (null while there is none or it runs). [left] is how many
          * of the leaked logins it found still count now ([breached]); review M-2: when the user fixed some (or sent them
-         * to the trash), a second sentence says how many are left, so the line and the rows «Filtrada» agree.
+         * to the trash), a second sentence says how many are left, so the line and the rows «Filtrada» agree. Code review of
+         * the branch: then also [LEAK_RECHECK_NEEDED], because a password changed after the check is not checked.
          */
         fun message(s: Check, left: Int = s.found.size): String? {
             val base = when (s.end) {
@@ -212,7 +224,7 @@ class LeakResults(
                 0 -> "Ya no queda ninguno sin cambiar."
                 1 -> "Queda 1 sin cambiar."
                 else -> "Quedan $left sin cambiar."
-            }
+            } + " " + LEAK_RECHECK_NEEDED
         }
     }
 }
