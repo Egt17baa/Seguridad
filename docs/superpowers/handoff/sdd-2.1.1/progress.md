@@ -54,3 +54,13 @@ Rama `ccr-0aa27f95-u038cd`, desde `main` en `a29d88c` (etiqueta `v2.1.0`). Dise�
   - F-2: arreglado antes del Abogado en `1b04ebe` («cuando importas una copia que la reemplaza», `PublishedTextsTest`); F-1 se le deja al Abogado.
 - Sin otro repaso del director: `LeakResultsTest`, `PublishedTextsTest` y `AppearanceTextsTest` en verde (45 tests); la compilación completa, antes del PR.
 - Siguiente: la revisión final del Abogado (lista en `final-audit.md`, los dos apartados «Textos para el Abogado Digital»), la fecha de la política y el PR cuando lo pida el dueño.
+
+## Revisión final del Abogado Digital (26-11-2026)
+
+- Dictamen (`abogado-2.1.1.md`): **se puede publicar, con cambios**. Todos los textos, ciertos frente al código.
+  - O-1: la fecha de `docs/privacidad.html:22`, la del día de la fusión, justo antes del PR (formato de `FinalLegalReviewTest.policyDate`).
+  - O-2: la línea de la barra se publica solo si salen bien en el móvil las casillas que nombra (condición de las notas, `:12`).
+  - R-1 (responde a AD-3 solo con texto): `LEAK_RESULT_KEPT` añade «Las contraseñas añadidas o cambiadas después no están comprobadas.». Aplicado con su texto exacto, con la casilla del README y un test en `PublishedTextsTest`. Sin cambio de código de comportamiento: AD-3 queda cerrado así.
+  - Acepta la casilla de «Transparente» y retira el último punto de su R-5; D-2 no va contra O-2; «Quedan N» y `LEAK_RECHECK_NEEDED`, tal cual; F-2, confirmado; F-1, la frase se queda; «Como en cualquier conexión», se queda.
+- Tests de las clases tocadas: 98, 0 fallos. La compilación completa, antes de subir.
+- Siguiente: el PR a `main` cuando lo pida el dueño, con la fecha de la política (O-1) en un commit justo antes.
