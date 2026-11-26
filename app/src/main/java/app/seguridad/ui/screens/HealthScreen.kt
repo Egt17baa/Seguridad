@@ -51,7 +51,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 
 /** O-1 of the Abogado (2.1.1, task 5): the line under the result of «Comprobar filtraciones de los accesos». */
-internal const val LEAK_RESULT_KEPT = "El resultado no se guarda en el móvil: la app lo recuerda hasta que la bóveda se bloquee o abras otra."
+internal const val LEAK_RESULT_KEPT = "El resultado no se guarda en el móvil: la app lo recuerda hasta que la bóveda se bloquee o abras otra. Las contraseñas añadidas o cambiadas después no están comprobadas."
 
 private fun Issue.label() = when (this) {
     Issue.REUSED -> "Repetida"

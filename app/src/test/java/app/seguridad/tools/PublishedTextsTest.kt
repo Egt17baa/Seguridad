@@ -98,6 +98,20 @@ class PublishedTextsTest {
     }
 
     /**
+     * 2.1.1, R-1 of the final review of the Abogado Digital (AD-3 of the director): the line under the result of «Salud»
+     * says that what was added or changed after the check is not checked, and the README's check reads it word for word.
+     */
+    @Test
+    fun theLineUnderTheLeakResultSaysWhatIsNotChecked() {
+        assertEquals(
+            "El resultado no se guarda en el móvil: la app lo recuerda hasta que la bóveda se bloquee o abras otra. " +
+                "Las contraseñas añadidas o cambiadas después no están comprobadas.",
+            app.seguridad.ui.screens.LEAK_RESULT_KEPT,
+        )
+        assertTrue("bajo el resultado se lee «${app.seguridad.ui.screens.LEAK_RESULT_KEPT}»." in read("README.md"))
+    }
+
+    /**
      * 2.1.1, tarea 4 (O-7 y R-4 del dictamen del principio; Ruling del registro: «Google Play» y los textos anteriores no
      * cuentan): los textos nuevos de la 2.1.1 no nombran a nadie más ni prometen de más. Son las notas de GitHub y las
      * «Novedades» (los bloques de código de las notas), «La 2.1.1», la línea «Aspecto (2.1.1)» y «Pruebas de la 2.1.1» del
