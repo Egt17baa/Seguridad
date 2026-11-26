@@ -16,13 +16,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
@@ -38,8 +35,8 @@ import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import app.seguridad.health.HealthItem
+import app.seguridad.health.LeakResults
 import app.seguridad.health.Issue
-import app.seguridad.health.uniquePasswords
 import app.seguridad.health.HealthView
 import app.seguridad.health.healthView
 import app.seguridad.vault.LIST_NO_MEMORY
@@ -49,14 +46,12 @@ import app.seguridad.ui.theme.BackScaffold
 import app.seguridad.ui.theme.NegativeColor
 import app.seguridad.vault.VaultState
 import app.seguridad.vault.VaultStore
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
-import kotlinx.coroutines.launch
+
+/** O-1 of the Abogado (2.1.1, task 5): the line under the result of «Comprobar filtraciones de los accesos». */
+internal const val LEAK_RESULT_KEPT = "El resultado no se guarda en el móvil: la app lo recuerda hasta que la bóveda se bloquee o abras otra. Las contraseñas añadidas o cambiadas después no están comprobadas."
 
 private fun Issue.label() = when (this) {
     Issue.REUSED -> "Repetida"
@@ -68,12 +63,16 @@ private fun Issue.label() = when (this) {
 
 /**
  * Vault health: repeated, weak, old and no-2FA passwords, plus an on-demand leak check against HIBP (k-anonymity).
- * Leak results live only in this screen's memory: they are never saved or logged, and are gone when it closes.
+ * 2.1.1, task 5 (O-3 of the Abogado): leak results live only in memory, in the session object of AppContainer
+ * ([LeakResults]), never on disk, in saved state or in any log; leaving this screen to edit a login keeps them (and a
+ * check running goes on), and they are forgotten when the vault locks, when another vault is opened, when «Importar
+ * copia» replaces the open vault (branch review, BR-1), or when the process dies.
  */
 @Composable
 fun HealthScreen(
     store: VaultStore,
     pwned: PwnedPasswords,
+    leaks: LeakResults,
     onEdit: (String) -> Unit,
     onBack: () -> Unit,
     missionsOff: Boolean = false,
@@ -82,31 +81,13 @@ fun HealthScreen(
 ) {
     VaultIdleLock(store)
     val state by store.state.collectAsState()
-    val scope = rememberCoroutineScope()
-    var breached by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
-    var job by remember { mutableStateOf<Job?>(null) }
-    var done by remember { mutableIntStateOf(0) }
-    var total by remember { mutableIntStateOf(0) }
-    var running by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-    DisposableEffect(Unit) { onDispose { job?.cancel() } }
-    fun dropResults() {
-        breached = emptyMap()
-        message = null
-        running = false
-        done = 0
-        total = 0
-    }
-    // Locking does not close this screen, and leaving the app (ON_STOP) stops recomposition: the check itself
-    // watches the vault (below). This only drops the results of a check that had already finished.
-    val unlocked = state is VaultState.Unlocked
-    LaunchedEffect(unlocked) {
-        if (!unlocked) {
-            job?.cancelAndJoin()
-            job = null
-            dropResults()
-        }
-    }
+    // 2.1.1, task 5: the leak check and its result are the session's ([LeakResults], in AppContainer), never this
+    // screen's: leaving it to edit a login keeps them. A lock stops the check and drops them there (the check watches
+    // the vault, and AppContainer forgets them at every lock); one of another lock epoch is never shown ([LeakResults.valid]).
+    val leakState by leaks.state.collectAsState()
+    val check = leaks.valid(leakState)
+    // A check the user is watching is not idle time (each step it takes, while this screen is shown).
+    LaunchedEffect(check.done, check.running) { if (check.running) store.touch() }
 
     BackScaffold("Salud de la bóveda", onBack) { padding ->
         val entries = (state as? VaultState.Unlocked)?.entries
@@ -125,6 +106,8 @@ fun HealthScreen(
             return@BackScaffold
         }
         val data = (state as VaultState.Unlocked).data
+        // The leaked logins now: those checked whose password has not changed since, out of the trash (LeakResults.breached).
+        val breached = leaks.breached(entries, check)
         // Branch review, C m-1: «Salud» is computed once, off the main thread, only when its inputs change (the data, the
         // leaks found, the day; not on scrolling or the check's progress). 2.0, task 10 (phase B): the missions come from
         // that same result, never with the leak check (O-6: [Issue.BREACHED] is taken out). Their titles may hold an
@@ -139,8 +122,8 @@ fun HealthScreen(
         // Out of memory: the text instead of anything else (no mission, no count, never «Sin problemas detectados.»).
         if (health?.noMemory == true) {
             // Round 3: a leak check running stops here (its «Cancelar» is not on screen): no request goes after the one in
-            // flight; the leaks found stay in `breached`, and dropResults is not called (it would change the key again).
-            LaunchedEffect(Unit) { job?.cancel() }
+            // flight; the leaks found stay (as a cancelled check), and nothing is dropped (it would change the key again).
+            LaunchedEffect(Unit) { leaks.cancel() }
             Text(LIST_NO_MEMORY, color = NegativeColor, modifier = Modifier.padding(padding).padding(16.dp))
             return@BackScaffold
         }
@@ -193,68 +176,37 @@ fun HealthScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         "La comprobación envía solo los 5 primeros caracteres de la huella SHA-1 de cada contraseña a Have I Been Pwned; " +
-                            "la comparación se hace en tu móvil. Solo se ejecuta cuando la pulsas y el resultado no se guarda.",
+                            "la comparación se hace en tu móvil. Solo se ejecuta cuando la pulsas.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (running) {
-                        LinearProgressIndicator(progress = { if (total == 0) 0f else done / total.toFloat() }, modifier = Modifier.fillMaxWidth())
-                        Text("Comprobando $done de $total…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        OutlinedButton(onClick = { job?.cancel() }, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
+                    if (check.running) {
+                        LinearProgressIndicator(progress = { if (check.total == 0) 0f else check.done / check.total.toFloat() }, modifier = Modifier.fillMaxWidth())
+                        Text("Comprobando ${check.done} de ${check.total}…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = { leaks.cancel() }, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
                     } else {
                         Button(
                             onClick = {
-                                val groups = uniquePasswords(entries)
-                                breached = emptyMap()
-                                message = null
-                                done = 0
-                                total = groups.size
-                                running = true
-                                job = scope.launch {
-                                    // The vault locks (idle, or leaving the app, when this screen no longer
-                                    // recomposes): the check stops at once, nothing more is sent, the passwords it
-                                    // held are let go and its results are dropped.
-                                    val check = coroutineContext.job
-                                    launch {
-                                        store.state.first { it !is VaultState.Unlocked }
-                                        check.cancel()
-                                    }
-                                    val found = HashMap<String, Int>()
-                                    try {
-                                        for ((password, ids) in groups) {
-                                            if (store.state.value !is VaultState.Unlocked) throw CancellationException()
-                                            val chars = password.toCharArray()
-                                            val n = try {
-                                                pwned.times(chars)
-                                            } finally {
-                                                chars.fill('\u0000')
-                                            }
-                                            store.touch() // A check the user is watching is not idle time.
-                                            if (n > 0) ids.forEach { found[it] = n }
-                                            breached = HashMap(found)
-                                            done++
-                                        }
-                                        message = "Comprobación terminada: ${found.size} ${if (found.size == 1) "acceso filtrado" else "accesos filtrados"}."
-                                    } catch (e: CancellationException) {
-                                        if (store.state.value is VaultState.Unlocked) {
-                                            message = "Comprobación cancelada ($done de $total)."
-                                        } else {
-                                            dropResults()
-                                        }
-                                        throw e
-                                    } catch (e: Exception) {
-                                        message = "No se pudo completar la comprobación ($done de $total). Revisa la conexión."
-                                    } finally {
-                                        running = false
-                                        coroutineContext.cancelChildren() // The vault watcher: done with this check.
-                                    }
-                                }
+                                // A new check starts from zero and replaces the result. It runs outside this screen (the
+                                // app's scope) and stops at a lock: nothing more is sent, the chars of each password are
+                                // wiped after its request, and the result is dropped.
+                                leaks.start(
+                                    entries,
+                                    times = { chars -> pwned.times(chars) },
+                                    isOpen = { store.state.value is VaultState.Unlocked },
+                                    awaitClosed = { store.state.first { it !is VaultState.Unlocked } },
+                                )
                             },
                             enabled = entries.any { it.password.isNotEmpty() && it.type == app.seguridad.vault.EntryType.LOGIN },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Comprobar filtraciones de los accesos (envía solo 5 caracteres del hash de cada contraseña)") }
                     }
+                    val message = LeakResults.message(check, left = breached.size)
                     message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    // O-1 of the Abogado (2.1.1): where the result is, under it, while there is one.
+                    if (message != null || check.running) {
+                        Text(LEAK_RESULT_KEPT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             // C-1: an entry's id (any text, from a copy) never meets the fixed key «mission».

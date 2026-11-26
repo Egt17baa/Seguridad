@@ -119,8 +119,8 @@ class AppNameTest {
         val gradle = read("app/build.gradle.kts")
         assertTrue("applicationId = \"io.github.egt17baa.seguridad\"" in gradle)
         assertTrue("namespace = \"app.seguridad\"" in gradle)
-        // 2.0 (branch review D, Minor-4): the version the APK says, in Ajustes → Acerca de and in the User-Agent (2.1.0 since 2.1).
-        assertTrue("versionName = \"2.1.0\"" in gradle)
+        // 2.0 (branch review D, Minor-4): the version the APK says, in Ajustes → Acerca de and in the User-Agent (2.1.1 since 2.1.1).
+        assertTrue("versionName = \"2.1.1\"" in gradle)
         assertTrue("android:authorities=\"\${applicationId}.compartir\"" in read("app/src/main/AndroidManifest.xml"))
         val biometric = read("app/src/main/java/app/seguridad/android/BiometricVault.kt")
         assertTrue("private const val ALIAS = \"seguridad_vault_biometric\"" in biometric)

@@ -101,6 +101,12 @@ class Look(
     val translucent: Boolean
         get() = style == ThemeStyle.GLASS || style == ThemeStyle.GLASS_STRONG || style == ThemeStyle.TRANSPARENT
 
+    /**
+     * 2.1.1: the bottom bar is a floating capsule ([PanelLevel.CAPSULE]) in every style but «Sólido», which keeps the bar of
+     * 2.1. With opaque panels («Degradado», «Reducir transparencias», «Alto contraste») it is opaque ([alpha] gives 1).
+     */
+    val floatingBar: Boolean get() = style != ThemeStyle.SOLID
+
     /** «Vidrio»: rounder panels, the wider highlight, the lit edge and the shadow. */
     val strong: Boolean get() = style == ThemeStyle.GLASS_STRONG
 
@@ -111,7 +117,7 @@ class Look(
     val layerAlpha: Float
         get() = if (wallpaperBehind) min(1f, colors.scrimAlpha + SHARP_WALLPAPER_EXTRA) else 1f
 
-    /** Whether a panel of [level] blurs: only bars and overlays, never a card or a row of a list. */
+    /** Whether a panel of [level] blurs: bars, overlays and the capsule (2.1.1), never a card or a row of a list. */
     fun blurs(level: PanelLevel): Boolean = blur && level != PanelLevel.CARD
 
     /** The opacity a panel of [level] is drawn with; [blurNow] when it has the blurred background under it. */
@@ -278,12 +284,20 @@ internal fun animationsOnSetting(): Boolean {
  */
 internal fun staticPressMark(pressed: Boolean, animationsOn: Boolean): Boolean = pressed && !animationsOn
 
-/** Draws [staticPressMark] over a pressable panel of [shape] that reports its presses to [interaction]. */
+/**
+ * Draws [staticPressMark] over a pressable panel of [shape] that reports its presses to [interaction], in [mark] (the
+ * accent; on a panel that is itself the accent, such as the chosen tab's pill of the capsule, its onPrimary).
+ */
 @Composable
-internal fun Modifier.pressSignal(interaction: InteractionSource, shape: Shape, animationsOn: Boolean): Modifier {
+internal fun Modifier.pressSignal(
+    interaction: InteractionSource,
+    shape: Shape,
+    animationsOn: Boolean,
+    mark: Color = LocalLook.current.colors.scheme.primary,
+): Modifier {
     if (animationsOn) return this
     val pressed by interaction.collectIsPressedAsState()
-    val accent = LocalLook.current.colors.scheme.primary
+    val accent = mark
     return drawWithContent {
         drawContent()
         if (staticPressMark(pressed, animationsOn)) {
@@ -301,12 +315,14 @@ internal fun litEdge(look: Look): Boolean = look.strong && !look.highContrast
 
 /**
  * The shape of each kind of panel; «Vidrio» ([strong]) rounds the cards and the overlays more. The bars stay straight,
- * and the rows of the list keep their own RowShape (12 dp) in every style.
+ * the capsule of the bottom bar (2.1.1) is rounded right round, and the rows of the list keep their own RowShape (12 dp)
+ * in every style.
  */
 fun panelShape(level: PanelLevel, strong: Boolean = false): Shape = when (level) {
     PanelLevel.CARD -> if (strong) StrongCardShape else SectionShape
     PanelLevel.BAR -> RectangleShape
     PanelLevel.OVERLAY -> RoundedCornerShape(if (strong) 32.dp else 28.dp)
+    PanelLevel.CAPSULE -> RoundedCornerShape(percent = 50)
 }
 
 private val StrongCardShape = RoundedCornerShape(22.dp)

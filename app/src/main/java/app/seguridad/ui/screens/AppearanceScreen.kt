@@ -97,8 +97,13 @@ internal const val STYLE_GRADIENT_SHORT = "Degradado: paneles opacos, sin transp
 internal const val STYLE_GLASS_SHORT = "Cristal: paneles translúcidos sobre un fondo de color."
 internal const val STYLE_GLASS_STRONG_SHORT = "Vidrio: como «Cristal», con paneles más translúcidos y bordes iluminados."
 internal const val STYLE_TRANSPARENT_SHORT = "Transparente: deja ver, atenuado, el fondo de pantalla del móvil detrás de la app."
-internal const val STYLE_MORE = "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan el fondo de " +
-    "la app que tienen detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. «Reducir transparencias» " +
+// 2.1.1, task 4 (O-6 of sdd-2.1.1/abogado-2.1.1-diseno.md, rewritten for the owner's option B): the bottom bar floats over the
+// app's background, never over the content, and from Android 12 blurs that background like the other bars. It does not say
+// the capsule is «always» more translucent (with «Personalizado» or the wallpaper colours it is only never more opaque than the
+// 2.1 bar) nor that the pill «se funde»; for the Abogado's final review.
+internal const val STYLE_MORE = "En «Cristal», «Vidrio» y «Transparente», la barra de abajo flota sobre el fondo de la app. Desde Android 12, " +
+    "esa barra, las demás barras y los diálogos difuminan el fondo de la app que tienen detrás; en Android 8 a 11 son más opacos. " +
+    "«Degradado» tiene la misma barra flotante, opaca. «Degradado» y «Sólido» no tienen transparencias. «Reducir transparencias» " +
     "y «Alto contraste» hacen opacos todos los paneles, y «Alto contraste» quita también los bordes iluminados de «Vidrio»."
 internal const val STYLE_TRANSPARENT_MORE = "La app no lee la imagen del fondo de pantalla ni pide permisos: Android la dibuja detrás " +
     "de la app. Se ve nítida, atenuada por una capa de color. Quien mire la pantalla verá también tu fondo de pantalla. " +

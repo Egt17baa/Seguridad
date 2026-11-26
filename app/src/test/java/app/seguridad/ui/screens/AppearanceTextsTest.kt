@@ -4,6 +4,7 @@ import app.seguridad.settings.STYLE_ORDER
 import app.seguridad.settings.Settings
 import app.seguridad.settings.ThemeStyle
 import app.seguridad.tools.ForbiddenWords
+import app.seguridad.tools.kotlinLiterals
 import app.seguridad.tools.lookNameProblems
 import app.seguridad.ui.theme.label
 import org.junit.Assert.assertEquals
@@ -28,14 +29,6 @@ class AppearanceTextsTest {
     }
 
     @Test fun theFoldedTextsAreTheLawyersOnes() {
-        // Branch review (24-11-2026): the bars and the dialogs blur the app's background, as 2.0 said.
-        assertEquals(
-            "En «Cristal», «Vidrio» y «Transparente», desde Android 12, las barras y los diálogos difuminan el fondo de la " +
-                "app que tienen detrás; en Android 8 a 11 son más opacos. «Degradado» y «Sólido» no tienen transparencias. " +
-                "«Reducir transparencias» y «Alto contraste» hacen opacos todos los paneles, y «Alto contraste» quita también " +
-                "los bordes iluminados de «Vidrio».",
-            STYLE_MORE,
-        )
         // Owner decision (24-11-2026): the wallpaper is sharp; branch review I-1: not in split screen or a floating window.
         assertEquals(
             "La app no lee la imagen del fondo de pantalla ni pide permisos: Android la dibuja detrás de la app. Se ve " +
@@ -52,6 +45,33 @@ class AppearanceTextsTest {
                 "de aplicarlo. La intensidad del cristal se aplica a «Cristal», «Vidrio» y «Transparente».",
             CUSTOM_MORE,
         )
+    }
+
+    /**
+     * 2.1.1, tarea 4 (O-6 del dictamen del principio, con la opción B del dueño): la barra de abajo flota sobre el fondo de
+     * la app, nunca sobre el contenido; desde Android 12 difumina, como las demás barras, el fondo de la app. Sin «siempre»
+     * más translúcida (m-2 de la tarea 1) ni pastilla que «se funde» (m-5 de la tarea 2).
+     */
+    @Test fun styleMoreSaysWhatTheBottomBarDoes() {
+        assertEquals(
+            "En «Cristal», «Vidrio» y «Transparente», la barra de abajo flota sobre el fondo de la app. Desde Android 12, " +
+                "esa barra, las demás barras y los diálogos difuminan el fondo de la app que tienen detrás; en Android 8 a 11 " +
+                "son más opacos. «Degradado» tiene la misma barra flotante, opaca. «Degradado» y «Sólido» no tienen " +
+                "transparencias. «Reducir transparencias» y «Alto contraste» hacen opacos todos los paneles, y «Alto " +
+                "contraste» quita también los bordes iluminados de «Vidrio».",
+            STYLE_MORE,
+        )
+        val t = STYLE_MORE.lowercase()
+        for (bad in listOf("siempre", "funde", "contenido", "por debajo")) assertTrue(bad, bad !in t)
+    }
+
+    /** 2.1.1, O-6: ningún texto de Aspecto dice que algo difumina el fondo de pantalla (en «Transparente» se ve nítido). */
+    @Test fun noTextSaysTheBarBlursTheWallpaper() {
+        val texts = kotlinLiterals(File(main, "ui/screens/AppearanceScreen.kt").readText()).map { it.second.lowercase() }
+        assertTrue(texts.size > 10)
+        assertTrue(texts.any { "difumin" in it } && texts.any { "fondo de pantalla" in it })
+        val bad = texts.filter { "difumin" in it && "fondo de pantalla" in it }
+        assertTrue(bad.joinToString("\n"), bad.isEmpty())
     }
 
     @Test fun eachStyleHasItsLine() {

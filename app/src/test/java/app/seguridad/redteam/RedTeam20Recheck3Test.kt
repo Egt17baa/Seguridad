@@ -2,6 +2,7 @@ package app.seguridad.redteam
 
 import app.seguridad.core.appJson
 import app.seguridad.crypto.CryptoFailure
+import app.seguridad.health.LeakResults
 import app.seguridad.health.healthView
 import app.seguridad.imports.DuplicateChoice
 import app.seguridad.imports.IMPORT_NO_MEMORY
@@ -33,7 +34,11 @@ import app.seguridad.vault.isVaultTag
 import app.seguridad.vault.jsonBytes
 import app.seguridad.vault.listTags
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.builtins.ListSerializer
@@ -457,46 +462,118 @@ class RedTeam20Recheck3Test {
     // «Salud»: no request after the cancel of NO_MEMORY, and no CancellationException swallowed.
     // ---------------------------------------------------------------------------------------------------------------
 
-    /**
-     * «Salud»: the stop of NO_MEMORY is `job?.cancel()` on the check (HealthScreen.kt), whose only network call is
-     * `pwned.times(…)` in its loop. That call is a prompt cancellation point: cancelled while its request is in flight,
-     * the loop sends nothing more (MockWebServer: exactly 1 request of 5). The screen itself is anchored by source
-     * (RedTeam20Recheck2Test.informativeSaludWithoutMemoryHidesTheCancelOfARunningCheck): none after the cancel, which
-     * runs in a LaunchedEffect once NO_MEMORY is composed.
-     */
-    @Test fun resistsNoRequestGoesAfterTheCancelOfALeakCheck() {
-        val inFlight = CountDownLatch(1)
+    /** A HIBP of MockWebServer whose requests wait for [release], counting the most in flight at once. */
+    private class SlowHibp {
+        val inFlight = java.util.concurrent.Semaphore(0)
         val release = CountDownLatch(1)
-        val server = MockWebServer()
-        server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                inFlight.countDown()
-                release.await(10, TimeUnit.SECONDS)
-                return MockResponse().setResponseCode(200).setBody("")
-            }
-        }
-        server.start()
-        try {
-            val pwned = PwnedPasswords(OkHttpClient(), server.url("/"))
-            runBlocking {
-                val job = launch(Dispatchers.Default) {
-                    for (i in 0 until 5) pwned.times("contraseña-$i".toCharArray())
+        val now = java.util.concurrent.atomic.AtomicInteger()
+        val most = java.util.concurrent.atomic.AtomicInteger()
+        val server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    most.accumulateAndGet(now.incrementAndGet(), ::maxOf)
+                    inFlight.release()
+                    release.await(10, TimeUnit.SECONDS)
+                    now.decrementAndGet()
+                    return MockResponse().setResponseCode(200).setBody("")
                 }
-                assertTrue(inFlight.await(10, TimeUnit.SECONDS))
-                job.cancel()
-                release.countDown()
-                job.join()
-                assertTrue(job.isCancelled)
             }
-            assertEquals("no request after the cancel", 1, server.requestCount)
-        } finally {
+            start()
+        }
+        val pwned = PwnedPasswords(OkHttpClient(), server.url("/"))
+        fun close() {
             release.countDown()
             server.shutdown()
+        }
+    }
+
+    private val fiveLogins = List(5) { i -> VaultEntry("e$i", EntryType.LOGIN, "t$i", password = "contraseña-$i", createdAt = 1, updatedAt = 1) }
+
+    private fun until(what: String, ok: () -> Boolean) {
+        val end = System.nanoTime() + 10_000_000_000L
+        while (!ok()) {
+            check(System.nanoTime() < end) { what }
+            Thread.sleep(5)
+        }
+    }
+
+    /**
+     * «Salud»: the stop of NO_MEMORY and «Cancelar» are `leaks.cancel()` on the check, which runs in LeakResults.start
+     * (since 2.1.1; branch review BR-7 b: the real loop, with the real PwnedPasswords and MockWebServer). Its only network
+     * call is `times`, a prompt cancellation point: cancelled while its request is in flight, nothing more is sent
+     * (exactly 1 request of 5), and what it found stays as a cancelled check. The screen is anchored by source
+     * (RedTeam20Recheck2Test.informativeSaludWithoutMemoryHidesTheCancelOfARunningCheck).
+     */
+    @Test fun resistsNoRequestGoesAfterTheCancelOfALeakCheck() {
+        val hibp = SlowHibp()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val leaks = LeakResults(scope, lockEpoch = { 0 })
+            leaks.start(fiveLogins, { hibp.pwned.times(it) }, isOpen = { true }, awaitClosed = { awaitCancellation() })
+            assertTrue(hibp.inFlight.tryAcquire(10, TimeUnit.SECONDS))
+            leaks.cancel()
+            hibp.release.countDown()
+            until("cancelled") { leaks.state.value.end == LeakResults.End.CANCELLED }
+            Thread.sleep(200)
+            assertEquals("no request after the cancel", 1, hibp.server.requestCount)
+            assertEquals("Comprobación cancelada (0 de 5).", LeakResults.message(leaks.current()))
+        } finally {
+            scope.cancel()
+            hibp.close()
         }
         val src = code("ui/screens/HealthScreen.kt")
         assertEquals("one network call in the screen", 1, Regex("""pwned\.times\(""").findAll(src).count())
         val noMemory = src.indexOf("if (health?.noMemory == true)")
-        assertTrue("LaunchedEffect(Unit) { job?.cancel() }" in src.substring(noMemory, src.indexOf("return@BackScaffold", noMemory)))
+        assertTrue("LaunchedEffect(Unit) { leaks.cancel() }" in src.substring(noMemory, src.indexOf("return@BackScaffold", noMemory)))
+    }
+
+    /** The same with a lock (the vault's watcher, awaitClosed): no request after it, and everything is dropped. */
+    @Test fun resistsNoRequestGoesAfterALockDuringALeakCheck() {
+        val hibp = SlowHibp()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val open = java.util.concurrent.atomic.AtomicBoolean(true)
+            val epoch = java.util.concurrent.atomic.AtomicInteger()
+            val closed = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val leaks = LeakResults(scope, lockEpoch = { epoch.get() })
+            leaks.start(fiveLogins, { hibp.pwned.times(it) }, isOpen = { open.get() }, awaitClosed = { closed.await() })
+            assertTrue(hibp.inFlight.tryAcquire(10, TimeUnit.SECONDS))
+            open.set(false)
+            epoch.incrementAndGet()
+            closed.complete(Unit)
+            hibp.release.countDown()
+            until("dropped") { leaks.state.value === LeakResults.EMPTY }
+            Thread.sleep(200)
+            assertEquals("no request after the lock", 1, hibp.server.requestCount)
+        } finally {
+            scope.cancel()
+            hibp.close()
+        }
+    }
+
+    /**
+     * Branch review BR-3, «una a la vez»: a check forgotten (a lock) with its request in flight, which cannot be
+     * interrupted, and a new one started at once: the new one sends nothing until the old request ends.
+     */
+    @Test fun resistsTwoChecksNeverSendAtOnce() {
+        val hibp = SlowHibp()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val leaks = LeakResults(scope, lockEpoch = { 0 })
+            leaks.start(fiveLogins, { hibp.pwned.times(it) }, isOpen = { true }, awaitClosed = { awaitCancellation() })
+            assertTrue(hibp.inFlight.tryAcquire(10, TimeUnit.SECONDS))
+            leaks.forget()
+            leaks.start(fiveLogins.take(2), { hibp.pwned.times(it) }, isOpen = { true }, awaitClosed = { awaitCancellation() })
+            Thread.sleep(300)
+            assertEquals("the new check waits", 1, hibp.server.requestCount)
+            hibp.release.countDown()
+            until("the new check ends") { leaks.state.value.end == LeakResults.End.DONE }
+            assertEquals(1, hibp.most.get())
+            assertEquals("the old one sent nothing more; the new one its 2", 3, hibp.server.requestCount)
+        } finally {
+            scope.cancel()
+            hibp.close()
+        }
     }
 
     /**

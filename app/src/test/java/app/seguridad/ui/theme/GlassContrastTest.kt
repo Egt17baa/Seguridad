@@ -82,7 +82,7 @@ class GlassContrastTest {
     @Test fun barsWithoutBlurReadOverAnyListBehind() {
         for ((p, custom) in palettes) for (dark in listOf(true, false)) {
             val l = look(p, custom, dark = dark, sdk = 30)
-            for (level in listOf(PanelLevel.BAR, PanelLevel.OVERLAY)) {
+            for (level in listOf(PanelLevel.BAR, PanelLevel.OVERLAY, PanelLevel.CAPSULE)) {
                 val unblurred = l.alpha(level, blurNow = false)
                 assertTrue("$p $level", unblurred >= l.colors.floorAlpha)
                 assertTrue("$p $level: more opaque without the blur", unblurred >= l.alpha(level, blurNow = true))

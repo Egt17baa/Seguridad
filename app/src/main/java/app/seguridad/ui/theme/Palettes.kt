@@ -37,8 +37,12 @@ import kotlin.math.roundToLong
  * steps (R-C6). The tests measure the result on their own (PalettesTest, GlassContrastTest, TagPaletteThemeTest).
  */
 
-/** The kinds of glass panel: cards and rows (never blurred), bars, and what floats over the screen (dialogs, sheets, menus). */
-enum class PanelLevel { CARD, BAR, OVERLAY }
+/**
+ * The kinds of glass panel: cards and rows (never blurred), bars, what floats over the screen (dialogs, sheets, menus)
+ * and, 2.1.1, the capsule of the bottom bar in every style but «Sólido» (it blurs like a bar; only the app's background is
+ * ever behind it, design «Barra de abajo en cápsula», option B).
+ */
+enum class PanelLevel { CARD, BAR, OVERLAY, CAPSULE }
 
 /** A soft spot of colour of the background: [color] at [alpha] in its centre, fading to nothing at [radius] (of the longer side). */
 @Immutable
@@ -74,11 +78,17 @@ data class AppColors(
     val border: Color,
     val borderWidth: Float,
     val scrimAlpha: Float,
+    /**
+     * 2.1.1: how opaque the capsule of the bottom bar is with the blur, measured like a bar over the background's ends (in
+     * «Transparente», its layer over white and black) for its names and icons and the pill ([ColorScheme.primary]), and
+     * started lower ([nominal]) so that it is more see-through than the bar. 1 with «Alto contraste».
+     */
+    val capsuleAlpha: Float,
 )
 
 /** The colour of a panel of [level], before its opacity. */
 fun AppColors.panelColor(level: PanelLevel): Color = when (level) {
-    PanelLevel.CARD, PanelLevel.BAR -> scheme.surfaceContainer
+    PanelLevel.CARD, PanelLevel.BAR, PanelLevel.CAPSULE -> scheme.surfaceContainer
     PanelLevel.OVERLAY -> scheme.surfaceContainerHigh
 }
 
@@ -93,6 +103,7 @@ fun AppColors.panelAlpha(level: PanelLevel, opaque: Boolean, blur: Boolean): Flo
         PanelLevel.CARD -> return cardAlpha
         PanelLevel.BAR -> barAlpha
         PanelLevel.OVERLAY -> overlayAlpha
+        PanelLevel.CAPSULE -> capsuleAlpha
     }
     return if (blur) blurred else max(min(1f, blurred + UNBLURRED_EXTRA), floorAlpha)
 }
@@ -287,20 +298,23 @@ private const val WHITE = 0xFFFFFFFFL
 private const val BLACK = 0xFF000000L
 
 /**
- * The nominal opacity of a card, a bar and an overlay for each intensity of the glass, before the correction. «Vidrio»
- * ([ThemeStyle.GLASS_STRONG]) starts lower; the correction raises it as far as every text needs, as for «Cristal».
+ * The nominal opacity of a card, a bar, an overlay and the capsule for each intensity of the glass, before the correction.
+ * «Vidrio» ([ThemeStyle.GLASS_STRONG]) starts lower; the correction raises it as far as every text needs, as for «Cristal».
+ * 2.1.1: the capsule starts at 0.55 («Cristal» and «Transparente») and 0.45 («Vidrio») in the named palettes (medium glass).
  */
 private fun nominal(level: PanelLevel, glass: GlassLevel, kind: ThemeStyle): Double {
     val base = when (level) {
         PanelLevel.CARD -> when (glass) { GlassLevel.LOW -> 0.78; GlassLevel.MEDIUM -> 0.60; GlassLevel.HIGH -> 0.42 }
         PanelLevel.BAR -> when (glass) { GlassLevel.LOW -> 0.86; GlassLevel.MEDIUM -> 0.76; GlassLevel.HIGH -> 0.66 }
         PanelLevel.OVERLAY -> when (glass) { GlassLevel.LOW -> 0.92; GlassLevel.MEDIUM -> 0.85; GlassLevel.HIGH -> 0.78 }
+        PanelLevel.CAPSULE -> when (glass) { GlassLevel.LOW -> 0.65; GlassLevel.MEDIUM -> 0.55; GlassLevel.HIGH -> 0.45 }
     }
     if (kind != ThemeStyle.GLASS_STRONG) return base
     return base - when (level) {
         PanelLevel.CARD -> 0.12
         PanelLevel.BAR -> 0.08
         PanelLevel.OVERLAY -> 0.06
+        PanelLevel.CAPSULE -> 0.10
     }
 }
 
@@ -441,6 +455,10 @@ private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
     val bar = if (hc) 1f else opacity(nominal(PanelLevel.BAR, spec.glass, spec.kind), sContainer, ends)
     val overlay = if (hc) 1f else opacity(nominal(PanelLevel.OVERLAY, spec.glass, spec.kind), sHigh, ends)
     val floor = if (hc) 1f else max(opacity(0.5, sContainer, anything), opacity(0.5, sHigh, anything))
+    // 2.1.1, option B: only the background is ever behind the capsule (the content ends above it), as behind a bar. Its
+    // names and icons (onSurfaceVariant, primary) and the pill (primary, controller Ruling) are among what `reads` asks:
+    // every text at the text ratio, and primary at 3:1 too. Without the blur, panelAlpha adds UNBLURRED_EXTRA and the floor.
+    val capsule = if (hc) 1f else opacity(nominal(PanelLevel.CAPSULE, spec.glass, spec.kind), sContainer, ends)
     if (!reads(sContainer) || !reads(sHigh)) met = false
 
     val c = { v: Long -> Color(v) }
@@ -487,6 +505,7 @@ private fun build(spec: Spec, dark: Boolean, hc: Boolean): Built {
         border = if (hc) c(onSurfaceVariant) else Color.White.copy(alpha = if (dark) 0.14f else 0.75f),
         borderWidth = if (hc) 2f else 1f,
         scrimAlpha = scrim,
+        capsuleAlpha = capsule,
     )
     return Built(colors, met)
 }

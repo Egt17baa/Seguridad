@@ -81,6 +81,100 @@ class PublishedTextsTest {
         for (fact in listOf("donde elijas", "5 primeros caracteres", "exportas, guardas, copias o compartes")) assertTrue("ficha: $fact", fact in listing)
     }
 
+    /**
+     * 2.1.1, F-2 of the audit (approval of the director): the policy says, word for word, when the result of «Comprobar
+     * filtraciones de los accesos» and the one of «¿Filtrada?» are forgotten, so neither changes without a review.
+     * «Importar copia» over the open vault forgets the first (BR-1, `AppContainer.beforeReplace`). The one of «¿Filtrada?»
+     * is not forgotten at every lock (AD-2: `ScreenAway.lockWipes`), so the policy must not say «al bloquear la bóveda».
+     */
+    @Test
+    fun thePolicySaysWhenTheLeakResultsAreForgotten() {
+        val policy = htmlText(read("docs/privacidad.html")).replace(Regex("\\s+"), " ")
+        assertTrue(
+            "lo olvida cuando la bóveda se bloquea, cuando abres otra, cuando importas una copia que la reemplaza o cuando " +
+                "Android cierra la app." in policy,
+        )
+        assertTrue("El de «¿Filtrada?» se olvida al volver atrás desde esa pantalla o cuando Android cierra la app." in policy)
+    }
+
+    /**
+     * 2.1.1, R-1 of the final review of the Abogado Digital (AD-3 of the director): the line under the result of «Salud»
+     * says that what was added or changed after the check is not checked, and the README's check reads it word for word.
+     */
+    @Test
+    fun theLineUnderTheLeakResultSaysWhatIsNotChecked() {
+        // jvm-check leaves `ui` out: the constant is read from its source.
+        val kept = "El resultado no se guarda en el móvil: la app lo recuerda hasta que la bóveda se bloquee o abras otra. " +
+            "Las contraseñas añadidas o cambiadas después no están comprobadas."
+        assertTrue(
+            "internal const val LEAK_RESULT_KEPT = \"$kept\"" in read("app/src/main/java/app/seguridad/ui/screens/HealthScreen.kt"),
+        )
+        assertTrue("bajo el resultado se lee «$kept»." in read("README.md"))
+    }
+
+    /**
+     * 2.1.1, tarea 4 (O-7 y R-4 del dictamen del principio; Ruling del registro: «Google Play» y los textos anteriores no
+     * cuentan): los textos nuevos de la 2.1.1 no nombran a nadie más ni prometen de más. Son las notas de GitHub y las
+     * «Novedades» (los bloques de código de las notas), «La 2.1.1», la línea «Aspecto (2.1.1)» y «Pruebas de la 2.1.1» del
+     * README, la línea de los estilos de la ficha y `STYLE_MORE`. Además: nada de «siempre» más translúcida (m-2 de la
+     * tarea 1), de una pastilla que «se funde» (m-5 de la tarea 2) ni de medidas «de la guía» (m-6 de la tarea 2).
+     */
+    @Test
+    fun the211TextsNameNoOneElse() {
+        val texts = the211Texts()
+        assertEquals(texts.keys.toString(), 7, texts.size)
+        val banned = listOf(
+            "material 3", "expressive", "de google", "como en", "líquid", "liquid", "accesible", "se funde", "siempre",
+            "de la guía", "guía pública", "nuevo diseño", "exclusiv", "único", "única",
+            // M-2 of the task 4 review: in «Transparente» what shows more is the app's layer, never the wallpaper.
+            "fondo de cada estilo", "con los colores del fondo de pantalla",
+        )
+        for ((name, text) in texts) {
+            assertTrue(name, text.length > 40)
+            val t = ForbiddenWords.normalise(text)
+            for (b in banned) assertFalse("$name: «$b»", b in t)
+            // «Google» only as «Google Play».
+            assertFalse("$name: Google", Regex("google(?! play)").containsMatchIn(t))
+            assertTrue("$name: ${ForbiddenWords.problems(text)}", ForbiddenWords.problems(text).isEmpty())
+            assertTrue("$name: ${lookNameProblems(text)}", lookNameProblems(text).isEmpty())
+        }
+        // The bar's line is the same in the README, GitHub and «Novedades» (M-2: «el fondo de la app», «la paleta …»).
+        val line = "La barra de abajo flota, redondeada, en «Degradado», «Cristal», «Vidrio» y «Transparente». En los tres " +
+            "últimos, desde Android 12, deja ver más el fondo de la app; con «Personalizado» y con la paleta «Colores del " +
+            "fondo de pantalla», al menos tanto como antes. «Sólido» no cambia."
+        // 2.1.1, task 5 (R-3 of the Abogado's ruling on the leaks of «Salud»): one more line, the same in GitHub.
+        val leaks = "En «Salud», el resultado de «Comprobar filtraciones» se mantiene mientras la bóveda está abierta, para ir " +
+            "arreglando los accesos uno a uno. No se guarda en el móvil."
+        assertEquals("$line\n$leaks", texts.getValue("Novedades"))
+        assertTrue(line in texts.getValue("GitHub") && texts.getValue("README, Aspecto (2.1.1)").endsWith(line))
+        assertTrue(leaks in texts.getValue("GitHub"))
+        for (t in listOf(leaks, texts.getValue("README, La 2.1.1"))) {
+            val n = ForbiddenWords.normalise(t)
+            for (b in listOf("protegid", "borrado segur")) assertFalse("«$b»", b in n)
+        }
+        val news = texts.getValue("Novedades")
+        assertTrue(news.length.toString(), news.length < 500 && news.codePointCount(0, news.length) < 500)
+    }
+
+    private fun the211Texts(): Map<String, String> {
+        val notes = read("docs/superpowers/handoff/2026-11-24-clavero-2.1.1-notas.md")
+        fun block(after: String) = notes.substringAfter(after).substringAfter("```\n").substringBefore("\n```").trim()
+        val readme = read("README.md")
+        assertTrue("**Pruebas de la 2.1.1.**" in readme && "## GitHub" in notes && "## Google Play, «Novedades»" in notes)
+        fun line(prefix: String) = readme.lines().single { it.startsWith(prefix) }
+        return mapOf(
+            "GitHub" to block("## GitHub"),
+            "Novedades" to block("## Google Play, «Novedades»"),
+            "README, La 2.1.1" to line("**La 2.1.1**"),
+            "README, Aspecto (2.1.1)" to line("- **Aspecto (2.1.1):**"),
+            "README, Pruebas de la 2.1.1" to readme.substringAfter("**Pruebas de la 2.1.1.**").substringBefore("\n## "),
+            "ficha" to read("docs/ficha-google-play.md").lines().single { it.startsWith("• Cinco estilos:") },
+            // From the source: jvm-check leaves `ui` out; AppearanceTextsTest fixes the same text word for word.
+            "STYLE_MORE" to kotlinLiterals(read("app/src/main/java/app/seguridad/ui/screens/AppearanceScreen.kt"))
+                .map { it.second }.single { it.startsWith("En «Cristal», «Vidrio» y «Transparente», la barra de abajo") },
+        )
+    }
+
     /** 2.0, O-3 and R-8 of the Abogado Digital: the full description fits Play's 4 000, also if a line break counted twice. */
     @Test
     fun theFullPlayDescriptionFits() {

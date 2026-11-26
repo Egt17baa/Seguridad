@@ -275,7 +275,7 @@ class FormHelpersTest {
         assertTrue("TextButton(enabled = !saving, onClick = form::discard)" in screen)
         assertTrue("val off = leaveGuard?.let(form::guardedBy)" in screen)
         val nav = source("ui/AppNavHost.kt")
-        assertTrue("leaveGuard.leave {\n                                    nav.navigate(tab.route) {" in nav)
+        assertTrue("leaveGuard.leave {\n            nav.navigate(tab.route) {" in nav)
         assertTrue("LocalLeaveGuard provides leaveGuard" in nav)
         val vault = source("ui/screens/VaultScreen.kt")
         assertTrue("onClick = newEntry," in vault)
