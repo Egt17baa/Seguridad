@@ -30,8 +30,8 @@ Y los documentos publicados: `docs/privacidad.html`, `docs/ficha-google-play.md`
 
 | ID | Severidad | Hallazgo | Dónde |
 |---|---|---|---|
-| F-1 | Info | La política dice cuándo se olvida el resultado de «¿Filtrada?» solo en parte: también se olvida al bloquear y por la regla de «PIN y códigos» | `docs/privacidad.html:60`; `ui/screens/SecurityToolsScreen.kt:1054-1057` |
-| F-2 | Info | La política y `LEAK_RESULT_KEPT` no dicen que «Importar copia» también olvida el resultado de «Salud» | `docs/privacidad.html:60`; `ui/screens/HealthScreen.kt:54`; `AppContainer.kt:434-436` |
+| F-1 | Info | La política dice cuándo se olvida el resultado de «¿Filtrada?» solo en parte: también se olvida por la regla de «PIN y códigos» (al pulsar «Bloquear», al abrir otra bóveda…), pero no con cada bloqueo (corregido por AD-2 del director) | `docs/privacidad.html:60`; `tools/codes/ScreenAway.kt:79-83` |
+| F-2 | Info (arreglado en `1b04ebe`) | La política y `LEAK_RESULT_KEPT` no dicen que «Importar copia» también olvida el resultado de «Salud» | `docs/privacidad.html:60`; `ui/screens/HealthScreen.kt:54`; `AppContainer.kt:434-436` |
 | F-3 | Info | Los toques que se tragan en la cápsula y el sitio del contenido solo los fijan tests de fuente y de funciones puras (D-1); el comportamiento real se ve en el móvil | `ui/theme/FloatingBarTest.kt:167-179`; `ui/BottomBarSpaceTest.kt:53-177` |
 
 Ningún hallazgo Crítico, Alto, Medio ni Bajo. Los tres son informativos: ninguno es un fallo de seguridad ni hace falso un texto. Los dos primeros van al Abogado como precisiones opcionales. El tercero es un límite de método ya decidido (D-1) que cubren las casillas del README.
@@ -41,9 +41,9 @@ Ningún hallazgo Crítico, Alto, Medio ni Bajo. Los tres son informativos: ningu
 ### F-1 [Info] La frase de «¿Filtrada?» en la política se queda corta
 
 - **Dónde:** `docs/privacidad.html:60`: «El de «¿Filtrada?» se olvida al volver atrás desde esa pantalla o cuando Android cierra la app.»
-- **Qué pasa:** el resultado de «¿Filtrada?» vive en `BreachViewModel`, con la regla de «PIN y códigos» (`GuardEffects(s.guard, lockAfterMs)`, `ui/screens/SecurityToolsScreen.kt:1055-1057`). Se olvida también al bloquear la bóveda y al volver tras `max(bloqueo, 60 s)` fuera. La frase no lo dice.
+- **Qué pasa (corregido por AD-2 de la aprobación del director):** además de al volver atrás y con la muerte del proceso, el resultado de «¿Filtrada?» se olvida por la regla de «PIN y códigos»: entre otros casos, al pulsar «Bloquear», al abrir otra bóveda y al volver a esa pantalla tras `max(bloqueo, 60 s)` fuera. No se olvida con el bloqueo al salir de la app ni con el de inactividad si la pantalla se usó hace poco (`tools/codes/ScreenAway.kt:79-83`).
 - **Impacto:** ninguno de seguridad. La frase dice «como mucho hasta»; la app olvida antes, no después. No hace falso el texto, pero no lo dice todo.
-- **Arreglo propuesto (para el Abogado, opcional):** «El de «¿Filtrada?» se olvida al volver atrás desde esa pantalla, al bloquear la bóveda o cuando Android cierra la app.»
+- **Arreglo propuesto:** ninguno: la frase es cierta. Si el Abogado quiere nombrar más casos, solo el texto comprobado de la aprobación del director: «El de «¿Filtrada?» se olvida al volver atrás desde esa pantalla, al pulsar «Bloquear», al abrir otra bóveda o cuando Android cierra la app.» «Al bloquear la bóveda», sin más, sería falso.
 - **Test:** si se cambia, `PublishedTextsTest` puede fijar la frase nueva, como fija las demás de la 2.1.1.
 
 ### F-2 [Info] «Importar copia» también olvida las filtradas, y los textos no lo dicen
@@ -64,8 +64,8 @@ Ningún hallazgo Crítico, Alto, Medio ni Bajo. Los tres son informativos: ningu
 
 ## 4. Riesgos con nombre
 
-- **R-211-1. Los `String` de las contraseñas viven en `appScope` hasta 15 s tras un bloqueo.** `LeakResults.start` agrupa las contraseñas con `uniquePasswords` (`health/LeakResults.kt:122`). Esos `String` siguen en la corrutina hasta que acaba la última petición en vuelo, que no se puede interrumpir. Con BR-8, una comprobación cancelada espera también a la anterior (`:178`). El tope es el `callTimeout` de 15 s (`net/HttpClient.kt:21`). En la 2.1 pasaba lo mismo en la corrutina de la pantalla. Los `CharArray` que salen a la red sí se borran (`:153-158`). Hace falta leer la memoria del proceso para aprovecharlo. Se acepta.
-- **R-211-2. Una contraseña cambiada sale de «Filtrada» aunque la nueva también esté filtrada.** `LeakResults` sigue la marca del último cambio (`lastPasswordChange`), nunca la contraseña ni su hash (`health/LeakResults.kt:103-113`). Así, cambiarla por la misma otra vez o restaurar una versión vieja la quita de «Filtrada» hasta comprobar otra vez. Es la decisión del `code-review` (`272c349`): guardar algo de la contraseña sería peor. `LEAK_RECHECK_NEEDED` lo dice, bajo el resultado, cuando algún acceso ha cambiado (`:23-24`, `:222-227`). Se acepta, con ese texto.
+- **R-211-1. Tras un bloqueo, la comprobación mantiene alcanzables las contraseñas, como `String`, hasta unos 15 s** (texto de AD-4 de la aprobación del director). No son copias: `uniquePasswords` agrupa por la contraseña de cada entrada (`health/Health.kt:32-34`), y la comprobación las retiene (`health/LeakResults.kt:122`) hasta que acaba su petición en vuelo, que no se puede interrumpir, y, con BR-8, hasta que acaba la comprobación anterior a la que espera (`:178`). Tras el bloqueo no empieza ninguna petición (`:147`, `:152`). El tope es el `callTimeout` de 15 s (`net/HttpClient.kt:21`); OkHttp no corta una resolución DNS bloqueada, así que en casos raros puede ser algo más. No se retiene nada más de la contraseña: `marks` y `found` son ids, números y marcas. En la 2.1 pasaba lo mismo en la corrutina de la pantalla, y un `String` no se puede borrar: sin la comprobación seguiría en memoria hasta que lo recoja el recolector de basura (GC). Los `CharArray` que salen a la red sí se borran (`:153-158`), y el hash, en `net/PwnedPasswords.kt:43-45`. Hace falta leer la memoria del proceso para aprovecharlo. Se acepta.
+- **R-211-2. Una contraseña cambiada sale de «Filtrada» aunque la nueva también esté filtrada.** `LeakResults` sigue la marca del último cambio (`lastPasswordChange`), nunca la contraseña ni su hash (`health/LeakResults.kt:103-113`). Así, cambiarla por otra también filtrada, o por otra y después otra vez por la de antes (a mano o restaurando una versión), la quita de «Filtrada» hasta comprobar otra vez. Guardarla sin cambiarla no la quita: la marca se congela (CR-1, `vault/EntryHistory.kt:46-48`; corregido por AD-1 de la aprobación del director). Es la decisión del `code-review` (`272c349`): guardar algo de la contraseña sería peor. `LEAK_RECHECK_NEEDED` lo dice, bajo el resultado, cuando algún acceso ha cambiado (`:23-24`, `:222-227`). Se acepta, con ese texto.
 - **R-211-3. La cápsula solo se ve de verdad en el móvil.** Es F-3. El rendimiento del difuminado, «Herramientas» a 360 dp con la letra del fabricante (4,6 dp de sobra), TalkBack, el teclado físico y en pantalla, y Android 8 a 11 solo se ven en las casillas de «Pruebas de la 2.1.1».
 
 ## 5. Lo comprobado
@@ -156,7 +156,7 @@ Ningún hallazgo Crítico, Alto, Medio ni Bajo. Los tres son informativos: ningu
 
 ## 8. Veredicto
 
-**Se puede publicar.** Ningún hallazgo que exija cambiar el código. F-1 y F-2 son precisiones opcionales de la política para el Abogado. F-3 se cierra con las casillas del README en el móvil, que ya son condición para publicar la línea de la barra. Siguen: la revisión final del Abogado Digital, la fecha de la política (el día de la fusión, que ya no es el 24) y las pruebas en el móvil.
+**Se puede publicar.** Ningún hallazgo que exija cambiar el código. F-1 es una precisión opcional para el Abogado (con el texto de AD-2); F-2 se arregló en `1b04ebe`, por la aprobación del director. F-3 se cierra con las casillas del README en el móvil, que ya son condición para publicar la línea de la barra. Siguen: la revisión final del Abogado Digital, la fecha de la política (el día de la fusión, que ya no es el 24) y las pruebas en el móvil.
 
 ## Revisión experto-seguridad-cripto
 
@@ -184,7 +184,91 @@ Todo lo de `sdd-2.1.1/branch-review.md` («Textos para el Abogado Digital», `:1
 1. **R-5 con la opción B.** Su última casilla pedía que en «Transparente» el fondo de pantalla se viera nítido a través de la cápsula. Con la opción B no es así: a través de la cápsula apenas se ve, porque la capa de la app y la cápsula lo tapan casi del todo (la casilla del README ya lo dice así). Que el Abogado acepte la casilla tal como está o diga cómo quiere el texto. La línea «deja ver más el fondo de la app» (README `:73`, notas, «Novedades») compara con la barra de la 2.1 y solo se afirma desde Android 12.
 2. **D-2 frente a O-2.** La cápsula mide 64 dp y crece con la letra del sistema: unos 80 dp con la letra doble (`FloatingBar.kt:134`). No cambia mientras se usa, solo con otro tamaño de letra. Que confirme que eso no va contra O-2 («no cambia de forma ni de tamaño»).
 3. **Qué significa «Quedan N».** N son los accesos hallados que siguen como estaban: acceso, fuera de la papelera, con contraseña y sin cambiar la contraseña. Uno mandado a la papelera cuenta como «cambiado» aunque no se haya arreglado, y «Ya no queda ninguno sin cambiar.» no dice que las nuevas no estén filtradas (para eso está `LEAK_RECHECK_NEEDED`, justo detrás).
-4. **«o la sustituyes con una copia».** Si quiere, en `docs/privacidad.html:60`, para nombrar el olvido de «Importar copia» (F-2). Y, si quiere, «al bloquear la bóveda» en la frase de «¿Filtrada?» (F-1).
+4. **F-2 y F-1 (corregido por AD-2).** F-2 ya está aplicado (`1b04ebe`): «…, cuando importas una copia que la reemplaza o cuando Android cierra la app.»; que lo confirme. La frase de «¿Filtrada?» (F-1) se queda; si quiere nombrar más casos, solo el texto comprobado de la aprobación del director. «Al bloquear la bóveda», sin más, sería falso.
 5. **La fecha de la política.** `docs/privacidad.html:22` dice el 24 de noviembre de 2026. Esta auditoría es del 25: si se fusiona ese día o después, se pone el de la fusión.
 6. **El texto nuevo `LEAK_RECHECK_NEEDED`** (`health/LeakResults.kt:23-24`): «Una contraseña cambiada después no se vuelve a comprobar: pulsa otra vez «Comprobar filtraciones de los accesos» para saber si la nueva está filtrada.» Lo añadió el `code-review` después del dictamen sobre las filtradas, así que el Abogado no lo ha visto. Sale detrás de «Quedan N sin cambiar.» y de las otras dos frases de `LeakResults.message` (`:222-227`).
 7. **«Como en cualquier conexión»** (`docs/privacidad.html:61`): es de antes de la 2.1.1 y no compara con otra app. Solo para confirmar que no choca con O-7.
+
+## Aprobación del director
+
+- **Fecha:** 26-11-2026.
+- **Qué ha revisado:** esta auditoría (`4bc006d`), comprobada contra el código y los documentos de `git diff a29d88c..HEAD`. El código es el de `272c349`: después solo cambian documentos.
+- **Método:** solo lectura y sin Gradle; se apoya en la compilación completa de `272c349` y en los 173 tests de §6. Ha leído entero el código de cada punto, no solo el diff: `LeakResults`, `HealthScreen`, `AppContainer` (`Slot`, `lockEpoch`, `switchTo`), `VaultStore` (`generation`, `lock`, `upsert`, `importReplace`), `EntryHistory`, `Health`, `PwnedPasswords`, `HttpClient`, `FloatingBar`, `AppNavHost`, `Glass`, `Palettes`, `Components`, `SecureWindow`, `MainActivity`, `BreachViewModel`, `ScreenGuard`, `ScreenAway` y `ScreenGuardWiring`, con sus tests.
+
+### Veredicto
+
+**APROBADA CON CAMBIOS.** Confirma la conclusión de la auditoría: se puede publicar. Ningún hallazgo de seguridad; el código no cambia de comportamiento. Antes del Abogado se arreglan dos menores (AD-1 y AD-2) y F-2. Hechos así, no hace falta otro repaso del director: basta con los tests de las clases tocadas y la compilación completa antes del PR.
+
+### Hallazgos nuevos
+
+| ID | Severidad | Hallazgo | Dónde |
+|---|---|---|---|
+| AD-1 | Menor | La casilla de «Salud» esperaba que guardar la misma contraseña sacara el acceso de «Filtrada». No lo saca, y eso es lo correcto | `README.md:494`; §4 R-211-2; `health/LeakResults.kt:41-43` |
+| AD-2 | Menor | F-1 decía mal cuándo se olvida «¿Filtrada?», y su texto propuesto haría falsa la política | §2, §3 F-1, §8 y «Textos para el Abogado» 4; `tools/codes/ScreenAway.kt:79-83` |
+| AD-3 | Info | `LEAK_RECHECK_NEEDED` solo sale si cambia un acceso que salió filtrado | `health/LeakResults.kt:222-227` |
+| AD-4 | Info | R-211-1 se puede precisar: qué se retiene y hasta cuándo | §4; `health/Health.kt:32-34`; `net/HttpClient.kt:21` |
+
+**AD-1 [Menor].** Cuando la contraseña no cambia, `withVersion` congela la marca (`vault/EntryHistory.kt:46-48`, con `frozenPasswordMark` en `:33-34`). Por ahí pasan el editor (`vault/VaultStore.kt:983-993`), restaurar una versión (`:1341`) y «Reemplazar» de «Importar de otra app» (`imports/MergePlan.kt:385`). El acceso sigue como «Filtrada», que es lo correcto; solo sale si la contraseña cambia de verdad (por otra también filtrada, o por otra y después otra vez por la de antes). La casilla `README.md:494`, R-211-2 y el KDoc de `LeakResults.kt:41-43` decían lo contrario. Sin impacto de seguridad, pero el dueño apuntaría como fallo lo que está bien. Corrección: los tres textos y un test en `LeakResultsTest`.
+
+**AD-2 [Menor].** La regla de «PIN y códigos» no olvida con todos los bloqueos: `ScreenAway.lockWipes` (`tools/codes/ScreenAway.kt:79-83`) no vacía la pantalla con el bloqueo al salir de la app (`LockReason.LEFT_APP`, `MainActivity.kt:146`) ni con el de inactividad si la pantalla se usó dentro del tiempo de bloqueo; en esos casos el resultado sigue hasta volver a esa pantalla tras `max(bloqueo, 60 s)` fuera. Lo olvidan siempre: volver atrás (`onCleared`, `ui/screens/SecurityToolsScreen.kt:1048-1049`), pulsar «Bloquear» con la app en uso (`watchAway`, `:1018-1019`; `ui/screens/ScreenGuardWiring.kt:53-58`), abrir otra bóveda (`VaultScopes.drop`, `ui/AppNavHost.kt:162-163`, `:183-185`) y la muerte del proceso. La frase publicada es cierta, pero el texto propuesto en F-1 («al bloquear la bóveda») sería falso en el caso más corriente: salir de la app y volver antes de un minuto. Corrección: F-1 de esta auditoría, como está ahora arriba.
+
+**AD-3 [Info].** Un acceso añadido después de la comprobación, o uno que no salió filtrado y al que después se le cambia la contraseña, no cambian la línea del resultado («Comprobación terminada: 0 accesos filtrados.» sigue igual). Ningún texto dice que estén comprobados ni los marca «sin filtrar», así que la R-2 del Abogado se cumple (`LeakResultsTest.aLoginAddedAfterIsNeitherLeakedNorCountedAsChecked`). En la 2.1 no podía pasar: para editar había que salir de «Salud» y se perdía el resultado. Es de claridad; lo decide el Abogado. Si quiere el aviso también ahí, el cambio es pequeño: guardar en memoria la marca de cada acceso comprobado (ids y números, nada de la contraseña) y añadir la frase si alguno cambió o es nuevo.
+
+**AD-4 [Info].** R-211-1 queda con el texto del director (§4).
+
+### F-1, F-2 y F-3
+
+- **F-2 se arregla antes del Abogado,** en un commit propio: `docs/privacidad.html:60`, «… y lo olvida cuando la bóveda se bloquea, cuando abres otra, cuando importas una copia que la reemplaza o cuando Android cierra la app.». Es cierto: `forget()` está en `beforeReplace` (`AppContainer.kt:436`), que corre después de comprobar la copia y su contraseña (`vault/VaultStore.kt:1632-1634`); con una contraseña equivocada no se olvida nada, y si el guardado falla después, el olvido es antes de lo dicho, el lado seguro. `LEAK_RESULT_KEPT`, `README.md:27`, «La 2.1.1» y las «Novedades» se quedan: dicen hasta cuándo, como mucho. `PublishedTextsTest` fija las dos frases de olvido de la política. Las notas (`:13`): la fecha de la política, la de la fusión.
+- **F-1 se le deja al Abogado** y la política no cambia. Único texto comprobado si quiere más casos: «El de «¿Filtrada?» se olvida al volver atrás desde esa pantalla, al pulsar «Bloquear», al abrir otra bóveda o cuando Android cierra la app.». No vale «al bloquear la bóveda» sin más, ni «al salir de la app».
+- **Clasificación:** F-1, Info (severidad bien, contenido no: AD-2); F-2, Info; F-3, Info, límite de método decidido (D-1) que cubren las casillas del README; lo que dice de los toques es correcto.
+
+### Lo comprobado, punto por punto
+
+1. **Ciclo de vida de `LeakResults`.**
+   - Bloqueo: tres guardas independientes, el colector de `AppContainer.kt:969-973`, el vigilante de la comprobación (`health/LeakResults.kt:139-142`) y `stillOpen()` antes y después de cada petición y en cada final (`:147`, `:152`, `:160`, `:167-172`); `valid()` no enseña nada de otra época ni de otra bóveda (`:87-89`). Salir de la app siempre bloquea (`MainActivity.kt:146`).
+   - `switchTo` bloquea con `MANUAL` la bóveda que se deja y sube la época a un valor que no se repite (`AppContainer.kt:579`, `:583-586`); la navegación y sus ViewModels se rehacen (`ui/AppNavHost.kt:183-185`).
+   - `beforeReplace`: primero `nextGeneration()` y después `forget()` (`vault/VaultStore.kt:1632-1634`; `AppContainer.kt:436`).
+   - Muerte del proceso: solo memoria (`AppContainer.kt:969`); la navegación guarda solo rutas.
+   - Sigue al salir de «Salud»: `appScope` (`AppContainer.kt:114`), sin `onDispose` que la corte; `store.touch()` solo con la pantalla a la vista (`HealthScreen.kt:90`), así que fuera el bloqueo por inactividad la corta.
+   - Una sola enviando: `before?.join()` antes de la primera petición (`:149`) y `withContext(NonCancellable) { before?.join() }` en el `finally` (`:178`); `before` siempre ya cancelada o acabada (`:129-130`, `:196`); `execute()` bloquea dentro de `withContext(Dispatchers.IO)` (`net/PwnedPasswords.kt:34-41`). Sin interbloqueo: la cadena solo va hacia atrás, y `forget()` y `cancel()` no esperan.
+   - Ningún resultado tardío: `run` (`:76`, `:194-203`), la época y la `generation`. Una petición que ya iba a salir cuando llega `forget()` sale igual, como en la 2.1.
+   - La ventana que descartó el `security-review` está descrita al revés: la `generation` sube antes de `forget()`, así que va de `forget()` hasta que se publica la bóveda importada. Un «Comprobar» pulsado ahí envía las contraseñas de la bóveda que se reemplaza y su resultado queda con la `generation` nueva; pero `breached()` solo enseña un id con la misma marca (`LeakResults.kt:103-113`), y hace falta estar en «Salud» justo durante el guardado. Se descarta igual.
+   - Un bloqueo y desbloqueo más rápidos que el colector: `valid()` oculta el resultado viejo y la época nunca vuelve atrás. No es un hallazgo.
+2. **Ningún secreto guardado.** `Found(times, mark)` y `Check` solo con ids, números, época y bóveda (`LeakResults.kt:54`, `:63-71`). Nada a disco, `Bundle`, estado guardado, ajustes ni logs en el diff (`itKeepsNoPasswordNorHash`, `theScreenKeepsNoResultOfItsOwn`). Se borran los `CharArray` (`:153-158`), el hash (`net/PwnedPasswords.kt:43-45`) y los bytes y el resumen (`crypto/Hashes.kt:35`, `:46`). R-211-1, en AD-4.
+3. **La cápsula.** `swallowTaps` va antes de `windowInsetsPadding` y del `padding` (`ui/theme/FloatingBar.kt:245-250`): la franja cubre la cápsula, sus márgenes y la barra del sistema y mide exactamente `capsuleSpace()` (`:203-204`). Es el último hijo del `Box`, encima del `NavHost` (`ui/AppNavHost.kt:386-387`, `:534-535`); sin `sharePointerInputWithSiblings`, el `NavHost` ni se prueba, también para un elemento del borde que crezca al tamaño mínimo de toque. Solo consume los `down`, en el pase `Main`, después de las pestañas (`FloatingBar.kt:212-219`). Opción B: `navHostPadding` (`AppNavHost.kt:606-616`). D-6: un único `pointerInput` (`FloatingBar.kt:248`), que `PlatformSourcesTest` permite solo ahí. Ningún `WallpaperManager`, `windowIsTranslucent`, `RuntimeShader`, `toImageBitmap` ni `PixelCopy`; el difuminado solo graba `drawAppBackground` (`ui/theme/Glass.kt:415-423`). `FLAG_SECURE` y `filterTouchesWhenObscured` (`android/SecureWindow.kt:24-25`), manifiesto, `res/`, `gradle/` y `scripts/` sin cambios; `app/build.gradle.kts` solo `versionName` (`:35`).
+4. **Los textos.** Todos ciertos salvo `README.md:494` (AD-1): `STYLE_MORE` (`ui/screens/AppearanceScreen.kt:104-107`, frente a `Glass.kt:108`, `:363` y `Palettes.kt:101`), `LEAK_RESULT_KEPT`, `LEAK_RECHECK_NEEDED` (cierto siempre que sale; cuándo sale, AD-3), «Quedan N sin cambiar.» (con el matiz de la papelera), `docs/privacidad.html:60` (con F-2), README `:27`, `:73`, `:86` y las casillas, `docs/ficha-google-play.md:110` (7 272 = 7 203 + 69), las notas y las «Novedades» (444 caracteres y 444 unidades UTF-16). `docs/privacidad.html:22`: pendiente, el día de la fusión.
+
+### Revisión experto-seguridad-cripto
+
+- Modelo de amenaza: el de §1, más quien puede leer la memoria del proceso (root o un depurador), para R-211-1.
+- Ninguna primitiva, parámetro ni formato nuevo. El SHA-1 es el del protocolo de rangos de Have I Been Pwned, con k-anonimato: 5 caracteres y respuesta con relleno (`net/PwnedPasswords.kt:31-32`); `net/` sin diff.
+- Secretos en memoria: el resultado no guarda nada que salga de la contraseña (`health/LeakResults.kt:54`); `CharArray`, hash y bytes, borrados (`:153-158`; `net/PwnedPasswords.kt:43-45`; `crypto/Hashes.kt:35`, `:46`); los `String`, en AD-4.
+- Decisión (b): `run`, época, `generation`, `forget()` al bloquear y al importar, `stillOpen()` en cada paso (`LeakResults.kt:76`, `:89`, `:147`, `:194-203`; `AppContainer.kt:436`, `:969-973`).
+- MASVS: STORAGE, solo memoria. NETWORK, un host, ninguna consulta nueva ni automática, como mucho una petición de «Salud» en vuelo («¿Filtrada?» es otra acción del usuario; el «una a la vez» de `README.md:27` habla de «Salud»). PLATFORM, la cápsula en la misma ventana con `FLAG_SECURE` y el filtro de toques. PRIVACY, la política es cierta y, con F-2, completa en lo de «Salud»; el texto propuesto en F-1 no se puede usar (AD-2).
+- Hallazgos de seguridad confirmados: ninguno. AD-1 y AD-2, de veracidad (Menor); AD-3 y AD-4, Info.
+
+### Revisión Ingeniero Móvil Senior
+
+- Ciclo de vida: la comprobación vive en `appScope` (`AppContainer.kt:114`); sobrevive a salir de «Salud» y a que se rehaga la actividad, muere con el proceso. Cada salida bloquea (`MainActivity.kt:146`): el resultado sirve dentro de la app y en pantalla dividida, que es lo que pidió el dueño.
+- Concurrencia: el estado solo se escribe con `lock` (`LeakResults.kt:128-134`, `:192-203`); el `launch` dentro del cerrojo (`:135`, `:179`, `:182`); cerrojos siempre en el mismo orden (`LeakResults.lock` y luego `epochLock`); `forget()` desde `beforeReplace`, con el `mutex` del almacén tomado, no espera nada; `NonCancellable` solo para esperar a la anterior (`:178`).
+- Compose: «Salud» solo observa (`HealthScreen.kt:87-90`); `breached` O(n) por composición (`:110`), medido con 20 000 accesos. La cápsula, hermana del `NavHost` y encima, sin mover el `NavHost` en el árbol (`AppNavHost.kt:385-387`); `navHostPadding` y `capsuleSpace()` cuentan lo mismo; `capsuleSlots` trabaja con píxeles enteros y nunca divide por cero.
+- Accesibilidad: `selectableGroup`, `Role.Tab` y el nombre entero en la semántica (`FloatingBar.kt:261`, `:305`, `:336`); anillo de foco; sin animaciones cuando Android las quita (`:192`, `:301`).
+- Tests: D-1 limita lo ejecutable aquí (F-3); con AD-1, `LeakResultsTest` fija la marca congelada; con F-2, `PublishedTextsTest` fija la frase de la política.
+
+### Textos para el Abogado Digital (revisión final), además de los de arriba
+
+1. **F-2, aplicado sobre su O-2:** `docs/privacidad.html:60`, «…, cuando importas una copia que la reemplaza o cuando Android cierra la app.». Que lo confirme.
+2. **F-1:** la frase de «¿Filtrada?» se queda; si quiere más casos, solo el texto comprobado. «Al bloquear la bóveda», sin más, sería falso (AD-2).
+3. **`README.md:494`:** la casilla nueva de AD-1.
+4. **AD-3:** si quiere que la línea avise también de los accesos añadidos o cambiados que no salieron filtrados.
+5. **La fecha de `docs/privacidad.html:22`:** la del día de la fusión.
+6. **Para confirmar:** «deja ver más el fondo de la app» (README `:73`, notas y «Novedades») no habla de «Reducir transparencias» ni de «Alto contraste»; con ellos la cápsula es opaca, como la barra de la 2.1 (`ui/theme/Palettes.kt:101`). Ya lo dicen `STYLE_MORE` y el README `:71`.
+
+— el director, 26-11-2026
+
+### Cambios aplicados
+
+- F-2: `1b04ebe` (`docs/privacidad.html:60`, `PublishedTextsTest.thePolicySaysWhenTheLeakResultsAreForgotten`, las notas `:13`).
+- AD-1: `6377be9` (`README.md:494`, el KDoc de `health/LeakResults.kt`, `LeakResultsTest.theSamePasswordSavedAgainStaysLeakedAChangeAndBackDoesNot`).
+- AD-2 y AD-4, y R-211-2 por AD-1: en esta auditoría (§2, §3 F-1, §4, §8 y el punto 4 de los textos).
+- `LeakResultsTest`, `PublishedTextsTest` y `AppearanceTextsTest`: 45 tests, 0 fallos. La compilación completa, antes del PR.

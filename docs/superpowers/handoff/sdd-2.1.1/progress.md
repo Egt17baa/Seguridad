@@ -41,4 +41,16 @@ Rama `ccr-0aa27f95-u038cd`, desde `main` en `a29d88c` (etiqueta `v2.1.0`). Dise�
 ## `security-review` y auditoría (25-11-2026)
 
 - `security-review` (`da4edfd`, `security-review.md`): ninguna vulnerabilidad con confianza ≥ 0,8.
-- Auditoría completa (`4bc006d`, `final-audit.md`): «se puede publicar». F-1 a F-3 Info, sin cambios de código; R-211-1 a R-211-3. La aprueba el director (en curso).
+- Auditoría completa (`4bc006d`, `final-audit.md`): «se puede publicar». F-1 a F-3 Info, sin cambios de código; R-211-1 a R-211-3.
+
+## Aprobación del director de la auditoría (26-11-2026)
+
+- Sesión nueva: sigue en la rama `ccr-0aa27f95-u038cd` (el dueño lo eligió; la sesión arrancó en `ccr-5066a9d8-e0t3z9`, ya contenida en esta).
+- Ruling (el director, solo lectura, esfuerzo máximo): **APROBADA CON CAMBIOS**; se puede publicar, ningún hallazgo de seguridad. Texto entero en `final-audit.md`, «Aprobación del director».
+  - AD-1 (Menor): guardar la misma contraseña no saca un acceso de «Filtrada» (la marca se congela, CR-1); la casilla `README.md:494`, R-211-2 y el KDoc de `LeakResults` decían lo contrario. Arreglado en `6377be9`, con test.
+  - AD-2 (Menor): F-1 decía que «¿Filtrada?» se olvida al bloquear; no con cada bloqueo (`ScreenAway.lockWipes`). F-1 corregido en la auditoría; la política no cambia en eso; «al bloquear la bóveda», sin más, sería falso.
+  - AD-3 (Info): `LEAK_RECHECK_NEEDED` no sale por accesos añadidos o cambiados que no salieron filtrados. Para el Abogado.
+  - AD-4 (Info): R-211-1 con el texto del director.
+  - F-2: arreglado antes del Abogado en `1b04ebe` («cuando importas una copia que la reemplaza», `PublishedTextsTest`); F-1 se le deja al Abogado.
+- Sin otro repaso del director: `LeakResultsTest`, `PublishedTextsTest` y `AppearanceTextsTest` en verde (45 tests); la compilación completa, antes del PR.
+- Siguiente: la revisión final del Abogado (lista en `final-audit.md`, los dos apartados «Textos para el Abogado Digital»), la fecha de la política y el PR cuando lo pida el dueño.
