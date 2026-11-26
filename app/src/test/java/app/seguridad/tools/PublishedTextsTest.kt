@@ -82,6 +82,22 @@ class PublishedTextsTest {
     }
 
     /**
+     * 2.1.1, F-2 of the audit (approval of the director): the policy says, word for word, when the result of «Comprobar
+     * filtraciones de los accesos» and the one of «¿Filtrada?» are forgotten, so neither changes without a review.
+     * «Importar copia» over the open vault forgets the first (BR-1, `AppContainer.beforeReplace`). The one of «¿Filtrada?»
+     * is not forgotten at every lock (AD-2: `ScreenAway.lockWipes`), so the policy must not say «al bloquear la bóveda».
+     */
+    @Test
+    fun thePolicySaysWhenTheLeakResultsAreForgotten() {
+        val policy = htmlText(read("docs/privacidad.html")).replace(Regex("\\s+"), " ")
+        assertTrue(
+            "lo olvida cuando la bóveda se bloquea, cuando abres otra, cuando importas una copia que la reemplaza o cuando " +
+                "Android cierra la app." in policy,
+        )
+        assertTrue("El de «¿Filtrada?» se olvida al volver atrás desde esa pantalla o cuando Android cierra la app." in policy)
+    }
+
+    /**
      * 2.1.1, tarea 4 (O-7 y R-4 del dictamen del principio; Ruling del registro: «Google Play» y los textos anteriores no
      * cuentan): los textos nuevos de la 2.1.1 no nombran a nadie más ni prometen de más. Son las notas de GitHub y las
      * «Novedades» (los bloques de código de las notas), «La 2.1.1», la línea «Aspecto (2.1.1)» y «Pruebas de la 2.1.1» del
