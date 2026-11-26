@@ -103,12 +103,13 @@ class PublishedTextsTest {
      */
     @Test
     fun theLineUnderTheLeakResultSaysWhatIsNotChecked() {
-        assertEquals(
-            "El resultado no se guarda en el móvil: la app lo recuerda hasta que la bóveda se bloquee o abras otra. " +
-                "Las contraseñas añadidas o cambiadas después no están comprobadas.",
-            app.seguridad.ui.screens.LEAK_RESULT_KEPT,
+        // jvm-check leaves `ui` out: the constant is read from its source.
+        val kept = "El resultado no se guarda en el móvil: la app lo recuerda hasta que la bóveda se bloquee o abras otra. " +
+            "Las contraseñas añadidas o cambiadas después no están comprobadas."
+        assertTrue(
+            "internal const val LEAK_RESULT_KEPT = \"$kept\"" in read("app/src/main/java/app/seguridad/ui/screens/HealthScreen.kt"),
         )
-        assertTrue("bajo el resultado se lee «${app.seguridad.ui.screens.LEAK_RESULT_KEPT}»." in read("README.md"))
+        assertTrue("bajo el resultado se lee «$kept»." in read("README.md"))
     }
 
     /**
