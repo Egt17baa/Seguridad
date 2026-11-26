@@ -39,8 +39,9 @@ const val LEAK_RECHECK_NEEDED =
  * every request): nothing more is sent, the chars handed to the request are wiped, and everything is dropped. A new
  * check starts from zero and replaces the result.
  * It follows the mark of the last password change, never the password (it keeps neither the password nor its hash): a
- * login whose password changed after the check leaves «Filtrada», even if its new password is the leaked one again (typed
- * again, or an old version restored). Nothing tells them apart, so the line under the result says that a changed password
+ * login whose password changed after the check leaves «Filtrada», even if its new password is the leaked one again (another
+ * leaked one, or the leaked one set back after a change, by hand or by restoring an old version); a save that keeps the
+ * same password moves no mark (CR-1), so that login stays. Nothing tells them apart, so the line under the result says that a changed password
  * is not checked again ([LEAK_RECHECK_NEEDED]); only a new check says whether the new one is leaked. A cancelled or failed one keeps what it found, and says so ([message]).
  * One check at a time (BR-3): a new one waits for the one before (stopped, but maybe with its last request in flight,
  * which cannot be interrupted) to end before it sends its first request.

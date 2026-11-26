@@ -112,6 +112,22 @@ class LeakResultsTest {
         assertEquals(mapOf("c" to 7, "d" to 2), leaks.breached(now))
     }
 
+    /**
+     * AD-1 of the director's approval: a save that keeps the same password (typed again) moves no mark (CR-1), so the login
+     * stays «Filtrada»; only a real change (to another one and back to the leaked one) takes it out until a new check.
+     */
+    @Test fun theSamePasswordSavedAgainStaysLeakedAChangeAndBackDoesNot() = runTest(StandardTestDispatcher()) {
+        val leaks = newLeaks()
+        check(leaks, vault, FakeHibp(table))
+        advanceUntilIdle()
+        val same = vault[0].copy(password = "uno").withVersion(vault[0], now = 9_000L)
+        assertEquals(1_000L, lastPasswordChange(same))
+        assertEquals(7, leaks.breached(listOf(same, vault[1], vault[2], vault[3]))["a"])
+        val other = vault[0].copy(password = "nueva-y-larga").withVersion(vault[0], now = 9_000L)
+        val back = other.copy(password = "uno").withVersion(other, now = 10_000L)
+        assertEquals(mapOf("c" to 7, "d" to 2), leaks.breached(listOf(back, vault[1], vault[2], vault[3])))
+    }
+
     @Test fun aLoginOfBeforeWithNoMarkIsReadAsTheReminderReadsIt() = runTest(StandardTestDispatcher()) {
         val leaks = newLeaks()
         val old = VaultEntry("v", EntryType.LOGIN, "vieja", password = "uno", createdAt = 1, updatedAt = 5_000L)
