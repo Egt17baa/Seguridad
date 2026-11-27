@@ -119,7 +119,17 @@ sealed interface ApplyResult {
  * the vault and every item, so a cancelled plan stops at once ([planMergeOrNoMemory] passes the coroutine's
  * `ensureActive`).
  */
-fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long, checkCancelled: () -> Unit = {}): MergePlan {
+fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long, checkCancelled: () -> Unit = {}): MergePlan =
+    planMergeWith(read, existing, revision, checkCancelled)
+
+/** [planMerge], with [tagsOf] in place of [importTags] (the tests count its calls: [TagBudget.importTagsOf] keeps them). */
+internal fun planMergeWith(
+    read: ImportRead,
+    existing: List<VaultEntry>,
+    revision: Long,
+    checkCancelled: () -> Unit = {},
+    tagsOf: (List<String>, ImportFormat) -> List<String> = ::importTags,
+): MergePlan {
     val inVault = Matcher<String>(codesOfEveryType = true)
     val byId = HashMap<String, VaultEntry>(existing.size * 2)
     for (e in existing) {
@@ -134,7 +144,7 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long, chec
     val duplicates = ArrayList<Duplicate>()
     var repeated = 0
     val tooBig = ArrayList<Skipped>()
-    val budget = TagBudget(liveTags(existing))
+    val budget = TagBudget(liveTags(existing), tagsOf = tagsOf)
     for (item in read.items) {
         checkCancelled()
         // Refuerzo 28: a repeat of an item that entered is only counted, never measured. An item too big is not added to
@@ -226,14 +236,18 @@ const val IMPORT_MAX_NEW_TAGS = 100
  * [MAX_TAGS]) are given and counted (ruling R68). 2.1.2 (C-3): [importTagsOf] keeps [importTags] of each list of folders
  * of one plan or merge, so a list shared by thousands of items is worked out once.
  */
-internal class TagBudget(private val had: Set<String>, private val max: Int = IMPORT_MAX_NEW_TAGS) {
+internal class TagBudget(
+    private val had: Set<String>,
+    private val max: Int = IMPORT_MAX_NEW_TAGS,
+    private val tagsOf: (List<String>, ImportFormat) -> List<String> = ::importTags,
+) {
     val created = LinkedHashSet<String>()
     private var createdFolders = 0
     private val memo = HashMap<Pair<List<String>, ImportFormat>, List<String>>()
 
     /** [importTags] of [folders] and [format], worked out once for this budget. */
     fun importTagsOf(folders: List<String>, format: ImportFormat): List<String> =
-        memo.getOrPut(folders to format) { importTags(folders, format) }
+        memo.getOrPut(folders to format) { tagsOf(folders, format) }
 
     fun tagsFor(folders: List<String>, format: ImportFormat, onto: List<String>? = null): List<String> {
         // Ruling R68: for «Reemplazar» onto an entry with tags [onto], only those [replaceWith] can still add count.
@@ -305,9 +319,21 @@ fun mergeImport(
     now: Long,
     newId: () -> String,
     zone: ZoneId = ZoneId.systemDefault(),
+): MergeResult = mergeImportWith(plan, default, overrides, existing, now, newId, zone)
+
+/** [mergeImport], with [tagsOf] in place of [importTags] (the tests count its calls: [TagBudget.importTagsOf] keeps them). */
+internal fun mergeImportWith(
+    plan: MergePlan,
+    default: DuplicateChoice,
+    overrides: Map<Int, DuplicateChoice>,
+    existing: List<VaultEntry>,
+    now: Long,
+    newId: () -> String,
+    zone: ZoneId = ZoneId.systemDefault(),
+    tagsOf: (List<String>, ImportFormat) -> List<String> = ::importTags,
 ): MergeResult {
     val had = liveTags(existing)
-    val budget = TagBudget(had)
+    val budget = TagBudget(had, tagsOf = tagsOf)
     // The new folder tags the cap kept off an entry that would otherwise have had them.
     val lost = HashSet<String>()
     val out = existing.toMutableList()

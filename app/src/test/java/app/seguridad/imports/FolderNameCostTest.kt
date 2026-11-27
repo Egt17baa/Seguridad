@@ -132,4 +132,75 @@ class FolderNameCostTest {
         assertTrue("the plan was still running when cancelled", stillRunning)
         assertTrue("cancelAndJoin took $ms ms", ms < 200)
     }
+
+    // Ronda de arreglos (review of task 5): every reader drops a folder name over MAX_TITLE, as [folderNames] does.
+
+    private val atCap = "f".repeat(MAX_TITLE)
+    private val overCap = "g".repeat(MAX_TITLE + 1)
+
+    private fun ok(text: String): ImportRead {
+        val r = readImport(text.toByteArray(Charsets.UTF_8))
+        assertTrue("$r", r is ReadResult.Ok)
+        return (r as ReadResult.Ok).read
+    }
+
+    /** Aegis' older `group` (a name per entry, version 1 and 2 backups). */
+    @Test fun aegisLegacyGroupOverTheCapGivesNoFolder() {
+        fun entry(i: Int, group: String) =
+            "{\"type\":\"totp\",\"issuer\":\"Servicio $i\",\"group\":\"$group\",\"info\":{\"secret\":\"${secret(i)}\"}}"
+        val read = ok("{\"version\":1,\"header\":{\"slots\":null,\"params\":null},\"db\":{\"version\":2,\"entries\":[" +
+            entry(0, atCap) + "," + entry(1, overCap) + "]}}")
+        assertEquals(listOf(listOf(atCap), emptyList()), read.items.map { it.folders })
+    }
+
+    /** The CSV with the browsers' columns plus `folder` and `totp`: the login and its 2FA both enter, without it. */
+    @Test fun passwordsCsvFolderOverTheCapGivesNoFolder() {
+        val read = ok(
+            "name,url,username,password,note,folder,totp\n" +
+                "Uno,https://uno.example/,ana,clave1,,$atCap,JBSWY3DPEHPK3PXP\n" +
+                "Dos,https://dos.example/,ana,clave2,,$overCap,JBSWY3DPEHPK3PXQ\n",
+        )
+        assertEquals(ImportFormat.PASSWORDS_CSV, read.format)
+        assertEquals(
+            listOf("Uno" to listOf(atCap), "Uno" to listOf(atCap), "Dos" to emptyList(), "Dos" to emptyList<String>()),
+            read.items.map { it.entry.title to it.folders },
+        )
+        assertTrue(read.skipped.isEmpty())
+    }
+
+    /** Bitwarden's CSV, with `folder` and with the organisation's `collections`. */
+    @Test fun bitwardenCsvFolderOverTheCapGivesNoFolder() {
+        for (place in listOf("folder", "collections")) {
+            val read = ok(
+                "$place,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n" +
+                    "$atCap,,login,Uno,,,0,https://uno.example/,ana,clave1,\n" +
+                    "$overCap,,login,Dos,,,0,https://dos.example/,ana,clave2,\n",
+            )
+            assertEquals(place, ImportFormat.BITWARDEN, read.format)
+            assertEquals(place, listOf("Uno" to listOf(atCap), "Dos" to emptyList<String>()), read.items.map { it.entry.title to it.folders })
+            assertTrue(place, read.skipped.isEmpty())
+        }
+    }
+
+    /**
+     * The memo of [importTags]: thousands of items that share one folder of [MAX_TITLE] characters (equal lists, one per
+     * item, as a reader makes them) work it out once in the plan and once in the merge.
+     */
+    @Test fun importTagsIsWorkedOutOncePerListOfFolders() {
+        val items = List(3_000) { i ->
+            ImportedItem(i, importedEntry(EntryType.LOGIN, "Cuenta $i", username = "u$i"), listOf(String(atCap.toCharArray())))
+        }
+        val read = ImportRead(ImportFormat.BITWARDEN, items, emptyList(), 0)
+        var calls = 0
+        val counting = { folders: List<String>, format: ImportFormat -> calls++; importTags(folders, format) }
+        val plan = planMergeWith(read, emptyList(), 0, tagsOf = counting)
+        assertEquals(1, calls)
+        assertEquals(planMerge(read, emptyList(), 0), plan)
+        calls = 0
+        var n = 0
+        val merged = mergeImportWith(plan, DuplicateChoice.SKIP, emptyMap(), emptyList(), 1L, { "id-${n++}" }, tagsOf = counting)
+        assertEquals(1, calls)
+        assertEquals(3_000, merged.entries.size)
+        assertTrue(merged.entries.all { it.tags == importTags(listOf(atCap), ImportFormat.BITWARDEN) })
+    }
 }

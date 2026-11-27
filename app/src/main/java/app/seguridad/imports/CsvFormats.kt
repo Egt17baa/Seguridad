@@ -146,7 +146,8 @@ private fun readRow(format: ImportFormat, c: Columns, row: List<String>, out: Im
     ) {
         return out.skip(title, SkipReason.FIELD_TOO_LONG)
     }
-    val folders = listOfNotNull(folder.takeIf { it.isNotBlank() })
+    // 2.1.2 (C-3): a folder over MAX_TITLE is dropped, as every reader does ([folderWithinCap]); the row still enters.
+    val folders = listOfNotNull(folder.takeIf { it.isNotBlank() && folderWithinCap(it) })
     out.add(importedEntry(EntryType.LOGIN, title, username = username, password = password, url = url, notes = notes), folders)
     if (otpauth.isNotBlank()) out.addOtpAuth(otpauth, title, ofLogin = true)
     if (totp.isNotBlank()) addLoginTotp(totp, title, folders, out)
@@ -194,7 +195,8 @@ private fun readBitwardenRow(c: Columns, row: List<String>, out: ImportReadBuild
     ) {
         return out.skip(title, SkipReason.FIELD_TOO_LONG)
     }
-    val folders = listOfNotNull(folder)
+    // 2.1.2 (C-3): a folder over MAX_TITLE is dropped, as every reader does ([folderWithinCap]); the row still enters.
+    val folders = listOfNotNull(folder?.takeIf(::folderWithinCap))
     val favorite = c.cell(row, "favorite").trim() == "1"
     out.add(importedEntry(entryType, title, username = username, password = password, url = url, notes = notes.build(), favorite = favorite), folders)
     if (!login && type != "note") out.becameNote()

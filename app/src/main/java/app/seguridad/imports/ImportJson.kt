@@ -346,6 +346,13 @@ internal fun wellFormed(s: String): Boolean {
 }
 
 /**
+ * 2.1.2 (C-3): whether [name] can be a folder: at most [MAX_TITLE] characters. Every reader drops a longer name (never
+ * cuts it into a tag), and the element enters without that folder: [folderNames], Aegis' older `group` and the CSV
+ * `folder` and `collections` columns.
+ */
+internal fun folderWithinCap(name: String): Boolean = name.length <= MAX_TITLE
+
+/**
  * The folder or group names of a file, by their id ([idKey]) as [nameKey]. A list that is not an array, a record
  * without a string id and name, a name with a NUL or a lone surrogate ([wellFormed]) and (2.1.2, C-3) a name longer
  * than [MAX_TITLE] characters give no folder: folders only become tags, so the elements still enter, without it. A
@@ -359,7 +366,7 @@ internal fun folderNames(list: JsonElement?, idKey: String, nameKey: String = "n
         val o = f as? JsonObject ?: continue
         val id = (o[idKey] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
         val name = (o[nameKey] as? JsonPrimitive)?.takeIf { it.isString }?.content
-            ?.takeIf { it.length <= MAX_TITLE && wellFormed(it) } ?: continue
+            ?.takeIf { folderWithinCap(it) && wellFormed(it) } ?: continue
         out.putIfAbsent(id, name)
     }
     return out
