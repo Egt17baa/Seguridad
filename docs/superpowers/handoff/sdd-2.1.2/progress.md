@@ -31,3 +31,5 @@ Rama `ccr-0aa27f95-u038cd`, desde `main` en `0a08629`. Diseño `docs/superpowers
 | 13. Documentación, versión y cierre del código (R-31 y R-32) | Pendiente |
 
 Después de la 13: revisión de la rama, `code-review`, `security-review`, auditoría completa y Abogado final (con la fecha de la política).
+
+**Revisión de la tarea 1 (27-11-2026):** hay que arreglar cosas; arregladas por el controlador. R-10 completado en el diseño (título, `:3` y `:7`); quitada la ruta de la carpeta temporal del plan (Paso 1 de la tarea 1); en el informe, «independiente» solo en la nota de origen y la valoración pasa a «La revisión no encontró hallazgos de severidad media o mayor». `findings.json` conserva, como registro en bruto, rutas relativas `agents/…` de la carpeta de trabajo de la auditoría, que no están en el repositorio. Para el Abogado final: la cabecera y el título del informe, el anexo en segunda persona (dirigido al dueño) y el título del diseño. El asunto del commit `453eb4e` dice «auditoría de Cloudflare» y no se corrige (sin `--amend`); los siguientes commits y el PR no usan esa expresión (O-1).
