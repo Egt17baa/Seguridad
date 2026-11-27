@@ -102,8 +102,10 @@ fun ContactAddScreen(store: VaultStore, onBack: () -> Unit) {
     }
 
     // From the QR inspector: read as pasted, never as scanned. Reaching it through the inspector is not scanning in front
-    // of the person, so the contact is saved unverified. Taking it also drops any text left for another screen.
-    LaunchedEffect(Unit) { QrHandoff.take(QrTarget.CARD)?.let { accept(it, qr = false) } }
+    // of the person, so the contact is saved unverified. Taking it also drops any text left for another screen. 2.1.2,
+    // R-9: taken in the first composition, before the inspector leaves its own (it drops a text no screen reached).
+    val handed = remember { QrHandoff.take(QrTarget.CARD) }
+    LaunchedEffect(Unit) { handed?.let { accept(it, qr = false) } }
 
     // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->

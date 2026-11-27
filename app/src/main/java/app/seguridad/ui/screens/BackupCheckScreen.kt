@@ -218,6 +218,7 @@ fun BackupCheckScreen(store: VaultStore, lockAfterMs: () -> Long, awayInOtherApp
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) vm.leftApp() }
     var pickerError by remember { mutableStateOf<String?>(null) }
     val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.BACKUP_CHECK) { uri ->
+        VaultLock.keepOpenOnce = false // 2.1.2, R-5: back from the picker, whatever it brings (as VaultPickerScreen).
         if (uri != null) vm.pick(uri)
     }
     ToolColumn(BACKUP_CHECK_TITLE, onBack, s.guard) {

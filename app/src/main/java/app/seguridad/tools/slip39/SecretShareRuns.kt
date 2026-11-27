@@ -1,12 +1,14 @@
 package app.seguridad.tools.slip39
 
+import app.seguridad.crypto.KdfLock
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -16,6 +18,14 @@ import java.util.concurrent.atomic.AtomicReference
  * [stop] (a wipe, a cancel, an edit, a new run) cancels the run going on and bumps the number, so a result that arrives
  * later is refused: never shown, and a recovered secret is zeroed. The operation's `check` is its coroutine's
  * `ensureActive`, which Slip39 calls between PBKDF2 rounds and groups.
+ *
+ * 2.1.2, R-10:
+ * - each run is launched with [CoroutineStart.ATOMIC], so its body (and its `finally`, which runs the cleanup that zeroes
+ *   the snapshot) always starts, also when the run is cancelled before its dispatcher runs it; a run cancelled then
+ *   stops before the work ([work]);
+ * - the work runs holding the process' derivation lock ([KdfLock.derive]), as every other password derivation of the
+ *   app: waiting for it suspends (no thread blocked) and can be cancelled; once the work starts it runs to its next
+ *   `check`, which still sees a cancel (it reads the run's own job), and the lock goes when the work ends.
  */
 class SecretShareRuns(
     private val session: SecretShareSession,
@@ -42,9 +52,9 @@ class SecretShareRuns(
         session.error = null
         session.parts = null
         session.busy = true
-        job = scope.launch {
+        job = scope.launch(start = CoroutineStart.ATOMIC) {
             try {
-                val parts = withContext(work) { op { ensureActive() } }
+                val parts = derive(op)
                 if (runId == mine) session.parts = parts
             } catch (e: Slip39Failure) {
                 if (runId == mine) session.error = e.message
@@ -59,8 +69,19 @@ class SecretShareRuns(
     }
 
     /**
+     * Runs [op] on [work] holding [KdfLock], unless this run was cancelled first; its `check` is this run's own job
+     * (the lock's block runs non-cancellable, so its own context would never say a cancel). A run cancelled while [op]
+     * worked throws once it returns, as `withContext` did, so what it made is never taken as this run's result.
+     */
+    private suspend fun <T> CoroutineScope.derive(op: (check: () -> Unit) -> T): T {
+        val run = coroutineContext.job
+        run.ensureActive()
+        return KdfLock.derive(work) { op { run.ensureActive() } }.also { run.ensureActive() }
+    }
+
+    /**
      * Combines with [op]; the secret is shown only if this is still the last run, and zeroed otherwise, also when the
-     * run is cancelled after [op] returned (withContext then drops the value, so it is kept aside to be zeroed).
+     * run is cancelled after [op] returned ([derive] then throws, so the value is kept aside to be zeroed).
      */
     fun combine(op: (check: () -> Unit) -> ByteArray, cleanup: () -> Unit) {
         stop()
@@ -69,10 +90,10 @@ class SecretShareRuns(
         session.recovered = null
         session.busy = true
         val produced = AtomicReference<ByteArray?>(null)
-        job = scope.launch {
+        job = scope.launch(start = CoroutineStart.ATOMIC) {
             var accepted = false
             try {
-                val secret = withContext(work) { op { ensureActive() }.also { produced.set(it) } }
+                val secret = derive { check -> op(check).also { produced.set(it) } }
                 if (runId == mine) {
                     session.recovered = secret
                     accepted = true

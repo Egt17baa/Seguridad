@@ -986,9 +986,9 @@ class AppContainer(
      * A copy waiting for the A14 notice (Android 8 to 12), shown by the dialog at the root of the app. Here for the same
      * reason as [masterChanged]; the text is dropped when the vault locks (here) and when the app is left (MainActivity).
      * The drop here comes a moment later and may miss a quick lock and unlock: the lock counter makes accept() refuse
-     * either way.
+     * either way, and the store's generation does after «Importar copia» over the open vault (2.1.2, R-7).
      */
-    val clipboardNotice = ClipboardNoticeRequest(lockEpoch = { lockEpoch }).also { notice ->
+    val clipboardNotice = ClipboardNoticeRequest(lockEpoch = { lockEpoch }, generation = { vault.generation }).also { notice ->
         appScope.launch {
             vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) notice.drop() }
         }
@@ -996,9 +996,10 @@ class AppContainer(
 
     /**
      * 2.0, task 6: «Copiar contraseña» offered for 30 s after «Copiar usuario» ([TwoStepCopy]): only the entry's id. A
-     * lock or a switch of vault ends it ([lockEpoch]), and it is also cleared here, as [clipboardNotice] is.
+     * lock or a switch of vault ends it ([lockEpoch]), and so does «Importar copia» over the open vault (2.1.2, R-7: the
+     * store's [VaultStore.generation]); it is also cleared here, as [clipboardNotice] is.
      */
-    val twoStepCopy = TwoStepCopy(elapsedRealtime, lockEpoch = { lockEpoch }).also { offer ->
+    val twoStepCopy = TwoStepCopy(elapsedRealtime, lockEpoch = { lockEpoch }, generation = { vault.generation }).also { offer ->
         appScope.launch {
             vaultState.map { it is VaultState.Unlocked }.distinctUntilChanged().collect { open -> if (!open) offer.clear() }
         }

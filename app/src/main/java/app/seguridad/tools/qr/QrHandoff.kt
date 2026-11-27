@@ -18,11 +18,36 @@ object QrHandoff {
     private var target: QrTarget? = null
     private var text: String? = null
 
+    /** 2.1.2, R-9: whether the screen the text is for reached it ([claim]); a new text starts unclaimed. */
+    private var claimed = false
+
     @Synchronized
     fun put(target: QrTarget, text: String) {
         this.target = target
         this.text = text
+        claimed = false
         updatePending()
+    }
+
+    /**
+     * 2.1.2, R-9: the screen for [target] was composed and reads the text later (once the vault opens: «Abrir lo
+     * recibido»): [clearUnclaimed] leaves it. True if there is a text for [target]. Nothing else changes: [take],
+     * [clear] and [appLeft] work as before.
+     */
+    @Synchronized
+    fun claim(target: QrTarget): Boolean {
+        if (text == null || this.target != target) return false
+        claimed = true
+        return true
+    }
+
+    /**
+     * 2.1.2, R-9: the inspector left the composition (not for a change of configuration): a text no screen reached goes
+     * (a navigation that never composed its target); one its screen took or [claim]ed is not this one's to drop.
+     */
+    @Synchronized
+    fun clearUnclaimed() {
+        if (!claimed) clear()
     }
 
     /** The text if it was meant for [target], or null; either way, nothing is left. */
@@ -37,6 +62,7 @@ object QrHandoff {
     fun clear() {
         target = null
         text = null
+        claimed = false
         updatePending()
     }
 

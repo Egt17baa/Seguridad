@@ -18,9 +18,15 @@ const val TWO_STEP_COPY_MS = 30_000L
  * the tap, so nothing secret is ever held here. [clock] only moves forward (elapsed realtime): a value lower than the
  * one of the offer ends it. [lockEpoch] is the app's lock counter (it goes up with every lock and every switch of
  * vault): a lock since the offer ends it, even if the vault opened again; the app also calls [clear] at every lock.
+ * 2.1.2, R-7: [generation] is the open vault's own counter (VaultStore.generation), which goes up when «Importar copia»
+ * replaces it without a lock: the id may name an entry of the imported copy, so that ends the offer too.
  */
-class TwoStepCopy(private val clock: () -> Long, private val lockEpoch: () -> Int = { 0 }) {
-    private class Offer(val id: String, val at: Long, val epoch: Int)
+class TwoStepCopy(
+    private val clock: () -> Long,
+    private val lockEpoch: () -> Int = { 0 },
+    private val generation: () -> Long = { 0L },
+) {
+    private class Offer(val id: String, val at: Long, val epoch: Int, val generation: Long)
 
     @Volatile private var offer: Offer? = null
 
@@ -37,7 +43,7 @@ class TwoStepCopy(private val clock: () -> Long, private val lockEpoch: () -> In
 
     /** «Copiar usuario» of entry [entryId] went into the clipboard: «Copiar contraseña» is offered for 30 s. */
     fun offerPassword(entryId: String) {
-        offer = Offer(entryId, clock(), lockEpoch())
+        offer = Offer(entryId, clock(), lockEpoch(), generation())
         left = false
         _changes.value += 1
     }
@@ -84,7 +90,7 @@ class TwoStepCopy(private val clock: () -> Long, private val lockEpoch: () -> In
     private fun live(): Offer? {
         val o = offer ?: return null
         val age = clock() - o.at
-        if (age < 0 || age >= TWO_STEP_COPY_MS || o.epoch != lockEpoch()) {
+        if (age < 0 || age >= TWO_STEP_COPY_MS || o.epoch != lockEpoch() || o.generation != generation()) {
             offer = null
             left = false
             return null

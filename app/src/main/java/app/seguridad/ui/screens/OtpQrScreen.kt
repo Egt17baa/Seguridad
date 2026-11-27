@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seguridad.crypto.TotpSecret
 import app.seguridad.crypto.toOtpAuthUri
@@ -57,7 +59,7 @@ private fun otpQrBitmap(s: TotpSecret): Bitmap? = try {
 
 /**
  * The otpauth:// QR of a 2FA code, to move it to another app. It holds the secret, so it is drawn only after a tap
- * below the warning, and dropped from the composition on «Ocultar», on leaving and when the vault locks (not
+ * below the warning, and dropped from the composition on «Ocultar», on leaving, when the app stops and when the vault locks (not
  * recycled by hand: a last frame could still draw it; the garbage collector frees it). The whole
  * window is already FLAG_SECURE, so it never shows in screenshots or the recent apps.
  */
@@ -71,6 +73,8 @@ fun OtpQrScreen(store: VaultStore, id: String, onBack: () -> Unit) {
         return
     }
     var shown by remember { mutableStateOf(false) }
+    // 2.1.2, R-6: as the wifi QR, it goes when the app stops (Home, screen off, another app); a tap shows it again.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { shown = false }
     BackScaffold("QR para otra app", onBack) { padding ->
         Column(
             Modifier.padding(padding).touchesVault(store).verticalScroll(rememberScrollState()).padding(16.dp),

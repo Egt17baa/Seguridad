@@ -669,8 +669,12 @@ fun VaultEntryEditScreen(
     }
 
     // The library asks for the CAMERA permission itself; a refusal comes back as a result flag, not as an exception.
+    // 2.1.2, R-8: the scan counts only in the form it started in, as a wifi reading ([EntryEditSession.beginOtpRead]): a
+    // lock (also one quickly opened again) or leaving the form before it comes back fills nothing.
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         VaultLock.keepOpenOnce = false // Back in the app, whatever the outcome: leaving later must lock.
+        val since = form.finishOtpRead() ?: return@rememberLauncherForActivityResult
+        if (!form.otpReadIsCurrent(since)) return@rememberLauncherForActivityResult
         val raw = result.contents
         when {
             raw != null -> vm.applyOtpAuth(raw)
@@ -807,12 +811,14 @@ fun VaultEntryEditScreen(
                     EntryType.TOTP -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = {
+                                if (!form.beginOtpRead()) return@FilledTonalButton
                                 VaultLock.keepOpenOnce = true
                                 store.touch() // The time away is counted from here (AWAY_BACKSTOP_MS with «Al salir»).
                                 try {
                                     scanner.launch(scanQrOptions())
                                 } catch (e: Exception) {
                                     VaultLock.keepOpenOnce = false // The app never left: leaving later must lock.
+                                    form.otpReadNotOpened()
                                     error = "No se pudo abrir el escáner: pega el enlace otpauth:// o escribe la clave"
                                 }
                             }) { ScanQrLabel() }

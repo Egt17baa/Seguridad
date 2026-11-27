@@ -80,6 +80,14 @@ class TextCryptoSession(cells: CellFactory = PlainCells, createdAt: Long = 0L) :
     }
 }
 
+/**
+ * A decryption of «Cifrar archivos» that ended: the decrypted file's [name] (it came from inside the encrypted file) and
+ * the [run] that made it. The screen opens the save dialog for it. Its text never shows the name.
+ */
+class DecryptedReady(val name: String, val run: Long) {
+    override fun toString() = "DecryptedReady(run=$run)"
+}
+
 /** A decrypted copy in the app's private cache, waiting for the save dialog: its [path] and the [run] that made it. */
 class PendingCopy(val path: String, val run: Long)
 
@@ -107,6 +115,13 @@ class FileCryptoSession(
     /** The decrypted copy the save dialog is for; null once saved, given up or wiped. */
     var pending: PendingCopy? = null
 
+    /**
+     * Set when a decryption ends; the screen opens the save dialog for it and clears it. 2.1.2, R-12: here in the session
+     * (it was the ViewModel's), so a wipe forgets it too, with the copy it names.
+     */
+    private val decryptedCell = cells.cell<DecryptedReady?>(null)
+    var decrypted: DecryptedReady? by decryptedCell
+
     /** The save dialog answered: the pending copy, now the caller's to write and delete; null if it was given up. */
     fun takePending(): PendingCopy? = pending.also { pending = null }
 
@@ -116,6 +131,7 @@ class FileCryptoSession(
         message = null
         pending?.let { onDiscard(it.path) }
         pending = null
+        decrypted = null
     }
 }
 

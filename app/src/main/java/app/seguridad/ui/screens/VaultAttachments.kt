@@ -61,6 +61,7 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
     var pendingSave by rememberSaveable { mutableStateOf<String?>(null) }
 
     val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.ATTACHMENT_ADD) { uri ->
+        VaultLock.keepOpenOnce = false // 2.1.2, R-5: back from the picker, whatever it brings (as VaultPickerScreen).
         if (uri == null) return@rememberDocumentPicker
         busy = true
         scope.launch {
@@ -81,6 +82,7 @@ internal fun AttachmentsSection(store: VaultStore, entryId: String, attachments:
     }
 
     val save = rememberDocumentPicker(CreateRestoredDocument(), place = PickerPlace.ATTACHMENT_SAVE) { dest ->
+        VaultLock.keepOpenOnce = false // 2.1.2, R-5: back from the picker, whatever it brings (as VaultPickerScreen).
         val id = pendingSave
         pendingSave = null
         if (dest == null || id == null) return@rememberDocumentPicker

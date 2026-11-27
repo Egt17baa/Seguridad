@@ -136,6 +136,12 @@ fun QrInspectScreen(
 
     // Back here, a text handed to a screen that never took it (its vault gate was left locked) does not stay around.
     LaunchedEffect(Unit) { QrHandoff.clear() }
+    // 2.1.2, R-9: leaving the inspector (not a change of configuration) drops a text no screen reached either. Each
+    // target reaches it in its first composition, before this one leaves: it takes it, or «Abrir lo recibido» claims it.
+    val activity = context.fragmentActivity()
+    DisposableEffect(Unit) {
+        onDispose { if (activity?.isChangingConfigurations != true) QrHandoff.clearUnclaimed() }
+    }
 
     // A result with a secret in it (a wifi password, a 2FA key, a link with user info) does not wait on screen for
     // whoever picks the phone up next: it goes when the app stops (Home, screen off, another app; the scanner and the picker too, which is harmless:

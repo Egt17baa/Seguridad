@@ -127,6 +127,12 @@ class CodesSession(
      */
     private val failedWrites = HashMap<SaveKind, VaultEntry>()
 
+    /** 2.1.2, R-11: up with every [wipe] and [clear], so a write that ends after one knows it ([beginWrite], [endWrite]). */
+    private var wipes = 0L
+
+    /** [wipes] when the write going on began. */
+    private var wipesAtWrite = 0L
+
     /** When what was drawn must go: the time away, in the other app too, and the locks ([ScreenGuard], [ScreenAway]). */
     private val away = ScreenGuard(createdAt) { wipe() }
 
@@ -213,15 +219,20 @@ class CodesSession(
     fun beginWrite(save: PendingSave): Boolean {
         if (saving) return false
         saving = true
+        wipesAtWrite = wipes
         return true
     }
 
-    /** Whenever the note was written, what it holds leaves the screen (drawn again or blank); on failure nothing is cleared. */
+    /**
+     * Whenever the note was written, what it holds leaves the screen (drawn again or blank); on failure nothing is cleared.
+     * 2.1.2, R-11: a failed write is kept for its retry only if nothing was wiped since [beginWrite]: after a wipe its
+     * note holds what was drawn before, which must not wait in memory.
+     */
     fun endWrite(save: PendingSave, saved: Boolean) {
         saving = false
         pending = null
         if (!saved) {
-            failedWrites[save.kind] = save.entry
+            if (wipes == wipesAtWrite) failedWrites[save.kind] = save.entry
             return
         }
         failedWrites.remove(save.kind)
@@ -275,6 +286,7 @@ class CodesSession(
      * them) is dropped. The sites, the questions, the chosen length and the form stay: they are not secrets.
      */
     fun wipe() {
+        wipes++
         pending = null
         failedWrites.clear()
         pin = pinOf(digits)
@@ -284,6 +296,7 @@ class CodesSession(
 
     /** The screen is gone for good: every reference to a secret is dropped. */
     fun clear() {
+        wipes++
         pending = null
         failedWrites.clear()
         pin = ""

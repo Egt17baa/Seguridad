@@ -71,11 +71,11 @@ class TwoStepCopyTest {
             assertTrue("${f.name}: ${f.type}", f.type in allowed || f.type.name.startsWith("kotlin.jvm.functions."))
             assertFalse(f.name, v?.toString()?.contains(password) == true)
         }
-        // The offer itself: the id, the time and the lock counter, nothing more.
+        // The offer itself: the id, the time, the lock counter and the vault's generation (2.1.2, R-7), nothing more.
         val o = offer ?: error("no offer")
         val kept = o.javaClass.declaredFields.onEach { it.isAccessible = true }.associate { it.name to it.type }
         assertEquals(setOf(String::class.java, Long::class.javaPrimitiveType, Int::class.javaPrimitiveType), kept.values.toSet())
-        assertEquals(3, kept.size)
+        assertEquals(4, kept.size)
         // The only way in takes a String id: there is no overload with an entry or a password.
         val ins = TwoStepCopy::class.java.declaredMethods.filter { it.name.startsWith("offer") }
         assertEquals(1, ins.size)
@@ -92,6 +92,25 @@ class TwoStepCopyTest {
         assertEquals("entrada-1", t.pending())
         t.clear() // What the app does at every lock, too.
         assertNull(t.pending())
+    }
+
+    /**
+     * 2.1.2, R-7: «Importar copia» over the open vault does not lock it (the epoch stays), but the vault is another one
+     * (VaultStore.generation goes up): the entry's id may name an entry of the imported copy, so the offer ends.
+     */
+    @Test fun offerEndsWhenACopyIsImportedOverTheVault() {
+        var generation = 7L
+        val t = TwoStepCopy(clock = { clock }, lockEpoch = { epoch }, generation = { generation })
+        t.offerPassword("entrada-1")
+        assertEquals("entrada-1", t.pending())
+        t.markLeft()
+        generation++
+        assertNull(t.pending())
+        assertNull(t.takeReturnOffer())
+        assertEquals(0L, t.leftMs())
+        // A new «Copiar usuario» in the imported vault is offered as usual.
+        t.offerPassword("entrada-2")
+        assertEquals("entrada-2", t.pending())
     }
 
     /**

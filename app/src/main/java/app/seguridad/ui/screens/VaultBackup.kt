@@ -91,6 +91,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
 
     // A copy (.sgbak) is a ZIP, but saved as plain bytes so no app treats it as one to open or rename.
     val exporter = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.EXPORT_COPY) { uri ->
+        VaultLock.keepOpenOnce = false // 2.1.2, R-5: back from the picker, whatever it brings (as VaultPickerScreen).
         if (uri != null) scope.launch {
             // Written as a stream straight into the chosen document: never a copy in memory or in the cache.
             val result = runCatching {
@@ -110,6 +111,7 @@ fun vaultActions(store: VaultStore, snackbar: SnackbarHostState): VaultActions {
     // Only the document's address is kept until the password is typed; the file is read as a stream then.
     var importUri by remember { mutableStateOf<Uri?>(null) }
     val importer = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.IMPORT_COPY) { uri ->
+        VaultLock.keepOpenOnce = false // 2.1.2, R-5: back from the picker, whatever it brings (as VaultPickerScreen).
         if (uri != null) scope.launch {
             // Its first bytes, to say now (not after the password) if it cannot be read or cannot be a copy: the
             // picker offers every file (owner's phone test, 1-11-2026), so a photo or a note is turned down here.

@@ -89,6 +89,7 @@ import app.seguridad.net.PwnedPasswords
 import app.seguridad.tools.BREACH_SHORT
 import app.seguridad.tools.GENERATOR_EFF_SHORT
 import app.seguridad.tools.cipher.BreachSession
+import app.seguridad.tools.cipher.DecryptedReady
 import app.seguridad.tools.cipher.FileCryptoSession
 import app.seguridad.tools.cipher.PendingCopy
 import app.seguridad.tools.cipher.TextCryptoSession
@@ -578,8 +579,6 @@ internal fun displayName(context: Context, uri: Uri): String =
 /** Decrypted files wait here, in the app's private cache, until saved; leftovers are wiped at start. */
 const val DECRYPT_TMP_PREFIX = "dec"
 
-/** A decryption that ended: the name to propose in the save dialog, for the run [run] (its copy is the session's pending one). */
-private class DecryptedReady(val name: String, val run: Long)
 
 /** Deletes [path] off the main thread on the app's scope, so it finishes even if the screen goes away (as [discardDocumentLater]). */
 private fun deleteLater(context: Context, path: String) {
@@ -611,9 +610,6 @@ private class FileCryptoViewModel(
     var sourceName by mutableStateOf<String?>(null)
         private set
     private var naming = 0L
-
-    /** Set when a decryption ends; the screen opens the save dialog for it and clears it. */
-    var decrypted by mutableStateOf<DecryptedReady?>(null)
 
     init {
         watchAway(session.guard, store, lockAfterMs, awayInOtherApp)
@@ -672,7 +668,7 @@ private class FileCryptoViewModel(
         }
     }
 
-    /** Decrypts the chosen file into the app's private cache; [decrypted] then asks the screen for a place to save it. */
+    /** Decrypts the chosen file into the app's private cache; the session's `decrypted` then asks the screen for a place to save it. */
     fun decrypt() {
         val s = session
         val src = source ?: return
@@ -694,7 +690,7 @@ private class FileCryptoViewModel(
                 if (s.isCurrent(run)) {
                     s.pending?.let { deleteLater(appContext, it.path) } // An earlier copy never saved.
                     s.pending = PendingCopy(file.path, run)
-                    decrypted = DecryptedReady(name, run)
+                    s.decrypted = DecryptedReady(name, run)
                 } else {
                     deleteNow(file)
                 }
@@ -755,8 +751,7 @@ private class FileCryptoViewModel(
     }
 
     override fun onCleared() {
-        decrypted = null
-        session.wipe() // Deletes a decrypted copy never saved.
+        session.wipe() // Deletes a decrypted copy never saved, and forgets its name (2.1.2, R-12).
     }
 }
 
@@ -808,10 +803,10 @@ fun FileCryptoScreen(
         vm.writeDecrypted(tmp, dest)
     }
     // A decryption that ended: its save dialog, unless the screen was emptied meanwhile (then the copy is already gone).
-    val ready = vm.decrypted
+    val ready = s.decrypted
     LaunchedEffect(ready) {
         val r = ready ?: return@LaunchedEffect
-        vm.decrypted = null
+        s.decrypted = null
         if (!s.isCurrent(r.run) || s.pending?.run != r.run) return@LaunchedEffect
         saveDecrypted.launchOrError(safeFileName(r.name))?.let { failure ->
             s.takePending()?.let { deleteLater(context, it.path) } // Never leave decrypted data behind in the cache.

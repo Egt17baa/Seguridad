@@ -181,6 +181,22 @@ class CipherSessionsTest {
         assertEquals(listOf("/cache/dec123"), discarded)
     }
 
+    /**
+     * 2.1.2, R-12: a decryption that ended sets [FileCryptoSession.decrypted] (its name and run) for the save dialog. A
+     * wipe forgets it too, so the decrypted file's name does not wait in memory and no dialog opens for it.
+     */
+    @Test fun wipeForgetsDecryptedReady() {
+        val f = FileCryptoSession()
+        val run = f.token()
+        f.pending = PendingCopy("/cache/dec789", run)
+        f.decrypted = DecryptedReady("extracto-del-banco.pdf", run)
+        f.wipe()
+        assertNull(f.decrypted)
+        assertNull(f.pending)
+        // Its text never shows the name.
+        assertFalse("extracto" in DecryptedReady("extracto-del-banco.pdf", 0).toString())
+    }
+
     @Test fun `the guard is the rule of PIN y codigos`() {
         var wipes = 0
         val g = ScreenGuard(createdAt = 0) { wipes++ }

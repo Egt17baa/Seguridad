@@ -110,7 +110,8 @@ import kotlinx.coroutines.withContext
  * «Repartir un secreto» (SLIP-0039) for its navigation entry: what is typed, the parts made and the secret recovered are
  * in [SecretShareSession], never in saved state (never `rememberSaveable` nor a Bundle). The session's guard empties it
  * by the «PIN y códigos» rule (lock of the vault, another app, time away) and [onCleared] drops it when the screen is
- * left. Splitting and combining run PBKDF2 on Dispatchers.Default through [SecretShareRuns], cancellable between rounds,
+ * left. Splitting and combining run PBKDF2 on Dispatchers.Default through [SecretShareRuns] (one derivation at a time in
+ * the app, KdfLock), cancellable between rounds,
  * each on a snapshot of the form; a result is shown only for the run started last, so one that ends after a wipe, a
  * cancel, an edit or a second tap is dropped and its bytes zeroed. The SLIP-39 list is read here and the
  * BIP-39 one comes from the process' [WordLists], both off the main thread.
@@ -240,6 +241,7 @@ private class SecretShareViewModel(
         val master = r.master
         val pass = r.passphrase
         if (master == null || pass == null) {
+            stopRun() // 2.1.2, R-10: a run going on stops too, so its result never lands under this error.
             s.parts = null
             s.error = r.error
             return
@@ -257,6 +259,7 @@ private class SecretShareViewModel(
         val r = combineRequest(s.typedParts, s.passphrase)
         val pass = r.passphrase
         if (pass == null) {
+            stopRun() // 2.1.2, R-10: as in [split].
             s.recovered = null
             s.error = r.error
             return

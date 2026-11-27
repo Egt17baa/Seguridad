@@ -481,9 +481,11 @@ fun ImportScreen(
     // M-3: registered before the locked return, so a result delivered after the process died or while locked still
     // reaches them: a file picked then is not read, and a document created then is deleted (copyTo finds no plan).
     val pick = rememberDocumentPicker(ActivityResultContracts.OpenDocument(), place = PickerPlace.IMPORT_OTHER) { uri ->
+        VaultLock.keepOpenOnce = false // 2.1.2, R-5: back from the picker, whatever it brings (as VaultPickerScreen).
         if (uri != null && store.state.value is VaultState.Unlocked) vm.pick(uri)
     }
     val createCopy = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.IMPORT_COPY_BEFORE) { uri ->
+        VaultLock.keepOpenOnce = false // 2.1.2, R-5: back from the picker, whatever it brings (as VaultPickerScreen).
         if (uri != null) vm.copyTo(uri) else vm.copyPlaceCancelled()
     }
     // Locked: the session has already dropped everything; the screen goes back to the vault, which asks for the master.

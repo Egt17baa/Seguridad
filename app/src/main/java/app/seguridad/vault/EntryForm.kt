@@ -176,6 +176,14 @@ class WifiReadStart internal constructor(internal val generation: Long, internal
     override fun toString() = "WifiReadStart"
 }
 
+/**
+ * 2.1.2, R-8: when the 2FA scanner of the form opened ([EntryEditSession.beginOtpRead]), as [WifiReadStart]: which
+ * loading of the form it was and the vault's lock epoch then. A scan that comes back with another one fills nothing.
+ */
+class OtpReadStart internal constructor(internal val generation: Long, internal val epoch: Int) {
+    override fun toString() = "OtpReadStart"
+}
+
 /** The four network fields of a wifi entry as the form holds them; its [toString] shows none (the password is one). */
 private data class WifiFormValues(val ssid: String, val password: String, val security: String, val hidden: String) {
     override fun toString() = "WifiFormValues"
@@ -254,6 +262,9 @@ class EntryEditSession(
      * (which outlives a re-created activity), so a result only takes back the start kept then ([finishWifiRead]).
      */
     private val wifiReads = java.util.concurrent.ConcurrentHashMap<WifiReadKind, WifiReadStart>()
+
+    /** 2.1.2, R-8: the start of the 2FA scanner's reading, kept here as [wifiReads] are ([beginOtpRead]). */
+    private val otpRead = java.util.concurrent.atomic.AtomicReference<OtpReadStart?>(null)
 
     /** What was typed in each template field, by [templateValueKey] (dates as the user writes them). */
     val templateValues = cells.cell<Map<String, String>>(emptyMap())
@@ -781,6 +792,27 @@ class EntryEditSession(
         wifiReplace.value = null
     }
 
+    /**
+     * 2.1.2, R-8: the 2FA scanner opens, and the start of its reading is kept here, as [beginWifiRead] does; false when
+     * the form is not loaded (nothing to fill, the scanner does not open).
+     */
+    fun beginOtpRead(): Boolean {
+        if (!loaded) return false
+        otpRead.set(OtpReadStart(generation, lockEpoch()))
+        return true
+    }
+
+    /** The scan came back: the start kept when the scanner opened, once; null when none is open (or a [clear] dropped it). */
+    fun finishOtpRead(): OtpReadStart? = otpRead.getAndSet(null)
+
+    /** The scanner could not open: its start goes. */
+    fun otpReadNotOpened() {
+        otpRead.set(null)
+    }
+
+    /** Whether a scan that started at [since] may fill this form: loaded, not cleared since and no lock since. */
+    fun otpReadIsCurrent(since: OtpReadStart): Boolean = loaded && since.generation == generation && since.epoch == lockEpoch()
+
     /** Everything typed, the pending import and the texts go; [load] fills the form again from the vault. */
     fun clear() {
         existing.value = null
@@ -809,6 +841,7 @@ class EntryEditSession(
         wifiReplace.value = null
         wifiReadMessage.value = null
         wifiReads.clear()
+        otpRead.set(null)
         lastWifiScan = null
         generation++
         askingToLeave.value = false

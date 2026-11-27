@@ -1,5 +1,10 @@
 package app.seguridad.tools.slip39
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import app.seguridad.crypto.KdfLock
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -116,5 +121,46 @@ class SecretShareRunsTest {
         assertEquals(2, rounds)
         assertNull(rig.session.parts)
         assertFalse(rig.session.busy)
+    }
+
+    /**
+     * 2.1.2, R-10 (from the attack h7-sharerun): with a scope whose dispatcher is not immediate, a run cancelled before
+     * its body starts still runs its cleanup (it zeroes the snapshot's secret and passphrase), and its work never runs.
+     */
+    @Test fun cleanupRunsWhenCancelledBeforeStart() = runTest {
+        val child = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob(coroutineContext[Job]))
+        lateinit var runs: SecretShareRuns
+        val session = SecretShareSession { runs.stop() }
+        runs = SecretShareRuns(session, child, StandardTestDispatcher(testScheduler))
+        var opCalls = 0
+        var cleaned = 0
+        runs.combine({ _ -> opCalls++; ByteArray(32) { 9 } }) { cleaned++ }
+        child.cancel()
+        session.wipe()
+        testScheduler.advanceUntilIdle()
+        assertEquals(0, opCalls)
+        assertEquals(1, cleaned)
+        assertNull(session.recovered)
+        // The same for a split.
+        val other = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob(coroutineContext[Job]))
+        lateinit var runs2: SecretShareRuns
+        val session2 = SecretShareSession { runs2.stop() }
+        runs2 = SecretShareRuns(session2, other, StandardTestDispatcher(testScheduler))
+        runs2.split({ _ -> opCalls++; listOf(listOf("a")) }) { cleaned++ }
+        other.cancel()
+        testScheduler.advanceUntilIdle()
+        assertEquals(0, opCalls)
+        assertEquals(2, cleaned)
+    }
+
+    /** 2.1.2, R-10: SLIP-0039's PBKDF2 runs holding the process' derivation lock ([KdfLock]), and lets it go after. */
+    @Test fun theWorkRunsInsideTheDerivationLock() = runTest {
+        val rig = Rig(this)
+        var heldDuringWork = false
+        rig.runs.split({ _ -> heldDuringWork = KdfLock.isLocked; listOf(listOf("a")) }) {}
+        testScheduler.advanceUntilIdle()
+        assertTrue(heldDuringWork)
+        assertFalse(KdfLock.isLocked)
+        assertEquals(listOf(listOf("a")), rig.session.parts)
     }
 }

@@ -349,6 +349,29 @@ class CodesSessionTest {
         assertEquals("d", s.requestSave(SaveKind.ANSWERS, unlocked = true, now = 4, id = "d")!!.entry.id)
     }
 
+    /**
+     * 2.1.2, R-11: a wipe while the note is being written (time away, a lock) draws everything again; a write that then
+     * fails must not keep the old note (it holds the codes drawn before) for a retry: the next save is a new note.
+     */
+    @Test fun failedSaveAfterWipeDoesNotKeepOldCodes() {
+        // The same codes on every draw, so only the wipe tells the old note from the new one.
+        val s = CodesSession(pinOf = { "1234" }, codesOf = { listOf("code-fijo") }, answerOf = { _, _ -> "respuesta" }).apply {
+            recoverySite = "banco.es"
+        }
+        val save = s.requestSave(SaveKind.RECOVERY, unlocked = true, now = 1, id = "a")!!
+        assertTrue(s.beginWrite(save))
+        s.wipe()
+        s.endWrite(save, saved = false)
+        val failed = CodesSession::class.java.getDeclaredField("failedWrites").apply { isAccessible = true }.get(s) as Map<*, *>
+        assertTrue("the note with the old codes is not kept", failed.isEmpty())
+        assertEquals("b", s.requestSave(SaveKind.RECOVERY, unlocked = true, now = 2, id = "b")!!.entry.id)
+        // Without a wipe, a failed write is still kept for its retry (MN, T8 of §2.5).
+        val again = s.requestSave(SaveKind.RECOVERY, unlocked = true, now = 3, id = "c")!!
+        assertTrue(s.beginWrite(again))
+        s.endWrite(again, saved = false)
+        assertEquals("c", s.requestSave(SaveKind.RECOVERY, unlocked = true, now = 4, id = "d")!!.entry.id)
+    }
+
     @Test fun aChangedNoteAfterAFailedWriteGetsANewId() {
         // Other codes, another site or a wipe: what failed may be in the vault, and it must not be overwritten.
         val s = filled()

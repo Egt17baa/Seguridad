@@ -163,4 +163,36 @@ class QrHandoffTest {
         app.seguridad.vault.VaultLock.keepOpenOnce = false
         assertFalse(app.seguridad.vault.VaultLock.keepOpenOnceState.value)
     }
+
+    /**
+     * 2.1.2, R-9: the inspector, when it leaves, drops a text no screen reached ([QrHandoff.clearUnclaimed]); one whose
+     * screen was reached and waits at the locked gate («Abrir lo recibido» reads it once the vault opens) stays.
+     */
+    @Test
+    fun theInspectorLeavingDropsOnlyATextNoScreenReached() {
+        QrHandoff.put(QrTarget.OTP, "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP")
+        QrHandoff.clearUnclaimed()
+        assertFalse(QrHandoff.hasPending())
+        assertNull(QrHandoff.take(QrTarget.OTP))
+        // Reached by its own screen: kept for it.
+        QrHandoff.put(QrTarget.RECEIVED, "SGM1:x")
+        assertTrue(QrHandoff.claim(QrTarget.RECEIVED))
+        QrHandoff.clearUnclaimed()
+        assertEquals("SGM1:x", QrHandoff.take(QrTarget.RECEIVED))
+        // Another screen does not claim it, and a new text is not claimed by an earlier claim.
+        QrHandoff.put(QrTarget.RECEIVED, "SGM1:y")
+        assertFalse(QrHandoff.claim(QrTarget.CARD))
+        QrHandoff.clearUnclaimed()
+        assertNull(QrHandoff.take(QrTarget.RECEIVED))
+        QrHandoff.put(QrTarget.RECEIVED, "SGM1:z")
+        assertTrue(QrHandoff.claim(QrTarget.RECEIVED))
+        QrHandoff.put(QrTarget.RECEIVED, "SGM1:w")
+        QrHandoff.clearUnclaimed()
+        assertNull(QrHandoff.take(QrTarget.RECEIVED))
+        // A clear (the app left, the vault not open) drops a claimed text too.
+        QrHandoff.put(QrTarget.RECEIVED, "SGM1:v")
+        QrHandoff.claim(QrTarget.RECEIVED)
+        QrHandoff.clear()
+        assertNull(QrHandoff.take(QrTarget.RECEIVED))
+    }
 }

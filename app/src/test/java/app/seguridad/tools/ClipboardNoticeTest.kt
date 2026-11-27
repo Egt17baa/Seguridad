@@ -180,4 +180,24 @@ class ClipboardNoticeTest {
         assertEquals(listOf("c"), written)
         assertTrue(notice.acceptedNow)
     }
+
+    /**
+     * 2.1.2, R-7: «Importar copia» over the open vault (no lock: the epoch stays, VaultStore.generation goes up) ends a
+     * copy waiting for the notice, as a lock does: what it would write was read from the vault that is gone.
+     */
+    @Test fun acceptCopiesNothingAfterACopyIsImportedOverTheVault() {
+        var generation = 3L
+        val n = ClipboardNoticeRequest(lockEpoch = { epoch }, generation = { generation })
+        var copied = false
+        n.ask("secreto", write, onCopied = { copied = true })
+        generation++
+        assertEquals(AcceptOutcome.LOCKED, n.acceptOutcome())
+        assertTrue(written.isEmpty())
+        assertFalse(copied)
+        assertFalse(n.asking.value)
+        // A copy asked for in the imported vault is written as usual.
+        n.ask("otro", write)
+        assertTrue(n.accept())
+        assertEquals(listOf("otro"), written)
+    }
 }

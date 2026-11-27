@@ -106,6 +106,7 @@ internal fun VaultUpgradeDialog(store: VaultStore) {
     }
 
     val exporter = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.EXPORT_COPY) { uri ->
+        VaultLock.keepOpenOnce = false // 2.1.2, R-5: back from the picker, whatever it brings (as VaultPickerScreen).
         if (uri == null) {
             busy = false
         } else {

@@ -60,10 +60,17 @@ fun copyOrAskNoticeFor(
  * the app shows it whatever screen asked, and a rotation does not lose it. The text stays only here, in memory: never
  * in a Bundle or a saved state, never in the UI's state ([asking] says only whether there is one). It goes on
  * [accept] (written once), on [cancel] and on [drop] (the vault locks or the app is left). [lockEpoch] is the vault's
- * lock counter: a lock after [ask], even one followed by an unlock, makes [accept] write nothing.
+ * lock counter: a lock after [ask], even one followed by an unlock, makes [accept] write nothing. 2.1.2, R-7: so does
+ * «Importar copia» over the open vault since [ask] ([generation], VaultStore.generation), which locks nothing.
  */
-class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
-    private class Pending(val produce: () -> String?, val write: (String) -> Unit, val onCopied: (() -> Unit)?, val epoch: Int)
+class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }, private val generation: () -> Long = { 0L }) {
+    private class Pending(
+        val produce: () -> String?,
+        val write: (String) -> Unit,
+        val onCopied: (() -> Unit)?,
+        val epoch: Int,
+        val generation: Long,
+    )
 
     private var pending: Pending? = null
     private val _asking = MutableStateFlow(false)
@@ -83,13 +90,13 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
 
     /** [ask] with a text worked out on [accept] ([copyOrAskNoticeFor]); null then copies nothing. */
     @Synchronized fun askFor(produce: () -> String?, write: (String) -> Unit, onCopied: (() -> Unit)? = null) {
-        pending = Pending(produce, write, onCopied, lockEpoch())
+        pending = Pending(produce, write, onCopied, lockEpoch(), generation())
         _asking.value = true
     }
 
     /**
      * The user accepted: writes the waiting copy once, then its onCopied. Returns false, writing nothing, if there was
-     * none (already taken or dropped), the vault locked since [ask], or the write threw. See [acceptOutcome].
+     * none (already taken or dropped), the vault locked or was replaced since [ask], or the write threw. See [acceptOutcome].
      */
     fun accept(): Boolean = acceptOutcome() == AcceptOutcome.COPIED
 
@@ -103,7 +110,7 @@ class ClipboardNoticeRequest(private val lockEpoch: () -> Int = { 0 }) {
             val p = pending ?: return AcceptOutcome.NOTHING_WAITING
             pending = null
             _asking.value = false
-            if (p.epoch != lockEpoch()) return AcceptOutcome.LOCKED
+            if (p.epoch != lockEpoch() || p.generation != generation()) return AcceptOutcome.LOCKED
             p
         }
         // Review N-1 of task 6: nothing left to copy (the entry went meanwhile) copies nothing, but the notice was accepted.

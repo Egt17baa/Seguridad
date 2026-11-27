@@ -811,6 +811,42 @@ class EntryEditSessionTest {
         assertEquals(untouched, s.wifiFields())
     }
 
+    /**
+     * 2.1.2, R-8: the 2FA scanner of the form, as a wifi reading: its result counts only in the form it started in. A
+     * lock (also one quickly opened again) or a clear before it comes makes it late, and the form takes nothing.
+     */
+    @Test fun scanResultAfterALockIsDropped() {
+        var epoch = 0
+        val s = EntryEditSession(PlainCells, null, EntryType.TOTP, newId = "nuevo-1", lockEpoch = { epoch })
+        // Not loaded: the scanner does not open, and a result that comes has no start.
+        assertFalse(s.beginOtpRead())
+        assertNull(s.finishOtpRead())
+        s.load(emptyList())
+        // In the form it started in: current, once.
+        assertTrue(s.beginOtpRead())
+        val ok = s.finishOtpRead()!!
+        assertTrue(s.otpReadIsCurrent(ok))
+        assertNull(s.finishOtpRead())
+        // A lock and a quick unlock before the result: late.
+        assertTrue(s.beginOtpRead())
+        epoch++
+        val afterLock = s.finishOtpRead()!!
+        assertFalse(s.otpReadIsCurrent(afterLock))
+        // A clear (the lock clears the form) drops a reading still open, and one taken before it is late.
+        assertTrue(s.beginOtpRead())
+        val beforeClear = s.finishOtpRead()!!
+        assertTrue(s.beginOtpRead())
+        s.clear()
+        assertFalse(s.otpReadIsCurrent(beforeClear))
+        s.load(emptyList())
+        assertNull(s.finishOtpRead())
+        assertFalse(s.otpReadIsCurrent(beforeClear))
+        // One that could not open drops its start.
+        assertTrue(s.beginOtpRead())
+        s.otpReadNotOpened()
+        assertNull(s.finishOtpRead())
+    }
+
     private fun EntryEditSession.read(kind: WifiReadKind = WifiReadKind.CAMERA): WifiReadStart {
         assertTrue(beginWifiRead(kind))
         return finishWifiRead(kind)!!

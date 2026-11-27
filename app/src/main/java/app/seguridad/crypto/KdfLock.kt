@@ -25,11 +25,13 @@ import kotlin.coroutines.EmptyCoroutineContext
  * - «Cifrar archivo» (ruling R40): only the Argon2id of the file's key, through [deriveBlocking] in `FileCrypto.kt`
  *   (`fileKey`); the encryption of the stream runs outside the lock, so an unlock never waits for a whole file.
  *
- * Not taken by SLIP-0039's PBKDF2, which needs a few hundred bytes.
+ * - «Repartir un secreto» (2.1.2, R-10): SLIP-0039's PBKDF2 needs a few hundred bytes, but a split or a combine runs
+ *   it for seconds with a high iteration exponent; its whole run takes the lock ([app.seguridad.tools.slip39.SecretShareRuns]),
+ *   and a cancel still stops it at its next PBKDF2 round, which lets the lock go.
  *
  * Lock order, so nothing can deadlock: the vault's mutex, then this one ([app.seguridad.vault.VaultStore] holds its
- * mutex while it derives); «Comprobar una copia», «Importar de otra app», «Cifrar texto» and «Cifrar archivo» take
- * only this one, and their blocks never call the vault. A [derive] block is plain computation: it never suspends, never calls the vault, the settings,
+ * mutex while it derives); «Comprobar una copia», «Importar de otra app», «Cifrar texto», «Cifrar archivo» and «Repartir
+ * un secreto» take only this one, and their blocks never call the vault. A [derive] block is plain computation: it never suspends, never calls the vault, the settings,
  * `KeyOpsQueue` (the fingerprint's queue, which takes neither lock) or another [derive], since the lock is not
  * reentrant. «Importar de otra app» takes its own one-attempt ticket (`IMPORT_KDF_RUN`, which never waits) before this
  * lock. Waiting here suspends (no thread is blocked, the main thread neither) and [derive] runs its block on the
