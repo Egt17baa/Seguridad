@@ -50,6 +50,16 @@ class FormHelpersTest {
         assertEquals("192.168.1.1", titleFromUrl("http://192.168.1.1/admin"))
     }
 
+    @Test fun titleHasNoJoinerFromTheHost() {
+        // 2.1.2, C-4: parseLink keeps a ZWNJ or ZWJ in the host, as a browser does; the saved title never carries it.
+        assertEquals("Banco.es", titleFromUrl("https://ban\u200Dco.es/"))
+        assertEquals("Banco.es", titleFromUrl("https://ban\u200Cco.es/"))
+        val persian = titleFromUrl("https://\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645.ir/login")!!
+        assertEquals("\u0645\u06CC\u062E\u0648\u0627\u0647\u0645.ir", persian)
+        // A «ß» kept in Unicode stays as it is.
+        assertEquals("Fa\u00DF.de", titleFromUrl("https://fa\u00DF.de"))
+    }
+
     @Test fun titleNullWithoutHost() {
         for (text in listOf("", "   ", "texto sin más", "https://", "mailto:ana@ejemplo.es", otpauth, "ftp://archivos.example", "javascript:alert(1)", "localhost")) {
             assertNull(text, titleFromUrl(text))

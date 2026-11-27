@@ -6,6 +6,7 @@ import app.seguridad.crypto.Strength
 import app.seguridad.crypto.readOtpAuth
 import app.seguridad.crypto.strength
 import app.seguridad.health.estimateBits
+import app.seguridad.imports.plainReportText
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.schemeOf
 import app.seguridad.tools.qr.asBrowserReadsIt
@@ -33,8 +34,9 @@ private val BARE_DOMAIN = Regex("""[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+\.?([/?#].*)
  * The title an empty title takes from [url] (design «Formulario», R-11: from the domain, with no table of brand names):
  * the host as [parseLink] reads it the way a browser does (so `\` closes the authority and the user info, with its key,
  * is never part of it), in the ASCII form the browser connects to (a name in another script stays `xn--…`, never a
- * look-alike), without «www.» at the start and with its first letter in capitals. Only for `http`, `https` and a bare
- * domain; null when there is no host. No network.
+ * look-alike), without «www.» at the start and with its first letter in capitals. Exception: a label with «ß», «ς», ZWNJ
+ * or ZWJ stays Unicode, as [parseLink] keeps it (C-4); the title is then plain text ([plainReportText]), so a ZWNJ or ZWJ
+ * is never written into it. Only for `http`, `https` and a bare domain; null when there is no host. No network.
  */
 fun titleFromUrl(url: String): String? {
     val text = asBrowserReadsIt(url)
@@ -46,7 +48,7 @@ fun titleFromUrl(url: String): String? {
     }
     val parsed = parseLink(link)
     if (parsed.scheme !in WEB_SCHEMES) return null
-    val host = parsed.host?.removePrefix("www.")?.takeIf { it.isNotEmpty() } ?: return null
+    val host = parsed.host?.removePrefix("www.")?.let(::plainReportText)?.takeIf { it.isNotEmpty() } ?: return null
     return host.replaceFirstChar { it.titlecase(Locale.ROOT) }
 }
 

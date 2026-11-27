@@ -86,7 +86,8 @@ data class QrField(val label: String, val value: String)
  *   a token where the user name goes), shown as it is (it is what the alert points at) but a secret all the same (MN,
  *   T7 of §2.5). [carriesSecret] says the screen drops the result when the app stops or the vault locks.
  * - [hostLabels] is the highlighted name of a link: the one the browser connects to, in ASCII (punycode, so no
- *   look-alike letters), split into its labels; an IP whole. [hostReading] is its Unicode reading, shown below it and
+ *   look-alike letters), split into its labels; an IP whole. Exception: a label with «ß», «ς», ZWNJ or ZWJ stays
+ *   Unicode, as [parseLink] keeps it (C-4), with each hidden character as its mark ([visibleText]). [hostReading] is its Unicode reading, shown below it and
  *   smaller, only when it is not the same.
  * - [copyNotice] / [secretCopyNotice]: what «Copiar» / «Copiar contraseña» say when the copy carries hidden characters
  *   (copied as they are, never stripped); null otherwise.
@@ -250,7 +251,8 @@ private fun linkView(base: QrView, link: QrKind.Link): QrView {
         link.port?.let { QrField(QR_FIELD_PORT, it.toString()) },
         QrField(QR_FIELD_SCHEME, if (link.scheme.isEmpty()) QR_SCHEME_NONE else visibleText(link.scheme)),
     )
-    // What stands out is what the browser connects to: for a look-alike name, its `xn--` form, not the imitation.
+    // What stands out is what the browser connects to: for a look-alike name, its `xn--` form, not the imitation; a
+    // label with «ß», «ς», ZWNJ or ZWJ stays Unicode (C-4), with a ZWNJ or ZWJ as its mark.
     val labels = when {
         host.isNullOrEmpty() -> emptyList()
         Signal.IP_HOST in link.signals -> listOf(visibleText(host))

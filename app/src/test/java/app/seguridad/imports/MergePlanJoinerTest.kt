@@ -58,6 +58,6 @@ class MergePlanJoinerTest {
         assertEquals("ana · banco.es", row)
         assertFalse('⟨' in row)
         // A soft hyphen is dropped by a browser: the host really is banco.es, and the row says so.
-        assertEquals("ana · banco.es", duplicateSubline(login("f2", "https://ban­co.es/", "x")))
+        assertEquals("ana · banco.es", duplicateSubline(login("f2", "https://ban\u00ADco.es/", "x")))
     }
 }
