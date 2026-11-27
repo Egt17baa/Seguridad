@@ -1449,10 +1449,21 @@ class VaultStore(
                 newKey.fill(0) // Never kept: the vault locks below, or stays on the old key if the save failed.
             }
             vault = next
+            _masterChanges += 1
             lock()
         }
         true
     }
+
+    @Volatile private var _masterChanges = 0L
+
+    /**
+     * 2.1.2, C-2: how many times [changeMaster] saved a new master password in this process (in memory only; it starts at
+     * 0). [AutoBackup] reads it before a copy and after writing it: a copy whose snapshot was taken under the password of
+     * before is told from one made under today's. Unlike [masterMark], a wrap again with a higher cost (A8) or the upgrade
+     * to v4 do not move it: the password is the same, so their copies are kept.
+     */
+    val masterChanges: Long get() = _masterChanges
 
     /** The encrypted vault as stored; safe to put anywhere (useless without the master password). */
     suspend fun exportText(): String? = mutex.withLock { vault?.let(VaultCrypto::encodeFile) }

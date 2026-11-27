@@ -28,6 +28,7 @@ fun oneTargetBackup(
     zone: ZoneId = ZoneId.systemDefault(),
     importCopies: () -> List<String> = { emptyList() },
     onImportCopy: suspend (folder: String, id: String, generation: Long) -> Unit = { _, _, _ -> },
+    onOldPasswordCopy: (folder: String, id: String) -> Unit = { _, _ -> },
 ): AutoBackup {
     // Task 8, round 4: what the engine saves in the target beyond 1.4.3's fields (the A6 request it is in, its result, the
     // change mark) is kept here from each result, as the settings keep it, so the target read back has it.
@@ -56,6 +57,7 @@ fun oneTargetBackup(
         },
         zone = zone,
         onImportCopy = onImportCopy,
+        onOldPasswordCopy = onOldPasswordCopy,
     )
 }
 

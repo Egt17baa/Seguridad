@@ -4,6 +4,7 @@ import app.seguridad.core.Notice
 import app.seguridad.crypto.CryptoFailure
 import app.seguridad.imports.IMPORT_COPY_FAILED
 import app.seguridad.imports.IMPORT_COPY_LOCKED
+import app.seguridad.imports.IMPORT_COPY_MASTER_CHANGED
 import app.seguridad.imports.IMPORT_COPY_NO_FOLDER
 import app.seguridad.imports.IMPORT_COPY_NO_PERMISSION
 import app.seguridad.imports.IMPORT_COPY_VAULT_CHANGED
@@ -354,6 +355,12 @@ class AutoBackup(
      * is not made). Kept in memory when not given.
      */
     onA6: (suspend (A6State) -> Boolean)? = null,
+    /**
+     * 2.1.2, C-2: a copy (automatic or before importing) written to the target [folder] under the master password of before
+     * (it changed while the copy was written) that the folder refused to delete: [id] joins the old copies of the A6 dialog
+     * open now ([MasterChanged.addOldCopy]); must not throw.
+     */
+    private val onOldPasswordCopy: (folder: String, id: String) -> Unit = { _, _ -> },
 ) {
     @Volatile private var a6InMemory: A6State? = null
     private val a6: () -> A6State? = a6 ?: { a6InMemory }
@@ -494,7 +501,7 @@ class AutoBackup(
                 if (!wanted && !(change && t.schedule == BackupSchedule.ON_CHANGE)) continue
                 // Review M-4: the state of now was already copied there (the app was opened meanwhile): no second copy.
                 if (!wanted && !t.replacePending && copiedRevision[uri] == revision) continue
-                val result = attempt(uri, if (t.replacePending) Replace(t.replaceTargets, announce = true, told = told, request = t.requestId) else null) ?: continue
+                val result = attempt(uri, if (t.replacePending) Replace(withOld(uri, t.replaceTargets), announce = true, told = told, request = t.requestId) else null) ?: continue
                 if (t.replacePending) notices += result
             }
             // Round 3 (N-4): decided inside the lock, from one read of the targets, and only while the vault is still the
@@ -543,7 +550,7 @@ class AutoBackup(
                 // target's last copy. Never an A6 request, a copy that waited (it may be one asked by hand), the first copy
                 // to a target, nor one «con cada cambio». A skip does nothing: no write, no rotation, no new date (it stays due).
                 if (calendar && !replace && !waited && t.lastAt != null && t.copiedMark != null && t.copiedMark == store.changeMark()) continue
-                val result = attempt(uri, if (replace) Replace(t.replaceTargets, announce = true, told = told, request = t.requestId) else null) ?: continue
+                val result = attempt(uri, if (replace) Replace(withOld(uri, t.replaceTargets), announce = true, told = told, request = t.requestId) else null) ?: continue
                 if (replace) notices += result
                 if (calendar && result.writtenAt != null && result.copies != null) byCalendar++
             }
@@ -659,16 +666,19 @@ class AutoBackup(
             val results = ArrayList<AutoBackupResult>()
             for (uri in all.map { it.uri }) {
                 val t = target(uri) ?: continue // Read again: removed meanwhile.
+                // C-2: with the copies under a password of before that a folder refused to delete (maybe listed after the
+                // dialog read [asked]).
+                val here = withOld(uri, asked)
                 results += when (store.state.value) {
                     is VaultState.Unlocked -> {
                         // A failure here is reported: asked while open, it is not retried behind the user's back (unless a
                         // request saved while locked is still pending: it goes on, with its own targets, and what it told
                         // starts again).
-                        val ids = if (t.replacePending) t.replaceTargets ?: asked else asked
+                        val ids = if (t.replacePending) withOld(uri, t.replaceTargets) ?: here else here
                         attempt(uri, Replace(ids, announce = false, newRequest = true, since = since, request = request))
-                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, asked, request) else failedFor(uri, request)
+                            ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, here, request) else failedFor(uri, request)
                     }
-                    is VaultState.Locked -> waitForUnlock(uri, asked, request)
+                    is VaultState.Locked -> waitForUnlock(uri, here, request)
                     else -> failedFor(uri, request)
                 }
             }
@@ -754,7 +764,7 @@ class AutoBackup(
         for (t in targets()) {
             val r = copyBeforeNow(t.uri, prefix, export)
             if (r is CopyResult.Saved) return r
-            if (r is CopyResult.Failed && (r.message == IMPORT_COPY_LOCKED || r.message == IMPORT_COPY_VAULT_CHANGED)) return r
+            if (r is CopyResult.Failed && (r.message == IMPORT_COPY_LOCKED || r.message == IMPORT_COPY_VAULT_CHANGED || r.message == IMPORT_COPY_MASTER_CHANGED)) return r
             if (first == null) first = r
         }
         return first
@@ -766,9 +776,29 @@ class AutoBackup(
             if (store.state.value !is VaultState.Unlocked) return CopyResult.Failed(IMPORT_COPY_LOCKED)
             // As [attempt]: a copy whose vault was replaced while it was written is never listed as this vault's.
             val generation = store.generation
+            // 2.1.2, C-2: as [attempt], the changes of the master password too.
+            val master = store.masterChanges
             // A lock meanwhile refuses the copy, and schedules no automatic one (nothing changed in the vault).
             val written = copyTo(uri, target, now(), prefix, defer = false, export = export) ?: return CopyResult.Failed(IMPORT_COPY_LOCKED)
             if (store.generation != generation) return CopyResult.Failed(IMPORT_COPY_VAULT_CHANGED)
+            // C-2 and O-2 of the Abogado Digital: the copy is under the password of before, so it is not the copy before
+            // importing, and nothing is imported (decision R17 of 1.4.0: without a copy there is no import). It is deleted
+            // at once; if the folder refuses, it goes to this target's import copies (which A6 deletes and the rotation
+            // never touches), and to the A6 dialog open now.
+            if (store.masterChanges != master) {
+                if (!removed(target, written, prefix)) {
+                    keepOld(uri, written.id)
+                    try {
+                        onImportCopy(uri, written.id, generation)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // Not listed (a full disk): A6 counts it as unlisted, by its name, and [oldLeft] still has it.
+                    }
+                    tellOldPassword(uri, written.id)
+                }
+                return CopyResult.Failed(IMPORT_COPY_MASTER_CHANGED)
+            }
             try {
                 onImportCopy(uri, written.id, generation)
             } catch (e: CancellationException) {
@@ -826,6 +856,8 @@ class AutoBackup(
      */
     private suspend fun attempt(uri: String, replace: Replace?): AutoBackupResult? {
         val replaceAll = replace != null
+        // C-2: a copy under the password of before that could not be deleted, told to the A6 dialog once it is listed.
+        var leftOld: String? = null
         pending -= uri
         if (target(uri) == null) return null
         val result = try {
@@ -844,10 +876,15 @@ class AutoBackup(
             // Review M-4: the state this copy holds at least (read before its snapshot). D-3: its change mark, the same way.
             val revision = store.revision.value
             val mark = store.changeMark()
+            // 2.1.2, C-2: read with the generation. A change of the master password while the copy is written (a slow
+            // provider) leaves a copy that opens with the password of before ([VaultStore.masterChanges]).
+            val master = store.masterChanges
             val written = copyTo(uri, folder, at) ?: return null
-            if (store.generation == generation) copiedRevision[uri] = revision
+            if (store.generation == generation && store.masterChanges == master) copiedRevision[uri] = revision
             if (store.generation != generation) {
                 stale(uri, at, generation, replaceAll)
+            } else if (store.masterChanges != master) {
+                oldPassword(uri, folder, written, at, generation, replace).also { if (it.copies != null) leftOld = written.id }
             } else {
                 val owned = target(uri)?.copies.orEmpty()
                 // A request without targets (saved before 1.3.0): every listed copy but the new one, as before (M4).
@@ -905,7 +942,67 @@ class AutoBackup(
         // Review M-3: a copy that could not be written is not tried again at once when the app is opened.
         if (recorded.writtenAt == null && recorded.error != null) failedAt[uri] = now() else if (recorded.writtenAt != null) failedAt.remove(uri)
         onResult(recorded)
+        // After [onResult]: a dialog opened in between reads it from the list, one opened before gets it here.
+        leftOld?.let { tellOldPassword(uri, it) }
         return recorded
+    }
+
+    /**
+     * 2.1.2, C-2: the copy [written] to [folder] was made under the master password of before (it changed while the copy
+     * was written). Nobody has seen it, and the next copy is made with the new one ([defer]), so it is deleted at once,
+     * whether A6 is asked or not. Deleted, the result is as a copy never written (O-3 of the Abogado Digital: «Última
+     * copia» never shows the time of a copy that is gone; no rotation, no mark, no notice). If the folder refuses, it is
+     * listed as any copy ([AutoBackupResult.copies], so the rotation deletes it in time), kept in [oldLeft] for the next A6
+     * request of this process, added to the targets of a request saved ([AutoBackupResult.replaceTargets]) and, by the
+     * caller, to the A6 dialog open now ([onOldPasswordCopy]). It is never the copy a replacement is done with: a
+     * replacement says it deleted nothing, as with [stale]. No setting gets a new field.
+     */
+    private fun oldPassword(uri: String, folder: BackupTarget, written: BackupEntry, at: Long, generation: Long, replace: Replace?): AutoBackupResult {
+        val error = if (replace != null) AUTO_BACKUP_OLD_NOT_DELETED else null
+        if (removed(folder, written, AUTO_BACKUP_PREFIX)) {
+            defer(uri)
+            return AutoBackupResult(uri, null, error, generation = generation, newRequest = replace?.newRequest == true, request = replace?.request)
+        }
+        keepOld(uri, written.id)
+        val t = target(uri)
+        val saved = if (replace != null) replace.targets else t?.takeIf { it.replacePending }?.replaceTargets
+        return AutoBackupResult(
+            uri, at, error, copies = (t?.copies.orEmpty() + written.id).distinct(), generation = generation,
+            replaceTargets = saved?.let { (it + written.id).distinct() }, newRequest = replace?.newRequest == true, request = replace?.request,
+        )
+    }
+
+    /** C-2: deletes [written] from [folder]; true only if it is no longer listed there (a provider that says nothing is checked). */
+    private fun removed(folder: BackupTarget, written: BackupEntry, prefix: String): Boolean = try {
+        folder.delete(written.id)
+        folder.list(prefix).none { it.id == written.id }
+    } catch (e: Exception) {
+        false
+    }
+
+    /**
+     * C-2: the copies under a master password of before that a folder refused to delete, by target: every later A6 request
+     * of this process deletes them too ([withOld]), even one asked before they were listed. In memory only: they are also on
+     * the target's lists ([BackupTargetSettings.copies] or [BackupTargetSettings.importCopies]), which outlive the process.
+     */
+    private val oldLeft = ConcurrentHashMap<String, MutableSet<String>>()
+
+    private fun keepOld(uri: String, id: String) {
+        oldLeft.getOrPut(uri) { ConcurrentHashMap.newKeySet() } += id
+    }
+
+    /** [ids] of a replacement of [uri] with [oldLeft]'s; null stays null (every listed copy, these among them). */
+    private fun withOld(uri: String, ids: List<String>?): List<String>? {
+        val left = oldLeft[uri]?.takeIf { it.isNotEmpty() } ?: return ids
+        return ids?.let { (it + left).distinct() }
+    }
+
+    private fun tellOldPassword(uri: String, id: String) {
+        try {
+            onOldPasswordCopy(uri, id)
+        } catch (e: Exception) {
+            // Never closes the app: the copy is on the target's list and in [oldLeft] all the same.
+        }
     }
 
     /**

@@ -208,6 +208,14 @@ const val IMPORT_COPY_VAULT_CHANGED =
         "hizo sigue en la carpeta."
 
 /**
+ * 2.1.2, C-2 (O-2 of the Abogado Digital): the master password changed while the copy before importing was written, so
+ * that copy is under the password of before. It is deleted at once or, if the folder refuses, listed with the import
+ * copies for A6; nothing is imported either way. True in both cases: it says nothing of the copy.
+ */
+const val IMPORT_COPY_MASTER_CHANGED =
+    "La contraseña maestra ha cambiado mientras se hacía la copia, así que no se ha importado nada. Vuelve a intentarlo."
+
+/**
  * The copy was made, but saving the import threw (a full disk, almost always before the atomic rename, so with nothing
  * saved). It claims only what holds on every path: the import did not finish, and the copy was made; the space is
  * asked, not stated.

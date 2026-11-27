@@ -486,6 +486,9 @@ class AppContainer(
             // Task 8, round 4: the A6 request of this vault and what was last told of it.
             a6 = { settings.settings.value.vault(id).a6 },
             onA6 = { state -> recordA6(id, state) },
+            // 2.1.2, C-2: a copy under the password of before that its folder refused to delete joins the A6 dialog of this
+            // vault, if it is the one open (only ids; nothing is saved).
+            onOldPasswordCopy = { _, copy -> if (masterChangedSlot?.id == id) masterChanged.addOldCopy(copy) },
         )
 
         /** 2.0, task 3: «Deshacer» after a move to this vault's trash; a lock of this vault (a switch locks it) forgets it. */

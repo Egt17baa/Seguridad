@@ -58,6 +58,19 @@ class MasterChanged(
         _state.value = State(open = true, fingerprintFailed = fingerprintFailed, hasIdentity = hasIdentity, oldCopies = oldCopies())
     }
 
+    /**
+     * 2.1.2, C-2: a copy made under the password of before ([id]) was listed after the dialog read [State.oldCopies] (it
+     * was being written when the password changed, and the folder refused to delete it): it joins them, so «Borrar…» and
+     * «Volver a intentarlo» delete it too. Nothing while the dialog is closed, nor when [State.oldCopies] is null: that
+     * replaces every copy listed when it runs, this one with them.
+     */
+    fun addOldCopy(id: String) {
+        _state.update { s ->
+            val listed = s.oldCopies
+            if (s.open && listed != null && id !in listed) s.copy(oldCopies = listed + id) else s
+        }
+    }
+
     fun close() {
         _state.value = State()
     }
