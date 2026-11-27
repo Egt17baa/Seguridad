@@ -618,7 +618,8 @@ class AppContainer(
 
     /**
      * 2.0, task 2: a new vault with [master] (the caller checks the rule of a new master, MasterPolicy) and [name] (saved
-     * inside it, encrypted), born in format v4; it becomes the active one, open. Returns its id. The one open before is
+     * inside it, encrypted), born in format v4; it becomes the active one, open (locked, with LockReason.LEFT_APP, if the app was left meanwhile:
+     * C-1). Returns its id. The one open before is
      * locked. [app.seguridad.vault.VaultLimitExceeded] when there are already 10, or the name is too long;
      * [IllegalStateException] unless [canAddVault]. If creating it
      * fails, nothing is left of it and the vault of before is active again, locked.
@@ -627,8 +628,10 @@ class AppContainer(
 
     /**
      * 2.0, task 2: «Importar como bóveda nueva»: a new vault from a copy ([VaultStore.importReplace], with its master
-     * password), with a new id, also when the same copy was imported before; it becomes the active one, open. [name] is
-     * its name if not blank, else it keeps the copy's. Returns its id. The copy is checked and saved in the new vault's
+     * password), with a new id, also when the same copy was imported before; it becomes the active one, open (locked, with
+     * LockReason.LEFT_APP, if the app was left meanwhile: C-1). [name] is its name if not blank, else it keeps the
+     * copy's; if the app is left while [VaultStore.unlock] runs, the copy's name stays (rename finds it locked). The
+     * screen always passes "". Returns its id. The copy is checked and saved in the new vault's
      * folder first, with the vault open before still the active one (review I-2): a wrong password or a damaged copy
      * throws (the exception says why), leaves nothing of the new vault and the vault of before as it was, open or not.
      * Only then is the vault open before locked and the new one opened with [master] (a second key derivation).
@@ -693,8 +696,10 @@ class AppContainer(
         before: suspend (VaultStore) -> Unit = {},
         made: suspend (VaultStore) -> Unit,
     ): String = changingVaults.withLock {
-        if (!canAddVault()) throw VaultsRefused(VAULT_NEW_NEEDS_OPEN)
+        // Read before canAddVault (C-1): a leave after this read is seen at the end; one before it has already locked
+        // the vault of before, and canAddVault refuses as always.
         val leavesAtStart = leaves.get()
+        if (!canAddVault()) throw VaultsRefused(VAULT_NEW_NEEDS_OPEN)
         VaultData(name = name.trim()).checkStructure() // A name too long: nothing is made.
         val previous = activeId
         val info = registry.create(nextColor())

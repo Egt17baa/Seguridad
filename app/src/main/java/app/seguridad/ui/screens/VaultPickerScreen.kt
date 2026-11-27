@@ -331,7 +331,7 @@ fun VaultPickerScreen(container: AppContainer, onBack: () -> Unit) {
             run {
                 try {
                     container.createVault(name, master)
-                    null // The switch rebuilds the navigation: the new vault, open, comes next.
+                    null // The switch rebuilds the navigation: the new vault comes next, open (locked if the app was left meanwhile, C-1).
                 } catch (e: VaultLimitExceeded) {
                     e.message
                 } catch (e: Exception) {
