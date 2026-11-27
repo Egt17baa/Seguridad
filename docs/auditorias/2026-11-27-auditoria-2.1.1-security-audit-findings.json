@@ -1,0 +1,676 @@
+[
+ {
+  "verdict": "confirmed",
+  "fingerprint": "AppContainer.importAsNewVault:made-unlock-ignores-leave-lock",
+  "title": "Leaving the app during «Importar como bóveda nueva» leaves the new vault unlocked in the background",
+  "description": "MainActivity.onStop locks the active vault when the user leaves the app (LockReason.LEFT_APP). Each VaultStore operation reads its store's lock epoch when it starts, so a lock during that operation leaves the vault Locked. VaultStore.importReplace documents this at VaultStore.kt:1549. AppContainer.importAsNewVault (via newVault) runs in three steps. First, `before` reads and checks the copy on the new, non-active store, which takes seconds because of the ZIP read and Argon2id. Second, switchTo(info.id). Third, `made` calls store.unlock(master), which reads a fresh epoch (VaultStore.kt:600) after the onStop lock. An onStop during `before` locks only the old active vault, so the new vault opens and becomes the active one while the app is in the background (foreground=false). The action runs in appScope through launchVaultsAction, so leaving the screen does not cancel it. MainActivity.onStart only calls lockIfIdle. With «Al salir» (lockAfter 0) and no picker or multi-window, idleLimitMs is 0, so nothing locks the vault until the next onStop. With a chosen idle time, it stays open until that time passes. createVault shares the same root cause, with a narrower window (the hunter's coverage unit h3-leave).",
+  "root_cause": "The lock-epoch guard (`since`) applies to each VaultStore call, not to the whole AppContainer.newVault operation. importAsNewVault's final store.unlock(master) (AppContainer.kt:628) starts after the long `before` stage (AppContainer.kt:625) and after switchTo (AppContainer.kt:680). Its `since` (VaultStore.kt:600) therefore already includes the LEFT_APP lock, which was applied to the old store. Nothing in newVault records a leave or lock that happens between the start of the operation and `made`, and nothing checks container.foreground.",
+  "intended_behavior": "Leaving the app while an import is running leaves the imported vault Locked. VaultStore.importReplace documents this for the same-vault import (VaultStore.kt:1549: 'the copy is imported, but stays locked'), and the app's rule is that leaving always locks.",
+  "trace": [
+   {
+    "kind": "entrypoint",
+    "file": "app/src/main/java/app/seguridad/ui/screens/VaultPickerScreen.kt",
+    "line": 404,
+    "scope": "PickerDialog.ImportNew confirm",
+    "description": "The owner confirms the copy's master. container.importAsNewVault runs inside run{}, which is launchVaultsAction (VaultPickerScreen.kt:211, AppContainer.kt:878-881) in appScope, so leaving the screen does not cancel it."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/AppContainer.kt",
+    "line": 625,
+    "scope": "importAsNewVault before",
+    "description": "store.importReplace(input, master, newTag = true) reads, derives and saves the copy on the new, non-active store. Its gate keeps that store Locked."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/MainActivity.kt",
+    "line": 146,
+    "scope": "onStop",
+    "description": "The user leaves meanwhile. foreground becomes false and container.vault, still the old active store, is locked with LEFT_APP. The new store's epoch is not touched."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/AppContainer.kt",
+    "line": 680,
+    "scope": "newVault",
+    "description": "switchTo(info.id) makes the new vault active, still locked."
+   },
+   {
+    "kind": "sink",
+    "file": "app/src/main/java/app/seguridad/vault/VaultStore.kt",
+    "line": 600,
+    "scope": "VaultStore.unlock",
+    "description": "Called from AppContainer.kt:628. `since = epoch` is read now, after the lock, so opened() (VaultStore.kt:538-556) keeps the DEK and sets Unlocked while the app is in the background."
+   }
+  ],
+  "evidence": [
+   {
+    "file": "app/src/main/java/app/seguridad/AppContainer.kt",
+    "line": 628,
+    "description": "made = { store.unlock(master) } runs after `before` and switchTo, with no epoch, leave or foreground check."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/AppContainer.kt",
+    "line": 672,
+    "description": "canAddVault is checked only at the start of newVault. A leave after this point is not looked at again."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/vault/VaultStore.kt",
+    "line": 1549,
+    "description": "Sibling control: importReplace reads the epoch before reading the copy, so leaving during the read leaves a same-vault import locked."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/vault/VaultStore.kt",
+    "line": 538,
+    "description": "opened() refuses only when this store's own epoch moved since `since`. An onStop that locked another store does not count."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/vault/VaultStore.kt",
+    "line": 1849,
+    "description": "idleLimitMs returns 0 for «Al salir» unless a picker is kept open or the app is away in multi-window, so no time lock catches a vault opened in the background."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/MainActivity.kt",
+    "line": 82,
+    "description": "onStart only calls lockIfIdle. It does not lock a vault that opened while the app was away."
+   }
+  ],
+  "conditions": [
+   {
+    "kind": "user_interaction",
+    "description": "The owner starts «Importar como bóveda nueva» from an open vault, enters the copy's master and leaves the app (Home, screen off or another app) before the copy has been read and derived."
+   },
+   {
+    "kind": "timing_dependency",
+    "description": "The leave must happen during `before`, or between `before` and the start of unlock. That window lasts seconds, because of the copy read and Argon2id."
+   },
+   {
+    "kind": "system_configuration",
+    "description": "The vault stays open until the next onStop or idle lock. With «Al salir» there is no time limit. With a chosen idle time (5 min by default), it stays open until that time passes."
+   },
+   {
+    "kind": "authentication_level",
+    "description": "A person who picks up the phone later must first get past the device's own screen lock, if one is set."
+   }
+  ],
+  "execution": {
+   "attacker_perspective": "A person who picks up the phone after its owner left Clavero during «Importar como bóveda nueva».",
+   "payloads": [
+    "VerifyLeaveImportNewTest.kt: a FilterInputStream whose first read simulates MainActivity.onStop (c.foreground = false; c.vault.lock(LockReason.LEFT_APP)). It wraps a dummy .sgbak exported from a test vault holding one fictitious note."
+   ],
+   "instructions": [
+    "In the OS sandbox, on source 7a963dd, run: ./gradlew -p jvm-check test --offline --no-daemon --max-workers=1 --tests app.seguridad.VerifyLeaveImportNewTest",
+    "The test creates vault «Uno» with one dummy note, exports a copy and calls AppContainer.importAsNewVault with the leave-on-first-read stream. Then it calls c.vault.lockIfIdle() (as onStart does) and prints the active vault's state."
+   ],
+   "observed_result": "VERIFY leftHappened=true oldStoreLocked=true newActive=true different=true foreground=false afterLockIfIdle=Unlocked entries=1; BUILD SUCCESSFUL, EXIT=0 (agents/v-import-new/artifacts/out/verify-leave-import-new.txt). This agrees with the hunter's run, where the importReplace control stayed Locked."
+  },
+  "remediation": {
+   "strategy": "Bind the whole newVault operation to «the app was not left». Do not rely on the per-store epoch, and do not use the hunter's `lockEpoch - startEpoch <= 1` arithmetic: switchTo itself locks the old store and adds 1 to epochBase (AppContainer.kt:579, 584), so that check would also skip the normal case. Instead, AppContainer can keep a counter of leave-locks, incremented in MainActivity.onStop's lock path (for example inside leftApp when !keepOpenOnce, or a dedicated lockOnLeave()). newVault reads the counter before `before`, and `made` skips the unlock (or locks right after it) when the counter changed or foreground is false. The new vault is then made and active but Locked, as importReplace leaves it. createVault gets the same check before store.create. Add a regression test with the leave-on-read stream that asserts Locked.",
+   "code_changes": [
+    {
+     "file_name": "app/src/main/java/app/seguridad/AppContainer.kt",
+     "fixed_code": "private val leaves = java.util.concurrent.atomic.AtomicInteger()\nfun lockOnLeave() { leaves.incrementAndGet(); vault.lock(LockReason.LEFT_APP) } // MainActivity.onStop calls this instead of vault.lock(LEFT_APP)\n\nprivate suspend fun newVault(name: String, before: suspend (VaultStore) -> Unit = {}, made: suspend (VaultStore) -> Unit): String = changingVaults.withLock {\n    if (!canAddVault()) throw VaultsRefused(VAULT_NEW_NEEDS_OPEN)\n    val leftMark = leaves.get() // leaving the app from here on leaves the new vault locked\n    ...\n        before(store)\n        switchTo(info.id)\n        if (leaves.get() == leftMark && foreground) made(store)\n        if (leaves.get() != leftMark || !foreground) store.lock(LockReason.LEFT_APP) // a leave during made\n    ...\n}"
+    }
+   ]
+  },
+  "severity": {
+   "likelihood": {
+    "score": "low",
+    "reason": "The owner has to leave the app during a seconds-long import of a whole vault, and then leave the phone where someone else can pick it up and get past the device lock."
+   },
+   "impact": {
+    "score": "medium",
+    "reason": "Every entry of the imported vault is readable by whoever holds the phone, against the rule that leaving the app locks the vault. It is limited to that one vault and lasts until the next lock (with «Al salir», the next onStop)."
+   },
+   "overall_severity": "low"
+  },
+  "confidence": {
+   "score": "high",
+   "reason": "Source review confirms the path. An independent deterministic JVM test on the real AppContainer and VaultStore shows the new vault active and Unlocked, with foreground=false, after the simulated onStop and onStart's lockIfIdle."
+  }
+ },
+ {
+  "verdict": "needs_validation",
+  "fingerprint": "android/SafBackupTarget.create:provider-returned-document-uri-unvalidated",
+  "title": "Automatic-copy writer trusts the document URI returned by the chosen folder's provider (file:// or foreign authority accepted as write target)",
+  "description": "Automatic copies, and the copies made before an import or the 2.0 upgrade, are written through SafBackupTarget.create. At source ref 7a963dd, create passes the Uri returned by DocumentsContract.createDocument (SafBackupTarget.kt:33) straight into Created(doc) (line 36). Created.write then opens that Uri with resolver.openOutputStream(doc, \"wt\") (line 54). The only control is SafBackupTarget.open (line 125-128): hasFolderGrant checks the tree string from the settings against persisted read+write grants. It never checks the document the provider returns, and neither does Created.rename (line 60), which adopts the Uri from renameDocument. The attacker is a third-party app that ships a DocumentsProvider. SAF providers are a lower-trust principal in the architecture. The user must pick this provider's tree in the system folder picker as a copy folder. The provider can then answer METHOD_CREATE_DOCUMENT with any EXTRA_URI. In AOSP, DocumentsProvider.call is overridable and DocumentsContract.createDocument returns EXTRA_URI from the result Bundle unchanged. The provider can return file:///data/user/0/io.github.egt17baa.seguridad/files/vault/vault.bin (the predictable path, AppContainer.kt:415), settings.json or vaults.json. For a file:// Uri, ContentResolver opens the path itself with ParcelFileDescriptor.open in Clavero's process and UID, so Clavero would truncate that private file and write the encrypted backup ZIP into it. The provider can also return a content:// Uri of another authority where Clavero holds a grant, such as another vault's copy folder; that document is truncated and overwritten. The provider learns nothing it would not already receive (the encrypted copy). The effect crosses the app sandbox but is limited to integrity and availability: for example, vault.bin is replaced by ZIP bytes, so the next unlock fails until the in-memory vault is saved again. The source path is verified; every cited line matches 7a963dd. The framework behaviour, the decisive part, cannot be observed offline.",
+  "claimed_root_cause": "SafBackupTarget.create (and Created.rename) adopt the provider-returned Uri as the write target. They do not check that its scheme is content, that its authority equals the tree's authority, or that it is a document under the granted tree (DocumentsContract.isDocumentUri and getTreeDocumentId equal to the tree's). The persisted-grant check in open and hasFolderGrant covers only the tree selector from the settings.",
+  "trace": [
+   {
+    "kind": "entrypoint",
+    "file": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+    "line": 847,
+    "scope": "AutoBackup.attempt",
+    "description": "An automatic copy (on change, by calendar, after unlock, or A6) calls copyTo on the folder opened from the settings. The user-chosen tree of the hostile provider has a persisted grant, so open succeeded."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/android/SafBackupTarget.kt",
+    "line": 127,
+    "scope": "SafBackupTarget.open",
+    "description": "Only the settings tree string is matched against persisted read+write grants (hasFolderGrant). For the user-chosen hostile tree, the check passes."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+    "line": 953,
+    "scope": "AutoBackup.copyTo",
+    "description": "folder.create(name + TEMP_SUFFIX) obtains the BackupFile to fill."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/android/SafBackupTarget.kt",
+    "line": 33,
+    "scope": "SafBackupTarget.create",
+    "description": "DocumentsContract.createDocument returns the Uri the provider placed in its call() result. Line 36 wraps it as Created(doc) with no scheme, authority or tree check."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+    "line": 979,
+    "scope": "AutoBackup.fill",
+    "description": "file.write streams the exported backup into the Created document."
+   },
+   {
+    "kind": "sink",
+    "file": "app/src/main/java/app/seguridad/android/SafBackupTarget.kt",
+    "line": 54,
+    "scope": "SafBackupTarget.Created.write",
+    "description": "resolver.openOutputStream(doc, \"wt\") truncates and writes the Uri the provider chose. For file://, the framework opens the path in Clavero's process with Clavero's UID; for another authority, it acts under Clavero's grants there."
+   }
+  ],
+  "evidence": [
+   {
+    "file": "app/src/main/java/app/seguridad/android/SafBackupTarget.kt",
+    "line": 33,
+    "description": "The createDocument result is used as-is; Created(doc) at line 36 has no scheme, authority or tree validation."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/android/SafBackupTarget.kt",
+    "line": 54,
+    "description": "Write with mode \"wt\" (truncate) on the unvalidated Uri."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/android/SafBackupTarget.kt",
+    "line": 60,
+    "description": "The renameDocument result also replaces doc without validation."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/android/SafBackupTarget.kt",
+    "line": 127,
+    "description": "Strongest visible control: the grant check covers only the tree selector from the settings, not returned documents."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+    "line": 968,
+    "description": "If the rename fails or is not supported, the copy is written again through a second create: a second write to a target the provider chose."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/AppContainer.kt",
+    "line": 415,
+    "description": "Vault files sit at predictable paths (files/vault/vault.bin for the first vault) that a hostile provider can name in a file:// Uri."
+   }
+  ],
+  "blockers": [
+   "The Android framework cannot be observed in this environment. jvm-check excludes android/, there is no emulator, and /home/user/android-sdk has no framework sources (only android.jar stubs). Two things need confirming on API 26 and 34-36. First, a DocumentsProvider that overrides call() can make METHOD_CREATE_DOCUMENT return a file:// or foreign-authority Uri. Second, DocumentsContract.createDocument hands that Uri back unchanged.",
+   "It needs confirming on a device that ContentResolver.openOutputStream(file:///data/user/0/io.github.egt17baa.seguridad/files/..., \"wt\") opens and truncates the app's own private file with targetSdk 36, with no StrictMode or framework refusal. This is the SCHEME_FILE branch of openAssetFileDescriptor.",
+   "It requires a user-interaction condition that cannot be checked offline: the system OpenDocumentTree picker must list a tree served by an installed third-party DocumentsProvider, and the user must choose it as a copy folder."
+  ],
+  "validation_plan": {
+   "local": "Use an emulator (API 26, 34 and 36) with a debug build of Clavero holding a dummy vault. Install a dummy test app whose DocumentsProvider exposes a normal tree but overrides call() so that, for METHOD_CREATE_DOCUMENT, it returns Bundle{EXTRA_URI = file:///data/user/0/io.github.egt17baa.seguridad/cache/saf-probe}. Choose its root as an automatic-copy folder, change one dummy entry to trigger a single copy, and use run-as to check only whether cache/saf-probe was created or overwritten with backup ZIP bytes. Do not target vault.bin. Repeat once with a content:// Uri pointing into a second dummy tree that Clavero holds a grant for. Then stop. Regression test after the fix, for SafBackupTarget.create and Created.rename: refuse a returned Uri whose scheme is not content, whose authority differs from the tree's, or that fails DocumentsContract.isDocumentUri, or whose getTreeDocumentId differs from the tree's. In that case nothing is written and the copy fails with the folder error.",
+   "deployment": "Owner-observed and non-destructive, on the owner's phone with the release APK: list the providers offered by the OpenDocumentTree picker, and record whether any installed third-party app adds its own tree there. No exploit run is needed on the owner device."
+  }
+ },
+ {
+  "verdict": "confirmed",
+  "fingerprint": "imports/folderNames-uncapped-name:importTags-compareKey-per-item-amplification",
+  "title": "An uncapped JSON folder or group name shared by many items makes import planning cost name length times item count, and the work cannot be cancelled",
+  "description": "The Aegis, Bitwarden JSON and 2FAS readers resolve folder and group names once, by id, through folderNames(). That function checks only wellFormed and does not cap the length. Every item that references the id gets the same full string in ImportedItem.folders. planMerge then calls entryFitsImported() on every item, repeated items included, before the in-file duplicate check, and entryFitsImported() calls importTags(). TagBudget.tagsFor() calls importTags() again for every new item. mergeImport, behind previewEstimate, calls it twice more for each item that enters (tagsFor at line 297, plus line 303 or 308), and does so on every preview estimate. importTags() runs compareKey() over the whole folder name. That means plainReportText with no cut, NFKC and a whitespace pass, then the SPACES regex and normalizeTags. Only after that is the tag cut to MAX_TAG_LENGTH (24 code points). The cost of planning an import is therefore O(name_length x items), not O(file size). The loop runs inside withContext(Dispatchers.Default) and has no cancellation point, so cancelling the coroutine (for example by leaving the screen) does not stop it. CSV folder cells are capped per field by CSV_MAX_FIELD_CHARS and are not shared between rows, so the CSV path stays linear. The JSON readers break the 'same caps' invariant and decision (a)'s rule that long work must be cancellable.",
+  "root_cause": "folderNames() (imports/ImportJson.kt:359) accepts a folder or group name of any length. importTags() (imports/MergePlan.kt:239) normalises the whole name with compareKey() before cutting it to MAX_TAG_LENGTH. It is recomputed for every item that references the shared name (MergePlan.kt:131/174, 151/212, 297/303/308), with no per-name cache, no length bound and no ensureActive.",
+  "intended_behavior": "Every field a reader takes from a hostile file is capped before use, as CSV folder cells (CSV_MAX_FIELD_CHARS), titles and notes already are. Import work stays linear in the file size, and long work stays cancellable (decision (a)).",
+  "trace": [
+   {
+    "kind": "entrypoint",
+    "file": "app/src/main/java/app/seguridad/imports/AegisJson.kt",
+    "line": 25,
+    "scope": "readAegisPlain",
+    "description": "The hostile file's groups are resolved with folderNames(db[\"groups\"], idKey = \"uuid\"). Bitwarden JSON does the same at BitwardenJson.kt:63 and 2FAS at TwoFasJson.kt:22."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/imports/ImportJson.kt",
+    "line": 359,
+    "scope": "folderNames",
+    "description": "A name is kept if it is a string and passes wellFormed. There is no length limit."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/imports/AegisJson.kt",
+    "line": 41,
+    "scope": "readEntry",
+    "description": "Every entry that references the uuid gets the full shared string in its folders list. The same happens with Bitwarden folderId (BitwardenJson.kt:109) and 2FAS groupId (TwoFasJson.kt:34)."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 131,
+    "scope": "planMerge",
+    "description": "entryFitsImported is called for every item before the in-file duplicate check, so even repeated items pay the cost."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 174,
+    "scope": "entryFitsImported",
+    "description": "tags = importTags(folders, format)"
+   },
+   {
+    "kind": "sink",
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 239,
+    "scope": "importTags",
+    "description": "compareKey(folder) normalises the whole multi-megabyte name once per item on every call: plainReportText with Int.MAX_VALUE, then NFKC. Only afterwards does normalizeTags cut it to 24 code points."
+   }
+  ],
+  "evidence": [
+   {
+    "file": "app/src/main/java/app/seguridad/imports/ImportJson.kt",
+    "line": 359,
+    "description": "The folder name is accepted with only takeIf(::wellFormed). There is no MAX_TITLE or CSV_MAX_FIELD_CHARS equivalent."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/imports/ImportModel.kt",
+    "line": 184,
+    "description": "compareKey calls plainReportText(text, Int.MAX_VALUE) and Normalizer.normalize(NFKC) on the full text, so there is no cut before the work."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 151,
+    "description": "A second importTags pass runs for every new item (TagBudget.tagsFor, line 212). mergeImport runs importTags again at line 297 (through tagsFor) and at line 303 or 308 for each item that enters, on every preview estimate."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/imports/ImportMemory.kt",
+    "line": 18,
+    "description": "planMergeOrNoMemory only catches OutOfMemoryError. There is no time bound or cancellation check. ImportScreen.kt:325 runs it inside withContext(Dispatchers.Default), and ImportScreen.kt:216 runs the preview estimate the same way."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/imports/CsvFormats.kt",
+    "line": 38,
+    "description": "In the sibling CSV path, each folder cell is per row and is capped at CSV_MAX_FIELD_CHARS, so the cost is linear in the file size."
+   }
+  ],
+  "conditions": [
+   {
+    "kind": "user_interaction",
+    "description": "The vault owner, with the vault unlocked, picks a hostile Aegis, Bitwarden JSON or 2FAS export in «Importar de otra app»."
+   },
+   {
+    "kind": "data_state",
+    "description": "The file has one long folder or group name (megabytes) referenced by many items. It stays within IMPORT_MAX_BYTES (16 MiB), JSON_MAX_TREE_BYTES (48 MiB) and IMPORT_MAX_ITEMS (20,000)."
+   }
+  ],
+  "execution": {
+   "attacker_perspective": "Author of a hostile export file that the vault owner is persuaded to import",
+   "payloads": [
+    "{\"version\":1,\"header\":{\"slots\":null,\"params\":null},\"db\":{\"version\":3,\"groups\":[{\"uuid\":\"g\",\"name\":\"<'b' x 2000000>\"}],\"entries\":[<N x {\"type\":\"totp\",\"issuer\":\"x<i>\",\"groups\":[\"g\"],\"info\":{\"secret\":\"JBSWY3DPEHPK3PXP\"}}>]}}"
+   ],
+   "instructions": [
+    "Added the dummy-data test app/src/test/java/app/seguridad/imports/VFolderCostTest.kt (agents/v-folder/artifacts/out/VFolderCostTest.kt) to the jvm-check suite in the parent-approved sandbox.",
+    "Ran ./gradlew -p jvm-check test --offline --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process -Porg.gradle.java.installations.auto-download=false --tests app.seguridad.imports.VFolderCostTest -i (output in agents/v-folder/artifacts/out/vfolder-run.txt).",
+    "The test builds the Aegis payload with distinct issuers, calls readImport and times planMerge(read, emptyList(), 0). It does this for a 10-char name with 20 entries and for a 2,000,000-char name with 5 and with 20 entries. It then launches planMergeOrNoMemory inside withContext(Dispatchers.Default), cancels it after 50 ms and times cancelAndJoin. The run stopped at 20 entries."
+   ],
+   "observed_result": "Short name, 20 entries: planMerge took 4 ms. With the 2,000,000-char name, 5 entries took 254 ms and 20 entries took 889 ms, about 42 ms per item. cancelAndJoin after cancelling at 50 ms took 894 ms: the cancelled job ran to completion, so cancellation does not interrupt planning. BUILD SUCCESSFUL. This reproduces the hunter's figures independently (theirs: 4 MB name, 680 ms for 10 entries and 2,913 ms for 40). The multi-minute total for about 19,000 entries is an extrapolation from linear growth on a desktop JVM; it was not measured, and phone figures were not measured either."
+  },
+  "remediation": {
+   "strategy": "Cap folder and group names when reading, as other fields are capped. For example, a name longer than MAX_TITLE gives no folder, the same way a malformed name does. Also bound importTags per call: run compareKey only on a bounded prefix, or memoise importTags per distinct folders list within planMerge and mergeImport. Optionally add ensureActive or yield points in the planMerge loop. Add a regression test: one multi-megabyte group shared by many entries must either give no tag or plan in near-constant time per item.",
+   "code_changes": [
+    {
+     "file_name": "app/src/main/java/app/seguridad/imports/ImportJson.kt",
+     "fixed_code": "val name = (o[nameKey] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.length <= MAX_TITLE && wellFormed(it) } ?: continue"
+    }
+   ]
+  },
+  "severity": {
+   "likelihood": {
+    "score": "low",
+    "reason": "The owner must choose a crafted file in «Importar de otra app». Nothing reaches this path without that interaction."
+   },
+   "impact": {
+    "score": "low",
+    "reason": "Local availability only: minutes of CPU and battery on Dispatchers.Default that cannot be cancelled, and the import screen stays stuck in planning. Nothing is disclosed or written to the vault, the main thread keeps running, and force-stopping the app recovers it."
+   },
+   "overall_severity": "low"
+  },
+  "confidence": {
+   "score": "high",
+   "reason": "The source lineage was checked line by line. An independent bounded sandbox run shows that the cost per item is proportional to the shared name length and that cancelling does not stop the work."
+  }
+ },
+ {
+  "verdict": "confirmed",
+  "fingerprint": "tools/qr/LinkSignals.kt:mapLabel:idna-deviation-zwj-zwnj-dropped",
+  "title": "Shared link parser drops ZWNJ/ZWJ from a host (IDNA2003), so «Importar de otra app» treats a different, CONTEXTJ-valid domain as the vault's own and the duplicate row shows the vault's host",
+  "description": "parseLink is meant to map a host the way a browser does (UTS #46 non-transitional, the WHATWG URL Standard). mapLabel keeps two of the four IDNA deviation characters out of java.net.IDN: ß and ς. It does not do the same for U+200C ZWNJ and U+200D ZWJ. java.net.IDN is IDNA2003, and its nameprep deletes both, so a label that keeps them under the browser rules (for example Arabic-script «می‌خواهم» with a ZWNJ, valid under CONTEXTJ) maps to the xn-- of the same letters without the joiner. In «Importar de otra app», urlKey therefore gives a file login «https://<label with ZWNJ>.ir/login» the same key as a vault login «https://<label without>.ir/login». A file login with the same title and user is planned as a replaceable duplicate of the vault entry. Its row reads «ana · xn--mgbn2ecje63g.ir», the vault's own host, and shows no hidden-character mark, because plainReportText strips invisibles. If the user picks «Reemplazar», replaceWith stores the file's raw URL, joiner included, and the file's password. A WHATWG implementation resolves that URL to xn--mgbn2ecje63gr19l.ir, a different registrable name. That defeats the control that «Reemplazar cannot change the vault's web without the row saying where it goes» (MergePlan.kt:657-659). Latin labels with a joiner («ban\\u200Dco.es») fail CONTEXTJ, and a WHATWG parser refuses them, so in practice that variant points nowhere. In the QR inspector the large host is also the name without the joiner, but HIDDEN_CHARS still fires there.",
+  "root_cause": "mapLabel (LinkSignals.kt:162-167) sends every non-ASCII label except those holding U+00DF or U+03C2 to IDN.toASCII(label, ALLOW_UNASSIGNED) (LinkSignals.kt:170). That is IDNA2003, whose nameprep table B.1 maps U+200C and U+200D to nothing. The fallback normalizeLabel (LinkSignals.kt:195-203) also drops every Cf character, joiners included. UTS #46 non-transitional keeps both joiners as deviation characters, subject to CheckJoiners. The same parse feeds urlKey (MergePlan.kt:576-582), hostOf (MergePlan.kt:604) and shownUrl (MergePlan.kt:643-653).",
+  "intended_behavior": "The host used for the merge key and for the duplicate row should be the name a browser connects to. A label whose ZWNJ/ZWJ a UTS #46 non-transitional browser keeps should not compare equal to, or be shown as, the label without the joiner. At the least, its row should show the hidden character so that «Reemplazar» cannot silently bring in a different domain.",
+  "trace": [
+   {
+    "kind": "entrypoint",
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 709,
+    "scope": "Matcher.find",
+    "description": "An imported LOGIN from a hostile third-party export is matched against vault logins by titleKey, userKey and urlKey(e.url) (lines 710-713)."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 579,
+    "scope": "urlKey",
+    "description": "The key is «h» + scheme + «://» + hostOf(parseLink(comparedLink(t)))."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/tools/qr/LinkSignals.kt",
+    "line": 121,
+    "scope": "parseLink",
+    "description": "The percent-decoded host goes to mapHost, which sends each non-ASCII label to mapLabel (line 151)."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/tools/qr/LinkSignals.kt",
+    "line": 164,
+    "scope": "mapLabel",
+    "description": "Only U+00DF and U+03C2 are kept out of IDN. A label with U+200C or U+200D reaches IDN.toASCII (line 170), which deletes the joiner, so the label becomes xn--mgbn2ecje63g, the label without the joiner."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 646,
+    "scope": "shownUrl / duplicateSubline",
+    "description": "The duplicate row is built from the same parse and wrapped in plainReportText (line 666), so it shows «ana · xn--mgbn2ecje63g.ir», the vault's host, with no mark."
+   },
+   {
+    "kind": "sink",
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 366,
+    "scope": "replaceWith",
+    "description": "«Reemplazar» stores incoming.url, the raw file URL that still holds the ZWNJ, in the vault entry, together with the file's password."
+   }
+  ],
+  "evidence": [
+   {
+    "file": "app/src/main/java/app/seguridad/tools/qr/LinkSignals.kt",
+    "line": 157,
+    "description": "The KDoc says a browser uses UTS #46 non-transitional and keeps deviation characters, but the code (line 164) handles only ß and ς."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/tools/qr/LinkSignals.kt",
+    "line": 170,
+    "description": "IDN.toASCII with ALLOW_UNASSIGNED is IDNA2003. The local test (agents/v-link/artifacts/out/vlink-result.xml) shows host.zwnj=xn--mgbn2ecje63g.ir and host.plain=xn--mgbn2ecje63g.ir."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/tools/qr/LinkSignals.kt",
+    "line": 198,
+    "description": "The normalizeLabel fallback also drops every Character.FORMAT code point, so even outside IDN the joiners would be removed."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 116,
+    "description": "planMerge, run locally with vault login Banco/ana/<plain .ir> and file login Banco/ana/<ZWNJ .ir>, gives newItems=0 and duplicates=[v1/true] (replaceable). The row is «ana · xn--mgbn2ecje63g.ir». replaceWith keeps the ZWNJ URL and the file's password (agents/v-link/artifacts/out/vlink-result.xml, source agents/v-link/artifacts/out/VLinkJoinerTest.kt)."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 657,
+    "description": "The stated control: the row shows the web «Reemplazar» brings in, so that a file matching by title and user cannot change the vault's web without the row saying where it goes. The joiner case bypasses it."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/imports/MergePlan.kt",
+    "line": 36,
+    "description": "Mitigation: SKIP is the default choice, so the user must actively choose «Reemplazar», and the title and user must also match an existing entry."
+   }
+  ],
+  "conditions": [
+   {
+    "kind": "user_interaction",
+    "description": "The user imports a hostile third-party export in «Importar de otra app» and actively chooses «Reemplazar» on the duplicate row (SKIP is the default)."
+   },
+   {
+    "kind": "data_state",
+    "description": "The vault holds a login whose host has an Arabic-script (or similar) label, and the attacker knows its title and username, which must match for the item to be a duplicate."
+   },
+   {
+    "kind": "third_party_dependency",
+    "description": "The joiner variant must be a CONTEXTJ-valid name that a registry allows and the attacker controls (for example under .ir). Latin-label joiners fail CONTEXTJ and are refused by a WHATWG parser."
+   },
+   {
+    "kind": "environmental_dependency",
+    "description": "The user's browser applies UTS #46 non-transitional processing, as the WHATWG URL Standard requires. This was observed with the WHATWG URL implementation in Node's ICU. Chrome on the user's phone was not observed."
+   }
+  ],
+  "execution": {
+   "attacker_perspective": "An attacker who can get the user to import a crafted export file (a hostile file, which the architecture lists as a lower-trust principal) and who knows the title and user of one of the user's logins on a domain with an Arabic-script label.",
+   "payloads": [
+    "vault login: title=Banco, user=ana, url=https://\\u0645\\u06CC\\u062E\\u0648\\u0627\\u0647\\u0645.ir/login",
+    "file login: title=Banco, user=ana, url=https://\\u0645\\u06CC\\u200C\\u062E\\u0648\\u0627\\u0647\\u0645.ir/login, password=file-pw"
+   ],
+   "instructions": [
+    "Run the dummy-data JVM test agents/v-link/artifacts/out/VLinkJoinerTest.kt through jvm-check offline in the sandbox: parseLink on both URLs, then planMerge(ImportRead(BITWARDEN, [file login]), [vault login]), duplicateSubline(file login) and replaceWith(vault, file).",
+    "Separately, with a trusted WHATWG URL implementation (Node v22 new URL), compute the host of both URLs (agents/v-link/artifacts/out/browser-idna.txt)."
+   ],
+   "observed_result": "App: both hosts are xn--mgbn2ecje63g.ir. The plan has 0 new items and 1 replaceable duplicate of the vault entry. The row reads «ana · xn--mgbn2ecje63g.ir», and the replaced entry keeps the ZWNJ URL and the file's password. WHATWG (Node/ICU): the ZWNJ URL is xn--mgbn2ecje63gr19l.ir and the plain one is xn--mgbn2ecje63g.ir, and IDNA2008 (Python idna) agrees. The Latin «ban\\u200Dco.es» and «ban\\u200Cco.es» are invalid URLs under WHATWG."
+  },
+  "remediation": {
+   "strategy": "In mapLabel, treat U+200C and U+200D like the other deviation characters. If the NFKC-folded label contains either, do not send it to IDN and do not drop the joiner. Return a Unicode form that keeps the joiners (exclude 0x200C and 0x200D from the Cf filter in normalizeLabel for this path), so that urlKey differs from the joiner-free name and the label counts as non-ASCII/punycode for the signals. Also make duplicateSubline mark a hidden character in the host (for example through ParsedLink.hostHidden or visibleText) instead of letting plainReportText remove it silently. Add a LinkSignalsTest asserting that the ZWNJ host is not xn--mgbn2ecje63g.ir, and a MergePlanTest asserting that the ZWNJ URL is not a duplicate of the plain one. Optionally, use the WHATWG test data for CheckJoiners."
+  },
+  "severity": {
+   "likelihood": {
+    "score": "low",
+    "reason": "It requires a hostile import file matching an existing login's title and user and an Arabic-script (or virama-script) host. The attacker must register the CONTEXTJ-valid joiner variant, and the user must actively choose «Reemplazar» over the default SKIP."
+   },
+   "impact": {
+    "score": "low",
+    "reason": "The vault entry's URL silently changes to a different registrable domain while the row shows the original host, and the password is replaced with the file's. The app never opens links, so harm needs the user to later visit or trust that URL. No secret is disclosed by the app itself."
+   },
+   "overall_severity": "low"
+  },
+  "confidence": {
+   "score": "high",
+   "reason": "The source path was verified line by line at 7a963dd. The app-side merge and display result was reproduced independently with a dummy-data test in the sandbox, and the browser-side host was computed with the WHATWG URL implementation (Node/ICU) and IDNA2008 (Python idna). Only Chrome on Android itself was not observed."
+  }
+ },
+ {
+  "verdict": "needs_validation",
+  "fingerprint": "ui/screens/SecurityToolsScreen.kt:GeneratorScreen:no-screen-guard",
+  "title": "Generator keeps the last generated password on screen after leaving the app and the vault locking",
+  "description": "«Generador» (route tools/generator) shows a newly generated password or EFF passphrase. The value is held only in Compose remember state. The route is not behind VaultGate, gets no store, lockAfterMs or awayInOtherApp, and does not use ScreenGuard/ScreenAway, GuardEffects or watchAway. It has no ON_STOP or lock handler either. The «PIN y códigos» screen and the F6/COV1-1 tools (Cifrar texto, Cifrar archivos, ¿Filtrada?, the labs, Repartir un secreto) do use that rule. Leaving the app locks the vault (MainActivity.onStop, LockReason.LEFT_APP), but onStop does not destroy the activity, and configChanges keeps it across rotation and resize. So while the process lives and the user stays on that screen, returning any time later shows the same password with the vault locked. Someone who picks up the phone after the owner generated a password for an account (and maybe saved it in the vault) and left the app can read it without the master password. The value is not kept across process death: remember is not saved state. It is also not kept after switching tabs, because the composable leaves composition and seed starts again at 0, so a new value is drawn. Impact is low. The Tools tab is intentionally usable while the vault is locked, and comparable managers keep generator output on screen. The issue is that this screen misses the app's own rule for tool screens that hold a password or a result, a rule whose stated scope never named the Generator (COV1-1 lists only Cifrar texto, Cifrar archivos and ¿Filtrada?).",
+  "claimed_root_cause": "GeneratorScreen(onBack) keeps its result in remember(phraseWords, p, w, seed). It has no ViewModel session (GuardedSession/ScreenGuard), no GuardEffects or watchAway, and no lock or ON_STOP handler, and AppNavHost wires the route with none of lockAfterMs, awayInOtherApp or the vault store. As a result, the «PIN y códigos» rule (wipe or redraw after max(lock, 60 s) away, or on an in-use lock) never applies to the generated password.",
+  "trace": [
+   {
+    "kind": "entrypoint",
+    "file": "app/src/main/java/app/seguridad/ui/AppNavHost.kt",
+    "line": 486,
+    "scope": "VaultNav composable(\"tools/generator\")",
+    "description": "The Generator route is wired with onBack only. It is not wrapped in VaultGate and gets no vault store, lockAfterMs or awayInOtherApp. The sibling routes on lines 477-492 and 508 do get them."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/ui/screens/SecurityToolsScreen.kt",
+    "line": 943,
+    "scope": "GeneratorScreen",
+    "description": "result = remember(phraseWords, p, w, seed) { generatePassphrase/generatePassword }: plain composition state. It survives ON_STOP and ON_START while the activity and the composition live, and nothing resets seed on away or lock."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/MainActivity.kt",
+    "line": 146,
+    "scope": "MainActivity.onStop",
+    "description": "Leaving the app calls container.vault.lock(LockReason.LEFT_APP). The Generator does not observe the store or the lifecycle, so its state is untouched."
+   },
+   {
+    "kind": "sink",
+    "file": "app/src/main/java/app/seguridad/ui/screens/SecurityToolsScreen.kt",
+    "line": 960,
+    "scope": "GeneratorScreen",
+    "description": "Text(result ...) shows the same generated password on return while the vault is locked (and «Copiar» at line 964 still copies it)."
+   }
+  ],
+  "evidence": [
+   {
+    "file": "app/src/main/java/app/seguridad/tools/codes/ScreenAway.kt",
+    "line": 6,
+    "description": "Stated rule: «PIN y códigos», reused by F6 for the tools that hold a plaintext, a password or a result."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/tools/codes/CodesSession.kt",
+    "line": 131,
+    "description": "The sibling random-secret tool (PIN, codes) holds its values in a session with ScreenGuard(createdAt) { wipe() }."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/ui/screens/SecurityToolsScreen.kt",
+    "line": 931,
+    "description": "GeneratorScreen(onBack) takes no store, lockAfterMs or awayInOtherApp. TextCryptoScreen (line 371) and BreachScreen (line 1054) take all three."
+   },
+   {
+    "file": "app/src/main/AndroidManifest.xml",
+    "line": 25,
+    "description": "configChanges on MainActivity keeps the activity, and so its composition, across rotation and resize. onStop alone does not destroy it."
+   },
+   {
+    "file": "docs/auditorias/2026-10-31-auditoria-1.3.0.md",
+    "line": 323,
+    "description": "COV1-1 fix scope: Cifrar texto, Cifrar archivos and ¿Filtrada? follow the «PIN y códigos» rule. The Generator is not named, so whether it should be covered is an owner policy question."
+   }
+  ],
+  "blockers": [
+   "ui/ is excluded from jvm-check and there is no emulator or Compose runtime here, so the on-screen persistence after Home, the LEFT_APP lock and the return cannot be observed locally. The behaviour is clear from source only.",
+   "An owner policy fact: does a newly generated password, not yet stored in the vault, count as a secret under the «PIN y códigos»/F6 rule? The rule's documented scope (COV1-1, F6) lists other tools and never the Generator. The Tools tab is intentionally usable with the vault locked."
+  ],
+  "validation_plan": {
+   "local": "On a debug build in an emulator, with dummy data only: set the lock to «Al salir», open Herramientas → Generador and note the password. Press Home, wait more than 60 s, then reopen Clavero from Recents. Expected per source: the vault is locked but the Generator still shows the same password. For contrast, repeat in «PIN y códigos», where the PIN and codes are redrawn. If the gap is accepted as a finding, add a regression: a GeneratorSession (GuardedSession) in a ViewModel, with watchAway and GuardEffects, whose forget() draws a new value, plus a JVM test modelled on CodesSessionTest.",
+   "deployment": "Owner decides whether the Generator's output should follow the «PIN y códigos» rule, as the PIN and codes do, or is accepted as is because the Tools tab is outside the vault gate."
+  }
+ },
+ {
+  "verdict": "confirmed",
+  "fingerprint": "vault/AutoBackup.kt:A6-snapshot-misses-in-flight-copy-across-changeMaster",
+  "title": "A6 reports the old copies deleted while an automatic copy encrypted under the old master password stays in the backup folder",
+  "description": "After a master-password change, A6 («borrar las copias de antes») promises to delete the listed copies made under the old password. The set it deletes is a snapshot of the listed copies, taken when the change is announced: VaultBackup.kt:146-156 calls store.changeMaster and then onMasterChanged, which runs MasterChanged.changed and reads oldCopies = listedCopies (AppContainer.kt:906, MasterChanged.kt:58). An automatic copy can take its vault snapshot under the old master inside VaultStore.export, which holds the mutex only for the snapshot, and still be writing to the SAF provider when the change is saved. Because changeMaster never calls nextGeneration, AutoBackup.attempt finds the generation unchanged after the write. It then rotates and lists that old-master copy as an ordinary current copy, after the A6 snapshot was taken. A6 (replaceOldCopies(asked.oldCopies)) deletes only the snapshot ids. It reports replaced=true with no error, and the in-flight copy stays in the folder until rotation by 'keep' removes it. Anyone who can read the backup folder (a synced or shared SAF folder, or another app with access to it) and knows the old master password can decrypt that copy. The old password is usually known to someone, which is often why it was changed. Source suggests the same root cause affects a copy-before-import started before the change, because recordImportCopy also checks only the generation. That variant was not run. The gap was raised earlier as the informational O-1 in docs/superpowers/handoff/sdd-2.0/task-8-rereview-1.md:154-158 and is not fixed at 7a963dd.",
+  "root_cause": "The A6 target set is a point-in-time snapshot of the listed copies, taken in onMasterChanged right after changeMaster returns. AutoBackup.attempt lists any finished copy whose VaultStore.generation is unchanged. changeMaster changes the wrapping key (new salt and wrapped key) without bumping the generation or any per-copy master epoch. So a copy snapshotted under the old master and finished after the change is listed as a current-master copy and left out of A6.",
+  "intended_behavior": "Every copy whose content was encrypted under the old master, meaning its snapshot was taken before changeMaster saved, must either be an A6 target or never be listed as a current copy. A6 must not report success while such a copy is still in the folder.",
+  "trace": [
+   {
+    "kind": "entrypoint",
+    "file": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+    "line": 843,
+    "scope": "AutoBackup.attempt",
+    "description": "An automatic copy (debounced after an edit, or at unlock) reads store.generation. copyTo then reaches VaultStore.export, which takes the vault snapshot under the old master and writes it to the possibly slow provider."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/vault/VaultStore.kt",
+    "line": 1434,
+    "scope": "VaultStore.changeMaster",
+    "description": "Runs while the write is in flight, because export holds the mutex only for the snapshot (lines 1484-1492). It saves the new-master file and locks, and never calls nextGeneration (the only callers are lines 577, 1632 and 1739)."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/AppContainer.kt",
+    "line": 906,
+    "scope": "masterChanged oldCopies",
+    "description": "VaultBackup.kt:156 calls onMasterChanged right after changeMaster, and MasterChanged.changed (MasterChanged.kt:58) snapshots listedCopies. The in-flight copy is not listed yet."
+   },
+   {
+    "kind": "propagation",
+    "file": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+    "line": 848,
+    "scope": "AutoBackup.attempt",
+    "description": "After the write the generation is unchanged, so the old-master copy is rotated (line 859) and returned in rotation.mine, then listed through onResult and recordAutoBackup."
+   },
+   {
+    "kind": "sink",
+    "file": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+    "line": 1023,
+    "scope": "AutoBackup.rotate (via replaceOldCopies)",
+    "description": "A6 calls replaceCopies(asked.oldCopies) (MasterChanged.kt:79), so doomed contains only the snapshot ids. The in-flight copy is never deleted, targetsLeft is empty, replaceDone is true, and A6 reports success."
+   }
+  ],
+  "evidence": [
+   {
+    "file": "app/src/main/java/app/seguridad/vault/MasterChanged.kt",
+    "line": 58,
+    "description": "oldCopies() is read once, when the change is announced, and stored as the only A6 target set."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/vault/VaultStore.kt",
+    "line": 287,
+    "description": "nextGeneration is the only discriminator AutoBackup.attempt uses, and changeMaster (line 1434) does not call it."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/vault/VaultStore.kt",
+    "line": 1491,
+    "description": "export encodes the VaultFile held at snapshot time (old salt and wrapped key) inside the mutex and writes it after releasing the mutex."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+    "line": 857,
+    "description": "The replacement targets come from the request snapshot, so a copy listed later is never doomed."
+   },
+   {
+    "file": "app/src/main/java/app/seguridad/ui/screens/VaultBackup.kt",
+    "line": 146,
+    "description": "The production flow calls store.changeMaster and then onMasterChanged at line 156, without waiting for an in-flight automatic copy."
+   }
+  ],
+  "conditions": [
+   {
+    "kind": "timing_dependency",
+    "description": "An automatic copy (or a copy-before-import) must take its vault snapshot before the master change is saved, and still be writing to the provider when MasterChanged reads the listed copies. The window is wider with slow cloud providers. A copy runs 3 s after any edit and also at unlock."
+   },
+   {
+    "kind": "user_interaction",
+    "description": "The user changes the master password and confirms A6 deletion of the old copies."
+   },
+   {
+    "kind": "environmental_dependency",
+    "description": "The attacker can read the backup folder (a synced or shared SAF folder, or an app with access to it) and knows the old master password."
+   }
+  ],
+  "execution": {
+   "attacker_perspective": "A lower-trust reader of the shared automatic-backup folder who knows the user's previous master password.",
+   "payloads": [
+    "jvm-check test app.seguridad.vault.A6InFlightCopyTest (agents/v-a6-inflight/artifacts/out/A6InFlightCopyTest.kt): an in-memory SAF folder whose first write calls VaultStore.changeMaster and then snapshots the listed copies; dummy notes only"
+   ],
+   "instructions": [
+    "Create a dummy vault with master 'maestra-antigua-ficticia' and one ON_CHANGE target with keep 5. Add note 1 and let a normal copy be made.",
+    "Add note 2 so a copy starts. At its first byte written, run changeMaster('maestra-nueva-ficticia-larga') and record the listed copies, which is what MasterChanged.changed reads.",
+    "Unlock with the new master and call AutoBackup.replaceOldCopies(snapshot).",
+    "Check A6's result, then check whether the in-flight copy is still in the folder and opens with the old master through VaultStore.importReplace."
+   ],
+   "observed_result": "Independently re-run offline in the sandbox (agents/v-a6-inflight/artifacts/out/a6-inflight-verify.txt): SNAPSHOT_AT_CHANGE=[doc-1, doc-3] LISTED_AFTER=[doc-1, doc-3, doc-5] IN_FLIGHT=seguridad-auto-20261026-100100.sgbak. A6_RESULT replaced=true error=null, with seguridad-auto-20261026-100100.sgbak still in the folder. OPENED_WITH_OLD_MASTER entries=[1, 2]. BUILD SUCCESSFUL, EXIT=0."
+  },
+  "remediation": {
+   "strategy": "Bind each copy to the master wrap it was made under. Two ways:\n- Record VaultStore.masterMark() (or a copy epoch bumped in changeMaster) before the snapshot, and compare it after the write. If it changed, do not list the copy as current: delete it, or add its id to the pending A6 request of that target.\n- Alternatively, at A6 time delete every listed automatic or import copy whose recorded mark differs from the current one, in addition to the snapshot ids.\nApply the same check to recordImportCopy. Regression test: A6InFlightCopyTest must end with the in-flight copy deleted, or with A6 not reporting replaced.",
+   "code_changes": [
+    {
+     "file_name": "app/src/main/java/app/seguridad/vault/AutoBackup.kt",
+     "fixed_code": "// in attempt(): read the master mark with the generation, before the snapshot\nval markBefore = store.masterMark()\nval written = copyTo(uri, folder, at) ?: return null\nif (store.masterMark() != markBefore) {\n    // Made under a master that changed meanwhile: never listed as a current copy; delete it now (best effort)\n    // or hand its id to the saved A6 request of this target.\n    runCatching { folder.delete(written.id) }\n    return stale(uri, at, generation, replaceAll)\n}"
+    }
+   ]
+  },
+  "severity": {
+   "likelihood": {
+    "score": "low",
+    "reason": "A copy must be in flight during the master change: a window of seconds, longer with slow cloud providers. The attacker also needs read access to the folder and must know the old password."
+   },
+   "impact": {
+    "score": "medium",
+    "reason": "Someone holding the old master can fully decrypt the vault contents as of the change. This contradicts the explicit A6 deletion promise and its success message."
+   },
+   "overall_severity": "low"
+  },
+  "confidence": {
+   "score": "high",
+   "reason": "The full source trace was verified at 7a963dd, and every cited line matches. The deterministic test was reproduced independently, using the production AutoBackup and VaultStore code paths. Only the timing of the UI's onMasterChanged snapshot is simulated, and it matches VaultBackup.kt:146-156, AppContainer.kt:906 and MasterChanged.kt:58. The copy-before-import variant rests on source only."
+  }
+ }
+]

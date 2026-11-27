@@ -1,0 +1,33 @@
+# Clavero 2.1.2: registro
+
+Rama `ccr-0aa27f95-u038cd`, desde `main` en `0a08629`. Diseño `docs/superpowers/specs/2026-11-27-clavero-2.1.2-design.md`; plan `docs/superpowers/plans/2026-11-27-clavero-2.1.2.md`, 13 tareas. Origen: la revisión de seguridad de la 2.1.1 hecha por el propio proyecto con la skill pública `security-audit` (MIT); informe en `docs/auditorias/2026-11-27-auditoria-2.1.1-security-audit.md` y registros en `docs/auditorias/2026-11-27-auditoria-2.1.1-security-audit-findings.json`. Cloudflare no participó y no es una auditoría independiente.
+
+- Abogado, principio (27-11-2026): `abogado-2.1.2-inicio.md`, **visto bueno con cambios**. Obligatorios O-1 a O-8 y recomendados R-1 a R-10, apuntados en el diseño (§7 bis, «Corrección (Abogado, inicio, 27-11-2026)»).
+  - O-1: ningún texto publicado dice «auditoría de Cloudflare», «externa», «independiente» ni «auditada»; en Play, ni «Cloudflare» ni «auditoría».
+  - O-2: C-2 en la copia de antes de importar (sin copia no se importa; el texto de error, cierto).
+  - O-3: C-2 en la copia automática («Última copia» no enseña la hora de una copia borrada).
+  - O-4: C-1 y «Bóveda nueva» (lo que encuentra el usuario al volver, y lo que dicen las notas).
+  - O-5: R-24 (una tarjeta con el nombre de tu identidad no enseña el aviso de «tu contacto»).
+  - O-6: R-14 (los textos de A6 siguen ciertos con las carpetas que ya no se usan).
+  - O-7: la política dice que A6 alcanza esas carpetas y lleva la fecha del día de la fusión.
+  - O-8: las notas de la 2.1.2 dicen solo lo probado.
+  - R-1 a R-9: textos de política y README, C-4, R-32, R-29 y R-30, R-21, R-17, R-33, C-3 y R-23. R-10: nombre y cabecera del informe (hecho en la tarea 1).
+- Ruling (el dueño, 27-11-2026): el informe y el JSON se llaman `…-security-audit.md` y `…-security-audit-findings.json`; la cabecera, en español, dice que se usó la skill pública `security-audit` (MIT) del repositorio de Cloudflare, ejecutada por el propio proyecto, sin participación de Cloudflare (O-1, R-10). Las rutas de la carpeta de trabajo se sustituyeron por «carpeta de trabajo de la auditoría». El informe lleva al final `NEEDS-VALIDATION.md` como anexo y una nota de que el diseño de la 2.1.2 arregla estos hallazgos.
+
+| Tarea | Estado |
+|---|---|
+| 1. Registro, informe de la auditoría y visto bueno inicial del Abogado | Hecha |
+| 2. V-1, el documento que devuelve el proveedor de la carpeta de copias | Pendiente |
+| 3. C-1, salir de la app mientras se crea o se importa una bóveda nueva | Pendiente |
+| 4. C-2, la copia hecha con la maestra antigua | Pendiente |
+| 5. C-3, el coste de un nombre de carpeta enorme en JSON | Pendiente |
+| 6. C-4, ZWNJ y ZWJ en un dominio | Pendiente |
+| 7. Refuerzos de la bóveda (R-1 a R-4) | Pendiente |
+| 8. Refuerzos de pantallas y sesiones (R-5 a R-12) | Pendiente |
+| 9. Refuerzos de copias, carpetas y archivos (R-13 a R-20) | Pendiente |
+| 10. Refuerzos de archivos hostiles (R-21 a R-23) | Pendiente |
+| 11. Refuerzos de contactos, campos e imágenes (R-24 a R-28 y R-33) | Pendiente |
+| 12. CI y publicación (R-29 y R-30) | Pendiente |
+| 13. Documentación, versión y cierre del código (R-31 y R-32) | Pendiente |
+
+Después de la 13: revisión de la rama, `code-review`, `security-review`, auditoría completa y Abogado final (con la fecha de la política).
