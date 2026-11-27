@@ -268,7 +268,7 @@ class VaultStoreTest {
     @Test fun addAllSavesNewEntriesInOneWrite() = runTest {
         val s = store().apply { load(); create("m".toCharArray()); upsert(entry("1", "Wallet")) }
         val h = listOf(PasswordChange("vieja", 1))
-        assertTrue(s.addAll(listOf(entry("2", "B").copy(passwordHistory = h), entry("3", "C"), entry("1", "Pisada"))))
+        assertTrue(s.addAll(listOf(entry("2", "B").copy(passwordHistory = h), entry("3", "C"), entry("1", "Pisada")), sinceLock = s.lockEpoch))
         val titles = (s.state.value as VaultState.Unlocked).entries.map { it.title }
         // An id already in the vault is never overwritten, and a new entry starts without history.
         assertEquals(listOf("B", "C", "Wallet"), titles)
@@ -276,7 +276,7 @@ class VaultStoreTest {
         val reopened = store().apply { load(); unlock("m".toCharArray()) }
         assertEquals(3, (reopened.state.value as VaultState.Unlocked).entries.size)
         s.lock()
-        assertFalse(s.addAll(listOf(entry("4", "D"))))
+        assertFalse(s.addAll(listOf(entry("4", "D")), sinceLock = s.lockEpoch))
     }
 
     // Seguridad 1.0.1: a changed master password locks the vault at once, so the user opens it with the new one
@@ -445,7 +445,7 @@ class VaultStoreTest {
         val again = store().apply { load() }
         again.unlock("maestra-de-prueba-143".toCharArray())
         assertEquals(4, (again.state.value as VaultState.Unlocked).entries.size)
-        assertTrue(again.completeUpgrade())
+        assertTrue(again.completeUpgrade(again.lockEpoch))
         assertTrue(f.readText().contains("\"version\":4"))
     }
 

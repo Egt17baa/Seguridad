@@ -172,7 +172,7 @@ class FuzzySearchTest {
         val big = (0 until 2_000).map { i ->
             VaultEntry("g$i", EntryType.NOTE, "Nota grande $i", notes = "n".repeat(11_800), createdAt = 0, updatedAt = 0)
         }
-        assertTrue(store.addAll(big))
+        assertTrue(store.addAll(big, sinceLock = store.lockEpoch))
         val size = jsonBytes((store.state.value as VaultState.Unlocked).data)
         assertTrue("$size", size > 22L * 1024 * 1024 && size < VaultLimits.VAULT_MAX_DATA_BYTES)
         var best = Long.MAX_VALUE

@@ -1,6 +1,7 @@
 package app.seguridad.ui.screens
 
 import androidx.compose.runtime.produceState
+import app.seguridad.SeguridadApp
 import app.seguridad.vault.VAULT_NEW_NEEDS_OPEN
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
@@ -516,7 +517,10 @@ private fun UnlockVault(store: VaultStore) {
                         BiometricVault.disable(context, store.id)
                         // 1.4.2: where the file pickers opened goes with the vault.
                         pickerPlaces(context)?.forgetAll()
-                        store.destroy()
+                        // 2.1.2, R-3: one at a time with the creation, import and deletion of vaults, never cut half
+                        // way, and only of this vault while it is still the active one.
+                        val container = (context.applicationContext as? SeguridadApp)?.container
+                        if (container != null) container.destroyActive(store) else store.destroy()
                     }
                 }) { Text("Borrar bóveda", color = NegativeColor) }
             },

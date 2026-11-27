@@ -66,7 +66,7 @@ class RedTeam20SweepTest {
         }
         s.upsert(VaultEntry("t", EntryType.LOGIN, "Banco", username = "ana", password = "en-la-papelera", createdAt = 1, updatedAt = 1))
         s.upsert(VaultEntry("z", EntryType.TOTP, "Correo", totp = TotpSecret("JBSWY3DPEHPK3PXP"), createdAt = 1, updatedAt = 1))
-        assertEquals(setOf("t", "z"), s.trash(setOf("t", "z")))
+        assertEquals(setOf("t", "z"), s.trash(setOf("t", "z"), sinceLock = s.lockEpoch))
         assertEquals(VaultLimits.HISTORY_MAX_VERSIONS, entries(s).single { it.id == "b" }.history.size)
         val read = ImportRead(
             ImportFormat.BROWSER_CSV,

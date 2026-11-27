@@ -447,9 +447,10 @@ internal fun EntryList(
     val message by rememberUpdatedState(onMessage)
 
     fun move(entry: VaultEntry, folderId: String?) {
+        val since = store.lockEpoch // 2.1.2, R-4: the epoch of the drop, before the work is launched.
         scope.launch {
             try {
-                if (store.moveEntries(setOf(entry.id), folderId) > 0) message(movedTo(currentFolders.firstOrNull { it.id == folderId }?.name?.let { plainReportText(it) }))
+                if (store.moveEntries(setOf(entry.id), folderId, since) > 0) message(movedTo(currentFolders.firstOrNull { it.id == folderId }?.name?.let { plainReportText(it) }))
             } catch (e: Exception) {
                 message(storeSaveErrorText(e))
             }
@@ -679,9 +680,10 @@ internal fun EntryList(
                 onTag = { dialog = OrganizeDialog.TagSelected(selected) },
                 onFavorite = { favorite ->
                     val ids = selected
+                    val since = store.lockEpoch // 2.1.2, R-4: the epoch of the tap.
                     scope.launch {
                         try {
-                            onMessage(favoriteSelected(store.setFavorite(ids, favorite), favorite))
+                            onMessage(favoriteSelected(store.setFavorite(ids, favorite, since), favorite))
                             list.selection.clear()
                         } catch (x: CancellationException) {
                             throw x
@@ -704,9 +706,10 @@ internal fun EntryList(
         } else {
             TrashConfirm(moveToTrashTitle(plainReportText(e.title)), onDismiss = { trashAsk = null }) {
                 trashAsk = null
+                val since = store.lockEpoch // 2.1.2, R-4: the epoch of the tap.
                 scope.launch {
                     try {
-                        undo.moveToTrash(setOf(id)) // «Deshacer» for 5 s on the list (VaultScreen).
+                        undo.moveToTrash(setOf(id), since) // «Deshacer» for 5 s on the list (VaultScreen).
                     } catch (x: CancellationException) {
                         throw x
                     } catch (x: Exception) {
@@ -724,9 +727,10 @@ internal fun EntryList(
             TrashConfirm(moveSelectedToTrashTitle(shown.size, plainReportText(shown.first().title)), onDismiss = { trashSelected = null }, text = moveToTrashText(shown.size)) {
                 trashSelected = null
                 val move = shown.mapTo(HashSet()) { it.id }
+                val since = store.lockEpoch // 2.1.2, R-4: the epoch of the tap.
                 scope.launch {
                     try {
-                        undo.moveToTrash(move)
+                        undo.moveToTrash(move, since)
                         list.selection.clear()
                     } catch (x: CancellationException) {
                         throw x

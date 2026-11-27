@@ -39,7 +39,7 @@ class DuplicateEntryTest {
             fields = listOf(CustomField("number", "Número", FieldKind.HIDDEN, "4000 0000 0000 0002")),
         )
         assertTrue(s.upsert(card))
-        s.moveEntries(setOf("c1"), folder)
+        s.moveEntries(setOf("c1"), folder, sinceLock = s.lockEpoch)
         assertTrue(s.upsert(card.copy(notes = "**otra nota**")))
         assertTrue(s.addAttachment("c1", ByteArrayInputStream(byteArrayOf(1, 2, 3)), "a.bin"))
         val saved = s.open().entries.single()

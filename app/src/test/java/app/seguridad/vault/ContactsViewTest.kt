@@ -667,9 +667,9 @@ class ContactsViewTest {
                 kotlinx.coroutines.withTimeout(5_000) { unlocking.await() }
                 if (!copyMade) {
                     assertTrue("the dialog asks", s.pendingUpgrade.value)
-                    assertFalse("a save of the upgrade that fails", runCatching { s.completeUpgrade() }.getOrDefault(false))
+                    assertFalse("a save of the upgrade that fails", runCatching { s.completeUpgrade(s.lockEpoch) }.getOrDefault(false))
                     failSave = false
-                    assertTrue(s.completeUpgrade())
+                    assertTrue(s.completeUpgrade(s.lockEpoch))
                 }
                 testScheduler.runCurrent()
                 assertEquals(4, VaultCrypto.decodeFile(java.io.File(dir, "vault.bin").readText()).version)

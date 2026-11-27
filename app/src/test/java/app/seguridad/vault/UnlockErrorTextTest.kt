@@ -159,7 +159,7 @@ class UnlockErrorTextTest {
         s.load()
         s.unlock("maestra-de-prueba-143".toCharArray())
         assertTrue(s.state.value is VaultState.Unlocked)
-        assertTrue(s.completeUpgrade())
+        assertTrue(s.completeUpgrade(s.lockEpoch))
         val disk = VaultCrypto.decodeFile(f.readText())
         assertEquals(VaultFile.VERSION, disk.version)
         assertEquals(VaultKdf(1024, 1, 1), disk.kdf)

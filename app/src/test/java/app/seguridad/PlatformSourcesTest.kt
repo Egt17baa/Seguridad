@@ -118,7 +118,7 @@ class PlatformSourcesTest {
         val settings = code("ui/screens/SettingsScreen.kt")
         assertTrue("OpenDocumentTree(), place = null" in settings && "picker.launchOrError(folderStart(from ?: settings.targets.lastOrNull()?.uri))" in settings)
         val vault = code("ui/screens/VaultScreen.kt")
-        assertTrue(vault.indexOf("pickerPlaces(context)?.forgetAll()") in 0 until vault.indexOf("store.destroy()"))
+        assertTrue(vault.indexOf("pickerPlaces(context)?.forgetAll()") in 0 until vault.indexOf("container.destroyActive(store)"))
         // The places kept only in memory go at every lock and unlock (code review of 1.4.2).
         assertTrue(".drop(1).collect { pickerPlaces.forgetSession() }" in code("AppContainer.kt"))
     }
@@ -148,8 +148,8 @@ class PlatformSourcesTest {
         val src = code("ui/screens/VaultEntryScreen.kt")
         assertTrue("if (entry == null) return LockedNotice(onBack)" in src)
         // 2.0, task 3: to the trash, through «Deshacer».
-        assertTrue("undo.moveToTrash(setOf(entry.id))" in src)
-        assertFalse("a second onBack after the delete", Regex("""undo\.moveToTrash\(setOf\(entry\.id\)\)\s*onBack\(\)""").containsMatchIn(src))
+        assertTrue("undo.moveToTrash(setOf(entry.id), since)" in src)
+        assertFalse("a second onBack after the delete", Regex("""undo\.moveToTrash\(setOf\(entry\.id\), since\)\s*onBack\(\)""").containsMatchIn(src))
     }
 
     /**

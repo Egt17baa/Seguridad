@@ -118,7 +118,7 @@ class VaultLimitsTest {
         val before = File(tmp.root, "vault.bin").readBytes()
         // 25 MiB of entries, each under its own limit, and no history to trim.
         val big = (0 until 410).map { entry("e$it", notes = "x".repeat(64_000)) }
-        val e = assertThrows(VaultLimitExceeded::class.java) { runBlocking { s.addAll(big) } }
+        val e = assertThrows(VaultLimitExceeded::class.java) { runBlocking { s.addAll(big, sinceLock = s.lockEpoch) } }
         assertEquals(VAULT_TOO_BIG, e.message)
         assertArrayEquals(before, File(tmp.root, "vault.bin").readBytes())
         assertEquals(listOf("primera"), (s.state.value as VaultState.Unlocked).entries.map { it.id })

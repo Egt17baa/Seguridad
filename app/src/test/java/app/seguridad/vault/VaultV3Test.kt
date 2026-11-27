@@ -165,12 +165,12 @@ class VaultV3Test {
         assertTrue(waiting.needsMasterForContacts.value)
         val contact = contactEntry("Ana")
         assertEquals(UPGRADE_PENDING, failsWith<IllegalStateException> { waiting.upsert(contact) }.message)
-        assertEquals(UPGRADE_PENDING, failsWith<IllegalStateException> { waiting.addAll(listOf(contact)) }.message)
+        assertEquals(UPGRADE_PENDING, failsWith<IllegalStateException> { waiting.addAll(listOf(contact), sinceLock = waiting.lockEpoch) }.message)
         assertEquals(UPGRADE_PENDING, failsWith<IllegalStateException> { waiting.upsert(identityEntry()) }.message)
         assertEquals(2, diskFile(dir).version)
         assertEquals(2, waiting.entries().size)
         // Hecho el paso, la identidad y los contactos se guardan.
-        assertTrue(waiting.completeUpgrade())
+        assertTrue(waiting.completeUpgrade(waiting.lockEpoch))
         assertFalse(waiting.needsMasterForContacts.value)
         waiting.upsert(contact)
         waiting.upsert(identityEntry())
@@ -262,7 +262,7 @@ class VaultV3Test {
         s.lock()
         assertTrue(s.needsMasterForContacts.value) // Bloquear no migra.
         s.unlock(master.toCharArray())
-        assertTrue(s.completeUpgrade())
+        assertTrue(s.completeUpgrade(s.lockEpoch))
         assertFalse(s.needsMasterForContacts.value)
         s.lock()
         assertFalse(s.needsMasterForContacts.value)
@@ -311,7 +311,7 @@ class VaultV3Test {
         val first = identityEntry()
         s.upsert(first)
         failsWith<IllegalStateException> { s.upsert(identityEntry()) }
-        failsWith<IllegalStateException> { s.addAll(listOf(identityEntry())) }
+        failsWith<IllegalStateException> { s.addAll(listOf(identityEntry()), sinceLock = s.lockEpoch) }
         assertEquals(1, s.entries().count { it.type == EntryType.IDENTITY })
         // Editar la que hay (mismo id) sí se puede.
         s.upsert(first.copy(updatedAt = clock + 1))

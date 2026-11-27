@@ -143,17 +143,17 @@ internal fun OrganizeDialogs(
     fun folder(id: String) = folders.firstOrNull { it.id == id }
     when (d) {
         OrganizeDialog.Folders -> FoldersDialog(folders, result, list, onDone, onNext)
-        is OrganizeDialog.NewFolder -> NameDialog(FOLDER_NEW, FOLDER_NAME_LABEL, "", onDone) { name ->
+        is OrganizeDialog.NewFolder -> NameDialog(FOLDER_NEW, FOLDER_NAME_LABEL, "", onDone) { name, _ ->
             store.createFolder(name, d.parentId) != null
         }
         is OrganizeDialog.RenameFolder -> {
             val f = folder(d.id) ?: return Gone(onDone)
-            NameDialog(FOLDER_RENAME, FOLDER_NAME_LABEL, f.name, onDone) { name -> store.renameFolder(f.id, name) || name.trim() == f.name }
+            NameDialog(FOLDER_RENAME, FOLDER_NAME_LABEL, f.name, onDone) { name, _ -> store.renameFolder(f.id, name) || name.trim() == f.name }
         }
         is OrganizeDialog.MoveFolder -> {
             val f = folder(d.id) ?: return Gone(onDone)
             val exclude = descendants(folders, f.id) + f.id
-            FolderPicker(folderMoveTitle(plainReportText(f.name)), folders, exclude, FOLDER_TOP, maxDepth = VaultLimits.FOLDER_DEPTH_MAX, onDone) { target ->
+            FolderPicker(folderMoveTitle(plainReportText(f.name)), folders, exclude, FOLDER_TOP, maxDepth = VaultLimits.FOLDER_DEPTH_MAX, onDone) { target, _ ->
                 store.moveFolder(f.id, target)
             }
         }
@@ -163,16 +163,16 @@ internal fun OrganizeDialogs(
         }
         is OrganizeDialog.MoveEntry -> {
             val e = data.live.firstOrNull { it.id == d.id } ?: return Gone(onDone)
-            FolderPicker(moveToTitle(plainReportText(e.title)), folders, emptySet(), FOLDER_NONE, maxDepth = Int.MAX_VALUE, onDone) { target ->
-                val moved = store.moveEntries(setOf(e.id), target) > 0
+            FolderPicker(moveToTitle(plainReportText(e.title)), folders, emptySet(), FOLDER_NONE, maxDepth = Int.MAX_VALUE, onDone, store::lockEpoch) { target, since ->
+                val moved = store.moveEntries(setOf(e.id), target, since) > 0
                 if (moved) onMessage(movedTo(target?.let { id -> folders.firstOrNull { it.id == id }?.name }?.let { plainReportText(it) }))
                 true
             }
         }
         is OrganizeDialog.MoveSelected -> {
             if (d.ids.isEmpty()) return Gone(onDone)
-            FolderPicker(SELECTION_MOVE, folders, emptySet(), FOLDER_NONE, maxDepth = Int.MAX_VALUE, onDone) { target ->
-                val moved = store.moveEntries(d.ids, target)
+            FolderPicker(SELECTION_MOVE, folders, emptySet(), FOLDER_NONE, maxDepth = Int.MAX_VALUE, onDone, store::lockEpoch) { target, since ->
+                val moved = store.moveEntries(d.ids, target, since)
                 onMessage(movedSelected(moved, target?.let { id -> folders.firstOrNull { it.id == id }?.name }?.let { plainReportText(it) }))
                 list.selection.clear()
                 true
@@ -180,16 +180,16 @@ internal fun OrganizeDialogs(
         }
         is OrganizeDialog.TagSelected -> {
             if (d.ids.isEmpty()) return Gone(onDone)
-            NameDialog(tagSelectedTitle(d.ids.size), SELECTION_TAG_LABEL, "", onDone) { name ->
+            NameDialog(tagSelectedTitle(d.ids.size), SELECTION_TAG_LABEL, "", onDone, lockEpoch = store::lockEpoch) { name, since ->
                 val tag = normalizedTag(name) ?: throw OrganizeRefused(TAG_NOT_VALID)
-                onMessage(taggedSelected(store.addTag(d.ids, tag), plainReportText(tag)))
+                onMessage(taggedSelected(store.addTag(d.ids, tag, since), plainReportText(tag)))
                 list.selection.clear()
                 true
             }
         }
         is OrganizeDialog.SaveView -> {
             val existing = d.id?.let { id -> data.views.firstOrNull { it.id == id } }
-            NameDialog(VIEW_SAVE, VIEW_NAME_LABEL, existing?.name.orEmpty(), onDone, note = VIEW_SAVE_SHORT) { name ->
+            NameDialog(VIEW_SAVE, VIEW_NAME_LABEL, existing?.name.orEmpty(), onDone, note = VIEW_SAVE_SHORT) { name, _ ->
                 store.saveView(SavedView(existing?.id ?: UUID.randomUUID().toString(), name, list.current())) || existing != null
             }
         }
@@ -250,9 +250,20 @@ private fun FoldersDialog(folders: List<Folder>, result: ListResult, list: Entry
     )
 }
 
-/** A name to type, saved by [save] (true when done); a refusal of the store is shown here. */
+/**
+ * A name to type, saved by [save] (true when done); a refusal of the store is shown here. [save] also gets [lockEpoch] as
+ * it was at the tap on «Guardar», read before the work is launched (2.1.2, R-4); 0 for a save that does not use it.
+ */
 @Composable
-private fun NameDialog(title: String, label: String, initial: String, onDone: () -> Unit, note: String? = null, save: suspend (String) -> Boolean) {
+private fun NameDialog(
+    title: String,
+    label: String,
+    initial: String,
+    onDone: () -> Unit,
+    note: String? = null,
+    lockEpoch: () -> Int = { 0 },
+    save: suspend (String, Int) -> Boolean,
+) {
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf(initial) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -274,9 +285,10 @@ private fun NameDialog(title: String, label: String, initial: String, onDone: ()
         confirmButton = {
             TextButton(enabled = !busy && name.isNotBlank(), onClick = {
                 busy = true
+                val since = lockEpoch()
                 scope.launch {
                     try {
-                        if (save(name)) onDone()
+                        if (save(name, since)) onDone()
                     } catch (e: Exception) {
                         error = storeSaveErrorText(e)
                     } finally {
@@ -291,17 +303,28 @@ private fun NameDialog(title: String, label: String, initial: String, onDone: ()
 
 /**
  * Picks a folder: [none] (no folder, or the top) and the tree, without the folders of [exclude], and none deeper than
- * [maxDepth] levels (moving a folder checks its own branch in the store). [pick] gets the folder's id, null for [none].
+ * [maxDepth] levels (moving a folder checks its own branch in the store). [pick] gets the folder's id, null for [none],
+ * and [lockEpoch] as it was at the tap, read before the work is launched (2.1.2, R-4); 0 for a pick that does not use it.
  */
 @Composable
-private fun FolderPicker(title: String, folders: List<Folder>, exclude: Set<String>, none: String, maxDepth: Int, onDone: () -> Unit, pick: suspend (String?) -> Boolean) {
+private fun FolderPicker(
+    title: String,
+    folders: List<Folder>,
+    exclude: Set<String>,
+    none: String,
+    maxDepth: Int,
+    onDone: () -> Unit,
+    lockEpoch: () -> Int = { 0 },
+    pick: suspend (String?, Int) -> Boolean,
+) {
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
     val tree = remember(folders, exclude) { folderTree(folders).filter { (f, depth) -> f.id !in exclude && depth < maxDepth } }
     fun choose(id: String?) {
+        val since = lockEpoch()
         scope.launch {
             try {
-                if (pick(id)) onDone()
+                if (pick(id, since)) onDone()
             } catch (e: Exception) {
                 error = storeSaveErrorText(e)
             }
@@ -330,11 +353,14 @@ private fun FolderPicker(title: String, folders: List<Folder>, exclude: Set<Stri
     )
 }
 
-/** «Mover a…» of the entry's card: [onPick] gets the folder's id, null for none. */
+/**
+ * «Mover a…» of the entry's card: [onPick] gets the folder's id, null for none, and [lockEpoch] as it was at the tap
+ * (2.1.2, R-4).
+ */
 @Composable
-internal fun EntryFolderPicker(title: String, folders: List<Folder>, onDismiss: () -> Unit, onPick: (String?) -> Unit) {
-    FolderPicker(moveToTitle(plainReportText(title)), folders, emptySet(), FOLDER_NONE, maxDepth = Int.MAX_VALUE, onDismiss) { target ->
-        onPick(target)
+internal fun EntryFolderPicker(title: String, folders: List<Folder>, onDismiss: () -> Unit, lockEpoch: () -> Int, onPick: (String?, Int) -> Unit) {
+    FolderPicker(moveToTitle(plainReportText(title)), folders, emptySet(), FOLDER_NONE, maxDepth = Int.MAX_VALUE, onDismiss, lockEpoch) { target, since ->
+        onPick(target, since)
         false
     }
 }

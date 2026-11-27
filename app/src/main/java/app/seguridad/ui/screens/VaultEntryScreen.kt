@@ -361,11 +361,11 @@ fun VaultEntryDetailScreen(
         }
     }
     if (moving) {
-        EntryFolderPicker(entry.title, folders, onDismiss = { moving = false }) { target ->
+        EntryFolderPicker(entry.title, folders, onDismiss = { moving = false }, lockEpoch = store::lockEpoch) { target, since ->
             moving = false
             scope.launch {
                 try {
-                    store.moveEntries(setOf(entry.id), target)
+                    store.moveEntries(setOf(entry.id), target, since)
                     moveError = null
                 } catch (e: Exception) {
                     moveError = storeSaveErrorText(e)
@@ -384,12 +384,13 @@ fun VaultEntryDetailScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirm = false
+                    val since = store.lockEpoch // 2.1.2, R-4: the epoch of the tap, before the work is launched.
                     scope.launch {
                         try {
                             // No onBack here: once the entry is gone this screen leaves by itself (LockedNotice, as
                             // after a lock), and a second popBackStack would take the vault list too (1.4.1). 2.0, task
                             // 3: to the trash, with «Deshacer» on the list for 5 s ([UndoTrash]).
-                            undo.moveToTrash(setOf(entry.id))
+                            undo.moveToTrash(setOf(entry.id), since)
                         } catch (e: Exception) {
                             // Review fixes, CR-6: an upgrade waiting or a limit says so.
                             failed = storeSaveErrorText(e, fallback = "No se pudo mover a la papelera (¿almacenamiento lleno?)")
@@ -488,10 +489,11 @@ private class EntryEditViewModel(private val store: VaultStore, wordLists: WordL
             return
         }
         form.saving.value = true
+        val since = store.lockEpoch // 2.1.2, R-4: the epoch of the tap on «Importar», before the work is launched.
         viewModelScope.launch {
             try {
                 when {
-                    !store.addAll(pending.entries) -> if (form.loaded) form.error.value = "La bóveda se bloqueó: no se ha importado nada"
+                    !store.addAll(pending.entries, since) -> if (form.loaded) form.error.value = "La bóveda se bloqueó: no se ha importado nada"
                     more -> form.info.value =
                         "Lote $batch de ${result.batchSize} importado (${pending.entries.size}). Lote ${batch + 1} de ${result.batchSize}: escanea el siguiente"
                     // Editing an entry: leaving would lose its unsaved changes, so it stays here.

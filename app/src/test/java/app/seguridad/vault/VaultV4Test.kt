@@ -272,10 +272,10 @@ class VaultV4Test {
         assertEquals("2\n" to text("vault-1.4.3.json"), markerAndVault(out.toByteArray()))
         assertFalse("no folder: nothing failed", s.upgradeAutoCopyFailed)
 
-        assertTrue(s.completeUpgrade())
+        assertTrue(s.completeUpgrade(s.lockEpoch))
         assertFalse(s.pendingUpgrade.value)
         assertEquals(4, disk(dir).version)
-        assertFalse("only once", s.completeUpgrade())
+        assertFalse("only once", s.completeUpgrade(s.lockEpoch))
         s.upsert(note("n"))
         assertEquals(5, VaultCrypto.read(disk(dir), dek("vault-1.4.3.json", master143)).entries.size)
 
@@ -286,7 +286,7 @@ class VaultV4Test {
         assertTrue(t.pendingUpgrade.value)
         t.lock()
         assertFalse(t.pendingUpgrade.value)
-        assertFalse(t.completeUpgrade())
+        assertFalse(t.completeUpgrade(t.lockEpoch))
         assertEquals(text("vault-1.4.3.json"), File(other, "vault.bin").readText())
         // The next unlock with the master password asks again.
         t.unlock(master143.toCharArray())
@@ -356,7 +356,7 @@ class VaultV4Test {
     @Test fun theCopyBeforeTheUpgradeIsNeverTheV4() = runTest {
         val s = store(phone143()).apply { load() }
         s.unlock(master143.toCharArray())
-        assertTrue(s.completeUpgrade())
+        assertTrue(s.completeUpgrade(s.lockEpoch))
         val out = ByteArrayOutputStream()
         assertFalse(s.exportBeforeUpgrade(out))
         assertEquals(0, out.size())

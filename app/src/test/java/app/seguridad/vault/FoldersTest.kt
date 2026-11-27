@@ -82,7 +82,7 @@ class FoldersTest {
         val c = s.createFolder("Viejos", b.id)!!
         assertTrue(s.upsert(note("1")))
         assertTrue(s.upsert(note("2")))
-        assertEquals(2, s.moveEntries(setOf("1", "2"), b.id))
+        assertEquals(2, s.moveEntries(setOf("1", "2"), b.id, sinceLock = s.lockEpoch))
         s.saveView(SavedView("v", "Proyectos", EntryFilter(folderId = b.id)))
         assertTrue(s.deleteFolder(b.id, FolderDeletion.PARENT))
         val d = s.data()
@@ -108,7 +108,7 @@ class FoldersTest {
         s.createFolder("Fotos", mid.id)!!
         s.createFolder("FOTOS", old.id)!!
         assertTrue(s.upsert(note("1")))
-        assertEquals(1, s.moveEntries(setOf("1"), mid.id))
+        assertEquals(1, s.moveEntries(setOf("1"), mid.id, sinceLock = s.lockEpoch))
         val file = File(tmp.root, "vault.bin").readBytes()
         val before = s.data()
         for (id in listOf(top.id, mid.id)) {
@@ -153,8 +153,8 @@ class FoldersTest {
         assertTrue(s.upsert(note("1")))
         assertTrue(s.upsert(note("2")))
         assertTrue(s.upsert(note("3")))
-        s.moveEntries(setOf("1"), a.id)
-        s.moveEntries(setOf("2"), b.id)
+        s.moveEntries(setOf("1"), a.id, sinceLock = s.lockEpoch)
+        s.moveEntries(setOf("2"), b.id, sinceLock = s.lockEpoch)
         clock += 1000
         assertTrue(s.deleteFolder(a.id, FolderDeletion.TRASH))
         val d = s.data()
@@ -163,7 +163,7 @@ class FoldersTest {
         assertEquals(setOf("1", "2"), d.trash.map { it.id }.toSet())
         assertTrue(d.trash.all { it.deletedAt == clock })
         // Restored, they come back to no folder: theirs is gone.
-        assertEquals(2, s.restore(setOf("1", "2")))
+        assertEquals(2, s.restore(setOf("1", "2"), sinceLock = s.lockEpoch))
         assertTrue(s.data().live.all { it.folderId == null })
     }
 
@@ -220,19 +220,19 @@ class FoldersTest {
         val a = s.createFolder("A", null)!!
         assertTrue(s.upsert(note("1")))
         val before = s.data().live.single()
-        assertEquals(1, s.moveEntries(setOf("1", "no-existe"), a.id))
+        assertEquals(1, s.moveEntries(setOf("1", "no-existe"), a.id, sinceLock = s.lockEpoch))
         val after = s.data().live.single()
         assertEquals(a.id, after.folderId)
         assertEquals(before.updatedAt, after.updatedAt)
         assertEquals(before.history, after.history) // A move is not a new version.
-        assertEquals(0, s.moveEntries(setOf("1"), a.id)) // Already there: nothing saved.
-        assertThrows(OrganizeRefused::class.java) { kotlinx.coroutines.runBlocking { s.moveEntries(setOf("1"), "no-existe") } }
+        assertEquals(0, s.moveEntries(setOf("1"), a.id, sinceLock = s.lockEpoch)) // Already there: nothing saved.
+        assertThrows(OrganizeRefused::class.java) { kotlinx.coroutines.runBlocking { s.moveEntries(setOf("1"), "no-existe", sinceLock = s.lockEpoch) } }
         // An edit from the editor (which knows nothing of folders) keeps the entry in its folder.
         assertTrue(s.upsert(after.copy(title = "Otra", folderId = null)))
         assertEquals(a.id, s.data().live.single().folderId)
         // A version restored keeps the folder the entry is in now.
         val version = s.data().live.single().history.first()
-        assertTrue(s.moveEntries(setOf("1"), null) == 1)
+        assertTrue(s.moveEntries(setOf("1"), null, sinceLock = s.lockEpoch) == 1)
         assertTrue(s.restoreVersion("1", version.savedAt, 0))
         assertNull(s.data().live.single().folderId)
     }

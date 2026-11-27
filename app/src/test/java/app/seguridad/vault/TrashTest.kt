@@ -66,8 +66,8 @@ class TrashTest {
     @Test fun restoreBringsBack() = runTest {
         val s = withTwo()
         s.moveToTrash(setOf("a", "b"))
-        assertEquals(0, s.restore(setOf("no-existe")))
-        assertEquals(1, s.restore(setOf("a")))
+        assertEquals(0, s.restore(setOf("no-existe"), sinceLock = s.lockEpoch))
+        assertEquals(1, s.restore(setOf("a"), sinceLock = s.lockEpoch))
         val back = s.open().entries.single()
         assertEquals("a", back.id)
         assertNull(back.deletedAt)
@@ -76,7 +76,7 @@ class TrashTest {
         assertFalse(s.upsert(note("b", "Otra")))
         assertEquals(listOf("b"), s.open().trash.map { it.id })
         assertEquals(1, s.open().entries.size)
-        assertTrue(s.addAll(listOf(note("b", "Otra"), note("c"))))
+        assertTrue(s.addAll(listOf(note("b", "Otra"), note("c")), sinceLock = s.lockEpoch))
         assertEquals(setOf("a", "c"), s.open().entries.map { it.id }.toSet())
         assertEquals("Banco", s.open().trash.single().title)
     }
@@ -103,12 +103,12 @@ class TrashTest {
         f.writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, VaultCrypto.read(file, dek).copy(entries = listOf(old)))))
         val again = store().apply { load(); unlock(master.toCharArray()) }
         assertTrue(again.upsert(old.copy(id = "me2", deletedAt = null)))
-        assertEquals(0, again.restore(setOf("me")))
+        assertEquals(0, again.restore(setOf("me"), sinceLock = again.lockEpoch))
         assertEquals(listOf("me2"), again.open().entries.map { it.id })
         assertEquals(listOf("me"), again.open().trash.map { it.id })
         // Without another one, it comes back.
         assertTrue(again.delete("me2"))
-        assertEquals(1, again.restore(setOf("me")))
+        assertEquals(1, again.restore(setOf("me"), sinceLock = again.lockEpoch))
     }
 
     @Test fun deleteForeverRemovesAttachments() = runTest {
@@ -229,13 +229,13 @@ class TrashTest {
         assertEquals(t0, trashed.deletedAt)
         assertTrue(File(dir, "att/${trashed.attachments.single().id}.bin").exists())
         // And it can be restored from there.
-        assertEquals(1, restored.restore(setOf("a")))
+        assertEquals(1, restored.restore(setOf("a"), sinceLock = restored.lockEpoch))
     }
 
     @Test fun undoWithin5s() = runTest {
         val s = withTwo()
         val undo = UndoTrash(s, elapsed = { clock })
-        assertEquals(1, undo.moveToTrash(setOf("a")))
+        assertEquals(1, undo.moveToTrash(setOf("a"), s.lockEpoch))
         assertTrue(undo.canUndo())
         clock += UNDO_TRASH_MS - 1
         assertEquals(1, undo.undo())
@@ -243,15 +243,15 @@ class TrashTest {
         assertFalse(undo.canUndo())
         assertEquals(0, undo.undo())
         // After 5 s it is forgotten.
-        assertEquals(2, undo.moveToTrash(setOf("a", "b")))
+        assertEquals(2, undo.moveToTrash(setOf("a", "b"), s.lockEpoch))
         clock += UNDO_TRASH_MS
         assertFalse(undo.canUndo())
         assertEquals(0, undo.undo())
         assertEquals(2, s.open().trash.size)
         // Only the last move is undone.
-        s.restore(setOf("a", "b"))
-        undo.moveToTrash(setOf("a"))
-        undo.moveToTrash(setOf("b"))
+        s.restore(setOf("a", "b"), sinceLock = s.lockEpoch)
+        undo.moveToTrash(setOf("a"), s.lockEpoch)
+        undo.moveToTrash(setOf("b"), s.lockEpoch)
         assertEquals(1, undo.undo())
         assertEquals(listOf("a"), s.open().trash.map { it.id })
     }
@@ -264,15 +264,15 @@ class TrashTest {
         val s = withTwo()
         val undo = UndoTrash(s, elapsed = { clock })
         val before = undo.moves.value
-        undo.moveToTrash(setOf("a"))
+        undo.moveToTrash(setOf("a"), s.lockEpoch)
         val first = undo.moves.value
         clock += 1_000
-        undo.moveToTrash(setOf("b"))
+        undo.moveToTrash(setOf("b"), s.lockEpoch)
         assertEquals(1, undo.offer.value)
         assertTrue(before != first && first != undo.moves.value)
         // Nothing moved: no new mark.
         val last = undo.moves.value
-        assertEquals(0, undo.moveToTrash(setOf("no-existe")))
+        assertEquals(0, undo.moveToTrash(setOf("no-existe"), s.lockEpoch))
         assertEquals(last, undo.moves.value)
         // The second has its own 5 s.
         clock += UNDO_TRASH_MS - 1
@@ -282,7 +282,7 @@ class TrashTest {
     @Test fun undoForgottenOnLock() = runTest {
         val s = withTwo()
         val undo = UndoTrash(s, elapsed = { clock })
-        undo.moveToTrash(setOf("a"))
+        undo.moveToTrash(setOf("a"), s.lockEpoch)
         s.lock()
         assertFalse(undo.canUndo())
         mark = clock
@@ -299,7 +299,7 @@ class TrashTest {
         c.vault.create("maestra-de-prueba-a".toCharArray(), name = "Uno")
         val a = c.vault
         assertTrue(a.upsert(note("a")))
-        assertEquals(1, c.undoTrash.moveToTrash(setOf("a")))
+        assertEquals(1, c.undoTrash.moveToTrash(setOf("a"), a.lockEpoch))
         assertTrue(c.undoTrash.canUndo())
         val b = c.createVault("Dos", "maestra-de-prueba-b".toCharArray())
         assertFalse("Another vault has nothing to undo", c.undoTrash.canUndo())
@@ -406,7 +406,7 @@ class TrashTest {
         c.vault.create("maestra-de-prueba-a".toCharArray(), name = "Uno")
         val a = c.vault
         assertTrue(a.upsert(note("a")))
-        assertEquals(1, c.undoTrash.moveToTrash(setOf("a")))
+        assertEquals(1, c.undoTrash.moveToTrash(setOf("a"), a.lockEpoch))
         val undoA = c.undoTrash
         assertEquals(1, undoA.offer.value)
         c.createVault("Dos", "maestra-de-prueba-b".toCharArray())

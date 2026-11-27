@@ -226,7 +226,7 @@ class AttachmentsTest {
             assertEquals(ATTACHMENTS_TOTAL_WOULD_PASS, e.message)
         }
         check()
-        assertEquals(1, s.restore(setOf("b")))
+        assertEquals(1, s.restore(setOf("b"), sinceLock = s.lockEpoch))
         check()
         assertEquals(1, s.moveToTrash(setOf("b")))
         assertEquals(1, s.emptyTrash())

@@ -83,23 +83,28 @@ class UndoTrash(private val store: VaultStore, private val elapsed: () -> Long, 
     /** Whether [undo] would bring something back now. */
     fun canUndo(): Boolean = valid() != null
 
-    /** [VaultStore.moveToTrash], remembering what it moved for [undo]. */
-    suspend fun moveToTrash(ids: Set<String>): Int {
-        val epoch = store.lockEpoch
-        val moved = store.trash(ids)
+    /**
+     * [VaultStore.moveToTrash], remembering what it moved for [undo]. 2.1.2, R-4: [sinceLock] is the [VaultStore.lockEpoch]
+     * of the tap, read before the work is launched: nothing moves (0, nothing to undo) when the vault locked since.
+     */
+    suspend fun moveToTrash(ids: Set<String>, sinceLock: Int): Int {
+        val moved = store.trash(ids, sinceLock)
         if (moved.isNotEmpty()) {
-            last = Last(moved, elapsed(), epoch)
+            last = Last(moved, elapsed(), sinceLock)
             _offer.value = moved.size
             _moves.value += 1
         }
         return moved.size
     }
 
-    /** Brings back the entries of the last move, if within [UNDO_TRASH_MS] and with no lock since; how many came back. */
+    /**
+     * Brings back the entries of the last move, if within [UNDO_TRASH_MS] and with no lock since; how many came back.
+     * 2.1.2, R-4: the save carries the epoch of the move, so a lock while it waits for the store brings nothing back.
+     */
     suspend fun undo(): Int {
         val l = valid()
         forget()
-        return if (l == null) 0 else store.restore(l.ids)
+        return if (l == null) 0 else store.restore(l.ids, l.epoch)
     }
 
     /** Forgets the last move (the message went away, or another action replaced it). */

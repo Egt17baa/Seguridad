@@ -466,7 +466,7 @@ class UpgradeCopyFirstTest {
             assertTrue(s.upgradeAutoCopyFailed)
             assertEquals(UPGRADE_PENDING, refusal { s.upsert(note("x")) })
             withTimeout(5_000) { unlocking.await() }
-            assertTrue(s.completeUpgrade())
+            assertTrue(s.completeUpgrade(s.lockEpoch))
             assertEquals(4, VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText()).version)
         } finally {
             gate.complete(Unit)
@@ -531,7 +531,7 @@ class UpgradeCopyFirstTest {
         assertEquals("the late copy: ${t.files.keys}", 1, late.size)
         assertTrue("listed with the import copies", t.idOfName(late.single()) in settings.settings.value.principal.currentImportCopies)
         assertFalse("A6 ran: ${t.files.keys}", "seguridad-auto-20261001-100000.sgbak" in t.files)
-        assertTrue(s.completeUpgrade())
+        assertTrue(s.completeUpgrade(s.lockEpoch))
         assertEquals(4, VaultCrypto.decodeFile(File(tmp.root, "vault.bin").readText()).version)
         assertTrue("A6 did not delete the late copy", late.single() in t.files)
     }

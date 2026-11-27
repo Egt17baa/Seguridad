@@ -51,9 +51,9 @@ class PasswordMarkTest {
         assertEquals(old, lastPasswordChange(s.entry("e")))
         val dueBefore = Expiry.items(s.entry("e")).map { it.date }
         clock += 1_000
-        s.setFavorite(setOf("e"), true)
+        s.setFavorite(setOf("e"), true, sinceLock = s.lockEpoch)
         clock += 1_000
-        s.addTag(setOf("e"), "banco")
+        s.addTag(setOf("e"), "banco", sinceLock = s.lockEpoch)
         clock += 1_000
         assertTrue(s.addAttachment("e", ByteArrayInputStream("hola".toByteArray()), "hola.txt"))
         val att = s.entry("e").attachments.single().id
@@ -92,7 +92,7 @@ class PasswordMarkTest {
     @Test fun anEntryWithoutPasswordStaysWithoutAMarkAndANewPasswordIsNow() = runBlocking {
         val s = withEntries(login("n", password = "", rotateMonths = null), login("p"))
         clock += 1_000
-        s.setFavorite(setOf("n"), true)
+        s.setFavorite(setOf("n"), true, sinceLock = s.lockEpoch)
         assertNull(s.entry("n").passwordChangedAt)
         clock += 1_000
         s.upsert(s.entry("p").copy(password = "clave-nueva"))
@@ -123,7 +123,7 @@ class PasswordMarkTest {
         val date = lastPasswordChange(e1)
         assertEquals(1_799_999_998_000L, date)
         clock += 1_000
-        s.setFavorite(setOf("e1"), false)
+        s.setFavorite(setOf("e1"), false, sinceLock = s.lockEpoch)
         assertEquals(date, lastPasswordChange(s.entry("e1")))
         // The other entries, untouched.
         assertEquals(listOf("e2", "e3", "e4").map { s.entry(it).passwordChangedAt }, listOf(null, null, null))
@@ -154,7 +154,7 @@ class PasswordMarkTest {
     @Test fun anEntryOf143JustUnderTheEntryCapCanStopBeingAFavourite() = runBlocking {
         val s = withEntries(entryJustUnderTheCap(favorite = true))
         clock += 1_000
-        assertEquals(1, s.setFavorite(setOf("e"), false))
+        assertEquals(1, s.setFavorite(setOf("e"), false, sinceLock = s.lockEpoch))
         assertTrue(!s.entry("e").favorite)
         assertEquals(old, lastPasswordChange(s.entry("e")))
     }

@@ -97,9 +97,12 @@ internal fun VaultUpgradeDialog(store: VaultStore) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // 2.1.2, R-2: the epoch of the moment the dialog was shown. A lock takes the dialog away (AppNavHost), so a new
+    // opening shows a new one with its own; a choice made before a lock is never saved after it.
+    val shownAt = remember(store) { store.lockEpoch }
 
     suspend fun complete() {
-        if (!store.completeUpgrade() && store.pendingUpgrade.value) error = UPGRADE_SAVE_FAILED
+        if (!store.completeUpgrade(shownAt) && store.pendingUpgrade.value) error = UPGRADE_SAVE_FAILED
     }
 
     val exporter = rememberDocumentPicker(ActivityResultContracts.CreateDocument("application/octet-stream"), place = PickerPlace.EXPORT_COPY) { uri ->

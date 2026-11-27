@@ -228,7 +228,7 @@ class EntryHistoryTest {
         File(dir, "vault.bin").writeText(VaultCrypto.encodeFile(v3))
         clock = 1_800_000_000_000L + 3_600_000L
         val s = store(dir).apply { load(); unlock(master143.toCharArray()) }
-        assertTrue(s.completeUpgrade())
+        assertTrue(s.completeUpgrade(s.lockEpoch))
         val e = s.entry("grande")
         // One version of 40 KiB fits in the 64 KiB; the newest one (the last password before the current one) is kept.
         assertEquals(listOf("clave-vieja-5"), e.history.map { it.entry.password })

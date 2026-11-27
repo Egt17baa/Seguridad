@@ -116,7 +116,10 @@ fun TrashScreen(store: VaultStore, onBack: () -> Unit) {
                             Text(trashLeavesIn(it, now), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = { run({ store.restore(setOf(e.id)) }, none = TRASH_RESTORE_NONE) }) { Text(TRASH_RESTORE) }
+                            FilledTonalButton(onClick = {
+                                val since = store.lockEpoch // 2.1.2, R-4: the epoch of the tap.
+                                run({ store.restore(setOf(e.id), since) }, none = TRASH_RESTORE_NONE)
+                            }) { Text(TRASH_RESTORE) }
                             TextButton(onClick = { forever = e }) { Text(TRASH_DELETE_FOREVER, color = NegativeColor) }
                         }
                     }

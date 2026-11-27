@@ -673,15 +673,17 @@ class VaultStore(
      * Digital, O-3). True when it was saved; false when there was nothing to save (no upgrade waiting: the vault locked
      * meanwhile, or it is done) or the write failed: then the file on disk is still the 2 or 3 of before, which opens
      * with the master password, and the choice stays ([pendingUpgrade]). A bookkeeping save ([saveBookkeeping]): the data does not change,
-     * so no automatic copy is due. Not cancelled with the caller.
+     * so no automatic copy is due. Not cancelled with the caller. 2.1.2, R-2: only if no lock happened since [since] (the
+     * [lockEpoch] read when the dialog was shown), also if the vault was opened again meanwhile: false, nothing saved, and
+     * the choice of that new opening stays.
      */
-    suspend fun completeUpgrade(): Boolean = completeUpgradeLocked(null)
+    suspend fun completeUpgrade(since: Int): Boolean = completeUpgradeLocked(since)
 
-    /** [completeUpgrade]; with [since], only if no lock happened since that epoch (the automatic path of [unlock]). */
-    private suspend fun completeUpgradeLocked(since: Int?): Boolean = mutex.withLock {
+    /** [completeUpgrade]; only if no lock happened since [since] (also the automatic path of [unlock]). */
+    private suspend fun completeUpgradeLocked(since: Int): Boolean = mutex.withLock {
         withContext(NonCancellable) {
             val next = upgrade
-            if (next == null || since != null && epoch != since) return@withContext false
+            if (next == null || epoch != since) return@withContext false
             try {
                 saveBookkeeping(next)
             } catch (e: Exception) {
@@ -1022,9 +1024,10 @@ class VaultStore(
 
     /**
      * Adds new entries with a single write, all or none (a Google Authenticator batch). An id already in the vault is
-     * left as it is, and new entries start without password history, as with [upsert].
+     * left as it is, and new entries start without password history, as with [upsert]. 2.1.2, R-4: false, with nothing
+     * saved, when the vault locked since [sinceLock] (the [lockEpoch] of the tap), also if it was opened again meanwhile.
      */
-    suspend fun addAll(entries: List<VaultEntry>) = modifyData { data ->
+    suspend fun addAll(entries: List<VaultEntry>, sinceLock: Int) = modifyData(sinceLock = sinceLock) { data ->
         // The ids of the trash too: an entry there is never shadowed by a new one with its id.
         val ids = data.entries.mapTo(HashSet()) { it.id }
         val added = entries.filter { ids.add(it.id) }
@@ -1169,10 +1172,13 @@ class VaultStore(
     /** Deletes folder [id]; its entries go to the folder above or to the trash ([FolderDeletion], [withoutFolder]). */
     suspend fun deleteFolder(id: String, entriesTo: FolderDeletion): Boolean = modifyData { data -> data.withoutFolder(id, entriesTo, now()) }
 
-    /** Moves the entries of [ids] to [folderId] (null for none), in one save; how many moved ([withEntriesMoved]). */
-    suspend fun moveEntries(ids: Set<String>, folderId: String?): Int {
+    /**
+     * Moves the entries of [ids] to [folderId] (null for none), in one save; how many moved ([withEntriesMoved]). 2.1.2,
+     * R-4: 0, with nothing saved, when the vault locked since [sinceLock] (the [lockEpoch] of the tap).
+     */
+    suspend fun moveEntries(ids: Set<String>, folderId: String?, sinceLock: Int): Int {
         var count = 0
-        modifyData { data ->
+        modifyData(sinceLock = sinceLock) { data ->
             count = 0
             data.withEntriesMoved(ids, folderId)?.let { (next, n) ->
                 count = n
@@ -1185,16 +1191,22 @@ class VaultStore(
     /**
      * 2.0, task 6: «Favorita» of the selection bar: the entries of [ids] the list holds marked as favourites, or not, in
      * one save, each with a version as the editor makes ([withFavorite]); how many changed (0, with nothing saved, when
-     * none or the vault is locked).
+     * none or the vault is locked). 2.1.2, R-4: also 0 when the vault locked since [sinceLock] (the [lockEpoch] of the tap),
+     * even if it was opened again meanwhile.
      */
-    suspend fun setFavorite(ids: Set<String>, favorite: Boolean): Int = changeSelected { data -> data.withFavorite(ids, favorite, now()) }
+    suspend fun setFavorite(ids: Set<String>, favorite: Boolean, sinceLock: Int): Int =
+        changeSelected(sinceLock) { data -> data.withFavorite(ids, favorite, now()) }
 
-    /** 2.0, task 6: «Etiquetar» of the selection bar: [tag] added to the entries of [ids] ([withTagAdded]); how many got it. */
-    suspend fun addTag(ids: Set<String>, tag: String): Int = changeSelected { data -> data.withTagAdded(ids, tag, now()) }
+    /**
+     * 2.0, task 6: «Etiquetar» of the selection bar: [tag] added to the entries of [ids] ([withTagAdded]); how many got it.
+     * 2.1.2, R-4: 0 when the vault locked since [sinceLock] (the [lockEpoch] of the tap).
+     */
+    suspend fun addTag(ids: Set<String>, tag: String, sinceLock: Int): Int = changeSelected(sinceLock) { data -> data.withTagAdded(ids, tag, now()) }
 
-    private suspend fun changeSelected(change: (VaultData) -> Pair<VaultData, Int>?): Int {
+    /** One save of the selection bar ([setFavorite], [addTag]) with the epoch of its tap ([modifyData]'s `sinceLock`). */
+    private suspend fun changeSelected(sinceLock: Int, change: (VaultData) -> Pair<VaultData, Int>?): Int {
         var count = 0
-        modifyData { data ->
+        modifyData(sinceLock = sinceLock) { data ->
             count = 0
             change(data)?.let { (next, n) ->
                 count = n
@@ -1249,14 +1261,18 @@ class VaultStore(
     /**
      * 2.0, task 3: sends the entries of [ids] not in the trash there ([VaultEntry.deletedAt] = now), with their
      * attachments, in one save; how many went (0, with nothing saved, when none or the vault is locked). Never the
-     * identity nor a contact ([delete]).
+     * identity nor a contact ([delete]). The epoch is read here: the screens go through [UndoTrash.moveToTrash], with the
+     * one of their tap.
      */
-    suspend fun moveToTrash(ids: Set<String>): Int = trash(ids).size
+    suspend fun moveToTrash(ids: Set<String>): Int = trash(ids, epoch).size
 
-    /** [moveToTrash], with the ids it really moved ([UndoTrash] brings back only those). */
-    internal suspend fun trash(ids: Set<String>): Set<String> {
+    /**
+     * [moveToTrash], with the ids it really moved ([UndoTrash] brings back only those). 2.1.2, R-4: none, with nothing
+     * saved, when the vault locked since [sinceLock] (the [lockEpoch] of the tap), also if it was opened again meanwhile.
+     */
+    internal suspend fun trash(ids: Set<String>, sinceLock: Int): Set<String> {
         val moved = HashSet<String>()
-        modifyData { data ->
+        modifyData(sinceLock = sinceLock) { data ->
             moved.clear()
             val at = now()
             val entries = data.entries.map { e ->
@@ -1270,11 +1286,12 @@ class VaultStore(
     /**
      * 2.0, task 3: brings the entries of [ids] back from the trash, in one save; how many came back. The app never sends
      * an identity there ([moveToTrash]), but a copy made elsewhere may bring one: it does not come back while the vault
-     * has another one (there is only one identity); it stays in the trash.
+     * has another one (there is only one identity); it stays in the trash. 2.1.2, R-4: 0, with nothing saved, when the
+     * vault locked since [sinceLock] (the [lockEpoch] of the tap, or of the move «Deshacer» undoes).
      */
-    suspend fun restore(ids: Set<String>): Int {
+    suspend fun restore(ids: Set<String>, sinceLock: Int): Int {
         var count = 0
-        modifyData { data ->
+        modifyData(sinceLock = sinceLock) { data ->
             count = 0
             var identity = data.live.any { it.type == EntryType.IDENTITY }
             // 2.0, task 4: back to its folder if it is still there, to no folder if not ([deleteFolder]).
@@ -1417,13 +1434,28 @@ class VaultStore(
 
     /**
      * The decrypted content of an attachment of the open vault; null if locked or it is no longer there. Throws
-     * [CryptoFailure] when the file is damaged or was changed. The caller wipes the result when done.
+     * [CryptoFailure] when the file is damaged or was changed. The caller wipes the result when done. 2.1.2, R-1: null
+     * too when the vault locked while it was decrypted (its [lockEpoch] changed since the start), also if it was opened
+     * again meanwhile; the bytes decrypted are wiped then, and when the caller is cancelled before they are handed over.
      */
     suspend fun openAttachment(entryId: String, attachmentId: String): ByteArray? {
+        val since = epoch
         val entries = (_state.value as? VaultState.Unlocked)?.entries ?: return null
         val ref = entries.firstOrNull { it.id == entryId }?.attachments?.firstOrNull { it.id == attachmentId } ?: return null
         touch()
-        return withContext(io) { attachments.open(ref) }
+        var plain: ByteArray? = null
+        try {
+            withContext(io) { attachments.open(ref).also { plain = it } }
+        } catch (e: CancellationException) {
+            plain?.fill(0)
+            throw e
+        }
+        val opened = plain ?: return null
+        if (epoch != since) {
+            opened.fill(0)
+            return null
+        }
+        return opened
     }
 
     /**
@@ -1745,8 +1777,16 @@ class VaultStore(
         }
     }
 
-    /** Deletes the vault for good (forgotten master password). */
-    suspend fun destroy() = mutex.withLock {
+    /**
+     * Deletes the vault for good (forgotten master password); the app goes through
+     * [app.seguridad.AppContainer.destroyActive], one at a time with the creation, import and deletion of vaults. 2.1.2,
+     * R-3: never cut half way, even if the caller is cancelled (the screen left): it ends with no file and [VaultState.NoVault].
+     * False, with nothing deleted, when this is no longer the active vault (a switch came first).
+     */
+    suspend fun destroy(): Boolean = withContext(NonCancellable) { mutex.withLock { destroyLocked() } }
+
+    private suspend fun destroyLocked(): Boolean {
+        if (!active()) return false
         nextGeneration()
         lock()
         upgrades.doneShown() // Nothing to tell of a vault that is gone.
@@ -1764,6 +1804,7 @@ class VaultStore(
         }
         vault = null
         _state.value = VaultState.NoVault
+        return true
     }
 }
 

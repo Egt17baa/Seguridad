@@ -104,7 +104,7 @@ class OrganizeStoreTest {
         assertEquals(mapOf("banco" to TagColor.RED), s.data().tagColors)
         assertTrue(s.upsert(login("b", tags = (0 until 10).map { "u$it" })))
         val many = (0 until 20).map { i -> login("m$i", tags = (0 until 10).map { "m$i-$it" }) }
-        assertTrue(s.addAll(many))
+        assertTrue(s.addAll(many, sinceLock = s.lockEpoch))
         val used = listOf("banco") + (0 until 10).map { "u$it" } + many.flatMap { it.tags }
         used.drop(1).take(VaultLimits.TAG_COLORS_MAX - 1).forEach { assertTrue(s.setTagColor(it, TagColor.TEAL)) }
         assertEquals(TOO_MANY_TAG_COLORS, assertThrows(VaultLimitExceeded::class.java) { runBlocking { s.setTagColor(used.last(), TagColor.TEAL) } }.message)
@@ -126,12 +126,12 @@ class OrganizeStoreTest {
      */
     @Test fun savesOpenWhatTheyWroteWithoutDecodingAgain() = runTest {
         val s = open()
-        assertTrue(s.addAll(listOf(login("a"), login("b"))))
+        assertTrue(s.addAll(listOf(login("a"), login("b")), sinceLock = s.lockEpoch))
         val a = s.data().live.single { it.id == "a" }
         assertTrue(s.upsert(login("b", title = "Otra")))
         assertSame(a, s.data().live.single { it.id == "a" })
         val f = s.createFolder("F", null)!!
-        assertEquals(1, s.moveEntries(setOf("b"), f.id))
+        assertEquals(1, s.moveEntries(setOf("b"), f.id, sinceLock = s.lockEpoch))
         assertSame(a, s.data().live.single { it.id == "a" })
         clock += 120_000
         assertTrue(s.markUsed("b"))
@@ -208,23 +208,23 @@ class OrganizeStoreTest {
     /** 2.0, task 6: the selection bar's «Favorita» and «Etiquetar», one save for all, with a version each, never the trash. */
     @Test fun selectionFavoriteAndTagSaveOnce() = runTest {
         val s = open()
-        assertTrue(s.addAll(listOf(login("a"), login("b"), login("c"))))
+        assertTrue(s.addAll(listOf(login("a"), login("b"), login("c")), sinceLock = s.lockEpoch))
         s.moveToTrash(setOf("c"))
         val revision = s.revision.value
         clock += 60_000
-        assertEquals(2, s.setFavorite(setOf("a", "b", "c", "nope"), favorite = true))
+        assertEquals(2, s.setFavorite(setOf("a", "b", "c", "nope"), favorite = true, sinceLock = s.lockEpoch))
         assertEquals(revision + 1, s.revision.value) // One save, and a change for the copies.
         assertEquals(setOf("a", "b"), s.data().live.filter { it.favorite }.mapTo(HashSet()) { it.id })
         assertFalse(s.data().trash.single().favorite)
-        assertEquals(0, s.setFavorite(setOf("a", "b"), favorite = true)) // Nothing to change: nothing saved.
+        assertEquals(0, s.setFavorite(setOf("a", "b"), favorite = true, sinceLock = s.lockEpoch)) // Nothing to change: nothing saved.
         assertEquals(revision + 1, s.revision.value)
-        assertEquals(2, s.addTag(setOf("a", "b", "c"), "Viajes"))
+        assertEquals(2, s.addTag(setOf("a", "b", "c"), "Viajes", sinceLock = s.lockEpoch))
         assertEquals(listOf("viajes"), s.data().live.first { it.id == "a" }.tags)
         assertEquals(2, s.data().live.first { it.id == "a" }.history.size)
-        assertEquals(0, s.addTag(setOf("a"), " , "))
+        assertEquals(0, s.addTag(setOf("a"), " , ", sinceLock = s.lockEpoch))
         s.lock()
-        assertEquals(0, s.setFavorite(setOf("a"), favorite = false))
-        assertEquals(0, s.addTag(setOf("a"), "otra"))
+        assertEquals(0, s.setFavorite(setOf("a"), favorite = false, sinceLock = s.lockEpoch))
+        assertEquals(0, s.addTag(setOf("a"), "otra", sinceLock = s.lockEpoch))
     }
 }
 

@@ -200,7 +200,7 @@ class AutoBackupImportCopyTest {
         assertNull(auto(s, t).copyBeforeUpgrade())
         settings.updatePrincipal { it.oneTarget(autoBackupUri = folder) }
         // Review I-1: once the upgrade is saved there is no copy «de antes» to make: refused, and no file left behind.
-        assertTrue(s.completeUpgrade())
+        assertTrue(s.completeUpgrade(s.lockEpoch))
         val before = t.files.keys.toList()
         assertTrue(auto(s, t).copyBeforeUpgrade() is CopyResult.Failed)
         assertEquals(before, t.files.keys.toList())

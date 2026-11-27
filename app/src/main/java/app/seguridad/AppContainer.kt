@@ -720,6 +720,16 @@ class AppContainer(
         info.id
     }
 
+    /**
+     * 2.1.2, R-3: «He olvidado la contraseña maestra» on [store], the vault the screen showed: deleted for good
+     * ([VaultStore.destroy], never cut half way), one at a time with the creation, import and deletion of vaults
+     * ([changingVaults]). False, with nothing deleted, when [store] is no longer the active vault (a switch came first):
+     * never another vault than the one the user confirmed.
+     */
+    suspend fun destroyActive(store: VaultStore): Boolean = withContext(NonCancellable) {
+        changingVaults.withLock { store.destroy() }
+    }
+
     /** Undoes a new vault that could not be made: [previous] active again, and nothing of [id] left. Best effort. */
     private suspend fun dropVault(id: String, previous: String) {
         try {

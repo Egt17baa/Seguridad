@@ -122,7 +122,7 @@ class BackupV3Test {
         }
         assertEquals(VaultLimits.VAULT_MAX_DATA_BYTES.toLong(), jsonBytes(VaultData(entries = entries, vaultTag = tag)))
         val s = store("limite").apply { load(); create(master.toCharArray()) }
-        s.addAll(entries)
+        s.addAll(entries, sinceLock = s.lockEpoch)
         val saved = (s.state.value as VaultState.Unlocked).data
         assertEquals(VaultLimits.VAULT_MAX_DATA_BYTES.toLong(), jsonBytes(saved))
         val copy = ByteArrayOutputStream().also { assertTrue(s.exportBackup(it)) }.toByteArray()
