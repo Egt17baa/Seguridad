@@ -40,8 +40,11 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
                 DocumentsContract.createDocument(resolver, folder, "application/octet-stream", name)
             } ?: throw FileNotFoundException()
         }
-        if (!documentOfTree(tree.toString(), doc.toString())) throw FileNotFoundException()
-        return Created(doc)
+        // The checked string is what is used (decision (b)): a Uri from another process is not trusted to resolve
+        // to the authority its string shows.
+        val checked = doc.toString()
+        if (!documentOfTree(tree.toString(), checked)) throw FileNotFoundException()
+        return Created(Uri.parse(checked))
     }
 
     /**
@@ -69,20 +72,21 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
         /**
          * Throws if the provider cannot (UnsupportedOperationException, or null): [AutoBackup] then writes the copy under
          * its name. 2.1.2, V-1: a new URI that [documentOfTree] does not take is never kept; the document of before
-         * (already checked) is deleted, as in any failed copy, and IOException is thrown.
+         * (already checked) is deleted, as in any failed copy, and FileNotFoundException is thrown. The checked string is
+         * what is kept (Uri.parse), never the Uri object the provider sent.
          */
         override fun rename(to: String) {
-            val renamed = saf { DocumentsContract.renameDocument(resolver, doc, to) } ?: throw IOException()
-            if (!documentOfTree(tree.toString(), renamed.toString())) {
+            val renamed = saf { DocumentsContract.renameDocument(resolver, doc, to) }?.toString() ?: throw IOException()
+            if (!documentOfTree(tree.toString(), renamed)) {
                 try {
                     delete()
                 } catch (e: Exception) {
                     // Gone already (the provider may have moved it); AutoBackup discards it again, and a leftover
                     // temporary copy is cleaned up by the next one.
                 }
-                throw IOException()
+                throw FileNotFoundException()
             }
-            doc = renamed
+            doc = Uri.parse(renamed)
         }
 
         override fun delete() {
