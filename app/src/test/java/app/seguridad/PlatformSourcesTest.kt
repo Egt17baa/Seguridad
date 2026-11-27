@@ -1251,7 +1251,7 @@ class PlatformSourcesTest {
     @Test fun `task 9 leaving the app drops the pending QR texts, from onStop`() {
         val stop = code("MainActivity.kt").substringAfter("override fun onStop()").substringBefore("\n    }")
         val drop = stop.indexOf("if (!isChangingConfigurations) container.leftApp(VaultLock.keepOpenOnce)")
-        assertTrue(drop >= 0 && drop < stop.indexOf("container.vault.lock(LockReason.LEFT_APP)"))
+        assertTrue(drop >= 0 && drop < stop.indexOf("container.lockOnLeave()"))
         val src = code("ui/screens/QrInspectScreen.kt")
         for (screen in listOf("fun QrTotpImportScreen(", "fun QrWifiImportScreen(")) {
             val body = src.substringAfter(screen).substringBefore("\n}\n")

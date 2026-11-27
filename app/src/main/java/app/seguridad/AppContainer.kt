@@ -56,6 +56,7 @@ import app.seguridad.vault.displayName
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.InputStream
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -235,6 +236,22 @@ class AppContainer(
      */
     fun leftApp(keepOpenOnce: Boolean) {
         if (!keepOpenOnce) QrHandoff.appLeft()
+    }
+
+    /**
+     * 2.1.2, C-1: how many times the app was left with the lock on leaving ([lockOnLeave]). [newVault] reads it before it
+     * starts, so a leave that lands on the vault of before (or on the new one before it is open) still locks the new one.
+     */
+    private val leaves = AtomicInteger()
+
+    /**
+     * 2.1.2, C-1: the lock on leaving the app (MainActivity.onStop, unless a picker or the scanner the app opened is on
+     * top, and not on a rotation): counts the leave in [leaves] first, then locks the active vault with
+     * [LockReason.LEFT_APP], as before.
+     */
+    fun lockOnLeave() {
+        leaves.incrementAndGet()
+        vault.lock(LockReason.LEFT_APP)
     }
 
     /** Back on top: the time away is checked first (it may lock, as on onStart), then the flag goes. */
@@ -663,6 +680,13 @@ class AppContainer(
      * A new vault: [before] runs on its store while the vault of now is still the active one (so a failure there changes
      * nothing of it), then the switch, then [made]. Review M-3: both get the new vault's own store, never whichever
      * is active.
+     *
+     * 2.1.2, C-1 (option A, with the Abogado's O-4): [made] always runs, so the new vault is really made, with its name,
+     * and no empty slot is left. If the app was left ([lockOnLeave]) at any point since the start, before [made] or while
+     * it ran, the new vault is locked with [LockReason.LEFT_APP] right after it: made, listed and active, but locked, as
+     * [VaultStore.importReplace] leaves the open vault when the app is left while the copy is read (VaultStore.kt:1549,
+     * `val since = epoch`). A leave that landed on the vault of before (still the active one during [before] and the
+     * switch) would otherwise miss the new one.
      */
     private suspend fun newVault(
         name: String,
@@ -670,6 +694,7 @@ class AppContainer(
         made: suspend (VaultStore) -> Unit,
     ): String = changingVaults.withLock {
         if (!canAddVault()) throw VaultsRefused(VAULT_NEW_NEEDS_OPEN)
+        val leavesAtStart = leaves.get()
         VaultData(name = name.trim()).checkStructure() // A name too long: nothing is made.
         val previous = activeId
         val info = registry.create(nextColor())
@@ -679,6 +704,7 @@ class AppContainer(
             before(store)
             switchTo(info.id)
             made(store)
+            if (leaves.get() != leavesAtStart) store.lock(LockReason.LEFT_APP)
         } catch (e: Throwable) {
             withContext(NonCancellable) { dropVault(info.id, previous) }
             throw e

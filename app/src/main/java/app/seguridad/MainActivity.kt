@@ -24,7 +24,6 @@ import app.seguridad.ui.theme.multiWindowNow
 import app.seguridad.ui.theme.themeWindowBackground
 import app.seguridad.ui.theme.windowLookFor
 import app.seguridad.vault.AWAY_BACKSTOP_MS
-import app.seguridad.vault.LockReason
 import app.seguridad.vault.VaultLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -143,6 +142,7 @@ class MainActivity : FragmentActivity() {
         if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.twoStepCopy.markLeft()
         // 2.0, task 9, ronda 1 (I-1): a QR text waiting at the vault's gate (a wifi password, a 2FA key) goes too.
         if (!isChangingConfigurations) container.leftApp(VaultLock.keepOpenOnce)
-        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.vault.lock(LockReason.LEFT_APP)
+        // 2.1.2, C-1: through the container, which counts the leave, so a new vault being made or imported is locked too.
+        if (!VaultLock.keepOpenOnce && !isChangingConfigurations) container.lockOnLeave()
     }
 }
