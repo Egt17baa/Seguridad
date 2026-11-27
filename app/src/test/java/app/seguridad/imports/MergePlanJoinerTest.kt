@@ -13,8 +13,8 @@ import org.junit.Test
  * mark («⟨U+200C⟩»). Invented data.
  */
 class MergePlanJoinerTest {
-    private val plainUrl = "https://میخواهم.ir/login"
-    private val zwnjUrl = "https://می‌خواهم.ir/login"
+    private val plainUrl = "https://\u0645\u06CC\u062E\u0648\u0627\u0647\u0645.ir/login"
+    private val zwnjUrl = "https://\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645.ir/login"
 
     private fun login(id: String, url: String, pw: String) = VaultEntry(
         id = id, type = EntryType.LOGIN, title = "Banco", username = "ana", url = url, password = pw, createdAt = 0L, updatedAt = 0L,
@@ -33,7 +33,7 @@ class MergePlanJoinerTest {
 
     @Test
     fun zwjLatinFileLoginIsNotADuplicateOfBanco() {
-        val p = plan(login("f1", "https://ban‍co.es/", "file-pw"), login("v1", "https://banco.es/", "vault-pw"))
+        val p = plan(login("f1", "https://ban\u200Dco.es/", "file-pw"), login("v1", "https://banco.es/", "vault-pw"))
         assertEquals(1, p.newItems.size)
         assertTrue(p.duplicates.isEmpty())
     }
@@ -47,9 +47,9 @@ class MergePlanJoinerTest {
     @Test
     fun zwnjDuplicateRowMarksTheHiddenChar() {
         val row = duplicateSubline(login("f1", zwnjUrl, "file-pw"))
-        assertEquals("ana · می⟨U+200C⟩خواهم.ir", row)
-        assertEquals("ana · ban⟨U+200D⟩co.es", duplicateSubline(login("f2", "https://ban‍co.es/", "x")))
-        assertEquals("ana · http://ban⟨U+200D⟩co.es", duplicateSubline(login("f3", "http://ban‍co.es/", "x")))
+        assertEquals("ana · \u0645\u06CC⟨U+200C⟩\u062E\u0648\u0627\u0647\u0645.ir", row)
+        assertEquals("ana · ban⟨U+200D⟩co.es", duplicateSubline(login("f2", "https://ban\u200Dco.es/", "x")))
+        assertEquals("ana · http://ban⟨U+200D⟩co.es", duplicateSubline(login("f3", "http://ban\u200Dco.es/", "x")))
     }
 
     @Test

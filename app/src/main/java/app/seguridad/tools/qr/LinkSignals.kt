@@ -160,8 +160,8 @@ private fun mapHost(decoded: String): String {
  * The NFKC step is done here too, because with ALLOW_UNASSIGNED [IDN] skips it for characters newer than Unicode 3.2
  * (a squared «🄱🄸🅃» is «bit»).
  *
- * 2.1.2, C-4: the same for U+200C (ZWNJ) and U+200D (ZWJ). IDNA2003 drops them, so «ban‍co.es» would be «banco.es»;
- * a browser (UTS #46, non-transitional) keeps them and the name is another one. The label stays Unicode with the
+ * 2.1.2, C-4: the same for U+200C (ZWNJ) and U+200D (ZWJ). IDNA2003 drops them, so «ban\u200Dco.es» would be
+ * «banco.es»; a browser (UTS #46, non-transitional) keeps them and the name is another one. The label stays Unicode with the
  * joiner ([normalizeLabel] keeps it), so its key differs from the plain name, PUNYCODE fires and [ParsedLink.hostHidden]
  * still says it is there. No Punycode is written here: [IDN] is the only encoder, and it would drop them.
  */
