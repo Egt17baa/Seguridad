@@ -368,6 +368,25 @@ class AutoBackupTest {
         assertEquals(setOf("otra-cosa.sgbak.tmp", "seguridad-auto-20261026-100000.sgbak"), target.files.keys)
     }
 
+    /**
+     * 2.1.2, V-1: a document the provider gives back outside its own folder's authority makes SafBackupTarget.create
+     * throw FileNotFoundException before anything is written. The copy then fails with the folder error of always, and
+     * no copy is recorded or counted as written.
+     */
+    @Test fun refusedDocumentFromTheProviderRecordsNoCopy() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        auto(s, target)
+        target.failWrite = FileNotFoundException()
+        s.upsert(note("1"))
+        settle()
+        assertEquals(AUTO_BACKUP_NO_FOLDER, errors.last())
+        assertEquals(null, results.last().writtenAt)
+        assertTrue(copies.toString(), copies.isEmpty())
+        assertTrue(target.files.keys.toString(), target.files.isEmpty())
+        assertTrue(s.state.value is VaultState.Unlocked)
+    }
+
     @Test fun targetErrorReportedNotThrown() = runTest {
         val s = opened()
         s.upsert(note("1"))

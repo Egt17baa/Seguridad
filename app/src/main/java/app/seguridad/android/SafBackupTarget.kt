@@ -10,6 +10,7 @@ import app.seguridad.vault.BackupEntry
 import app.seguridad.vault.BackupFile
 import app.seguridad.vault.BackupTarget
 import app.seguridad.vault.FolderGrant
+import app.seguridad.vault.documentOfTree
 import app.seguridad.vault.hasFolderGrant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,6 +26,12 @@ import java.io.OutputStream
 class SafBackupTarget(private val resolver: ContentResolver, private val tree: Uri) : BackupTarget {
     private fun folderId(): String = DocumentsContract.getTreeDocumentId(tree)
 
+    /**
+     * 2.1.2, V-1: the URI the provider gives back is only used if it is a `content:` document of the tree's own authority
+     * ([documentOfTree]). Anything else (a `file:` URI to Clavero's own files, another provider's folder) throws
+     * FileNotFoundException, the folder error of always (AUTO_BACKUP_NO_FOLDER): nothing is written, and that URI is not
+     * deleted either, because it may belong to someone else.
+     */
     override suspend fun create(name: String): BackupFile {
         val doc = withContext(Dispatchers.IO) {
             saf {
@@ -33,10 +40,14 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
                 DocumentsContract.createDocument(resolver, folder, "application/octet-stream", name)
             } ?: throw FileNotFoundException()
         }
+        if (!documentOfTree(tree.toString(), doc.toString())) throw FileNotFoundException()
         return Created(doc)
     }
 
-    /** The document [create] made, by the URI the provider gave back: never another one with the same name. */
+    /**
+     * The document [create] made, by the URI the provider gave back: never another one with the same name. [doc] is
+     * always a URI [documentOfTree] took (V-1), so writing, renaming and deleting never reach anything else.
+     */
     private inner class Created(private var doc: Uri) : BackupFile {
         override val id: String get() = DocumentsContract.getDocumentId(doc)
 
@@ -55,9 +66,23 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
             out.use { writer(it) }
         }
 
-        /** Throws if the provider cannot (UnsupportedOperationException, or null): [AutoBackup] then writes the copy under its name. */
+        /**
+         * Throws if the provider cannot (UnsupportedOperationException, or null): [AutoBackup] then writes the copy under
+         * its name. 2.1.2, V-1: a new URI that [documentOfTree] does not take is never kept; the document of before
+         * (already checked) is deleted, as in any failed copy, and IOException is thrown.
+         */
         override fun rename(to: String) {
-            doc = saf { DocumentsContract.renameDocument(resolver, doc, to) } ?: throw IOException()
+            val renamed = saf { DocumentsContract.renameDocument(resolver, doc, to) } ?: throw IOException()
+            if (!documentOfTree(tree.toString(), renamed.toString())) {
+                try {
+                    delete()
+                } catch (e: Exception) {
+                    // Gone already (the provider may have moved it); AutoBackup discards it again, and a leftover
+                    // temporary copy is cleaned up by the next one.
+                }
+                throw IOException()
+            }
+            doc = renamed
         }
 
         override fun delete() {

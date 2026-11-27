@@ -39,6 +39,24 @@ fun treeKey(uri: String): Pair<String, String>? {
     return m.groupValues[1] to id
 }
 
+// The authority as [TREE] reads it (an optional numeric `<user>@` prefix, then no `/`, `?`, `#` or `@`), then a path.
+private val CONTENT_DOC = Regex("content://(?:\\d+@)?([^/?#@]+)/.*", RegexOption.DOT_MATCHES_ALL)
+
+/**
+ * 2.1.2, V-1: whether [doc], the URI a provider gave back from createDocument or renameDocument for the copies' folder
+ * [tree], may be written, renamed or deleted: only with the exact scheme `content` and the tree's own authority,
+ * compared as [treeKey] (a numeric `<user>@` prefix does not count). The provider is not trusted to return a document of
+ * its own: a `file:` URI would reach Clavero's own files, and another authority another folder the app holds a grant
+ * for. The document need not hang from the tree (some providers return `content://<authority>/document/<id>`), and
+ * DocumentsContract.isChildDocument is not asked, because the provider itself answers it. Anything that is not such a
+ * URI (and a [tree] that is not a tree) is false.
+ */
+fun documentOfTree(tree: String, doc: String): Boolean {
+    val authority = treeKey(tree)?.first ?: return false
+    val m = CONTENT_DOC.matchEntire(doc) ?: return false
+    return m.groupValues[1] == authority
+}
+
 /** [s] with its `%XX` escapes decoded as UTF-8 (a `+` stays a `+`, as in a URI path); null if malformed. */
 private fun percentDecoded(s: String): String? {
     val out = ByteArrayOutputStream()
