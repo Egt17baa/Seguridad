@@ -147,7 +147,7 @@ class UpgradeCopyFirstTest {
             onResult = { r -> results += r; settings.updatePrincipal { it.withAutoBackupResult(r, s.generation) } },
             zone = ZoneOffset.UTC,
             importCopies = { settings.settings.value.principal.currentImportCopies },
-            onImportCopy = { f, id, generation -> settings.updatePrincipal { it.withImportCopy(f, id, generation, s.generation) } },
+            onImportCopy = { f, id, generation, oldPassword -> settings.updatePrincipal { it.withImportCopy(f, id, generation, s.generation, oldPassword) } },
         )
         runCurrent()
         kotlinx.coroutines.runBlocking { s.load() }

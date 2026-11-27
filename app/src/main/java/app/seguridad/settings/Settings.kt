@@ -343,9 +343,18 @@ fun VaultSettings.forgettingAutoBackupCopies(): VaultSettings =
  * These settings with the import copy [id] just written to [folder] added to that target's [BackupTargetSettings.importCopies]:
  * only if [folder] is still a target, and only if the copy's vault, [generation], is still [current].
  */
-fun VaultSettings.withImportCopy(folder: String, id: String, generation: Long? = null, current: Long? = null): VaultSettings {
+fun VaultSettings.withImportCopy(folder: String, id: String, generation: Long? = null, current: Long? = null, oldPassword: Boolean = false): VaultSettings {
     if (generation != null && current != null && generation != current) return this
-    return withTarget(folder) { it.copy(importCopies = (it.importCopies + id).distinct()) }
+    return withTarget(folder) { t ->
+        // 2.1.2, C-2 (review m-1): a copy made under the master password of before that the folder refused to delete
+        // joins the targets of an A6 request saved for this folder. A request without targets (null: every listed copy)
+        // already covers it.
+        val joins = oldPassword && t.replacePending && t.replaceTargets != null
+        t.copy(
+            importCopies = (t.importCopies + id).distinct(),
+            replaceTargets = if (joins) (t.replaceTargets.orEmpty() + id).distinct() else t.replaceTargets,
+        )
+    }
 }
 
 /** This target with no request to replace the old copies: its targets and what it told go with it. */

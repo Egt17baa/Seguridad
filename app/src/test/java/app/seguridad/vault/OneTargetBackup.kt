@@ -27,7 +27,7 @@ fun oneTargetBackup(
     onResult: suspend (AutoBackupResult) -> Unit = {},
     zone: ZoneId = ZoneId.systemDefault(),
     importCopies: () -> List<String> = { emptyList() },
-    onImportCopy: suspend (folder: String, id: String, generation: Long) -> Unit = { _, _, _ -> },
+    onImportCopy: suspend (folder: String, id: String, generation: Long, oldPassword: Boolean) -> Unit = { _, _, _, _ -> },
     onOldPasswordCopy: (folder: String, id: String) -> Unit = { _, _ -> },
 ): AutoBackup {
     // Task 8, round 4: what the engine saves in the target beyond 1.4.3's fields (the A6 request it is in, its result, the

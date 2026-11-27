@@ -482,7 +482,7 @@ class AppContainer(
             scope,
             now = System::currentTimeMillis,
             onResult = { recordAutoBackup(id, store, it) },
-            onImportCopy = { folder, copy, generation -> recordImportCopy(id, store, folder, copy, generation) },
+            onImportCopy = { folder, copy, generation, oldPassword -> recordImportCopy(id, store, folder, copy, generation, oldPassword) },
             // Task 8, round 4: the A6 request of this vault and what was last told of it.
             a6 = { settings.settings.value.vault(id).a6 },
             onA6 = { state -> recordA6(id, state) },
@@ -1037,9 +1037,9 @@ class AppContainer(
      * [recordAutoBackup], the vault's generation is read inside the settings' lock, so a copy of a vault replaced
      * meanwhile is never listed.
      */
-    internal suspend fun recordImportCopy(id: String, store: VaultStore, folder: String, copy: String, generation: Long) {
+    internal suspend fun recordImportCopy(id: String, store: VaultStore, folder: String, copy: String, generation: Long, oldPassword: Boolean = false) {
         try {
-            settings.update { s -> if (!listed(id)) s else s.withVault(id) { v -> v.withImportCopy(folder, copy, generation, store.generation) } }
+            settings.update { s -> if (!listed(id)) s else s.withVault(id) { v -> v.withImportCopy(folder, copy, generation, store.generation, oldPassword) } }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

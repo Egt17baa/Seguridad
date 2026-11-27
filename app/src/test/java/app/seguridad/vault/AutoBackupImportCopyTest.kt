@@ -144,7 +144,7 @@ class AutoBackupImportCopyTest {
         onResult = { r -> settings.updatePrincipal { it.withAutoBackupResult(r, s.generation) } },
         zone = ZoneOffset.UTC,
         importCopies = { settings.settings.value.principal.currentImportCopies },
-        onImportCopy = { f, id, generation -> settings.updatePrincipal { it.withImportCopy(f, id, generation, s.generation) } },
+        onImportCopy = { f, id, generation, oldPassword -> settings.updatePrincipal { it.withImportCopy(f, id, generation, s.generation, oldPassword) } },
     ).also { runCurrent() }
 
     private fun note(id: String) = VaultEntry(id, EntryType.NOTE, "Nota $id", notes = "s $id", createdAt = 0, updatedAt = 0)

@@ -5,6 +5,8 @@ import app.seguridad.imports.ApplyResult
 import app.seguridad.imports.IMPORT_COPY_MASTER_CHANGED
 import app.seguridad.imports.ImportFlow
 import app.seguridad.imports.ImportOutcome
+import app.seguridad.settings.VaultSettings
+import app.seguridad.settings.withImportCopy
 import app.seguridad.settings.withResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -111,7 +113,11 @@ class A6InFlightCopyTest {
             replaceTold = { req.replaceTold }, importCopies = { imports },
             onResult = { r -> results += r; req = req.copy(importCopies = imports).withResult(r); imports = req.importCopies },
             zone = ZoneOffset.UTC,
-            onImportCopy = { _, id, _ -> imports = imports + id },
+            onImportCopy = { _, id, _, oldPassword ->
+                // As the app records it ([withImportCopy]), on this one target.
+                req = VaultSettings(targets = listOf(req.copy(importCopies = imports))).withImportCopy(uri, id, oldPassword = oldPassword).targets.single()
+                imports = req.importCopies
+            },
             onOldPasswordCopy = { _, id -> dialog.addOldCopy(id) },
         )
 
@@ -244,6 +250,81 @@ class A6InFlightCopyTest {
         assertFalse(k.req.replacePending)
         assertFalse(name in k.target.files)
         for ((n, bytes) in k.target.files) assertFalse(n, opensWith(bytes, old))
+    }
+
+    /** Review I-1: a deleted copy never says «se hizo», with a saved request; the request stays and is retried. */
+    @Test fun aDeletedCopyOfASavedRequestSaysItFailed() = runTest {
+        val k = Setup(this)
+        runCurrent()
+        with(k) { change("1") }
+        k.req = k.req.copy(replacePending = true, replaceTargets = k.req.copies.toList())
+        val inFlight = k.changeMasterDuringNextWrite()
+        clock += 60_000
+        with(k) { change("2") }
+        assertFalse(inFlight() in k.target.files)
+        val last = k.results.last()
+        assertEquals(AUTO_BACKUP_FAILED, last.error)
+        assertFalse(last.replaced)
+        assertNull(last.writtenAt)
+        assertTrue(k.req.replacePending)
+        assertFalse(k.req.lastError.orEmpty().contains("se hizo"))
+        // Retried at the unlock, with the new password: the request is done.
+        clock += 60_000
+        k.s.unlock(new.toCharArray())
+        runCurrent()
+        assertFalse(k.req.replacePending)
+        for ((n, bytes) in k.target.files) assertFalse(n, opensWith(bytes, old))
+    }
+
+    /** Review I-1: the same, asked with the vault open ([AutoBackup.replaceOldCopies]). */
+    @Test fun aDeletedCopyOfAReplacementAskedNowSaysItFailed() = runTest {
+        val k = Setup(this)
+        runCurrent()
+        with(k) { change("1") }
+        val inFlight = k.changeMasterDuringNextWrite()
+        clock += 60_000
+        val r = k.a.replaceOldCopies(k.req.copies.toList())
+        runCurrent()
+        assertFalse(inFlight() in k.target.files)
+        assertFalse(r.replaced)
+        assertEquals(AUTO_BACKUP_FAILED, r.error)
+        for (said in k.results.mapNotNull { it.error } + k.req.lastError.orEmpty()) assertFalse(said, said.contains("se hizo"))
+    }
+
+    /** Review m-1: an import copy left under the old password joins the targets of an A6 request already saved. */
+    @Test fun importCopyThatCannotBeDeletedJoinsASavedRequest() = runTest {
+        val k = Setup(this)
+        runCurrent()
+        with(k) { change("1") }
+        k.req = k.req.copy(replacePending = true, replaceTargets = k.req.copies.toList())
+        val inFlight = k.changeMasterDuringNextWrite(cannotDelete = true)
+        assertEquals(CopyResult.Failed(IMPORT_COPY_MASTER_CHANGED), k.a.copyBeforeImport())
+        runCurrent()
+        val id = k.target.idOf(inFlight())
+        assertTrue(id in k.req.importCopies)
+        assertTrue(id in k.req.replaceTargets.orEmpty())
+        assertFalse(id in k.req.copies)
+    }
+
+    /** Review m-1: a request saved without targets (before 1.3.0: every listed copy) stays so; not pending, nothing joins. */
+    @Test fun withImportCopyOnlyJoinsAPendingRequestWithTargets() {
+        val t = BackupTargetSettings(uri, 5, BackupSchedule.ON_CHANGE)
+        fun after(x: BackupTargetSettings) = VaultSettings(targets = listOf(x)).withImportCopy(uri, "doc-x", oldPassword = true).targets.single()
+        assertNull(after(t.copy(replacePending = true, replaceTargets = null)).replaceTargets)
+        assertEquals(listOf("doc-a"), after(t.copy(replacePending = false, replaceTargets = listOf("doc-a"))).replaceTargets)
+        assertEquals(listOf("doc-a", "doc-x"), after(t.copy(replacePending = true, replaceTargets = listOf("doc-a"))).replaceTargets)
+        assertEquals(listOf("doc-x"), after(t).importCopies)
+    }
+
+    @Test fun anImportCopyMadeAsUsualDoesNotJoinASavedRequest() = runTest {
+        val k = Setup(this)
+        runCurrent()
+        with(k) { change("1") }
+        val targets = k.req.copies.toList()
+        k.req = k.req.copy(replacePending = true, replaceTargets = targets)
+        assertTrue(k.a.copyBeforeImport() is CopyResult.Saved)
+        assertEquals(1, k.req.importCopies.size)
+        assertEquals(targets, k.req.replaceTargets)
     }
 
     @Test fun aCopyFinishedBeforeTheChangeIsKept() = runTest {

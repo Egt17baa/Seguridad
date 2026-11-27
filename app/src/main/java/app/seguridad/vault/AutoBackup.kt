@@ -344,7 +344,7 @@ class AutoBackup(
      * Keeps the id of an import copy (or of before 2.0) just written to the target [folder], made from the vault of
      * [generation] (VaultStore.generation when it started); must not throw. Waited for before the next copy, as [onResult].
      */
-    private val onImportCopy: suspend (folder: String, id: String, generation: Long) -> Unit = { _, _, _ -> },
+    private val onImportCopy: suspend (folder: String, id: String, generation: Long, oldPassword: Boolean) -> Unit = { _, _, _, _ -> },
     /**
      * Task 8, round 4: the vault's A6 request as saved ([A6State], with what was last told of it); null when none. Kept in
      * memory when not given (tests of one folder).
@@ -789,7 +789,8 @@ class AutoBackup(
                 if (!removed(target, written, prefix)) {
                     keepOld(uri, written.id)
                     try {
-                        onImportCopy(uri, written.id, generation)
+                        // Under the password of before: it also joins an A6 request saved for this folder (review m-1).
+                        onImportCopy(uri, written.id, generation, true)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -800,7 +801,7 @@ class AutoBackup(
                 return CopyResult.Failed(IMPORT_COPY_MASTER_CHANGED)
             }
             try {
-                onImportCopy(uri, written.id, generation)
+                onImportCopy(uri, written.id, generation, false)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -950,19 +951,29 @@ class AutoBackup(
     /**
      * 2.1.2, C-2: the copy [written] to [folder] was made under the master password of before (it changed while the copy
      * was written). Nobody has seen it, and the next copy is made with the new one ([defer]), so it is deleted at once,
-     * whether A6 is asked or not. Deleted, the result is as a copy never written (O-3 of the Abogado Digital: «Última
-     * copia» never shows the time of a copy that is gone; no rotation, no mark, no notice). If the folder refuses, it is
-     * listed as any copy ([AutoBackupResult.copies], so the rotation deletes it in time), kept in [oldLeft] for the next A6
-     * request of this process, added to the targets of a request saved ([AutoBackupResult.replaceTargets]) and, by the
-     * caller, to the A6 dialog open now ([onOldPasswordCopy]). It is never the copy a replacement is done with: a
-     * replacement says it deleted nothing, as with [stale]. No setting gets a new field.
+     * whether A6 is asked or not.
+     *
+     * Deleted ([removed]), the result is as a copy never written (O-3 of the Abogado Digital: «Última copia» never shows
+     * the time of a copy that is gone; no rotation, no mark). Without a replacement there is no notice (error null). A
+     * replacement (A6) says [AUTO_BACKUP_FAILED] (review I-1: never a text that says the copy was made, and never
+     * [AUTO_BACKUP_OLD_NOT_DELETED_NO_RETRY], which only replaces [AUTO_BACKUP_OLD_NOT_DELETED]); it is not «replaced», so
+     * its request stays and the copy deferred to the next unlock does it.
+     *
+     * If the folder refuses (or [removed] cannot tell it is gone), the copy exists: it is listed as any copy
+     * ([AutoBackupResult.copies]), kept in [oldLeft] for the next A6 request of this process, added to the targets of a
+     * request saved ([AutoBackupResult.replaceTargets]) and, by the caller, to the A6 dialog open now ([onOldPasswordCopy]).
+     * Review m-3: on [AutoBackupResult.copies] it goes last, as the newest (the list is in the order the copies were made),
+     * so the rotation by «keep» deletes it last of all; A6 deletes it whatever its place. A replacement says
+     * [AUTO_BACKUP_OLD_NOT_DELETED] (true: the copy was made, the old ones not deleted) and its request stays. No setting
+     * gets a new field.
      */
     private fun oldPassword(uri: String, folder: BackupTarget, written: BackupEntry, at: Long, generation: Long, replace: Replace?): AutoBackupResult {
-        val error = if (replace != null) AUTO_BACKUP_OLD_NOT_DELETED else null
         if (removed(folder, written, AUTO_BACKUP_PREFIX)) {
             defer(uri)
-            return AutoBackupResult(uri, null, error, generation = generation, newRequest = replace?.newRequest == true, request = replace?.request)
+            val failed = if (replace != null) AUTO_BACKUP_FAILED else null
+            return AutoBackupResult(uri, null, failed, generation = generation, newRequest = replace?.newRequest == true, request = replace?.request)
         }
+        val error = if (replace != null) AUTO_BACKUP_OLD_NOT_DELETED else null
         keepOld(uri, written.id)
         val t = target(uri)
         val saved = if (replace != null) replace.targets else t?.takeIf { it.replacePending }?.replaceTargets
@@ -972,7 +983,12 @@ class AutoBackup(
         )
     }
 
-    /** C-2: deletes [written] from [folder]; true only if it is no longer listed there (a provider that says nothing is checked). */
+    /**
+     * C-2: deletes [written] from [folder]; true only if it is no longer listed there (a provider that says nothing is
+     * checked). Review m-2: if the delete went through but the listing then throws, it is counted as not deleted, on
+     * purpose: the copy is then listed and in the A6 lists, and A6 (or the rotation) tries it again, while an id already
+     * gone is just forgotten by the next rotation. Never the other way round, which could leave a copy of before unlisted.
+     */
     private fun removed(folder: BackupTarget, written: BackupEntry, prefix: String): Boolean = try {
         folder.delete(written.id)
         folder.list(prefix).none { it.id == written.id }
