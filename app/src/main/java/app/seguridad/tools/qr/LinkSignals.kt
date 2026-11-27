@@ -68,7 +68,8 @@ internal fun asBrowserReadsIt(text: String): String =
  * link. This follows the browser (WHATWG URL) on what matters for the signals: tabs and line breaks inside are
  * dropped, «\» counts as «/» in web links, the user info ends at the **last** «@» of the authority, the port starts at
  * the first «:» after the host, and the host is percent-decoded and then mapped like a browser does (UTS #46: full-width
- * letters become ASCII, invisible characters vanish, non-ASCII labels become `xn--`).
+ * letters become ASCII, invisible characters vanish except ZWNJ and ZWJ, which keep the label in Unicode (C-4), and
+ * the other non-ASCII labels become `xn--`).
  */
 internal fun parseLink(uri: String): ParsedLink {
     val u = asBrowserReadsIt(uri)
@@ -158,10 +159,15 @@ private fun mapHost(decoded: String): String {
  * after NFKC and lower-casing is not given to [IDN]: it stays Unicode (and so counts as punycode, and shows the «ß»).
  * The NFKC step is done here too, because with ALLOW_UNASSIGNED [IDN] skips it for characters newer than Unicode 3.2
  * (a squared «🄱🄸🅃» is «bit»).
+ *
+ * 2.1.2, C-4: the same for U+200C (ZWNJ) and U+200D (ZWJ). IDNA2003 drops them, so «ban‍co.es» would be «banco.es»;
+ * a browser (UTS #46, non-transitional) keeps them and the name is another one. The label stays Unicode with the
+ * joiner ([normalizeLabel] keeps it), so its key differs from the plain name, PUNYCODE fires and [ParsedLink.hostHidden]
+ * still says it is there. No Punycode is written here: [IDN] is the only encoder, and it would drop them.
  */
 private fun mapLabel(label: String): String {
     val folded = browserLowercase(Normalizer.normalize(label, Normalizer.Form.NFKC))
-    if ('\u00DF' in folded || '\u03C2' in folded) return normalizeLabel(label)
+    if ('\u00DF' in folded || '\u03C2' in folded || ZWNJ in folded || ZWJ in folded) return normalizeLabel(label)
     if (folded.all { it.code < 128 }) return folded
     return (toAsciiOrNull(folded) ?: normalizeLabel(label)).lowercase(Locale.ROOT)
 }
@@ -191,12 +197,22 @@ private fun toUnicodeHost(host: String): String = host.split('.').joinToString("
     }
 }
 
-/** Fallback for a label [IDN.toASCII] rejects (too long, say): NFKC, lower-case, and without the default-ignorable characters. */
+private const val ZWNJ = '\u200C'
+private const val ZWJ = '\u200D'
+
+/**
+ * A label kept in Unicode: one with «ß», «ς», ZWNJ or ZWJ ([mapLabel]), or one [IDN.toASCII] rejects (too long, say):
+ * NFKC, lower-case, and without the default-ignorable characters, except ZWNJ and ZWJ, which a browser keeps in a
+ * host (C-4).
+ */
 private fun normalizeLabel(label: String): String {
     val sb = StringBuilder()
     Normalizer.normalize(label, Normalizer.Form.NFKC).codePoints().forEach { cp ->
-        val ignorable = Character.getType(cp) == Character.FORMAT.toInt() || cp in 0xFE00..0xFE0F || cp in 0xE0100..0xE01EF ||
-            cp == 0x00AD || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 || cp == 0x180E
+        val joiner = cp == ZWNJ.code || cp == ZWJ.code
+        val ignorable = !joiner && (
+            Character.getType(cp) == Character.FORMAT.toInt() || cp in 0xFE00..0xFE0F || cp in 0xE0100..0xE01EF ||
+                cp == 0x00AD || cp == 0x115F || cp == 0x1160 || cp == 0x3164 || cp == 0xFFA0 || cp == 0x180E
+            )
         if (!ignorable) sb.appendCodePoint(cp)
     }
     return browserLowercase(sb.toString())

@@ -333,6 +333,38 @@ class LinkSignalsTest {
         assertEquals("evil.com", link("ftp:evil.com").host)
     }
 
+    // ---- 2.1.2, C-4: ZWNJ and ZWJ inside a label are kept, as a browser (UTS #46, non-transitional) keeps them ----
+
+    private val plainPersian = "https://\u0645\u06CC\u062E\u0648\u0627\u0647\u0645.ir/login"
+    private val zwnjPersian = "https://\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645.ir/login"
+
+    @Test
+    fun zwnjHostIsNotThePlainOne() {
+        val plain = parseLink(plainPersian)
+        val zwnj = parseLink(zwnjPersian)
+        assertTrue(plain.host != zwnj.host)
+        // The plain one is still encoded as the browser does; the one with the joiner is never sent through IDN.
+        assertEquals(IDN.toASCII("\u0645\u06CC\u062E\u0648\u0627\u0647\u0645") + ".ir", plain.host)
+        assertEquals("\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645.ir", zwnj.host)
+        assertTrue(zwnj.hostHidden)
+        assertTrue(Signal.PUNYCODE in linkSignals(zwnjPersian))
+        assertTrue(Signal.HIDDEN_CHARS in linkSignals(zwnjPersian))
+    }
+
+    @Test
+    fun zwjLatinHostIsNotBanco() {
+        val l = parseLink("https://ban\u200Dco.es/")
+        assertTrue(l.host != "banco.es")
+        assertEquals("ban\u200Dco.es", l.host)
+        assertEquals("ban\u200Dco.es", l.unicodeHost)
+        assertTrue(l.hostHidden)
+        assertEquals("ban\u200Cco.es", parseLink("https://BAN\u200CCO.es/").host)
+        assertTrue(Signal.PUNYCODE in linkSignals("https://ban\u200Dco.es/"))
+        // Other invisible characters a browser drops still go: a soft hyphen is banco.es.
+        assertEquals("banco.es", parseLink("https://ban\u00ADco.es/").host)
+        assertEquals("banco.es", parseLink("https://ban\u200Bco.es/").host)
+    }
+
     // ---- Where Java's IDNA2003 differs from a browser ----
 
     @Test

@@ -6,6 +6,7 @@ import app.seguridad.tools.qr.SPECIAL_SCHEMES
 import app.seguridad.tools.qr.asBrowserReadsIt
 import app.seguridad.tools.qr.parseLink
 import app.seguridad.tools.qr.schemeOf
+import app.seguridad.tools.qr.visibleText
 import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultFile
 import app.seguridad.vault.VaultLimits
@@ -698,7 +699,7 @@ private fun shownUrl(url: String): String {
     val t = asBrowserReadsIt(url)
     if (t.isEmpty()) return ""
     val link = parseLink(comparedLink(t))
-    val host = hostOf(link)
+    val host = markJoiners(hostOf(link))
     if (host.isNotEmpty()) return if (link.scheme == "https") host else link.scheme + "://" + host
     var start = schemeOf(t)?.let { it.length + 1 } ?: 0
     while (start < t.length && (t[start] == '/' || t[start] == '\\')) start++
@@ -707,12 +708,22 @@ private fun shownUrl(url: String): String {
 }
 
 /**
+ * C-4: [host] with each ZWNJ and ZWJ a browser keeps in it ([parseLink] keeps them) shown with the QR inspector's mark
+ * ([visibleText]: «ban⟨U+200D⟩co.es»), so the row never shows «banco.es» for a name that is not that one. Only those
+ * two: the rest of the row is plain text as before ([plainReportText]).
+ */
+private fun markJoiners(host: String): String =
+    if ('\u200C' !in host && '\u200D' !in host) host
+    else host.replace("\u200C", visibleText("\u200C")).replace("\u200D", visibleText("\u200D"))
+
+/**
  * The line under a duplicate's title in the preview (branch review A, M-4), as plain text ([plainReportText]):
  * - a `LOGIN`: its user and the web «Reemplazar» brings in ([replaceWith] takes the file's URL), as a browser reads it
  *   ([shownUrl]): «ana · banco-acceso.example». So a file that matches «Banco» / «ana» by title and user cannot change
  *   the vault's web without the row saying where it goes. The scheme is shown when it is not https (ruling R45):
  *   «ana · http://banco.es»; a URL without a host is shown as the browser reads it, and the user info never is:
- *   «ana · mailto:…@banco.es»;
+ *   «ana · mailto:…@banco.es». A ZWNJ or ZWJ a browser keeps in the host is shown with the QR inspector's mark
+ *   ([visibleText], C-4): «ana · ban⟨U+200D⟩co.es»;
  * - a `TOTP`: its issuer and account;
  * - anything else: empty.
  * Only [entry]'s own (the file's) values; the vault's entry is not read.
