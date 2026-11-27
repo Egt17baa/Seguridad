@@ -21,6 +21,8 @@ import app.seguridad.vault.normalizeTags
 import app.seguridad.vault.totpKeyOf
 import app.seguridad.vault.withNewPassword
 import app.seguridad.vault.withVersion
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
@@ -109,14 +111,19 @@ sealed interface ApplyResult {
  * - a `NOTE` matches by its title's key (as a login's) and its text trimmed.
  * Only entries of the same type are compared, so `IDENTITY`, `CONTACT` and `SEED` entries never match. The file is
  * checked against itself first: an item equal to an earlier one is only counted ([MergePlan.repeatedInFile]). Linear
- * in the size of both lists (hash maps, no pairwise comparison). 2.0 (ruling T1-3): before anything, an item whose entry
- * would pass the limits of one entry ([entryFitsImported]) never enters, as a new item or a duplicate: it goes to
- * [MergePlan.skipped] with [SkipReason.ENTRY_TOO_BIG], with the reader's, in the file's order.
+ * in the size of both lists (hash maps, no pairwise comparison). 2.0 (ruling T1-3): an item whose entry would pass the
+ * limits of one entry ([entryFitsImported]) never enters, as a new item or a duplicate: it goes to [MergePlan.skipped]
+ * with [SkipReason.ENTRY_TOO_BIG], with the reader's, in the file's order. 2.1.2 (C-3, refuerzo 28): an item equal to an
+ * earlier one that entered is counted as repeated before its size is measured, so it is never worked out twice; the tags
+ * of each list of folders are worked out once ([TagBudget.importTagsOf]); and [checkCancelled] runs for every entry of
+ * the vault and every item, so a cancelled plan stops at once ([planMergeOrNoMemory] passes the coroutine's
+ * `ensureActive`).
  */
-fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): MergePlan {
+fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long, checkCancelled: () -> Unit = {}): MergePlan {
     val inVault = Matcher<String>(codesOfEveryType = true)
     val byId = HashMap<String, VaultEntry>(existing.size * 2)
     for (e in existing) {
+        checkCancelled()
         // 2.0, task 3 (focus 5): what is in the trash is no duplicate.
         if (e.deletedAt != null) continue
         inVault.add(e, e.id)
@@ -127,13 +134,17 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
     val duplicates = ArrayList<Duplicate>()
     var repeated = 0
     val tooBig = ArrayList<Skipped>()
+    val budget = TagBudget(liveTags(existing))
     for (item in read.items) {
-        if (!entryFitsImported(item.entry, item.folders, read.format)) {
-            tooBig += Skipped(item.index, plainReportText(item.entry.title), SkipReason.ENTRY_TOO_BIG)
-            continue
-        }
+        checkCancelled()
+        // Refuerzo 28: a repeat of an item that entered is only counted, never measured. An item too big is not added to
+        // [inFile], so a later one with the same key that fits still enters (as before).
         if (inFile.find(item.entry) != null) {
             repeated++
+            continue
+        }
+        if (!entryFitsImported(item.entry, item.folders, read.format, budget::importTagsOf)) {
+            tooBig += Skipped(item.index, plainReportText(item.entry.title), SkipReason.ENTRY_TOO_BIG)
             continue
         }
         inFile.add(item.entry, Unit)
@@ -147,8 +158,10 @@ fun planMerge(read: ImportRead, existing: List<VaultEntry>, revision: Long): Mer
             newItems += item
         }
     }
-    val budget = TagBudget(liveTags(existing))
-    for (item in newItems) budget.tagsFor(item.folders, read.format)
+    for (item in newItems) {
+        checkCancelled()
+        budget.tagsFor(item.folders, read.format)
+    }
     val skipped = if (tooBig.isEmpty()) read.skipped else (read.skipped + tooBig).sortedBy { it.index }
     return MergePlan(revision, read.format, newItems, duplicates, repeated, skipped, read.becameNotes, budget.created)
 }
@@ -166,12 +179,18 @@ private val WIDEST_ID = "0".repeat(36)
 /**
  * Whether the entry an import makes of [entry] is within the limits of one entry ([VaultLimits.ENTRY_MAX_JSON_BYTES],
  * [entryLimitProblem]), measured as it would be stored: with an id of a UUID's length, the widest dates and every tag of
- * [folders] ([importTags]; the budget can only give fewer). The lengths of its texts in JSON are counted first
- * ([escapedTextBytes], nothing built), so an item clearly over the limit, hostile or not, is never encoded.
+ * [folders] ([importTags], or [tagsOf], the plan's memo of it; the budget can only give fewer). The lengths of its texts
+ * in JSON are counted first ([escapedTextBytes], nothing built), so an item clearly over the limit, hostile or not, is
+ * never encoded.
  */
-internal fun entryFitsImported(entry: VaultEntry, folders: List<String>, format: ImportFormat): Boolean {
+internal fun entryFitsImported(
+    entry: VaultEntry,
+    folders: List<String>,
+    format: ImportFormat,
+    tagsOf: (List<String>, ImportFormat) -> List<String> = ::importTags,
+): Boolean {
     val stored = entry.copy(
-        id = WIDEST_ID, createdAt = Long.MAX_VALUE, updatedAt = Long.MAX_VALUE, tags = importTags(folders, format),
+        id = WIDEST_ID, createdAt = Long.MAX_VALUE, updatedAt = Long.MAX_VALUE, tags = tagsOf(folders, format),
         passwordHistory = emptyList(), attachments = emptyList(),
     )
     if (escapedTextBytes(listOf(stored)) > VaultLimits.ENTRY_MAX_JSON_BYTES) return false
@@ -186,7 +205,10 @@ internal fun entryFitsImported(entry: VaultEntry, folders: List<String>, format:
  * snapshot's entries for the preview's estimate: `importSnapshot()`, then [planMerge] on `Dispatchers.Default` (this
  * function runs [planMerge] on the caller's dispatcher).
  */
-suspend fun VaultStore.planImport(read: ImportRead): MergePlan? = importSnapshot()?.let { planMerge(read, it.entries, it.revision) }
+suspend fun VaultStore.planImport(read: ImportRead): MergePlan? = importSnapshot()?.let {
+    val context = currentCoroutineContext()
+    planMerge(read, it.entries, it.revision) { context.ensureActive() }
+}
 
 /**
  * Most tags one import may create that the vault did not have (ruling R18): a hostile export can put each of its 20 000
@@ -201,15 +223,21 @@ const val IMPORT_MAX_NEW_TAGS = 100
  * (the vault's). An item whose new folder tags would pass it keeps its origin tag ([ImportFormat.originTag]) and only
  * the folder tags that are in [had] or already [created]. [created] are the new tags given. An item for «Reemplazar»
  * passes the tags of the vault's entry as `onto`: only the ones [replaceWith] can still add (those it lacks, up to
- * [MAX_TAGS]) are given and counted (ruling R68).
+ * [MAX_TAGS]) are given and counted (ruling R68). 2.1.2 (C-3): [importTagsOf] keeps [importTags] of each list of folders
+ * of one plan or merge, so a list shared by thousands of items is worked out once.
  */
 internal class TagBudget(private val had: Set<String>, private val max: Int = IMPORT_MAX_NEW_TAGS) {
     val created = LinkedHashSet<String>()
     private var createdFolders = 0
+    private val memo = HashMap<Pair<List<String>, ImportFormat>, List<String>>()
+
+    /** [importTags] of [folders] and [format], worked out once for this budget. */
+    fun importTagsOf(folders: List<String>, format: ImportFormat): List<String> =
+        memo.getOrPut(folders to format) { importTags(folders, format) }
 
     fun tagsFor(folders: List<String>, format: ImportFormat, onto: List<String>? = null): List<String> {
         // Ruling R68: for «Reemplazar» onto an entry with tags [onto], only those [replaceWith] can still add count.
-        val full = importTags(folders, format).let { all ->
+        val full = importTagsOf(folders, format).let { all ->
             if (onto == null) all else all.filter { it !in onto }.take(maxOf(0, MAX_TAGS - onto.size))
         }
         val origin = format.originTag
@@ -300,12 +328,12 @@ fun mergeImport(
             DuplicateChoice.SKIP -> Unit
             DuplicateChoice.KEEP_BOTH -> {
                 added += tagged.copy(id = newId(), createdAt = now, updatedAt = now)
-                lost += importTags(item.folders, plan.format) - tags.toSet()
+                lost += budget.importTagsOf(item.folders, plan.format) - tags.toSet()
             }
             DuplicateChoice.REPLACE -> {
                 val at = position[duplicate!!.existingId] ?: continue
                 val replaced = replaceWith(out[at], tagged, now, zone)
-                val full = importTags(item.folders, plan.format)
+                val full = budget.importTagsOf(item.folders, plan.format)
                 // Only what the cap really took away: an entry already at MAX_TAGS would have taken none of them.
                 if (full.size != tags.size) lost += replaceWith(out[at], tagged.copy(tags = full), now, zone).tags - replaced.tags.toSet()
                 out[at] = replaced

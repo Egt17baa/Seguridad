@@ -220,7 +220,7 @@ class RedTeam20Recheck3Test {
         try {
             beforeImportWork = { throw CancellationException("cancelled") }
             try {
-                planMergeOrNoMemory(one, emptyList(), 0)
+                kotlinx.coroutines.runBlocking { planMergeOrNoMemory(one, emptyList(), 0) }
                 fail("planMergeOrNoMemory swallowed a cancel")
             } catch (e: CancellationException) {
                 assertEquals("cancelled", e.message)
@@ -233,7 +233,7 @@ class RedTeam20Recheck3Test {
             }
             beforeImportWork = { throw StackOverflowError() }
             try {
-                planMergeOrNoMemory(one, emptyList(), 0)
+                kotlinx.coroutines.runBlocking { planMergeOrNoMemory(one, emptyList(), 0) }
                 fail("another Error became null")
             } catch (e: StackOverflowError) {
                 // As it must: only running out of memory gives null.
@@ -241,7 +241,7 @@ class RedTeam20Recheck3Test {
         } finally {
             beforeImportWork = {}
         }
-        assertTrue(planMergeOrNoMemory(one, emptyList(), 0) != null)
+        assertTrue(kotlinx.coroutines.runBlocking { planMergeOrNoMemory(one, emptyList(), 0) } != null)
         val wrappers = code("imports/ImportMemory.kt")
         assertEquals(2, Regex("""catch \(""").findAll(wrappers).count())
         assertEquals(2, Regex("""catch \(e: OutOfMemoryError\)""").findAll(wrappers).count())

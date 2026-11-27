@@ -709,12 +709,12 @@ class ImportStateTest {
     @Test fun theWrappersGiveNullWithoutMemory() {
         try {
             beforeImportWork = { throw OutOfMemoryError() }
-            assertNull(planMergeOrNoMemory(read, existing, 9))
+            assertNull(kotlinx.coroutines.runBlocking { planMergeOrNoMemory(read, existing, 9) })
             assertNull(previewEstimateOrNoMemory(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L))
         } finally {
             beforeImportWork = {}
         }
-        assertEquals(plan(), planMergeOrNoMemory(read, existing, 9))
+        assertEquals(plan(), kotlinx.coroutines.runBlocking { planMergeOrNoMemory(read, existing, 9) })
         assertEquals(previewEstimate(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L), previewEstimateOrNoMemory(plan(), DuplicateChoice.SKIP, emptyMap(), existing, VaultData(), 1L))
     }
 }

@@ -347,8 +347,10 @@ internal fun wellFormed(s: String): Boolean {
 
 /**
  * The folder or group names of a file, by their id ([idKey]) as [nameKey]. A list that is not an array, a record
- * without a string id and name, and a name with a NUL or a lone surrogate ([wellFormed]) give no folder: folders
- * only become tags, so the elements still enter. With an id written twice, the first one counts.
+ * without a string id and name, a name with a NUL or a lone surrogate ([wellFormed]) and (2.1.2, C-3) a name longer
+ * than [MAX_TITLE] characters give no folder: folders only become tags, so the elements still enter, without it. A
+ * huge name shared by every element would otherwise be worked over once per element by the plan. With an id written
+ * twice, the first one counts.
  */
 internal fun folderNames(list: JsonElement?, idKey: String, nameKey: String = "name"): Map<String, String> {
     val out = HashMap<String, String>()
@@ -356,7 +358,8 @@ internal fun folderNames(list: JsonElement?, idKey: String, nameKey: String = "n
     for (f in list) {
         val o = f as? JsonObject ?: continue
         val id = (o[idKey] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-        val name = (o[nameKey] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf(::wellFormed) ?: continue
+        val name = (o[nameKey] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?.takeIf { it.length <= MAX_TITLE && wellFormed(it) } ?: continue
         out.putIfAbsent(id, name)
     }
     return out

@@ -2,6 +2,8 @@ package app.seguridad.imports
 
 import app.seguridad.vault.VaultData
 import app.seguridad.vault.VaultEntry
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /*
  * Round 3 of the fixes of the attack, RT-27: «Importar de otra app» works over the whole vault in two places, the plan
@@ -14,12 +16,19 @@ import app.seguridad.vault.VaultEntry
 /** Runs right before each wrapper's work; only tests change it (an [OutOfMemoryError] made by hand). */
 @Volatile internal var beforeImportWork: () -> Unit = {}
 
-/** [planMerge], or null when the phone ran out of memory working it out. */
-internal fun planMergeOrNoMemory(read: ImportRead, existing: List<VaultEntry>, revision: Long): MergePlan? = try {
-    beforeImportWork()
-    planMerge(read, existing, revision)
-} catch (e: OutOfMemoryError) {
-    null
+/**
+ * [planMerge], or null when the phone ran out of memory working it out. 2.1.2 (C-3): it stops when the caller's
+ * coroutine is cancelled («Cancelar», or leaving the screen): [planMerge] checks it for every entry and item, and the
+ * [kotlinx.coroutines.CancellationException] goes out as it is.
+ */
+internal suspend fun planMergeOrNoMemory(read: ImportRead, existing: List<VaultEntry>, revision: Long): MergePlan? {
+    val context = currentCoroutineContext()
+    return try {
+        beforeImportWork()
+        planMerge(read, existing, revision) { context.ensureActive() }
+    } catch (e: OutOfMemoryError) {
+        null
+    }
 }
 
 /** [previewEstimate], or null when the phone ran out of memory working it out. */
