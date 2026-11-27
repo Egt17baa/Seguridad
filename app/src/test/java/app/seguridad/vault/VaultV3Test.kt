@@ -317,7 +317,7 @@ class VaultV3Test {
         s.upsert(first.copy(updatedAt = clock + 1))
         assertEquals(clock + 1, s.entries().identity()!!.updatedAt)
         // Y borrada la identidad, se puede crear otra.
-        s.delete(first.id)
+        s.delete(first.id, sinceLock = s.lockEpoch)
         s.upsert(identityEntry())
         assertEquals(1, s.entries().count { it.type == EntryType.IDENTITY })
     }

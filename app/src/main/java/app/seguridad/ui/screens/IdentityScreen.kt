@@ -308,8 +308,9 @@ private fun DeleteIdentity(store: VaultStore, identity: VaultEntry, snackbar: Sn
                 Button(
                     onClick = {
                         step = 0
+                        val since = store.lockEpoch // 2.1.2, R-4 (M-2): the epoch of the tap, before the work is launched.
                         scope.launch {
-                            saveFailureMessage(attempt { store.delete(identity.id) })?.let { snackbar.showSnackbar(it) }
+                            saveFailureMessage(attempt { store.delete(identity.id, since) })?.let { snackbar.showSnackbar(it) }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = NegativeColor, contentColor = MaterialTheme.colorScheme.surface),

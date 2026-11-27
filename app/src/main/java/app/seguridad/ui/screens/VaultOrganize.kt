@@ -143,17 +143,17 @@ internal fun OrganizeDialogs(
     fun folder(id: String) = folders.firstOrNull { it.id == id }
     when (d) {
         OrganizeDialog.Folders -> FoldersDialog(folders, result, list, onDone, onNext)
-        is OrganizeDialog.NewFolder -> NameDialog(FOLDER_NEW, FOLDER_NAME_LABEL, "", onDone) { name, _ ->
+        is OrganizeDialog.NewFolder -> NameDialog(FOLDER_NEW, FOLDER_NAME_LABEL, "", onDone, lockEpoch = { 0 }) { name, _ ->
             store.createFolder(name, d.parentId) != null
         }
         is OrganizeDialog.RenameFolder -> {
             val f = folder(d.id) ?: return Gone(onDone)
-            NameDialog(FOLDER_RENAME, FOLDER_NAME_LABEL, f.name, onDone) { name, _ -> store.renameFolder(f.id, name) || name.trim() == f.name }
+            NameDialog(FOLDER_RENAME, FOLDER_NAME_LABEL, f.name, onDone, lockEpoch = { 0 }) { name, _ -> store.renameFolder(f.id, name) || name.trim() == f.name }
         }
         is OrganizeDialog.MoveFolder -> {
             val f = folder(d.id) ?: return Gone(onDone)
             val exclude = descendants(folders, f.id) + f.id
-            FolderPicker(folderMoveTitle(plainReportText(f.name)), folders, exclude, FOLDER_TOP, maxDepth = VaultLimits.FOLDER_DEPTH_MAX, onDone) { target, _ ->
+            FolderPicker(folderMoveTitle(plainReportText(f.name)), folders, exclude, FOLDER_TOP, maxDepth = VaultLimits.FOLDER_DEPTH_MAX, onDone, lockEpoch = { 0 }) { target, _ ->
                 store.moveFolder(f.id, target)
             }
         }
@@ -189,7 +189,7 @@ internal fun OrganizeDialogs(
         }
         is OrganizeDialog.SaveView -> {
             val existing = d.id?.let { id -> data.views.firstOrNull { it.id == id } }
-            NameDialog(VIEW_SAVE, VIEW_NAME_LABEL, existing?.name.orEmpty(), onDone, note = VIEW_SAVE_SHORT) { name, _ ->
+            NameDialog(VIEW_SAVE, VIEW_NAME_LABEL, existing?.name.orEmpty(), onDone, note = VIEW_SAVE_SHORT, lockEpoch = { 0 }) { name, _ ->
                 store.saveView(SavedView(existing?.id ?: UUID.randomUUID().toString(), name, list.current())) || existing != null
             }
         }
@@ -252,7 +252,8 @@ private fun FoldersDialog(folders: List<Folder>, result: ListResult, list: Entry
 
 /**
  * A name to type, saved by [save] (true when done); a refusal of the store is shown here. [save] also gets [lockEpoch] as
- * it was at the tap on «Guardar», read before the work is launched (2.1.2, R-4); 0 for a save that does not use it.
+ * it was at the tap on «Guardar», read before the work is launched (2.1.2, R-4); a save that does not use it passes
+ * `{ 0 }`, by name, so none forgets it (M-1).
  */
 @Composable
 private fun NameDialog(
@@ -261,7 +262,7 @@ private fun NameDialog(
     initial: String,
     onDone: () -> Unit,
     note: String? = null,
-    lockEpoch: () -> Int = { 0 },
+    lockEpoch: () -> Int,
     save: suspend (String, Int) -> Boolean,
 ) {
     val scope = rememberCoroutineScope()
@@ -304,7 +305,8 @@ private fun NameDialog(
 /**
  * Picks a folder: [none] (no folder, or the top) and the tree, without the folders of [exclude], and none deeper than
  * [maxDepth] levels (moving a folder checks its own branch in the store). [pick] gets the folder's id, null for [none],
- * and [lockEpoch] as it was at the tap, read before the work is launched (2.1.2, R-4); 0 for a pick that does not use it.
+ * and [lockEpoch] as it was at the tap, read before the work is launched (2.1.2, R-4); a pick that does not use it passes
+ * `{ 0 }`, by name, so none forgets it (M-1).
  */
 @Composable
 private fun FolderPicker(
@@ -314,7 +316,7 @@ private fun FolderPicker(
     none: String,
     maxDepth: Int,
     onDone: () -> Unit,
-    lockEpoch: () -> Int = { 0 },
+    lockEpoch: () -> Int,
     pick: suspend (String?, Int) -> Boolean,
 ) {
     val scope = rememberCoroutineScope()
@@ -399,9 +401,10 @@ private fun DeleteFolderDialog(store: VaultStore, f: Folder, folders: List<Folde
         confirmButton = {
             TextButton(enabled = !busy, onClick = {
                 busy = true
+                val since = store.lockEpoch // 2.1.2, R-4 (M-2): the epoch of the tap, before the work is launched.
                 scope.launch {
                     try {
-                        store.deleteFolder(f.id, to)
+                        store.deleteFolder(f.id, to, since)
                         // The list was showing it: it shows the whole vault again.
                         if (list.filter.folderId == f.id) list.filter = list.filter.copy(folderId = null, includeSubfolders = true)
                         onDone()

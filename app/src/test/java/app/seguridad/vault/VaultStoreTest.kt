@@ -459,7 +459,7 @@ class VaultStoreTest {
         assertEquals(listOf("Wallet"), (s.state.value as VaultState.Unlocked).entries.map { it.title })
         // A real change cannot be saved: it fails loudly and nothing changes.
         try {
-            s.delete("1")
+            s.delete("1", sinceLock = s.lockEpoch)
             fail()
         } catch (e: java.io.IOException) {
             // expected

@@ -276,7 +276,7 @@ class AttachmentsTest {
         val fa = fileOf(s.entry("a").attachments.single())
         val fb = fileOf(s.entry("b").attachments.single())
         // 2.0, task 3: deleting sends it to the trash, with its files; they go when it is deleted for good.
-        s.delete("a")
+        s.delete("a", sinceLock = s.lockEpoch)
         assertTrue(fa.exists())
         assertEquals(1, s.deleteForever(setOf("a")))
         assertFalse(fa.exists())

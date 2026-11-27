@@ -84,7 +84,7 @@ class FoldersTest {
         assertTrue(s.upsert(note("2")))
         assertEquals(2, s.moveEntries(setOf("1", "2"), b.id, sinceLock = s.lockEpoch))
         s.saveView(SavedView("v", "Proyectos", EntryFilter(folderId = b.id)))
-        assertTrue(s.deleteFolder(b.id, FolderDeletion.PARENT))
+        assertTrue(s.deleteFolder(b.id, FolderDeletion.PARENT, sinceLock = s.lockEpoch))
         val d = s.data()
         assertEquals(listOf(a.id, c.id), d.folders.map { it.id })
         assertEquals(a.id, d.folders.single { it.id == c.id }.parentId) // Its subfolder goes up too.
@@ -92,7 +92,7 @@ class FoldersTest {
         assertTrue(d.trash.isEmpty())
         // A view of the folder now looks at the folder that took its place.
         assertEquals(a.id, d.views.single().filter.folderId)
-        assertFalse(s.deleteFolder("no-existe", FolderDeletion.PARENT))
+        assertFalse(s.deleteFolder("no-existe", FolderDeletion.PARENT, sinceLock = s.lockEpoch))
     }
 
     /** Review fixes, CR-4: a subfolder that goes up cannot land next to a folder of the same name. */
@@ -112,18 +112,18 @@ class FoldersTest {
         val file = File(tmp.root, "vault.bin").readBytes()
         val before = s.data()
         for (id in listOf(top.id, mid.id)) {
-            val e = assertThrows(OrganizeRefused::class.java) { kotlinx.coroutines.runBlocking { s.deleteFolder(id, FolderDeletion.PARENT) } }
+            val e = assertThrows(OrganizeRefused::class.java) { kotlinx.coroutines.runBlocking { s.deleteFolder(id, FolderDeletion.PARENT, sinceLock = s.lockEpoch) } }
             assertEquals(FOLDER_DELETE_NAME_TAKEN, e.message)
         }
         // A refusal changes nothing, in memory or on disk.
         assertEquals(before, s.data())
         assertTrue(File(tmp.root, "vault.bin").readBytes().contentEquals(file))
         // TRASH does not move subfolders: it is not refused.
-        assertTrue(s.deleteFolder(mid.id, FolderDeletion.TRASH))
+        assertTrue(s.deleteFolder(mid.id, FolderDeletion.TRASH, sinceLock = s.lockEpoch))
         assertEquals(setOf("1"), s.data().trash.map { it.id }.toSet())
         // With no clash, it deletes: «Trabajo» > «Casa» once the top «casa» is renamed.
         s.renameFolder(s.data().folders.single { it.name == "casa" }.id, "Casa vieja")
-        assertTrue(s.deleteFolder(top.id, FolderDeletion.PARENT))
+        assertTrue(s.deleteFolder(top.id, FolderDeletion.PARENT, sinceLock = s.lockEpoch))
         assertNull(s.data().folders.single { it.name == "Casa" }.parentId)
     }
 
@@ -156,7 +156,7 @@ class FoldersTest {
         s.moveEntries(setOf("1"), a.id, sinceLock = s.lockEpoch)
         s.moveEntries(setOf("2"), b.id, sinceLock = s.lockEpoch)
         clock += 1000
-        assertTrue(s.deleteFolder(a.id, FolderDeletion.TRASH))
+        assertTrue(s.deleteFolder(a.id, FolderDeletion.TRASH, sinceLock = s.lockEpoch))
         val d = s.data()
         assertTrue(d.folders.isEmpty()) // The folder and its subfolders.
         assertEquals(listOf("3"), d.live.map { it.id })
@@ -233,7 +233,7 @@ class FoldersTest {
         // A version restored keeps the folder the entry is in now.
         val version = s.data().live.single().history.first()
         assertTrue(s.moveEntries(setOf("1"), null, sinceLock = s.lockEpoch) == 1)
-        assertTrue(s.restoreVersion("1", version.savedAt, 0))
+        assertTrue(s.restoreVersion("1", version.savedAt, s.lockEpoch, index = 0))
         assertNull(s.data().live.single().folderId)
     }
 

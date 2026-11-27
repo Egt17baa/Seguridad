@@ -93,10 +93,11 @@ fun EntryHistoryScreen(store: VaultStore, twoStep: TwoStepCopy, id: String, onBa
             itemsIndexed(entry.history, key = { i, v -> "${v.savedAt}-$i" }) { i, v ->
                 VersionCard(v, onCopied = twoStep::clear) {
                     message = null
+                    val since = store.lockEpoch // 2.1.2, R-4 (M-2): the epoch of the tap, before the work is launched.
                     scope.launch {
                         message = try {
                             // Review M-7: the version at this place, not only the first of its millisecond.
-                            if (store.restoreVersion(entry.id, v.savedAt, index = i)) HISTORY_RESTORED to false else HISTORY_RESTORE_REFUSED to true
+                            if (store.restoreVersion(entry.id, v.savedAt, since, index = i)) HISTORY_RESTORED to false else HISTORY_RESTORE_REFUSED to true
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {

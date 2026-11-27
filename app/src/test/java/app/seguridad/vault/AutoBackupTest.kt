@@ -638,7 +638,7 @@ class AutoBackupTest {
         s.lock()
         s.unlock(master.toCharArray()) // Bookkeeping only (the last master check): not a change to copy.
         assertEquals(2L, s.revision.value)
-        s.delete("nada") // Nothing removed, but saved: still counts (cheap and safe).
+        s.delete("nada", sinceLock = s.lockEpoch) // Nothing removed, but saved: still counts (cheap and safe).
         val afterDelete = s.revision.value
         assertTrue(s.addAttachment("1", ByteArrayInputStream(ByteArray(10)), "a.txt"))
         assertEquals(afterDelete + 1, s.revision.value)

@@ -58,7 +58,7 @@ class TrashTest {
         assertEquals(listOf("b"), s.open().entries.map { it.id })
         assertEquals(listOf("a"), s.open().trash.map { it.id })
         // delete(id) sends it to the trash too.
-        assertTrue(s.delete("b"))
+        assertTrue(s.delete("b", sinceLock = s.lockEpoch))
         assertEquals(emptyList<String>(), s.open().entries.map { it.id })
         assertEquals(setOf("a", "b"), s.open().trash.map { it.id }.toSet())
     }
@@ -87,9 +87,9 @@ class TrashTest {
         assertTrue(s.upsert(me))
         // Never to the trash: its screen deletes it for good, after confirmations that say so.
         assertEquals(0, s.moveToTrash(setOf("me")))
-        assertTrue(s.delete("me"))
+        assertTrue(s.delete("me", sinceLock = s.lockEpoch))
         assertTrue(s.open().data.entries.isEmpty())
-        assertFalse(s.delete("me"))
+        assertFalse(s.delete("me", sinceLock = s.lockEpoch))
     }
 
     @Test fun restoreNeverMakesASecondIdentity() = runTest {
@@ -107,7 +107,7 @@ class TrashTest {
         assertEquals(listOf("me2"), again.open().entries.map { it.id })
         assertEquals(listOf("me"), again.open().trash.map { it.id })
         // Without another one, it comes back.
-        assertTrue(again.delete("me2"))
+        assertTrue(again.delete("me2", sinceLock = again.lockEpoch))
         assertEquals(1, again.restore(setOf("me"), sinceLock = again.lockEpoch))
     }
 

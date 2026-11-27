@@ -1169,8 +1169,13 @@ class VaultStore(
     /** Moves folder [id] inside [newParentId] (null for the top); refuses a cycle and more than 5 levels. */
     suspend fun moveFolder(id: String, newParentId: String?): Boolean = modifyData { data -> data.withFolderMoved(id, newParentId) }
 
-    /** Deletes folder [id]; its entries go to the folder above or to the trash ([FolderDeletion], [withoutFolder]). */
-    suspend fun deleteFolder(id: String, entriesTo: FolderDeletion): Boolean = modifyData { data -> data.withoutFolder(id, entriesTo, now()) }
+    /**
+     * Deletes folder [id]; its entries go to the folder above or to the trash ([FolderDeletion], [withoutFolder]). 2.1.2,
+     * R-4 (M-2): false, with nothing saved, when the vault locked since [sinceLock] (the [lockEpoch] of the tap), also if
+     * it was opened again meanwhile.
+     */
+    suspend fun deleteFolder(id: String, entriesTo: FolderDeletion, sinceLock: Int): Boolean =
+        modifyData(sinceLock = sinceLock) { data -> data.withoutFolder(id, entriesTo, now()) }
 
     /**
      * Moves the entries of [ids] to [folderId] (null for none), in one save; how many moved ([withEntriesMoved]). 2.1.2,
@@ -1250,12 +1255,14 @@ class VaultStore(
     /**
      * 2.0, task 3: sends the entry to the trash ([moveToTrash]); true when it was there to move. The identity and the
      * contacts ([EntryType.isPersonal], their own tab) never go to the trash: they are deleted for good, as before, after
-     * the screen's own confirmations, which say so; their files go with the collection after the save.
+     * the screen's own confirmations, which say so; their files go with the collection after the save. 2.1.2, R-4
+     * (M-2): false, with nothing deleted, when the vault locked since [sinceLock] (the [lockEpoch] of the tap), also if it
+     * was opened again meanwhile.
      */
-    suspend fun delete(id: String): Boolean {
+    suspend fun delete(id: String, sinceLock: Int): Boolean {
         val personal = (_state.value as? VaultState.Unlocked)?.entries?.any { it.id == id && it.type.isPersonal } == true
-        if (!personal) return moveToTrash(setOf(id)) > 0
-        return modify { list -> if (list.none { it.id == id && it.type.isPersonal }) null else list.filterNot { it.id == id } }
+        if (!personal) return trash(setOf(id), sinceLock).isNotEmpty()
+        return modify(sinceLock = sinceLock) { list -> if (list.none { it.id == id && it.type.isPersonal }) null else list.filterNot { it.id == id } }
     }
 
     /**
@@ -1337,9 +1344,10 @@ class VaultStore(
      * it (review M-7: two versions of the same millisecond); with it, the version there must have [savedAt], and without
      * it the first with [savedAt] is taken. False, with nothing saved, when there is no such entry (out of the trash) or
      * version, the version is the entry as it is, or either is an identity or a contact (review M-2: a version from a
-     * copy made elsewhere never turns an entry into one).
+     * copy made elsewhere never turns an entry into one). 2.1.2, R-4 (M-2): false, with nothing saved, when the vault
+     * locked since [sinceLock] (the [lockEpoch] of the tap), also if it was opened again meanwhile.
      */
-    suspend fun restoreVersion(entryId: String, savedAt: Long, index: Int = -1): Boolean = modifyData { data ->
+    suspend fun restoreVersion(entryId: String, savedAt: Long, sinceLock: Int, index: Int = -1): Boolean = modifyData(sinceLock = sinceLock) { data ->
         val current = data.live.firstOrNull { it.id == entryId } ?: return@modifyData null
         val found = if (index >= 0) current.history.getOrNull(index)?.takeIf { it.savedAt == savedAt } else current.history.firstOrNull { it.savedAt == savedAt }
         val version = found?.entry ?: return@modifyData null

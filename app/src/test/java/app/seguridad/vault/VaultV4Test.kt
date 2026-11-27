@@ -263,7 +263,7 @@ class VaultV4Test {
         // No save until the choice: neither an entry nor a new master password.
         val refused = assertThrows(IllegalStateException::class.java) { kotlinx.coroutines.runBlocking { s.upsert(note("n")) } }
         assertEquals(UPGRADE_PENDING, refused.message)
-        assertThrows(IllegalStateException::class.java) { kotlinx.coroutines.runBlocking { s.delete("e2") } }
+        assertThrows(IllegalStateException::class.java) { kotlinx.coroutines.runBlocking { s.delete("e2", sinceLock = s.lockEpoch) } }
         assertThrows(IllegalStateException::class.java) { kotlinx.coroutines.runBlocking { s.changeMaster("una-maestra-nueva-larga".toCharArray()) } }
         assertEquals(text("vault-1.4.3.json"), File(dir, "vault.bin").readText())
         // «Exportar una copia antes» exports the v3 on disk, which earlier versions open.

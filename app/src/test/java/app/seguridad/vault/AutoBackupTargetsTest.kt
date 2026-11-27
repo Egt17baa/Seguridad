@@ -1603,7 +1603,7 @@ class AutoBackupTargetsTest {
             create(masterA.toCharArray())
             upsert(note("1"))
         }
-        assertTrue(s.delete("1")) // In the trash.
+        assertTrue(s.delete("1", sinceLock = s.lockEpoch)) // In the trash.
         val f = Folder()
         val a = auto(s, "a", mapOf("content://f" to f))
         settings.updateVault("a") { it.withTargetAdded("content://f", BackupSchedule.DAILY) }

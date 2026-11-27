@@ -96,7 +96,7 @@ class DuplicateEntryTest {
         // A version restored with the old password: changed again, now.
         clock += 10_000
         assertTrue(s.upsert(saved().copy(notes = "tercera")))
-        assertTrue(s.restoreVersion("l", saved().history.first().savedAt, 0))
+        assertTrue(s.restoreVersion("l", saved().history.first().savedAt, s.lockEpoch, index = 0))
         assertEquals(changedAt, saved().passwordChangedAt) // That version had the same password.
         // A wifi's password too.
         val wifi = VaultEntry("w", EntryType.WIFI, "Casa", createdAt = clock, updatedAt = clock, fields = listOf(CustomField("password", "Contraseña", FieldKind.HIDDEN, "clave-wifi-1")))

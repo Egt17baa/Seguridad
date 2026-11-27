@@ -167,9 +167,10 @@ private fun ContactDetail(store: VaultStore, entry: VaultEntry, snackbar: Snackb
                     onClick = {
                         dialog = NONE
                         busy = true
+                        val since = store.lockEpoch // 2.1.2, R-4 (M-2): the epoch of the tap, before the work is launched.
                         scope.launch {
                             // Deleted: the contact is gone from the list and the screen goes back by itself (once).
-                            saveFailureMessage(attempt { store.delete(entry.id) })?.let { snackbar.showSnackbar(it) }
+                            saveFailureMessage(attempt { store.delete(entry.id, since) })?.let { snackbar.showSnackbar(it) }
                             busy = false
                         }
                     },

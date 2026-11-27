@@ -120,10 +120,10 @@ class EntryHistoryTest {
         s.edit(login("tres"))
         val first = s.entry().history.last()
         assertEquals("uno", first.entry.password)
-        assertFalse(s.restoreVersion("a", 12345L))
-        assertFalse(s.restoreVersion("otra", first.savedAt))
+        assertFalse(s.restoreVersion("a", 12345L, sinceLock = s.lockEpoch))
+        assertFalse(s.restoreVersion("otra", first.savedAt, sinceLock = s.lockEpoch))
         clock += 1_000L
-        assertTrue(s.restoreVersion("a", first.savedAt))
+        assertTrue(s.restoreVersion("a", first.savedAt, sinceLock = s.lockEpoch))
         val e = s.entry()
         assertEquals("uno", e.password)
         assertEquals(clock, e.updatedAt)
@@ -281,8 +281,8 @@ class EntryHistoryTest {
         val contact = EntryVersion(78L, VaultEntry("a", EntryType.CONTACT, "Otro", card = "AAAA", createdAt = 0, updatedAt = 0))
         f.writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, data.copy(entries = data.entries.map { it.copy(history = listOf(contact, hostile)) }))))
         val again = store().apply { load(); unlock(master.toCharArray()) }
-        assertFalse(again.restoreVersion("a", 77L))
-        assertFalse(again.restoreVersion("a", 78L))
+        assertFalse(again.restoreVersion("a", 77L, sinceLock = again.lockEpoch))
+        assertFalse(again.restoreVersion("a", 78L, sinceLock = again.lockEpoch))
         assertEquals(EntryType.LOGIN, again.entry().type)
     }
 
@@ -300,8 +300,8 @@ class EntryHistoryTest {
         f.writeText(VaultCrypto.encodeFile(VaultCrypto.write(file, dek, data.copy(entries = data.entries.map { e -> e.copy(history = e.history.map { it.copy(savedAt = 5L) }) }))))
         val again = store().apply { load(); unlock(master.toCharArray()) }
         assertEquals(listOf("dos", "uno"), again.entry().history.map { it.entry.password })
-        assertFalse("The index must match the date", again.restoreVersion("a", 6L, index = 1))
-        assertTrue(again.restoreVersion("a", 5L, index = 1))
+        assertFalse("The index must match the date", again.restoreVersion("a", 6L, index = 1, sinceLock = again.lockEpoch))
+        assertTrue(again.restoreVersion("a", 5L, index = 1, sinceLock = again.lockEpoch))
         assertEquals("uno", again.entry().password)
     }
 

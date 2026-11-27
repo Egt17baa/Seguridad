@@ -146,6 +146,46 @@ class VaultStoreSinceLockTest {
         assertTrue(s.data().trash.isEmpty())
     }
 
+    /** M-2: «Borrar carpeta» with its entries to the trash, asked for before a lock: nothing goes. */
+    @Test fun deleteFolderAfterALockChangesNothing() = runTest {
+        val s = open()
+        val folder = s.createFolder("Banco", null)!!
+        assertEquals(1, s.moveEntries(setOf("a"), folder.id, s.lockEpoch))
+        val since = s.staleEpoch()
+        assertFalse(s.deleteFolder(folder.id, FolderDeletion.TRASH, since))
+        assertEquals(listOf(folder.id), s.data().folders.map { it.id })
+        assertTrue(s.data().trash.isEmpty())
+        assertTrue(s.deleteFolder(folder.id, FolderDeletion.TRASH, s.lockEpoch))
+        assertEquals(listOf("a"), s.data().trash.map { it.id })
+    }
+
+    /** M-2: deleting an entry (to the trash) or the identity (for good), asked for before a lock: nothing goes. */
+    @Test fun deleteAfterALockDeletesNothing() = runTest {
+        val s = open()
+        assertTrue(s.upsert(VaultEntry("me", EntryType.IDENTITY, "Yo", identitySeed = "AAAA", createdAt = 0, updatedAt = 0)))
+        val since = s.staleEpoch()
+        assertFalse(s.delete("a", since))
+        assertFalse(s.delete("me", since))
+        assertEquals(setOf("a", "b", "me"), s.data().live.map { it.id }.toSet())
+        assertTrue(s.data().trash.isEmpty())
+        assertTrue(s.delete("a", s.lockEpoch))
+        assertTrue(s.delete("me", s.lockEpoch))
+        assertEquals(setOf("b"), s.data().live.map { it.id }.toSet())
+    }
+
+    /** M-2: «Restaurar esta versión», asked for before a lock: the entry stays as it is. */
+    @Test fun restoreVersionAfterALockChangesNothing() = runTest {
+        val s = open()
+        clock += 1_000L
+        assertTrue(s.upsert(login("a").copy(password = "otra-clave")))
+        val version = s.data().live.single { it.id == "a" }.history.single()
+        val since = s.staleEpoch()
+        assertFalse(s.restoreVersion("a", version.savedAt, since))
+        assertEquals("otra-clave", s.data().live.single { it.id == "a" }.password)
+        assertTrue(s.restoreVersion("a", version.savedAt, s.lockEpoch))
+        assertEquals("clave-a", s.data().live.single { it.id == "a" }.password)
+    }
+
     @Test fun completeUpgradeAfterALockSavesNothing() = runTest {
         file.writeText(javaClass.getResourceAsStream("/seguridad/vault-1.4.3.json")!!.use { it.readBytes() }.decodeToString())
         val s = store().apply { load() }
