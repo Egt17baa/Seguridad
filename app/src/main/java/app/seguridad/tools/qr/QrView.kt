@@ -87,8 +87,8 @@ data class QrField(val label: String, val value: String)
  *   T7 of §2.5). [carriesSecret] says the screen drops the result when the app stops or the vault locks.
  * - [hostLabels] is the highlighted name of a link: the one the browser connects to, in ASCII (punycode, so no
  *   look-alike letters), split into its labels; an IP whole. Exception: a label with «ß», «ς», ZWNJ or ZWJ stays
- *   Unicode, as [parseLink] keeps it (C-4), with each hidden character as its mark ([visibleText]). [hostReading] is its Unicode reading, shown below it and
- *   smaller, only when it is not the same.
+ *   Unicode, as [parseLink] keeps it (C-4), with each hidden character as its mark ([visibleText]). [hostReading]
+ *   is its Unicode reading, shown below it and smaller, only when it is not the same.
  * - [copyNotice] / [secretCopyNotice]: what «Copiar» / «Copiar contraseña» say when the copy carries hidden characters
  *   (copied as they are, never stripped); null otherwise.
  */

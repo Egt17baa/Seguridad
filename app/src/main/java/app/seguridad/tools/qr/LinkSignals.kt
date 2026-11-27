@@ -163,8 +163,8 @@ private fun mapHost(decoded: String): String {
  * 2.1.2, C-4: the same for U+200C (ZWNJ) and U+200D (ZWJ). IDNA2003 drops them, so «ban\u200Dco.es» would be
  * «banco.es». A browser (UTS #46, non-transitional) keeps them, so the name is another one, or refuses the name under
  * the CONTEXTJ rule of IDNA2008 (a joiner between two Latin letters); it never resolves it as «banco.es». The label
- * stays Unicode with the joiner ([normalizeLabel] keeps it), so its key differs from the plain name, PUNYCODE fires and [ParsedLink.hostHidden]
- * still says it is there. No Punycode is written here: [IDN] is the only encoder, and it would drop them.
+ * stays Unicode with the joiner ([normalizeLabel] keeps it), so its key differs from the plain name, PUNYCODE fires
+ * and [ParsedLink.hostHidden] still says it is there. No Punycode is written here: [IDN] is the only encoder, and it would drop them.
  */
 private fun mapLabel(label: String): String {
     val folded = browserLowercase(Normalizer.normalize(label, Normalizer.Form.NFKC))

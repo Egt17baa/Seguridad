@@ -35,8 +35,8 @@ private val BARE_DOMAIN = Regex("""[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+\.?([/?#].*)
  * the host as [parseLink] reads it the way a browser does (so `\` closes the authority and the user info, with its key,
  * is never part of it), in the ASCII form the browser connects to (a name in another script stays `xn--…`, never a
  * look-alike), without «www.» at the start and with its first letter in capitals. Exception: a label with «ß», «ς», ZWNJ
- * or ZWJ stays Unicode, as [parseLink] keeps it (C-4); the title is then plain text ([plainReportText]), so a ZWNJ or ZWJ
- * is never written into it. Only for `http`, `https` and a bare domain; null when there is no host. No network.
+ * or ZWJ stays Unicode, as [parseLink] keeps it (C-4). The title is always plain text ([plainReportText]), so a ZWNJ or
+ * ZWJ is never written into it. Only for `http`, `https` and a bare domain; null when there is no host. No network.
  */
 fun titleFromUrl(url: String): String? {
     val text = asBrowserReadsIt(url)
