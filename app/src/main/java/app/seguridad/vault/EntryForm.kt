@@ -340,7 +340,10 @@ class EntryEditSession(
         for (f in e?.fields.orEmpty()) {
             val t = Templates.templateField(type, f.id)
             val k = templateValueKey(type, f.id)
-            if (t != null && k !in values) {
+            // 2.1.2, R-26: a field stored as hidden never fills a visible field of the template: it stays one of the user's,
+            // hidden and with an id of its own (below), whatever id it carried.
+            val hiddenOnVisible = t != null && !t.secret && f.kind == FieldKind.HIDDEN
+            if (t != null && !hiddenOnVisible && k !in values) {
                 values[k] = when {
                     t.monthYear -> displayMonthYear(f.value)
                     t.kind == FieldKind.DATE -> displayDate(f.value)

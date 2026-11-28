@@ -140,6 +140,8 @@ data class CardNotice(
  *   **Con mi propia identidad** no hay neutralidad que guardar (la clave de cifrado es mía y solo yo tengo su clave
  *   privada): el texto dice que es una copia falsa de mi clave.
  * - [CardCheck.KeysChanged]: aviso, y solo «Guardar como contacto nuevo»: nunca sustituye al antiguo.
+ * - [CardCheck.NameIsMine] (2.1.2, R-24): el mismo aviso y el mismo botón, con un título y un cuerpo propios: mi identidad
+ *   no es un contacto que haya cambiado de móvil (O-5 del Abogado).
  *
  * Los nombres que salen de aquí son los **guardados** por el usuario (`VaultEntry.title`); el que trae la tarjeta no se usa.
  */
@@ -178,25 +180,41 @@ fun incomingCardNotice(check: CardCheck, viaQr: Boolean): CardNotice = when (che
         },
         null,
     )
+    // R-24 (O-5 del Abogado): the same level, button and footer as KeysChanged, with its own title and body (no «tu contacto»).
+    is CardCheck.NameIsMine -> CardNotice(
+        NoticeLevel.WARNING,
+        "Esta tarjeta lleva tu nombre",
+        "Esta tarjeta lleva el mismo nombre que tu identidad, pero trae otras claves: no es tu tarjeta. Puede ser de otra " +
+            "persona que se llama igual o de alguien que intenta hacerse pasar por ti. Si la guardas, queda como un contacto " +
+            "nuevo. Compara su huella con esa persona.",
+        SAVE_AS_NEW_CONTACT,
+        footer = savedAsNewFooter(viaQr),
+    )
     is CardCheck.KeysChanged -> CardNotice(
         NoticeLevel.WARNING,
         "Las claves de este contacto han cambiado",
         "Esta tarjeta se parece a tu contacto «${plainReportText(check.entry.title)}», pero trae otras claves. Puede que haya cambiado de móvil o " +
             "de identidad, o que alguien intente hacerse pasar por él. No sustituye a tu contacto: si la guardas, queda como un " +
             "contacto nuevo. Compara las dos huellas con él.",
-        "Guardar como contacto nuevo",
-        footer = (if (viaQr) {
-            "Al haberla escaneado se guardará como verificado: solo vale si la has escaneado delante de tu contacto. "
-        } else {
-            "Se guardará como sin verificar hasta que compares su huella en persona o por llamada. "
-        }) + SIMILAR_NAME_WARNING,
+        SAVE_AS_NEW_CONTACT,
+        footer = savedAsNewFooter(viaQr),
     )
 }
+
+private const val SAVE_AS_NEW_CONTACT = "Guardar como contacto nuevo"
+
+/** The footer of a card that can only be saved as a new contact ([CardCheck.KeysChanged], [CardCheck.NameIsMine]). */
+private fun savedAsNewFooter(viaQr: Boolean): String = (if (viaQr) {
+    "Al haberla escaneado se guardará como verificado: solo vale si la has escaneado delante de tu contacto. "
+} else {
+    "Se guardará como sin verificar hasta que compares su huella en persona o por llamada. "
+}) + SIMILAR_NAME_WARNING
 
 /**
  * La huella de la entrada guardada con la que choca [check], para enseñarla junto a la de la tarjeta que llega: la del
  * contacto con las claves cambiadas ([CardCheck.KeysChanged]), o la del contacto o de mi identidad que usa la misma clave
- * de cifrado ([CardCheck.SharedKem], cuyo aviso pide comparar las dos). `null` con los demás resultados, o si la entrada
+ * de cifrado ([CardCheck.SharedKem], cuyo aviso pide comparar las dos). `null` con los demás resultados (también con
+ * [CardCheck.NameIsMine]: mi identidad no es la persona con quien comparar la huella), o si la entrada
  * no se lee. Las huellas son públicas.
  */
 fun savedFingerprint(check: CardCheck): String? = try {
@@ -205,41 +223,46 @@ fun savedFingerprint(check: CardCheck): String? = try {
         is CardCheck.SharedKem ->
             if (check.entry.type == EntryType.IDENTITY) check.entry.openIdentity().use { fingerprint(it.edPublic, it.kemPublic) }
             else cardFingerprint(check.entry.contactCard())
-        is CardCheck.New, is CardCheck.Same -> null
+        is CardCheck.New, is CardCheck.Same, is CardCheck.NameIsMine -> null
     }
 } catch (e: CryptoFailure) {
     null
 }
 
 /**
- * El nombre con el que se rellena el campo al guardar [check]: el de la tarjeta si es nueva; con las claves cambiadas, el
- * de la tarjeta más « (nuevo)» (para no tener dos contactos con el mismo nombre), si cabe en el límite. Con cualquier
+ * El nombre con el que se rellena el campo al guardar [check]: el de la tarjeta si es nueva; con las claves cambiadas o
+ * con mi nombre ([CardCheck.NameIsMine]), el de la tarjeta más « (nuevo)» (para no tener dos con el mismo nombre). Si no
+ * cabe en el límite, vacío (2.1.2, R-25): el nombre tal cual es el del contacto o el mío, y no se propone. Con cualquier
  * otro resultado (que no se guarda), vacío. También vacío si el nombre de la tarjeta imita la marca de verificación
  * ([imitatesTrustMark], CADENAS-4): la tarjeta se sigue leyendo, pero ese nombre no se propone.
  */
 fun suggestedContactName(check: CardCheck): String = when (check) {
     // CADENAS-4: un nombre que imita la marca no se propone (el campo queda vacío y [imitatedCardNameText] lo enseña aparte).
     is CardCheck.New -> if (imitatesTrustMark(check.card.name)) "" else check.card.name
-    is CardCheck.KeysChanged -> {
-        val candidate = if (check.card.name.isBlank()) NEW_CONTACT_NAME else check.card.name + NEW_SUFFIX
-        when {
-            imitatesTrustMark(check.card.name) -> ""
-            checkContactName(candidate) is ContactName.Valid -> candidate
-            else -> check.card.name
-        }
-    }
+    is CardCheck.KeysChanged -> suggestedNewName(check.card)
+    is CardCheck.NameIsMine -> suggestedNewName(check.card)
     is CardCheck.Same, is CardCheck.SharedKem -> ""
 }
 
+private fun suggestedNewName(card: Card): String {
+    val candidate = if (card.name.isBlank()) NEW_CONTACT_NAME else card.name + NEW_SUFFIX
+    return when {
+        imitatesTrustMark(card.name) -> ""
+        checkContactName(candidate) is ContactName.Valid -> candidate
+        else -> "" // R-25: never the name as it is, which repeats the one it collides with.
+    }
+}
+
 /**
- * CADENAS-4: lo que se dice, encima del campo del nombre, de una tarjeta que se puede guardar ([CardCheck.New] o
- * [CardCheck.KeysChanged]) cuyo nombre imita la marca ([imitatesTrustMark]): el nombre va entero entre «», aparte, y el
+ * CADENAS-4: lo que se dice, encima del campo del nombre, de una tarjeta que se puede guardar ([CardCheck.New],
+ * [CardCheck.KeysChanged] o [CardCheck.NameIsMine]) cuyo nombre imita la marca ([imitatesTrustMark]): el nombre va entero entre «», aparte, y el
  * campo queda vacío ([suggestedContactName]). `null` con cualquier otro nombre o resultado.
  */
 fun imitatedCardNameText(check: CardCheck): String? {
     val card = when (check) {
         is CardCheck.New -> check.card
         is CardCheck.KeysChanged -> check.card
+        is CardCheck.NameIsMine -> check.card
         is CardCheck.Same, is CardCheck.SharedKem -> return null
     }
     return if (imitatesTrustMark(card.name)) cardNameImitatesText(card.name) else null

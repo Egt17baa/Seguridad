@@ -270,8 +270,12 @@ private class RedactViewModel(private val appContext: Context, private val share
         job = viewModelScope.launch {
             val mine = coroutineContext[Job]
             var opened: RedactSource? = null
+            // 2.1.2, R-33: our copy of the picked file's bytes, put to zero once decoded (or the work ends), as QrImageRead
+            // does. Kept as soon as they are read, inside the IO block, so a cancellation as it returns still reaches them.
+            // The bitmap does not use them after decoding.
+            var picked: ByteArray? = null
             try {
-                val bytes = withContext(Dispatchers.IO) { readPhoto(appContext, uri) }
+                val bytes = withContext(Dispatchers.IO) { readPhoto(appContext, uri).also { picked = it } }
                 ensureActive()
                 val p = withContext(Dispatchers.Default) {
                     val source = decodeForRedaction(bytes).also { opened = it }
@@ -289,6 +293,7 @@ private class RedactViewModel(private val appContext: Context, private val share
                 // Up to 50 MB of file and a 24 MP bitmap: on a small heap this is the error to show (M-7), not a crash.
                 error = failureText(e)
             } finally {
+                picked?.fill(0)
                 opened?.bitmap?.recycle() // Decoded but never shown (cancelled or failed after decoding).
                 if (job === mine) busy = null
             }

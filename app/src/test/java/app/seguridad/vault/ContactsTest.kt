@@ -404,6 +404,39 @@ class ContactsTest {
         assertEquals(CardCheck.New(nobody), checkIncomingCard(nobody, entries))
     }
 
+    /**
+     * 2.1.2, R-24 (O-5 del Abogado): una tarjeta con el nombre de mi identidad y otras claves es [CardCheck.NameIsMine],
+     * no [CardCheck.New] ni el aviso de «tu contacto». Las claves de un contacto siguen ganando al nombre, y sin nombre en
+     * mi identidad (o con la identidad rota) no hay nada que comparar.
+     */
+    @Test fun cardWithMyOwnNameIsNameIsMine() {
+        val me = Person(newIdentityEntry(now).copy(username = "Bea Ruiz"))
+        val entries = listOf(me.entry, contactOf(person(), "Luis"))
+        for (name in listOf("Bea Ruiz", "bea ruiz", "  BEA RUIZ  ")) {
+            val card = person().card(name)
+            assertEquals(name, CardCheck.NameIsMine(me.entry, card), checkIncomingCard(card, entries))
+        }
+        // El nombre de mi identidad gana al de un contacto que se llama igual.
+        val namesake = contactOf(person(), "Bea Ruiz")
+        val card = person().card("Bea Ruiz")
+        assertEquals(CardCheck.NameIsMine(me.entry, card), checkIncomingCard(card, listOf(namesake, me.entry)))
+        // La Ed25519 de un contacto gana al nombre: son sus claves cambiadas.
+        val luis = person()
+        val luisEntry = contactOf(luis, "Luis")
+        val mixed = forged(luis, person().kem(), "Bea Ruiz")
+        assertEquals(CardCheck.KeysChanged(luisEntry, mixed), checkIncomingCard(mixed, listOf(me.entry, luisEntry)))
+        // Mi propia tarjeta sigue siendo Same.
+        assertEquals(CardCheck.Same(me.entry), checkIncomingCard(me.card("Bea Ruiz"), entries))
+        // Sin nombre en mi identidad, o con ella rota, nada coincide.
+        val unnamed = Person(newIdentityEntry(now))
+        val other = person().card("Mi identidad")
+        assertEquals(CardCheck.New(other), checkIncomingCard(other, listOf(unnamed.entry)))
+        val blank = person().card("")
+        assertEquals(CardCheck.New(blank), checkIncomingCard(blank, listOf(unnamed.entry)))
+        val broken = me.entry.copy(identitySeed = "AAAA")
+        assertEquals(CardCheck.New(card), checkIncomingCard(card, listOf(broken)))
+    }
+
     @Test fun checkIncomingCardSaltaLosContactosIlegiblesYNoLanza() {
         val card = person().card("Ana")
         // Sin tarjeta que leer no hay claves que comparar: ni su título «Ana» cuenta.

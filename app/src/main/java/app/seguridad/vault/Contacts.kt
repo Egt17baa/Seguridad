@@ -14,7 +14,7 @@ import java.util.UUID
 
 /*
  * La identidad y los contactos como entradas de la bóveda (diseño: «Identidad y contactos en la bóveda»). Solo existen en
- * una bóveda de la versión 3. Codificación, que se lee para siempre:
+ * una bóveda de la versión 3 o 4. Codificación, que se lee para siempre:
  *  - `identitySeed`: la semilla de 32 bytes en Base64 estándar con relleno (`java.util.Base64`);
  *  - `card`: los bytes canónicos de la tarjeta (`cardBytes`), también en Base64 estándar con relleno.
  *
@@ -192,16 +192,25 @@ sealed interface CardCheck {
      * normalizado con otras claves.
      */
     data class KeysChanged(val entry: VaultEntry, val card: Card) : CardCheck
+
+    /**
+     * 2.1.2, R-24: la tarjeta lleva el nombre normalizado de mi identidad ([entry], su `username`) con otras claves. No es
+     * un contacto, así que su aviso es propio (O-5 del Abogado); como [KeysChanged], solo se guarda como contacto nuevo.
+     */
+    data class NameIsMine(val entry: VaultEntry, val card: Card) : CardCheck
 }
 
 /**
  * Compara [card] con mi identidad y con los contactos de [entries], en este orden de evaluación:
  *  1. [CardCheck.Same]: las dos claves son las de una entrada (un contacto o mi identidad);
  *  2. [CardCheck.SharedKem]: la X-Wing es la de una entrada (un contacto o mi identidad) y la Ed25519 no;
- *  3. [CardCheck.KeysChanged]: la Ed25519 es la de un contacto y la X-Wing no (aunque el nombre difiera), o el nombre
- *     normalizado ([normalizeName], sobre el título del contacto o el nombre de su tarjeta) es el de un contacto con otras
- *     claves. Un nombre vacío no coincide con nada;
- *  4. [CardCheck.New].
+ *  3. [CardCheck.KeysChanged]: la Ed25519 es la de un contacto y la X-Wing no (aunque el nombre difiera);
+ *  4. [CardCheck.NameIsMine] (2.1.2, R-24): el nombre normalizado ([normalizeName]) es el de mi identidad (su `username`,
+ *     el de mi tarjeta), con otras claves;
+ *  5. [CardCheck.KeysChanged]: el nombre normalizado (sobre el título del contacto o el nombre de su tarjeta) es el de un
+ *     contacto con otras claves;
+ *  6. [CardCheck.New].
+ * Un nombre vacío no coincide con nada.
  * En cada paso gana la primera entrada de la lista. Los contactos cuya tarjeta no se lee y una identidad rota se saltan.
  * Toda la comparación de claves es con `contentEquals`: son públicas.
  */
@@ -219,6 +228,8 @@ fun checkIncomingCard(card: Card, entries: List<VaultEntry>): CardCheck {
     contacts.firstOrNull { it.ed.contentEquals(card.edPublic) }?.let { return CardCheck.KeysChanged(it.entry, card) }
     val name = comparable(card.name)
     if (name.isNotEmpty()) {
+        // R-24: my own name with other keys is never a new card: it may be someone posing as me.
+        if (own != null && comparable(own.entry.username) == name) return CardCheck.NameIsMine(own.entry, card)
         contacts.firstOrNull { comparable(it.entry.title) == name || it.cardName?.let(::comparable) == name }
             ?.let { return CardCheck.KeysChanged(it.entry, card) }
     }

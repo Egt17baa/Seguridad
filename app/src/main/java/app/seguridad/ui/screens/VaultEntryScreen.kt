@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -204,9 +205,12 @@ private fun PasswordHistorySection(history: List<PasswordChange>, onCopied: () -
     var open by remember { mutableStateOf(false) }
     TextButton(onClick = { open = !open }) { Text("${if (open) "▾" else "▸"} Contraseñas anteriores (${history.size})") }
     if (open) {
+        // 2.1.2, R-27: keyed, so the «Ver» of a row stays with its password when the list changes.
         history.forEach { h ->
-            val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
-            Field("Cambiada el $date", h.password, secret = true, onCopied = onCopied)
+            key(h.changedAt) {
+                val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
+                Field("Cambiada el $date", h.password, secret = true, onCopied = onCopied)
+            }
         }
     }
 }

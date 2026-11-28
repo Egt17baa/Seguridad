@@ -180,8 +180,12 @@ private class PhotoCleanViewModel(private val appContext: Context, private val s
         opening = true
         job = viewModelScope.launch {
             val mine = coroutineContext[Job]
+            // 2.1.2, R-33: our copy of the picked file's bytes, put to zero once the copy is made (or the work ends), as
+            // QrImageRead does. Kept as soon as they are read, inside the IO block, so a cancellation as it returns still
+            // reaches them. The clean copy is always a new array, never this one.
+            var picked: ByteArray? = null
             try {
-                val bytes = withContext(Dispatchers.IO) { readPhoto(appContext, uri) }
+                val bytes = withContext(Dispatchers.IO) { readPhoto(appContext, uri).also { picked = it } }
                 ensureActive()
                 copy = cleanCopy(bytes)
             } catch (e: CancellationException) {
@@ -192,6 +196,7 @@ private class PhotoCleanViewModel(private val appContext: Context, private val s
                 // Up to 50 MB plus its copy: on a small heap this is the error to show (M-7), not a crash.
                 error = failureText(e)
             } finally {
+                picked?.fill(0)
                 if (job === mine) opening = false
             }
         }

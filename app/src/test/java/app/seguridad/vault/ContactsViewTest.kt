@@ -161,7 +161,7 @@ class ContactsViewTest {
         for (viaQr in listOf(true, false)) {
             for (check in listOf(
                 CardCheck.New(card), CardCheck.Same(saved), CardCheck.Same(person().entry),
-                CardCheck.SharedKem(saved, impostor), CardCheck.KeysChanged(saved, card),
+                CardCheck.SharedKem(saved, impostor), CardCheck.KeysChanged(saved, card), CardCheck.NameIsMine(person("Ana").entry, card),
             )) {
                 val n = incomingCardNotice(check, viaQr)
                 texts += listOf(n.title, n.body, n.footer, n.saveLabel.orEmpty())
@@ -257,10 +257,64 @@ class ContactsViewTest {
     @Test fun elNombreSugeridoParaClavesCambiadasSeDistingueDelAntiguo() {
         val saved = contactOf(person(), "Ana")
         assertEquals("Ana (nuevo)", suggestedContactName(CardCheck.KeysChanged(saved, cardOf(person(), "Ana"))))
-        // Si no cabe en 64 bytes, el de la tarjeta tal cual.
-        val long = "a".repeat(MAX_NAME_BYTES)
-        assertEquals(long, suggestedContactName(CardCheck.KeysChanged(saved, cardOf(person(), long))))
         assertEquals("Contacto nuevo", suggestedContactName(CardCheck.KeysChanged(saved, cardOf(person(), ""))))
+    }
+
+    /**
+     * 2.1.2, R-25: si « (nuevo)» no cabe en el límite, el campo queda vacío; nunca se propone el nombre tal cual, que es
+     * el del contacto (o el de mi identidad) con el que choca. Lo mismo con una tarjeta con mi nombre (R-24).
+     */
+    @Test fun suggestedNameNeverRepeatsAContact() {
+        val long = "a".repeat(MAX_NAME_BYTES)
+        val saved = contactOf(person(), long)
+        assertEquals("", suggestedContactName(CardCheck.KeysChanged(saved, cardOf(person(), long))))
+        // Justo en el límite con el sufijo, cabe.
+        val fits = "a".repeat(MAX_NAME_BYTES - " (nuevo)".length)
+        assertEquals("$fits (nuevo)", suggestedContactName(CardCheck.KeysChanged(saved, cardOf(person(), fits))))
+        val me = person(long).entry
+        assertEquals("", suggestedContactName(CardCheck.NameIsMine(me, cardOf(person(), long))))
+        assertEquals("Bea (nuevo)", suggestedContactName(CardCheck.NameIsMine(person("Bea").entry, cardOf(person(), "Bea"))))
+    }
+
+    /**
+     * 2.1.2, R-24 (O-5 del Abogado): una tarjeta con el nombre de mi identidad tiene su título y su cuerpo propios, con el
+     * mismo nivel, el mismo botón y el mismo pie que [CardCheck.KeysChanged], y no habla de «tu contacto» en el cuerpo.
+     * No se enseña ninguna huella guardada: mi identidad no es la persona con quien comparar.
+     */
+    @Test fun aCardWithMyNameHasItsOwnNotice() {
+        val me = person("Bea")
+        val card = cardOf(person(), "Bea")
+        val check = CardCheck.NameIsMine(me.entry, card)
+        for (viaQr in listOf(true, false)) {
+            val notice = incomingCardNotice(check, viaQr)
+            val changed = incomingCardNotice(CardCheck.KeysChanged(contactOf(person(), "Bea"), card), viaQr)
+            assertEquals("Esta tarjeta lleva tu nombre", notice.title)
+            assertEquals(
+                "Esta tarjeta lleva el mismo nombre que tu identidad, pero trae otras claves: no es tu tarjeta. Puede ser de " +
+                    "otra persona que se llama igual o de alguien que intenta hacerse pasar por ti. Si la guardas, queda como " +
+                    "un contacto nuevo. Compara su huella con esa persona.",
+                notice.body,
+            )
+            assertEquals(NoticeLevel.WARNING, notice.level)
+            assertEquals("Guardar como contacto nuevo", notice.saveLabel)
+            assertEquals(changed.footer, notice.footer)
+            assertNotEquals(changed.title, notice.title)
+            assertFalse(notice.body.contains("tu contacto"))
+        }
+        assertNull(savedFingerprint(check))
+        assertNull(imitatedCardNameText(check))
+        val fake = "Bea ✓"
+        assertEquals(cardNameImitatesText(fake), imitatedCardNameText(CardCheck.NameIsMine(me.entry, cardOf(person(), fake))))
+        assertEquals("", suggestedContactName(CardCheck.NameIsMine(me.entry, cardOf(person(), fake))))
+    }
+
+    @Test fun deLaTarjetaRealAlAvisoUnaTarjetaConMiNombre() {
+        val me = person("Bea")
+        val entries = listOf(me.entry, contactOf(person(), "Ana"))
+        val (check, notice) = noticeFor(cardOf(person(), "bea"), entries, viaQr = true)
+        assertTrue(check is CardCheck.NameIsMine)
+        assertEquals("Esta tarjeta lleva tu nombre", notice.title)
+        assertEquals("Guardar como contacto nuevo", notice.saveLabel)
     }
 
     // ---- CADENAS-4 y CLAVE-PUBLICA-1: un nombre no puede imitar la marca de verificación ----

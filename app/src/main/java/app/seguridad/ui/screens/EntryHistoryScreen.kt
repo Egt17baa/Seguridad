@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,9 +84,12 @@ fun EntryHistoryScreen(store: VaultStore, twoStep: TwoStepCopy, id: String, onBa
                     val old = entry.oldPasswords()
                     if (old.isNotEmpty()) {
                         Text(historyOldPasswords(old.size), style = MaterialTheme.typography.titleSmall)
+                        // 2.1.2, R-27: keyed, so the «Ver» of a row stays with its password when the list changes.
                         old.forEach { h ->
-                            val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
-                            Field("Cambiada el $date", h.password, secret = true, onCopied = twoStep::clear)
+                            key(h.changedAt) {
+                                val date = java.time.Instant.ofEpochMilli(h.changedAt).atZone(java.time.ZoneId.systemDefault()).format(historyDate)
+                                Field("Cambiada el $date", h.password, secret = true, onCopied = twoStep::clear)
+                            }
                         }
                     }
                 }

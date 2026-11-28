@@ -104,4 +104,35 @@ class ScreenSourcesTest {
         val received = code("ui/screens/PkActionsScreen.kt").substringAfter("fun OpenReceivedScreen(").substringBefore("\nfun ")
         assertTrue(Regex("""remember\s*\{\s*QrHandoff\.claim\(QrTarget\.RECEIVED\)\s*\}""").containsMatchIn(received.substringBefore("ContactsFrame(")))
     }
+
+    /**
+     * R-27: each row of old passwords (the detail's «Contraseñas anteriores» and the history screen) is keyed by its
+     * `changedAt`, so the «Ver» of a row stays with its password when the list changes, and never shows another one.
+     */
+    @Test fun oldPasswordRowsAreKeyed() {
+        val rows = mapOf(
+            "ui/screens/VaultEntryScreen.kt" to Regex("""history\.forEach\s*\{\s*h\s*->\s*key\(h\.changedAt\)\s*\{"""),
+            "ui/screens/EntryHistoryScreen.kt" to Regex("""old\.forEach\s*\{\s*h\s*->\s*key\(h\.changedAt\)\s*\{"""),
+        )
+        for ((path, row) in rows) {
+            val src = code(path)
+            assertTrue(path, row.containsMatchIn(src))
+            assertTrue(path, "import androidx.compose.runtime.key" in src)
+        }
+    }
+
+    /**
+     * R-33: «Limpiar foto» and «Tachar» put their own copy of the picked file's bytes to zero once it is no longer needed
+     * (after cleaning or decoding), in `finally`, as `QrImageRead` does: the bytes are kept as soon as they are read, inside
+     * the IO block, so a cancellation as it returns still reaches them.
+     */
+    @Test fun pickedPhotoBytesAreZeroed() {
+        for (path in listOf("ui/screens/PhotoCleanScreen.kt", "ui/screens/RedactScreen.kt")) {
+            val open = code(path).substringAfter("fun open(uri: Uri)").substringBefore("\n    }\n")
+            assertTrue(path, Regex("""var picked: ByteArray\? = null""").containsMatchIn(open))
+            assertTrue(path, Regex("""readPhoto\(appContext, uri\)\.also \{ picked = it \}""").containsMatchIn(open))
+            val fin = open.substringAfterLast("} finally {")
+            assertTrue(path, Regex("""picked\?\.fill\(0\)""").containsMatchIn(fin))
+        }
+    }
 }

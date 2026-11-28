@@ -1028,4 +1028,31 @@ class EntryEditSessionTest {
         s.changeType(EntryType.LOGIN)
         assertNull(s.wifiNameAlert())
     }
+
+    /**
+     * 2.1.2, R-26: a field stored as [FieldKind.HIDDEN] with the id of a template's field that is not a secret (the card's
+     * holder) stays hidden, as one of the user's fields with a new id: it never becomes the template's visible one. Saved
+     * again, it is still hidden, and the template's holder stays empty.
+     */
+    @Test fun hiddenFieldWithTemplateIdStaysHidden() {
+        val e = VaultEntry(
+            id = "c", type = EntryType.CARD, title = "Tarjeta", createdAt = 1, updatedAt = 1,
+            fields = listOf(
+                CustomField("holder", "Titular", FieldKind.HIDDEN, "dato-oculto-de-prueba"),
+                CustomField("number", "Número", FieldKind.HIDDEN, "4000000000000002"),
+            ),
+        )
+        var n = 0
+        val s = EntryEditSession(PlainCells, "c", EntryType.CARD, newId = "nuevo-1", newFieldId = { "id-${n++}" })
+        s.load(listOf(e))
+        assertEquals("", s.templateValue(EntryType.CARD, "holder"))
+        assertEquals(listOf("id-0"), s.customFields.value.map { it.id })
+        assertEquals(FieldKind.HIDDEN, s.customFields.value[0].kind)
+        assertEquals("dato-oculto-de-prueba", s.customFields.value[0].value)
+        // A template's secret stored as hidden still fills the template, as before.
+        assertEquals("4000000000000002", s.templateValue(EntryType.CARD, "number"))
+        val saved = (fieldsToSave(EntryType.CARD, s.templateValues.value, s.customFields.value) as FormFields.Ok).fields
+        assertEquals(listOf("number", "id-0"), saved.map { it.id })
+        assertEquals(listOf(FieldKind.HIDDEN, FieldKind.HIDDEN), saved.map { it.kind })
+    }
 }
