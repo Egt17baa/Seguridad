@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# A17: checks the final merged manifest of a built APK.
+# A17: checks the final merged manifest of a built APK or, since 2.1.2 (R-29), of an Android App Bundle (AAB).
 #
 #   bash scripts/check-manifest.sh [--release] ruta/al.apk
+#   bash scripts/check-manifest.sh [--release] ruta/al.aab
+#
+# An .aab is read through its base module: base/manifest/AndroidManifest.xml and base/resources.pb (the proto
+# manifest and resource table that Play turns into the APKs it serves) are copied into a temporary proto APK, which
+# aapt2 reads like any other APK, so the AAB gets exactly the same checks with no other tool (no bundletool). An AAB
+# with any other module (a manifest that is not base/'s) fails: Clavero has only the base module.
 #
 # Fails (exit 1) if:
 #   - a component (activity, activity-alias, service, receiver, provider) is exported, other than
@@ -38,7 +44,7 @@ PREVIEW_ACTIVITY="androidx.compose.ui.tooling.PreviewActivity"
 FILE_PROVIDER="androidx.core.content.FileProvider"
 
 usage() {
-  echo "Uso: bash scripts/check-manifest.sh [--release] ruta/al.apk" >&2
+  echo "Uso: bash scripts/check-manifest.sh [--release] ruta/al.apk|ruta/al.aab" >&2
   exit 2
 }
 
@@ -52,7 +58,7 @@ for arg in "$@"; do
   esac
 done
 [ -n "$apk" ] || usage
-[ -f "$apk" ] || { echo "check-manifest: no existe el APK $apk" >&2; exit 2; }
+[ -f "$apk" ] || { echo "check-manifest: no existe el APK o el AAB $apk" >&2; exit 2; }
 
 find_aapt2() {
   if [ -n "${AAPT2:-}" ]; then echo "$AAPT2"; return; fi
@@ -64,8 +70,22 @@ find_aapt2() {
 AAPT2_BIN="$(find_aapt2)"
 [ -n "$AAPT2_BIN" ] && [ -x "$AAPT2_BIN" ] || { echo "check-manifest: no se encuentra aapt2 (define AAPT2 o ANDROID_HOME)" >&2; exit 2; }
 
-tree="$("$AAPT2_BIN" dump xmltree --file AndroidManifest.xml "$apk")"
-perms="$("$AAPT2_BIN" dump permissions "$apk")"
+# R-29: an AAB is checked through a proto APK with its base module's manifest and resource table.
+dumped="$apk"
+if [[ "$apk" == *.aab ]]; then
+  command -v unzip >/dev/null && command -v zip >/dev/null || { echo "check-manifest: faltan unzip o zip para leer el AAB" >&2; exit 2; }
+  modules="$(unzip -Z1 "$apk" | grep -E '^[^/]+/manifest/AndroidManifest\.xml$' || true)"
+  [ "$modules" = "base/manifest/AndroidManifest.xml" ] || { echo "check-manifest: el AAB no tiene solo el módulo base (manifiestos: ${modules:-ninguno})" >&2; exit 1; }
+  aab_tmp="$(mktemp -d)"
+  trap 'rm -rf -- "$aab_tmp"' EXIT
+  unzip -q -j "$apk" base/manifest/AndroidManifest.xml base/resources.pb -d "$aab_tmp" \
+    || { echo "check-manifest: no se pueden sacar el manifiesto y resources.pb del módulo base de $apk" >&2; exit 2; }
+  (cd "$aab_tmp" && zip -q -X base.apk AndroidManifest.xml resources.pb)
+  dumped="$aab_tmp/base.apk"
+fi
+
+tree="$("$AAPT2_BIN" dump xmltree --file AndroidManifest.xml "$dumped")"
+perms="$("$AAPT2_BIN" dump permissions "$dumped")"
 
 errors=0
 fail() { echo "check-manifest: ERROR: $*" >&2; errors=$((errors + 1)); }

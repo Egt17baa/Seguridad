@@ -64,6 +64,19 @@ jobs:
             exit 1
           fi
 
+      # 2.1.2, R-30: a v* tag is signed only if it is newer than every other v* tag (sort -V, as git's v:refname), so a
+      # tag pushed by mistake on an older version never gets the upload key and never reaches Play with a version that
+      # cannot go up. Only lower-case v plus a digit counts ('v[0-9]*' is case-sensitive): a tag like V2.1.0 is ignored.
+      # Before anything is built or signed; skipped only in the untrusted job "build" (renaming build-firma keeps it).
+      # The checkout above already fetched every tag (fetch-depth 0); the fetch makes sure, and a failure stops the job.
+      - name: Check that the tag is the newest version
+        if: startsWith(github.ref, 'refs/tags/v') && github.job != 'build'
+        run: |
+          git fetch --tags --force
+          prev=$(git tag -l 'v[0-9]*' --sort=-v:refname | { grep -vx "$GITHUB_REF_NAME" || true; } | head -1)
+          [ -z "$prev" ] || [ "$(printf '%s\n%s\n' "$prev" "$GITHUB_REF_NAME" | sort -V | tail -1)" = "$GITHUB_REF_NAME" ] && [ "$prev" != "$GITHUB_REF_NAME" ] || { echo "::error::La etiqueta $GITHUB_REF_NAME no es mayor que $prev: no se firma."; exit 1; }
+          echo "La etiqueta $GITHUB_REF_NAME es mayor que la anterior (${prev:-ninguna})."
+
       # gradlew runs this JAR before anything else is checked: it must be Gradle's own (the official checksum of the
       # wrapper JAR of Gradle 9.6.0, which generated it, at gradle.org/release-checksums; the wrapper then downloads
       # 9.6.0 and checks its SHA-256 from gradle-wrapper.properties). A new JAR means changing this line, in review.
@@ -326,6 +339,11 @@ jobs:
       - name: Delete the keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/upload.jks"
+
+      # 2.1.2, R-29: the same manifest checks as the APK of build-firma (A17, B-2), on the manifest Play receives: the
+      # script reads the AAB's base module (proto manifest and resource table) with aapt2, with no other tool.
+      - name: Check the bundle's merged manifest
+        run: bash scripts/check-manifest.sh --release app/build/outputs/bundle/release/app-release.aab
 
       # The AAB is JAR-signed: keytool prints its certificate. Anything other than the upload key fails, so the
       # artefact for Play is never signed with another key.

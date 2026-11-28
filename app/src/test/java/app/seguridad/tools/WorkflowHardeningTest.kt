@@ -99,6 +99,62 @@ class WorkflowHardeningTest {
         return problems
     }
 
+    /** The lines of one step of [job] (from its `- name:` to the next step at the same indent), or null. */
+    private fun step(y: String, job: String, name: String): List<String>? {
+        val code = lines(y).filter { it.first == job }.map { it.second }
+        val start = code.indexOfFirst { it.trim() == "- name: $name" }
+        if (start < 0) return null
+        val indent = code[start].length - code[start].trimStart().length
+        val end = (start + 1 until code.size).firstOrNull { i ->
+            val l = code[i]
+            l.length - l.trimStart().length <= indent && l.trimStart().startsWith("- ")
+        } ?: code.size
+        return code.subList(start, end)
+    }
+
+    private fun stepIndex(y: String, job: String, name: String): Int =
+        lines(y).filter { it.first == job }.indexOfFirst { it.second.trim() == "- name: $name" }
+
+    /**
+     * 2.1.2, R-29 and R-30: play-bundle runs check-manifest.sh on the AAB it built, before uploading it, and build-firma (the
+     * steps it shares with build) refuses to sign a v* tag that is not newer than every other v* tag, before packaging.
+     */
+    private fun bundleAndTagOrder(y: String, script: String): List<String> {
+        val problems = mutableListOf<String>()
+        val manifest = step(y, "play-bundle", "Check the bundle's merged manifest")
+        if (manifest == null || manifest.none { it.trim() == "run: bash scripts/check-manifest.sh --release app/build/outputs/bundle/release/app-release.aab" }) {
+            problems += "play-bundle without check-manifest on the AAB: $manifest"
+        } else {
+            val play = lines(y).filter { it.first == "play-bundle" }.map { it.second.trim() }
+            val at = play.indexOf("- name: Check the bundle's merged manifest")
+            val built = play.indexOf("- name: Build signed bundle")
+            val upload = play.indexOfFirst { it.startsWith("- uses: actions/upload-artifact@") }
+            if (built < 0 || at < built || upload < at) problems += "play-bundle order: built $built, manifest $at, upload $upload"
+        }
+        if ("base/manifest/AndroidManifest.xml" !in script || "base/resources.pb" !in script) problems += "check-manifest.sh does not read an AAB"
+        val name = "Check that the tag is the newest version"
+        val order = step(y, "build", name)
+        if (order == null) {
+            problems += "build-firma without the tag order step"
+        } else {
+            val ifs = order.filter { it.trimStart().startsWith("if:") }.map { it.trim() }
+            if (ifs != listOf("if: startsWith(github.ref, 'refs/tags/v') && github.job != 'build'")) problems += "tag order if: $ifs"
+            val text = order.joinToString("\n")
+            for (needed in listOf(
+                "git tag -l 'v[0-9]*' --sort=-v:refname",
+                "grep -vx \"\$GITHUB_REF_NAME\"",
+                "sort -V | tail -1)\" = \"\$GITHUB_REF_NAME\"",
+                "[ \"\$prev\" != \"\$GITHUB_REF_NAME\" ]",
+                "exit 1",
+            )) if (needed !in text) problems += "tag order without: $needed"
+            val at = stepIndex(y, "build", name)
+            val main = stepIndex(y, "build", "Check that the commit is on main")
+            val sign = stepIndex(y, "build", "Build the release APK")
+            if (main < 0 || at < main || sign < at) problems += "tag order position: main $main, order $at, sign $sign"
+        }
+        return problems
+    }
+
     @Test fun everyActionIsPinnedToACommit() = assertEquals(emptyList<String>(), pinning(yaml))
 
     @Test fun noPullRequestTargetAndReadOnlyByDefault() = assertEquals(emptyList<String>(), readOnly(yaml))
@@ -106,6 +162,23 @@ class WorkflowHardeningTest {
     @Test fun signingSecretsOnlyInTrustedRuns() = assertEquals(emptyList<String>(), secrets(yaml))
 
     @Test fun theUploadCertificateIsChecked() = assertEquals(emptyList<String>(), certificate(yaml, publicar))
+
+    private val checkManifest = File(repo, "scripts/check-manifest.sh").readText()
+
+    @Test fun workflowChecksTheBundleManifestAndTagOrder() {
+        assertEquals(emptyList<String>(), bundleAndTagOrder(yaml, checkManifest))
+        fun altered(from: String, to: String): String {
+            assertTrue(from, from in yaml)
+            return yaml.replaceFirst(from, to).also { assertTrue("the alteration changes the YAML", it != yaml) }
+        }
+        val aab = "run: bash scripts/check-manifest.sh --release app/build/outputs/bundle/release/app-release.aab"
+        assertTrue(bundleAndTagOrder(altered(aab, "run: true"), checkManifest).isNotEmpty())
+        assertTrue(bundleAndTagOrder(yaml, checkManifest.replace("base/manifest/AndroidManifest.xml", "x")).isNotEmpty())
+        val tagIf = "if: startsWith(github.ref, 'refs/tags/v') && github.job != 'build'"
+        assertTrue(bundleAndTagOrder(altered(tagIf, "if: false"), checkManifest).isNotEmpty())
+        assertTrue(bundleAndTagOrder(altered("sort -V | tail -1", "sort | tail -1"), checkManifest).isNotEmpty())
+        assertTrue(bundleAndTagOrder(altered("- name: Check that the tag is the newest version", "- name: Something else"), checkManifest).isNotEmpty())
+    }
 
     /** The red of each case: a copy of the YAML with one protection taken out. */
     @Test fun eachCheckFailsOnAnAlteredCopy() {
