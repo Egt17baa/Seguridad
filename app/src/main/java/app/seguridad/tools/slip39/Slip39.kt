@@ -169,6 +169,8 @@ class Slip39(words: List<String>) {
             }
             if (first.groupThreshold > first.groupCount) throw Slip39Failure(SLIP39_MORE_GROUPS_THAN_COUNT)
             if (first.exponent > SLIP39_MAX_EXPONENT) throw Slip39Failure(slip39Exponent(SLIP39_MAX_EXPONENT))
+            // 2.1.2, R-22: a group index is below the group count (the spec's «group index < group count»).
+            if (shares.any { it.groupIndex >= first.groupCount }) throw Slip39Failure(SLIP39_NOT_SAME_SET)
             val byGroup = shares.groupBy { it.groupIndex }
             if (byGroup.size < first.groupThreshold) throw Slip39Failure(slip39TooFewGroups(first.groupThreshold, byGroup.size))
             if (byGroup.size > first.groupThreshold) throw Slip39Failure(slip39TooManyGroups(first.groupThreshold, byGroup.size))

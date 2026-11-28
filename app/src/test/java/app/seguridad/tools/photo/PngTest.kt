@@ -1,5 +1,6 @@
 package app.seguridad.tools.photo
 
+import app.seguridad.tools.MAX_IMAGE_PIECES
 import app.seguridad.tools.photo.TestImages.PNG_SIGNATURE
 import app.seguridad.tools.photo.TestImages.ascii
 import app.seguridad.tools.photo.TestImages.bytes
@@ -39,6 +40,29 @@ class PngTest {
         )
         PhotoCleaner.verify(PhotoFormat.PNG, out)
         assertEquals(setOf(Found.ICC_KEPT), Png.inspect(out).found)
+    }
+
+    /** 2.1.2, R-21: 70 000 empty chunks (a valid file otherwise) pass the piece cap and are refused. */
+    @Test(timeout = 20_000)
+    fun pngWithTooManyChunksIsRefused() {
+        fun repeat(chunk: ByteArray, times: Int) = ByteArray(chunk.size * times).also { out -> for (i in 0 until times) chunk.copyInto(out, i * chunk.size) }
+        val unknown = pngChunk("prVt")
+        damaged(png(TestImages.ihdr(), repeat(unknown, 70_000), *idats().toTypedArray(), TestImages.iend()))
+        // Kept chunks count the same: 70 000 empty IDAT chunks.
+        damaged(png(TestImages.ihdr(), repeat(pngChunk("IDAT"), 70_000), *idats().toTypedArray(), TestImages.iend()))
+        // Right at the cap (every chunk counts, IHDR and IEND included) the file still cleans.
+        val extra = MAX_IMAGE_PIECES - 2 - idats().size
+        val atCap = png(TestImages.ihdr(), repeat(unknown, extra), *idats().toTypedArray(), TestImages.iend())
+        Png.clean(atCap)
+        damaged(png(TestImages.ihdr(), repeat(unknown, extra + 1), *idats().toTypedArray(), TestImages.iend()))
+    }
+
+    /** 2.1.2, R-21: the cap is generous; the test images of the suite still clean, as before. */
+    @Test fun aRealPhotoStillCleans() {
+        val out = Png.clean(TestImages.everythingPng())
+        PhotoCleaner.verify(PhotoFormat.PNG, out)
+        val plain = png(TestImages.ihdr(), *idats().toTypedArray(), TestImages.iend())
+        assertArrayEquals(plain, Png.clean(plain))
     }
 
     @Test fun reportComesFromTheKeywords() {

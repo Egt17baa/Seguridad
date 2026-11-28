@@ -184,6 +184,25 @@ class BitwardenJsonTest {
         assertEquals("Campo", NOTE_LINE_UNNAMED_FIELD)
     }
 
+    /** 2.1.2, R-23: a custom field's name stays on one line (CR and LF become spaces) and is cut to MAX_TITLE. */
+    @Test fun bitwardenFieldNameIsOneLineAndCapped() {
+        val long = "n".repeat(MAX_TITLE + 500)
+        val read = ok(export(
+            """{"type":2,"name":"campos","fields":[{"name":"PIN\nURL","value":"1"},{"name":"a\r\nb\rc","value":"2"},""" +
+                """{"name":"$long","value":"3"},{"name":"\n","value":"4"}]}""",
+        ))
+        assertEquals(
+            "PIN URL: 1\na  b c: 2\n${"n".repeat(MAX_TITLE)}: 3\nCampo: 4",
+            entries(read).single().notes,
+        )
+        // A cut never splits a pair: the name ends before an emoji that would cross MAX_TITLE.
+        val pair = "x".repeat(MAX_TITLE - 1) + "🛒"
+        val cut = entries(ok(export("""{"type":2,"name":"par","fields":[{"name":"$pair","value":"v"}]}"""))).single()
+        assertEquals("x".repeat(MAX_TITLE - 1) + ": v", cut.notes)
+        // The value is untouched: only the name is one line.
+        assertEquals("n: uno\ndos", entries(ok(export("""{"type":2,"name":"v","fields":[{"name":"n","value":"uno\ndos"}]}"""))).single().notes)
+    }
+
     @Test fun favoriteIsKept() {
         val read = ok(fixture())
         assertEquals(listOf("Correo"), entries(read).filter { it.favorite }.map { it.title })

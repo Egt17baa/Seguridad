@@ -396,6 +396,23 @@ class Slip39Test {
         )
     }
 
+    /** 2.1.2, R-22: a part whose group index is not below the group count (a well-formed checksum, a forged header). */
+    @Test fun shareWithGroupIndexBeyondCountIsRefused() {
+        val share = decoded(slip.splitSecret(ByteArray(16), none, 1, listOf(GroupSpec(1, 1)), iterationExponent = 0)[0][0], 1)
+        for (forged in listOf(share.copy(groupIndex = 1), share.copy(groupIndex = 15))) {
+            assertEquals(SLIP39_NOT_SAME_SET, failure { slip.combineShares(listOf(slip.encode(forged)), none) })
+        }
+        // Two groups of two, with one of them forged to index 2: refused the same way.
+        val parts = slip.splitSecret(ByteArray(16), none, 2, listOf(GroupSpec(1, 1), GroupSpec(1, 1)), iterationExponent = 0)
+        val second = decoded(parts[1][0], 2)
+        assertEquals(
+            SLIP39_NOT_SAME_SET,
+            failure { slip.combineShares(listOf(parts[0][0], slip.encode(second.copy(groupIndex = 2))), none) },
+        )
+        // The index right below the count still combines.
+        assertEquals(16, slip.combineShares(listOf(parts[0][0], parts[1][0]), none).size)
+    }
+
     @Test fun theWordListIsTheSpecOne() {
         val words = asset("slip39_english.txt")
         assertEquals(1024, words.size)

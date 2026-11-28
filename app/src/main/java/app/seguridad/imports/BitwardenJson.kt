@@ -45,7 +45,7 @@ internal fun readBitwarden(root: JsonObject, password: CharArray? = null, treeBu
 /**
  * The elements of a plain export (spec «Entradas que se crean»), in the file's order:
  * - 1 → a LOGIN with the first URI that is not empty as its URL; the notes are the item's notes, then a «URL: …»
- *   line per other URI and a «Name: value» line per custom field (a field without a name is
+ *   line per other URI and a «Name: value» line per custom field, its name on one line and cut ([fieldName]; a field without a name is
  *   [NOTE_LINE_UNNAMED_FIELD]). `login.totp` (a link, or a bare key as the app lets one type it) adds a
  *   TOTP with the same title and folders, through [ImportReadBuilder.addOtpAuth]; a `steam://` code is
  *   [SkipReason.NOT_TOTP]. Passkeys (`login.fido2Credentials`) add a [SkipReason.PASSKEY]; the login still enters.
@@ -139,13 +139,27 @@ private fun readFields(o: JsonObject, folders: Map<String, String>): ItemRead? {
     for (f in o.list("fields").orEmpty()) {
         val field = f as? JsonObject ?: throw WrongType()
         // A linked field (type 3) has no value of its own: it gives no line.
-        notes.line(field.text("name").ifBlank { NOTE_LINE_UNNAMED_FIELD }, field.textOrNull("value") ?: continue)
+        notes.line(fieldName(field.text("name")).ifBlank { NOTE_LINE_UNNAMED_FIELD }, field.textOrNull("value") ?: continue)
     }
     val entryType = if (type == TYPE_LOGIN) EntryType.LOGIN else EntryType.NOTE
     return ItemRead(
         entryType, name, username, password, url, notes, totp, passkeys, favorite, listOfNotNull(folder),
         becameNote = type == TYPE_CARD || type == TYPE_IDENTITY,
     )
+}
+
+/**
+ * 2.1.2, R-23: the name of a custom field as its «Name: value» line shows it: on one line (each CR and LF becomes a
+ * space, so a name cannot write a line of its own in the notes) and cut to [MAX_TITLE] characters, never between the
+ * two halves of a pair. A name with a NUL or a lone surrogate is left as it is: [NotesBuilder] marks the item
+ * [SkipReason.BROKEN], as before, even when that character is past the cut.
+ */
+internal fun fieldName(raw: String): String {
+    if (!wellFormed(raw)) return raw
+    val line = raw.replace('\r', ' ').replace('\n', ' ')
+    if (line.length <= MAX_TITLE) return line
+    val end = if (Character.isHighSurrogate(line[MAX_TITLE - 1])) MAX_TITLE - 1 else MAX_TITLE
+    return line.substring(0, end)
 }
 
 /**

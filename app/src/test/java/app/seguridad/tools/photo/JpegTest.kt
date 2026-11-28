@@ -1,5 +1,6 @@
 package app.seguridad.tools.photo
 
+import app.seguridad.tools.MAX_IMAGE_PIECES
 import app.seguridad.tools.photo.Found.AUTHOR_RIGHTS
 import app.seguridad.tools.photo.Found.C2PA
 import app.seguridad.tools.photo.Found.DATE_SOFTWARE
@@ -282,6 +283,27 @@ class JpegTest {
         // Too short to be a real Adobe segment: dropped.
         val short = seg(0xEE, ascii("Adobe"))
         assertArrayEquals(TestImages.plainJpeg(), Jpeg.clean(concat(SOI, short, baseline.body(), EOI)))
+    }
+
+    /** 2.1.2, R-21: 70 000 minimal DQT segments (a valid file otherwise) pass the piece cap and are refused. */
+    @Test(timeout = 20_000)
+    fun jpegWithTooManySegmentsIsRefused() {
+        val dqt = seg(0xDB, ByteArray(0))
+        val many = ByteArray(dqt.size * 70_000).also { out -> for (i in 0 until 70_000) dqt.copyInto(out, i * dqt.size) }
+        damaged(concat(SOI, many, baseline.body(), EOI))
+        // Right at the cap (every marker after SOI counts, EOI included) the file still cleans.
+        val pieces = baseline.tables.size + 2 // the tables, the SOS with its scan, and EOI
+        val extra = MAX_IMAGE_PIECES - pieces
+        val atCap = concat(SOI, ByteArray(dqt.size * extra).also { out -> for (i in 0 until extra) dqt.copyInto(out, i * dqt.size) }, baseline.body(), EOI)
+        Jpeg.clean(atCap)
+        damaged(concat(SOI, dqt, atCap.copyOfRange(2, atCap.size)))
+    }
+
+    /** 2.1.2, R-21: the cap is generous; the test photos of the suite still clean, as before. */
+    @Test fun aRealPhotoStillCleans() {
+        assertArrayEquals(concat(SOI, icc(), adobe(), baseline.body(), EOI), Jpeg.clean(TestImages.everything()))
+        assertArrayEquals(TestImages.plainJpeg(), Jpeg.clean(TestImages.plainJpeg()))
+        PhotoCleaner.verify(PhotoFormat.JPEG, Jpeg.clean(TestImages.everything()))
     }
 
     @Test fun segmentLengthPastTheEndFails() {

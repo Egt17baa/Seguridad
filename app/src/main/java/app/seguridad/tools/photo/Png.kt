@@ -1,5 +1,6 @@
 package app.seguridad.tools.photo
 
+import app.seguridad.tools.MAX_IMAGE_PIECES
 import java.util.zip.CRC32
 
 /**
@@ -88,8 +89,11 @@ object Png {
         var sawIdat = false
         var p = SIGNATURE.size
         var first = true
+        var chunks = 0
         while (true) {
             check()
+            // 2.1.2, R-21: every chunk counts, kept or dropped, IHDR and IEND included.
+            if (++chunks > MAX_IMAGE_PIECES) damaged()
             val c = chunkAt(b, p) ?: damaged()
             if (first != (c.type == "IHDR")) damaged() // IHDR first, and only there
             if (first && !ihdrOk(b, c)) damaged()

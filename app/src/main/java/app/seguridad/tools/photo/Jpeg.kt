@@ -1,5 +1,7 @@
 package app.seguridad.tools.photo
 
+import app.seguridad.tools.MAX_IMAGE_PIECES
+
 /**
  * JPEG cleaning by rewriting the container with a closed list of kept segments (design §1).
  *
@@ -72,8 +74,11 @@ object Jpeg {
         var sawSos = false
         var p = 2
         var imageEnd = -1
+        var markers = 0
         while (true) {
             check()
+            // 2.1.2, R-21: every marker after SOI counts, kept or dropped, EOI included.
+            if (++markers > MAX_IMAGE_PIECES) damaged()
             if (p >= n || u8(p) != 0xFF) damaged()
             while (p < n && u8(p) == 0xFF) p++ // fill bytes
             if (p >= n) damaged()

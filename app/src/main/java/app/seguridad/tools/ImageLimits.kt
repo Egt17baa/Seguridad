@@ -17,6 +17,13 @@ const val MAX_REDACT_PIXELS = 24_000_000
 const val MAX_DECLARED_PIXELS = 260_000_000L
 const val MAX_DECLARED_SIDE = 32_768
 
+/**
+ * 2.1.2, R-21: most pieces «Limpiar foto» reads in one image, checked as each is read (decision (a) of 1.4.0): JPEG
+ * markers after SOI (EOI included) and PNG chunks (IHDR and IEND included). A real photo has a few dozen; a PNG cut in
+ * IDAT chunks of 8 KiB at [MAX_IMAGE_BYTES] has about 6 400. Past it the image is [app.seguridad.tools.photo.PHOTO_DAMAGED].
+ */
+const val MAX_IMAGE_PIECES = 65_536
+
 /** The declared size is over [MAX_DECLARED_PIXELS] or [MAX_DECLARED_SIDE]; each screen shows its own fixed text. */
 class ImageTooLarge : Exception()
 
