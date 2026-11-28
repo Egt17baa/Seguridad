@@ -800,4 +800,20 @@ class BackupCheckTest {
         assertEquals(a.data().vaultTag, c.data().vaultTag)
         assertEquals(7_000L, c.data().lastCheckedBackupAt)
     }
+    /**
+     * 2.1.2, R-20: the import names the missing attachment as plain text (no direction marks, controls or invisibles),
+     * cut, as every name taken from a file the app shows.
+     */
+    @Test fun missingAttachmentNameIsShownPlain() = runTest {
+        // A name as a hostile copy may hold it (the app's own attachments are cleaned when added, so it is written here).
+        val tricky = "fac\u202Etura\u200B.pdf"
+        assertEquals("La copia está incompleta o dañada: falta o no coincide el adjunto «factura.pdf»", attachmentNotInCopy(tricky))
+        assertEquals(attachmentNotInCopy("x".repeat(120)), attachmentNotInCopy("x".repeat(200) + ".pdf"))
+        assertEquals(attachmentNotInCopy("a".repeat(119) + "\uD83D\uDD11"), attachmentNotInCopy("a".repeat(119) + "\uD83D\uDD11b"))
+        // And the import says it so, through that one function.
+        val a = phoneA()
+        val ref = a.entries().flatMap { it.attachments }.single { it.name == "reverso.jpg" }
+        val gone = zipOf(entriesOf(a.backup()).filterNot { it.first == "att/${ref.id}.bin" })
+        assertEquals(attachmentNotInCopy("reverso.jpg"), importFails(gone))
+    }
 }

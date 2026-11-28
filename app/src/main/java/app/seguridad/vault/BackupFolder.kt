@@ -18,9 +18,27 @@ data class FolderGrant(val uri: String, val read: Boolean, val write: Boolean)
  * `primary%3ACopias` or `primary%3aCopias`, or carry a `<user>@` prefix in its authority, and a folder chosen with 1.2.2
  * must keep working after the update without choosing it again.
  */
-fun hasFolderGrant(folder: String, grants: List<FolderGrant>): Boolean {
-    val key = treeKey(folder) ?: return false
-    return grants.any { it.read && it.write && treeKey(it.uri) == key }
+fun hasFolderGrant(folder: String, grants: List<FolderGrant>): Boolean = folderGrant(folder, grants) != null
+
+/**
+ * 2.1.2, R-19: the grant [hasFolderGrant] finds for [folder] (the first, in the order Android lists them); null with none.
+ * The folder is then used through that grant's own URI, the one the permission was given for, whatever spelling of it the
+ * settings hold.
+ */
+fun folderGrant(folder: String, grants: List<FolderGrant>): FolderGrant? {
+    val key = treeKey(folder) ?: return null
+    return grants.firstOrNull { it.read && it.write && treeKey(it.uri) == key }
+}
+
+/**
+ * 2.1.2, R-19: whether [a] and [b] are the same folder: the same authority and tree document id ([treeKey]), however each
+ * is written (`%3A` or `%3a`, a `<user>@` prefix), as [hasFolderGrant] compares them. Anything that is
+ * not a tree URI only matches itself.
+ */
+fun sameFolder(a: String, b: String): Boolean {
+    if (a == b) return true
+    val key = treeKey(a) ?: return false
+    return treeKey(b) == key
 }
 
 // Case-sensitive, like Android: ContentResolver only resolves the scheme `content`, and DocumentsContract.isTreeUri and

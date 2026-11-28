@@ -69,8 +69,16 @@ class VaultRegistry(private val filesDir: File, private val io: CoroutineDispatc
     private val _vaults: MutableStateFlow<List<VaultInfo>>
     private var _lastOpened: String
 
+    /**
+     * 2.1.2, R-17: whether the list was read from [VAULTS_FILE] as it was written (no entry dropped), not rebuilt from the
+     * folders: only then does [pruneOrphans] know which folders are a vault's.
+     */
+    private val fromFile: Boolean
+
     init {
-        val read = read() ?: rebuilt()
+        val fromDisk = read()
+        fromFile = fromDisk?.whole == true
+        val read = fromDisk?.file ?: rebuilt()
         val list = read.vaults.ifEmpty { listOf(VaultInfo(PRIMARY_VAULT_ID)) }.sortedBy { it.order }.mapIndexed { i, v -> v.copy(order = i) }
         _vaults = MutableStateFlow(list)
         _lastOpened = read.lastOpened?.takeIf { id -> list.any { it.id == id } } ?: list.first().id
@@ -133,6 +141,33 @@ class VaultRegistry(private val filesDir: File, private val io: CoroutineDispatc
         withContext(io) { dirOf(id).deleteRecursively() }
     }
 
+    /**
+     * 2.1.2, R-17: at the start, deletes each folder `files/vaults/<id>` (an id as [create] makes them) that the list does
+     * not have: what a [remove] whose deletion failed left (a vault the user deleted, with its file and attachments). Only
+     * when the list was read from its file ([fromFile]); a list rebuilt from the folders deletes nothing. Each deletion is
+     * checked and tried once more; returns how many folders went. Never `files/vault/`, nor anything not named as an id.
+     * Never throws: what is left is tried again at the next start.
+     */
+    suspend fun pruneOrphans(): Int = mutex.withLock {
+        if (!fromFile) return@withLock 0
+        val listed = _vaults.value.mapTo(HashSet()) { it.id }
+        withContext(io) {
+            val orphans = try {
+                File(filesDir, VAULTS_DIR).listFiles()?.filter { it.isDirectory && VAULT_ID.matches(it.name) && it.name !in listed }.orEmpty()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            orphans.count { dir -> gone(dir) || gone(dir) }
+        }
+    }
+
+    /** Deletes [dir] and says whether it is gone; false, never thrown, if it is still there. */
+    private fun gone(dir: File): Boolean = try {
+        dir.deleteRecursively() && !dir.exists()
+    } catch (e: Exception) {
+        false
+    }
+
     suspend fun setLastOpened(id: String) = mutex.withLock {
         require(_vaults.value.any { it.id == id }) { "Unknown vault" }
         if (id != _lastOpened || !file.exists()) write(_vaults.value, id)
@@ -146,15 +181,21 @@ class VaultRegistry(private val filesDir: File, private val io: CoroutineDispatc
         _lastOpened = last
     }
 
-    /** The file as it was written; null if it is missing, damaged or names no valid vault. Duplicated ids keep the first. */
-    private fun read(): RegistryFile? = try {
+    /** What [read] got: the list, and whether it is [whole] (2.1.2, R-17: no entry of the file was dropped). */
+    private class Read(val file: RegistryFile, val whole: Boolean)
+
+    /**
+     * The file as it was written; null if it is missing, damaged or names no valid vault. Duplicated ids keep the first.
+     * An entry dropped (not an id, repeated, or beyond [VaultLimits.VAULTS_MAX]) makes it not [Read.whole].
+     */
+    private fun read(): Read? = try {
         if (!file.exists()) {
             null
         } else {
             val read = appJson.decodeFromString(RegistryFile.serializer(), file.readText())
             val seen = HashSet<String>()
             val valid = read.vaults.filter { (it.id == PRIMARY_VAULT_ID || VAULT_ID.matches(it.id)) && seen.add(it.id) }.take(VaultLimits.VAULTS_MAX)
-            if (valid.isEmpty()) null else read.copy(vaults = valid)
+            if (valid.isEmpty()) null else Read(read.copy(vaults = valid), whole = valid.size == read.vaults.size)
         }
     } catch (e: Exception) {
         null

@@ -615,17 +615,20 @@ class AutoBackupTest {
         assertNull(errors.last())
         assertEquals(listOf("seguridad-auto-20261026-100002.sgbak.tmp", "seguridad-auto-20261026-100002.sgbak"), target.written)
         assertArrayEquals(byteArrayOf(1, 2, 3), target.files.getValue("seguridad-auto-20261026-100000.sgbak"))
-        // The new copy is the complete one written now, never the cut leftover, which rotation removed.
+        // The new copy is the complete one written now, never the cut temporary one. 2.1.2, R-16: that one is from the
+        // last 24 hours (it may be another vault's copy being written), so the rotation leaves it.
         assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100002.sgbak").copyOf(BACKUP_HEAD_BYTES)))
-        assertFalse(target.files.containsKey("seguridad-auto-20261026-100001.sgbak.tmp"))
+        assertArrayEquals(byteArrayOf(9), target.files.getValue("seguridad-auto-20261026-100001.sgbak.tmp"))
 
         target.failRename = null
         s.upsert(note("2"))
         settle()
         assertNull(errors.last())
-        assertEquals("seguridad-auto-20261026-100001.sgbak.tmp", target.written.last())
+        // Neither its name nor its temporary name is reused.
+        assertEquals("seguridad-auto-20261026-100003.sgbak.tmp", target.written.last())
         assertArrayEquals(byteArrayOf(1, 2, 3), target.files.getValue("seguridad-auto-20261026-100000.sgbak"))
-        assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100001.sgbak").copyOf(BACKUP_HEAD_BYTES)))
+        assertArrayEquals(byteArrayOf(9), target.files.getValue("seguridad-auto-20261026-100001.sgbak.tmp"))
+        assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100003.sgbak").copyOf(BACKUP_HEAD_BYTES)))
     }
 
     @Test fun revisionCountsSavedChangesOnly() = runTest {
@@ -1218,7 +1221,8 @@ class AutoBackupTest {
     @Test fun anUndeletableLeftoverTemporaryCopyKeepsTheRequest() = runTest {
         val (s, settings, ta) = persistentWithThree()
         val (target, a) = ta
-        val leftover = "seguridad-auto-20261026-095900.sgbak.tmp"
+        // 2.1.2, R-16: more than 24 hours old, so a leftover the rotation deletes (a newer one may be another vault's).
+        val leftover = "seguridad-auto-20261025-095900.sgbak.tmp"
         target.files[leftover] = ByteArray(10) // A copy whose rename and discard both failed, long ago.
         target.undeletable = { it == leftover }
         s.lock()
@@ -1527,6 +1531,89 @@ class AutoBackupTest {
         assertEquals(atStart, target.writes)
         settle()
         assertEquals(atStart + 1, target.writes)
+    }
+
+    // ---- 2.1.2, R-13 y R-16 ----
+
+    /**
+     * 2.1.2, R-13: a request saved earlier (asked while the vault was locked) still waits when a new one is asked with the
+     * vault open: the new request deletes the copies of both, never only those of the request of before.
+     */
+    @Test fun replaceNowJoinsAPendingRequest() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target).sorted()
+        val ids = copies
+        // The request of before, saved and still waiting, for the oldest copy only.
+        request = request.copy(replacePending = true, replaceTargets = listOf(ids[0]))
+        clock += 60_000
+        val result = a.replaceOldCopies(listOf(ids[1]))
+        assertNull(result.error)
+        assertFalse("The copy of the request of before goes", own[0] in target.files)
+        assertFalse("The copy asked for now goes", own[1] in target.files)
+        assertTrue("A copy in neither request stays (keep 5)", own[2] in target.files)
+        assertTrue("seguridad-auto-20261026-100400.sgbak" in target.files)
+    }
+
+    /**
+     * 2.1.2, R-16: two vaults may copy to one folder. A temporary copy of the last 24 hours that is not this copy's may be
+     * another vault's being written now: the rotation leaves it, whatever prefix it has.
+     */
+    @Test fun rotationKeepsAnotherVaultsFreshTemp() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val fresh = listOf(
+            "seguridad-auto-20261026-095930.sgbak.tmp",
+            "seguridad-antes-de-importar-20261026-095000.sgbak.tmp",
+            "seguridad-antes-de-2-0-20261025-100001.sgbak.tmp", // 23 h 59 min 59 s before.
+        )
+        fresh.forEach { target.files[it] = byteArrayOf(1) }
+        auto(s, target)
+        s.upsert(note("1"))
+        settle()
+        assertEquals(listOf<String?>(null), errors)
+        assertEquals(fresh.toSet() + "seguridad-auto-20261026-100000.sgbak", target.files.keys)
+    }
+
+    /**
+     * 2.1.2, R-16 with A6 (M3): a temporary copy of the last 24 hours is not deleted, and it may be a complete copy under the
+     * password of before, so the replacement is not said to be done while it is there.
+     */
+    @Test fun aFreshTempLeftKeepsTheReplacementFromBeingDone() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target)
+        val fresh = "seguridad-auto-20261026-100100.sgbak.tmp"
+        target.files[fresh] = byteArrayOf(1)
+        clock += 60_000
+        val result = a.replaceOldCopies()
+        assertFalse("Not a replacement while it is left", result.replaced)
+        assertTrue(fresh in target.files)
+        assertTrue("The copies listed went all the same", own.none { it in target.files })
+    }
+
+    /** 2.1.2, R-16: a temporary copy whose name says more than 24 hours ago is a leftover: the rotation deletes it. */
+    @Test fun rotationRemovesAStaleTemp() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val stale = listOf(
+            "seguridad-auto-20261025-095959.sgbak.tmp", // 24 h and 1 s before.
+            "seguridad-antes-de-importar-20200101-000000.sgbak.tmp",
+            "seguridad-antes-de-2-0-20261001-120000.sgbak.tmp",
+        )
+        stale.forEach { target.files[it] = byteArrayOf(1) }
+        val fresh = "seguridad-auto-20261026-090000.sgbak.tmp"
+        target.files[fresh] = byteArrayOf(1)
+        // Not a date: never written by the app, so never deleted by its name.
+        val notADate = "seguridad-auto-20261399-000000.sgbak.tmp"
+        target.files[notADate] = byteArrayOf(1)
+        auto(s, target)
+        s.upsert(note("1"))
+        settle()
+        assertEquals(listOf<String?>(null), errors)
+        assertEquals(setOf(fresh, notADate, "seguridad-auto-20261026-100000.sgbak"), target.files.keys)
     }
 }
 

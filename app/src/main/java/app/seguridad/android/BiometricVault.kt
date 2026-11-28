@@ -205,9 +205,12 @@ object BiometricVault {
         }
     }
 
-    /** [disable] itself, from an operation that already holds the queue (on its thread). */
+    /**
+     * [disable] itself, from an operation that already holds the queue (on its thread). 2.1.2, R-15: written at once
+     * (commit), as [disable] does, before the key goes: a process killed right after never finds the old blob without its key.
+     */
     private fun clear(context: Context, vaultId: String) {
-        prefs(context, vaultId).edit {
+        prefs(context, vaultId).edit(commit = true) {
             remove(KEY_IV)
             remove(KEY_BLOB)
             remove(KEY_IN_STRONGBOX)

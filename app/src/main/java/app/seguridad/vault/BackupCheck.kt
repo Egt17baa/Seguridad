@@ -4,6 +4,7 @@ import app.seguridad.crypto.CryptoFailure
 import app.seguridad.crypto.KdfLock
 import app.seguridad.crypto.NONCE_BYTES
 import app.seguridad.crypto.TAG_BYTES
+import app.seguridad.imports.plainReportText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -197,8 +198,16 @@ fun removeBackupCheckLeftovers(tempDir: File) {
 internal const val SEVERAL_IDENTITIES = "La copia tiene más de una identidad: no se puede importar"
 internal const val COPY_DAMAGED = "La copia está dañada: no se puede importar. Elige otra copia."
 
-/** The import's refusal of a copy whose attachment is missing or changed; it names the attachment (only the import says it). */
-internal fun attachmentNotInCopy(name: String) = "La copia está incompleta o dañada: falta o no coincide el adjunto «$name»"
+/**
+ * The import's refusal of a copy whose attachment is missing or changed; it names the attachment (only the import says it).
+ * 2.1.2, R-20: the name comes from the copy (hostile data), so it is shown as plain text ([plainReportText]: no controls,
+ * direction marks or invisibles) and cut to [ATTACHMENT_NAME_SHOWN] UTF-16 units.
+ */
+internal fun attachmentNotInCopy(name: String) =
+    "La copia está incompleta o dañada: falta o no coincide el adjunto «${plainReportText(name, ATTACHMENT_NAME_SHOWN)}»"
+
+/** 2.1.2, R-20: how much of an attachment's name [attachmentNotInCopy] shows, as received names are cut (A16b). */
+private const val ATTACHMENT_NAME_SHOWN = 120
 
 /**
  * Round 2 of the fixes of the attack, point 8 (R5): every check of a copy's data, as «Importar copia» runs them

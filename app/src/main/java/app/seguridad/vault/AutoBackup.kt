@@ -40,7 +40,9 @@ import java.io.IOException
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.time.DateTimeException
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -120,6 +122,12 @@ private val UPGRADE_TEMP_NAME = Regex("seguridad-antes-de-2-0-\\d{8}-\\d{6}\\.sg
 
 /** [COPY_NAME] for [UPGRADE_COPY_PREFIX]: only counted by the «copias sin apuntar» notice, never deleted by name. */
 private val UPGRADE_COPY_NAME = Regex("seguridad-antes-de-2-0-\\d{8}-\\d{6}\\.sgbak")
+
+/** 2.1.2, R-16: the date in the name of any of the temporary copies above ([TEMP_NAME], [IMPORT_TEMP_NAME], [UPGRADE_TEMP_NAME]). */
+private val TEMP_STAMP = Regex("seguridad-(?:auto-|antes-de-importar-|antes-de-2-0-)(\\d{8}-\\d{6})\\.sgbak\\.tmp")
+
+/** 2.1.2, R-16: a temporary copy begun longer ago than this is a leftover; a newer one may be another vault's, being written. */
+private const val STALE_TEMP_MS = 24L * 60 * 60 * 1000
 
 /** What [AUTO_BACKUP_PREFIX], [IMPORT_COPY_PREFIX] and [UPGRADE_COPY_PREFIX] start with: the rotation lists the folder once for all. */
 private const val COPIES_PREFIX = "seguridad-"
@@ -304,8 +312,9 @@ sealed interface CopyResult {
  * the real name. A provider that cannot rename gets it written straight under the real name (deleted if that fails), the
  * only way to have a copy there at all. A name already in the folder is never reused (the next free second is), so no
  * complete copy is deleted to make room. A target only ever deletes the copies it made itself (its own
- * [BackupTargetSettings.copies], by id, never by name alone) and temporary files with exactly this class's names, never
- * the copy just written, and only after a copy was written and checked.
+ * [BackupTargetSettings.copies], by id, never by name alone) and temporary files with exactly this class's names (2.1.2,
+ * R-16: only this copy's own, or one begun more than 24 hours ago, as a newer one may be another vault's), never the copy
+ * just written, and only after a copy was written and checked.
  *
  * Copies are only made from an open vault, where [VaultStore.exportBackup] checks every attachment against its SHA-256:
  * a copy due while the vault is locked waits, and is made as soon as the vault is opened again. A lock in the middle
@@ -667,15 +676,17 @@ class AutoBackup(
             for (uri in all.map { it.uri }) {
                 val t = target(uri) ?: continue // Read again: removed meanwhile.
                 // C-2: with the copies under a password of before that a folder refused to delete (maybe listed after the
-                // dialog read [asked]).
-                val here = withOld(uri, asked)
+                // dialog read [asked]). 2.1.2, R-13: a request saved earlier and still pending joins this one: its copies
+                // are under a password of before too, and the new request replaces it, so they are never left out.
+                // A pending request with no targets (saved before 1.3.0) adds none, as before: never a copy made after the
+                // change of now (m2 of the CR re-review).
+                val here = joined(withOld(uri, asked), if (t.replacePending) withOld(uri, t.replaceTargets).orEmpty() else emptyList())
                 results += when (store.state.value) {
                     is VaultState.Unlocked -> {
                         // A failure here is reported: asked while open, it is not retried behind the user's back (unless a
-                        // request saved while locked is still pending: it goes on, with its own targets, and what it told
-                        // starts again).
-                        val ids = if (t.replacePending) withOld(uri, t.replaceTargets) ?: here else here
-                        attempt(uri, Replace(ids, announce = false, newRequest = true, since = since, request = request))
+                        // request saved while locked is still pending: it goes on, with the targets of both, and what it
+                        // told starts again).
+                        attempt(uri, Replace(here, announce = false, newRequest = true, since = since, request = request))
                             ?: if (store.state.value is VaultState.Locked) waitForUnlock(uri, here, request) else failedFor(uri, request)
                     }
                     is VaultState.Locked -> waitForUnlock(uri, here, request)
@@ -1008,6 +1019,9 @@ class AutoBackup(
     }
 
     /** [ids] of a replacement of [uri] with [oldLeft]'s; null stays null (every listed copy, these among them). */
+    /** 2.1.2, R-13: the copies of two A6 requests together; null (every copy listed now) when either is null. */
+    private fun joined(a: List<String>?, b: List<String>?): List<String>? = if (a == null || b == null) null else (a + b).distinct()
+
     private fun withOld(uri: String, ids: List<String>?): List<String>? {
         val left = oldLeft[uri]?.takeIf { it.isNotEmpty() } ?: return ids
         return ids?.let { (it + left).distinct() }
@@ -1143,14 +1157,22 @@ class AutoBackup(
         val old = others.filter { it in doomed }
         val rest = others.filter { it !in doomed }
         val surplus = rest.dropLast(keepN - 1)
-        val leftovers = present.filter { TEMP_NAME.matches(it.name) || IMPORT_TEMP_NAME.matches(it.name) || UPGRADE_TEMP_NAME.matches(it.name) }.map { it.id }
+        // 2.1.2, R-16: several vaults may copy to one folder, and a temporary copy's name does not say whose it is. Only
+        // this copy's own (its rename and its discard both failed) or one whose name says it was begun more than
+        // [STALE_TEMP_MS] ago is deleted: a newer one may be another vault's copy being written now. With a replacement, a
+        // newer one left counts as a leftover not deleted (M3: it may be a complete copy under the password of before),
+        // so the request stays and a later copy tries again.
+        val at = now()
+        val temps = present.filter { TEMP_NAME.matches(it.name) || IMPORT_TEMP_NAME.matches(it.name) || UPGRADE_TEMP_NAME.matches(it.name) }
+        val (leftoverEntries, freshTemps) = temps.partition { it.name == newest.name + TEMP_SUFFIX || staleTemp(it.name, at) }
+        val leftovers = leftoverEntries.map { it.id }
         // Import copies: never rotated, only deleted as targets of a replacement (A6), by id from their own list.
         val listedImports = target(uri)?.importCopies.orEmpty()
         val imports = listedImports.filter { it in ids && it != newest.id }.distinct()
         val oldImports = imports.filter { it in doomed }
         val notDeleted = HashSet<String>()
         var failed = false
-        var leftoverLeft = false
+        var leftoverLeft = targets != null && freshTemps.isNotEmpty()
         for (id in old + oldImports + surplus + leftovers) {
             if (store.generation != generation) return Rotation(null, null, 0)
             try {
@@ -1180,6 +1202,21 @@ class AutoBackup(
             if (done) null else AUTO_BACKUP_OLD_NOT_DELETED, mine, unlisted, targetsLeft, replaceDone = done, importsLeft = importsLeft,
             deleted = (old + oldImports).count { it !in notDeleted },
         )
+    }
+
+    /**
+     * 2.1.2, R-16: whether the temporary copy [name] was begun more than [STALE_TEMP_MS] before [at], by the date in its
+     * name (written in [zone], as [freeName] writes it). A date that cannot be read is never stale (the app never wrote it);
+     * one ahead of [at] (a clock set back) is not either.
+     */
+    private fun staleTemp(name: String, at: Long): Boolean {
+        val stamp = TEMP_STAMP.matchEntire(name)?.groupValues?.get(1) ?: return false
+        val begun = try {
+            LocalDateTime.parse(stamp, STAMP).atZone(zone()).toInstant().toEpochMilli()
+        } catch (e: DateTimeException) {
+            return false
+        }
+        return at - begun > STALE_TEMP_MS
     }
 
     private fun messageFor(e: Throwable): String = when (e) {

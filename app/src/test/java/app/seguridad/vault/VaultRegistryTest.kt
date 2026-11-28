@@ -196,4 +196,44 @@ class VaultRegistryTest {
             .joinToString(" ").lowercase()
         for (never in listOf("irrecuperable", "borrado seguro", "ocult", "escond", "secreta", "nadie sabrá")) assertFalse(never, all.contains(never))
     }
+    /**
+     * 2.1.2, R-17: a folder `files/vaults/<id>` the registry read from its file does not list (a deletion whose folder
+     * could not be deleted) is deleted at the start; the listed ones, the first vault's and anything not named as an id stay.
+     */
+    @Test fun orphanVaultFolderIsRemovedOnStart() = runTest {
+        val r = registry()
+        File(tmp.root, "vault").mkdirs()
+        val a = r.create(TagColor.RED)
+        r.dirOf(a.id).mkdirs()
+        File(r.dirOf(a.id), "vault.bin").writeText("de a")
+        val orphan = File(File(tmp.root, "vaults"), "0123456789abcdef0123456789abcdef")
+        File(orphan, "att").mkdirs()
+        File(orphan, "vault.bin").writeText("huérfana")
+        File(File(orphan, "att"), "x.bin").writeText("adjunto")
+        val notAnId = File(File(tmp.root, "vaults"), "otra-cosa").apply { mkdirs() }
+        val again = registry()
+        assertEquals(1, again.pruneOrphans())
+        assertFalse(orphan.exists())
+        assertTrue(File(r.dirOf(a.id), "vault.bin").exists())
+        assertTrue(File(tmp.root, "vault").exists())
+        assertTrue(notAnId.exists())
+        assertEquals(listOf(PRIMARY_VAULT_ID, a.id), again.vaults.value.map { it.id })
+        assertEquals("Nothing left to delete", 0, again.pruneOrphans())
+    }
+
+    /** 2.1.2, R-17: a registry rebuilt from the folders (its file missing or damaged) never deletes a folder. */
+    @Test fun rebuiltRegistryRemovesNothing() = runTest {
+        val r = registry()
+        val a = r.create(TagColor.RED)
+        r.dirOf(a.id).mkdirs()
+        val other = File(File(tmp.root, "vaults"), "0123456789abcdef0123456789abcdef").apply { mkdirs() }
+        File(tmp.root, VAULTS_FILE).writeText("{ dañado")
+        assertEquals(0, registry().pruneOrphans())
+        assertTrue(r.dirOf(a.id).exists())
+        assertTrue(other.exists())
+        File(tmp.root, VAULTS_FILE).delete()
+        assertEquals(0, registry().pruneOrphans())
+        assertTrue(r.dirOf(a.id).exists())
+        assertTrue(other.exists())
+    }
 }

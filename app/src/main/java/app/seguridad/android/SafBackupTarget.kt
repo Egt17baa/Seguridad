@@ -11,7 +11,9 @@ import app.seguridad.vault.BackupFile
 import app.seguridad.vault.BackupTarget
 import app.seguridad.vault.FolderGrant
 import app.seguridad.vault.documentOfTree
+import app.seguridad.vault.folderGrant
 import app.seguridad.vault.hasFolderGrant
+import app.seguridad.vault.sameFolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
@@ -135,12 +137,23 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
             false
         }
 
-        /** Gives the access back (when the copies are turned off or another folder is chosen); never fails. */
+        /**
+         * Gives the access back (when the copies are turned off or another folder is chosen); never fails. 2.1.2, R-19:
+         * also the permission of the same folder written another way ([sameFolder]), which [open] would use; the caller
+         * (AppContainer.releaseIfUnused) has checked that no target of any vault is that folder.
+         */
         fun releaseFolder(resolver: ContentResolver, tree: String) {
-            try {
-                resolver.releasePersistableUriPermission(tree.toUri(), FLAGS)
+            val same = try {
+                resolver.persistedUriPermissions.map { it.uri.toString() }.filter { sameFolder(it, tree) }
             } catch (e: Exception) {
-                // Already gone (revoked or the app's data cleared).
+                emptyList()
+            }
+            for (uri in (listOf(tree) + same).distinct()) {
+                try {
+                    resolver.releasePersistableUriPermission(uri.toUri(), FLAGS)
+                } catch (e: Exception) {
+                    // Already gone (revoked or the app's data cleared), or never held with this spelling.
+                }
             }
         }
 
@@ -149,12 +162,14 @@ class SafBackupTarget(private val resolver: ContentResolver, private val tree: U
          * for it, which only the system picker gives ([takeFolder]). The settings file is not authenticated: a folder
          * put there by anything else (CADENAS-1) throws SecurityException, which AutoBackup reports as
          * AUTO_BACKUP_NO_PERMISSION («Vuelve a elegirla»), and no copy is made. Compared by authority and tree document
-         * id ([hasFolderGrant]), so a folder saved by 1.2.2 with another spelling of the same URI still matches.
+         * id ([hasFolderGrant]), so a folder saved by 1.2.2 with another spelling of the same URI still matches. 2.1.2,
+         * R-19: the folder is then used by the URI of the permission that matched ([folderGrant]), never by the spelling
+         * of the settings, so every call goes to the URI the system gave the permission for.
          */
         fun open(resolver: ContentResolver, tree: String): SafBackupTarget {
             val grants = resolver.persistedUriPermissions.map { FolderGrant(it.uri.toString(), it.isReadPermission, it.isWritePermission) }
-            if (!hasFolderGrant(tree, grants)) throw SecurityException("No persisted permission for the backup folder")
-            return SafBackupTarget(resolver, tree.toUri())
+            val grant = folderGrant(tree, grants) ?: throw SecurityException("No persisted permission for the backup folder")
+            return SafBackupTarget(resolver, grant.uri.toUri())
         }
 
         /** What to show for the folder: the provider's id of it (such as «primary:Copias»), never more. */

@@ -659,4 +659,23 @@ class SettingsTest {
         assertFalse(s.turnOffAutoBackup(PRIMARY_VAULT_ID))
         assertFalse("Already off: nothing dropped", s.turnOffAutoBackup(PRIMARY_VAULT_ID))
     }
+    /**
+     * 2.1.2, R-19: one folder written two ways (`%3A` and `%3a`, or with a `<user>@` prefix) is one target: it cannot be
+     * added twice, and its permission is still in use while either spelling is a target of any vault.
+     */
+    @Test fun sameTreeSpelledTwiceIsOneTarget() {
+        val upper = "content://com.android.externalstorage.documents/tree/primary%3ACopias"
+        val lower = "content://com.android.externalstorage.documents/tree/primary%3aCopias"
+        val withUser = "content://0@com.android.externalstorage.documents/tree/primary%3ACopias"
+        val v = VaultSettings().withTargetAdded(upper, BackupSchedule.ON_CHANGE)
+        assertEquals(1, v.targets.size)
+        assertEquals(TargetRefusal.ALREADY_A_TARGET, v.canAddTarget(lower))
+        assertEquals(TargetRefusal.ALREADY_A_TARGET, v.canAddTarget(withUser))
+        assertEquals(1, v.withTargetAdded(lower, BackupSchedule.ON_CHANGE).targets.size)
+        assertNull(v.canAddTarget("content://com.android.externalstorage.documents/tree/primary%3AOtra"))
+        val all = Settings(perVault = mapOf(PRIMARY_VAULT_ID to v))
+        assertTrue(all.folderInUse(lower))
+        assertTrue(all.folderInUse(withUser))
+        assertFalse(all.folderInUse("content://com.android.externalstorage.documents/tree/primary%3AOtra"))
+    }
 }

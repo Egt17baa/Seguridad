@@ -7,6 +7,7 @@ import app.seguridad.vault.AutoBackupResult
 import app.seguridad.vault.ReplaceDone
 import app.seguridad.vault.a6Summary
 import app.seguridad.vault.requestId
+import app.seguridad.vault.sameFolder
 import app.seguridad.vault.BackupSchedule
 import app.seguridad.vault.BackupTargetSettings
 import app.seguridad.vault.VaultLimits
@@ -248,12 +249,18 @@ val VaultSettings.oldestBackupAt: Long?
 /** Task 8, round 4: [a6Summary] of these settings: the request of now over the targets of now. */
 val VaultSettings.a6Summary: A6Summary get() = a6Summary(targets, a6)
 
+/**
+ * 2.1.2, R-19: whether a target of any vault has its copies in the folder [uri], compared as [sameFolder]: its permission
+ * is still in use ([app.seguridad.AppContainer.releaseIfUnused]).
+ */
+fun Settings.folderInUse(uri: String): Boolean = perVault.values.any { v -> v.targets.any { sameFolder(it.uri, uri) } }
+
 /** Why a target cannot be added ([withTargetAdded]); null when it can. */
 enum class TargetRefusal { TOO_MANY, ALREADY_A_TARGET }
 
 /** Whether [uri] can be added as a new target. */
 fun VaultSettings.canAddTarget(uri: String): TargetRefusal? = when {
-    targets.any { it.uri == uri } -> TargetRefusal.ALREADY_A_TARGET
+    targets.any { sameFolder(it.uri, uri) } -> TargetRefusal.ALREADY_A_TARGET // 2.1.2, R-19.
     targets.size >= VaultLimits.BACKUP_TARGETS_MAX -> TargetRefusal.TOO_MANY
     else -> null
 }

@@ -23,6 +23,7 @@ import app.seguridad.health.LeakResults
 import app.seguridad.settings.RenameNotice
 import app.seguridad.settings.SettingsStore
 import app.seguridad.settings.clockMarkWorthWriting
+import app.seguridad.settings.folderInUse
 import app.seguridad.settings.backupFolders
 import app.seguridad.settings.listedCopies
 import app.seguridad.settings.resettingClock
@@ -823,10 +824,14 @@ class AppContainer(
      * (a deletion cut between the registry and the settings, or a full disk): an id of [Settings.perVault] goes only when
      * it is not in the registry **and** its folder (`files/vaults/<id>/`, or `files/vault/`) does not exist, so a registry
      * that could not be read never takes the settings (nor the A11 marks) of a vault still on the disk. Its fingerprint key
-     * is forgotten first (audit A-1 + B-3). Then the copies' folders no vault uses any more are given back. Best effort: a
+     * is forgotten first (audit A-1 + B-3). Then the copies' folders no vault uses any more are given back. 2.1.2, R-17:
+     * before all that, the folders of vaults no longer listed are deleted ([VaultRegistry.pruneOrphans]). Best effort: a
      * failure to forget a fingerprint key does not stop the rest; a failure to write the settings leaves them as they were.
      */
     suspend fun forgetOrphanVaults() = changingVaults.withLock {
+        // 2.1.2, R-17: first the folders a deletion could not delete (only with the registry read from its file), so the
+        // settings and the fingerprint key of such a vault go below too.
+        registry.pruneOrphans()
         val listed = registry.vaults.value.map { it.id }.toSet()
         val all = settings.settings.value
         val gone = all.perVault.keys.filter { id -> id !in listed && !folderOnDisk(id) }
@@ -930,7 +935,8 @@ class AppContainer(
      * unless a target of any vault still has its copies there.
      */
     fun releaseIfUnused(uri: String) {
-        if (settings.settings.value.perVault.values.none { v -> v.targets.any { it.uri == uri } }) releaseFolder(uri)
+        // 2.1.2, R-19: the same folder written another way ([app.seguridad.vault.sameFolder]) is still in use.
+        if (!settings.settings.value.folderInUse(uri)) releaseFolder(uri)
     }
 
     /** The vault whose master password changed last ([onMasterChanged]): its dialog replaces its copies, never another's. */
