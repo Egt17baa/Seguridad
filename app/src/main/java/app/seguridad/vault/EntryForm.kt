@@ -329,7 +329,9 @@ class EntryEditSession(
     /**
      * The stored fields of [e]: those of its template (by id, the first of each) to [templateValues], the rest to
      * [customFields]. An id seen twice, or one of the template's on a field of the user's (a copy made elsewhere), gets a
-     * new one, so each row of the editor is one field. Dates are shown as DD/MM/AAAA.
+     * new one, so each row of the editor is one field. Dates are shown as DD/MM/AAAA. A visible template field stored as
+     * [FieldKind.HIDDEN] (only hostile or hand-made imported data does that) goes to [customFields], hidden, and the
+     * template's field stays empty (2.1.2, R-26 and M-3 of its review).
      */
     private fun loadFields(e: VaultEntry?) {
         val values = HashMap<String, String>()

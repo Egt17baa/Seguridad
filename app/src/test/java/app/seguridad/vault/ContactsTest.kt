@@ -327,7 +327,7 @@ class ContactsTest {
     @Test fun elNombreSeComparaNormalizado() {
         val anaEntry = contactOf(person(), "Ana")
         val entries = listOf(anaEntry)
-        listOf("ana", "ANA", "  Ana  ", "www.ana.com").forEach {
+        listOf("ana", "ANA", "  Ana  ").forEach {
             val card = person().card(it)
             assertEquals(it, CardCheck.KeysChanged(anaEntry, card), checkIncomingCard(card, entries))
         }
@@ -435,6 +435,40 @@ class ContactsTest {
         assertEquals(CardCheck.New(blank), checkIncomingCard(blank, listOf(unnamed.entry)))
         val broken = me.entry.copy(identitySeed = "AAAA")
         assertEquals(CardCheck.New(card), checkIncomingCard(card, listOf(broken)))
+    }
+
+    /**
+     * Ronda de arreglos de la tarea 11, I-1: el nombre se compara como se ve (`compareKey` en minúsculas): un invisible
+     * (ZWJ, ZWNJ), letras de ancho completo, espacios dobles o un espacio de no separación no lo esquivan, ni contra mi
+     * identidad (NameIsMine) ni contra un contacto (KeysChanged).
+     */
+    @Test fun lookAlikeNamesAreCaughtForMeAndForAContact() {
+        val looks = listOf("Be\u200Da Ruiz", "Bea Ruiz\u200C", "\uFF22\uFF45\uFF41 Ruiz", "Bea  Ruiz", "Bea\u00A0Ruiz", "BEA\u2003RUIZ")
+        val me = Person(newIdentityEntry(now).copy(username = "Bea Ruiz"))
+        val contact = contactOf(person(), "Bea Ruiz")
+        for (name in looks) {
+            val card = person().card(name)
+            assertEquals(name, CardCheck.NameIsMine(me.entry, card), checkIncomingCard(card, listOf(me.entry)))
+            assertEquals(name, CardCheck.KeysChanged(contact, card), checkIncomingCard(card, listOf(contact)))
+        }
+    }
+
+    /**
+     * Ronda de arreglos de la tarea 11, M-2: un nombre de persona no se trata como un dominio: «bea.ruiz» no es «bea», y
+     * «www.ana.com» no es «Ana».
+     */
+    @Test fun personNamesAreNotDomains() {
+        val me = Person(newIdentityEntry(now).copy(username = "bea.ruiz"))
+        for (name in listOf("Bea", "bea.com", "www.bea.ruiz")) {
+            val card = person().card(name)
+            assertEquals(name, CardCheck.New(card), checkIncomingCard(card, listOf(me.entry)))
+        }
+        val ana = contactOf(person(), "Ana")
+        val www = person().card("www.ana.com")
+        assertEquals(CardCheck.New(www), checkIncomingCard(www, listOf(ana)))
+        val dotted = contactOf(person(), "ana.garcia")
+        val short = person().card("Ana")
+        assertEquals(CardCheck.New(short), checkIncomingCard(short, listOf(dotted)))
     }
 
     @Test fun checkIncomingCardSaltaLosContactosIlegiblesYNoLanza() {

@@ -6,10 +6,10 @@ import app.seguridad.crypto.pk.Identity
 import app.seguridad.crypto.pk.newIdentitySeed
 import app.seguridad.crypto.pk.parseCard
 import app.seguridad.crypto.secureRandom
-import app.seguridad.health.normalizeName
+import app.seguridad.imports.compareKey
 import java.security.SecureRandom
-import java.text.Normalizer
 import java.util.Base64
+import java.util.Locale
 import java.util.UUID
 
 /*
@@ -205,12 +205,17 @@ sealed interface CardCheck {
  *  1. [CardCheck.Same]: las dos claves son las de una entrada (un contacto o mi identidad);
  *  2. [CardCheck.SharedKem]: la X-Wing es la de una entrada (un contacto o mi identidad) y la Ed25519 no;
  *  3. [CardCheck.KeysChanged]: la Ed25519 es la de un contacto y la X-Wing no (aunque el nombre difiera);
- *  4. [CardCheck.NameIsMine] (2.1.2, R-24): el nombre normalizado ([normalizeName]) es el de mi identidad (su `username`,
- *     el de mi tarjeta), con otras claves;
- *  5. [CardCheck.KeysChanged]: el nombre normalizado (sobre el título del contacto o el nombre de su tarjeta) es el de un
- *     contacto con otras claves;
+ *  4. [CardCheck.NameIsMine] (2.1.2, R-24): el nombre, comparado como se ve ([contactNameKey]), es el de mi identidad
+ *     (su `username`, el de mi tarjeta), con otras claves;
+ *  5. [CardCheck.KeysChanged]: el nombre, con la misma clave, es el de un contacto (su título o el nombre de su tarjeta)
+ *     con otras claves;
  *  6. [CardCheck.New].
- * Un nombre vacío no coincide con nada.
+ * Un nombre vacío no coincide con nada. Los pasos 4 y 5 usan la misma clave: sin invisibles (ZWJ, ZWNJ…), en NFKC (las
+ * letras de ancho completo son las normales), con cada tramo de espacios (también el de no separación) como uno solo y
+ * sin distinguir mayúsculas. Un nombre de persona no se trata como un dominio: «bea.ruiz» no es «Bea» (ronda de la tarea
+ * 11, M-2). **Límite con nombre:** las letras parecidas de otra escritura (la «е» cirílica en «Bеa») siguen pasando como
+ * un nombre distinto (y entonces dan [CardCheck.New]); lo dice [SIMILAR_NAME_WARNING], en el aviso de las claves cambiadas
+ * y en la ficha de cada contacto, y la defensa es la huella y la marca «sin verificar».
  * En cada paso gana la primera entrada de la lista. Los contactos cuya tarjeta no se lee y una identidad rota se saltan.
  * Toda la comparación de claves es con `contentEquals`: son públicas.
  */
@@ -226,11 +231,11 @@ fun checkIncomingCard(card: Card, entries: List<VaultEntry>): CardCheck {
         ?.let { return CardCheck.Same(it.entry) }
     known.firstOrNull { it.kem.contentEquals(card.kemPublic) }?.let { return CardCheck.SharedKem(it.entry, card) }
     contacts.firstOrNull { it.ed.contentEquals(card.edPublic) }?.let { return CardCheck.KeysChanged(it.entry, card) }
-    val name = comparable(card.name)
+    val name = contactNameKey(card.name)
     if (name.isNotEmpty()) {
         // R-24: my own name with other keys is never a new card: it may be someone posing as me.
-        if (own != null && comparable(own.entry.username) == name) return CardCheck.NameIsMine(own.entry, card)
-        contacts.firstOrNull { comparable(it.entry.title) == name || it.cardName?.let(::comparable) == name }
+        if (own != null && contactNameKey(own.entry.username) == name) return CardCheck.NameIsMine(own.entry, card)
+        contacts.firstOrNull { contactNameKey(it.entry.title) == name || it.cardName?.let(::contactNameKey) == name }
             ?.let { return CardCheck.KeysChanged(it.entry, card) }
     }
     return CardCheck.New(card)
@@ -238,7 +243,12 @@ fun checkIncomingCard(card: Card, entries: List<VaultEntry>): CardCheck {
 
 private class Known(val entry: VaultEntry, val ed: ByteArray, val kem: ByteArray, val cardName: String?)
 
-private fun comparable(name: String): String = normalizeName(Normalizer.normalize(name, Normalizer.Form.NFC))
+/**
+ * Un nombre de persona como se ve, para comparar (ronda de la tarea 11, I-1): [compareKey] (lo que enseña
+ * `plainReportText`, en NFKC, sin invisibles y con los espacios seguidos como uno) en minúsculas. Sin quitar `www.` ni
+ * el dominio, como hace `normalizeName` de «Salud» con los títulos (M-2). Solo compara: lo guardado no cambia.
+ */
+internal fun contactNameKey(name: String): String = compareKey(name).lowercase(Locale.ROOT)
 
 /** La Ed25519 y la X-Wing públicas de mi identidad, o `null` si no hay o no se lee. Cierra la [Identity] que abre. */
 private fun ownKeys(entries: List<VaultEntry>): Pair<ByteArray, ByteArray>? {
