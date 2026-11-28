@@ -65,6 +65,8 @@ private class MemoryTarget : BackupTarget {
     var renames = true
     var writes = 0
     val written = mutableListOf<String>()
+    /** 2.1.2, m-2: a created file's own delete (a discard) fails, as with a provider that refuses it. */
+    var failFileDelete: Exception? = null
     /** Called at the first byte written to any file (to cut the caller in the middle of the work). */
     var onWrite: (() -> Unit)? = null
 
@@ -108,6 +110,7 @@ private class MemoryTarget : BackupTarget {
             }
 
             override fun delete() {
+                failFileDelete?.let { throw it }
                 files.remove(current)
                 ids.remove(current)
             }
@@ -1609,11 +1612,74 @@ class AutoBackupTest {
         // Not a date: never written by the app, so never deleted by its name.
         val notADate = "seguridad-auto-20261399-000000.sgbak.tmp"
         target.files[notADate] = byteArrayOf(1)
+        // Round I-1: more than 24 hours ahead (a clock set back since) is as stale as behind; less is not.
+        val farAhead = "seguridad-auto-20261027-100001.sgbak.tmp"
+        val nearAhead = "seguridad-antes-de-importar-20261027-095959.sgbak.tmp"
+        target.files[farAhead] = byteArrayOf(1)
+        target.files[nearAhead] = byteArrayOf(1)
         auto(s, target)
         s.upsert(note("1"))
         settle()
         assertEquals(listOf<String?>(null), errors)
-        assertEquals(setOf(fresh, notADate, "seguridad-auto-20261026-100000.sgbak"), target.files.keys)
+        assertEquals(setOf(fresh, notADate, nearAhead, "seguridad-auto-20261026-100000.sgbak"), target.files.keys)
+    }
+
+    /**
+     * Round I-1: a temporary name whose date cannot be read (never written by the app) is never deleted, and never keeps
+     * a replacement from being done: otherwise every later copy would say «Se volverá a intentar» for ever.
+     */
+    @Test fun aTempWithAnUnreadableDateNeverHoldsUpTheReplacement() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target)
+        val notADate = "seguridad-auto-20261399-000000.sgbak.tmp"
+        target.files[notADate] = byteArrayOf(1)
+        clock += 60_000
+        val result = a.replaceOldCopies()
+        assertTrue(result.replaced)
+        assertNull(result.error)
+        assertTrue(notADate in target.files)
+        assertTrue(own.none { it in target.files })
+    }
+
+    /** Round I-1: a temporary copy dated more than 24 hours ahead (a clock set back) is a leftover: deleted, the replacement done. */
+    @Test fun aTempFarInTheFutureIsDeletedAndTheReplacementDone() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        val own = threeCopies(s, target)
+        val ahead = "seguridad-antes-de-2-0-20261128-000000.sgbak.tmp"
+        target.files[ahead] = byteArrayOf(1)
+        clock += 60_000
+        val result = a.replaceOldCopies()
+        assertTrue(result.replaced)
+        assertNull(result.error)
+        assertFalse(ahead in target.files)
+        assertTrue(own.none { it in target.files })
+    }
+
+    /**
+     * m-2: this copy's own temporary file (the rename refused, and its discard too, so the copy was written again under
+     * its name) is deleted by the rotation even though it is minutes old, and it never holds up a replacement.
+     */
+    @Test fun ownFreshTempIsDeletedAlsoDuringAReplacement() = runTest {
+        val s = opened()
+        val target = MemoryTarget()
+        val a = auto(s, target)
+        target.failRename = IOException("rename")
+        target.failFileDelete = IOException("delete")
+        s.upsert(note("1"))
+        settle()
+        assertNull(errors.last())
+        assertEquals(setOf("seguridad-auto-20261026-100000.sgbak"), target.files.keys)
+        assertTrue(isBackup(target.files.getValue("seguridad-auto-20261026-100000.sgbak").copyOf(BACKUP_HEAD_BYTES)))
+        // The same during A6.
+        clock += 60_000
+        val result = a.replaceOldCopies()
+        assertTrue(result.replaced)
+        assertNull(result.error)
+        assertEquals(setOf("seguridad-auto-20261026-100100.sgbak"), target.files.keys)
     }
 }
 

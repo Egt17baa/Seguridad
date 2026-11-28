@@ -678,4 +678,53 @@ class SettingsTest {
         assertTrue(all.folderInUse(withUser))
         assertFalse(all.folderInUse("content://com.android.externalstorage.documents/tree/primary%3AOtra"))
     }
+    /**
+     * Round I-2: «Cambiar carpeta» to the same folder written another way by the picker (the way back from
+     * AUTO_BACKUP_NO_PERMISSION) is accepted, leaves one target with the new spelling and keeps its lists and its request.
+     */
+    @Test fun changingAFolderToItsOtherSpellingKeepsItsLists() {
+        val lower = "content://com.android.externalstorage.documents/tree/primary%3aCopias"
+        val upper = "content://com.android.externalstorage.documents/tree/primary%3ACopias"
+        val other = "content://com.android.externalstorage.documents/tree/primary%3AOtra"
+        val v = VaultSettings().withTargetAdded(lower, BackupSchedule.ON_CHANGE)
+            .withTarget(lower) { it.copy(copies = listOf("c1", "c2"), importCopies = listOf("i1"), replacePending = true, replaceTargets = listOf("c1")) }
+            .withTargetAdded(other, BackupSchedule.ON_CHANGE)
+        assertNull(v.canAddTarget(upper, except = lower))
+        assertEquals(TargetRefusal.ALREADY_A_TARGET, v.canAddTarget(upper, except = other))
+        assertEquals(TargetRefusal.ALREADY_A_TARGET, v.canAddTarget(upper))
+        val changed = v.withTargetFolderChanged(lower, upper)
+        assertEquals(listOf(upper, other), changed.targets.map { it.uri })
+        val t = changed.target(upper)!!
+        assertEquals(listOf("c1", "c2"), t.copies)
+        assertEquals(listOf("i1"), t.importCopies)
+        assertTrue(t.replacePending)
+        assertEquals(listOf("c1"), t.replaceTargets)
+        // To another target's folder, written another way: refused, nothing changes.
+        assertEquals(v, v.withTargetFolderChanged(lower, "content://0@com.android.externalstorage.documents/tree/primary%3AOtra"))
+    }
+
+    /** Round I-2: the store says no A6 request moved away when the folder is the same one written another way. */
+    @Test fun changingToTheOtherSpellingMovesNoRequest() = runTest {
+        val s = store().apply { load() }
+        val lower = "content://com.android.externalstorage.documents/tree/primary%3aCopias"
+        val upper = "content://com.android.externalstorage.documents/tree/primary%3ACopias"
+        s.updatePrincipal { it.withTargetAdded(lower, BackupSchedule.ON_CHANGE).withTarget(lower) { t -> t.copy(copies = listOf("c1"), replacePending = true) } }
+        assertFalse(s.changeTargetFolder(PRIMARY_VAULT_ID, lower, upper))
+        assertEquals(listOf(upper), s.settings.value.principal.targets.map { it.uri })
+        assertEquals(listOf("c1"), s.settings.value.principal.targets.single().copies)
+    }
+
+    /** m-4: a folder removed and added again, written another way, gets its lists back from [VaultSettings.pastTargets]. */
+    @Test fun aFolderAddedAgainWrittenAnotherWayGetsItsListsBack() {
+        val lower = "content://com.android.externalstorage.documents/tree/primary%3aCopias"
+        val upper = "content://com.android.externalstorage.documents/tree/primary%3ACopias"
+        val removed = VaultSettings().withTargetAdded(lower, BackupSchedule.ON_CHANGE, keep = 10)
+            .withTarget(lower) { it.copy(copies = listOf("c1", "c2")) }
+            .withTargetRemoved(lower)
+        assertEquals(1, removed.pastTargets.size)
+        val back = removed.withTargetAdded(upper, BackupSchedule.ON_CHANGE)
+        assertEquals(listOf("c1", "c2"), back.target(upper)!!.copies)
+        assertEquals(10, back.target(upper)!!.keep)
+        assertTrue("Taken out of pastTargets", back.pastTargets.isEmpty())
+    }
 }

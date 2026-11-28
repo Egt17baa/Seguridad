@@ -1,5 +1,6 @@
 package app.seguridad.settings
 
+import app.seguridad.vault.sameFolder
 import app.seguridad.core.appJson
 import app.seguridad.core.writeTextAtomically
 import app.seguridad.vault.PRIMARY_VAULT_ID
@@ -125,7 +126,7 @@ class SettingsStore(
         val before = _settings.value.vault(id)
         val after = before.withTargetFolderChanged(from, to)
         if (after != before) write(_settings.value.withVault(id) { after })
-        from != to && before.target(from)?.replacePending == true && after != before
+        !sameFolder(from, to) && before.target(from)?.replacePending == true && after != before
     }
 
     /**

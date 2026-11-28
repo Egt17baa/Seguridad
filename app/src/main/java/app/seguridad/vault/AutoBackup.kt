@@ -41,6 +41,7 @@ import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.time.DateTimeException
+import kotlin.math.abs
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -313,7 +314,7 @@ sealed interface CopyResult {
  * only way to have a copy there at all. A name already in the folder is never reused (the next free second is), so no
  * complete copy is deleted to make room. A target only ever deletes the copies it made itself (its own
  * [BackupTargetSettings.copies], by id, never by name alone) and temporary files with exactly this class's names (2.1.2,
- * R-16: only this copy's own, or one begun more than 24 hours ago, as a newer one may be another vault's), never the copy
+ * R-16: only this copy's own, or one begun more than 24 hours from now, as a nearer one may be another vault's), never the copy
  * just written, and only after a copy was written and checked.
  *
  * Copies are only made from an open vault, where [VaultStore.exportBackup] checks every attachment against its SHA-256:
@@ -1019,13 +1020,13 @@ class AutoBackup(
     }
 
     /** [ids] of a replacement of [uri] with [oldLeft]'s; null stays null (every listed copy, these among them). */
-    /** 2.1.2, R-13: the copies of two A6 requests together; null (every copy listed now) when either is null. */
-    private fun joined(a: List<String>?, b: List<String>?): List<String>? = if (a == null || b == null) null else (a + b).distinct()
-
     private fun withOld(uri: String, ids: List<String>?): List<String>? {
         val left = oldLeft[uri]?.takeIf { it.isNotEmpty() } ?: return ids
         return ids?.let { (it + left).distinct() }
     }
+
+    /** 2.1.2, R-13: the copies of two A6 requests together; null (every copy listed now) when either is null. */
+    private fun joined(a: List<String>?, b: List<String>?): List<String>? = if (a == null || b == null) null else (a + b).distinct()
 
     private fun tellOldPassword(uri: String, id: String) {
         try {
@@ -1159,20 +1160,31 @@ class AutoBackup(
         val surplus = rest.dropLast(keepN - 1)
         // 2.1.2, R-16: several vaults may copy to one folder, and a temporary copy's name does not say whose it is. Only
         // this copy's own (its rename and its discard both failed) or one whose name says it was begun more than
-        // [STALE_TEMP_MS] ago is deleted: a newer one may be another vault's copy being written now. With a replacement, a
-        // newer one left counts as a leftover not deleted (M3: it may be a complete copy under the password of before),
-        // so the request stays and a later copy tries again.
+        // [STALE_TEMP_MS] away from now (before, or after: a clock set back since) is deleted: a nearer one may be another
+        // vault's copy being written now. With a replacement, a nearer one left counts as a leftover not deleted (M3: it
+        // may be a complete copy under the password of before), so the request stays and a later copy tries again; at the
+        // latest [STALE_TEMP_MS] later it is stale and goes, so the request always ends. A name whose date cannot be read
+        // was never written by the app: never deleted, and never holding a request up (round I-1).
         val at = now()
         val temps = present.filter { TEMP_NAME.matches(it.name) || IMPORT_TEMP_NAME.matches(it.name) || UPGRADE_TEMP_NAME.matches(it.name) }
-        val (leftoverEntries, freshTemps) = temps.partition { it.name == newest.name + TEMP_SUFFIX || staleTemp(it.name, at) }
-        val leftovers = leftoverEntries.map { it.id }
+        val leftovers = ArrayList<String>()
+        var freshTemps = false
+        for (temp in temps) {
+            val age = tempAge(temp.name, at)
+            when {
+                temp.name == newest.name + TEMP_SUFFIX -> leftovers += temp.id
+                age == null -> Unit
+                age > STALE_TEMP_MS -> leftovers += temp.id
+                else -> freshTemps = true
+            }
+        }
         // Import copies: never rotated, only deleted as targets of a replacement (A6), by id from their own list.
         val listedImports = target(uri)?.importCopies.orEmpty()
         val imports = listedImports.filter { it in ids && it != newest.id }.distinct()
         val oldImports = imports.filter { it in doomed }
         val notDeleted = HashSet<String>()
         var failed = false
-        var leftoverLeft = targets != null && freshTemps.isNotEmpty()
+        var leftoverLeft = targets != null && freshTemps
         for (id in old + oldImports + surplus + leftovers) {
             if (store.generation != generation) return Rotation(null, null, 0)
             try {
@@ -1205,18 +1217,21 @@ class AutoBackup(
     }
 
     /**
-     * 2.1.2, R-16: whether the temporary copy [name] was begun more than [STALE_TEMP_MS] before [at], by the date in its
-     * name (written in [zone], as [freeName] writes it). A date that cannot be read is never stale (the app never wrote it);
-     * one ahead of [at] (a clock set back) is not either.
+     * 2.1.2, R-16: how far from [at] the temporary copy [name] was begun, in ms and either way, by the date in its name
+     * (written in [zone], as [freeName] writes it); null when that date cannot be read (the app never wrote it). Round I-1:
+     * a date ahead of [at] counts as far as one behind, so a clock set back never keeps a temporary copy for ever.
+     * In theory a change of time zone of more than [STALE_TEMP_MS] between writing a copy and this rotation could make a
+     * copy being written now look stale; no zone change is that large in practice (the widest gap between zones is 26 h,
+     * and only by crossing the date line while a copy is written).
      */
-    private fun staleTemp(name: String, at: Long): Boolean {
-        val stamp = TEMP_STAMP.matchEntire(name)?.groupValues?.get(1) ?: return false
+    private fun tempAge(name: String, at: Long): Long? {
+        val stamp = TEMP_STAMP.matchEntire(name)?.groupValues?.get(1) ?: return null
         val begun = try {
             LocalDateTime.parse(stamp, STAMP).atZone(zone()).toInstant().toEpochMilli()
         } catch (e: DateTimeException) {
-            return false
+            return null
         }
-        return at - begun > STALE_TEMP_MS
+        return abs(at - begun)
     }
 
     private fun messageFor(e: Throwable): String = when (e) {

@@ -258,12 +258,22 @@ fun Settings.folderInUse(uri: String): Boolean = perVault.values.any { v -> v.ta
 /** Why a target cannot be added ([withTargetAdded]); null when it can. */
 enum class TargetRefusal { TOO_MANY, ALREADY_A_TARGET }
 
-/** Whether [uri] can be added as a new target. */
-fun VaultSettings.canAddTarget(uri: String): TargetRefusal? = when {
-    targets.any { sameFolder(it.uri, uri) } -> TargetRefusal.ALREADY_A_TARGET // 2.1.2, R-19.
-    targets.size >= VaultLimits.BACKUP_TARGETS_MAX -> TargetRefusal.TOO_MANY
-    else -> null
+/**
+ * Whether [uri] can be added as a new target, or (with [except], «Cambiar carpeta») be the folder of the target [except]
+ * instead. 2.1.2, R-19: compared as [sameFolder]; the target being changed never counts, so the same folder chosen again
+ * (also written another way by the picker, the way back from AUTO_BACKUP_NO_PERMISSION) is accepted.
+ */
+fun VaultSettings.canAddTarget(uri: String, except: String? = null): TargetRefusal? {
+    val others = targets.filter { except == null || it.uri != except }
+    return when {
+        others.any { sameFolder(it.uri, uri) } -> TargetRefusal.ALREADY_A_TARGET
+        others.size >= VaultLimits.BACKUP_TARGETS_MAX -> TargetRefusal.TOO_MANY
+        else -> null
+    }
 }
+
+/** 2.1.2, R-19 (m-4): what [pastTargets] kept of the folder [uri], however it is written ([sameFolder]). */
+private fun VaultSettings.pastOf(uri: String): BackupTargetSettings? = pastTargets.firstOrNull { sameFolder(it.uri, uri) }
 
 /**
  * These settings with [uri] added as the last target, with [schedule] and [keep]: as they are if [canAddTarget] refuses.
@@ -274,9 +284,9 @@ fun VaultSettings.canAddTarget(uri: String): TargetRefusal? = when {
  */
 fun VaultSettings.withTargetAdded(uri: String, schedule: BackupSchedule, keep: Int = AUTO_BACKUP_KEEP_DEFAULT): VaultSettings {
     if (canAddTarget(uri) != null) return this
-    val past = pastTargets.firstOrNull { it.uri == uri }
+    val past = pastOf(uri)
     val added = restored(uri, past?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: keep, past?.schedule ?: schedule, past)
-    return copy(targets = targets + added, pastTargets = pastTargets.filter { it.uri != uri }, autoBackupOffForNewVault = false)
+    return copy(targets = targets + added, pastTargets = pastTargets.filter { !sameFolder(it.uri, uri) }, autoBackupOffForNewVault = false)
 }
 
 /**
@@ -300,15 +310,17 @@ private fun restored(uri: String, keep: Int, schedule: BackupSchedule, past: Bac
  */
 fun VaultSettings.withTargetFolderChanged(from: String, to: String): VaultSettings {
     val old = target(from) ?: return this
-    if (from == to) return withTarget(from) { it.copy(lastAt = null, lastError = null) }.copy(autoBackupOffForNewVault = false)
-    if (targets.any { it.uri == to }) return this
-    val past = pastTargets.firstOrNull { it.uri == to }
+    // 2.1.2, R-19 (I-2): the same folder, also written another way, keeps its lists and its request; it takes the spelling
+    // just chosen, the one the permission was taken for.
+    if (sameFolder(from, to)) return withTarget(from) { it.copy(uri = to, lastAt = null, lastError = null) }.copy(autoBackupOffForNewVault = false)
+    if (canAddTarget(to, except = from) == TargetRefusal.ALREADY_A_TARGET) return this
+    val past = pastOf(to)
     // Review I-1: the folder's lists rotate with the larger of the two numbers of copies, never with fewer than chosen.
     val keep = maxOf(old.keep, past?.keep?.takeIf { it in AUTO_BACKUP_KEEP_CHOICES } ?: old.keep)
     val fresh = restored(to, keep, old.schedule, past)
     return copy(
         targets = targets.map { if (it.uri == from) fresh else it },
-        pastTargets = keptPast(pastTargets.filter { it.uri != to && it.uri != from }, old),
+        pastTargets = keptPast(pastTargets.filter { !sameFolder(it.uri, to) && !sameFolder(it.uri, from) }, old),
         autoBackupOffForNewVault = false,
     )
 }

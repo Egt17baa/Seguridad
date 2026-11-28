@@ -318,8 +318,9 @@ private fun AutoBackupSection(
             val chosen = uri.toString()
             val now = store.settings.value.vault(id)
             // Refused before taking a permission: the same folder twice, or a fourth one.
+            // 2.1.2, R-19 (I-2): the target being changed never counts, so the same folder (however the picker writes it) is fine.
             if (from == null || from != chosen) {
-                when (now.canAddTarget(chosen)) {
+                when (now.canAddTarget(chosen, except = from)) {
                     TargetRefusal.ALREADY_A_TARGET -> {
                         snackbar.showSnackbar(AUTO_BACKUP_ALREADY_TARGET)
                         return@launch
