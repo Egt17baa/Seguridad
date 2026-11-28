@@ -4,6 +4,7 @@ import app.seguridad.crypto.KdfLock
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
@@ -73,8 +74,8 @@ class SecretShareRuns(
      * (the lock's block runs non-cancellable, so its own context would never say a cancel). A run cancelled while [op]
      * worked throws once it returns, as `withContext` did, so what it made is never taken as this run's result.
      */
-    private suspend fun <T> CoroutineScope.derive(op: (check: () -> Unit) -> T): T {
-        val run = coroutineContext.job
+    private suspend fun <T> derive(op: (check: () -> Unit) -> T): T {
+        val run = currentCoroutineContext().job
         run.ensureActive()
         return KdfLock.derive(work) { op { run.ensureActive() } }.also { run.ensureActive() }
     }

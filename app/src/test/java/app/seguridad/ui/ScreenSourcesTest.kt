@@ -25,27 +25,59 @@ class ScreenSourcesTest {
         .filterNot { it.trimStart().let { l -> l.startsWith("//") || l.startsWith("*") || l.startsWith("/*") } }
         .joinToString("\n")
 
+    /** Every screen of `ui/screens`, by its file name. */
+    private fun screens(): List<File> {
+        var dir: File? = File(".").absoluteFile
+        while (dir != null) {
+            val d = File(dir, "app/src/main/java/app/seguridad/ui/screens")
+            if (d.isDirectory) return d.listFiles { f -> f.name.endsWith(".kt") }!!.sortedBy { it.name }
+            dir = dir.parentFile
+        }
+        error("ui/screens not found")
+    }
+
     /**
-     * R-5: every picker that is launched with `VaultLock.keepOpenOnce = true` takes the flag back as soon as its result
-     * comes (whatever it is: a document, a cancel, a refused URI), as `VaultPickerScreen` does. Otherwise, back from a
-     * picker when MainActivity.onStart did not run (a result delivered to a re-created activity, split screen), the flag
-     * could keep the vault open on the next time the app is left.
+     * Launchers that never set `VaultLock.keepOpenOnce`, so their callback has nothing to take back: the file and a text of
+     * the call's own line that names it, and why.
+     */
+    private val neverKeepsOpen = mapOf(
+        // «Elegir imagen» of the inspector, like «Limpiar foto»: the picker does not keep the vault open (the inspector
+        // does not need it); only its camera scanner does, and that one takes the flag back.
+        "QrInspectScreen.kt" to "PickerPlace.QR_IMAGE",
+    )
+
+    /**
+     * R-5 (and m-1 of its review): in every screen that sets `VaultLock.keepOpenOnce = true` (it keeps the vault open
+     * while a picker or the scanner is on top), every launcher's callback (`rememberDocumentPicker`,
+     * `rememberLauncherForActivityResult`) takes the flag back as its first statement, whatever the result is (a
+     * document, a cancel, a refused URI), as `VaultPickerScreen` does. Otherwise, back from a picker when
+     * MainActivity.onStart did not run (a result delivered to a re-created activity, split screen), the flag could keep
+     * the vault open the next time the app is left. The files are found, not listed by hand; the call may span lines.
      */
     @Test fun pickerCallbacksClearKeepOpenOnce() {
-        val expected = mapOf(
-            "ui/screens/VaultAttachments.kt" to 2,
-            "ui/screens/VaultBackup.kt" to 2,
-            "ui/screens/BackupCheckScreen.kt" to 1,
-            "ui/screens/ImportScreen.kt" to 2,
-            "ui/screens/VaultUpgrade.kt" to 1,
-            "ui/screens/VaultPickerScreen.kt" to 1,
-        )
-        val picker = Regex("""rememberDocumentPicker\([^\n]*\{\s*\w+\s*->[ \t]*\n\s*([^\n]*)""")
-        for ((path, count) in expected) {
-            val firsts = picker.findAll(code(path)).map { it.groupValues[1].trim() }.toList()
-            assertEquals(path, count, firsts.size)
-            for (first in firsts) assertTrue("$path: $first", first.startsWith("VaultLock.keepOpenOnce = false"))
+        val launcher = Regex("""\b(rememberDocumentPicker|rememberLauncherForActivityResult)\(""")
+        // From the call's `(` to its callback's `{ x ->`, over several lines, then the callback's first statement.
+        val callback = Regex("""^[^{]*\{\s*\w+\s*->[ \t]*(?://[^\n]*)?\n\s*([^\n]*)""")
+        val files = screens().filter { "keepOpenOnce = true" in code("ui/screens/${it.name}") }
+        assertTrue("screens that keep the vault open: ${files.map { it.name }}", files.size >= 10)
+        var checked = 0
+        var excluded = 0
+        for (f in files) {
+            val src = code("ui/screens/${f.name}")
+            for (m in launcher.findAll(src)) {
+                val rest = src.substring(m.range.last + 1)
+                val first = callback.find(rest)?.groupValues?.get(1)?.trim() ?: error("${f.name}: no callback after ${m.value}")
+                val header = rest.substringBefore("->")
+                if (neverKeepsOpen[f.name]?.let { it in header } == true) {
+                    excluded++
+                    continue
+                }
+                assertTrue("${f.name}: ${m.value} starts with «$first»", first.startsWith("VaultLock.keepOpenOnce = false"))
+                checked++
+            }
         }
+        assertEquals("every exclusion still names a launcher", neverKeepsOpen.size, excluded)
+        assertTrue("launchers checked: $checked", checked >= 20)
     }
 
     /** R-6: the 2FA QR of an entry goes when the app stops (Home, screen off, another app), as the wifi QR does. */

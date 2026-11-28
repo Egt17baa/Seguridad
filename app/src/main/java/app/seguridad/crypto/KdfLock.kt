@@ -27,7 +27,9 @@ import kotlin.coroutines.EmptyCoroutineContext
  *
  * - «Repartir un secreto» (2.1.2, R-10): SLIP-0039's PBKDF2 needs a few hundred bytes, but a split or a combine runs
  *   it for seconds with a high iteration exponent; its whole run takes the lock ([app.seguridad.tools.slip39.SecretShareRuns]),
- *   and a cancel still stops it at its next PBKDF2 round, which lets the lock go.
+ *   and a cancel still stops it at its next PBKDF2 round, which lets the lock go. It holds the lock for its whole run,
+ *   up to a few seconds with the iteration exponent at 8: an unlock meanwhile waits for its next round (a cancel) or its
+ *   end. An accepted cost, as rulings R38 and R40 accept it for the other derivations.
  *
  * Lock order, so nothing can deadlock: the vault's mutex, then this one ([app.seguridad.vault.VaultStore] holds its
  * mutex while it derives); «Comprobar una copia», «Importar de otra app», «Cifrar texto», «Cifrar archivo» and «Repartir
