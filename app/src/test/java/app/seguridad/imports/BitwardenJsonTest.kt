@@ -199,6 +199,11 @@ class BitwardenJsonTest {
         val pair = "x".repeat(MAX_TITLE - 1) + "🛒"
         val cut = entries(ok(export("""{"type":2,"name":"par","fields":[{"name":"$pair","value":"v"}]}"""))).single()
         assertEquals("x".repeat(MAX_TITLE - 1) + ": v", cut.notes)
+        // m-1: every other line break and every ISO control character becomes a space too, as plainReportText does.
+        val controls = entries(ok(export(
+            """{"type":2,"name":"c","fields":[{"name":"a b c\u0085d\u000Be\u000Cf\tg\u0001h\u001Fi\u007Fj\u009Fk","value":"v"}]}""",
+        ))).single()
+        assertEquals("a b c d e f g h i j k: v", controls.notes)
         // The value is untouched: only the name is one line.
         assertEquals("n: uno\ndos", entries(ok(export("""{"type":2,"name":"v","fields":[{"name":"n","value":"uno\ndos"}]}"""))).single().notes)
     }

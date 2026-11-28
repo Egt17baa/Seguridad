@@ -149,14 +149,19 @@ private fun readFields(o: JsonObject, folders: Map<String, String>): ItemRead? {
 }
 
 /**
- * 2.1.2, R-23: the name of a custom field as its «Name: value» line shows it: on one line (each CR and LF becomes a
- * space, so a name cannot write a line of its own in the notes) and cut to [MAX_TITLE] characters, never between the
+ * 2.1.2, R-23: the name of a custom field as its «Name: value» line shows it: on one line (each ISO control character,
+ * CR and LF among them, and U+2028 and U+2029 become a space, so a name cannot write a line of its own in the notes,
+ * which are shown without [plainReportText]) and cut to [MAX_TITLE] characters, never between the
  * two halves of a pair. A name with a NUL or a lone surrogate is left as it is: [NotesBuilder] marks the item
  * [SkipReason.BROKEN], as before, even when that character is past the cut.
  */
 internal fun fieldName(raw: String): String {
     if (!wellFormed(raw)) return raw
-    val line = raw.replace('\r', ' ').replace('\n', ' ')
+    // One pass, with plainReportText's rule (m-1): every ISO control character (CR, LF, NEL, VT, FF, tab...) and the
+    // line and paragraph separators become a space. All of them are single UTF-16 units, so no pair is touched.
+    val line = buildString(raw.length) {
+        for (c in raw) append(if (Character.isISOControl(c) || c == '\u2028' || c == '\u2029') ' ' else c)
+    }
     if (line.length <= MAX_TITLE) return line
     val end = if (Character.isHighSurrogate(line[MAX_TITLE - 1])) MAX_TITLE - 1 else MAX_TITLE
     return line.substring(0, end)
